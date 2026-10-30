@@ -38,6 +38,29 @@ describe(`nav DOM parity with React`, () => {
   for (const variant of [`segmented`, `toggles`, `outline`, `bar`])
     for (const type of [`single`, `multiple`]) it(`Segmented ${variant} ${type}: icons, an icon-only item, a disabled item`, async () => expectDomParity({ tree: segmented(variant, type, type === `multiple` ? `a,c` : `b`) }))
   it(`Segmented multiple bound to an array`, async () => expectDomParity({ tree: segmented(`segmented`, `multiple`, { path: `/v` }), data: { v: [`b`, `d`] } }))
+  // VAPP-162 (round-5 contract §3): every variant stacked; the vertical bar = the rail with count badges.
+  for (const variant of [`segmented`, `toggles`, `outline`, `bar`]) it(`Segmented ${variant} vertical`, async () => expectDomParity({ tree: { ...segmented(variant), props: { ...segmented(variant).props, orientation: `vertical` } } as NestedNode }))
+  const rail = (extra: Record<string, unknown> = {}): NestedNode => ({
+    id: `rail`,
+    component: `Segmented`,
+    props: {
+      variant: `bar`,
+      orientation: `vertical`,
+      value: `chats`,
+      items: [
+        { label: `Chats`, value: `chats`, icon: `star`, count: 3 },
+        { label: `Calls`, value: `calls`, icon: `star`, count: 120 },
+        { label: `Settings`, value: `settings`, icon: `star`, count: 0 },
+        { value: `bare`, icon: `star`, count: 7 },
+        { label: `Off`, value: `off`, icon: `star`, count: 2, disabled: true },
+      ],
+      ...extra,
+    },
+  })
+  it(`Segmented rail with counts (99+, none at 0, icon-only, disabled)`, async () => expectDomParity({ tree: rail() }))
+  it(`Segmented horizontal bar with counts`, async () => expectDomParity({ tree: rail({ orientation: undefined }) }))
+  it(`Segmented rail: a bound count`, async () => expectDomParity({ tree: rail({ items: [{ label: `Chats`, value: `chats`, icon: `star`, count: { path: `/n` } }] }), data: { n: 42 } }))
+  it(`Segmented rail with counts, dark + rtl`, async () => expectDomParity({ tree: rail(), theme: `exponential`, mode: `dark`, direction: `rtl` }))
   it(`Accordion single: one open, the others closed`, async () => expectDomParity({ tree: accordion(`single`, `2`) }))
   it(`Accordion single: all closed`, async () => expectDomParity({ tree: accordion(`single`, ``) }))
   it(`Accordion multiple: two open`, async () => expectDomParity({ tree: accordion(`multiple`, `1,3`) }))

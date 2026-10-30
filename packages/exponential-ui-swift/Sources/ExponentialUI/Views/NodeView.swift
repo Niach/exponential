@@ -122,7 +122,14 @@ private struct NodeBody: View {
         // (`hoverStyled`: a `:hover` block or a recipe `hover` rule).
         let hovers = interactive && (node.pressable || node.isFocusable || node.triggerFor != nil || node.hoverStyled || style.transition != nil)
         Group {
-            if pressable {
+            if pressable, model.isHoldButton(node) {
+                // VAPP-162: a hold Button never presses; the gesture drives
+                // the core's hold (it owns `pressed` and the label).
+                painted(style: style, size: size, animation: animation)
+                    .contentShape(style.shape(size))
+                    .scaleEffect(!model.reducedMotion && model.isHeld(id: node.id) ? CGFloat(model.theme?.scale("press") ?? 1) : 1)
+                    .modifier(HoldGesture(index: index, model: model))
+            } else if pressable {
                 Button {
                     model.press(index)
                 } label: {
@@ -164,10 +171,12 @@ private struct NodeBody: View {
                     }
                 }
             } else if node.component == "VoiceWave", node.part == nil {
-                // NEW-77: the rings behind the one child, centred.
+                // NEW-77: the rings behind the one child, centred. VAPP-162:
+                // the `bars` meter keeps its child in the tree, never painted.
+                let cx = LeafContext(model: model, node: node, size: size, style: style, ink: model.ink(index), textStyle: model.textStyle(index))
                 ZStack(alignment: .topLeading) {
-                    VoiceWaveLeaf(cx: LeafContext(model: model, node: node, size: size, style: style, ink: model.ink(index), textStyle: model.textStyle(index)))
-                    VoiceWaveChild(index: index, model: model, size: size)
+                    VoiceWaveLeaf(cx: cx)
+                    VoiceWaveChild(index: index, model: model, size: size, hidden: node.props.str("variant") == "bars")
                 }
             } else {
                 ContainerContent(index: index, node: node, model: model, style: style, size: size)
@@ -188,6 +197,53 @@ private struct NodeBody: View {
                 FocusRing(style: style, size: size, color: model.color("ring") ?? model.ink(index).opacity(0.5))
             }
         }
+    }
+}
+
+/// VAPP-162 (round-5 contract §9): a hold Button's pointer: a zero-distance
+/// drag claimed over the platform's long-press and scroll gestures
+/// (`highPriorityGesture`), its locations (the button's own coordinates)
+/// handed to the core as pointer down / move / up; the slop (24 pt) and
+/// the slide-away cancel are the core's. A drag the system took back (the
+/// gesture state reset without an end) is a pointer cancel.
+struct HoldGesture: ViewModifier {
+    let index: Int
+    let model: SurfaceModel
+    @GestureState private var tracking = false
+    @State private var down = false
+
+    func body(content: Content) -> some View {
+        content
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .updating($tracking) { _, state, _ in state = true }
+                    .onChanged { v in
+                        if !down {
+                            down = true
+                            model.holdPointer(index, "pointerdown", at: v.startLocation)
+                            if v.location != v.startLocation { model.holdPointer(index, "pointermove", at: v.location) }
+                        } else {
+                            model.holdPointer(index, "pointermove", at: v.location)
+                        }
+                    }
+                    .onEnded { v in
+                        guard down else { return }
+                        down = false
+                        model.holdPointer(index, "pointerup", at: v.location)
+                    }
+            )
+            .onChange(of: tracking) { _, now in
+                guard !now else { return }
+                // `onEnded` runs first on a normal release; a reset without it
+                // = the gesture was cancelled.
+                Task { @MainActor in
+                    if down {
+                        down = false
+                        model.holdPointerCancel(index)
+                    }
+                }
+            }
+            .accessibilityAction { model.holdToggle(index) }
     }
 }
 
@@ -266,6 +322,8 @@ struct VoiceWaveChild: View {
     let index: Int
     let model: SurfaceModel
     let size: CGSize
+    /// VAPP-162: the `bars` meter keeps its child like `sm` (scale 0).
+    var hidden = false
 
     var body: some View {
         let edge = min(size.width, size.height)
@@ -276,7 +334,7 @@ struct VoiceWaveChild: View {
         return FrameLayout(size: size, frames: rel) {
             ForEach(kids, id: \.self) { k in
                 let f = rel[k] ?? .zero
-                let scale = VoiceWaveFrame.childBox(size: edge, child: f.size)?.scale ?? 0
+                let scale = hidden ? 0 : VoiceWaveFrame.childBox(size: edge, child: f.size)?.scale ?? 0
                 NodeView(index: k)
                     .voiceWaveChild(scale: scale, frame: f, centre: CGPoint(x: size.width / 2, y: size.height / 2))
                     .layoutValue(key: NodeIndexKey.self, value: k)

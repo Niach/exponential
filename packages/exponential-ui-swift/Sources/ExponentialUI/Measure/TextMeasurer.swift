@@ -20,7 +20,8 @@ import AppKit
 /// `conformance/fonts.json`), else the faces CoreText knows for the family
 /// name, else the system font. Generic names follow CSS: `system-ui` /
 /// `sans-serif` = the set's default (else the system font), `ui-monospace` /
-/// `monospace` = the set's alias (else the system monospaced font).
+/// `monospace` = the set's alias (else the system monospaced font),
+/// `ui-serif` / `serif` = the set's alias (else the system serif, New York).
 public enum TextFonts {
     /// One face of a family.
     public struct Face: @unchecked Sendable {
@@ -102,10 +103,14 @@ public enum TextFonts {
 
     private static let sansGenerics: Swift.Set<String> = ["system-ui", "sans-serif", "ui-sans-serif", "-apple-system", "BlinkMacSystemFont"]
     private static let monoGenerics: Swift.Set<String> = ["ui-monospace", "monospace", "ui-mono"]
+    /// VAPP-162: `ui-serif` (every built-in theme's `type.family.serif`) and
+    /// the CSS `serif` = the system serif (New York), like `ui-monospace`.
+    private static let serifGenerics: Swift.Set<String> = ["ui-serif", "serif"]
 
     /// The family `name` resolves to under the installed set: a family with
-    /// faces, or nil (= the system font; `mono` = the system monospaced one).
-    static func resolve(_ name: String?) -> (family: String?, mono: Bool) {
+    /// faces, or nil (= the system font; `mono` = the system monospaced one,
+    /// `serif` = the system serif).
+    static func resolve(_ name: String?) -> (family: String?, mono: Bool, serif: Bool) {
         let raw = name?.trimmingCharacters(in: .whitespaces) ?? ""
         let set = installed
         // A CSS stack (`"Inter, system-ui"`): the first family that resolves.
@@ -113,21 +118,23 @@ public enum TextFonts {
             for part in raw.split(separator: ",") {
                 let n = part.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
                 let r = resolve(n)
-                if r.family != nil || monoGenerics.contains(n) || sansGenerics.contains(n) { return r }
+                if r.family != nil || monoGenerics.contains(n) || serifGenerics.contains(n) || sansGenerics.contains(n) { return r }
             }
-            return (set?.defaultFamily, false)
+            return (set?.defaultFamily, false, false)
         }
         let isMono = monoGenerics.contains(raw)
+        let isSerif = serifGenerics.contains(raw)
         if raw.isEmpty || sansGenerics.contains(raw) {
-            if let a = set?.aliases[raw], !raw.isEmpty { return (a, false) }
-            return (set?.defaultFamily, false)
+            if let a = set?.aliases[raw], !raw.isEmpty { return (a, false, false) }
+            return (set?.defaultFamily, false, false)
         }
         let mapped = set?.aliases[raw] ?? raw
-        if let set, set.faces[mapped] != nil { return (mapped, isMono) }
-        if set?.exclusive == true { return (set?.defaultFamily, false) }
-        if isMono { return (nil, true) }
-        if !faces(of: mapped).isEmpty { return (mapped, false) }
-        return (set?.defaultFamily, false)
+        if let set, set.faces[mapped] != nil { return (mapped, isMono, false) }
+        if set?.exclusive == true { return (set?.defaultFamily, false, false) }
+        if isMono { return (nil, true, false) }
+        if isSerif { return (nil, false, true) }
+        if !faces(of: mapped).isEmpty { return (mapped, false, false) }
+        return (set?.defaultFamily, false, false)
     }
 
     /// The faces of a family (the installed set's, else CoreText's).
@@ -171,12 +178,14 @@ public enum TextFonts {
         lock.lock()
         if let hit = fontCache[key] { lock.unlock(); return hit }
         lock.unlock()
-        let (resolved, mono) = resolve(family)
+        let (resolved, mono, serif) = resolve(family)
         let font: CTFont
         if let resolved, let face = match(faces(of: resolved), weight: weight, italic: italic) {
             font = CTFontCreateWithFontDescriptor(face.descriptor, size, nil)
         } else if mono {
             font = ExponentialUIFonts.monospacedFont(weight: weight, size: size, italic: italic) as CTFont
+        } else if serif {
+            font = ExponentialUIFonts.serifFont(weight: weight, size: size, italic: italic) as CTFont
         } else {
             font = ExponentialUIFonts.systemFont(weight: weight, size: size, italic: italic) as CTFont
         }

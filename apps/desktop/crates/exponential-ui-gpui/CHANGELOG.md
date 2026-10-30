@@ -5,6 +5,7 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 ## Unreleased
 
+- VAPP-162 (round 5): QrCode (the core's matrix, dark modules on the lighter plate), QrScanner (viewfinder chrome, the new `HostPlugin::qr_scanner_feed` camera hook + `SurfaceView::qr_scanned`), VoiceWave `variant: bars`, the vertical Segmented and the rail with count badges, Button `hold` (pointer, keys, blur through `Surface::hold`), `ui-serif` mapped to a system serif; `SurfaceView::node_font` inspection aid.
 - EXP-1429: the gpui revision policy for consumers (README "gpui revisions": the zed + gpui-component pins, the ztracing patch to copy, the bump and announcement rules, why there is no crates.io release); `test.yml` gates the pins against the workspace and the gpui guide.
 - VAPP-122: `ExponentialHost::bind` runs the `bind` action (`{path, source, params?}` through the router like a server's bindDataModel); subscriptions are keyed by path, so a re-bind cancels the earlier one at that path. The conformance suite replays the new host cases.
 

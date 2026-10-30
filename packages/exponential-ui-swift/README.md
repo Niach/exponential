@@ -97,6 +97,25 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
   either axis.
 - **Fonts.** `ExponentialUI.registerFont(at:)` registers a file a theme
   names (`Inter`); a missing family falls back to the system font.
+  `ui-serif` (`type.family.serif`) is the system serif (New York,
+  `.withDesign(.serif)`), measured and painted with the same face.
+- **QR scanner camera** (VAPP-162). THE CAMERA IS THE HOST'S (AVFoundation
+  stays in your app): install `.exponentialQrScanner(ExponentialQrScanner { formats in … })`
+  around `ExponentialSurface`. `start(formats)` (default `["qr"]`) opens a
+  camera and returns a `QrScannerFeed` (`view` = the live preview, filling
+  the viewfinder; `values` = an `AsyncStream<String>` of decoded strings),
+  or nil (no camera / permission: the placeholder icon + `Camera
+  unavailable`). `QrScannerFeed.reporting(previewView, onStop:)` builds one
+  and returns the `report(value)` closure your metadata delegate calls.
+  The renderer dispatches `scanned {value}` once per distinct value
+  (announced politely), stops listening (the stream terminates: stop the
+  camera in `onStop`) when the scanner goes away, is disabled or its
+  formats change.
+- **Button hold** (VAPP-162). A `hold: true` Button takes a zero-distance
+  drag claimed over long-press and scroll gestures, its locations handed
+  to the core (`model.hold`, `Surface.hold`: the slop, `pressed` and
+  `holdingLabel` are the core's); Space / Enter hold from key down to key
+  up, Escape and focus loss cancel; VoiceOver's activate toggles the hold.
 - **Themes.** `ThemeHandle.builtin(id)` / `ThemeHandle.load(json:)`;
   `model.setTheme` / `setMode`. Painters never read recipes: the core hands
   resolved visuals, and sub-parts it does not synthesize (a Checkbox

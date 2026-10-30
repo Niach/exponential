@@ -283,7 +283,12 @@ impl SurfaceView {
         let clip = if style.clips() && radii.iter().any(|r| *r > 0.0) && sx == 0.0 && sy == 0.0 { Some(Clip { x: abs.0, y: abs.1, w, h, radii }) } else if style.clips() { None } else { place.clip };
         let mut child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip, scale: ps, shift: (0.0, 0.0) };
         let mut kids_shown = true;
-        if n.component == "VoiceWave" && !leaf {
+        if n.component == "VoiceWave" && !leaf && natives::voice_wave_is_bars(&n.props) {
+            // VAPP-162: the `bars` meter has no child (it stays in the tree,
+            // laid out and unpainted).
+            el = el.child(self.voice_wave(index, n, w, h, ink, window));
+            kids_shown = false;
+        } else if n.component == "VoiceWave" && !leaf {
             el = el.child(self.voice_wave(index, n, w, h, ink, window));
             // NEW-77 THE CHILD RULE: the core centres the one child at its
             // own size; it paints scaled about the wave's centre by
@@ -612,6 +617,36 @@ impl SurfaceView {
                 }
             }));
         }
+        // VAPP-162 (§9): a `hold` Button feeds the core's hold machine (its
+        // `pressed` state is the core's, never the view's): pointer down
+        // starts it; the window then follows the pointer (`holding`) for
+        // the slop and the release. Its painted box is probed for the
+        // pointer's local coordinates.
+        if n.pressable && super::events::is_hold_button(n) {
+            let (down, probe) = (id.clone(), id);
+            let bounds = self.hold_bounds.clone();
+            return el
+                .when(style.cursor.is_none(), |d| d.cursor_pointer())
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.keyboard = false;
+                        let (x, y) = this.hold_point(&down, ev.position);
+                        this.hold_input(index, exponential_ui::hold::HoldInput::PointerDown { x, y }, cx);
+                    }),
+                )
+                .child(
+                    canvas(
+                        move |b, _, _| {
+                            bounds.borrow_mut().insert(probe.clone(), b);
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                );
+        }
         if n.pressable && !is_text_field(n) {
             let (down, up, out) = (id.clone(), id.clone(), id);
             el = el
@@ -779,6 +814,8 @@ impl SurfaceView {
             ("Skeleton", _) => natives::skeleton(&lcx),
             ("Chart", _) => crate::paint::chart::paint(&lcx, self.chart_hover(index), cx.listener(move |this, hovered: &Option<usize>, _, cx| this.chart_hovered(index, *hovered, cx))),
             ("TreeGuides", _) => natives::tree_guides(&lcx),
+            ("QrCode", _) => crate::paint::qr::qr_code(&lcx),
+            ("QrScanner", _) => self.paint_qr_scanner(&lcx, index, window, cx),
             ("Unknown", _) => natives::unknown(&lcx),
             ("Checkbox", Some("box" | "checkbox")) if style.native => gpui_component::checkbox::Checkbox::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).tab_stop(false).into_any_element(),
             ("Switch", Some("track")) if style.native => gpui_component::switch::Switch::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).into_any_element(),
@@ -833,6 +870,32 @@ impl SurfaceView {
         Some(natives::ShimmerPaint::new(ink, self.surface.mode() == exponential_ui::theme::Mode::Dark, natives::ShimmerPaint::progress_at(elapsed), style.rtl.unwrap_or(self.rtl)))
     }
 
+    /// VAPP-162 (§7): a QrScanner: the host's camera feed when it gives one
+    /// (an enabled scanner only; the scan line sweeps off the seconds since
+    /// the feed appeared, asking for the next frame, static at the centre
+    /// under reduced motion), else the placeholder.
+    fn paint_qr_scanner(&self, lcx: &LeafCx, index: u32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let n = lcx.node;
+        let disabled = self.disabled(index);
+        let formats: Vec<String> = match n.props.get("formats").and_then(Value::as_array) {
+            Some(a) if a.iter().any(|f| f.as_str().is_some_and(|s| !s.is_empty())) => a.iter().filter_map(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string).collect(),
+            _ => vec!["qr".to_string()],
+        };
+        let feed = if disabled || self.ghosting.get() { None } else { self.host.qr_scanner_feed(&n.id, &formats, window, cx) };
+        let mut line_at = None;
+        if let Some(id) = self.cache.ids.get(index as usize).cloned() {
+            if feed.is_some() && !lcx.reduced_motion && !self.ghosting.get() {
+                let now = self.now();
+                let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
+                line_at = Some(now.saturating_duration_since(start).as_secs_f64() * 1000.0);
+                window.request_animation_frame();
+            } else if !self.ghosting.get() {
+                self.anim_start.borrow_mut().remove(id.as_ref());
+            }
+        }
+        crate::paint::qr::qr_scanner(lcx, feed, line_at, &self.builtin_string("cameraUnavailable"))
+    }
+
     /// NEW-77: a VoiceWave's rings now. While its activity animates (and
     /// motion is not reduced) the phase runs off the seconds since the node
     /// started animating, asking for the next frame; otherwise the clock
@@ -852,6 +915,9 @@ impl SurfaceView {
             }
         }
         let theme = self.surface.theme().cloned();
+        if natives::voice_wave_is_bars(&n.props) {
+            return natives::voice_wave_bars(&n.id, &n.props, theme.as_deref(), self.surface.mode(), w, h, elapsed, reduced, ink);
+        }
         natives::voice_wave(&n.id, &n.props, theme.as_deref(), self.surface.mode(), w, h, elapsed, reduced, ink)
     }
 
@@ -1139,13 +1205,24 @@ impl SurfaceView {
         // Round 3: `bar` (the old TabBar) = full-width bottom destinations,
         // each item a COLUMN of icon over a caption label sharing the width.
         let bar = lcx.str("variant") == "bar";
+        // VAPP-162 §3: `orientation: vertical` stacks the segments top to
+        // bottom; a vertical `bar` is THE rail (items rail-wide × tabBar).
+        let vertical = exponential_ui::segmented::is_vertical(&n.props);
+        let rail = bar && vertical;
         let item_props = lcx.part_props("Segmented", "item", &[]);
-        let ih = if bar { lcx.h } else { px_prop(&item_props, "height").unwrap_or(lcx.h) };
+        let ih = if rail {
+            px_prop(&item_props, "height").unwrap_or_else(|| crate::paint::parts::control(lcx.theme, "tabBar", 56.0))
+        } else if bar {
+            lcx.h
+        } else {
+            px_prop(&item_props, "height").unwrap_or(lcx.h)
+        };
         let pad = px_prop(&item_props, "paddingHorizontal").or_else(|| px_prop(&item_props, "padding")).unwrap_or(12.0);
         let (x, y, w, h) = lcx.inner();
         let focused_item = self.focused == Some(index) && self.keyboard;
         let roving = self.group_index(n);
-        let mut row = lcx.row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))).items_center().gap(px(lcx.style.gap));
+        let frame = div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h));
+        let mut row = if vertical { frame.flex().flex_col().items_stretch() } else { lcx.row(frame).items_center() }.gap(px(lcx.style.gap));
         for (k, it) in items.iter().enumerate() {
             let value = it.get("value").cloned().unwrap_or(Value::Null);
             let selected = chosen.contains(&display_text(Some(&value)));
@@ -1170,11 +1247,12 @@ impl SurfaceView {
             let color = s.color.unwrap_or(lcx.ink);
             let label = display_text(it.get("label"));
             if bar {
-                row = row.child(self.segmented_bar_item(lcx, index, item_id, it, &label, value, &st, &s, color, ring, disabled, ih, window, cx));
+                row = row.child(self.segmented_bar_item(lcx, index, item_id, it, &label, value, &st, &s, color, ring, disabled, ih, rail.then_some(w), window, cx));
                 continue;
             }
             let mut item = styled_box(lcx.row(div().id(SharedString::from(item_id.clone())).h(px(ih)).px(px(pad))).items_center().justify_center().gap(px(px_prop(&item_props, "gap").unwrap_or(0.0))).whitespace_nowrap().text_color(color), &s, 80.0, ih)
-                .when(fill, |d| d.flex_1())
+                .when(fill && !vertical, |d| d.flex_1())
+                .when(vertical, |d| d.flex_none().w(px(w)))
                 .role(gpui::Role::RadioButton)
                 .aria_label(SharedString::from(label.clone()))
                 .aria_selected(selected);
@@ -1215,7 +1293,10 @@ impl SurfaceView {
     /// `label` part), `flexGrow 1` / `flexBasis 0`, a navigation button
     /// whose selected item is the current page.
     #[allow(clippy::too_many_arguments)]
-    fn segmented_bar_item(&self, lcx: &LeafCx, index: u32, item_id: String, it: &Value, label: &str, value: Value, st: &[String], s: &PaintStyle, color: Hsla, ring: bool, disabled: bool, h: f32, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    /// VAPP-162 §3: `rail` = the item width of a vertical bar (a fixed
+    /// rail-wide × tabBar item, not a share of the row); an option's
+    /// `count` paints a badge at the icon's top-end corner.
+    fn segmented_bar_item(&self, lcx: &LeafCx, index: u32, item_id: String, it: &Value, label: &str, value: Value, st: &[String], s: &PaintStyle, color: Hsla, ring: bool, disabled: bool, h: f32, rail: Option<f32>, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let selected = st.iter().any(|x| x == "selected");
         let icon_ink = lcx.part("Segmented", "icon", st).color.unwrap_or(color);
         let label_ink = lcx.part("Segmented", "label", st).color.unwrap_or(color);
@@ -1224,9 +1305,15 @@ impl SurfaceView {
         let weight = label_props.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(lcx.text_style.font_weight);
         let icon_size = crate::paint::parts::control(lcx.theme, "iconMd", 20.0);
         let (xxs, xs) = (spacing(lcx.theme, "xxs"), spacing(lcx.theme, "xs"));
-        let mut item = styled_box(div().id(SharedString::from(item_id.clone())).flex().flex_col().items_center().justify_center().gap(px(xxs)).flex_1().flex_basis(px(0.0)).min_w(px(0.0)).h(px(h)).py(px(xs)), s, 80.0, h)
+        let badge = exponential_ui::segmented::option_badge(Some("bar"), it);
+        let base = div().id(SharedString::from(item_id.clone())).flex().flex_col().items_center().justify_center().gap(px(xxs)).h(px(h)).py(px(xs));
+        let base = match rail {
+            Some(rw) => base.flex_none().w(px(rw)),
+            None => base.flex_1().flex_basis(px(0.0)).min_w(px(0.0)),
+        };
+        let mut item = styled_box(base, s, 80.0, h)
             .role(gpui::Role::Button)
-            .aria_label(SharedString::from(label.to_string()))
+            .aria_label(SharedString::from(exponential_ui::segmented::item_accessibility_label(label, badge.as_deref())))
             .aria_selected(selected);
         if ring && s.shadows.is_empty() {
             let rc = lcx.theme_color("ring").unwrap_or(lcx.ink.opacity(0.5));
@@ -1240,11 +1327,14 @@ impl SurfaceView {
                 .on_click(cx.listener(move |this, _, window, cx| this.segmented_select(index, value.clone(), window, cx)));
         }
         if let Some(icon) = it.get("icon").and_then(Value::as_str) {
-            item = item.child(icons::concept(self.host.as_ref(), icon, icon_size, icon_ink));
+            let mut holder = div().relative().flex_none().size(px(icon_size)).child(icons::concept(self.host.as_ref(), icon, icon_size, icon_ink));
+            if let Some(text) = badge.as_deref() {
+                holder = holder.child(segmented_badge(lcx, text, icon_size, st, window));
+            }
+            item = item.child(holder);
         }
         if !label.is_empty() {
             let font = crate::measure::make_font(lcx.font.family.clone(), weight);
-            let _ = window;
             item = item.child(
                 div()
                     .max_w_full()
@@ -1434,4 +1524,40 @@ fn props_hash(n: &PlacedNode) -> u64 {
     n.component.hash(&mut h);
     serde_json::to_string(&n.props).unwrap_or_default().hash(&mut h);
     h.finish()
+}
+
+/// VAPP-162 §3: a `bar` item's count badge (the `Segmented/badge` recipe:
+/// min width 16 × 16, padding xxs, a full radius, the primary fill, xs
+/// medium text), its centre on the icon box's top-end corner (top-left
+/// under RTL).
+fn segmented_badge(lcx: &LeafCx, text: &str, icon: f32, states: &[String], window: &Window) -> AnyElement {
+    let p = lcx.part_props("Segmented", "badge", states);
+    let s = lcx.part("Segmented", "badge", states);
+    let size = px_prop(&p, "fontSize").unwrap_or(12.0);
+    let lh = px_prop(&p, "lineHeight").unwrap_or(16.0);
+    let weight = p.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(500);
+    let font = crate::measure::make_font(lcx.font.family.clone(), weight);
+    let pad = px_prop(&p, "paddingHorizontal").or_else(|| px_prop(&p, "padding")).unwrap_or(2.0);
+    let bh = px_prop(&p, "height").unwrap_or(16.0);
+    let bw = (natives::tracked_width(window, &font, size, text, 0.0) + 2.0 * pad).max(px_prop(&p, "minWidth").unwrap_or(16.0)).ceil();
+    let cx_ = if lcx.rtl { 0.0 } else { icon };
+    let ink = s.color.unwrap_or(lcx.ink);
+    div()
+        .absolute()
+        .left(px(cx_ - bw / 2.0))
+        .top(px(-bh / 2.0))
+        .w(px(bw))
+        .h(px(bh))
+        .rounded(px(bh / 2.0))
+        .when_some(s.bg, |d, bg| d.bg(bg))
+        .flex()
+        .items_center()
+        .justify_center()
+        .font(font)
+        .text_size(px(size))
+        .line_height(px(lh))
+        .text_color(ink)
+        .whitespace_nowrap()
+        .child(SharedString::from(text.to_string()))
+        .into_any_element()
 }

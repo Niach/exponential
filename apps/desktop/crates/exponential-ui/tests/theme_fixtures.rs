@@ -300,3 +300,14 @@ fn a_painter_override_for_switch_passes_the_geometry_fixture() {
     let expected: IndexMap<String, f64> = [("height".to_string(), 20.0)].into_iter().collect();
     assert_eq!(check_geometry(&expected, &MeasuredBox { height: Some(20.4), ..Default::default() }, 0.5), []);
 }
+
+/// VAPP-162: `type.family.serif` = `ui-serif` in every built-in theme, a
+/// system face falling back to Georgia.
+#[test]
+fn every_built_in_theme_names_the_serif_family() {
+    for id in exponential_ui::themes::BUILTIN_THEME_IDS {
+        let t = exponential_ui::themes::builtin_theme(id).unwrap();
+        assert_eq!(t.tokens.r#type.family.get("serif").map(String::as_str), Some("ui-serif"), "{id}");
+        assert!(t.fonts.contains_key("ui-serif"), "{id}");
+    }
+}

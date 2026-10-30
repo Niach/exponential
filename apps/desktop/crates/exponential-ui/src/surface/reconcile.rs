@@ -68,6 +68,8 @@ impl Surface {
         let wide = self.breakpoints().get("md").is_some_and(|md| vw >= *md);
         let token = |name: &str, default: f32| self.effective.as_ref().and_then(|t| t.tokens.control.get(name).copied()).map(|v| v as f32).unwrap_or(default);
         let (hairline, row_extent, menu_row) = (token("hairline", 1.0), token("row", crate::list::DEFAULT_ESTIMATED_ITEM_HEIGHT), token("buttonSm", 32.0));
+        // VAPP-162: `$control.tabBar`, a vertical bar Segmented's item height.
+        let tab_bar = token("tabBar", 56.0);
         let expand = self.expand_controls.unwrap_or(self.theme.is_some());
         let out = {
             let template = |id: &str| -> Option<UiNode> { templates.get(id).cloned().flatten() };
@@ -83,6 +85,7 @@ impl Surface {
                 hairline,
                 row_extent,
                 menu_row,
+                tab_bar,
                 gap_px: &gap,
                 expand_controls: expand,
                 strings: &self.strings,

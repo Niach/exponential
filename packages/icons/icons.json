@@ -411,7 +411,13 @@
     "trace-task-pending": "circle",
     "trace-task-done": "circle-check",
     "trace-background": "repeat",
-    "trace-chevron": "chevron-right"
+    "trace-chevron": "chevron-right",
+    "call-incoming": "phone-incoming",
+    "ui-qr-code": "qr-code",
+    "ui-scan": "scan-line",
+    "ui-read": "check-check",
+    "ui-hold": "hand",
+    "voice-level": "audio-lines"
   },
   "imported": {
     "os-apple": {

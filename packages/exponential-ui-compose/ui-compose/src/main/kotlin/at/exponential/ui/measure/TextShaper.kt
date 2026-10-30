@@ -63,10 +63,20 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
      */
     var defaultFamily: String? = null
 
-    /** The Compose family of a theme family NAME (null = [defaultFamily]; registered, else monospace / default). */
+    /** The Compose family of a theme family NAME (null = [defaultFamily]; registered, else monospace / serif (VAPP-162 `ui-serif`) / default). */
     fun family(name: String?): FontFamily {
         val n = name ?: defaultFamily
-        return fonts.family(n) ?: if (n != null && looksMono(n)) FontFamily.Monospace else FontFamily.Default
+        return fonts.family(n) ?: when {
+            n != null && looksMono(n) -> FontFamily.Monospace
+            n != null && looksSerif(n) -> FontFamily.Serif
+            else -> FontFamily.Default
+        }
+    }
+
+    /** VAPP-162: the generic serif names (`ui-serif`, `serif`; the theme fallback `Georgia, serif`). */
+    private fun looksSerif(name: String): Boolean {
+        val n = name.lowercase().trim()
+        return n == "ui-serif" || n == "serif" || n == "georgia" || n.endsWith(", serif")
     }
 
     /** A family NAME that asks for a monospace face (the fallback when it is not registered). */

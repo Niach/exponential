@@ -49,6 +49,8 @@ impl ShapingMeasure {
         let family = ts.font_family.clone();
         let attrs = Attrs::new().weight(Weight(ts.font_weight)).family(match family.as_deref() {
             Some(f) if f.eq_ignore_ascii_case("ui-monospace") || f.eq_ignore_ascii_case("mono") => Family::Monospace,
+            // VAPP-162: the `type.family.serif` token's generic name.
+            Some(f) if f.eq_ignore_ascii_case("ui-serif") || f.eq_ignore_ascii_case("serif") => Family::Serif,
             Some(f) => Family::Name(f),
             None => Family::SansSerif,
         });

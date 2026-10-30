@@ -48,6 +48,7 @@ nothing from the Exponential app.
 | `docs/round-1-contract.md` | the renderer-hardening round: every contract change with notes per renderer |
 | `docs/round-2-contract.md` | round 2: Resizable, sticky, backdrop blur, animations, the Formatter, sections + scrollToIndex, the 53 gpui-vs-web decisions; a checklist per renderer |
 | `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 names round 4 removed, the lite prune |
+| `docs/round-5-contract.md` | round 5 (VAPP-162): MessageBubble, CallSurface, Plan, QrCode (the core's Nayuki port, `fixtures/qr-code.json`), QrScanner (host-owned camera), Segmented `orientation` (the rail) + `option.count`, VoiceWave `bars`, Button `hold`, TraceItem done/skipped, the serif family; a checklist per renderer |
 | `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createAppHost` |
 | `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`); the shared web runner (`browser-suites.ts`) and the web-parity check (`parity.ts`: Solid and the web component against React) |

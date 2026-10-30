@@ -49,7 +49,11 @@ import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.fire
 import at.exponential.ui.model.focus
+import at.exponential.ui.model.holdInput
+import at.exponential.ui.model.holdPointer
 import at.exponential.ui.model.hover
+import at.exponential.ui.model.isHeld
+import at.exponential.ui.model.isHoldButton
 import at.exponential.ui.model.press
 import at.exponential.ui.model.pressDown
 import at.exponential.ui.model.pressUp
@@ -172,10 +176,14 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
     val pressSource = remember(node.id) { MutableInteractionSource() }
     val pressScale = if (pressable && node.component == "Button" && !model.reducedMotion) model.theme?.scale("press") ?: 1f else 1f
     val isPressed by pressSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (isPressed) pressScale else 1f, tween((model.theme?.motion("fast") ?: 120f).toInt(), easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)), label = "press")
+    // VAPP-162: a `hold` Button's `pressed` is the CORE's state (Surface.hold), never the painter's.
+    val hold = pressable && node.isHoldButton()
+    val holdPressed = hold && node.states.contains("pressed")
+    val scale by animateFloatAsState(if (isPressed || holdPressed) pressScale else 1f, tween((model.theme?.motion("fast") ?: 120f).toInt(), easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)), label = "press")
     val pressedScale = if (pressScale != 1f) Modifier.graphicsLayer { scaleX = scale; scaleY = scale } else Modifier
 
     val press: Modifier = when {
+        hold -> holdGesture(index, node, model, disabled, focusRequester) { inputMode.inputMode == InputMode.Keyboard }
         pressable -> {
             val interactions = pressSource
             LaunchedEffect(interactions) {
@@ -319,6 +327,57 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         if (invisible && !LocalInvisible.current) Box(Modifier.matchParentSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } })
     }
 }
+
+/**
+ * VAPP-162 (round-5 contract §9): a `hold: true` Button's pointer, the
+ * core's hold machine (`Surface.hold`) fed with every down / move / up of
+ * the first pointer in dp from the button's top-left (the core applies the
+ * 24 px slop and fires holdStart / holdEnd / holdCancel). The pointer is
+ * CLAIMED on down (every change consumed), so a parent's scroll or a long
+ * press never steals the hold; a gesture that ends without an up (the
+ * platform's cancel) is a `pointercancel`. Focus loss cancels (`blur`);
+ * Space / Enter / Escape go through the surface's keys ([holdKey]). A
+ * press never fires `press`.
+ */
+@Composable
+private fun holdGesture(index: Int, node: NodeInfo, model: SurfaceModel, disabled: Boolean, focusRequester: FocusRequester, keyboard: () -> Boolean): Modifier = Modifier
+    .focusRequester(focusRequester)
+    .onFocusChanged {
+        model.focus(node.id, it.isFocused, keyboard())
+        if (!it.isFocused && model.isHeld(node.id)) model.holdInput(index, "blur")
+    }
+    .focusable(enabled = !disabled)
+    .pointerInput(node.id, disabled) {
+        if (disabled) return@pointerInput
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            down.consume()
+            runCatching { focusRequester.requestFocus() }
+            model.holdPointer(index, "pointerdown", down.position.x / density, down.position.y / density)
+            var ended = false
+            try {
+                while (true) {
+                    val e = awaitPointerEvent()
+                    val c = e.changes.firstOrNull { it.id == down.id }
+                    if (c == null) {
+                        ended = true
+                        model.holdInput(index, "pointercancel")
+                        break
+                    }
+                    if (!c.pressed) {
+                        ended = true
+                        c.consume()
+                        model.holdPointer(index, "pointerup", c.position.x / density, c.position.y / density)
+                        break
+                    }
+                    if (c.position != c.previousPosition) model.holdPointer(index, "pointermove", c.position.x / density, c.position.y / density)
+                    c.consume()
+                }
+            } finally {
+                if (!ended) model.holdInput(index, "pointercancel")
+            }
+        }
+    }
 
 /**
  * NEW-77: an inherited ink swap (from → to): a VoiceWave paints its child

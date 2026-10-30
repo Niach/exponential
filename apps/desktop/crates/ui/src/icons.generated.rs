@@ -165,6 +165,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "arrow-up-right" => ExpIcon::ArrowUpRight,
         "at-sign" => ExpIcon::AtSign,
         "atom" => ExpIcon::Atom,
+        "audio-lines" => ExpIcon::AudioLines,
         "award" => ExpIcon::Award,
         "ban" => ExpIcon::Ban,
         "bell" => ExpIcon::Bell,
@@ -188,6 +189,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "car" => ExpIcon::Car,
         "chart-line" => ExpIcon::ChartLine,
         "check" => ExpIcon::Check,
+        "check-check" => ExpIcon::CheckCheck,
         "chevron-down" => ExpIcon::ChevronDown,
         "chevron-left" => ExpIcon::ChevronLeft,
         "chevron-right" => ExpIcon::ChevronRight,
@@ -249,6 +251,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "globe" => ExpIcon::Globe,
         "graduation-cap" => ExpIcon::GraduationCap,
         "hammer" => ExpIcon::Hammer,
+        "hand" => ExpIcon::Hand,
         "hard-drive" => ExpIcon::HardDrive,
         "hash" => ExpIcon::Hash,
         "heading-1" => ExpIcon::Heading1,
@@ -322,6 +325,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "pen-tool" => ExpIcon::PenTool,
         "pencil" => ExpIcon::Pencil,
         "phone" => ExpIcon::Phone,
+        "phone-incoming" => ExpIcon::PhoneIncoming,
         "phone-off" => ExpIcon::PhoneOff,
         "pin" => ExpIcon::Pin,
         "pin-off" => ExpIcon::PinOff,
@@ -338,6 +342,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "progress-3-5" => ExpIcon::Progress35,
         "progress-4-5" => ExpIcon::Progress45,
         "puzzle" => ExpIcon::Puzzle,
+        "qr-code" => ExpIcon::QrCode,
         "quote" => ExpIcon::Quote,
         "refresh-cw" => ExpIcon::RefreshCw,
         "remove-formatting" => ExpIcon::RemoveFormatting,
@@ -346,6 +351,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "rocket" => ExpIcon::Rocket,
         "rotate-ccw" => ExpIcon::RotateCcw,
         "scale" => ExpIcon::Scale,
+        "scan-line" => ExpIcon::ScanLine,
         "search" => ExpIcon::Search,
         "search-x" => ExpIcon::SearchX,
         "send" => ExpIcon::Send,
@@ -430,6 +436,8 @@ pub const APP_EDITOR_CHAT: ExpIcon = ExpIcon::MessageSquare;
 pub const AUTH_PASSKEY: ExpIcon = ExpIcon::Fingerprint;
 /// Registry concept `call-end` -> Lucide `phone-off`.
 pub const CALL_END: ExpIcon = ExpIcon::PhoneOff;
+/// Registry concept `call-incoming` -> Lucide `phone-incoming`.
+pub const CALL_INCOMING: ExpIcon = ExpIcon::PhoneIncoming;
 /// Registry concept `call-mute` -> Lucide `mic`.
 pub const CALL_MUTE: ExpIcon = ExpIcon::Mic;
 /// Registry concept `call-speaker` -> Lucide `volume-2`.
@@ -864,6 +872,8 @@ pub const UI_HELP: ExpIcon = ExpIcon::CircleQuestionMark;
 pub const UI_HIDE: ExpIcon = ExpIcon::EyeOff;
 /// Registry concept `ui-history` -> Lucide `history`.
 pub const UI_HISTORY: ExpIcon = ExpIcon::History;
+/// Registry concept `ui-hold` -> Lucide `hand`.
+pub const UI_HOLD: ExpIcon = ExpIcon::Hand;
 /// Registry concept `ui-icon-placeholder` -> Lucide `circle-dashed`.
 pub const UI_ICON_PLACEHOLDER: ExpIcon = ExpIcon::CircleDashed;
 /// Registry concept `ui-indeterminate` -> Lucide `square-minus`.
@@ -912,8 +922,12 @@ pub const UI_PRINT: ExpIcon = ExpIcon::Printer;
 pub const UI_PRIVATE: ExpIcon = ExpIcon::Lock;
 /// Registry concept `ui-properties` -> Lucide `sliders-horizontal`.
 pub const UI_PROPERTIES: ExpIcon = ExpIcon::SlidersHorizontal;
+/// Registry concept `ui-qr-code` -> Lucide `qr-code`.
+pub const UI_QR_CODE: ExpIcon = ExpIcon::QrCode;
 /// Registry concept `ui-queued` -> Lucide `list-end`.
 pub const UI_QUEUED: ExpIcon = ExpIcon::ListEnd;
+/// Registry concept `ui-read` -> Lucide `check-check`.
+pub const UI_READ: ExpIcon = ExpIcon::CheckCheck;
 /// Registry concept `ui-redock` -> Lucide `arrow-down-left`.
 pub const UI_REDOCK: ExpIcon = ExpIcon::ArrowDownLeft;
 /// Registry concept `ui-refresh` -> Lucide `refresh-cw`.
@@ -924,6 +938,8 @@ pub const UI_REMOVE_MEMBER: ExpIcon = ExpIcon::UserMinus;
 pub const UI_REPEAT: ExpIcon = ExpIcon::Repeat;
 /// Registry concept `ui-repository` -> Lucide `code`.
 pub const UI_REPOSITORY: ExpIcon = ExpIcon::Code;
+/// Registry concept `ui-scan` -> Lucide `scan-line`.
+pub const UI_SCAN: ExpIcon = ExpIcon::ScanLine;
 /// Registry concept `ui-selected` -> Lucide `square-check`.
 pub const UI_SELECTED: ExpIcon = ExpIcon::SquareCheck;
 /// Registry concept `ui-selector` -> Lucide `chevrons-up-down`.
@@ -984,6 +1000,8 @@ pub const UI_WATCH: ExpIcon = ExpIcon::Eye;
 pub const UI_WIDGET: ExpIcon = ExpIcon::Megaphone;
 /// Registry concept `voice-call` -> Lucide `phone`.
 pub const VOICE_CALL: ExpIcon = ExpIcon::Phone;
+/// Registry concept `voice-level` -> Lucide `audio-lines`.
+pub const VOICE_LEVEL: ExpIcon = ExpIcon::AudioLines;
 /// Registry concept `work-faces` -> Lucide `layers-2`.
 pub const WORK_FACES: ExpIcon = ExpIcon::Layers2;
 /// Registry concept `work-results` -> Lucide `images`.
@@ -1005,6 +1023,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "app-editor-chat" => APP_EDITOR_CHAT,
         "auth-passkey" => AUTH_PASSKEY,
         "call-end" => CALL_END,
+        "call-incoming" => CALL_INCOMING,
         "call-mute" => CALL_MUTE,
         "call-speaker" => CALL_SPEAKER,
         "call-speaker-off" => CALL_SPEAKER_OFF,
@@ -1222,6 +1241,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-help" => UI_HELP,
         "ui-hide" => UI_HIDE,
         "ui-history" => UI_HISTORY,
+        "ui-hold" => UI_HOLD,
         "ui-icon-placeholder" => UI_ICON_PLACEHOLDER,
         "ui-indeterminate" => UI_INDETERMINATE,
         "ui-info" => UI_INFO,
@@ -1246,12 +1266,15 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-print" => UI_PRINT,
         "ui-private" => UI_PRIVATE,
         "ui-properties" => UI_PROPERTIES,
+        "ui-qr-code" => UI_QR_CODE,
         "ui-queued" => UI_QUEUED,
+        "ui-read" => UI_READ,
         "ui-redock" => UI_REDOCK,
         "ui-refresh" => UI_REFRESH,
         "ui-remove-member" => UI_REMOVE_MEMBER,
         "ui-repeat" => UI_REPEAT,
         "ui-repository" => UI_REPOSITORY,
+        "ui-scan" => UI_SCAN,
         "ui-selected" => UI_SELECTED,
         "ui-selector" => UI_SELECTOR,
         "ui-send" => UI_SEND,
@@ -1282,6 +1305,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-watch" => UI_WATCH,
         "ui-widget" => UI_WIDGET,
         "voice-call" => VOICE_CALL,
+        "voice-level" => VOICE_LEVEL,
         "work-faces" => WORK_FACES,
         "work-results" => WORK_RESULTS,
         _ => return None,

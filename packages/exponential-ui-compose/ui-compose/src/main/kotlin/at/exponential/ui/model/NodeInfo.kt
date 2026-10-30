@@ -53,6 +53,9 @@ class NodeInfo(n: FfiNode) {
 
     /** Part states the core resolved (`selected`, `open`, `checked`). */
     val partStates: List<String> = n.partStates
+
+    /** VAPP-162: every state the core resolved for the node (part + own query: a held `hold` Button's `pressed`). */
+    val states: List<String> = n.states
     val macroName: String? = n.macroName
 
     /** A live region (`polite | assertive`; Text `live`, Toast, Form announcements). */

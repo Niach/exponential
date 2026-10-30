@@ -237,6 +237,11 @@
       "notes": "img (name)",
       "keys": []
     },
+    "QrCode": {
+      "role": "img",
+      "notes": "img named by `label`; without a label the code is decorative (hidden); never focusable",
+      "keys": []
+    },
     "Carousel": {
       "role": "region",
       "notes": "region, roledescription carousel; each page a group `page i of n`",
@@ -258,7 +263,7 @@
     },
     "Segmented": {
       "role": "radiogroup",
-      "notes": "radiogroup (single) or toolbar of toggle buttons (multiple); `bar` = navigation of buttons, the selected one aria-current=page",
+      "notes": "radiogroup (single) or toolbar of toggle buttons (multiple); `bar` = navigation of buttons, the selected one aria-current=page; `orientation: vertical` swaps the arrow keys to ArrowUp/ArrowDown; a `count` reads after the item label",
       "keys": [
         "Roving tab stop",
         "ArrowLeft/ArrowRight (ArrowUp/ArrowDown): move focus (wraps)",
@@ -355,6 +360,14 @@
       "notes": "img named by `label` (with the activity appended, e.g. `Voice, listening`); decorative (hidden) without a label; never focusable",
       "keys": []
     },
+    "CallSurface": {
+      "role": "group",
+      "notes": "group labelled by `name`; the wave is hidden, the caption a polite live region; mute and speaker are toggle buttons (aria-pressed), every round button labelled by its tooltip text",
+      "keys": [
+        "Tab reaches mute, speaker, end in order",
+        "Enter, Space: press"
+      ]
+    },
     "Skeleton": {
       "role": "hidden",
       "notes": "hidden (the parent announces busy)",
@@ -379,7 +392,7 @@
     },
     "Button": {
       "role": "button",
-      "notes": "button (aria-busy while loading)",
+      "notes": "button (aria-busy while loading); `hold`: still a button, Space/Enter key-down starts the hold, key-up ends it, Escape or blur cancels it",
       "keys": [
         "Enter, Space: press",
         "A `submit` button submits the enclosing Form"
@@ -536,6 +549,13 @@
         "Tab reaches each file's remove button"
       ]
     },
+    "QrScanner": {
+      "role": "img",
+      "notes": "img named by `label` (default `scanQrCode`); a decoded value is announced politely; without a host camera the label reads `cameraUnavailable`",
+      "keys": [
+        "None: scanning needs no key; the host's camera permission prompt is the platform's"
+      ]
+    },
     "Composer": {
       "role": "textbox",
       "notes": "textbox (multiline) + send button",
@@ -614,6 +634,11 @@
         "Enter, Space: press (pressable only)"
       ]
     },
+    "MessageBubble": {
+      "role": "group",
+      "notes": "group labelled by `author`, else `time`; the delivery icon is labelled `sending`/`sent`/`read`",
+      "keys": []
+    },
     "Trace": {
       "role": "none",
       "notes": "Layout only: a column of TraceItem lines.",
@@ -624,6 +649,13 @@
       "notes": "A collapsible line is a button with aria-expanded = open ($a11y); a plain line is text; the icon is decorative.",
       "keys": [
         "Enter, Space: toggle (collapsible only)"
+      ]
+    },
+    "Plan": {
+      "role": "group",
+      "notes": "group labelled by `title`; the steps are TraceItem lines; the progress bar is a progressbar",
+      "keys": [
+        "Tab reaches Decline, Approve (proposed) or Stop (running)"
       ]
     },
     "Chip": {

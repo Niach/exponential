@@ -123,8 +123,11 @@ private struct KeyboardRouting: ViewModifier {
             .focusable()
             .focusEffectDisabled()
             .focused(rootFocused)
-            .onKeyPress(phases: [.down, .repeat]) { press in
+            .onKeyPress(phases: [.down, .repeat, .up]) { press in
                 guard let (key, shift, typed) = SurfaceKeys.name(press) else { return .ignored }
+                // VAPP-162: a focused hold Button holds from key down to key up.
+                if model.holdKey(key, up: press.phase == .up, repeat: press.phase == .repeat) { return .handled }
+                if press.phase == .up { return .ignored }
                 return model.handleKey(key: key, shift: shift, typed: typed) ? .handled : .ignored
             }
             .onChange(of: model.focusRequest) { _, request in

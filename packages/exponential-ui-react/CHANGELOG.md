@@ -5,6 +5,7 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 ## Unreleased
 
+- VAPP-162: round 5 paints: `QrCode` (the core's matrix, dark on a light plate), `QrScanner` (viewfinder chrome; the camera through the new `host.qrScanner.start(feed, formats, onValue) → stop` hook, `scanned {value}` once per distinct value, the placeholder without one), `VoiceWave` `variant: bars`, `Segmented` `orientation: vertical` (the rail) + the `count` badge, `Button` `hold` (holdStart/holdEnd/holdCancel, `holdingLabel`), TraceItem `done`/`skipped`, and the `ui-serif` family emitted as the CSS keyword; fallback glyphs for the round-5 concepts.
 - NEW-77: `VoiceWave` paints (one SVG of three paths from the core, the recipe colours, rAF while it moves, reduced motion rests) with the child rule; the `VoiceWave` primitive in `@exponential_app/ui-react/primitives`.
 - **Breaking:** `@exponential_app/ui-react/primitives` no longer exports the Exponential app's own components: `glass-rows` (`GlassGroup`, `GlassRow`, `ListRow`, …), `typeahead`, `composer`, `trace`, `pill` and `segmented-bar` moved to the app's `@exp/ui`, and `SegmentedControl` lost its `embedded` arm (the glass-group row). React's primitive set is now the same module set as Solid's; the compiled `styles.css` drops their classes (−10.6 KB).
 

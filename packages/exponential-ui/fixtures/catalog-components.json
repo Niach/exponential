@@ -3092,6 +3092,65 @@
       }
     },
     {
+      "name": "QrCode/example",
+      "node": {
+        "id": "qr-code",
+        "component": "QrCode",
+        "props": {
+          "value": "https://exponential.at",
+          "label": "Scan to pair"
+        }
+      }
+    },
+    {
+      "name": "QrCode/level=L",
+      "node": {
+        "id": "qr-code",
+        "component": "QrCode",
+        "props": {
+          "value": "https://exponential.at",
+          "label": "Scan to pair",
+          "level": "L"
+        }
+      }
+    },
+    {
+      "name": "QrCode/level=M",
+      "node": {
+        "id": "qr-code",
+        "component": "QrCode",
+        "props": {
+          "value": "https://exponential.at",
+          "label": "Scan to pair",
+          "level": "M"
+        }
+      }
+    },
+    {
+      "name": "QrCode/level=Q",
+      "node": {
+        "id": "qr-code",
+        "component": "QrCode",
+        "props": {
+          "value": "https://exponential.at",
+          "label": "Scan to pair",
+          "level": "Q"
+        }
+      }
+    },
+    {
+      "name": "QrCode/level=H",
+      "node": {
+        "id": "qr-code",
+        "component": "QrCode",
+        "props": {
+          "value": "https://exponential.at",
+          "label": "Scan to pair",
+          "level": "H"
+        }
+      }
+    },
+    {
       "name": "Carousel/example",
       "node": {
         "id": "carousel",
@@ -3684,6 +3743,48 @@
       }
     },
     {
+      "name": "Segmented/orientation=horizontal",
+      "node": {
+        "id": "segmented",
+        "component": "Segmented",
+        "props": {
+          "items": [
+            {
+              "label": "List",
+              "value": "list"
+            },
+            {
+              "label": "Board",
+              "value": "board"
+            }
+          ],
+          "value": "list",
+          "orientation": "horizontal"
+        }
+      }
+    },
+    {
+      "name": "Segmented/orientation=vertical",
+      "node": {
+        "id": "segmented",
+        "component": "Segmented",
+        "props": {
+          "items": [
+            {
+              "label": "List",
+              "value": "list"
+            },
+            {
+              "label": "Board",
+              "value": "board"
+            }
+          ],
+          "value": "list",
+          "orientation": "vertical"
+        }
+      }
+    },
+    {
       "name": "Accordion/example",
       "node": {
         "id": "accordion",
@@ -3974,6 +4075,54 @@
       }
     },
     {
+      "name": "TraceItem/status=done",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "status": "done"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/status=skipped",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "status": "skipped"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "TraceItem/size=default",
       "node": {
         "id": "trace-item",
@@ -4111,6 +4260,135 @@
             }
           }
         ]
+      }
+    },
+    {
+      "name": "Plan/example",
+      "node": {
+        "id": "plan",
+        "component": "Plan",
+        "props": {
+          "title": "Here's my plan",
+          "description": "About two minutes.",
+          "steps": [
+            {
+              "title": "Open the site",
+              "icon": "globe"
+            },
+            {
+              "title": "Reserve a table",
+              "icon": "pencil"
+            },
+            {
+              "title": "Add it to your calendar",
+              "icon": "calendar"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Plan/state=proposed",
+      "node": {
+        "id": "plan",
+        "component": "Plan",
+        "props": {
+          "title": "Here's my plan",
+          "description": "About two minutes.",
+          "steps": [
+            {
+              "title": "Open the site",
+              "icon": "globe"
+            },
+            {
+              "title": "Reserve a table",
+              "icon": "pencil"
+            },
+            {
+              "title": "Add it to your calendar",
+              "icon": "calendar"
+            }
+          ],
+          "state": "proposed"
+        }
+      }
+    },
+    {
+      "name": "Plan/state=running",
+      "node": {
+        "id": "plan",
+        "component": "Plan",
+        "props": {
+          "title": "Here's my plan",
+          "description": "About two minutes.",
+          "steps": [
+            {
+              "title": "Open the site",
+              "icon": "globe"
+            },
+            {
+              "title": "Reserve a table",
+              "icon": "pencil"
+            },
+            {
+              "title": "Add it to your calendar",
+              "icon": "calendar"
+            }
+          ],
+          "state": "running"
+        }
+      }
+    },
+    {
+      "name": "Plan/state=done",
+      "node": {
+        "id": "plan",
+        "component": "Plan",
+        "props": {
+          "title": "Here's my plan",
+          "description": "About two minutes.",
+          "steps": [
+            {
+              "title": "Open the site",
+              "icon": "globe"
+            },
+            {
+              "title": "Reserve a table",
+              "icon": "pencil"
+            },
+            {
+              "title": "Add it to your calendar",
+              "icon": "calendar"
+            }
+          ],
+          "state": "done"
+        }
+      }
+    },
+    {
+      "name": "Plan/state=declined",
+      "node": {
+        "id": "plan",
+        "component": "Plan",
+        "props": {
+          "title": "Here's my plan",
+          "description": "About two minutes.",
+          "steps": [
+            {
+              "title": "Open the site",
+              "icon": "globe"
+            },
+            {
+              "title": "Reserve a table",
+              "icon": "pencil"
+            },
+            {
+              "title": "Add it to your calendar",
+              "icon": "calendar"
+            }
+          ],
+          "state": "declined"
+        }
       }
     },
     {
@@ -6215,6 +6493,62 @@
       }
     },
     {
+      "name": "VoiceWave/variant=ring",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "listening",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "lg",
+          "variant": "ring"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/variant=bars",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "listening",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "lg",
+          "variant": "bars"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "VoiceWave/size=sm",
       "node": {
         "id": "voice-wave",
@@ -6320,6 +6654,220 @@
             }
           }
         ]
+      }
+    },
+    {
+      "name": "CallSurface/example",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/state=ringing",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "ringing",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/state=connecting",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "connecting",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/state=talking",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/state=ended",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "ended",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/activity=idle",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "idle",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/activity=listening",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "listening",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/activity=thinking",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "thinking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/activity=speaking",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/activity=muted",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "muted",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      }
+    },
+    {
+      "name": "CallSurface/muted=true",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works.",
+          "muted": true
+        }
+      }
+    },
+    {
+      "name": "CallSurface/muted=false",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works.",
+          "muted": false
+        }
+      }
+    },
+    {
+      "name": "CallSurface/speaker=true",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works.",
+          "speaker": true
+        }
+      }
+    },
+    {
+      "name": "CallSurface/speaker=false",
+      "node": {
+        "id": "call-surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "state": "talking",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works.",
+          "speaker": false
+        }
       }
     },
     {
@@ -7710,6 +8258,48 @@
           "label": "Submit",
           "variant": "default",
           "submit": false
+        },
+        "children": [
+          {
+            "id": "button-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Button/hold=true",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Submit",
+          "variant": "default",
+          "hold": true
+        },
+        "children": [
+          {
+            "id": "button-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Button/hold=false",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Submit",
+          "variant": "default",
+          "hold": false
         },
         "children": [
           {
@@ -9383,6 +9973,38 @@
       }
     },
     {
+      "name": "QrScanner/example",
+      "node": {
+        "id": "qr-scanner",
+        "component": "QrScanner",
+        "props": {
+          "hint": "Point at the code on your computer"
+        }
+      }
+    },
+    {
+      "name": "QrScanner/disabled=true",
+      "node": {
+        "id": "qr-scanner",
+        "component": "QrScanner",
+        "props": {
+          "hint": "Point at the code on your computer",
+          "disabled": true
+        }
+      }
+    },
+    {
+      "name": "QrScanner/disabled=false",
+      "node": {
+        "id": "qr-scanner",
+        "component": "QrScanner",
+        "props": {
+          "hint": "Point at the code on your computer",
+          "disabled": false
+        }
+      }
+    },
+    {
       "name": "Composer/example",
       "node": {
         "id": "composer",
@@ -9586,6 +10208,84 @@
           "title": "r/selfhosted",
           "meta": "312 posts",
           "pressable": false
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/example",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/side=in",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "in",
+          "time": "18:00",
+          "status": "read"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/side=out",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/status=sending",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "sending"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/status=sent",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "sent"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/status=read",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read"
         }
       }
     }

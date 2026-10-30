@@ -88,6 +88,19 @@ public enum ExponentialUIFonts {
         return italic ? italicized(font, size: size) : font
     }
 
+    /// VAPP-162: the system serif (New York) at a CSS weight (`ui-serif`):
+    /// the system font's descriptor `.withDesign(.serif)`, the face TextKit
+    /// measures with and SwiftUI's `Font.system(design: .serif)` draws.
+    static func serifFont(weight: Int, size: CGFloat, italic: Bool) -> PlatformFont {
+        let system = PlatformFont.systemFont(ofSize: size, weight: platformWeight(weight))
+        #if canImport(UIKit)
+        let font = system.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: size) } ?? system
+        #else
+        let font = system.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: size) } ?? system
+        #endif
+        return italic ? italicized(font, size: size) : font
+    }
+
     /// `font` with the italic trait (unchanged when the family has none).
     static func italicized(_ font: PlatformFont, size: CGFloat) -> PlatformFont {
         #if canImport(UIKit)

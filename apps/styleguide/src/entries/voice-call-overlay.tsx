@@ -1,6 +1,6 @@
 import voice from "@exp/domain-contract/fixtures/voice.json"
 import voiceCall from "@exp/domain-contract/fixtures/voice-call.json"
-import { ExponentialLogo, Pill, TooltipProvider, VoiceCallPillSpecimen, VoiceWave, type VoiceWaveActivity } from "@exp/ui"
+import { ExponentialLogo, ExponentialUiTwin, Pill, TooltipProvider, VoiceCallPillSpecimen, VoiceWave, type VoiceWaveActivity } from "@exp/ui"
 import { renderIsland } from "@exp/ui/island"
 
 import { escapeHtml } from "../html.ts"
@@ -42,6 +42,11 @@ function pills(): string {
   )
 }
 
+// VAPP-162: the SDK's push to talk, the hold button (specimens.json `exponential-ui-button` case `hold · true`).
+function pushToTalk(): string {
+  return renderIsland(<ExponentialUiTwin name="Button hold" id="exponential-ui-button" cases={[8]} />)
+}
+
 function capsule(c: Capsule): string {
   return [
     `<div class="cmp-bulk-bar" data-slot="voice-overlay">`,
@@ -66,7 +71,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `NEW-77`,
   title: `Voice overlay`,
-  blurb: `The voice device's one face while it listens or speaks (push to talk #NEW-54, the wake word later): THE bar (the bulk bar's capsule, as the computer-use banner is) in a transparent, always-on-top, never-focused window at the bottom centre of the display under the pointer, 24 px above the edge. VoiceWave (md) with the brand mark as the glyph, the state as the bold value (Listening · Heard · Speaking · Microphone muted), what was heard or said as the muted item, and one pill: the agent while it listens or thinks, Stop while it speaks, Unmute while the tray mutes the microphone. It appears on key-down and fades 1.5 s after the reply. S-3: a call is no capsule: while an IDE window of the voice device is focused it is the in-window call panel (voice-call); while none is (all minimized or another app in front) it is THE floating call pill, ${voiceCall.pill.width} × ${voiceCall.pill.height} px, transparent and always on top, draggable by any point outside its buttons, its position remembered on the device (default: bottom centre of the display under the pointer, ${voiceCall.pill.marginPx} px above the edge): a drag handle, the agent's avatar small, the name over the timer (ringing: ${voiceCall.copy.calling}), VoiceWave sm, then the round ${voiceCall.copy.mute} and the red ${voiceCall.copy.endCall} buttons (call-controls, icon only). Esc and the tray's ${voice.copy.trayEndCall} end the call.`,
+  blurb: `The voice device's one face while it listens or speaks (push to talk #NEW-54, the wake word later): THE bar (the bulk bar's capsule, as the computer-use banner is) in a transparent, always-on-top, never-focused window at the bottom centre of the display under the pointer, 24 px above the edge. VoiceWave (md) with the brand mark as the glyph, the state as the bold value (Listening · Heard · Speaking · Microphone muted), what was heard or said as the muted item, and one pill: the agent while it listens or thinks, Stop while it speaks, Unmute while the tray mutes the microphone. It appears on key-down and fades 1.5 s after the reply. S-3: a call is no capsule: while an IDE window of the voice device is focused it is the in-window call panel (voice-call); while none is (all minimized or another app in front) it is THE floating call pill, ${voiceCall.pill.width} × ${voiceCall.pill.height} px, transparent and always on top, draggable by any point outside its buttons, its position remembered on the device (default: bottom centre of the display under the pointer, ${voiceCall.pill.marginPx} px above the edge): a drag handle, the agent's avatar small, the name over the timer (ringing: ${voiceCall.copy.calling}), VoiceWave sm, then the round ${voiceCall.copy.mute} and the red ${voiceCall.copy.endCall} buttons (call-controls, icon only). Esc and the tray's ${voice.copy.trayEndCall} end the call. Exponential UI twin (VAPP-162): push to talk as an SDK piece is a Button with \`hold\` (holdStart on press, holdEnd on release, holdCancel past a 24 px slide-away, Escape or focus loss; Space and Enter hold too; \`holdingLabel\` while held; never press), painted below from specimens.json \`exponential-ui-button\` with the level beside it as VoiceWave bars (voice-level).`,
   status: {
     web: { state: `n/a`, note: `The voice device is a desktop; a web call draws the voice-call surface.` },
     desktop: {
@@ -78,5 +83,5 @@ export const entry: StyleguideEntry = {
     android: { state: `n/a`, note: `Phones draw a call in the voice-call entry (V5); no push to talk.` },
   },
   render: () =>
-    `<div class="cmp-stack cmp-stack-wide">${[...CAPSULES.map(capsule), pills()].join(``)}</div>`,
+    `<div class="cmp-stack cmp-stack-wide">${[...CAPSULES.map(capsule), pills(), pushToTalk()].join(``)}</div>`,
 }

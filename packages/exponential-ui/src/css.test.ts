@@ -9,6 +9,11 @@ describe(`fontStack`, () => {
     expect(fontStack(`Inter`, { Inter: { fallback: `ui-sans-serif, sans-serif` } })).toBe(`"Inter", ui-sans-serif, sans-serif`)
   })
 
+  test(`a CSS generic family stays a keyword (VAPP-162: ui-serif)`, () => {
+    expect(fontStack(`ui-serif`, { "ui-serif": { fallback: `Georgia, serif` } })).toBe(`ui-serif, Georgia, serif`)
+    expect(fontStack(`ui-monospace`, {})).toBe(`ui-monospace`)
+  })
+
   test(`a quote or backslash in a family name never ends the CSS string`, () => {
     expect(cssString(`a"}`)).toBe(`"a\\"}"`)
     expect(cssString(`a\\b`)).toBe(`"a\\\\b"`)

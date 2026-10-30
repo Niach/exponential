@@ -48,9 +48,15 @@ export function cssString(text: string): string {
 
 /** `font-family` for a theme family: the quoted name, then its `fonts`
  *  fallback list. Shared by the web layer's `web/theme-css.ts`. */
+/** The CSS generic font families (CSS Fonts 4): emitted bare, never quoted. */
+const CSS_GENERIC_FAMILIES: ReadonlySet<string> = new Set([`serif`, `sans-serif`, `monospace`, `cursive`, `fantasy`, `system-ui`, `ui-serif`, `ui-sans-serif`, `ui-monospace`, `ui-rounded`, `math`, `emoji`, `fangsong`])
+
 export function fontStack(family: string, fonts: Record<string, FontSpec>): string {
   const fallback = fonts[family]?.fallback
-  return fallback ? `${cssString(family)}, ${fallback}` : cssString(family)
+  // VAPP-162: a CSS generic family (`ui-serif`, `ui-monospace`…) stays a
+  // keyword: quoted it would name a font no system has.
+  const name = CSS_GENERIC_FAMILIES.has(family) ? family : cssString(family)
+  return fallback ? `${name}, ${fallback}` : name
 }
 
 function cssValue(key: string, value: unknown, fonts: Record<string, FontSpec>, style: Record<string, unknown>): string | null {

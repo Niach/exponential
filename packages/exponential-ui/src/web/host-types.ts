@@ -9,6 +9,7 @@
 
 import type { FunctionCallInfo, MediaOptions, MediaRequest, ThemeIssue, UiNode, UrlPolicy } from "@exponential_app/ui"
 import type { ClientFunction } from "./data"
+import type { QrScannerHost } from "./round5"
 
 /** A registry name → the renderer's icon component (a map or a lookup). */
 export type IconMap<Icon = unknown> = Record<string, Icon | undefined> | ((name: string) => Icon | undefined)
@@ -123,6 +124,12 @@ export interface HostPlugin<Icon = unknown, Markdown = unknown> {
   /** Round 1, Select `source`: a host list id (`exp:statuses`) → its
    *  options for a query (`""` when not searchable). */
   optionSource?: (source: string, query: string) => SourceOption[] | Promise<SourceOption[]>
+  /** VAPP-162, QrScanner: THE camera (host-owned, like FileUpload's bytes):
+   *  `start(feed, formats, onValue)` renders the live feed into `feed`,
+   *  decodes codes of `formats` and calls `onValue` per decoded string;
+   *  returns the stop. Unset (or `start` returning false) = no camera: the
+   *  scanner shows its placeholder and `Camera unavailable`. */
+  qrScanner?: QrScannerHost
 }
 
 /** Any renderer's plugin (what the framework-free helpers take). */

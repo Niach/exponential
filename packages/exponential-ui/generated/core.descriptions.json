@@ -574,6 +574,27 @@
         "size": "default"
       }
     },
+    "QrCode": {
+      "props": {
+        "value": {
+          "description": "The text to encode."
+        },
+        "size": {
+          "description": "Edge in px."
+        },
+        "level": {
+          "description": "Error correction."
+        },
+        "label": {
+          "description": "A caption under it and its accessibility label."
+        }
+      },
+      "description": "A QR code of a value, dark on a light plate.",
+      "example": {
+        "value": "https://exponential.at",
+        "label": "Scan to pair"
+      }
+    },
     "Carousel": {
       "props": {
         "page": {
@@ -644,9 +665,12 @@
         },
         "fill": {
           "description": "Stretches the segments across the width (a `bar` always does)."
+        },
+        "orientation": {
+          "description": "vertical bar = a rail."
         }
       },
-      "description": "ONE row of segments picking one or many values: a pill track, toggles, joined outline buttons or a bottom bar.",
+      "description": "ONE row or column of segments: a pill track, toggles, joined outline buttons, a bottom bar or a rail.",
       "example": {
         "items": [
           {
@@ -726,7 +750,7 @@
           "description": "A muted detail (a duration)."
         },
         "status": {
-          "description": "running shimmers, error tints, pending dims."
+          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
         },
         "size": {
           "description": "sm = compact."
@@ -745,6 +769,53 @@
         "description": "4s",
         "collapsible": true,
         "open": true
+      }
+    },
+    "Plan": {
+      "props": {
+        "title": {
+          "description": "The plan's heading."
+        },
+        "description": {
+          "description": "A muted line under it."
+        },
+        "steps": {
+          "description": "The steps."
+        },
+        "state": {
+          "description": "proposed asks, running shows progress."
+        },
+        "progress": {
+          "description": "0 to 1."
+        },
+        "approveLabel": {
+          "description": "Button text."
+        },
+        "declineLabel": {
+          "description": "Button text."
+        },
+        "stopLabel": {
+          "description": "Button text."
+        }
+      },
+      "description": "A plan card: steps to approve, then progress and Stop.",
+      "example": {
+        "title": "Here's my plan",
+        "description": "About two minutes.",
+        "steps": [
+          {
+            "title": "Open the site",
+            "icon": "globe"
+          },
+          {
+            "title": "Reserve a table",
+            "icon": "pencil"
+          },
+          {
+            "title": "Add it to your calendar",
+            "icon": "calendar"
+          }
+        ]
       }
     },
     "Pagination": {
@@ -1242,6 +1313,9 @@
         "activity": {
           "description": "What the voice is doing."
         },
+        "variant": {
+          "description": "bars = a level meter."
+        },
         "level": {
           "description": "Loudness 0 to 1."
         },
@@ -1266,6 +1340,49 @@
           0.5
         ],
         "size": "lg"
+      }
+    },
+    "CallSurface": {
+      "props": {
+        "name": {
+          "description": "Who is on the call."
+        },
+        "avatar": {
+          "description": "Picture URL."
+        },
+        "state": {
+          "description": "ringing: Cancel only."
+        },
+        "activity": {
+          "description": "The wave when talking."
+        },
+        "level": {
+          "description": "Level 0 to 1."
+        },
+        "bands": {
+          "description": "Band levels."
+        },
+        "status": {
+          "description": "Calling… or a timer."
+        },
+        "caption": {
+          "description": "The live line."
+        },
+        "muted": {
+          "description": "Mic off; bind it."
+        },
+        "speaker": {
+          "description": "Shows the speaker toggle."
+        }
+      },
+      "description": "A voice call screen: wave, avatar, name, status, caption, call buttons.",
+      "example": {
+        "name": "Assistant",
+        "state": "talking",
+        "activity": "speaking",
+        "level": 0.6,
+        "status": "01:24",
+        "caption": "Sure, Friday at eight works."
       }
     },
     "Table": {
@@ -1481,6 +1598,12 @@
         },
         "submit": {
           "description": "Submits the enclosing Form on press."
+        },
+        "hold": {
+          "description": "holdStart/holdEnd/holdCancel, no press."
+        },
+        "holdingLabel": {
+          "description": "Label while held."
         }
       },
       "description": "A press target with a label and optional icon (or one custom child).",
@@ -2154,6 +2277,26 @@
         "multiple": true
       }
     },
+    "QrScanner": {
+      "props": {
+        "hint": {
+          "description": "Muted line below."
+        },
+        "formats": {
+          "description": "Code formats."
+        },
+        "label": {
+          "description": "An accessibility label."
+        },
+        "disabled": {
+          "description": "Stops scanning."
+        }
+      },
+      "description": "A QR scanner viewfinder; the host camera fires `scanned {value}`.",
+      "example": {
+        "hint": "Point at the code on your computer"
+      }
+    },
     "Composer": {
       "props": {
         "placeholder": {
@@ -2226,6 +2369,32 @@
         "pressable": true
       }
     },
+    "MessageBubble": {
+      "props": {
+        "text": {
+          "description": "The message."
+        },
+        "side": {
+          "description": "out = the viewer's."
+        },
+        "time": {
+          "description": "Under the text."
+        },
+        "status": {
+          "description": "Delivery, out only."
+        },
+        "author": {
+          "description": "Caption above, in only."
+        }
+      },
+      "description": "A chat message bubble, in (left) or out (right).",
+      "example": {
+        "text": "Is the printer fixed?",
+        "side": "out",
+        "time": "18:00",
+        "status": "read"
+      }
+    },
     "TreeGuides": {
       "props": {
         "depth": {
@@ -2284,6 +2453,9 @@
         },
         "image": {
           "description": "A tile picture."
+        },
+        "count": {
+          "description": "A badge on a bar item."
         }
       },
       "description": "One selectable option."
@@ -2508,6 +2680,23 @@
         }
       },
       "description": "One attached file."
+    },
+    "planStep": {
+      "properties": {
+        "title": {
+          "description": "What the step does."
+        },
+        "detail": {
+          "description": "A muted detail."
+        },
+        "icon": {
+          "description": "The lead glyph."
+        },
+        "status": {
+          "description": "The step's state."
+        }
+      },
+      "description": "One step of a Plan."
     }
   },
   "functions": {

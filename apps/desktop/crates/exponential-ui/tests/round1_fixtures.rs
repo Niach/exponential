@@ -231,6 +231,43 @@ fn voice_wave_every_case_matches_the_reference() {
     }
 }
 
+/// VAPP-162: `voice-wave.json` `bars` = the `variant: bars` level meter.
+#[test]
+fn voice_wave_bars_every_case_matches_the_reference() {
+    use exponential_ui::voice_wave::{voice_wave_bars, VoiceWaveBars, VoiceWaveBarsInput};
+    let file = fixture("voice-wave.json");
+    let cases = file["bars"].as_array().unwrap();
+    assert_eq!(cases.len(), 8);
+    for c in cases {
+        let input: VoiceWaveBarsInput = serde_json::from_value(c["input"].clone()).unwrap();
+        let got = voice_wave_bars(&input);
+        let expected: VoiceWaveBars = serde_json::from_value(c["expected"].clone()).unwrap();
+        let name = c["name"].as_str().unwrap();
+        assert_eq!((got.width, got.height, got.phase), (expected.width, expected.height, expected.phase), "{name}");
+        assert_eq!(got.bars.len(), expected.bars.len(), "{name}");
+        for (i, (g, e)) in got.bars.iter().zip(&expected.bars).enumerate() {
+            assert_eq!((g.x, g.width, g.radius), (e.x, e.width, e.radius), "{name} bar {i}");
+            // libm and V8 may round the last digit differently
+            assert!((g.y - e.y).abs() <= 0.011 && (g.height - e.height).abs() <= 0.011, "{name} bar {i}: {g:?} vs {e:?}");
+        }
+    }
+}
+
+/// VAPP-162: `qr-code.json` = the Nayuki port, bit for bit.
+#[test]
+fn qr_code_every_case_matches_the_reference_bit_for_bit() {
+    use exponential_ui::qr_code::{qr_matrix, QrLevel, QrMatrix};
+    let file = fixture("qr-code.json");
+    let cases = file["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 13);
+    for c in cases {
+        let name = c["name"].as_str().unwrap();
+        let got = qr_matrix(c["value"].as_str().unwrap(), QrLevel::parse(c["level"].as_str().unwrap_or("M")));
+        let expected: Option<QrMatrix> = serde_json::from_value(c["expected"].clone()).unwrap();
+        assert_eq!(got, expected, "{name}");
+    }
+}
+
 #[test]
 fn theme_settings_density_contrast_system_mode_and_breakpoint_keys() {
     let neutral = builtin_theme("neutral").unwrap();

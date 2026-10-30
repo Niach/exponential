@@ -11,6 +11,7 @@
 // Natives then add their own structure under `[data-xui-c="…"]`; a theme
 // never needs to (recipes carry only visuals, sizes and spacing).
 
+import { QR_SCANNER } from "./round5"
 import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TEXT_SHIMMER, keyframesCss } from "@exponential_app/ui"
 
 /** EXP-1324: the Text `shimmer` (catalog/style.json `textShimmer`, shadcn's
@@ -26,7 +27,7 @@ const SHIMMER_CSS = `@keyframes xui-shimmer{from{background-position:100% 0}to{b
 
 /** EXP-1259: under reduce motion nothing scales (a pressed button stays
  *  put) and a placeholder holds still at its reduced opacity. */
-const REDUCED_EXTRA = `.xui-surface [data-xui-shimmer]{animation:none !important;background-image:none !important;-webkit-text-fill-color:currentColor !important}.xui-surface [data-xui-c="Button"].xui-el:active{scale:none !important}.xui-surface [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-surface .xui-Skeleton-dot,.xui-surface .xui-Skeleton-bar{animation:none !important;opacity:${SKELETON_REDUCED_OPACITY} !important}`
+const REDUCED_EXTRA = `.xui-surface [data-xui-shimmer]{animation:none !important;background-image:none !important;-webkit-text-fill-color:currentColor !important}.xui-surface [data-xui-c="Button"].xui-el:active,.xui-surface [data-xui-c="Button"][data-hold][data-xs~="pressed"].xui-el{scale:none !important}.xui-surface .xui-QrScanner-scanLine{animation:none !important}.xui-surface [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-surface .xui-Skeleton-dot,.xui-surface .xui-Skeleton-bar{animation:none !important;opacity:${SKELETON_REDUCED_OPACITY} !important}`
 
 /** Round 2 §2: the `animation` key's keyframe sets (style.json
  *  `animations`; the individual `translate`/`rotate`/`scale` properties
@@ -127,6 +128,12 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Segmented"][data-r-variant="bar"].xui-el>.xui-Segmented-item{flex-direction:column;gap:var(--xui-spacing-xxs);padding:var(--xui-spacing-xs) 0}
 [data-xui-c="Segmented"][data-r-variant="bar"].xui-el .xui-Segmented-label{font-size:var(--xui-type-size-xs);line-height:var(--xui-type-lineHeight-xs);white-space:nowrap}
 .xui-Segmented-icon{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+[data-xui-c="Segmented"][data-r-orientation="vertical"].xui-el{flex-direction:column;align-items:stretch}
+[data-xui-c="Segmented"][data-r-orientation="vertical"][data-r-variant="bar"].xui-el{height:auto;width:auto;align-self:flex-start}
+[data-xui-c="Segmented"][data-r-orientation="vertical"].xui-el>.xui-Segmented-item{flex:0 0 auto}
+.xui-Segmented-icon{position:relative}
+.xui-Segmented-badge{position:absolute;top:0;left:100%;transform:translate(-50%,-50%);box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;line-height:1;font-variant-numeric:tabular-nums;pointer-events:none}
+[dir="rtl"] .xui-Segmented-badge{left:auto;right:100%;transform:translate(50%,-50%)}
 .xui-Segmented-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
 [data-xui-c="Accordion"].xui-el{flex-direction:column}
 .xui-Accordion-item{display:flex;flex-direction:column}
@@ -228,6 +235,25 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="VoiceWave"].xui-el>svg{position:absolute;inset:0;width:100%;height:100%;display:block;overflow:visible;pointer-events:none}
 .xui-VoiceWave-child{position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .xui-VoiceWave-child[data-hidden]{visibility:hidden;pointer-events:none}
+[data-xui-c="QrCode"].xui-el{flex-direction:column;align-items:center;flex-shrink:0}
+.xui-QrCode-plate{display:block;flex-shrink:0;overflow:hidden}
+.xui-QrCode-plate>svg{display:block;width:100%;height:100%}
+.xui-QrCode-label{text-align:center}
+[data-xui-c="QrScanner"].xui-el{flex-direction:column;align-items:center}
+.xui-QrScanner-viewfinder{position:relative;display:block;width:100%;max-width:${QR_SCANNER.maxWidth}px;aspect-ratio:${QR_SCANNER.aspectRatio};flex-shrink:0;overflow:hidden;isolation:isolate}
+.xui-QrScanner-feed{position:absolute;inset:0;display:block;overflow:hidden}
+.xui-QrScanner-feed>video,.xui-QrScanner-feed>canvas,.xui-QrScanner-feed>img{display:block;width:100%;height:100%;object-fit:cover}
+.xui-QrScanner-corner{position:absolute;width:${QR_SCANNER.cornerLength}px;height:${QR_SCANNER.cornerLength}px;overflow:visible;pointer-events:none}
+.xui-QrScanner-corner[data-corner="tl"]{top:0;left:0}.xui-QrScanner-corner[data-corner="tr"]{top:0;right:0}.xui-QrScanner-corner[data-corner="bl"]{bottom:0;left:0}.xui-QrScanner-corner[data-corner="br"]{bottom:0;right:0}
+.xui-QrScanner-scanLine{position:absolute;left:${QR_SCANNER.scanLineInset}px;right:${QR_SCANNER.scanLineInset}px;height:${QR_SCANNER.scanLineHeight}px;top:calc(50% - ${QR_SCANNER.scanLineHeight / 2}px);border-radius:${QR_SCANNER.scanLineHeight / 2}px;pointer-events:none;animation:xui-qr-sweep ${QR_SCANNER.sweepMs}ms var(--xui-ease-standard,ease) infinite alternate}
+[data-xui-c="QrScanner"][data-r-disabled="true"].xui-el .xui-QrScanner-scanLine{animation:none}
+.xui-QrScanner-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--xui-spacing-xs);text-align:center;padding:var(--xui-spacing-md)}
+.xui-QrScanner-placeholderIcon{display:inline-flex;width:${QR_SCANNER.placeholderIconSize}px;height:${QR_SCANNER.placeholderIconSize}px;flex-shrink:0}
+.xui-QrScanner-placeholderIcon>svg{width:100%;height:100%}
+.xui-QrScanner-hint{text-align:center}
+@keyframes xui-qr-sweep{from{top:0}to{top:calc(100% - ${QR_SCANNER.scanLineHeight}px)}}
+[data-xui-c="Button"][data-hold].xui-el{touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+[data-xui-c="Button"][data-hold][data-xs~="pressed"].xui-el{scale:var(--xui-scale-press,1)}
 [data-xui-c="Spinner"].xui-el>svg,.xui-Button-spinner>svg{animation:xui-spin 0.8s linear infinite}
 [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-Skeleton-dot,.xui-Skeleton-bar{animation:xui-skeleton ${SKELETON_PULSE_MS}ms ease-in-out infinite;opacity:${SKELETON_OPACITY_LOW};flex-shrink:0}
 [data-xui-c="Skeleton"][data-rows].xui-el{display:flex;flex-direction:column;align-self:stretch;flex-shrink:0;background:none;border-radius:0}

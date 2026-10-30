@@ -55,7 +55,7 @@ el.apply({ updateComponents: { surfaceId: "main", components } })
 | `surface` | A `createSurface` store (it takes priority over the other sources) |
 | `root`, `templates`, `data` | Fixture mode: a normalized tree, its lifted templates, and a data model |
 | `host` | An `ExponentialHost` to use instead of `src` |
-| `plugin` | A `HostPlugin`: icons, `Markdown`, URL and media policies, `optionSource`, `mediaRequest`, `mediaStreamUrl`, `resolveUrl`, `functions`, and the callbacks |
+| `plugin` | A `HostPlugin`: icons, `Markdown`, URL and media policies, `optionSource`, `mediaRequest`, `mediaStreamUrl`, `resolveUrl`, `functions`, `qrScanner` (the QrScanner's camera, below), and the callbacks |
 | `extensions`, `strings`, `states`, `measure`, `viewportHeight` | The same as the Solid props |
 
 String properties reflect to their attributes. Setting a property to
@@ -79,6 +79,30 @@ Methods:
 Detaching the element disposes the painted DOM. Re-attaching it paints
 again, and every property survives. Attaching also clears any children the
 author put inside the element.
+
+### The QrScanner camera
+
+A `QrScanner` paints only the viewfinder; the camera is the page's, through
+`plugin.qrScanner` (the Solid renderer's hook, VAPP-162):
+
+```js
+el.plugin = {
+  qrScanner: {
+    // feed: an empty element filling the viewfinder (append a <video>);
+    // formats: default ["qr"]; call onValue per decoded string; return the stop.
+    start(feed, formats, onValue) {
+      const video = feed.appendChild(document.createElement("video"))
+      // … getUserMedia + a decoder calling onValue(text) …
+      return () => video.srcObject?.getTracks().forEach((t) => t.stop())
+    },
+  },
+}
+el.addEventListener("xui-action", (e) => e.detail.event === "scanned" && pair(e.detail.payload.value))
+```
+
+A value fires the node's `scanned` handler (`xui-action`, and
+`plugin.onAction`) once per distinct value. Without `qrScanner` (or when
+`start` returns `false`) the scanner shows `Camera unavailable`.
 
 ## Events
 

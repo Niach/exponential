@@ -498,6 +498,47 @@ pub(crate) fn is_specimen_id(id: &str) -> bool {
     specimens().iter().any(|(entry, _)| entry == id) || eval_specimens().iter().any(|(entry, _, _)| entry == id)
 }
 
+/// VAPP-162: the node `node_id` inside specimen `specimen_id`'s tree (one
+/// case of a specimen, e.g. the Segmented rail), cloned.
+pub(crate) fn specimen_node(specimen_id: &str, node_id: &str) -> Option<Value> {
+    fn find(v: &Value, id: &str) -> Option<Value> {
+        if v.get("id").and_then(Value::as_str) == Some(id) {
+            return Some(v.clone());
+        }
+        v.get("children").and_then(Value::as_array)?.iter().find_map(|c| find(c, id))
+    }
+    let (_, node) = specimens().iter().find(|(entry, _)| entry == specimen_id)?;
+    find(node, node_id)
+}
+
+/// VAPP-162: a styleguide twin's eUI surface: `tree` (a specimen or a case
+/// of one, from `fixtures/specimens.json`, so the twin cannot drift from
+/// the catalog) painted by THE gpui painter under the exponential theme in
+/// the app's mode, kept across frames under `key`.
+pub(crate) fn styleguide_surface(key: &'static str, tree: Value, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
+    let dark = gpui_component::ActiveTheme::theme(cx).is_dark();
+    window.use_keyed_state(key, cx, move |window, cx| {
+        let options = SurfaceViewOptions {
+            surface_id: key.to_string(),
+            theme: exponential_ui::themes::builtin_theme("exponential"),
+            mode: if dark { Mode::Dark } else { Mode::Light },
+            host: Rc::new(SpecimenHost),
+            ..SurfaceViewOptions::default()
+        };
+        let mut view = SurfaceView::new(options, window, cx);
+        match serde_json::from_value::<NestedNode>(tree) {
+            Ok(tree) => {
+                let outcome = view.set_nested(tree, cx);
+                for issue in &outcome.issues {
+                    log::warn!("[exponential-ui styleguide] {key}: {}: {}", issue.id, issue.message);
+                }
+            }
+            Err(err) => log::warn!("[exponential-ui styleguide] {key} does not parse: {err}"),
+        }
+        view
+    })
+}
+
 /// The specimen's host: icons by concept like the kitchen sink, actions only
 /// logged (a specimen is a still photograph).
 struct SpecimenHost;
@@ -638,9 +679,10 @@ mod tests {
     fn every_specimen_parses_as_a_nested_node() {
         // Every visible core component (74: round 3's 70 + EXP-1259's SearchList
         // + EXP-1324's Trace and TraceItem + EXP-1280's ChoiceTiles + N-12's
-        // DockCard; then VAPP-126's layout macros; NEW-77's VoiceWave) + the
-        // home demo.
-        assert_eq!(specimens().len(), 83);
+        // DockCard; then VAPP-126's layout macros; NEW-77's VoiceWave;
+        // VAPP-162's MessageBubble, CallSurface, Plan, QrCode, QrScanner) +
+        // the home demo.
+        assert_eq!(specimens().len(), 88);
         for (id, node) in specimens() {
             let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
             assert!(tree.is_ok(), "{id}: {:?}", tree.err());

@@ -4282,6 +4282,1035 @@
                 ]
               },
               {
+                "id": "call",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "call.head",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "call.head.wave",
+                        "component": "VoiceWave",
+                        "props": {
+                          "activity": "speaking",
+                          "size": "xl"
+                        },
+                        "children": [
+                          {
+                            "id": "call.head.wave.avatar",
+                            "component": "Avatar",
+                            "props": {
+                              "name": "Assistant",
+                              "size": "lg"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "CallSurface",
+                              "part": "avatar",
+                              "props": {
+                                "state": "talking",
+                                "muted": false
+                              }
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "wave",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        },
+                        "accessibility": {
+                          "hidden": true
+                        }
+                      },
+                      {
+                        "id": "call.head.name",
+                        "component": "Text",
+                        "props": {
+                          "text": "Assistant",
+                          "variant": "title",
+                          "align": "center",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "marginTop": "$spacing.sm",
+                          "maxWidth": "100%"
+                        },
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "name",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        },
+                        "accessibility": {
+                          "role": "heading",
+                          "level": 2
+                        }
+                      },
+                      {
+                        "id": "call.head.status",
+                        "component": "Text",
+                        "props": {
+                          "text": "01:24",
+                          "variant": "muted",
+                          "align": "center",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "marginTop": "$spacing.xs"
+                        },
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "status",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      },
+                      {
+                        "id": "call.head.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Sure, Friday at eight works.",
+                          "align": "center",
+                          "lines": 4,
+                          "live": "polite"
+                        },
+                        "children": [],
+                        "style": {
+                          "marginTop": "$spacing.xl2",
+                          "maxWidth": "100%"
+                        },
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "caption",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "alignItems": "center",
+                      "width": "100%",
+                      "maxWidth": 384,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "head",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minHeight": "$spacing.xl"
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "spacer",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call.controls",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "call.controls.muteTip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "$string.mute"
+                        },
+                        "children": [
+                          {
+                            "id": "call.controls.muteTip.mute",
+                            "component": "Button",
+                            "props": {
+                              "variant": "secondary",
+                              "size": "icon"
+                            },
+                            "children": [
+                              {
+                                "id": "call.controls.muteTip.mute.muteIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "call-mute",
+                                  "size": "lg"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "CallSurface",
+                                  "part": "muteIcon",
+                                  "props": {
+                                    "state": "talking",
+                                    "muted": false
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "width": 56,
+                              "height": 56,
+                              "borderRadius": "$radius.full",
+                              "flexShrink": 0
+                            },
+                            "recipe": {
+                              "macro": "CallSurface",
+                              "part": "mute",
+                              "props": {
+                                "state": "talking",
+                                "muted": false
+                              }
+                            },
+                            "accessibility": {
+                              "label": "$string.mute"
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "muteTip",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      },
+                      {
+                        "id": "call.controls.endTip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "$string.endCall"
+                        },
+                        "children": [
+                          {
+                            "id": "call.controls.endTip.end",
+                            "component": "Button",
+                            "props": {
+                              "variant": "destructive",
+                              "size": "icon"
+                            },
+                            "children": [
+                              {
+                                "id": "call.controls.endTip.end.endIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "call-end",
+                                  "size": "lg"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "CallSurface",
+                                  "part": "endIcon",
+                                  "props": {
+                                    "state": "talking",
+                                    "muted": false
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "width": 56,
+                              "height": 56,
+                              "borderRadius": "$radius.full",
+                              "flexShrink": 0
+                            },
+                            "recipe": {
+                              "macro": "CallSurface",
+                              "part": "end",
+                              "props": {
+                                "state": "talking",
+                                "muted": false
+                              }
+                            },
+                            "accessibility": {
+                              "label": "$string.endCall"
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "endTip",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "justifyContent": "center",
+                      "alignItems": "flex-start",
+                      "gap": 32
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "controls",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "center",
+                  "width": "100%",
+                  "height": 360,
+                  "minHeight": 0,
+                  "paddingHorizontal": "$spacing.xl",
+                  "paddingTop": "$spacing.xl3",
+                  "paddingBottom": "$spacing.xl3"
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "root",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  },
+                  "authored": [
+                    "height"
+                  ]
+                },
+                "accessibility": {
+                  "role": "group",
+                  "label": "Assistant"
+                }
+              },
+              {
+                "id": "bubble-out",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "bubble-out.bubble",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "bubble-out.bubble.text",
+                        "component": "Markdown",
+                        "props": {
+                          "text": "Is the printer fixed?"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "text",
+                          "props": {
+                            "side": "out",
+                            "status": "read"
+                          }
+                        }
+                      },
+                      {
+                        "id": "bubble-out.bubble.footer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "bubble-out.bubble.footer.time",
+                            "component": "Text",
+                            "props": {
+                              "text": "18:00",
+                              "variant": "caption",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "MessageBubble",
+                              "part": "time",
+                              "props": {
+                                "side": "out",
+                                "status": "read"
+                              }
+                            }
+                          },
+                          {
+                            "id": "bubble-out.bubble.footer.status",
+                            "component": "Icon",
+                            "props": {
+                              "name": "ui-read",
+                              "size": "sm",
+                              "label": "$string.read"
+                            },
+                            "children": [],
+                            "style": {
+                              "width": 14,
+                              "height": 14,
+                              "flexShrink": 0
+                            },
+                            "recipe": {
+                              "macro": "MessageBubble",
+                              "part": "status",
+                              "props": {
+                                "side": "out",
+                                "status": "read"
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "justifyContent": "flex-end",
+                          "alignSelf": "flex-end",
+                          "gap": "$spacing.xs"
+                        },
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "footer",
+                          "props": {
+                            "side": "out",
+                            "status": "read"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.xxs",
+                      "maxWidth": "80%",
+                      "minWidth": 0,
+                      "paddingHorizontal": "$spacing.md",
+                      "paddingVertical": "$spacing.sm",
+                      "borderRadius": "$radius.xl",
+                      "borderTopLeftRadius": "$radius.xl"
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "bubble",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "flex-end",
+                  "width": "100%",
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "root",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                },
+                "accessibility": {
+                  "role": "group",
+                  "label": "18:00"
+                }
+              },
+              {
+                "id": "bubble-in",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "bubble-in.bubble",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "bubble-in.bubble.author",
+                        "component": "Text",
+                        "props": {
+                          "text": "spezl",
+                          "variant": "caption",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "author",
+                          "props": {
+                            "side": "in"
+                          }
+                        }
+                      },
+                      {
+                        "id": "bubble-in.bubble.text",
+                        "component": "Markdown",
+                        "props": {
+                          "text": "Yes, try again."
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "text",
+                          "props": {
+                            "side": "in"
+                          }
+                        }
+                      },
+                      {
+                        "id": "bubble-in.bubble.footer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "bubble-in.bubble.footer.time",
+                            "component": "Text",
+                            "props": {
+                              "text": "18:02",
+                              "variant": "caption",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "MessageBubble",
+                              "part": "time",
+                              "props": {
+                                "side": "in"
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "justifyContent": "flex-end",
+                          "alignSelf": "flex-end",
+                          "gap": "$spacing.xs"
+                        },
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "footer",
+                          "props": {
+                            "side": "in"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.xxs",
+                      "maxWidth": "80%",
+                      "minWidth": 0,
+                      "paddingHorizontal": "$spacing.md",
+                      "paddingVertical": "$spacing.sm",
+                      "borderRadius": "$radius.xl",
+                      "borderTopLeftRadius": 6
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "bubble",
+                      "props": {
+                        "side": "in"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "flex-start",
+                  "width": "100%",
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "root",
+                  "props": {
+                    "side": "in"
+                  }
+                },
+                "accessibility": {
+                  "role": "group",
+                  "label": "spezl"
+                }
+              },
+              {
+                "id": "plan",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "plan.card",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "plan.card.body",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "plan.card.header",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "plan.card.header.title",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Here's my plan",
+                                  "variant": "title"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Heading",
+                                  "part": "root",
+                                  "props": {
+                                    "level": "h3"
+                                  }
+                                },
+                                "accessibility": {
+                                  "role": "heading",
+                                  "level": 3
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "column",
+                              "gap": "$spacing.xxs",
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "Plan",
+                              "part": "header",
+                              "props": {
+                                "state": "running"
+                              }
+                            }
+                          },
+                          {
+                            "id": "plan.card.steps",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "plan.card.steps.step.0",
+                                "component": "Box",
+                                "props": {},
+                                "children": [
+                                  {
+                                    "id": "plan.card.steps.step.0.line",
+                                    "component": "Box",
+                                    "props": {},
+                                    "children": [
+                                      {
+                                        "id": "plan.card.steps.step.0.line.icon",
+                                        "component": "Icon",
+                                        "props": {
+                                          "name": "globe",
+                                          "size": "sm"
+                                        },
+                                        "children": [],
+                                        "style": {
+                                          "width": 16,
+                                          "height": 16,
+                                          "flexShrink": 0
+                                        },
+                                        "recipe": {
+                                          "macro": "TraceItem",
+                                          "part": "icon",
+                                          "props": {
+                                            "status": "done",
+                                            "size": "default",
+                                            "collapsible": false,
+                                            "open": false
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "id": "plan.card.steps.step.0.line.title",
+                                        "component": "Text",
+                                        "props": {
+                                          "text": "Open the site",
+                                          "lines": 1,
+                                          "shimmer": false
+                                        },
+                                        "children": [],
+                                        "style": {
+                                          "flexShrink": 1,
+                                          "minWidth": 0,
+                                          "fontSize": 14,
+                                          "lineHeight": 20
+                                        },
+                                        "recipe": {
+                                          "macro": "TraceItem",
+                                          "part": "title",
+                                          "props": {
+                                            "status": "done",
+                                            "size": "default",
+                                            "collapsible": false,
+                                            "open": false
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    "style": {
+                                      "display": "flex",
+                                      "flexDirection": "row",
+                                      "alignItems": "center",
+                                      "gap": 8,
+                                      "minHeight": 20,
+                                      "alignSelf": "flex-start",
+                                      "maxWidth": "100%",
+                                      "minWidth": 0,
+                                      "borderRadius": "$radius.md"
+                                    },
+                                    "recipe": {
+                                      "macro": "TraceItem",
+                                      "part": "line",
+                                      "props": {
+                                        "status": "done",
+                                        "size": "default",
+                                        "collapsible": false,
+                                        "open": false
+                                      }
+                                    }
+                                  }
+                                ],
+                                "style": {
+                                  "display": "flex",
+                                  "flexDirection": "column",
+                                  "minWidth": 0
+                                },
+                                "recipe": {
+                                  "macro": "TraceItem",
+                                  "part": "root",
+                                  "props": {
+                                    "status": "done",
+                                    "size": "default",
+                                    "collapsible": false,
+                                    "open": false
+                                  }
+                                }
+                              },
+                              {
+                                "id": "plan.card.steps.step.1",
+                                "component": "Box",
+                                "props": {},
+                                "children": [
+                                  {
+                                    "id": "plan.card.steps.step.1.line",
+                                    "component": "Box",
+                                    "props": {},
+                                    "children": [
+                                      {
+                                        "id": "plan.card.steps.step.1.line.icon",
+                                        "component": "Icon",
+                                        "props": {
+                                          "name": "pencil",
+                                          "size": "sm"
+                                        },
+                                        "children": [],
+                                        "style": {
+                                          "width": 16,
+                                          "height": 16,
+                                          "flexShrink": 0
+                                        },
+                                        "recipe": {
+                                          "macro": "TraceItem",
+                                          "part": "icon",
+                                          "props": {
+                                            "status": "running",
+                                            "size": "default",
+                                            "collapsible": false,
+                                            "open": false
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "id": "plan.card.steps.step.1.line.title",
+                                        "component": "Text",
+                                        "props": {
+                                          "text": "Reserve a table",
+                                          "lines": 1,
+                                          "shimmer": true
+                                        },
+                                        "children": [],
+                                        "style": {
+                                          "flexShrink": 1,
+                                          "minWidth": 0,
+                                          "fontSize": 14,
+                                          "lineHeight": 20
+                                        },
+                                        "recipe": {
+                                          "macro": "TraceItem",
+                                          "part": "title",
+                                          "props": {
+                                            "status": "running",
+                                            "size": "default",
+                                            "collapsible": false,
+                                            "open": false
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    "style": {
+                                      "display": "flex",
+                                      "flexDirection": "row",
+                                      "alignItems": "center",
+                                      "gap": 8,
+                                      "minHeight": 20,
+                                      "alignSelf": "flex-start",
+                                      "maxWidth": "100%",
+                                      "minWidth": 0,
+                                      "borderRadius": "$radius.md"
+                                    },
+                                    "recipe": {
+                                      "macro": "TraceItem",
+                                      "part": "line",
+                                      "props": {
+                                        "status": "running",
+                                        "size": "default",
+                                        "collapsible": false,
+                                        "open": false
+                                      }
+                                    }
+                                  }
+                                ],
+                                "style": {
+                                  "display": "flex",
+                                  "flexDirection": "column",
+                                  "minWidth": 0
+                                },
+                                "recipe": {
+                                  "macro": "TraceItem",
+                                  "part": "root",
+                                  "props": {
+                                    "status": "running",
+                                    "size": "default",
+                                    "collapsible": false,
+                                    "open": false
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "column",
+                              "gap": 8,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "Trace",
+                              "part": "root",
+                              "props": {
+                                "size": "default"
+                              }
+                            }
+                          },
+                          {
+                            "id": "plan.card.running",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "plan.card.running.progress",
+                                "component": "Box",
+                                "props": {},
+                                "children": [
+                                  {
+                                    "id": "plan.card.running.progress.track",
+                                    "component": "Box",
+                                    "props": {},
+                                    "children": [
+                                      {
+                                        "id": "plan.card.running.progress.track.fill",
+                                        "component": "Box",
+                                        "props": {},
+                                        "children": [],
+                                        "style": {
+                                          "height": "100%",
+                                          "width": "40%",
+                                          "borderRadius": "$radius.full"
+                                        },
+                                        "recipe": {
+                                          "macro": "Progress",
+                                          "part": "fill",
+                                          "props": {
+                                            "tone": "primary"
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    "style": {
+                                      "height": "$control.progress",
+                                      "borderRadius": "$radius.full",
+                                      "overflow": "hidden",
+                                      "width": "100%"
+                                    },
+                                    "recipe": {
+                                      "macro": "Progress",
+                                      "part": "track",
+                                      "props": {
+                                        "tone": "primary"
+                                      }
+                                    }
+                                  }
+                                ],
+                                "style": {
+                                  "display": "flex",
+                                  "flexDirection": "column",
+                                  "gap": "$spacing.xs",
+                                  "width": "100%",
+                                  "flexGrow": 1,
+                                  "flexShrink": 1,
+                                  "flexBasis": 0,
+                                  "minWidth": 0
+                                },
+                                "recipe": {
+                                  "macro": "Progress",
+                                  "part": "root",
+                                  "props": {
+                                    "tone": "primary"
+                                  }
+                                },
+                                "accessibility": {
+                                  "role": "progressbar",
+                                  "valueNow": 0.4,
+                                  "valueMin": 0,
+                                  "valueMax": 1
+                                }
+                              },
+                              {
+                                "id": "plan.card.running.stop",
+                                "component": "Button",
+                                "props": {
+                                  "label": "$string.stop",
+                                  "icon": "ui-stop",
+                                  "variant": "destructive"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Plan",
+                                  "part": "stop",
+                                  "props": {
+                                    "state": "running"
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "gap": "$spacing.md"
+                            },
+                            "recipe": {
+                              "macro": "Plan",
+                              "part": "running",
+                              "props": {
+                                "state": "running"
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.md",
+                          "padding": "$spacing.lg"
+                        },
+                        "recipe": {
+                          "macro": "Card",
+                          "part": "body",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "borderRadius": "$radius.xl",
+                      "overflow": "hidden"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Plan",
+                  "part": "root",
+                  "props": {
+                    "state": "running"
+                  }
+                },
+                "accessibility": {
+                  "role": "group",
+                  "label": "Here's my plan"
+                }
+              },
+              {
+                "id": "qr",
+                "component": "QrCode",
+                "props": {
+                  "value": "HELLO",
+                  "size": 120,
+                  "label": "Scan to pair"
+                },
+                "children": []
+              },
+              {
+                "id": "scanner",
+                "component": "QrScanner",
+                "props": {
+                  "hint": "Point at the code"
+                },
+                "children": [],
+                "style": {
+                  "width": 240
+                }
+              },
+              {
                 "id": "empty",
                 "component": "Box",
                 "props": {},

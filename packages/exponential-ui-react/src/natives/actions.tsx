@@ -8,14 +8,14 @@
 // flashes): then the icon slot is the spinner and the label `pendingLabel`,
 // at no less than the idle width.
 
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
 import { PENDING_DELAY_MS } from "@exponential_app/ui"
 import { Toggle as TogglePrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
 import { useForm } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useBoundState } from "./bound"
-import { linkHref } from "@exponential_app/ui/web"
+import { ButtonHold, linkHref } from "@exponential_app/ui/web"
 import type { NativeProps } from "../node-view"
 import { bool, str, useParts } from "./shared"
 
@@ -66,6 +66,12 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
     if (loading && !shown && ref.current) idleWidth.current = ref.current.offsetWidth || null
   })
   const rootStyle = (rootProps as { style?: Record<string, unknown> }).style
+  // VAPP-162 (round-5 contract §9): `hold` = holdStart/holdEnd/holdCancel, never `press`.
+  const hold = bool(props.hold)
+  const { held, handlers } = useHold(hold, disabled, emit)
+  const holdingLabel = str(props.holdingLabel)
+  const paintedLabel = held && holdingLabel ? holdingLabel : shownLabel
+  const states = [...(ctx.states ?? []), disabled ? `disabled` : ``, pending ? `pending` : ``, held ? `pressed` : ``].filter(Boolean).join(` `)
   return (
     <button
       {...(rootProps as Record<string, unknown>)}
@@ -75,11 +81,15 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
       disabled={disabled}
       aria-busy={loading || undefined}
       data-pending={shown ? `true` : undefined}
-      aria-label={iconOnly && label ? label : undefined}
-      data-xs={[...(ctx.states ?? []), disabled ? `disabled` : ``, pending ? `pending` : ``].filter(Boolean).join(` `) || undefined}
+      // VAPP-162: an author/macro label (`$a11y`, a CallSurface round button) survives: Solid keeps the spread's.
+      aria-label={iconOnly && label ? label : ((rootProps as Record<string, unknown>)[`aria-label`] as string | undefined)}
+      data-xs={states || undefined}
       data-submit={submit ? `true` : undefined}
+      data-hold={hold ? `true` : undefined}
+      {...(hold ? handlers : {})}
       onClick={(e: MouseEvent) => {
         e.stopPropagation()
+        if (hold) return
         track(emit(`press`))
         if (submit) form.submit()
       }}
@@ -93,9 +103,52 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
           <IconGlyph icons={ctx.host.icons} name={icon} />
         </span>
       ) : null}
-      {hasChild ? children : !iconOnly && shownLabel ? <span {...(part(`label`) as Record<string, string>)}>{shownLabel}</span> : null}
+      {hasChild ? children : !iconOnly && paintedLabel ? <span {...(part(`label`) as Record<string, string>)}>{paintedLabel}</span> : null}
     </button>
   )
+}
+
+/** THE hold machine (`@exponential_app/ui/web` ButtonHold) wired to a
+ *  button's DOM events: the pointer is captured on down (a long-press or a
+ *  scroll never steals it), the slop is measured against the button's box,
+ *  Space/Enter hold from key down to key up, Escape and blur cancel. */
+function useHold(enabled: boolean, disabled: boolean, emit: NativeProps[`emit`]) {
+  const [held, setHeld] = useState(false)
+  const emitRef = useRef(emit)
+  emitRef.current = emit
+  const disabledRef = useRef(disabled)
+  disabledRef.current = disabled
+  const machine = useRef<ButtonHold | null>(null)
+  machine.current ??= new ButtonHold((event) => void emitRef.current(event), setHeld, () => disabledRef.current)
+  useEffect(() => {
+    if (disabled || !enabled) machine.current?.reset()
+  }, [disabled, enabled])
+  useEffect(() => () => machine.current?.reset(), [])
+  const m = machine.current
+  const rect = (el: HTMLElement) => el.getBoundingClientRect()
+  const handlers = {
+    onPointerDown: (e: PointerEvent<HTMLButtonElement>) => {
+      if (e.button !== undefined && e.button !== 0) return
+      if (!m.pointerDown(e.pointerId ?? null)) return
+      try {
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+      } catch {
+        // A synthetic pointer (tests) has no capture.
+      }
+    },
+    onPointerMove: (e: PointerEvent<HTMLButtonElement>) => m.pointerMove(rect(e.currentTarget), e.clientX ?? 0, e.clientY ?? 0, e.pointerId ?? null),
+    onPointerUp: (e: PointerEvent<HTMLButtonElement>) => m.pointerUp(rect(e.currentTarget), e.clientX ?? 0, e.clientY ?? 0, e.pointerId ?? null),
+    onPointerCancel: (e: PointerEvent<HTMLButtonElement>) => m.pointerCancel(e.pointerId ?? null),
+    onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => {
+      if (m.keyDown(e.key, e.repeat)) e.preventDefault()
+    },
+    onKeyUp: (e: KeyboardEvent<HTMLButtonElement>) => {
+      if (m.keyUp(e.key)) e.preventDefault()
+    },
+    onBlur: () => m.blur(),
+    onContextMenu: (e: MouseEvent) => e.preventDefault(),
+  }
+  return { held: enabled && held, handlers }
 }
 
 /** `loading` held for `PENDING_DELAY_MS` (false again at once when it ends). */
@@ -157,7 +210,7 @@ export function ToggleNative({ node, props, rootProps, emit, scope }: NativeProp
         setPressed(next)
         void emit(`change`, { pressed: next }, { pressed: next })
       }}
-      aria-label={icon && label ? label : undefined}
+      aria-label={icon && label ? label : ((rootProps as Record<string, unknown>)[`aria-label`] as string | undefined)}
     >
       {icon ? (
         <span {...(part(`icon`) as Record<string, string>)}>

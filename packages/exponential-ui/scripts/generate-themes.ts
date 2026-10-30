@@ -106,6 +106,8 @@ export function composeExponential(): ThemeSource {
   })
   const s = design.size
   const mono = `ui-monospace`
+  // VAPP-162: the platform's system serif (web `ui-serif, Georgia, serif`).
+  const serif = `ui-serif`
   return {
     $schema: THEME_SCHEMA_ID,
     id: `exponential`,
@@ -122,7 +124,7 @@ export function composeExponential(): ThemeSource {
         size: { ...numbers(design.type.size), xl3: 30 },
         lineHeight: { ...numbers(design.type.lineHeight), xl3: 36 },
         weight: numbers(design.type.weight),
-        family: { sans: design.type.fontFamily, mono },
+        family: { sans: design.type.fontFamily, mono, serif },
       },
       control: {
         buttonSm: s.controlSm, buttonMd: s.controlMd, buttonLg: s.controlLg, buttonIcon: s.controlMd,
@@ -148,6 +150,7 @@ export function composeExponential(): ThemeSource {
     fonts: {
       [design.type.fontFamily]: { fallback: `ui-sans-serif, system-ui, sans-serif`, weights: [400, 500, 600, 700], source: `host` },
       [mono]: { fallback: `SFMono-Regular, Menlo, Consolas, monospace`, source: `system` },
+      [serif]: { fallback: `Georgia, serif`, source: `system` },
     },
     recipes: exponentialRecipes.recipes as unknown as ThemeSource[`recipes`],
   }
@@ -527,6 +530,13 @@ export function invalidFixture(file: { $comment: string; cases: { name: string; 
   }
 }
 
+/** VAPP-162: prop COMBINATIONS the one-prop sweep cannot reach (the vertical
+ *  `bar` = the navigation rail; the `bars` meter per size). */
+const GEOMETRY_EXTRA: Record<string, Record<string, unknown>[]> = {
+  Segmented: [{ variant: `bar`, orientation: `vertical` }],
+  VoiceWave: [`sm`, `md`, `lg`, `xl`].map((size) => ({ variant: `bars`, size })),
+}
+
 export function geometryFixture(themes: ResolvedTheme[]) {
   const parts = recipeParts()
   const out: Record<string, Record<string, Record<string, unknown>>> = {}
@@ -542,6 +552,7 @@ export function geometryFixture(themes: ResolvedTheme[]) {
         if (!schema || schema.type !== `enum`) continue
         for (const value of schema.values ?? coreCatalog.enums[schema.enum ?? ``] ?? []) combos.push({ name: `${prop}=${value}`, props: { ...defaults, [prop]: value } })
       }
+      for (const extra of GEOMETRY_EXTRA[component] ?? []) combos.push({ name: Object.entries(extra).map(([k, v]) => `${k}=${String(v)}`).join(`,`), props: { ...defaults, ...extra } })
       const cases: Record<string, unknown> = {}
       for (const c of combos) cases[c.name] = { props: c.props, geometry: controlGeometry(theme, component, c.props) }
       byComponent[component] = { part: CONTROL_PARTS[component], cases }

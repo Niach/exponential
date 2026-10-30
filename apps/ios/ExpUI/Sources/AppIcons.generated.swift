@@ -160,6 +160,7 @@ public enum AppIcons {
         "arrow-up-right",
         "at-sign",
         "atom",
+        "audio-lines",
         "award",
         "ban",
         "bell",
@@ -183,6 +184,7 @@ public enum AppIcons {
         "car",
         "chart-line",
         "check",
+        "check-check",
         "chevron-down",
         "chevron-left",
         "chevron-right",
@@ -244,6 +246,7 @@ public enum AppIcons {
         "globe",
         "graduation-cap",
         "hammer",
+        "hand",
         "hard-drive",
         "hash",
         "heading-1",
@@ -317,6 +320,7 @@ public enum AppIcons {
         "pen-tool",
         "pencil",
         "phone",
+        "phone-incoming",
         "phone-off",
         "pin",
         "pin-off",
@@ -333,6 +337,7 @@ public enum AppIcons {
         "progress-3-5",
         "progress-4-5",
         "puzzle",
+        "qr-code",
         "quote",
         "refresh-cw",
         "remove-formatting",
@@ -341,6 +346,7 @@ public enum AppIcons {
         "rocket",
         "rotate-ccw",
         "scale",
+        "scan-line",
         "search",
         "search-x",
         "send",
@@ -422,6 +428,7 @@ public enum AppIcons {
         "app-editor-chat": "message-square",
         "auth-passkey": "fingerprint",
         "call-end": "phone-off",
+        "call-incoming": "phone-incoming",
         "call-mute": "mic",
         "call-speaker": "volume-2",
         "call-speaker-off": "ear",
@@ -639,6 +646,7 @@ public enum AppIcons {
         "ui-help": "circle-question-mark",
         "ui-hide": "eye-off",
         "ui-history": "history",
+        "ui-hold": "hand",
         "ui-icon-placeholder": "circle-dashed",
         "ui-indeterminate": "square-minus",
         "ui-info": "info",
@@ -663,12 +671,15 @@ public enum AppIcons {
         "ui-print": "printer",
         "ui-private": "lock",
         "ui-properties": "sliders-horizontal",
+        "ui-qr-code": "qr-code",
         "ui-queued": "list-end",
+        "ui-read": "check-check",
         "ui-redock": "arrow-down-left",
         "ui-refresh": "refresh-cw",
         "ui-remove-member": "user-minus",
         "ui-repeat": "repeat",
         "ui-repository": "code",
+        "ui-scan": "scan-line",
         "ui-selected": "square-check",
         "ui-selector": "chevrons-up-down",
         "ui-send": "send",
@@ -699,6 +710,7 @@ public enum AppIcons {
         "ui-watch": "eye",
         "ui-widget": "megaphone",
         "voice-call": "phone",
+        "voice-level": "audio-lines",
         "work-faces": "layers-2",
         "work-results": "images"
     ]
@@ -727,6 +739,8 @@ public enum AppIcons {
     public static let authPasskey: String = "fingerprint"
     /// Concept `call-end`.
     public static let callEnd: String = "phone-off"
+    /// Concept `call-incoming`.
+    public static let callIncoming: String = "phone-incoming"
     /// Concept `call-mute`.
     public static let callMute: String = "mic"
     /// Concept `call-speaker`.
@@ -1161,6 +1175,8 @@ public enum AppIcons {
     public static let uiHide: String = "eye-off"
     /// Concept `ui-history`.
     public static let uiHistory: String = "history"
+    /// Concept `ui-hold`.
+    public static let uiHold: String = "hand"
     /// Concept `ui-icon-placeholder`.
     public static let uiIconPlaceholder: String = "circle-dashed"
     /// Concept `ui-indeterminate`.
@@ -1209,8 +1225,12 @@ public enum AppIcons {
     public static let uiPrivate: String = "lock"
     /// Concept `ui-properties`.
     public static let uiProperties: String = "sliders-horizontal"
+    /// Concept `ui-qr-code`.
+    public static let uiQrCode: String = "qr-code"
     /// Concept `ui-queued`.
     public static let uiQueued: String = "list-end"
+    /// Concept `ui-read`.
+    public static let uiRead: String = "check-check"
     /// Concept `ui-redock`.
     public static let uiRedock: String = "arrow-down-left"
     /// Concept `ui-refresh`.
@@ -1221,6 +1241,8 @@ public enum AppIcons {
     public static let uiRepeat: String = "repeat"
     /// Concept `ui-repository`.
     public static let uiRepository: String = "code"
+    /// Concept `ui-scan`.
+    public static let uiScan: String = "scan-line"
     /// Concept `ui-selected`.
     public static let uiSelected: String = "square-check"
     /// Concept `ui-selector`.
@@ -1281,6 +1303,8 @@ public enum AppIcons {
     public static let uiWidget: String = "megaphone"
     /// Concept `voice-call`.
     public static let voiceCall: String = "phone"
+    /// Concept `voice-level`.
+    public static let voiceLevel: String = "audio-lines"
     /// Concept `work-faces`.
     public static let workFaces: String = "layers-2"
     /// Concept `work-results`.

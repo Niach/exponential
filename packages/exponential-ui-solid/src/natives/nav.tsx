@@ -25,6 +25,7 @@ import { NodeView } from "../node-view"
 import { createBoundState } from "./bound"
 import { bool, BuiltinIcon, css, num, objects, parts, str, type PartFn } from "./shared"
 import { createCollapsibleContent, createRovingGroup } from "../behaviors"
+import { segmentedBadge } from "@exponential_app/ui/web"
 
 interface Tab {
   label: string
@@ -188,6 +189,8 @@ interface Item {
   value: string
   icon?: string
   disabled?: boolean
+  /** VAPP-162: a `bar` item's count badge. */
+  count?: number
 }
 
 const joinLike = (raw: unknown, next: string[]): string | string[] => (Array.isArray(raw) ? next : next.join(`,`))
@@ -200,13 +203,19 @@ const asArray = (v: string | string[]): string[] => (Array.isArray(v) ? v : v ? 
  *  = the full-width bottom destinations: role navigation, each item a
  *  column button (icon above a caption label), the selected one
  *  `aria-current="page"`, the same roving keys. Parts: root, item, icon,
- *  label (the selected state rides every part of the selected item). */
+ *  label (the selected state rides every part of the selected item).
+ *  VAPP-162 (round-5 contract §3): `orientation: vertical` stacks every
+ *  variant top to bottom (ArrowUp/ArrowDown move focus); a vertical `bar`
+ *  is THE navigation rail (72 px items). A `bar` item's `count` paints the
+ *  `badge` at its icon's top-end corner (`99+` above 99, none at 0) and
+ *  reads after the label (`Chats, 3`). */
 export function SegmentedNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
   const items = createMemo(() => objects<Item>(props.props.items))
   const variant = () => str(props.props.variant, `segmented`)
   const bar = () => variant() === `bar`
+  const vertical = () => props.props.orientation === `vertical`
   const multiple = () => !bar() && props.props.type === `multiple`
   const external = (): string | string[] => {
     const raw = props.props.value
@@ -220,6 +229,7 @@ export function SegmentedNative(props: NativeProps): JSX.Element {
       {item().icon ? (
         <span {...part(`icon`, selected() && `selected`)} aria-hidden="true">
           <IconGlyph icons={ctx.host.icons} name={item().icon!} class="xui-icon" width={bar() ? 20 : 16} height={bar() ? 20 : 16} />
+          <Show when={bar() ? segmentedBadge(item().count) : null}>{(badge) => <span {...part(`badge`, selected() && `selected`)}>{badge()}</span>}</Show>
         </span>
       ) : null}
       {item().label ? <span {...part(`label`, selected() && `selected`)}>{str(item().label)}</span> : null}
@@ -227,7 +237,7 @@ export function SegmentedNative(props: NativeProps): JSX.Element {
   )
   const keys = keysOf(items, (i) => i.value)
   let root: HTMLDivElement | undefined
-  const roving = createRovingGroup({ dir: () => ctx.direction, loop: true, items: () => (root ? Array.from(root.querySelectorAll<HTMLElement>(`:scope > button`)) : []), focusable: (el) => !(el as HTMLButtonElement).disabled, active: (el) => el.getAttribute(`data-state`) === `on` })
+  const roving = createRovingGroup({ orientation: () => (vertical() ? `vertical` : undefined), dir: () => ctx.direction, loop: true, items: () => (root ? Array.from(root.querySelectorAll<HTMLElement>(`:scope > button`)) : []), focusable: (el) => !(el as HTMLButtonElement).disabled, active: (el) => el.getAttribute(`data-state`) === `on` })
   const press = (item: Item) => {
     const raw = untrack(() => props.props.value)
     if (multiple()) {
@@ -267,6 +277,7 @@ export function SegmentedNative(props: NativeProps): JSX.Element {
                   aria-label={item().label ? undefined : key}
                   {...part(`item`, selected() && `selected`, disabled() && `disabled`)}
                   tabindex={r.tabindex()}
+                  data-orientation={vertical() ? `vertical` : undefined}
                   data-radix-collection-item=""
                   onMouseDown={r.onMouseDown}
                   onFocus={r.onFocus}
@@ -283,7 +294,7 @@ export function SegmentedNative(props: NativeProps): JSX.Element {
         </div>
       }
     >
-      <SegmentedBar rootProps={props.rootProps} items={items} keys={keys} value={() => value() as string} part={part} content={content} onPick={(next) => {
+      <SegmentedBar rootProps={props.rootProps} vertical={vertical} items={items} keys={keys} value={() => value() as string} part={part} content={content} onPick={(next) => {
         setValue(next)
         void props.emit(`change`, { value: next }, { value: next })
       }} />
@@ -293,7 +304,7 @@ export function SegmentedNative(props: NativeProps): JSX.Element {
 
 /** The `bar` variant: a navigation landmark of buttons with ONE roving tab
  *  stop (the selected item, else the first enabled one). */
-function SegmentedBar(props: { rootProps: Record<string, unknown>; items: Accessor<Item[]>; keys: Accessor<string[]>; value: Accessor<string>; part: PartFn; content: (item: Accessor<Item>, selected: Accessor<boolean>) => JSX.Element; onPick: (value: string) => void }): JSX.Element {
+function SegmentedBar(props: { rootProps: Record<string, unknown>; vertical: Accessor<boolean>; items: Accessor<Item[]>; keys: Accessor<string[]>; value: Accessor<string>; part: PartFn; content: (item: Accessor<Item>, selected: Accessor<boolean>) => JSX.Element; onPick: (value: string) => void }): JSX.Element {
   const ctx = useSurfaceContext()
   const refs: (HTMLButtonElement | undefined)[] = []
   const enabled = createMemo(() => props.items().map((item, i) => (bool(item.disabled) ? -1 : i)).filter((i) => i >= 0))
@@ -305,8 +316,9 @@ function SegmentedBar(props: { rootProps: Record<string, unknown>; items: Access
     if (!en.length) return
     const at = en.indexOf(from)
     const rtl = ctx.direction === `rtl`
-    const forward = key === `ArrowDown` || key === (rtl ? `ArrowLeft` : `ArrowRight`)
-    const back = key === `ArrowUp` || key === (rtl ? `ArrowRight` : `ArrowLeft`)
+    const vertical = props.vertical()
+    const forward = key === `ArrowDown` || (!vertical && key === (rtl ? `ArrowLeft` : `ArrowRight`))
+    const back = key === `ArrowUp` || (!vertical && key === (rtl ? `ArrowRight` : `ArrowLeft`))
     let next: number | null | undefined = null
     if (forward) next = en[(at + 1) % en.length]
     else if (back) next = en[(at - 1 + en.length) % en.length]
@@ -332,7 +344,7 @@ function SegmentedBar(props: { rootProps: Record<string, unknown>; items: Access
               disabled={disabled()}
               tabindex={index() === stop() ? 0 : -1}
               aria-current={selected() ? `page` : undefined}
-              aria-label={item().label ? undefined : key}
+              aria-label={segmentedBadge(item().count) ? `${str(item().label) || item().value}, ${segmentedBadge(item().count)}` : item().label ? undefined : key}
               onFocus={() => setFocusIndex(index())}
               onKeyDown={(e) => {
                 if (move(index(), e.key)) e.preventDefault()

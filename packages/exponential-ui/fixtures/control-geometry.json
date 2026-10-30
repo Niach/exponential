@@ -288,7 +288,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -301,7 +302,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -314,7 +316,8 @@
               "type": "multiple",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -327,7 +330,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -340,7 +344,8 @@
               "type": "single",
               "variant": "toggles",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 36,
@@ -353,7 +358,8 @@
               "type": "single",
               "variant": "outline",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 36,
@@ -367,7 +373,8 @@
               "type": "single",
               "variant": "bar",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {}
           },
@@ -376,7 +383,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "sm",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -389,7 +397,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -402,12 +411,54 @@
               "type": "single",
               "variant": "segmented",
               "size": "lg",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 40,
               "paddingHorizontal": 16,
               "borderRadius": 6
+            }
+          },
+          "orientation=horizontal": {
+            "props": {
+              "type": "single",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false,
+              "orientation": "horizontal"
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 6
+            }
+          },
+          "orientation=vertical": {
+            "props": {
+              "type": "single",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false,
+              "orientation": "vertical"
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 6
+            }
+          },
+          "variant=bar,orientation=vertical": {
+            "props": {
+              "type": "single",
+              "variant": "bar",
+              "size": "default",
+              "fill": false,
+              "orientation": "vertical"
+            },
+            "geometry": {
+              "width": 72,
+              "height": 56
             }
           }
         }
@@ -955,7 +1006,8 @@
           "default": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -965,7 +1017,8 @@
           "activity=idle": {
             "props": {
               "activity": "idle",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -975,7 +1028,8 @@
           "activity=listening": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -985,7 +1039,8 @@
           "activity=thinking": {
             "props": {
               "activity": "thinking",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -995,7 +1050,8 @@
           "activity=speaking": {
             "props": {
               "activity": "speaking",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -1005,7 +1061,8 @@
           "activity=muted": {
             "props": {
               "activity": "muted",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -1015,7 +1072,8 @@
           "size=sm": {
             "props": {
               "activity": "listening",
-              "size": "sm"
+              "size": "sm",
+              "variant": "ring"
             },
             "geometry": {
               "width": 32,
@@ -1025,7 +1083,8 @@
           "size=md": {
             "props": {
               "activity": "listening",
-              "size": "md"
+              "size": "md",
+              "variant": "ring"
             },
             "geometry": {
               "width": 56,
@@ -1035,7 +1094,8 @@
           "size=lg": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -1045,11 +1105,78 @@
           "size=xl": {
             "props": {
               "activity": "listening",
-              "size": "xl"
+              "size": "xl",
+              "variant": "ring"
             },
             "geometry": {
               "width": 200,
               "height": 200
+            }
+          },
+          "variant=ring": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "ring"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "variant=bars": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 156,
+              "height": 40
+            }
+          },
+          "variant=bars,size=sm": {
+            "props": {
+              "activity": "listening",
+              "size": "sm",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 78,
+              "height": 16
+            }
+          },
+          "variant=bars,size=md": {
+            "props": {
+              "activity": "listening",
+              "size": "md",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 117,
+              "height": 24
+            }
+          },
+          "variant=bars,size=lg": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 156,
+              "height": 40
+            }
+          },
+          "variant=bars,size=xl": {
+            "props": {
+              "activity": "listening",
+              "size": "xl",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 195,
+              "height": 56
             }
           }
         }
@@ -1436,7 +1563,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -1449,7 +1577,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -1462,7 +1591,8 @@
               "type": "multiple",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -1475,7 +1605,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -1488,7 +1619,8 @@
               "type": "single",
               "variant": "toggles",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -1501,7 +1633,8 @@
               "type": "single",
               "variant": "outline",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -1515,7 +1648,8 @@
               "type": "single",
               "variant": "bar",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {}
           },
@@ -1524,7 +1658,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "sm",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -1537,7 +1672,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -1550,12 +1686,54 @@
               "type": "single",
               "variant": "segmented",
               "size": "lg",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 16,
               "borderRadius": 8
+            }
+          },
+          "orientation=horizontal": {
+            "props": {
+              "type": "single",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false,
+              "orientation": "horizontal"
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "orientation=vertical": {
+            "props": {
+              "type": "single",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false,
+              "orientation": "vertical"
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "variant=bar,orientation=vertical": {
+            "props": {
+              "type": "single",
+              "variant": "bar",
+              "size": "default",
+              "fill": false,
+              "orientation": "vertical"
+            },
+            "geometry": {
+              "width": 72,
+              "height": 56
             }
           }
         }
@@ -2103,7 +2281,8 @@
           "default": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -2113,7 +2292,8 @@
           "activity=idle": {
             "props": {
               "activity": "idle",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -2123,7 +2303,8 @@
           "activity=listening": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -2133,7 +2314,8 @@
           "activity=thinking": {
             "props": {
               "activity": "thinking",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -2143,7 +2325,8 @@
           "activity=speaking": {
             "props": {
               "activity": "speaking",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -2153,7 +2336,8 @@
           "activity=muted": {
             "props": {
               "activity": "muted",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -2163,7 +2347,8 @@
           "size=sm": {
             "props": {
               "activity": "listening",
-              "size": "sm"
+              "size": "sm",
+              "variant": "ring"
             },
             "geometry": {
               "width": 32,
@@ -2173,7 +2358,8 @@
           "size=md": {
             "props": {
               "activity": "listening",
-              "size": "md"
+              "size": "md",
+              "variant": "ring"
             },
             "geometry": {
               "width": 56,
@@ -2183,7 +2369,8 @@
           "size=lg": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -2193,11 +2380,78 @@
           "size=xl": {
             "props": {
               "activity": "listening",
-              "size": "xl"
+              "size": "xl",
+              "variant": "ring"
             },
             "geometry": {
               "width": 200,
               "height": 200
+            }
+          },
+          "variant=ring": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "ring"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "variant=bars": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 156,
+              "height": 40
+            }
+          },
+          "variant=bars,size=sm": {
+            "props": {
+              "activity": "listening",
+              "size": "sm",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 78,
+              "height": 16
+            }
+          },
+          "variant=bars,size=md": {
+            "props": {
+              "activity": "listening",
+              "size": "md",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 117,
+              "height": 24
+            }
+          },
+          "variant=bars,size=lg": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 156,
+              "height": 40
+            }
+          },
+          "variant=bars,size=xl": {
+            "props": {
+              "activity": "listening",
+              "size": "xl",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 195,
+              "height": 56
             }
           }
         }
@@ -2584,7 +2838,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -2597,7 +2852,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -2610,7 +2866,8 @@
               "type": "multiple",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -2623,7 +2880,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -2636,7 +2894,8 @@
               "type": "single",
               "variant": "toggles",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 40,
@@ -2649,7 +2908,8 @@
               "type": "single",
               "variant": "outline",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 40,
@@ -2663,7 +2923,8 @@
               "type": "single",
               "variant": "bar",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {}
           },
@@ -2672,7 +2933,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "sm",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -2685,7 +2947,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -2698,12 +2961,54 @@
               "type": "single",
               "variant": "segmented",
               "size": "lg",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 48,
               "paddingHorizontal": 16,
               "borderRadius": 10
+            }
+          },
+          "orientation=horizontal": {
+            "props": {
+              "type": "single",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false,
+              "orientation": "horizontal"
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 10
+            }
+          },
+          "orientation=vertical": {
+            "props": {
+              "type": "single",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false,
+              "orientation": "vertical"
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 10
+            }
+          },
+          "variant=bar,orientation=vertical": {
+            "props": {
+              "type": "single",
+              "variant": "bar",
+              "size": "default",
+              "fill": false,
+              "orientation": "vertical"
+            },
+            "geometry": {
+              "width": 72,
+              "height": 56
             }
           }
         }
@@ -3252,7 +3557,8 @@
           "default": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -3262,7 +3568,8 @@
           "activity=idle": {
             "props": {
               "activity": "idle",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -3272,7 +3579,8 @@
           "activity=listening": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -3282,7 +3590,8 @@
           "activity=thinking": {
             "props": {
               "activity": "thinking",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -3292,7 +3601,8 @@
           "activity=speaking": {
             "props": {
               "activity": "speaking",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -3302,7 +3612,8 @@
           "activity=muted": {
             "props": {
               "activity": "muted",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -3312,7 +3623,8 @@
           "size=sm": {
             "props": {
               "activity": "listening",
-              "size": "sm"
+              "size": "sm",
+              "variant": "ring"
             },
             "geometry": {
               "width": 32,
@@ -3322,7 +3634,8 @@
           "size=md": {
             "props": {
               "activity": "listening",
-              "size": "md"
+              "size": "md",
+              "variant": "ring"
             },
             "geometry": {
               "width": 56,
@@ -3332,7 +3645,8 @@
           "size=lg": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -3342,11 +3656,78 @@
           "size=xl": {
             "props": {
               "activity": "listening",
-              "size": "xl"
+              "size": "xl",
+              "variant": "ring"
             },
             "geometry": {
               "width": 200,
               "height": 200
+            }
+          },
+          "variant=ring": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "ring"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "variant=bars": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 156,
+              "height": 40
+            }
+          },
+          "variant=bars,size=sm": {
+            "props": {
+              "activity": "listening",
+              "size": "sm",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 78,
+              "height": 16
+            }
+          },
+          "variant=bars,size=md": {
+            "props": {
+              "activity": "listening",
+              "size": "md",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 117,
+              "height": 24
+            }
+          },
+          "variant=bars,size=lg": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 156,
+              "height": 40
+            }
+          },
+          "variant=bars,size=xl": {
+            "props": {
+              "activity": "listening",
+              "size": "xl",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 195,
+              "height": 56
             }
           }
         }
@@ -3733,7 +4114,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -3746,7 +4128,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -3759,7 +4142,8 @@
               "type": "multiple",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -3772,7 +4156,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -3785,7 +4170,8 @@
               "type": "single",
               "variant": "toggles",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -3798,7 +4184,8 @@
               "type": "single",
               "variant": "outline",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 32,
@@ -3812,7 +4199,8 @@
               "type": "single",
               "variant": "bar",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {}
           },
@@ -3821,7 +4209,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "sm",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -3834,7 +4223,8 @@
               "type": "single",
               "variant": "segmented",
               "size": "default",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 24,
@@ -3847,12 +4237,54 @@
               "type": "single",
               "variant": "segmented",
               "size": "lg",
-              "fill": false
+              "fill": false,
+              "orientation": "horizontal"
             },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 16,
               "borderRadius": 8
+            }
+          },
+          "orientation=horizontal": {
+            "props": {
+              "type": "single",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false,
+              "orientation": "horizontal"
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "orientation=vertical": {
+            "props": {
+              "type": "single",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false,
+              "orientation": "vertical"
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "variant=bar,orientation=vertical": {
+            "props": {
+              "type": "single",
+              "variant": "bar",
+              "size": "default",
+              "fill": false,
+              "orientation": "vertical"
+            },
+            "geometry": {
+              "width": 72,
+              "height": 56
             }
           }
         }
@@ -4400,7 +4832,8 @@
           "default": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -4410,7 +4843,8 @@
           "activity=idle": {
             "props": {
               "activity": "idle",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -4420,7 +4854,8 @@
           "activity=listening": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -4430,7 +4865,8 @@
           "activity=thinking": {
             "props": {
               "activity": "thinking",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -4440,7 +4876,8 @@
           "activity=speaking": {
             "props": {
               "activity": "speaking",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -4450,7 +4887,8 @@
           "activity=muted": {
             "props": {
               "activity": "muted",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -4460,7 +4898,8 @@
           "size=sm": {
             "props": {
               "activity": "listening",
-              "size": "sm"
+              "size": "sm",
+              "variant": "ring"
             },
             "geometry": {
               "width": 32,
@@ -4470,7 +4909,8 @@
           "size=md": {
             "props": {
               "activity": "listening",
-              "size": "md"
+              "size": "md",
+              "variant": "ring"
             },
             "geometry": {
               "width": 56,
@@ -4480,7 +4920,8 @@
           "size=lg": {
             "props": {
               "activity": "listening",
-              "size": "lg"
+              "size": "lg",
+              "variant": "ring"
             },
             "geometry": {
               "width": 160,
@@ -4490,11 +4931,78 @@
           "size=xl": {
             "props": {
               "activity": "listening",
-              "size": "xl"
+              "size": "xl",
+              "variant": "ring"
             },
             "geometry": {
               "width": 200,
               "height": 200
+            }
+          },
+          "variant=ring": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "ring"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "variant=bars": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 156,
+              "height": 40
+            }
+          },
+          "variant=bars,size=sm": {
+            "props": {
+              "activity": "listening",
+              "size": "sm",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 78,
+              "height": 16
+            }
+          },
+          "variant=bars,size=md": {
+            "props": {
+              "activity": "listening",
+              "size": "md",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 117,
+              "height": 24
+            }
+          },
+          "variant=bars,size=lg": {
+            "props": {
+              "activity": "listening",
+              "size": "lg",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 156,
+              "height": 40
+            }
+          },
+          "variant=bars,size=xl": {
+            "props": {
+              "activity": "listening",
+              "size": "xl",
+              "variant": "bars"
+            },
+            "geometry": {
+              "width": 195,
+              "height": 56
             }
           }
         }

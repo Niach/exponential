@@ -182,12 +182,13 @@ mod tests {
         assert_eq!(parts["Meter"].props, ["tone"]);
         assert_eq!(parts["Row"].props, ["selected", "density", "surface", "depth"]);
         assert_eq!(parts["Section"].props, ["tint", "tree", "open", "collapsible"]);
-        assert_eq!(parts["Segmented"].parts, ["root", "item", "icon", "label"]);
+        assert_eq!(parts["Segmented"].parts, ["root", "item", "icon", "label", "badge"]);
         assert_eq!(parts["Menu"].props, ["openOn"]);
         assert!(parts["Switch"].parts.iter().any(|p| p == "track"));
         assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading"]);
-        // EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave.
-        assert_eq!(parts.len(), 84);
+        // EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave;
+        // VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner.
+        assert_eq!(parts.len(), 89);
         assert!(parts["DockCard"].parts.iter().any(|p| p == "trigger"));
     }
 

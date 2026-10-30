@@ -837,6 +837,39 @@ pub fn voice_wave_json(input_json: String) -> String {
     })
 }
 
+/// VAPP-162: the VoiceWave `variant: bars` meter for one frame. `input_json`
+/// = `{size: "sm"|"md"|"lg"|"xl", activity, level?, bands?, elapsed?,
+/// reducedMotion?}`; the result is `{width, height, phase, bars: [{x, y,
+/// width, height, radius}]}` (px from the meter's top-left; `{}` on bad input).
+#[uniffi::export]
+pub fn voice_wave_bars_json(input_json: String) -> String {
+    shield("voice_wave_bars_json", || "{}".to_string(), || {
+        serde_json::from_str::<exponential_ui::voice_wave::VoiceWaveBarsInput>(&input_json)
+            .map(|input| serde_json::to_string(&exponential_ui::voice_wave::voice_wave_bars(&input)).unwrap_or_default())
+            .unwrap_or_else(|_| "{}".to_string())
+    })
+}
+
+/// VAPP-162: the QrCode matrix (the core's port of Nayuki's generator,
+/// `fixtures/qr-code.json`). `level` = `L`|`M`|`Q`|`H` (anything else is
+/// `M`); the result is `{size, version, mask, rows}` (`rows` = `size`
+/// strings of '1' dark / '0' light, no quiet zone) or `null` (an empty
+/// value, or one version 40 cannot hold at that level).
+#[uniffi::export]
+pub fn qr_matrix_json(value: String, level: String) -> String {
+    shield("qr_matrix_json", || "null".to_string(), || {
+        let m = exponential_ui::qr_code::qr_matrix(&value, exponential_ui::qr_code::QrLevel::parse(&level));
+        serde_json::to_string(&m).unwrap_or_else(|_| "null".to_string())
+    })
+}
+
+/// VAPP-162: a Segmented `bar` item's count badge text (`99+` above 99);
+/// `None` = no badge (unset, not positive, 0).
+#[uniffi::export]
+pub fn segmented_badge_text(count: Option<f64>) -> Option<String> {
+    shield("segmented_badge_text", || None, || exponential_ui::segmented::badge_text(count.map(serde_json::Value::from).as_ref()))
+}
+
 /// `{min, max}` of a chart (`series_json` = the Chart's `series`).
 #[uniffi::export]
 pub fn chart_extent_json(kind: String, series_json: String, min: Option<f64>, max: Option<f64>) -> Result<String, UiError> {
@@ -1519,6 +1552,25 @@ impl Surface {
             };
             Ok(events(self.core().event(index, &name, payload)))
         })
+    }
+
+    /// VAPP-162: one input on a `hold: true` Button (round-5 contract §9).
+    /// `input_json` = `{"do": "pointerdown"|"pointermove"|"pointerup", x, y}`
+    /// (px relative to the button's top-left), `{"do": "pointercancel"}`,
+    /// `{"do": "keydown", key, repeat?}`, `{"do": "keyup", key}` or
+    /// `{"do": "blur"}`. Fires holdStart / holdEnd / holdCancel; while held
+    /// the node's states carry `pressed` and its `label` prop is the
+    /// `holdingLabel` (a Relayout event follows).
+    pub fn hold(&self, index: u32, input_json: String) -> Result<Vec<FfiEvent>, UiError> {
+        self.guarded("hold", || {
+            let input = parse::<exponential_ui::hold::HoldInput>(&input_json)?;
+            Ok(events(self.core().hold(index, &input)))
+        })
+    }
+
+    /// VAPP-162: whether a `hold` Button is held now.
+    pub fn is_held(&self, id: String) -> bool {
+        self.shield("is_held", || false, || self.core().is_held(&id))
     }
 
     pub fn set_open(&self, id: String, open: bool) -> Vec<FfiEvent> {

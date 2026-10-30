@@ -278,7 +278,8 @@
           },
           "family": {
             "sans": "Geist",
-            "mono": "Geist Mono"
+            "mono": "Geist Mono",
+            "serif": "ui-serif"
           }
         },
         "control": {
@@ -386,6 +387,10 @@
             500
           ],
           "source": "host"
+        },
+        "ui-serif": {
+          "fallback": "Georgia, serif",
+          "source": "system"
         }
       },
       "recipes": {
@@ -737,6 +742,40 @@
             }
           ]
         },
+        "QrCode": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "plate": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "module": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            }
+          ]
+        },
         "Button": {
           "root": [
             {
@@ -1078,6 +1117,17 @@
                 "borderTopWidth": "$border.hairline",
                 "borderColor": "$color.border"
               }
+            },
+            {
+              "when": {
+                "variant": "bar",
+                "orientation": "vertical"
+              },
+              "style": {
+                "width": 72,
+                "borderTopWidth": "$border.none",
+                "borderRightWidth": "$border.hairline"
+              }
             }
           ],
           "item": [
@@ -1203,6 +1253,16 @@
               "style": {
                 "opacity": 0.7
               }
+            },
+            {
+              "when": {
+                "variant": "bar",
+                "orientation": "vertical"
+              },
+              "style": {
+                "width": 72,
+                "height": "$control.tabBar"
+              }
             }
           ],
           "icon": [
@@ -1240,6 +1300,21 @@
               },
               "style": {
                 "color": "$color.foreground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "badge": [
+            {
+              "style": {
+                "minWidth": 16,
+                "height": 16,
+                "paddingHorizontal": "$spacing.xxs",
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.primary",
+                "color": "$color.primaryForeground",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
                 "fontWeight": "$type.weight.medium"
               }
             }
@@ -1998,6 +2073,46 @@
               "style": {
                 "opacity": 0.35
               }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "sm"
+              },
+              "style": {
+                "width": 78,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "md"
+              },
+              "style": {
+                "width": 117,
+                "height": 24
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "lg"
+              },
+              "style": {
+                "width": 156,
+                "height": 40
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "xl"
+              },
+              "style": {
+                "width": 195,
+                "height": 56
+              }
             }
           ],
           "outer": [
@@ -2073,6 +2188,29 @@
             {
               "style": {
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "activity": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "style": {
+                "color": "$color.primary"
+              }
+            },
+            {
+              "when": {
+                "activity": "idle"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             },
             {
@@ -5385,6 +5523,78 @@
             }
           ]
         },
+        "QrScanner": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            }
+          ],
+          "viewfinder": [
+            {
+              "style": {
+                "borderRadius": "$radius.xl"
+              }
+            }
+          ],
+          "feed": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground"
+              }
+            }
+          ],
+          "corner": [
+            {
+              "style": {
+                "color": "$color.primary"
+              }
+            }
+          ],
+          "scanLine": [
+            {
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            }
+          ],
+          "placeholderIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "hint": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm"
+              }
+            }
+          ]
+        },
         "Image": {
           "root": [
             {
@@ -5706,6 +5916,14 @@
               "style": {
                 "opacity": 0.6
               }
+            },
+            {
+              "when": {
+                "status": "skipped"
+              },
+              "style": {
+                "opacity": 0.6
+              }
             }
           ],
           "icon": [
@@ -5720,6 +5938,14 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "done"
+              },
+              "style": {
+                "color": "$color.success"
               }
             }
           ],
@@ -5736,6 +5962,14 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "skipped"
+              },
+              "style": {
+                "textDecoration": "line-through"
               }
             }
           ],
@@ -5784,6 +6018,136 @@
             {
               "style": {
                 "borderColor": "$color.border",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "MessageBubble": {
+          "bubble": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "color": "$color.cardForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "side": "out"
+              },
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.secondaryForeground"
+              }
+            }
+          ],
+          "author": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "time": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "status": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "CallSurface": {
+          "name": [
+            {
+              "style": {
+                "fontSize": "$type.size.xl2",
+                "lineHeight": "$type.lineHeight.xl2",
+                "fontWeight": "$type.weight.semibold"
+              }
+            }
+          ],
+          "status": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "caption": [
+            {
+              "style": {
+                "fontSize": "$type.size.base",
+                "lineHeight": "$type.lineHeight.lg",
+                "opacity": 0.9
+              }
+            }
+          ],
+          "mute": [
+            {
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.foreground",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "backgroundColor": "$color.foreground",
+                "color": "$color.background"
+              }
+            }
+          ],
+          "muteIcon": [
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "color": "$color.background"
+              }
+            }
+          ],
+          "speaker": [
+            {
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.foreground",
+                "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "end": [
+            {
+              "style": {
+                "backgroundColor": "$color.destructive",
+                "color": "$color.destructiveForeground",
+                "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "endIcon": [
+            {
+              "style": {
+                "color": "$color.destructiveForeground"
+              }
+            }
+          ],
+          "cancelLabel": [
+            {
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -6055,7 +6419,8 @@
           },
           "family": {
             "sans": "Inter",
-            "mono": "ui-monospace"
+            "mono": "ui-monospace",
+            "serif": "ui-serif"
           }
         },
         "control": {
@@ -6163,6 +6528,10 @@
             500
           ],
           "source": "host"
+        },
+        "ui-serif": {
+          "fallback": "Georgia, serif",
+          "source": "system"
         },
         "Inter": {
           "fallback": "ui-sans-serif, system-ui, sans-serif",
@@ -6524,6 +6893,40 @@
                 "fontSize": "$type.size.sm",
                 "fontWeight": "$type.weight.medium",
                 "fontFamily": "$type.family.sans"
+              }
+            }
+          ]
+        },
+        "QrCode": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "plate": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "module": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
               }
             }
           ]
@@ -6905,6 +7308,17 @@
             },
             {
               "when": {
+                "variant": "bar",
+                "orientation": "vertical"
+              },
+              "style": {
+                "width": 72,
+                "borderTopWidth": "$border.none",
+                "borderRightWidth": "$border.hairline"
+              }
+            },
+            {
+              "when": {
                 "variant": "bar"
               },
               "style": {
@@ -7038,6 +7452,16 @@
             },
             {
               "when": {
+                "variant": "bar",
+                "orientation": "vertical"
+              },
+              "style": {
+                "width": 72,
+                "height": "$control.tabBar"
+              }
+            },
+            {
+              "when": {
                 "variant": "segmented",
                 "state": "selected"
               },
@@ -7082,6 +7506,21 @@
               },
               "style": {
                 "color": "$color.foreground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "badge": [
+            {
+              "style": {
+                "minWidth": 16,
+                "height": 16,
+                "paddingHorizontal": "$spacing.xxs",
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.primary",
+                "color": "$color.primaryForeground",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
                 "fontWeight": "$type.weight.medium"
               }
             }
@@ -7882,6 +8321,46 @@
               "style": {
                 "opacity": 0.35
               }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "sm"
+              },
+              "style": {
+                "width": 78,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "md"
+              },
+              "style": {
+                "width": 117,
+                "height": 24
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "lg"
+              },
+              "style": {
+                "width": 156,
+                "height": 40
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "xl"
+              },
+              "style": {
+                "width": 195,
+                "height": 56
+              }
             }
           ],
           "outer": [
@@ -7957,6 +8436,29 @@
             {
               "style": {
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "activity": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "style": {
+                "color": "$color.primary"
+              }
+            },
+            {
+              "when": {
+                "activity": "idle"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             },
             {
@@ -11502,6 +12004,78 @@
             }
           ]
         },
+        "QrScanner": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            }
+          ],
+          "viewfinder": [
+            {
+              "style": {
+                "borderRadius": "$radius.xl"
+              }
+            }
+          ],
+          "feed": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground"
+              }
+            }
+          ],
+          "corner": [
+            {
+              "style": {
+                "color": "$color.primary"
+              }
+            }
+          ],
+          "scanLine": [
+            {
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            }
+          ],
+          "placeholderIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "hint": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm"
+              }
+            }
+          ]
+        },
         "Image": {
           "root": [
             {
@@ -11828,6 +12402,14 @@
               "style": {
                 "opacity": 0.6
               }
+            },
+            {
+              "when": {
+                "status": "skipped"
+              },
+              "style": {
+                "opacity": 0.6
+              }
             }
           ],
           "icon": [
@@ -11842,6 +12424,14 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "done"
+              },
+              "style": {
+                "color": "$color.success"
               }
             }
           ],
@@ -11858,6 +12448,14 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "skipped"
+              },
+              "style": {
+                "textDecoration": "line-through"
               }
             }
           ],
@@ -11906,6 +12504,136 @@
             {
               "style": {
                 "borderColor": "$color.border",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "MessageBubble": {
+          "bubble": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "color": "$color.cardForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "side": "out"
+              },
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.secondaryForeground"
+              }
+            }
+          ],
+          "author": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "time": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "status": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "CallSurface": {
+          "name": [
+            {
+              "style": {
+                "fontSize": "$type.size.xl2",
+                "lineHeight": "$type.lineHeight.xl2",
+                "fontWeight": "$type.weight.semibold"
+              }
+            }
+          ],
+          "status": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "caption": [
+            {
+              "style": {
+                "fontSize": "$type.size.base",
+                "lineHeight": "$type.lineHeight.lg",
+                "opacity": 0.9
+              }
+            }
+          ],
+          "mute": [
+            {
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.foreground",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "backgroundColor": "$color.foreground",
+                "color": "$color.background"
+              }
+            }
+          ],
+          "muteIcon": [
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "color": "$color.background"
+              }
+            }
+          ],
+          "speaker": [
+            {
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.foreground",
+                "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "end": [
+            {
+              "style": {
+                "backgroundColor": "$color.destructive",
+                "color": "$color.destructiveForeground",
+                "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "endIcon": [
+            {
+              "style": {
+                "color": "$color.destructiveForeground"
+              }
+            }
+          ],
+          "cancelLabel": [
+            {
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -12177,7 +12905,8 @@
           },
           "family": {
             "sans": "Nunito",
-            "mono": "Fira Code"
+            "mono": "Fira Code",
+            "serif": "ui-serif"
           }
         },
         "control": {
@@ -12285,6 +13014,10 @@
             500
           ],
           "source": "host"
+        },
+        "ui-serif": {
+          "fallback": "Georgia, serif",
+          "source": "system"
         },
         "Nunito": {
           "fallback": "Avenir Next, Segoe UI, sans-serif",
@@ -12684,6 +13417,40 @@
                 "backgroundColor": "$color.secondary",
                 "color": "$color.secondaryForeground",
                 "fontWeight": "$type.weight.bold"
+              }
+            }
+          ]
+        },
+        "QrCode": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "plate": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "module": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
               }
             }
           ]
@@ -13101,6 +13868,17 @@
             },
             {
               "when": {
+                "variant": "bar",
+                "orientation": "vertical"
+              },
+              "style": {
+                "width": 72,
+                "borderTopWidth": "$border.none",
+                "borderRightWidth": "$border.hairline"
+              }
+            },
+            {
+              "when": {
                 "variant": "segmented"
               },
               "style": {
@@ -13235,6 +14013,16 @@
             },
             {
               "when": {
+                "variant": "bar",
+                "orientation": "vertical"
+              },
+              "style": {
+                "width": 72,
+                "height": "$control.tabBar"
+              }
+            },
+            {
+              "when": {
                 "variant": [
                   "toggles",
                   "outline"
@@ -13320,6 +14108,21 @@
               "style": {
                 "color": "$color.primary",
                 "fontWeight": "$type.weight.bold"
+              }
+            }
+          ],
+          "badge": [
+            {
+              "style": {
+                "minWidth": 16,
+                "height": 16,
+                "paddingHorizontal": "$spacing.xxs",
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.primary",
+                "color": "$color.primaryForeground",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium"
               }
             }
           ]
@@ -14146,6 +14949,46 @@
               "style": {
                 "opacity": 0.35
               }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "sm"
+              },
+              "style": {
+                "width": 78,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "md"
+              },
+              "style": {
+                "width": 117,
+                "height": 24
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "lg"
+              },
+              "style": {
+                "width": 156,
+                "height": 40
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "xl"
+              },
+              "style": {
+                "width": 195,
+                "height": 56
+              }
             }
           ],
           "outer": [
@@ -14221,6 +15064,29 @@
             {
               "style": {
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "activity": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "style": {
+                "color": "$color.primary"
+              }
+            },
+            {
+              "when": {
+                "activity": "idle"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             },
             {
@@ -17916,6 +18782,78 @@
             }
           ]
         },
+        "QrScanner": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            }
+          ],
+          "viewfinder": [
+            {
+              "style": {
+                "borderRadius": "$radius.xl"
+              }
+            }
+          ],
+          "feed": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground"
+              }
+            }
+          ],
+          "corner": [
+            {
+              "style": {
+                "color": "$color.primary"
+              }
+            }
+          ],
+          "scanLine": [
+            {
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            }
+          ],
+          "placeholderIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "hint": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm"
+              }
+            }
+          ]
+        },
         "Image": {
           "root": [
             {
@@ -18273,6 +19211,14 @@
               "style": {
                 "opacity": 0.6
               }
+            },
+            {
+              "when": {
+                "status": "skipped"
+              },
+              "style": {
+                "opacity": 0.6
+              }
             }
           ],
           "icon": [
@@ -18287,6 +19233,14 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "done"
+              },
+              "style": {
+                "color": "$color.success"
               }
             }
           ],
@@ -18303,6 +19257,14 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "skipped"
+              },
+              "style": {
+                "textDecoration": "line-through"
               }
             }
           ],
@@ -18351,6 +19313,136 @@
             {
               "style": {
                 "borderColor": "$color.border",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "MessageBubble": {
+          "bubble": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "color": "$color.cardForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "side": "out"
+              },
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.secondaryForeground"
+              }
+            }
+          ],
+          "author": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "time": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "status": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "CallSurface": {
+          "name": [
+            {
+              "style": {
+                "fontSize": "$type.size.xl2",
+                "lineHeight": "$type.lineHeight.xl2",
+                "fontWeight": "$type.weight.semibold"
+              }
+            }
+          ],
+          "status": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "caption": [
+            {
+              "style": {
+                "fontSize": "$type.size.base",
+                "lineHeight": "$type.lineHeight.lg",
+                "opacity": 0.9
+              }
+            }
+          ],
+          "mute": [
+            {
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.foreground",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "backgroundColor": "$color.foreground",
+                "color": "$color.background"
+              }
+            }
+          ],
+          "muteIcon": [
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "color": "$color.background"
+              }
+            }
+          ],
+          "speaker": [
+            {
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.foreground",
+                "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "end": [
+            {
+              "style": {
+                "backgroundColor": "$color.destructive",
+                "color": "$color.destructiveForeground",
+                "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "endIcon": [
+            {
+              "style": {
+                "color": "$color.destructiveForeground"
+              }
+            }
+          ],
+          "cancelLabel": [
+            {
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -18623,7 +19715,8 @@
           },
           "family": {
             "sans": "Inter",
-            "mono": "ui-monospace"
+            "mono": "ui-monospace",
+            "serif": "ui-serif"
           }
         },
         "control": {
@@ -18731,6 +19824,10 @@
             500
           ],
           "source": "host"
+        },
+        "ui-serif": {
+          "fallback": "Georgia, serif",
+          "source": "system"
         },
         "Inter": {
           "fallback": "ui-sans-serif, system-ui, sans-serif",
@@ -19092,6 +20189,40 @@
                 "fontSize": "$type.size.sm",
                 "fontWeight": "$type.weight.medium",
                 "fontFamily": "$type.family.sans"
+              }
+            }
+          ]
+        },
+        "QrCode": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "plate": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "module": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
               }
             }
           ]
@@ -19473,6 +20604,17 @@
             },
             {
               "when": {
+                "variant": "bar",
+                "orientation": "vertical"
+              },
+              "style": {
+                "width": 72,
+                "borderTopWidth": "$border.none",
+                "borderRightWidth": "$border.hairline"
+              }
+            },
+            {
+              "when": {
                 "variant": "bar"
               },
               "style": {
@@ -19606,6 +20748,16 @@
             },
             {
               "when": {
+                "variant": "bar",
+                "orientation": "vertical"
+              },
+              "style": {
+                "width": 72,
+                "height": "$control.tabBar"
+              }
+            },
+            {
+              "when": {
                 "variant": "segmented",
                 "state": "selected"
               },
@@ -19650,6 +20802,21 @@
               },
               "style": {
                 "color": "$color.foreground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "badge": [
+            {
+              "style": {
+                "minWidth": 16,
+                "height": 16,
+                "paddingHorizontal": "$spacing.xxs",
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.primary",
+                "color": "$color.primaryForeground",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
                 "fontWeight": "$type.weight.medium"
               }
             }
@@ -20450,6 +21617,46 @@
               "style": {
                 "opacity": 0.35
               }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "sm"
+              },
+              "style": {
+                "width": 78,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "md"
+              },
+              "style": {
+                "width": 117,
+                "height": 24
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "lg"
+              },
+              "style": {
+                "width": 156,
+                "height": 40
+              }
+            },
+            {
+              "when": {
+                "variant": "bars",
+                "size": "xl"
+              },
+              "style": {
+                "width": 195,
+                "height": 56
+              }
             }
           ],
           "outer": [
@@ -20525,6 +21732,29 @@
             {
               "style": {
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "activity": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "style": {
+                "color": "$color.primary"
+              }
+            },
+            {
+              "when": {
+                "activity": "idle"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             },
             {
@@ -24070,6 +25300,78 @@
             }
           ]
         },
+        "QrScanner": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            }
+          ],
+          "viewfinder": [
+            {
+              "style": {
+                "borderRadius": "$radius.xl"
+              }
+            }
+          ],
+          "feed": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground"
+              }
+            }
+          ],
+          "corner": [
+            {
+              "style": {
+                "color": "$color.primary"
+              }
+            }
+          ],
+          "scanLine": [
+            {
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            }
+          ],
+          "placeholderIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "hint": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm"
+              }
+            }
+          ]
+        },
         "Image": {
           "root": [
             {
@@ -24396,6 +25698,14 @@
               "style": {
                 "opacity": 0.6
               }
+            },
+            {
+              "when": {
+                "status": "skipped"
+              },
+              "style": {
+                "opacity": 0.6
+              }
             }
           ],
           "icon": [
@@ -24410,6 +25720,14 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "done"
+              },
+              "style": {
+                "color": "$color.success"
               }
             }
           ],
@@ -24426,6 +25744,14 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "skipped"
+              },
+              "style": {
+                "textDecoration": "line-through"
               }
             }
           ],
@@ -24474,6 +25800,136 @@
             {
               "style": {
                 "borderColor": "$color.border",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "MessageBubble": {
+          "bubble": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "color": "$color.cardForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "side": "out"
+              },
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.secondaryForeground"
+              }
+            }
+          ],
+          "author": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "time": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "status": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "CallSurface": {
+          "name": [
+            {
+              "style": {
+                "fontSize": "$type.size.xl2",
+                "lineHeight": "$type.lineHeight.xl2",
+                "fontWeight": "$type.weight.semibold"
+              }
+            }
+          ],
+          "status": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "caption": [
+            {
+              "style": {
+                "fontSize": "$type.size.base",
+                "lineHeight": "$type.lineHeight.lg",
+                "opacity": 0.9
+              }
+            }
+          ],
+          "mute": [
+            {
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.foreground",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "backgroundColor": "$color.foreground",
+                "color": "$color.background"
+              }
+            }
+          ],
+          "muteIcon": [
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "color": "$color.background"
+              }
+            }
+          ],
+          "speaker": [
+            {
+              "style": {
+                "backgroundColor": "$color.secondary",
+                "color": "$color.foreground",
+                "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "end": [
+            {
+              "style": {
+                "backgroundColor": "$color.destructive",
+                "color": "$color.destructiveForeground",
+                "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "endIcon": [
+            {
+              "style": {
+                "color": "$color.destructiveForeground"
+              }
+            }
+          ],
+          "cancelLabel": [
+            {
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }

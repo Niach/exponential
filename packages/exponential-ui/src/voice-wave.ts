@@ -140,3 +140,80 @@ export function voiceWave(raw: VoiceWaveInput): VoiceWave {
 export function voiceWavePath(ring: VoiceWaveRing): string {
   return `${ring.points.map(([x, y], i) => `${i === 0 ? `M` : `L`}${x} ${y}`).join(` `)}Z`
 }
+
+// ---------------------------------------------------------------------------
+// VAPP-162: `variant: bars`, the horizontal level meter (style.json
+// `voiceWave.bars`). Same inputs as the rings; no child.
+// ---------------------------------------------------------------------------
+
+export const VOICE_WAVE_BARS = styleJson.voiceWave.bars
+
+export const VOICE_WAVE_SIZES = [`sm`, `md`, `lg`, `xl`] as const
+export type VoiceWaveSizeName = (typeof VOICE_WAVE_SIZES)[number]
+
+export const VOICE_WAVE_VARIANTS = [`ring`, `bars`] as const
+export type VoiceWaveVariant = (typeof VOICE_WAVE_VARIANTS)[number]
+
+/** The variant as the catalog names it; anything else is `ring`. */
+export function voiceWaveVariant(value: unknown): VoiceWaveVariant {
+  return (VOICE_WAVE_VARIANTS as readonly unknown[]).includes(value) ? (value as VoiceWaveVariant) : `ring`
+}
+
+export interface VoiceWaveBarsInput {
+  /** The size class (an unknown one is `md`). */
+  size: VoiceWaveSizeName
+  activity: VoiceWaveActivity
+  level?: number
+  bands?: readonly number[]
+  elapsed?: number
+  reducedMotion?: boolean
+}
+
+export interface VoiceWaveBar {
+  x: number
+  y: number
+  width: number
+  height: number
+  radius: number
+}
+
+export interface VoiceWaveBars {
+  /** The root box: count × barWidth + (count − 1) × gap wide, `height` tall. */
+  width: number
+  height: number
+  phase: number
+  bars: VoiceWaveBar[]
+}
+
+/** The box of a `bars` meter for a size class. */
+export function voiceWaveBarsBox(raw: unknown): { width: number; height: number; barWidth: number; gap: number } {
+  const size = (VOICE_WAVE_SIZES as readonly unknown[]).includes(raw) ? (raw as VoiceWaveSizeName) : `md`
+  const spec = VOICE_WAVE_BARS.sizes[size]
+  const n = VOICE_WAVE_BARS.count
+  return { width: n * spec.barWidth + (n - 1) * spec.gap, height: spec.height, barWidth: spec.barWidth, gap: spec.gap }
+}
+
+/** The bars for one frame (style.json `voiceWave.bars` $comment). */
+export function voiceWaveBars(raw: VoiceWaveBarsInput): VoiceWaveBars {
+  const activity = voiceWaveActivity(raw.activity)
+  const v = VOICE_WAVE
+  const b = VOICE_WAVE_BARS
+  const box = voiceWaveBarsBox(raw.size)
+  const level = clamp01(raw.level ?? 0)
+  const bands = (raw.bands ?? []).slice(0, v.maxBands).map(clamp01)
+  const phase = voiceWavePhase(activity, raw.elapsed ?? 0, raw.reducedMotion)
+  const full = v.ampBase + v.ampLevel
+  const drive = activity === `listening` || activity === `speaking` ? (v.ampBase + v.ampLevel * level) / full : activity === `thinking` ? v.thinkingAmp / full : 0
+  const flat = bands.length === 0 || activity === `thinking`
+  const n = b.count
+  const bars: VoiceWaveBar[] = []
+  for (let i = 0; i < n; i += 1) {
+    const band = flat ? 1 : bands[i % bands.length]!
+    const envelope = 1 - b.envelope * Math.abs((2 * i) / (n - 1) - 1)
+    const shape = 0.5 + 0.5 * Math.sin(b.shapeFreq * i + phase * (1 + (i % 3) * 0.5))
+    const fraction = b.minFraction + (1 - b.minFraction) * drive * band * envelope * (b.shapeBase + (1 - b.shapeBase) * shape)
+    const height = round2(box.height * fraction)
+    bars.push({ x: i * (box.barWidth + box.gap), y: round2((box.height - height) / 2), width: box.barWidth, height, radius: box.barWidth / 2 })
+  }
+  return { width: box.width, height: box.height, phase: round2(phase), bars }
+}

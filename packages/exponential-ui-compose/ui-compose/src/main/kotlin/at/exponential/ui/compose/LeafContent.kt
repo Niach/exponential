@@ -60,6 +60,9 @@ fun LeafContent(context: LeafContext) {
         "Switch" -> if (n.part == "track") SwitchTrack(cx)
         "Slider" -> if (n.part == "track") SliderTrack(cx)
         "Segmented" -> SegmentedLeaf(cx)
+        // VAPP-162: the core's QR matrix; the scanner chrome around the host's camera.
+        "QrCode" -> QrCodeLeaf(cx)
+        "QrScanner" -> QrScannerLeaf(cx)
         // Geometry mode (no theme) and parts without content: bare boxes.
         else -> Unit
     }

@@ -126,7 +126,7 @@
     "lightAlphaFactor": 0.2
   },
   "voiceWave": {
-    "$comment": "NEW-77: the VoiceWave native (the EXP-1268 draft made exact): a microphone or speaker level drawn as three closed polar waves around one optional centre child. Per ring k (0 outer, 1 mid, 2 inner): r(t) = size × radius[k] + Σ_j amp_k / (j + 1) × band(k, j) × sin(harmonics[k][j] × t + (phase0[k] + phase) × (j + 1)), t = 2π i / steps for i = 0..steps (the last point repeats the first), x = size/2 + r cos t, y = size/2 + r sin t (y down). amp_k = ringAmp[k] × size / 200 × (activity listening | speaking: ampBase + ampLevel × level; thinking: thinkingAmp; idle | muted: 0). band(k, j) = bands[(3k + j) mod len] clamped to 0..1, or 1 when bands is empty or the activity is thinking; level is clamped to 0..1 and only the first maxBands bands count. phase = the elapsed seconds × phaseSpeed (rad/s) while listening, thinking or speaking; 0 when idle or muted and under reduced motion. Each ring is filled with its part colour at fillAlpha[k] and stroked at strokeAlpha[k], width max(1, strokeWidth[k] × size / 200); the root recipe's opacity applies to the whole wave. THE CHILD RULE: the core lays the one child out centred in the box at its own size (flex, centre, centre); childSize = childScale × size (lg and xl: childScaleLarge; 0 at `sm`, below 40 px); the painter draws the child scaled about the box centre by min(1, childSize / the child's longer edge), never up, and at childSize 0 keeps it in the tree but paints nothing (no hit target, hidden from assistive tech). voiceWaveChildBox(size, child) is that box; the fixture's `child` cases lock it and every painter measures its drawn child against them. src/voice-wave.ts voiceWave(...) is the reference (the Rust core `voice_wave`, FFI `voice_wave_json`); fixtures/voice-wave.json locks the points.",
+    "$comment": "NEW-77: the VoiceWave native (the EXP-1268 draft made exact): a microphone or speaker level drawn as three closed polar waves around one optional centre child. Per ring k (0 outer, 1 mid, 2 inner): r(t) = size × radius[k] + Σ_j amp_k / (j + 1) × band(k, j) × sin(harmonics[k][j] × t + (phase0[k] + phase) × (j + 1)), t = 2π i / steps for i = 0..steps (the last point repeats the first), x = size/2 + r cos t, y = size/2 + r sin t (y down). amp_k = ringAmp[k] × size / 200 × (activity listening | speaking: ampBase + ampLevel × level; thinking: thinkingAmp; idle | muted: 0). band(k, j) = bands[(3k + j) mod len] clamped to 0..1, or 1 when bands is empty or the activity is thinking; level is clamped to 0..1 and only the first maxBands bands count. phase = the elapsed seconds × phaseSpeed (rad/s) while listening, thinking or speaking; 0 when idle or muted and under reduced motion. Each ring is filled with its part colour at fillAlpha[k] and stroked at strokeAlpha[k], width max(1, strokeWidth[k] × size / 200); the root recipe's opacity applies to the whole wave. THE CHILD RULE: the core lays the one child out centred in the box at its own size (flex, centre, centre); childSize = childScale × size (lg and xl: childScaleLarge; 0 at `sm`, below 40 px); the painter draws the child scaled about the box centre by min(1, childSize / the child's longer edge), never up, and at childSize 0 keeps it in the tree but paints nothing (no hit target, hidden from assistive tech). voiceWaveChildBox(size, child) is that box; the fixture's `child` cases lock it and every painter measures its drawn child against them. src/voice-wave.ts voiceWave(...) is the reference (the Rust core `voice_wave`, FFI `voice_wave_json`); fixtures/voice-wave.json locks the points. VAPP-162: this is `variant: ring` (the default); `variant: bars` is the level meter of `bars` below (same activity, level, bands and phase inputs).",
     "steps": 120,
     "radius": [0.33, 0.3, 0.26],
     "harmonics": [[11, 17, 23], [9, 15, 21], [7, 13]],
@@ -141,6 +141,40 @@
     "strokeWidth": [1.5, 1.5, 1],
     "childScale": 0.3,
     "childScaleLarge": 0.22,
-    "maxBands": 8
+    "maxBands": 8,
+    "bars": {
+      "$comment": "VAPP-162: the `bars` variant (a horizontal level meter, no child; a child is kept in the tree but never painted, like `sm`): `count` rounded vertical bars side by side, sized per `sizes[size]` = {height, barWidth, gap} (the root box = count \u00d7 barWidth + (count \u2212 1) \u00d7 gap wide, `height` tall: the root recipe's `variant: bars` rules). Bar i (0-based): drive d = listening | speaking: (ampBase + ampLevel \u00d7 level) / (ampBase + ampLevel); thinking: thinkingAmp / (ampBase + ampLevel); idle | muted: 0; band b = bands[i mod len] clamped (1 when bands is empty or thinking); envelope e = 1 \u2212 envelope \u00d7 |2i / (count \u2212 1) \u2212 1| (the middle bars stand tallest); shape s = 0.5 + 0.5 \u00d7 sin(shapeFreq \u00d7 i + phase \u00d7 (1 + (i mod 3) \u00d7 0.5)) with the ring's phase (voiceWavePhase: 0 when idle, muted or under reduced motion = a static meter); fraction f = minFraction + (1 \u2212 minFraction) \u00d7 d \u00d7 b \u00d7 e \u00d7 (shapeBase + (1 \u2212 shapeBase) \u00d7 s); the bar is height \u00d7 f tall (rounded to 0.01), centred vertically (y = (height \u2212 h) / 2), at x = i \u00d7 (barWidth + gap), corner radius barWidth / 2, filled with the `bar` part colour at the root recipe's opacity. voiceWaveBars(input) is the reference; fixtures/voice-wave.json `bars` cases lock it.",
+      "count": 20,
+      "minFraction": 0.12,
+      "envelope": 0.5,
+      "shapeFreq": 1.7,
+      "shapeBase": 0.35,
+      "sizes": {
+        "sm": { "height": 16, "barWidth": 2, "gap": 2 },
+        "md": { "height": 24, "barWidth": 3, "gap": 3 },
+        "lg": { "height": 40, "barWidth": 4, "gap": 4 },
+        "xl": { "height": 56, "barWidth": 5, "gap": 5 }
+      }
+    }
+  },
+  "qrCode": {
+    "$comment": "VAPP-162: the QrCode native. THE MATRIX COMES FROM THE CORE: src/qr-code.ts qrMatrix(value, level) (a port of Project Nayuki's QR Code generator, MIT: byte mode over the value's UTF-8 bytes, the smallest version 1\u201340 that fits at the given ECC level, the level kept exact (no boost), the mask with the lowest penalty) \u2192 {size n, rows: n strings of '1' (dark) / '0' (light)}, no quiet zone; the Rust core ports it and fixtures/qr-code.json locks every matrix bit. An empty value, or one longer than maxValueBytes UTF-8 bytes at level L (fewer at higher levels: whatever version 40 holds), has NO matrix (`qrMatrix` returns null): the painter shows the plate empty with the label, never throws. PAINT: the root is a column (centred, gap labelGap) of the plate and the label. The plate is `size` px square (the prop, default 160) with radius = the plate recipe's borderRadius; it holds the matrix inside a quiet zone of quietZone modules on every side, so module = size / (n + 2 \u00d7 quietZone) px (fractional; painters snap module edges to device pixels, never round the module itself, so the code keeps its exact outer size). DARK MODULES ON A LIGHT PLATE ALWAYS: of the two resolved recipe colours (plate and module) the lighter one (higher relative luminance) fills the plate and the darker one the modules, so a dark theme still scans. The label (when given) is a caption Text, muted, centred, under the plate, and the accessibility label of the img.",
+    "quietZone": 4,
+    "labelGap": 8,
+    "maxValueBytes": 2953
+  },
+  "qrScanner": {
+    "$comment": "VAPP-162: the QrScanner native = the VIEWFINDER CHROME; THE CAMERA IS HOST-OWNED (like FileUpload's bytes). The renderer asks its host for a camera feed through a RENDERER-LEVEL hook each lane defines in its own package API (never catalog/host.json): React/Solid/element a `qrScanner` host option, SwiftUI an environment value, Compose a CompositionLocal, gpui a host trait; the host shows its live feed inside `feed`, decodes codes of the given `formats` and reports a decoded string, which the renderer dispatches as `scanned {value}` (once per distinct value until the value changes or the scanner re-mounts; `disabled` stops reporting). Geometry: the root is a column (centred, gap hintGap); the viewfinder is a square (aspectRatio 1) as wide as the root up to maxWidth px, radius = the viewfinder recipe's borderRadius, clipping; `feed` fills it (the host's video; without one the `feed` recipe colour at feedAlpha alpha); four `corner` brackets sit at the inside corners, each two strokes cornerLength px long and cornerStroke px wide in the corner recipe colour (rounded caps, the outer edge following the viewfinder radius); the `scanLine` is a scanLineHeight px bar inset scanLineInset px from the left and right edges, sweeping top \u2192 bottom \u2192 top over sweepMs (ease standard, alternate) while a feed shows; reduce motion (or disabled) = the line static at the vertical centre. No host camera = no feed and no line: the `placeholderIcon` (concept ui-scan = Lucide scan-line) placeholderIconSize px centred in the placeholderIcon colour and the built-in string `cameraUnavailable` as a caption under it. The `hint` (when given) is a muted Text centred under the viewfinder.",
+    "maxWidth": 280,
+    "aspectRatio": 1,
+    "cornerLength": 24,
+    "cornerStroke": 3,
+    "feedAlpha": 0.06,
+    "scanLineHeight": 2,
+    "scanLineInset": 16,
+    "sweepMs": 2000,
+    "hintGap": 12,
+    "placeholderIcon": "ui-scan",
+    "placeholderIconSize": 32
   }
 }

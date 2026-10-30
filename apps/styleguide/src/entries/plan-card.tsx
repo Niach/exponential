@@ -1,4 +1,4 @@
-import { PlanCardSpecimen } from "@exp/ui"
+import { ExponentialUiTwin, PlanCardSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -12,7 +12,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1280`,
   title: `Plan card`,
-  blurb: `Plan mode is Exponential's: a session in plan mode posts ONE rich card (\`exponential_plan_propose\`) and stops; \`exponential_sessions_ask\` posts the same kind of card as one question. The card = the AskCard header + the markdown (pictures inline; an \`upload:\` picture renders nothing until it lands) + the agent's Exponential UI surface in its \`Preview\` frame (the real renderer, no transport, \`set\` only) + one block per question: the prompt, Choose one / Choose any, then THE option rows (text only) or picture tiles (\`ChoiceTiles\`, once any option has a picture) and the \`Other…\` free-text row. A pending plan with two or more questions steps through them one at a time ("Question 1 of 2", Back / Next). N-12: a pending card the viewer may decide waits in THE Dock and opens as its sheet (ask-dock entry); the transcript keeps the card read-only. The last page's pinned footer carries THE decision: "No, keep planning" (secondary; picked = the feedback field above the footer, Cancel + the reject as the primary) and "Yes" (the primary; its menu holds "Yes, and start with a fresh context"); approving waits on every question ("Answer every question to approve"), rejecting never does. A question card's footer = Answer. Answered = closed: the picks highlighted, the rest inert, the decision label and the feedback. Model = \`answerIssue\`, \`optionRows\`, \`pictureFor\` (fixture \`plan-card.json\` ×4).`,
+  blurb: `Plan mode is Exponential's: a session in plan mode posts ONE rich card (\`exponential_plan_propose\`) and stops; \`exponential_sessions_ask\` posts the same kind of card as one question. The card = the AskCard header + the markdown (pictures inline; an \`upload:\` picture renders nothing until it lands) + the agent's Exponential UI surface in its \`Preview\` frame (the real renderer, no transport, \`set\` only) + one block per question: the prompt, Choose one / Choose any, then THE option rows (text only) or picture tiles (\`ChoiceTiles\`, once any option has a picture) and the \`Other…\` free-text row. A pending plan with two or more questions steps through them one at a time ("Question 1 of 2", Back / Next). N-12: a pending card the viewer may decide waits in THE Dock and opens as its sheet (ask-dock entry); the transcript keeps the card read-only. The last page's pinned footer carries THE decision: "No, keep planning" (secondary; picked = the feedback field above the footer, Cancel + the reject as the primary) and "Yes" (the primary; its menu holds "Yes, and start with a fresh context"); approving waits on every question ("Answer every question to approve"), rejecting never does. A question card's footer = Answer. Answered = closed: the picks highlighted, the rest inert, the decision label and the feedback. Model = \`answerIssue\`, \`optionRows\`, \`pictureFor\` (fixture \`plan-card.json\` ×4). Exponential UI twin (VAPP-162): Plan, the APPROVAL CHECKLIST an agent puts in a surface (a computer-use plan): a card with the title, the description and the steps as trace lines (pending · running · done · skipped · error), proposed = Decline + Approve, running = a progress bar and Stop, done or declined = no footer; painted below from specimens.json \`exponential-ui-plan\`. It is a surface piece, not this card: the card stays the session's plan mode.`,
   status: {
     web: {
       state: `ok`,
@@ -39,5 +39,9 @@ export const entry: StyleguideEntry = {
       note: `model: domain/PlanCard.kt`,
     },
   },
-  island: () => <PlanCardSpecimen />,
+  island: () => (
+    <ExponentialUiTwin name="Plan" id="exponential-ui-plan">
+      <PlanCardSpecimen />
+    </ExponentialUiTwin>
+  ),
 }

@@ -222,6 +222,8 @@ pub struct LocalState {
     pub carousel: HashMap<String, i64>,
     pub open: HashMap<String, bool>,
     pub pressed_toggles: HashMap<String, bool>,
+    /// VAPP-162: Button `hold` gestures per button id (`Surface::hold`).
+    pub holds: HashMap<String, crate::hold::HoldTracker>,
     pub lists: HashMap<String, ListWindow>,
     /// Any scroll container's offset by node id (x, y).
     pub scroll: HashMap<String, (f32, f32)>,
@@ -289,6 +291,9 @@ pub struct BuildContext<'a> {
     /// EXP-1259: `$control.buttonSm`, a menu row's height (a searchable
     /// submenu's list window).
     pub menu_row: f32,
+    /// VAPP-162: `$control.tabBar`, the item height of a vertical `bar`
+    /// Segmented (the navigation rail).
+    pub tab_bar: f32,
     /// The theme's default gap for `List` items per `gap` enum, in px.
     pub gap_px: &'a dyn Fn(&str) -> f32,
     /// Expand form controls into label/field/description parts (a themed
@@ -691,7 +696,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
         n.base_style = base;
         n.lines = props.get("lines").and_then(Value::as_u64).map(|l| l as u32);
-        n.pressable = (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || bool_prop(&props, "pressable") || (node.component == "Button" && bool_prop(&props, "submit"))) && !bool_prop(&props, "disabled") && !bool_prop(&props, "loading");
+        n.pressable = (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || bool_prop(&props, "pressable") || (node.component == "Button" && (bool_prop(&props, "submit") || bool_prop(&props, "hold")))) && !bool_prop(&props, "disabled") && !bool_prop(&props, "loading");
         n.on = node.on.clone();
         n.source = self.sources.get(&node.id).cloned();
         n.accessibility = node.accessibility.as_ref().and_then(|a| self.resolve(a, scope));
@@ -706,6 +711,10 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
         n.props = props;
         let index = self.push(n);
+        // VAPP-162: a held `hold` Button carries `pressed` (the core's state).
+        if node.component == "Button" && self.ctx.local.holds.get(&node.id).is_some_and(crate::hold::HoldTracker::active) {
+            self.add_state_own(index, "pressed");
+        }
         if let Some(errors) = self.ctx.local.errors.get(&node.id) {
             if !errors.messages.is_empty() {
                 let _ = errors;
@@ -719,9 +728,23 @@ impl<'a, 'b> Builder<'a, 'b> {
         // Round 2 §7: explicit sizes instead of browser defaults.
         match node.component.as_str() {
             "Image" | "Video" => self.media_ratio(index),
+            // VAPP-162: a vertical `bar` (THE navigation rail) is a column of
+            // fixed items: as wide as its root recipe (72), `items × tabBar`
+            // tall, never stretched across its parent (full height is the
+            // author's style). Painters stack the items top to bottom.
+            "Segmented" if crate::segmented::is_rail(&self.nodes[index as usize].props) => {
+                let tall = crate::segmented::rail_height(&self.nodes[index as usize].props, self.ctx.tab_bar);
+                self.style_default(index, &[("alignSelf", json!("flex-start")), ("flexShrink", json!(0)), ("height", json!(tall))])
+            }
             // A Segmented is content-sized unless `fill` (a `bar` always fills).
             "Segmented" if !bool_prop(&self.nodes[index as usize].props, "fill") && str_prop(&self.nodes[index as usize].props, "variant") != Some("bar") => {
                 self.style_default(index, &[("alignSelf", json!("flex-start"))])
+            }
+            // VAPP-162: a Button's one custom child sits centred in its box
+            // (the web's inline-flex button; CallSurface's round 56 px
+            // buttons hold a 24 px Icon).
+            "Button" if self.nodes[index as usize].kind == NodeKind::Container => {
+                self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignItems", json!("center")), ("justifyContent", json!("center"))])
             }
             // NEW-77: the one child sits centred in the wave box at its own size.
             "VoiceWave" => self.style_default(index, &[("display", json!("flex")), ("alignItems", json!("center")), ("justifyContent", json!("center"))]),
@@ -800,6 +823,12 @@ impl<'a, 'b> Builder<'a, 'b> {
                     };
                     props.insert(key.into(), v.clone());
                 }
+            }
+        }
+        // VAPP-162: a held `hold` Button paints its `holdingLabel`.
+        if component == "Button" && local.holds.get(id).is_some_and(crate::hold::HoldTracker::active) {
+            if let Some(label) = props.get("holdingLabel").and_then(Value::as_str).filter(|l| !l.is_empty()).map(str::to_string) {
+                props.insert("label".into(), Value::String(label));
             }
         }
         if component == "Toggle" {

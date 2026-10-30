@@ -70,6 +70,10 @@ import { entry as storyTab } from "./story-tab.tsx"
 import { entry as chatSelection } from "./chat-selection.tsx"
 import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
+import { entry as qrCode } from "./qr-code.tsx"
+import { entry as qrScanner } from "./qr-scanner.tsx"
+import { entry as navRail } from "./nav-rail.tsx"
+import { entry as voiceLevel } from "./voice-level.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -99,6 +103,10 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   feedbackStates,
   trace,
   codeBlock,
+  qrCode,
+  qrScanner,
+  navRail,
+  voiceLevel,
   composerDialog,
   issueContextMenu,
   sessionRow,

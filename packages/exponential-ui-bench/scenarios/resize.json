@@ -1206,6 +1206,78 @@
               ]
             },
             {
+              "id": "call",
+              "component": "CallSurface",
+              "props": {
+                "name": "Assistant",
+                "state": "talking",
+                "status": "01:24",
+                "caption": "Sure, Friday at eight works."
+              },
+              "style": {
+                "height": 360
+              }
+            },
+            {
+              "id": "bubble-out",
+              "component": "MessageBubble",
+              "props": {
+                "text": "Is the printer fixed?",
+                "side": "out",
+                "time": "18:00",
+                "status": "read"
+              }
+            },
+            {
+              "id": "bubble-in",
+              "component": "MessageBubble",
+              "props": {
+                "text": "Yes, try again.",
+                "author": "spezl",
+                "time": "18:02"
+              }
+            },
+            {
+              "id": "plan",
+              "component": "Plan",
+              "props": {
+                "title": "Here's my plan",
+                "state": "running",
+                "progress": 0.4,
+                "steps": [
+                  {
+                    "title": "Open the site",
+                    "icon": "globe",
+                    "status": "done"
+                  },
+                  {
+                    "title": "Reserve a table",
+                    "icon": "pencil",
+                    "status": "running"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "qr",
+              "component": "QrCode",
+              "props": {
+                "value": "HELLO",
+                "size": 120,
+                "label": "Scan to pair"
+              }
+            },
+            {
+              "id": "scanner",
+              "component": "QrScanner",
+              "props": {
+                "hint": "Point at the code"
+              },
+              "style": {
+                "width": 240
+              }
+            },
+            {
               "id": "empty",
               "component": "EmptyState",
               "props": {

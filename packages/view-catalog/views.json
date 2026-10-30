@@ -3317,6 +3317,171 @@
       }
     },
     {
+      "id": "exponential-ui-message-bubble",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · MessageBubble",
+      "blurb": "A chat message bubble, in (left) or out (right), with its time and delivery status. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/message-bubble/.",
+      "order": 99,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-message-bubble",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-message-bubble"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-message-bubble",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-message-bubble",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-call-surface",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · CallSurface",
+      "blurb": "A voice call screen: the voice wave around an avatar, the name, status, caption and the round call buttons. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/call-surface/.",
+      "order": 100,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-call-surface",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-call-surface"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-call-surface",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-call-surface",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-plan",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Plan",
+      "blurb": "A plan card: steps to approve, then progress with a Stop button. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/plan/.",
+      "order": 101,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-plan",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-plan"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-plan",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-plan",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-qr-code",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · QrCode",
+      "blurb": "A QR code of a value, dark modules on a light plate in every theme. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/qr-code/.",
+      "order": 102,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-qr-code",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-qr-code"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-qr-code",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-qr-code",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-qr-scanner",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · QrScanner",
+      "blurb": "A QR scanner viewfinder; the host owns the camera and reports the decoded value. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/qr-scanner/.",
+      "order": 103,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-qr-scanner",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-qr-scanner"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-qr-scanner",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-qr-scanner",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-table",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · Table",

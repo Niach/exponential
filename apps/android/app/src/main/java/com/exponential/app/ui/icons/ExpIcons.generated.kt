@@ -431,6 +431,59 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `audio-lines`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "audio-lines",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 10v3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M6 6v11"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M10 3v18"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M14 8v7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18 5v13"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M22 10v3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `award`: ImageVector by lazy {
         ImageVector.Builder(
             name = "award",
@@ -1446,6 +1499,31 @@ public object ExpIcons {
         ).apply {
             addPath(
                 addPathNodes("M20 6 9 17l-5-5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `check-check`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "check-check",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M18 6 7 17l-5-5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m22 10-7.5 7.5L13 16"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -3426,6 +3504,45 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172v-.344a2 2 0 0 0-.586-1.414l-1.657-1.657A6 6 0 0 0 12.516 3H9l1.243 1.243A6 6 0 0 1 12 8.485V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `hand`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "hand",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -5757,6 +5874,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `phone-incoming`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "phone-incoming",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M16 2v6h6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m22 2-6 6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `phone-off`: ImageVector by lazy {
         ImageVector.Builder(
             name = "phone-off",
@@ -6136,6 +6285,101 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `qr-code`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "qr-code",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M4 3H7A1 1 0 0 1 8 4V7A1 1 0 0 1 7 8H4A1 1 0 0 1 3 7V4A1 1 0 0 1 4 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17 3H20A1 1 0 0 1 21 4V7A1 1 0 0 1 20 8H17A1 1 0 0 1 16 7V4A1 1 0 0 1 17 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 16H7A1 1 0 0 1 8 17V20A1 1 0 0 1 7 21H4A1 1 0 0 1 3 20V17A1 1 0 0 1 4 16Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M21 16h-3a2 2 0 0 0-2 2v3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M21 21v.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 7v3a2 2 0 0 1-2 2H7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3 12h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 3h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 16v.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M16 12h1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M21 12v.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 21v-1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `quote`: ImageVector by lazy {
         ImageVector.Builder(
             name = "quote",
@@ -6412,6 +6656,52 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `scan-line`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "scan-line",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M3 7V5a2 2 0 0 1 2-2h2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17 3h2a2 2 0 0 1 2 2v2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M21 17v2a2 2 0 0 1-2 2h-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M7 21H5a2 2 0 0 1-2-2v-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M7 12h10"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -8580,6 +8870,7 @@ public object ExpIcons {
         "arrow-up-right" -> `arrow-up-right`
         "at-sign" -> `at-sign`
         "atom" -> `atom`
+        "audio-lines" -> `audio-lines`
         "award" -> `award`
         "ban" -> `ban`
         "bell" -> `bell`
@@ -8603,6 +8894,7 @@ public object ExpIcons {
         "car" -> `car`
         "chart-line" -> `chart-line`
         "check" -> `check`
+        "check-check" -> `check-check`
         "chevron-down" -> `chevron-down`
         "chevron-left" -> `chevron-left`
         "chevron-right" -> `chevron-right`
@@ -8664,6 +8956,7 @@ public object ExpIcons {
         "globe" -> `globe`
         "graduation-cap" -> `graduation-cap`
         "hammer" -> `hammer`
+        "hand" -> `hand`
         "hard-drive" -> `hard-drive`
         "hash" -> `hash`
         "heading-1" -> `heading-1`
@@ -8737,6 +9030,7 @@ public object ExpIcons {
         "pen-tool" -> `pen-tool`
         "pencil" -> `pencil`
         "phone" -> `phone`
+        "phone-incoming" -> `phone-incoming`
         "phone-off" -> `phone-off`
         "pin" -> `pin`
         "pin-off" -> `pin-off`
@@ -8753,6 +9047,7 @@ public object ExpIcons {
         "progress-3-5" -> `progress-3-5`
         "progress-4-5" -> `progress-4-5`
         "puzzle" -> `puzzle`
+        "qr-code" -> `qr-code`
         "quote" -> `quote`
         "refresh-cw" -> `refresh-cw`
         "remove-formatting" -> `remove-formatting`
@@ -8761,6 +9056,7 @@ public object ExpIcons {
         "rocket" -> `rocket`
         "rotate-ccw" -> `rotate-ccw`
         "scale" -> `scale`
+        "scan-line" -> `scan-line`
         "search" -> `search`
         "search-x" -> `search-x`
         "send" -> `send`
@@ -8837,6 +9133,7 @@ public object ExpIcons {
         "app-editor-chat" -> `message-square`
         "auth-passkey" -> `fingerprint`
         "call-end" -> `phone-off`
+        "call-incoming" -> `phone-incoming`
         "call-mute" -> `mic`
         "call-speaker" -> `volume-2`
         "call-speaker-off" -> `ear`
@@ -9054,6 +9351,7 @@ public object ExpIcons {
         "ui-help" -> `circle-question-mark`
         "ui-hide" -> `eye-off`
         "ui-history" -> `history`
+        "ui-hold" -> `hand`
         "ui-icon-placeholder" -> `circle-dashed`
         "ui-indeterminate" -> `square-minus`
         "ui-info" -> `info`
@@ -9078,12 +9376,15 @@ public object ExpIcons {
         "ui-print" -> `printer`
         "ui-private" -> `lock`
         "ui-properties" -> `sliders-horizontal`
+        "ui-qr-code" -> `qr-code`
         "ui-queued" -> `list-end`
+        "ui-read" -> `check-check`
         "ui-redock" -> `arrow-down-left`
         "ui-refresh" -> `refresh-cw`
         "ui-remove-member" -> `user-minus`
         "ui-repeat" -> `repeat`
         "ui-repository" -> `code`
+        "ui-scan" -> `scan-line`
         "ui-selected" -> `square-check`
         "ui-selector" -> `chevrons-up-down`
         "ui-send" -> `send`
@@ -9114,6 +9415,7 @@ public object ExpIcons {
         "ui-watch" -> `eye`
         "ui-widget" -> `megaphone`
         "voice-call" -> `phone`
+        "voice-level" -> `audio-lines`
         "work-faces" -> `layers-2`
         "work-results" -> `images`
         else -> null
@@ -9137,6 +9439,8 @@ public object ExpIcons {
     public val authPasskey: ImageVector get() = `fingerprint`
     /** Concept `call-end`. */
     public val callEnd: ImageVector get() = `phone-off`
+    /** Concept `call-incoming`. */
+    public val callIncoming: ImageVector get() = `phone-incoming`
     /** Concept `call-mute`. */
     public val callMute: ImageVector get() = `mic`
     /** Concept `call-speaker`. */
@@ -9571,6 +9875,8 @@ public object ExpIcons {
     public val uiHide: ImageVector get() = `eye-off`
     /** Concept `ui-history`. */
     public val uiHistory: ImageVector get() = `history`
+    /** Concept `ui-hold`. */
+    public val uiHold: ImageVector get() = `hand`
     /** Concept `ui-icon-placeholder`. */
     public val uiIconPlaceholder: ImageVector get() = `circle-dashed`
     /** Concept `ui-indeterminate`. */
@@ -9619,8 +9925,12 @@ public object ExpIcons {
     public val uiPrivate: ImageVector get() = `lock`
     /** Concept `ui-properties`. */
     public val uiProperties: ImageVector get() = `sliders-horizontal`
+    /** Concept `ui-qr-code`. */
+    public val uiQrCode: ImageVector get() = `qr-code`
     /** Concept `ui-queued`. */
     public val uiQueued: ImageVector get() = `list-end`
+    /** Concept `ui-read`. */
+    public val uiRead: ImageVector get() = `check-check`
     /** Concept `ui-redock`. */
     public val uiRedock: ImageVector get() = `arrow-down-left`
     /** Concept `ui-refresh`. */
@@ -9631,6 +9941,8 @@ public object ExpIcons {
     public val uiRepeat: ImageVector get() = `repeat`
     /** Concept `ui-repository`. */
     public val uiRepository: ImageVector get() = `code`
+    /** Concept `ui-scan`. */
+    public val uiScan: ImageVector get() = `scan-line`
     /** Concept `ui-selected`. */
     public val uiSelected: ImageVector get() = `square-check`
     /** Concept `ui-selector`. */
@@ -9691,6 +10003,8 @@ public object ExpIcons {
     public val uiWidget: ImageVector get() = `megaphone`
     /** Concept `voice-call`. */
     public val voiceCall: ImageVector get() = `phone`
+    /** Concept `voice-level`. */
+    public val voiceLevel: ImageVector get() = `audio-lines`
     /** Concept `work-faces`. */
     public val workFaces: ImageVector get() = `layers-2`
     /** Concept `work-results`. */

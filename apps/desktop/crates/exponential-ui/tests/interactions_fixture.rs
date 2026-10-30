@@ -219,3 +219,63 @@ fn select_cases_take_an_empty_option_value_like_the_reference() {
         assert!(s.index_of("s.item.0").is_none(), "{name}: the list closed");
     }
 }
+
+/// VAPP-162: `buttonHold` (round-5 contract §9), through `Surface::hold`.
+/// A `hold: false` case is the host's plain press: pointer down paints
+/// `pressed` (the host's state), release over the box dispatches `press`.
+#[test]
+fn button_hold_cases_fire_start_end_and_cancel_like_the_reference() {
+    use exponential_ui::hold::HoldInput;
+    let f = fixture();
+    let cases = f["buttonHold"].as_array().unwrap();
+    assert_eq!(cases.len(), 10);
+    for c in cases {
+        let name = c["name"].as_str().unwrap();
+        let mut props = json!({"label": "Hold to talk", "holdingLabel": "Holding…", "hold": true}).as_object().cloned().unwrap();
+        for (k, v) in c.get("props").and_then(Value::as_object).into_iter().flatten() {
+            if v.is_null() {
+                props.remove(k);
+            } else {
+                props.insert(k.clone(), v.clone());
+            }
+        }
+        let plain = props.get("hold") != Some(&json!(true));
+        let on = json!({"press": {"event": {"name": "press"}}, "holdStart": {"event": {"name": "holdStart"}}, "holdEnd": {"event": {"name": "holdEnd"}}, "holdCancel": {"event": {"name": "holdCancel"}}});
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "b", "component": "Button", "props": props, "on": on, "style": {"width": 120, "height": 40}}]}));
+        let mut m = FixedMeasure::with_sizes(HashMap::from([("b".to_string(), (120.0, 40.0))]));
+        s.layout(&mut m);
+        let i = s.index_of("b").unwrap();
+        let frame = s.last_frame(i).unwrap();
+        assert_eq!((frame.w, frame.h), (120.0, 40.0), "{name}");
+        let mut host_pressed = false;
+        for (k, step) in c["steps"].as_array().unwrap().iter().enumerate() {
+            let input: HoldInput = serde_json::from_value(step.clone()).unwrap_or_else(|e| panic!("{name} step {k}: {e}"));
+            let events = if plain {
+                match &input {
+                    HoldInput::PointerDown { .. } => {
+                        host_pressed = true;
+                        vec![]
+                    }
+                    HoldInput::PointerUp { x, y } => {
+                        host_pressed = false;
+                        if (0.0..=frame.w).contains(x) && (0.0..=frame.h).contains(y) { s.event(i, "press", None) } else { vec![] }
+                    }
+                    _ => vec![],
+                }
+            } else {
+                s.hold(i, &input)
+            };
+            s.layout(&mut m);
+            let fired: Vec<&str> = events.iter().filter_map(|e| match e {
+                OutEvent::Action { name, .. } => Some(name.as_str()),
+                _ => None,
+            }).collect();
+            let expected: Vec<&str> = step["events"].as_array().unwrap().iter().map(|e| e.as_str().unwrap()).collect();
+            assert_eq!(fired, expected, "{name} step {k}: events");
+            let node = s.nodes().into_iter().find(|n| n.id == "b").unwrap();
+            let pressed = host_pressed || node.states.iter().any(|st| st == "pressed");
+            assert_eq!(pressed, step["pressed"].as_bool().unwrap(), "{name} step {k}: pressed");
+            assert_eq!(node.props.get("label"), Some(&step["label"]), "{name} step {k}: label");
+        }
+    }
+}

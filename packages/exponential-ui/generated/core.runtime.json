@@ -267,7 +267,9 @@
     "traceStatus": [
       "running",
       "error",
-      "pending"
+      "pending",
+      "done",
+      "skipped"
     ],
     "traceSize": [
       "default",
@@ -285,6 +287,37 @@
       "md",
       "lg",
       "xl"
+    ],
+    "messageSide": [
+      "in",
+      "out"
+    ],
+    "messageStatus": [
+      "sending",
+      "sent",
+      "read"
+    ],
+    "callState": [
+      "ringing",
+      "connecting",
+      "talking",
+      "ended"
+    ],
+    "voiceWaveVariant": [
+      "ring",
+      "bars"
+    ],
+    "qrLevel": [
+      "L",
+      "M",
+      "Q",
+      "H"
+    ],
+    "planState": [
+      "proposed",
+      "running",
+      "done",
+      "declined"
     ]
   },
   "defs": {
@@ -310,6 +343,10 @@
         },
         "image": {
           "type": "url"
+        },
+        "count": {
+          "type": "number",
+          "bindable": true
         }
       }
     },
@@ -562,6 +599,24 @@
         },
         "url": {
           "type": "url"
+        }
+      }
+    },
+    "planStep": {
+      "properties": {
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "detail": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "status": {
+          "type": "enum",
+          "enum": "traceStatus"
         }
       }
     }
@@ -1610,6 +1665,31 @@
         }
       }
     },
+    "QrCode": {
+      "kind": "native",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "value": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "size": {
+          "type": "number",
+          "default": 160
+        },
+        "level": {
+          "type": "enum",
+          "enum": "qrLevel",
+          "default": "M"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
     "Carousel": {
       "kind": "native",
       "group": "media",
@@ -1708,6 +1788,11 @@
         "fill": {
           "type": "boolean",
           "default": false
+        },
+        "orientation": {
+          "type": "enum",
+          "enum": "orientation",
+          "default": "horizontal"
         }
       },
       "events": [
@@ -1816,6 +1901,57 @@
       },
       "events": [
         "change"
+      ]
+    },
+    "Plan": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "description": {
+          "type": "string",
+          "bindable": true
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "planStep"
+          }
+        },
+        "state": {
+          "type": "enum",
+          "enum": "planState",
+          "default": "proposed",
+          "bindable": true
+        },
+        "progress": {
+          "type": "number",
+          "bindable": true
+        },
+        "approveLabel": {
+          "type": "string",
+          "default": "$string.yes"
+        },
+        "declineLabel": {
+          "type": "string",
+          "default": "$string.no"
+        },
+        "stopLabel": {
+          "type": "string",
+          "default": "$string.stop"
+        }
+      },
+      "events": [
+        "approve",
+        "decline",
+        "stop"
       ]
     },
     "Pagination": {
@@ -2421,6 +2557,11 @@
           "default": "idle",
           "bindable": true
         },
+        "variant": {
+          "type": "enum",
+          "enum": "voiceWaveVariant",
+          "default": "ring"
+        },
         "level": {
           "type": "number",
           "default": 0,
@@ -2442,6 +2583,68 @@
           "type": "string"
         }
       }
+    },
+    "CallSurface": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "avatar": {
+          "type": "url",
+          "bindable": true
+        },
+        "state": {
+          "type": "enum",
+          "enum": "callState",
+          "default": "talking",
+          "bindable": true
+        },
+        "activity": {
+          "type": "enum",
+          "enum": "voiceWaveActivity",
+          "default": "speaking",
+          "bindable": true
+        },
+        "level": {
+          "type": "number",
+          "bindable": true
+        },
+        "bands": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true
+        },
+        "status": {
+          "type": "string",
+          "bindable": true
+        },
+        "caption": {
+          "type": "string",
+          "bindable": true
+        },
+        "muted": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "speaker": {
+          "type": "boolean",
+          "bindable": true
+        }
+      },
+      "events": [
+        "mute",
+        "speaker",
+        "hangUp"
+      ]
     },
     "Table": {
       "kind": "native",
@@ -2680,10 +2883,20 @@
         "submit": {
           "type": "boolean",
           "default": false
+        },
+        "hold": {
+          "type": "boolean",
+          "default": false
+        },
+        "holdingLabel": {
+          "type": "string"
         }
       },
       "events": [
-        "press"
+        "press",
+        "holdStart",
+        "holdEnd",
+        "holdCancel"
       ]
     },
     "Link": {
@@ -3515,6 +3728,38 @@
         "remove"
       ]
     },
+    "QrScanner": {
+      "kind": "native",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "hint": {
+          "type": "string",
+          "bindable": true
+        },
+        "formats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "qr"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "default": "$string.scanQrCode"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "scanned"
+      ]
+    },
     "Composer": {
       "kind": "native",
       "group": "input",
@@ -3618,6 +3863,40 @@
       "events": [
         "press"
       ]
+    },
+    "MessageBubble": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "slots": [
+        "attachment"
+      ],
+      "props": {
+        "text": {
+          "type": "markdown",
+          "required": true,
+          "bindable": true
+        },
+        "side": {
+          "type": "enum",
+          "enum": "messageSide",
+          "default": "in"
+        },
+        "time": {
+          "type": "string",
+          "bindable": true
+        },
+        "status": {
+          "type": "enum",
+          "enum": "messageStatus",
+          "bindable": true
+        },
+        "author": {
+          "type": "string",
+          "bindable": true
+        }
+      }
     },
     "TreeGuides": {
       "kind": "native",

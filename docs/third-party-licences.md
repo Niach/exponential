@@ -278,6 +278,21 @@ built-in themes into iOS, Android or the desktop app, add that client to the
 two rows' `clients` and regenerate the notices** — the same rule as the
 desktop's vendored crates above.
 
+### Exponential UI: the QR Code generator port (VAPP-162, 2026-10-29)
+
+The QrCode native's matrix is computed by the core, not by a platform
+library: `packages/exponential-ui/src/qr-code.ts` is a TypeScript port of
+**Project Nayuki's QR Code generator library**
+(nayuki/QR-Code-generator, MIT, Copyright (c) Project Nayuki), narrowed to
+one byte-mode segment, the exact error-correction level and the automatic
+mask; the Rust core carries a second port of the same algorithm, locked bit
+for bit by `fixtures/qr-code.json`. MIT asks for the copyright and
+permission notice in every copy: it sits in
+`packages/exponential-ui/vendor/nayuki-qr/LICENSE.txt` (shipped in the npm
+package with `vendor/`), and a `VENDORED` row in
+`packages/licenses/curated/supplement.ts` reproduces it in the NOTICES of
+every client the catalog reaches (`web`, `desktop`, `ios`, `android`).
+
 ### Exponential UI: the conformance fonts (round 2, 2026-10-08)
 
 `packages/exponential-ui/conformance/fonts/` holds the fonts the conformance

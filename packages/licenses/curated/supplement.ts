@@ -225,6 +225,22 @@ export const VENDORED: CuratedEntry[] = [
       },
     ],
   },
+  // VAPP-162: the QrCode native's matrix is a port of Nayuki's QR Code
+  // generator (MIT) in the catalog package (TS) and the Rust core, so it
+  // reaches every client the two rows above reach.
+  {
+    title: `QR Code generator library (ported, Exponential UI)`,
+    clients: [`web`, `desktop`, `ios`, `android`],
+    body: [
+      `The QrCode native's matrix (packages/exponential-ui/src/qr-code.ts and the Rust core's port) is a port of Project Nayuki's QR Code generator library (https://www.nayuki.io/page/qr-code-generator-library, MIT), narrowed to byte mode at an exact error-correction level. The MIT notice is reproduced below.`,
+    ],
+    reproduce: [
+      {
+        label: `MIT License — QR Code generator library (Project Nayuki)`,
+        path: `packages/exponential-ui/vendor/nayuki-qr/LICENSE.txt`,
+      },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

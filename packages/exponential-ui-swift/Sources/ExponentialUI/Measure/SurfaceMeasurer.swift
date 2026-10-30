@@ -327,7 +327,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         case ("Spinner", _): content = MeasuredContent(20, 20)
         case ("Ring", _): content = MeasuredContent(32, 32)
         // NEW-77: the root recipe's edge (sm 32 · md 56 · lg 160 · xl 200) wins.
-        case ("VoiceWave", _): content = MeasuredContent(56, 56)
+        // VAPP-162: `variant: bars` = the meter box (style.json voiceWave.bars).
+        case ("VoiceWave", _):
+            content = props.str("variant") == "bars" ? MeasuredContent(Self.voiceWaveBarsBox(props.str("size"))) : MeasuredContent(56, 56)
+        case ("QrCode", _): content = MeasuredContent(qrCode(leaf, wrap: inner))
+        case ("QrScanner", _): content = MeasuredContent(qrScanner(leaf, wrap: inner))
         case ("Skeleton", _): content = MeasuredContent(skeleton(props, wrap: inner))
         case ("Chart", _): content = MeasuredContent(chart(leaf, wrap: inner))
         case ("Composer", _): content = MeasuredContent(composer(leaf, wrap: inner))
@@ -644,9 +648,18 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         return CGSize(width: w, height: control("tabBar", 56))
     }
 
+    /// VAPP-162 (round-5 contract §3): THE navigation rail (a vertical
+    /// `bar`): the root recipe's width (72) × one `$control.tabBar` item
+    /// per option (the core sets the height too).
+    private func segmentedRail(_ leaf: LeafRequest) -> CGSize {
+        let width = part("Segmented", "root", leaf.props).width ?? 72
+        return CGSize(width: width, height: CGFloat(leaf.props.list("items").count) * control("tabBar", 56))
+    }
+
     private func segmented(_ leaf: LeafRequest) -> CGSize {
         let props = leaf.props
-        if props.str("variant") == "bar" { return segmentedBar(leaf) }
+        let vertical = props.str("orientation") == "vertical"
+        if props.str("variant") == "bar" { return vertical ? segmentedRail(leaf) : segmentedBar(leaf) }
         let items = props.list("items")
         let item = part("Segmented", "item", props)
         let box = item.toggleItemBox
@@ -662,10 +675,68 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             let iw: CGFloat = hasIcon ? 16 : 0
             // Icon ↔ label: the `Segmented/item` recipe's gap (none = 0, as the web and gpui).
             let innerGap: CGFloat = (hasIcon && lw > 0) ? (item.px("gap") ?? 0) : 0
-            w += 2 * (pad + border) + iw + innerGap + lw
-            if i > 0 { w += leaf.control.gap }
+            let itemW = 2 * (pad + border) + iw + innerGap + lw
+            if vertical {
+                // VAPP-162: a column of segments, as wide as the widest.
+                w = max(w, itemW)
+            } else {
+                w += itemW
+                if i > 0 { w += leaf.control.gap }
+            }
+        }
+        if vertical {
+            let n = CGFloat(items.count)
+            return CGSize(width: w, height: n * h + max(n - 1, 0) * leaf.control.gap)
         }
         return CGSize(width: w, height: h)
+    }
+
+    /// VAPP-162 (round-5 contract §5): the `bars` meter box per size:
+    /// 20 bars × barWidth + 19 gaps wide, `height` tall.
+    static func voiceWaveBarsBox(_ size: String) -> CGSize {
+        switch size {
+        case "sm": CGSize(width: 78, height: 16)
+        case "lg": CGSize(width: 156, height: 40)
+        case "xl": CGSize(width: 195, height: 56)
+        default: CGSize(width: 117, height: 24)
+        }
+    }
+
+    /// The QrCode `label` part's text style (a muted caption).
+    static func qrLabelStyle(_ p: PartStyle, base: TextStyle) -> TextStyle {
+        return TextStyle(fontSize: p.px("fontSize") ?? 12, fontWeight: Int(p.props.num("fontWeight") ?? 400), lineHeight: p.px("lineHeight") ?? 16, fontFamily: p.fontFamily ?? base.fontFamily)
+    }
+
+    /// The QrScanner `hint` part's text style.
+    static func qrHintStyle(_ p: PartStyle, base: TextStyle) -> TextStyle {
+        return TextStyle(fontSize: p.px("fontSize") ?? base.fontSize, fontWeight: Int(p.props.num("fontWeight") ?? 400), lineHeight: p.px("lineHeight") ?? base.lineHeight, fontFamily: p.fontFamily ?? base.fontFamily)
+    }
+
+    /// VAPP-162 (round-5 contract §6): the `size` px plate, then (with a
+    /// `label`) the root gap (`labelGap` 8) and the caption, centred; as
+    /// wide as the wider of the two (the label wraps at the wrap width).
+    private func qrCode(_ leaf: LeafRequest, wrap: CGFloat?) -> CGSize {
+        let size = max(0, leaf.props.num("size") ?? 160)
+        let label = leaf.props.str("label")
+        guard !label.isEmpty else { return CGSize(width: size, height: size) }
+        let ts = Self.qrLabelStyle(part("QrCode", "label", leaf.props), base: leaf.textStyle)
+        let m = TextShaper.measure(label, ts, wrap: wrap.map { max($0, size) }, lines: nil)
+        return CGSize(width: max(size, m.width), height: size + leaf.control.gap + m.height)
+    }
+
+    /// VAPP-162 (round-5 contract §7): as wide as it is given (the
+    /// viewfinder a square up to `maxWidth` 280 inside), then (with a
+    /// `hint`) the root gap (12) and the hint.
+    private func qrScanner(_ leaf: LeafRequest, wrap: CGFloat?) -> CGSize {
+        // A fixed width (the author's `style.width`, the control box) wins:
+        // the core asks max- and min-content with no wrap.
+        let fixed = leaf.control.width.map { max(0, $0 - leaf.control.insets.0) }
+        let width: CGFloat = fixed ?? wrap.flatMap { $0 > 0 ? $0 : nil } ?? QrScannerGeometry.maxWidth
+        let finder = QrScannerGeometry.viewfinder(width: width)
+        let hint = leaf.props.str("hint")
+        guard !hint.isEmpty else { return CGSize(width: width, height: finder) }
+        let m = TextShaper.measure(hint, Self.qrHintStyle(part("QrScanner", "hint", leaf.props), base: leaf.textStyle), wrap: width, lines: nil)
+        return CGSize(width: width, height: finder + leaf.control.gap + m.height)
     }
 
     /// A picker trigger (Select / DatePicker / DateRangePicker / TimePicker

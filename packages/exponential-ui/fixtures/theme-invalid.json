@@ -802,6 +802,10 @@
           "message": "missing value for $type.family.mono"
         },
         {
+          "path": "tokens.type.family.serif",
+          "message": "missing value for $type.family.serif"
+        },
+        {
           "path": "tokens.control.buttonSm",
           "message": "missing value for $control.buttonSm"
         },
