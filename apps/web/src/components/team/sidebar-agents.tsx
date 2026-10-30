@@ -15,6 +15,7 @@ import {
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuTrailing,
 } from "@exp/ui"
 import { THREADS_LIST_COPY, type AgentRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
@@ -47,7 +48,9 @@ export function AgentIcon({
   return <Icon className={cn(`size-4 shrink-0`, className)} style={{ color: agent.color }} />
 }
 
-/** The trailing state: the spinner while busy, else amber when it needs you. */
+/** The trailing state: the spinner while busy, else amber when it needs you.
+ *  A row carries it in its trailing column (EXP-1477), an icon at its
+ *  top-right corner. */
 function AgentState({
   agent,
   placement,
@@ -55,30 +58,33 @@ function AgentState({
 }: {
   agent: Pick<AgentRow, `busy` | `needsYou`>
   placement: `row` | `icon`
-  /** The owner's hover gear takes the same corner. */
+  /** The owner's hover gear takes the same column. */
   yieldsOnHover?: boolean
 }) {
-  const position = cn(
-    placement === `row` ? `right-2 top-1/2 -translate-y-1/2` : `right-1 top-1`,
-    yieldsOnHover && `group-hover/menu-item:opacity-0`
-  )
+  let mark: React.ReactNode = null
   if (agent.needsYou) {
-    return (
+    mark = (
       <span
         aria-hidden
         data-testid="agent-needs-you"
-        className={cn(`pointer-events-none absolute size-2 rounded-full bg-amber-500`, position)}
+        className={cn(
+          `pointer-events-none size-2 rounded-full bg-amber-500`,
+          placement === `icon` && `absolute right-1 top-1`
+        )}
       />
     )
+  } else if (agent.busy && placement === `row`) {
+    mark = <ClaudeSpinner className="size-3.5" />
   }
-  if (agent.busy && placement === `row`) {
-    return (
-      <span aria-hidden className={cn(`pointer-events-none absolute flex`, position)}>
-        <ClaudeSpinner className="size-3.5" />
-      </span>
-    )
-  }
-  return null
+  if (!mark || placement === `icon`) return mark
+  return (
+    <SidebarMenuTrailing
+      aria-hidden
+      className={cn(`pointer-events-none`, yieldsOnHover && `group-hover/menu-item:opacity-0`)}
+    >
+      {mark}
+    </SidebarMenuTrailing>
+  )
 }
 
 export function SidebarAgentsSection({

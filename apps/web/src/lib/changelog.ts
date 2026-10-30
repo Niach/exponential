@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-sidebar-trailing-column`,
+    date: `2026-10-30`,
+    title: `Sidebar indicators, lined up`,
+    summary: `Every dot, count and + in the sidebar now sits in one column.`,
+    body: `- **One column**: an agent's dot, the Chats and Inbox dots, the Drafts count, an Active row's device and the sections' + buttons now line up at the sidebar's right edge, on web and desktop.`,
+  },
+  {
     id: `2026-10-30-offline-copy`,
     date: `2026-10-30`,
     title: `The offline copy, everywhere`,

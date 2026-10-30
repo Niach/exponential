@@ -10,6 +10,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuTrailing,
   SessionRowDevice,
   threadRunMarkState,
 } from "@exp/ui"
@@ -178,9 +179,14 @@ export function SidebarRunningSection({
                 >
                   <ThreadRunMark row={row} />
                   <SidebarRunningTitle title={row.title} unread={row.unread} />
-                  {/* EXP-1318: the root's device, trailing. */}
-                  {device && <SessionRowDevice icon={device.icon} name={device.name} />}
                 </SidebarMenuButton>
+                {/* EXP-1318: the root's device, trailing — EXP-1477: in the
+                    rail's one trailing column. */}
+                {device && (
+                  <SidebarMenuTrailing>
+                    <SessionRowDevice icon={device.icon} name={device.name} />
+                  </SidebarMenuTrailing>
+                )}
               </SidebarMenuItem>
             )
           })}

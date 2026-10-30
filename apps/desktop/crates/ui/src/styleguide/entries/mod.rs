@@ -69,6 +69,7 @@ pub(crate) mod code_block;
 pub(crate) mod qr_code;
 pub(crate) mod qr_scanner;
 pub(crate) mod nav_rail;
+pub(crate) mod sidebar_rows;
 pub(crate) mod voice_level;
 pub(crate) mod agent_home;
 pub(crate) mod work_tabs_strip;
@@ -147,6 +148,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: qr_scanner::ID, owner: qr_scanner::OWNER, render: qr_scanner::render },
     Entry { id: nav_rail::ID, owner: nav_rail::OWNER, render: nav_rail::render },
     Entry { id: voice_level::ID, owner: voice_level::OWNER, render: voice_level::render },
+    Entry { id: sidebar_rows::ID, owner: sidebar_rows::OWNER, render: sidebar_rows::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },

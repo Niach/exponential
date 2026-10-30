@@ -476,7 +476,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<`li`>) {
 // active state. data-[status=active] is TanStack Router's Link active flag —
 // nav links get the highlight without callers wiring isActive.
 const sidebarMenuButtonVariants = cva(
-  `peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-full p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-glass-row hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-glass-active active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-glass-active data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[status=active]:bg-glass-active data-[status=active]:font-medium data-[status=active]:text-sidebar-accent-foreground data-[state=open]:hover:bg-glass-row data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0`,
+  `peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-full p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-has-data-[sidebar=menu-trailing]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-glass-row hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-glass-active active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-glass-active data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[status=active]:bg-glass-active data-[status=active]:font-medium data-[status=active]:text-sidebar-accent-foreground data-[state=open]:hover:bg-glass-row data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0`,
   {
     variants: {
       variant: {
@@ -580,6 +580,7 @@ function SidebarMenuAction({
         `peer-data-[size=sm]/menu-button:top-1`,
         `peer-data-[size=default]/menu-button:top-1.5`,
         `peer-data-[size=lg]/menu-button:top-2.5`,
+        `peer-data-[density=compact]/menu-button:top-1`,
         `group-data-[collapsible=icon]:hidden`,
         // EXP-525: keyboard focus reveals the action, a MOUSE click does not —
         // `:focus-within` kept the gear pinned visible after clicking the board
@@ -607,6 +608,31 @@ function SidebarMenuBadge({
         `peer-data-[size=sm]/menu-button:top-1`,
         `peer-data-[size=default]/menu-button:top-1.5`,
         `peer-data-[size=lg]/menu-button:top-2.5`,
+        `peer-data-[density=compact]/menu-button:top-1`,
+        `group-data-[collapsible=icon]:hidden`,
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+/** EXP-1477: THE trailing column of a sidebar row — its dot, count, spinner
+ *  or device glyph, centred in the 20px column 4px in from the row's right
+ *  edge: the column `SidebarMenuAction` (the hover gear) and
+ *  `SidebarGroupAction` (a section's "+") take too, so every trailing
+ *  indicator of the rail lines up. A sibling of the row's button, never
+ *  inside it (the button's padding would push it out of the column). */
+function SidebarMenuTrailing({
+  className,
+  ...props
+}: React.ComponentProps<`span`>) {
+  return (
+    <span
+      data-slot="sidebar-menu-trailing"
+      data-sidebar="menu-trailing"
+      className={cn(
+        `absolute inset-y-0 right-1 my-auto flex h-5 min-w-5 items-center justify-center`,
         `group-data-[collapsible=icon]:hidden`,
         className
       )}
@@ -728,6 +754,7 @@ export {
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuBadge,
+  SidebarMenuTrailing,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSkeleton,
