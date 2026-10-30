@@ -1,6 +1,6 @@
 //! NEW-55 (voice V4): caller mode, pure. Byte-locked by
 //! `fixtures/voice-call.json` (its `$comment` is the spec); the TS reference
-//! is `packages/domain-contract/src/voice-call.ts`. The same machine runs on
+//! is `packages/etalk/src/voice-call.ts`. The same machine runs on
 //! the voice device's IDE and (V5/V6) on a caller, which receives the
 //! host's events as `call_event` frames.
 
@@ -74,8 +74,16 @@ pub struct CallTestIds {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallConstants {
-    /// S-3: how long a call rings while the voice device warms up.
-    pub ring_ms: u64,
+    /// EXP-1423: a ring's earliest answer is at least this long ([`call_ring_ms`]).
+    pub min_ring_ms: u64,
+    /// EXP-1423: up to this much more, drawn once per call by the host.
+    pub ring_jitter_ms: u64,
+    /// EXP-1423: the ring tone's cadence ([`call_ring_tone_on`]): on, then off.
+    pub ring_tone_ms: u64,
+    pub ring_gap_ms: u64,
+    /// EXP-1423: the ring tone's two frequencies, sounding together.
+    pub ring_low_hz: f32,
+    pub ring_high_hz: f32,
     /// S-3: a voice still not ready after this fails the call `unavailable`.
     pub max_ring_ms: u64,
     /// S-3: the mic check's level floor during the ring.
@@ -237,7 +245,7 @@ pub struct CallState {
     pub device: String,
     /// The greeting the device says once answered.
     pub greeting: String,
-    /// The ring's `ringMs` ran out.
+    /// The ring's earliest answer ([`call_ring_ms`]) passed.
     pub rang: bool,
     /// The worker confirmed it listens (`CallListening`).
     pub ready: bool,
@@ -273,7 +281,7 @@ impl Default for CallState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallEvent {
     Start { device: String, language: Option<String> },
-    /// The ring's `ringMs` ran out.
+    /// The ring's earliest answer ([`call_ring_ms`]) passed.
     Rang,
     /// The worker listens (`CallListening`).
     Ready,
@@ -438,6 +446,39 @@ pub fn call_view(state: &CallState, platform: CallPlatform) -> Option<CallView> 
     })
 }
 
+/// EXP-1423: the earliest answer of a ring, ms after it started:
+/// `minRingMs` + floor(clamp(random, 0, 1) × `ringJitterMs`). The HOST
+/// draws `random` once per call ([`call_ring_random`]); a caller never draws.
+pub fn call_ring_ms(random: f64) -> u64 {
+    let constants = &VOICE_CALL.constants;
+    let unit = if random.is_nan() { 0.0 } else { random.clamp(0.0, 1.0) };
+    constants.min_ring_ms + (unit * constants.ring_jitter_ms as f64).floor() as u64
+}
+
+/// EXP-1423: when the ring ends (answered), ms after it started: the later
+/// of the earliest answer and the warm-up's `ready`; None = never answered
+/// (no ready, or one at or past `maxRingMs`: failed `unavailable`).
+pub fn call_answer_ms(random: f64, ready_ms: Option<u64>) -> Option<u64> {
+    let ready = ready_ms.filter(|ready| *ready < VOICE_CALL.constants.max_ring_ms)?;
+    Some(call_ring_ms(random).max(ready))
+}
+
+/// EXP-1423: whether the ring tone sounds `ms` after the ring started (the
+/// shared cadence: `ringToneMs` on, `ringGapMs` off, looping).
+pub fn call_ring_tone_on(ms: i64) -> bool {
+    let constants = &VOICE_CALL.constants;
+    ms >= 0 && (ms as u64) % (constants.ring_tone_ms + constants.ring_gap_ms) < constants.ring_tone_ms
+}
+
+/// EXP-1423: a fresh random in [0, 1) for [`call_ring_ms`] (the standard
+/// library's per-process random hasher keys; no dependency).
+pub fn call_ring_random() -> f64 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos()));
+    (hasher.finish() >> 11) as f64 / (1u64 << 53) as f64
+}
+
 /// The call's timer since it was answered: mm:ss, h:mm:ss from an hour.
 pub fn call_timer(ms: u64) -> String {
     let total = ms / 1000;
@@ -469,8 +510,33 @@ mod tests {
         assert_eq!(VOICE_CALL.icons.end, "call-end");
         assert_eq!(VOICE_CALL.wire.kinds.up, 1);
         assert_eq!(VOICE_CALL.constants.min_silence_ms, 700);
-        assert_eq!(VOICE_CALL.constants.ring_ms, 3000);
+        assert_eq!(VOICE_CALL.constants.min_ring_ms, 3000);
+        assert_eq!(VOICE_CALL.constants.ring_jitter_ms, 6000);
         assert_eq!(VOICE_CALL.pill.width, 320.);
+    }
+
+    #[test]
+    fn the_ring_matches_the_fixture() {
+        let fixture = fixture();
+        for case in fixture["ringCases"].as_array().unwrap() {
+            assert_eq!(call_ring_ms(case["random"].as_f64().unwrap()), case["ringMs"].as_u64().unwrap(), "{case}");
+        }
+        for case in fixture["answerCases"].as_array().unwrap() {
+            let answered = call_answer_ms(case["random"].as_f64().unwrap(), case["readyMs"].as_u64());
+            assert_eq!(answered, case["answeredMs"].as_u64(), "{case}");
+        }
+        for case in fixture["ringToneCases"].as_array().unwrap() {
+            assert_eq!(call_ring_tone_on(case["ms"].as_i64().unwrap()), case["on"].as_bool().unwrap(), "{case}");
+        }
+    }
+
+    #[test]
+    fn the_ring_random_is_a_unit() {
+        for _ in 0..100 {
+            let random = call_ring_random();
+            assert!((0.0..1.0).contains(&random), "{random}");
+        }
+        assert_ne!(call_ring_random(), call_ring_random());
     }
 
     #[test]

@@ -1,5 +1,5 @@
 // NEW-55: caller mode. Pure and byte-locked by `fixtures/voice-call.json`
-// (its `$comment` is the spec); the desktop mirror `domain::voice_call`
+// (its `$comment` is the spec); the desktop mirror `etalk::call`
 // replays the same cases, the phones and web replay them with V5 / V6.
 
 import fixture from "../fixtures/voice-call.json" with { type: "json" }
@@ -64,7 +64,7 @@ export interface CallState {
   device: string
   /** The greeting the device says once answered. */
   greeting: string
-  /** The ring's `ringMs` ran out. */
+  /** The ring's earliest answer (`callRingMs`) passed. */
   rang: boolean
   /** The worker confirmed it listens (`CallListening`). */
   ready: boolean
@@ -233,6 +233,30 @@ export function callView(state: CallState, platform: CallPlatform = `phone`): Ca
     case `speaking`:
       return { ...inCall, activity: `speaking`, caption: state.line }
   }
+}
+
+/** EXP-1423: the earliest answer of a ring, ms after it started:
+ *  `minRingMs` + floor(clamp(random, 0, 1) × `ringJitterMs`). The HOST draws
+ *  `random` once per call (`Math.random()`); the caller never draws. */
+export function callRingMs(random: number): number {
+  const { minRingMs, ringJitterMs } = fixture.constants
+  const unit = Math.min(1, Math.max(0, random))
+  return minRingMs + Math.floor(unit * ringJitterMs)
+}
+
+/** EXP-1423: when the ring ends (answered), ms after it started: the later
+ *  of the earliest answer and the warm-up's `ready`; null = never answered
+ *  (no ready, or one at or past `maxRingMs`: failed `unavailable`). */
+export function callAnswerMs(random: number, readyMs: number | null): number | null {
+  if (readyMs === null || readyMs >= fixture.constants.maxRingMs) return null
+  return Math.max(callRingMs(random), readyMs)
+}
+
+/** EXP-1423: whether the ring tone sounds `ms` after the ring started (the
+ *  shared cadence: `ringToneMs` on, `ringGapMs` off, looping). */
+export function callRingToneOn(ms: number): boolean {
+  const { ringToneMs, ringGapMs } = fixture.constants
+  return ms >= 0 && ms % (ringToneMs + ringGapMs) < ringToneMs
 }
 
 /** The call's timer since it was answered: mm:ss, h:mm:ss from an hour. */

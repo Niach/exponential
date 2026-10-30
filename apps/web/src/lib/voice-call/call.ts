@@ -12,9 +12,9 @@
 // browser without WebCodecs Opus toasts `unsupported` before the microphone
 // opens and never dials (Opus only: the host decodes nothing else).
 //
-// S-3: a call RINGS first. The caller plays its own ring tone for `ringMs`
-// (the voice device rings nothing for a remote call) while the host warms
-// up; the host's `call_event`s `rang` + `ready` answer it (`call_ready` only
+// S-3: a call RINGS first. The caller plays its own ring tone (EXP-1423: the
+// shared cadence, looped until the ring ends, at most `maxRingMs`; the voice
+// device rings nothing for a remote call) while the host warms up; the host's `call_event`s `rang` + `ready` answer it (`call_ready` only
 // opens the pair: the microphone's frames start flowing then), its
 // `noSound` is the mic check.
 
@@ -46,7 +46,7 @@ export interface CallDeps {
   startCall(agentId: string): Promise<{ url: string }>
   openSocket(url: string): CallSocket
   openAudio(): Promise<CallAudio>
-  /** S-3: play the ring tone for `ms`; answers a stop (none = silent). */
+  /** S-3: play the ring tone, at most `ms`; answers a stop (none = silent). */
   ring?(ms: number): () => void
 }
 
@@ -135,7 +135,7 @@ export class VoiceCall {
     if (this.active) return
     const generation = ++this.generation
     this.step({ t: `start`, device, language })
-    this.stopRing = this.deps.ring?.(VOICE_CALL_CONSTANTS.ringMs) ?? null
+    this.stopRing = this.deps.ring?.(VOICE_CALL_CONSTANTS.maxRingMs) ?? null
     let audio: CallAudio
     try {
       audio = await this.deps.openAudio()

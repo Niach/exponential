@@ -318,19 +318,16 @@ export async function openCallAudio(): Promise<CallAudio> {
 }
 
 // S-3 (voice-call.json): the caller's ring while the voice device warms up,
-// a ringback tone (440 + 480 Hz) in the double-ring cadence (on 0.4 s, off
-// 0.2 s, on 0.4 s, off 2 s), quiet under whatever the page plays.
-const RING_TONES = [440, 480]
-const RING_CADENCE = [
-  [0, 0.4],
-  [0.6, 1.0],
-]
-const RING_PERIOD = 3
+// EXP-1423: the shared ringback (`ringLowHz` + `ringHighHz`, `ringToneMs`
+// on, `ringGapMs` off: `callRingToneOn`), quiet under whatever the page plays.
+const RING_TONES = [VOICE_CALL_CONSTANTS.ringLowHz, VOICE_CALL_CONSTANTS.ringHighHz]
+const RING_ON = VOICE_CALL_CONSTANTS.ringToneMs / 1000
+const RING_PERIOD = (VOICE_CALL_CONSTANTS.ringToneMs + VOICE_CALL_CONSTANTS.ringGapMs) / 1000
 const RING_GAIN = 0.08
 const RING_RAMP = 0.02
 
-/** Play the ring tone for `ms` (called inside the click that dials, so the
- *  context may start); answers a stop that silences it at once. */
+/** Play the ring tone, looping, at most `ms` (called inside the click that
+ *  dials, so the context may start); answers a stop that silences it at once. */
 export function playRingTone(ms: number): () => void {
   let context: AudioContext
   try {
@@ -343,15 +340,13 @@ export function playRingTone(ms: number): () => void {
   const gain = context.createGain()
   gain.gain.setValueAtTime(0, start)
   for (let period = 0; period < seconds; period += RING_PERIOD) {
-    for (const [on, off] of RING_CADENCE) {
-      const from = start + period + on!
-      const to = Math.min(start + period + off!, start + seconds)
-      if (to <= from) continue
-      gain.gain.setValueAtTime(0, from)
-      gain.gain.linearRampToValueAtTime(RING_GAIN, from + RING_RAMP)
-      gain.gain.setValueAtTime(RING_GAIN, to - RING_RAMP)
-      gain.gain.linearRampToValueAtTime(0, to)
-    }
+    const from = start + period
+    const to = Math.min(from + RING_ON, start + seconds)
+    if (to <= from) continue
+    gain.gain.setValueAtTime(0, from)
+    gain.gain.linearRampToValueAtTime(RING_GAIN, from + RING_RAMP)
+    gain.gain.setValueAtTime(RING_GAIN, to - RING_RAMP)
+    gain.gain.linearRampToValueAtTime(0, to)
   }
   gain.connect(context.destination)
   const oscillators = RING_TONES.map((frequency) => {

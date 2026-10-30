@@ -94,7 +94,12 @@ final class VoiceCallTests: XCTestCase {
         var constants = try XCTUnwrap(fixture["constants"] as? [String: NSNumber])
         XCTAssertEqual(constants.removeValue(forKey: "noSoundLevel")?.doubleValue, VoiceCall.Constants.noSoundLevel)
         XCTAssertEqual(constants.mapValues(\.intValue), [
-            "ringMs": VoiceCall.Constants.ringMs,
+            "minRingMs": VoiceCall.Constants.minRingMs,
+            "ringJitterMs": VoiceCall.Constants.ringJitterMs,
+            "ringToneMs": VoiceCall.Constants.ringToneMs,
+            "ringGapMs": VoiceCall.Constants.ringGapMs,
+            "ringLowHz": VoiceCall.Constants.ringLowHz,
+            "ringHighHz": VoiceCall.Constants.ringHighHz,
             "maxRingMs": VoiceCall.Constants.maxRingMs,
             "ringTimeoutMs": VoiceCall.Constants.ringTimeoutMs,
             "minSilenceMs": VoiceCall.Constants.minSilenceMs,
@@ -186,6 +191,23 @@ final class VoiceCallTests: XCTestCase {
         for row in try cases("timerCases") {
             let ms = try XCTUnwrap(row["ms"] as? Int)
             XCTAssertEqual(VoiceCall.callTimer(ms: ms), row["text"] as? String, "\(ms)")
+        }
+    }
+
+    /// EXP-1423: the ring's injected random, the answer and the cadence.
+    func testRingMatchesTheFixture() throws {
+        for row in try cases("ringCases") {
+            let random = try XCTUnwrap(row["random"] as? NSNumber).doubleValue
+            XCTAssertEqual(VoiceCall.callRingMs(random: random), row["ringMs"] as? Int, "\(random)")
+        }
+        for row in try cases("answerCases") {
+            let random = try XCTUnwrap(row["random"] as? NSNumber).doubleValue
+            let answered = VoiceCall.callAnswerMs(random: random, readyMs: row["readyMs"] as? Int)
+            XCTAssertEqual(answered, row["answeredMs"] as? Int, row["name"] as? String ?? "")
+        }
+        for row in try cases("ringToneCases") {
+            let ms = try XCTUnwrap(row["ms"] as? Int)
+            XCTAssertEqual(VoiceCall.callRingToneOn(ms: ms), row["on"] as? Bool, "\(ms)")
         }
     }
 

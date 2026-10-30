@@ -108,7 +108,12 @@ class VoiceCallTest {
         )
         val k = VoiceCall.Constants
         val constants = mapOf<String, Number>(
-            "ringMs" to k.RING_MS,
+            "minRingMs" to k.MIN_RING_MS,
+            "ringJitterMs" to k.RING_JITTER_MS,
+            "ringToneMs" to k.RING_TONE_MS,
+            "ringGapMs" to k.RING_GAP_MS,
+            "ringLowHz" to k.RING_LOW_HZ,
+            "ringHighHz" to k.RING_HIGH_HZ,
             "maxRingMs" to k.MAX_RING_MS,
             "noSoundLevel" to k.NO_SOUND_LEVEL,
             "ringTimeoutMs" to k.RING_TIMEOUT_MS,
@@ -221,6 +226,23 @@ class VoiceCallTest {
             assertEquals("$ms", case.str("text"), VoiceCall.callTimer(ms))
         }
         assertEquals("00:00", VoiceCall.callTimer(-5))
+    }
+
+    @Test
+    fun `EXP-1423 the ring matches the fixture`() {
+        for (case in cases("ringCases")) {
+            val random = case.getValue("random").jsonPrimitive.double
+            assertEquals("$random", case.getValue("ringMs").jsonPrimitive.int, VoiceCall.callRingMs(random))
+        }
+        for (case in cases("answerCases")) {
+            val random = case.getValue("random").jsonPrimitive.double
+            val ready = case.str("readyMs")?.toInt()
+            assertEquals(case.str("name"), case.str("answeredMs")?.toInt(), VoiceCall.callAnswerMs(random, ready))
+        }
+        for (case in cases("ringToneCases")) {
+            val ms = case.getValue("ms").jsonPrimitive.long
+            assertEquals("$ms", case.getValue("on").jsonPrimitive.boolean, VoiceCall.callRingToneOn(ms))
+        }
     }
 
     @Test

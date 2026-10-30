@@ -180,9 +180,9 @@ describe(`the web caller's wire`, () => {
     expect(call.getSnapshot().state).toMatchObject({ phase: `ringing`, speaker: true })
   })
 
-  it(`S-3: rings for ringMs from the dial; call_ready answers nothing, the host's rang + ready do`, async () => {
+  it(`EXP-1423: rings from the dial until answered (at most maxRingMs); call_ready answers nothing, the host's rang + ready do`, async () => {
     const { call, socket, rings } = await dialed()
-    expect(rings).toEqual({ started: [fixture.constants.ringMs], stopped: 0 })
+    expect(rings).toEqual({ started: [fixture.constants.maxRingMs], stopped: 0 })
     socket.text({ t: `call_ready` })
     expect(view(call)?.status).toBe(fixture.copy.calling)
     socket.text({ t: `call_event`, event: { t: `rang` } })

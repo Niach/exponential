@@ -16,8 +16,9 @@
 //! as `call_event`.
 //!
 //! S-3: a call RINGS first: `Start` = ringing; the worker warms up (`Call`
-//! with `ring_ms`, a local call's ring tone on its one output stream) and
-//! confirms with `CallListening` (= `Ready`); the ring's `ringMs` timer =
+//! with `ring_ms`, a local call's ring tone on its one output stream until
+//! the greeting) and confirms with `CallListening` (= `Ready`); EXP-1423:
+//! the ring's earliest answer, drawn per call (`etalk::call::call_ring_ms`), =
 //! `Rang`; both = answered: the device says `callGreeting(language)`
 //! through the worker's `Speak` ([`speak_replies::speak_greeting`], never an
 //! agent message), its end listens. No `CallListening` within `maxRingMs`
@@ -39,7 +40,7 @@ use gpui::{
 };
 
 use etalk::call::{
-    call_step, call_timer, call_unavailable, call_view, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
+    call_ring_ms, call_ring_random, call_step, call_timer, call_unavailable, call_view, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
     VOICE_CALL,
 };
 
@@ -68,6 +69,8 @@ struct Active {
     /// S-3: the greeting's `Speak` id.
     greeting_id: String,
     started: Instant,
+    /// EXP-1423: this call's earliest answer (`Rang`), drawn at its start.
+    ring: Duration,
     /// S-3: when the worker confirmed it listens.
     listening_at: Option<Instant>,
     /// S-3: a `Level` reached `noSoundLevel` since `CallListening`.
@@ -463,7 +466,8 @@ impl VoiceCall {
         self.step(CallEvent::Start { device: device.unwrap_or_default(), language: Some(language.clone()) }, cx);
         // S-3: a LOCAL call rings on this device while the worker warms up;
         // a remote one rings on the caller (the host's `rang` follows).
-        let ring_ms = VOICE_CALL.constants.ring_ms;
+        // EXP-1423: the worker rings until the greeting, at most `maxRingMs`.
+        let ring_ms = VOICE_CALL.constants.max_ring_ms;
         client.call(id.clone(), language, remote, if remote { 0 } else { ring_ms as u32 });
         self.arm_timers(id, cx);
     }
@@ -480,6 +484,7 @@ impl VoiceCall {
             speaking: None,
             greeting_id: format!("{id}-greeting"),
             started: Instant::now(),
+            ring: Duration::from_millis(call_ring_ms(call_ring_random())),
             listening_at: None,
             heard: false,
             answered_at: None,
@@ -488,11 +493,11 @@ impl VoiceCall {
         id
     }
 
-    /// S-3: the ring (`rang` at `ringMs`), the give-up (`maxRingMs`
+    /// S-3: the ring (`rang` at this call's drawn `ring`), the give-up (`maxRingMs`
     /// without `ready` fails `unavailable`) and the tick that follows the
     /// windows and the timer.
     fn arm_timers(&mut self, id: String, cx: &mut Context<Self>) {
-        let ring = Duration::from_millis(VOICE_CALL.constants.ring_ms);
+        let ring = self.active.as_ref().map_or(Duration::ZERO, |active| active.ring);
         let max_ring = Duration::from_millis(VOICE_CALL.constants.max_ring_ms);
         let ring_id = id.clone();
         cx.spawn(async move |this, cx| {
@@ -565,7 +570,7 @@ impl VoiceCall {
         let now = Instant::now();
         active.listening_at = Some(now);
         let id = active.id.clone();
-        let ring_end = active.started + Duration::from_millis(VOICE_CALL.constants.ring_ms);
+        let ring_end = active.started + active.ring;
         let until = ring_end.max(now + MIC_CHECK_MIN);
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(until.saturating_duration_since(Instant::now())).await;

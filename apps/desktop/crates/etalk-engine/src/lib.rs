@@ -49,8 +49,8 @@
 //! `Empty`) and a `Call` is refused (`ListenFailed { reason: meeting }`).
 //!
 //! S-3 (`voice-call.json`): a LOCAL `Call` opens the call's one output stream
-//! at once and RINGS on it for `ring_ms` ([`ring_tone`]; a remote call rings
-//! on the caller, never here) while the worker warms up: the voice is
+//! at once and RINGS on it, at most `ring_ms` ([`ring_tone`], EXP-1423: the
+//! shared cadence, looped; a remote call rings on the caller, never here) while the worker warms up: the voice is
 //! brought up ([`Job::Warm`]) and the listener loads the recognizer (a
 //! download included) and opens the microphone. `CallListening` follows
 //! once both are settled ([`listener::Links::voice_ready`]). The ring stops
@@ -116,19 +116,27 @@ pub(crate) fn debug(line: &str) {
 
 /// S-3: the ring's level (peak, about -20 dBFS: soft next to a reply).
 const RING_AMPLITUDE: f32 = 0.1;
-/// S-3: the ring's pitch and cadence: a burst, then a pause (two bursts in
-/// voice-call.json's 3 s `ringMs`).
-const RING_HZ: f32 = 425.0;
-const RING_ON_MS: u32 = 1_000;
-const RING_OFF_MS: u32 = 500;
 /// Each burst fades in and out over this long (no click).
 const RING_FADE_MS: u32 = 20;
+/// EXP-1423: a ring is queued this long before the queued one runs out (it
+/// runs out in the cadence's silence, so a late wake-up is never heard).
+const RING_LEAD: Duration = Duration::from_secs(1);
 
-/// S-3: `ms` of the ring at `rate`: [`RING_HZ`] bursts of [`RING_ON_MS`]
-/// with [`RING_OFF_MS`] of silence after each, cut at `ms`.
+/// EXP-1423: the ring's cadence (voice-call.json: `ringToneMs` on, then
+/// `ringGapMs` off; `ringLowHz` + `ringHighHz` together), one period in ms.
+fn ring_period_ms() -> u32 {
+    let constants = &etalk::call::VOICE_CALL.constants;
+    (constants.ring_tone_ms + constants.ring_gap_ms) as u32
+}
+
+/// S-3: `ms` of the ring at `rate`, from its start: the shared cadence
+/// ([`etalk::call::call_ring_tone_on`]), cut at `ms`.
 pub fn ring_tone(rate: u32, ms: u32) -> Vec<f32> {
-    let at = |ms: u32| (u64::from(rate) * u64::from(ms) / 1000) as usize;
-    let (on, period, fade, total) = (at(RING_ON_MS), at(RING_ON_MS + RING_OFF_MS), at(RING_FADE_MS).max(1), at(ms));
+    let constants = &etalk::call::VOICE_CALL.constants;
+    let at = |ms: u64| (u64::from(rate) * ms / 1000) as usize;
+    let (on, period, fade, total) =
+        (at(constants.ring_tone_ms), at(u64::from(ring_period_ms())), at(u64::from(RING_FADE_MS)).max(1), at(u64::from(ms)));
+    let (low, high) = (constants.ring_low_hz, constants.ring_high_hz);
     (0..total)
         .map(|index| {
             let phase = index % period;
@@ -136,8 +144,9 @@ pub fn ring_tone(rate: u32, ms: u32) -> Vec<f32> {
                 return 0.0;
             }
             let envelope = (phase.min(on - 1 - phase) as f32 / fade as f32).min(1.0);
-            let t = index as f32 / rate as f32;
-            RING_AMPLITUDE * envelope * (std::f32::consts::TAU * RING_HZ * t).sin()
+            let t = phase as f32 / rate as f32;
+            let tone = ((std::f32::consts::TAU * low * t).sin() + (std::f32::consts::TAU * high * t).sin()) / 2.0;
+            RING_AMPLITUDE * envelope * tone
         })
         .collect()
 }
@@ -198,8 +207,10 @@ impl Shared {
         }
     }
 
-    /// S-3: ring local call `id` for `ms` on its output stream (opened now,
-    /// the stream every reply of the call plays on). `false` = no stream.
+    /// S-3: ring local call `id` on its output stream (opened now, the
+    /// stream every reply of the call plays on) until [`Self::stop_ring`],
+    /// at most `ms`. EXP-1423: one cadence period is queued at a time, the
+    /// next [`RING_LEAD`] before it runs out. `false` = no stream.
     fn ring(&self, id: &str, ms: u32) -> bool {
         let stream = match self.call_out(etalk_crispasr::QWEN3_TTS_RATE) {
             Some(Ok(stream)) => stream,
@@ -213,15 +224,35 @@ impl Shared {
             return true;
         }
         let ring = Arc::new(sink::Reply::new(stream));
-        if let Err(err) = sink::Sink::push(&*ring, &ring_tone(etalk_crispasr::QWEN3_TTS_RATE, ms)) {
+        let period = ring_period_ms();
+        let first = ring_tone(etalk_crispasr::QWEN3_TTS_RATE, period.min(ms));
+        if let Err(err) = sink::Sink::push(&*ring, &first) {
             eprintln!("call {id}: the ring did not play: {err}");
             return true;
         }
-        eprintln!("call {id}: ringing for {ms} ms");
-        let old = self.ring.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).replace((id.to_string(), ring));
+        eprintln!("call {id}: ringing until answered (at most {ms} ms)");
+        let old = self.ring.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).replace((id.to_string(), ring.clone()));
         if let Some((_, old)) = old {
             sink::Sink::stop(&*old);
         }
+        let started = Instant::now();
+        let id = id.to_string();
+        std::thread::spawn(move || {
+            let mut queued = period.min(ms);
+            while queued < ms {
+                let due = started + Duration::from_millis(u64::from(queued));
+                std::thread::sleep(due.saturating_duration_since(Instant::now() + RING_LEAD));
+                if ring.stopped() {
+                    return;
+                }
+                let next = period.min(ms - queued);
+                if let Err(err) = sink::Sink::push(&*ring, &ring_tone(etalk_crispasr::QWEN3_TTS_RATE, next)) {
+                    eprintln!("call {id}: the ring stopped: {err}");
+                    return;
+                }
+                queued += next;
+            }
+        });
         true
     }
 
@@ -1111,20 +1142,26 @@ mod tests {
         assert!(mics[0].load(Ordering::SeqCst), "the microphone closed");
     }
 
-    /// S-3: the ring: soft 425 Hz bursts, 1 s on and 0.5 s off, cut at
-    /// `ring_ms` (two bursts in 3 s), no click at a burst's edges.
+    /// EXP-1423: the ring follows the shared cadence (`ringToneCases`):
+    /// soft 440 + 480 Hz for 2 s, 4 s of silence, again; no click at a
+    /// burst's edges.
     #[test]
-    fn the_ring_is_two_soft_bursts_in_three_seconds() {
+    fn the_ring_follows_the_shared_cadence() {
         let rate = 24_000;
-        let ring = ring_tone(rate, 3_000);
-        assert_eq!(ring.len(), 72_000);
+        let ring = ring_tone(rate, 12_000);
+        assert_eq!(ring.len(), 288_000);
         let peak = |from: usize, to: usize| ring[from..to].iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
         assert!(peak(0, ring.len()) <= RING_AMPLITUDE);
-        assert!(peak(6_000, 18_000) > RING_AMPLITUDE * 0.9, "the first burst");
-        assert_eq!(peak(24_000, 36_000), 0.0, "the pause");
-        assert!(peak(42_000, 54_000) > RING_AMPLITUDE * 0.9, "the second burst");
-        assert_eq!(peak(60_000, 72_000), 0.0, "the pause after it");
-        assert!(ring[0].abs() < 1e-6 && ring[23_999].abs() < 0.01, "faded in and out");
+        for second in 0..12 {
+            let (from, to) = (second * rate as usize, (second + 1) * rate as usize);
+            let on = etalk::call::call_ring_tone_on(second as i64 * 1000);
+            if on {
+                assert!(peak(from, to) > RING_AMPLITUDE * 0.9, "the tone in second {second}");
+            } else {
+                assert_eq!(peak(from, to), 0.0, "the gap in second {second}");
+            }
+        }
+        assert!(ring[0].abs() < 1e-6 && ring[47_999].abs() < 0.01, "faded in and out");
         assert!(ring_tone(rate, 0).is_empty());
     }
 
