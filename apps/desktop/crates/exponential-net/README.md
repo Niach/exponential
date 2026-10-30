@@ -142,7 +142,12 @@ the browser via wasm.
 - `wasm32-unknown-unknown`: builds (`cargo check -p exponential-net --target
   wasm32-unknown-unknown`); relay-only, `bind_addr`/`blob_add_path`/
   `fs-store` do not exist there, blobs and gossip work (in memory).
-- `fs-store`: persistent blobs (redb), native only.
+- `fs-store`: persistent blobs (redb), native only (implies `node`).
+- `node` (default): everything that runs an iroh node. `--no-default-features`
+  leaves the `push` module alone (`push_seal`, `push_open`, `PushKeypair`
+  with `derive_from_identity_bytes`) on RustCrypto, no iroh and no tokio: the
+  push-only build notification extensions link (EXP-1435). Its vectors are
+  `packages/domain-contract/fixtures/push-seal.json`.
 
 ## Tests
 

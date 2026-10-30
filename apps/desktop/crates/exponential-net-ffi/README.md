@@ -53,6 +53,20 @@ bash apps/desktop/crates/exponential-net-ffi/build-android.sh      # out/jniLibs
 bash apps/desktop/crates/exponential-net-ffi/run-binding-tests.sh  # the Swift suite against the host dylib
 ```
 
+### Push-only build (EXP-1435)
+
+`ENET_PUSH_ONLY=1` on any of the three scripts builds the facade with
+`--no-default-features`: `exponential-net` without its `node` feature, so
+only `pushOpen`, `pushSeal`, `pushKeypairGenerate`/`Derive` and `EnetError`
+remain, on RustCrypto alone (no iroh, no tokio). It is what the Exponential
+apps link (the iOS Notification Service Extension has a ~24 MB memory cap):
+bindings under `bindings/push/{swift,kotlin}` (committed), artifacts under
+`out/push/` (`ExponentialNetFFI.xcframework`, `jniLibs/<abi>/libexponential_net_ffi.so`).
+Same module/package/library names as the full build, so an app links one or
+the other, never both. `tests/push_fixture.rs` replays
+`packages/domain-contract/fixtures/push-seal.json` in both builds
+(`cargo test -p exponential-net-ffi --no-default-features`).
+
 Device builds use the workspace's `mobile` profile (LTO, one codegen unit,
 stripped), one crate type per build so LTO applies. The generated binding
 sources under `bindings/` are COMMITTED (the contract, reviewable without a
