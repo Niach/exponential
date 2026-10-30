@@ -88,13 +88,24 @@ private struct AssistantSettingsContent: View {
 
     /// The machines it can live on: online with a runnable agent, plus the
     /// one it is bound to whatever its state (the agent page's pool).
+    /// NEW-99 (`runsOnCases`): its device is the voice device, so desktops
+    /// only; a bound non-desktop stays, naming itself.
     private var devices: [SteerDevice] {
         let candidates = allDevices.filter { $0.isOnline && $0.hasRunnableAgent }
-        guard let bound = draft.deviceId,
-              !candidates.contains(where: { $0.deviceId == bound }),
-              let row = allDevices.first(where: { $0.deviceId == bound })
-        else { return candidates }
-        return [row] + candidates
+        let pool: [SteerDevice]
+        if let bound = draft.deviceId,
+           !candidates.contains(where: { $0.deviceId == bound }),
+           let row = allDevices.first(where: { $0.deviceId == bound }) {
+            pool = [row] + candidates
+        } else {
+            pool = candidates
+        }
+        let ids = Set(AgentSettings.runsOnDeviceIds(
+            pool.map { (deviceId: $0.deviceId, kind: $0.kind) },
+            boundId: draft.deviceId,
+            assistant: true
+        ))
+        return pool.filter { ids.contains($0.deviceId) }
     }
 
     private var canSubmit: Bool {

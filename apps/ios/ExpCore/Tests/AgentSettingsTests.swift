@@ -267,6 +267,27 @@ final class AgentSettingsTests: XCTestCase {
         }
     }
 
+    /// NEW-99: an Assistant's Runs on picker lists desktops only.
+    func testRunsOnDeviceIdsReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try assistantBlock()["runsOnCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let devices = try XCTUnwrap(testCase["devices"] as? [[String: Any]]).map { device in
+                (deviceId: try XCTUnwrap(device["deviceId"] as? String, name), kind: device["kind"] as? String)
+            }
+            XCTAssertEqual(
+                AgentSettings.runsOnDeviceIds(
+                    devices,
+                    boundId: testCase["boundId"] as? String,
+                    assistant: try XCTUnwrap(testCase["assistant"] as? Bool, name)
+                ),
+                try XCTUnwrap(testCase["expected"] as? [String], name),
+                name
+            )
+        }
+    }
+
     func testAssistantScheduleOfReplaysEveryCase() throws {
         let cases = try XCTUnwrap(try assistantBlock()["scheduleCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

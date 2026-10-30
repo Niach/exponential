@@ -54,7 +54,9 @@ final class VoiceCallTests: XCTestCase {
         XCTAssertEqual(VoiceCall.callGreeting("fr"), "Hello?")
         XCTAssertEqual(VoiceCall.callGreeting(nil), "Hello?")
         XCTAssertEqual(reasons, [
+            "noAgent": VoiceCall.Copy.Reasons.noAgent,
             "noVoiceDevice": VoiceCall.Copy.Reasons.noVoiceDevice,
+            "voiceFailed": VoiceCall.Copy.Reasons.voiceFailed,
             "offline": VoiceCall.Copy.Reasons.offline,
             "notHere": VoiceCall.Copy.Reasons.notHere,
             "preparing": VoiceCall.Copy.Reasons.preparing,
@@ -154,6 +156,7 @@ final class VoiceCallTests: XCTestCase {
             let expected = try XCTUnwrap(row["expected"] as? [String: Any], name)
             let speech = input["speech"] as? String
             let availability = VoiceCall.callAvailability(VoiceCall.AvailabilityInput(
+                agent: try XCTUnwrap(input["agent"] as? Bool, name),
                 platform: try XCTUnwrap(VoiceCall.Platform(rawValue: input["platform"] as? String ?? ""), name),
                 device: input["device"] as? String,
                 online: input["online"] as? Bool ?? false,
@@ -166,6 +169,15 @@ final class VoiceCallTests: XCTestCase {
                 enabled: expected["enabled"] as? Bool ?? false,
                 reason: expected["reason"] as? String
             ), name)
+        }
+    }
+
+    /// NEW-99: the doctor row `speech` state → Speech (`speechCases`).
+    func testSpeechCases() throws {
+        for row in try cases("speechCases") {
+            let name = row["name"] as? String ?? "?"
+            let expected = try (row["expected"] as? String).map { try XCTUnwrap(VoiceCall.Speech(rawValue: $0), name) }
+            XCTAssertEqual(VoiceCall.callSpeech(state: row["state"] as? String), expected, name)
         }
     }
 
@@ -369,6 +381,7 @@ final class VoiceCallTests: XCTestCase {
         }
         XCTAssertEqual(VoiceCall.callSpeech(ofJSON: doctor("ok")), .ok)
         XCTAssertEqual(VoiceCall.callSpeech(ofJSON: doctor("missing")), .noGpu)
+        XCTAssertEqual(VoiceCall.callSpeech(ofJSON: doctor("error")), .failed)
         XCTAssertEqual(VoiceCall.callSpeech(ofJSON: doctor("downloading")), .preparing)
         XCTAssertEqual(VoiceCall.callSpeech(ofJSON: doctor("warn")), .preparing)
         XCTAssertNil(VoiceCall.callSpeech(ofJSON: doctor("ok", group: "agents")))

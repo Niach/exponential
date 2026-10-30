@@ -31,10 +31,14 @@ public enum VoiceCall {
 
         /// Why the telephone is disabled (`callAvailability`, in order).
         public enum Reasons {
-            public static let noVoiceDevice = "Pick a voice device in Settings → Voice"
+            /// NEW-99: the member has no voice Assistant yet.
+            public static let noAgent = "Set up your Assistant in Settings → Agents"
+            public static let noVoiceDevice = "Run your Assistant on a desktop in Settings → Assistant"
             public static let offline = "{device} is offline"
             public static let notHere = "Calls run on {device}"
             public static let preparing = "{device} is getting its voice ready"
+            /// NEW-99: the voice device's voice failed to load.
+            public static let voiceFailed = "{device} couldn't load its voice: restart Exponential there"
             public static let noGpu = "{device} can't speak: no usable GPU"
             public static let busy = "{device} is in another call"
             /// #NEW-57: a meeting runs on the voice device.
@@ -262,9 +266,11 @@ public enum VoiceCall {
     public enum Platform: String, Sendable { case desktop, phone, web }
 
     /// The voice device's doctor row `speech` as a caller reads it.
-    public enum Speech: String, Sendable { case ok, preparing, noGpu }
+    public enum Speech: String, Sendable { case ok, preparing, noGpu, failed }
 
     public struct AvailabilityInput: Equatable, Sendable {
+        /// NEW-99: the member has a voice Assistant (`voice.get` agentId).
+        public var agent: Bool
         public var platform: Platform
         /// The voice device's name; nil = none picked (or its row is gone).
         public var device: String?
@@ -279,9 +285,10 @@ public enum VoiceCall {
         public var meeting: Bool
 
         public init(
-            platform: Platform, device: String?, online: Bool,
+            agent: Bool, platform: Platform, device: String?, online: Bool,
             here: Bool, speech: Speech?, busy: Bool, meeting: Bool = false
         ) {
+            self.agent = agent
             self.platform = platform
             self.device = device
             self.online = online
@@ -309,26 +316,35 @@ public enum VoiceCall {
         func off(_ reason: String) -> Availability {
             Availability(enabled: false, reason: reason.replacingOccurrences(of: "{device}", with: input.device ?? ""))
         }
+        if !input.agent { return off(Copy.Reasons.noAgent) }
         guard input.device != nil else { return off(Copy.Reasons.noVoiceDevice) }
         if !input.online { return off(Copy.Reasons.offline) }
         if input.meeting { return off(Copy.Reasons.meeting) }
         if input.platform == .desktop && !input.here { return off(Copy.Reasons.notHere) }
         if input.speech == nil { return off(Copy.Reasons.preparing) }
+        if input.speech == .failed { return off(Copy.Reasons.voiceFailed) }
         if input.speech == .noGpu { return off(Copy.Reasons.noGpu) }
         if input.busy { return off(Copy.Reasons.busy) }
         return Availability(enabled: true, reason: nil)
     }
 
-    /// The doctor's `speech` row (group `voice`): ok → ok, missing (no
-    /// usable GPU) → noGpu, absent → nil, anything else → preparing (web
-    /// `callSpeechOf`).
-    public static func callSpeech(of doctor: DeviceDoctor?) -> Speech? {
-        guard let row = doctor?.items.first(where: { $0.key == "speech" && $0.group == "voice" }) else { return nil }
-        switch row.state {
+    /// NEW-99 (`speechCases`): the doctor row `speech` state as a caller
+    /// reads it: nil → nil, ok → ok, missing (no usable GPU) → noGpu,
+    /// error → failed, anything else → preparing (TS `callSpeechOf`).
+    public static func callSpeech(state: String?) -> Speech? {
+        switch state {
+        case nil: return nil
         case "ok": return .ok
         case "missing": return .noGpu
+        case "error": return .failed
         default: return .preparing
         }
+    }
+
+    /// The doctor's `speech` row (group `voice`), absent → nil.
+    public static func callSpeech(of doctor: DeviceDoctor?) -> Speech? {
+        guard let row = doctor?.items.first(where: { $0.key == "speech" && $0.group == "voice" }) else { return nil }
+        return callSpeech(state: row.state)
     }
 
     /// `callSpeech(of:)` over the synced `devices.doctor` column (stringified

@@ -49,8 +49,8 @@ struct AgentCallButton: View {
 
 /// The telephone's inputs (`callAvailability` on a phone: never `here`,
 /// never `busy`): the member's voice settings (`voice.get`, fetched when the
-/// chat appears), the voice device's synced row (its name, liveness and
-/// doctor `speech`), and a clock so a device that stops beating reads
+/// chat appears; its agentId = the member has an Assistant), the voice
+/// device's synced row (its name, liveness and doctor `speech`), and a clock so a device that stops beating reads
 /// offline without a sync.
 @MainActor
 @Observable
@@ -71,6 +71,8 @@ final class AgentCallAvailability {
     var availability: VoiceCall.Availability {
         let device = device
         return VoiceCall.callAvailability(VoiceCall.AvailabilityInput(
+            // NEW-99: no voice Assistant yet (`voice.get` agentId) names it first.
+            agent: settings?.agentId != nil,
             platform: .phone,
             device: device?.label,
             online: DeviceLiveness.isOnline(lastSeenAt: device?.lastSeenAt, now: now),

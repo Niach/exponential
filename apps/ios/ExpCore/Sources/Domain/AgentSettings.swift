@@ -324,6 +324,19 @@ public enum AgentSettings {
             : DomainContract.deviceAgentDefaultsThreadModel
     }
 
+    /// NEW-99 (`runsOnCases`): the Runs on device picker's devices. An
+    /// Assistant's device is the member's voice device, so it lists desktops
+    /// only (a bound non-desktop stays, naming itself); a team agent keeps all.
+    public static func runsOnDeviceIds(
+        _ devices: [(deviceId: String, kind: String?)],
+        boundId: String?,
+        assistant: Bool
+    ) -> [String] {
+        devices
+            .filter { !assistant || $0.kind == "desktop" || $0.deviceId == boundId }
+            .map(\.deviceId)
+    }
+
     /// `assistant.scheduleCases`: the preset stored triggers stand for; nil
     /// = not an Assistant's (an event, a custom cron, more than one) and
     /// `agents.update` refuses it. A paused preset reads `off`.
