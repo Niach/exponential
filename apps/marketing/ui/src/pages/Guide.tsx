@@ -441,14 +441,14 @@ targets: [
             needs Rust 1.96: pin it in <code>rust-toolchain.toml</code>.
           </p>
           <DocsCode language="toml">{`[dependencies]
-eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
-eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.1" }
+eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.1" }
 gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
 
 [patch."https://github.com/zed-industries/zed"]
-ztracing = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
-ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }`}</DocsCode>
+ztracing = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.1" }
+ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.1" }`}</DocsCode>
           <DocsCode language="sh">{`cargo update gpui --precise cc053a4a6fa2fd0e8793201ed9099466af1be0b1`}</DocsCode>
           <GuideFile path="gpui/Cargo.toml" caption="path dependencies standing in for the git ones" />
         </>
