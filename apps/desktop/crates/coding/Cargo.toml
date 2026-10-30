@@ -10,7 +10,7 @@ publish = false
 # the modules that moved there, so every caller keeps its old path.
 exponential-agent-runtime = { path = "../exponential-agent-runtime" }
 # eTalk: the voice, call and meeting state machines (packages/etalk/fixtures).
-etalk = { path = "../etalk" }
+etalk = { path = "../etalk", default-features = false }
 # §3.1 dependency direction: coding ──▶ api, terminal (never ui, never steer —
 # the launcher returns the session id and the app/ui layer hands it to the
 # steer publisher).

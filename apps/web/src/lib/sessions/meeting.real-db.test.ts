@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it, vi } from "vitest"
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import { agents, conversations, devices, messages, sessions, teamMembers, teams, userVoiceSettings } from "@/db/schema"
@@ -281,7 +281,7 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
     await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: w.ops, voiceDeviceId: w.deviceId, meetingAutoStopHours: 2 })
     const convo = await sendSession({ userId: w.owner, input: { agentId: w.ops, text: `hello` } })
     const notes = async () =>
-      (await db.select().from(messages).where(and(eq(messages.sessionId, convo.sessionId), eq(messages.authorKind, `system`)))).map((note) => note.body)
+      (await db.select().from(messages).where(and(eq(messages.sessionId, convo.sessionId), eq(messages.authorKind, `system`))).orderBy(asc(messages.createdAt), asc(messages.id))).map((note) => note.body)
 
     // The device's auto-stop on an expired stamp (it already reads as none).
     const old = new Date(Date.now() - 3 * 60 * 60 * 1000 - 123)

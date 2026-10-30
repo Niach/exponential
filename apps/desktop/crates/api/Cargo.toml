@@ -16,7 +16,7 @@ staging = []
 # the modules that moved there, so every caller keeps its old path.
 exponential-agent-runtime = { path = "../exponential-agent-runtime" }
 # eTalk: the voice, call and meeting state machines (packages/etalk/fixtures).
-etalk = { path = "../etalk" }
+etalk = { path = "../etalk", default-features = false }
 domain = { path = "../domain" }
 serde = { workspace = true }
 serde_json = { workspace = true }
