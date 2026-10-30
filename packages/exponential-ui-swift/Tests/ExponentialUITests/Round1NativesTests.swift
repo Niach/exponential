@@ -536,6 +536,34 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(size.width, expected, accuracy: 0.5)
     }
 
+    /// VAPP-164: a `bar` caption is measured at the weight its SELECTED
+    /// state paints (`Segmented/label` selected: medium in neutral, bold in
+    /// playful), so selecting an item never needs more room than measured.
+    func testSegmentedBarMeasuresCaptionsAtTheSelectedWeight() throws {
+        let items: JSONValue = .array([
+            .object(["label": .string("Overview"), "value": .string("a")]),
+            .object(["label": .string("Settings"), "value": .string("b")]),
+        ])
+        let props: Props = ["items": items, "variant": .string("bar")]
+        for (id, weight) in [("neutral", 500), ("playful", 700)] {
+            let theme = try XCTUnwrap(ThemeHandle.builtin(id))
+            let selected = theme.part("Segmented", "label", props: props, states: ["selected"], mode: .light)
+            XCTAssertEqual(SurfaceMeasurer.barLabelWeight(base: 400, label: theme.part("Segmented", "label", props: props, mode: .light), selected: selected), weight, id)
+            let measurer = SurfaceMeasurer(theme: theme, mode: .light, extensions: ExtensionRegistry(), kinds: [:], generation: 0)
+            let size = measurer.measureLeaf(LeafRequest(component: "Segmented", props: props, textStyle: TextStyle(fontSize: 14, fontWeight: 400, lineHeight: 20, fontFamily: theme.sansFamily)), wrap: nil)
+            var caption = SurfaceMeasurer.barCaption(theme.part("Text", "root", props: ["variant": .string("caption")], mode: .light), base: TextStyle(fontSize: 14, fontWeight: 400, lineHeight: 20, fontFamily: theme.sansFamily))
+            caption.fontWeight = weight
+            let xs = theme.spacing("xs")
+            let expected = ["Overview", "Settings"].reduce(CGFloat(0)) { $0 + TextShaper.maxContent($1, caption) + 2 * xs }
+            XCTAssertEqual(size.width, expected, accuracy: 0.01, id)
+            caption.fontWeight = 400
+            let regular = ["Overview", "Settings"].reduce(CGFloat(0)) { $0 + TextShaper.maxContent($1, caption) + 2 * xs }
+            // (The test fonts may shape 500 as wide as 400; bold is wider.)
+            XCTAssertGreaterThanOrEqual(size.width, regular, "\(id): never narrower than the regular-weight captions")
+            if weight >= 700 { XCTAssertGreaterThan(size.width, regular, id) }
+        }
+    }
+
     /// `Menu openOn: contextmenu`: the ONE child is the region; a secondary
     /// click / long press there opens the core's menu layer at the pointer;
     /// a press Menu with no child synthesizes its outline Button trigger.

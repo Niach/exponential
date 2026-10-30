@@ -1246,8 +1246,8 @@
         "file": "shots/exponential-ui-call-surface/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 24072,
-        "sha256": "71255f6047111e56e8ecae04e7911d8c69632b894f80e86344dae667e275fc1d"
+        "bytes": 24426,
+        "sha256": "752e5af12e11f8dc15a183382ba1e99b081a880929c4892a174324b440fb00bd"
       },
       "web": {
         "file": "shots/exponential-ui-call-surface/web.webp",
@@ -2086,8 +2086,8 @@
         "file": "shots/exponential-ui-kitchen-sink/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 40468,
-        "sha256": "c12776869a54a1b0ec4ac40c358f2b22969a893e8f7336e7d047b9a057d513c1"
+        "bytes": 40454,
+        "sha256": "f4d37f046f6ce26551e0b329baec4e0292acaa65f975e1822db2405e99a8fd36"
       },
       "web": {
         "file": "shots/exponential-ui-kitchen-sink/web.webp",
@@ -2769,22 +2769,22 @@
         "file": "shots/exponential-ui-segmented/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 26056,
-        "sha256": "64f26735bc2807b5f2e16ae237442b4ee638fa47c2c8c5e00ee3167cd3ca599c"
+        "bytes": 26576,
+        "sha256": "d4c8dfada8d18bb3fc654a49a84398c5f6f076ac236dec8838625f5a7510d4a2"
       },
       "desktop": {
         "file": "shots/exponential-ui-segmented/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 39884,
-        "sha256": "bfb0875208d09160a476707fa430952ed18a1435b5cafb50b1f7fe3bf5ae4f22"
+        "bytes": 40786,
+        "sha256": "94839e33c553b6789ad837b3b285d062d024fdc909e32f065c956d4f4739cbfb"
       },
       "ios": {
         "file": "shots/exponential-ui-segmented/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 27030,
-        "sha256": "995e5d9ef3a5afaba6908aa6f8e5ae136f5177fa1da026c00bec10f851f07b12"
+        "bytes": 27134,
+        "sha256": "094a25aad37f81172117ac7e41892c37b9b18d8f946454ed84db1a7c564f9a32"
       },
       "web": {
         "file": "shots/exponential-ui-segmented/web.webp",

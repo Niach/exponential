@@ -635,7 +635,12 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     /// min-content width = the widest of icon and label per item, plus `xs`
     /// on both sides (gpui `segmented_bar`).
     private func segmentedBar(_ leaf: LeafRequest) -> CGSize {
-        let ts = Self.barCaption(part("Text", "root", ["variant": .string("caption")]), base: leaf.textStyle)
+        // VAPP-164: `SegmentedLeaf.barItem` paints a caption in its
+        // `Segmented/label` weight (the selected one heavier, 500 in
+        // neutral); measure every caption at the heaviest so a selection
+        // never needs more room than was measured (gpui `segmented_bar`).
+        var ts = Self.barCaption(part("Text", "root", ["variant": .string("caption")]), base: leaf.textStyle)
+        ts.fontWeight = Self.barLabelWeight(base: ts.fontWeight, label: part("Segmented", "label", leaf.props), selected: part("Segmented", "label", leaf.props, ["selected"]))
         let icon = control("iconMd", 20)
         let pad = spacing("xs")
         var w: CGFloat = 0
@@ -646,6 +651,12 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             w += max(lw, iw) + 2 * pad
         }
         return CGSize(width: w, height: control("tabBar", 56))
+    }
+
+    /// The weight a `bar` caption is MEASURED at: the heaviest of the base,
+    /// the `label` part's and its `selected` state's weight.
+    static func barLabelWeight(base: Int, label: PartStyle, selected: PartStyle) -> Int {
+        [label, selected].compactMap { $0.props.num("fontWeight").map { Int($0) } }.reduce(base, max)
     }
 
     /// VAPP-162 (round-5 contract §3): THE navigation rail (a vertical

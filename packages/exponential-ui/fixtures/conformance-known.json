@@ -756,14 +756,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/1280/ltr": {
@@ -812,14 +812,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/light/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/light/1280/ltr": {
@@ -1092,14 +1092,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/orange/dark/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/orange/dark/1280/ltr": {
@@ -1148,14 +1148,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/orange/light/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/orange/light/1280/ltr": {
@@ -2088,12 +2088,6 @@
       "only": "ref",
       "cases": 64,
       "reason": "AudioPlayer title line: painted inside the AudioPlayer leaf (its height is the core's)."
-    },
-    {
-      "id": "chip-user.image.fallback",
-      "only": "ref",
-      "cases": 8,
-      "reason": "Avatar initials inside a Chip: painted inside the image leaf (the box is compared)."
     },
     {
       "id": "media-img.fallback",

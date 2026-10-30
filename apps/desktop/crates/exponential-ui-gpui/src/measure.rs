@@ -507,6 +507,21 @@ pub(crate) fn bar_caption(theme: Option<&ResolvedTheme>, mode: Mode, base: &Text
     }
 }
 
+/// A (non-`bar`) Segmented item's label style: the `Segmented/item`
+/// recipe's size, weight and family; the group's line height, tracking and
+/// case. The painter paints the label with exactly this (VAPP-164).
+pub(crate) fn segmented_item_text(item: &Map<String, Value>, base: &TextStyle) -> TextStyle {
+    TextStyle {
+        font_size: px_prop(item, "fontSize").unwrap_or(base.font_size),
+        font_weight: item.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(500),
+        line_height: base.line_height,
+        font_family: item.get("fontFamily").and_then(Value::as_str).map(str::to_string),
+        letter_spacing: base.letter_spacing,
+        text_transform: base.text_transform.clone(),
+        ..Default::default()
+    }
+}
+
 /// The leading/trailing chrome a one-line text part carries beside its text
 /// (an icon, a count, a chevron, a check, a sort arrow): `(lead, trail)` px.
 pub fn text_chrome(owner_component: &str, part: Option<&str>, props: &Map<String, Value>, gap: f32, count_w: f32) -> (f32, f32) {
@@ -842,7 +857,14 @@ impl<'a> GpuiMeasure<'a> {
     /// min-content width = the widest of icon and label per item.
     fn segmented_bar(&mut self, leaf: &LeafRequest) -> (f32, f32) {
         let items = leaf.props.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
-        let ts = bar_caption(self.theme, self.mode, leaf.text_style);
+        // VAPP-164: the selected caption paints in the `Segmented/label`
+        // selected weight; measure every caption at the heavier of the two
+        // so a selection never needs more room than was measured.
+        let mut ts = bar_caption(self.theme, self.mode, leaf.text_style);
+        let selected = self.part("Segmented", "label", leaf.props, &["selected".to_string()]);
+        if let Some(w) = selected.get("fontWeight").and_then(Value::as_u64) {
+            ts.font_weight = ts.font_weight.max(w as u16);
+        }
         let icon = control(self.theme, "iconMd", 20.0);
         let pad = spacing(self.theme, "xs");
         let mut w = 0.0;
@@ -872,17 +894,7 @@ impl<'a> GpuiMeasure<'a> {
         let pad = px_prop(&item, "paddingHorizontal").or_else(|| px_prop(&item, "padding")).unwrap_or(12.0);
         let border = px_prop(&item, "borderWidth").unwrap_or(0.0);
         let h = px_prop(&item, "height").unwrap_or(36.0);
-        let fs = px_prop(&item, "fontSize").unwrap_or(leaf.text_style.font_size);
-        let ts = TextStyle {
-            font_size: fs,
-            font_weight: item.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(500),
-            line_height: leaf.text_style.line_height,
-            font_family: item.get("fontFamily").and_then(Value::as_str).map(str::to_string),
-            // Items inherit the group's tracking and case (painted so).
-            letter_spacing: leaf.text_style.letter_spacing,
-            text_transform: leaf.text_style.text_transform.clone(),
-            ..Default::default()
-        };
+        let ts = segmented_item_text(&item, leaf.text_style);
         let gap = leaf.control.gap;
         // Icon ↔ label: the `Segmented/item` recipe's gap (none = 0, as the web).
         let item_gap = px_prop(&item, "gap").unwrap_or(0.0);
@@ -937,7 +949,10 @@ impl<'a> GpuiMeasure<'a> {
     /// to maxWidth (max-content and min-content = maxWidth), then (with a
     /// hint) the root gap and the hint.
     fn qr_scanner(&mut self, leaf: &LeafRequest, inner: Option<f32>) -> (f32, f32) {
-        let edge = match inner {
+        // A fixed width (the author's `style.width`, the control box) wins:
+        // the core asks max- and min-content with no wrap (SwiftUI, Compose).
+        let fixed = leaf.control.width.map(|w| (w - insets(&leaf.control).0).max(0.0));
+        let edge = match fixed.or(inner) {
             Some(w) if w > 0.0 => crate::paint::qr::viewfinder_edge(w),
             _ => crate::paint::qr::QR_SCANNER.max_width,
         };
@@ -947,7 +962,7 @@ impl<'a> GpuiMeasure<'a> {
         }
         let ts = self.part_text("QrScanner", "hint", leaf.props, leaf.text_style);
         let gap = if leaf.control.gap > 0.0 { leaf.control.gap } else { crate::paint::qr::QR_SCANNER.hint_gap };
-        let (_, hh, _) = self.para(hint, &ts, Some(inner.filter(|w| *w > 0.0).unwrap_or(edge).max(edge)), None);
+        let (_, hh, _) = self.para(hint, &ts, Some(fixed.or(inner).filter(|w| *w > 0.0).unwrap_or(edge).max(edge)), None);
         (edge, edge + gap + hh)
     }
 

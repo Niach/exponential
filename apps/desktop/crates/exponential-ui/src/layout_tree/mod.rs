@@ -736,6 +736,12 @@ impl<'a, 'b> Builder<'a, 'b> {
                 let tall = crate::segmented::rail_height(&self.nodes[index as usize].props, self.ctx.tab_bar);
                 self.style_default(index, &[("alignSelf", json!("flex-start")), ("flexShrink", json!(0)), ("height", json!(tall))])
             }
+            // VAPP-164: a horizontal `bar` is `width: 100%` (base-css.ts), so
+            // it fills its parent even in an `align: start` column, with or
+            // without icons.
+            "Segmented" if str_prop(&self.nodes[index as usize].props, "variant") == Some("bar") => {
+                self.style_default(index, &[("width", json!("100%"))])
+            }
             // A Segmented is content-sized unless `fill` (a `bar` always fills).
             "Segmented" if !bool_prop(&self.nodes[index as usize].props, "fill") && str_prop(&self.nodes[index as usize].props, "variant") != Some("bar") => {
                 self.style_default(index, &[("alignSelf", json!("flex-start"))])

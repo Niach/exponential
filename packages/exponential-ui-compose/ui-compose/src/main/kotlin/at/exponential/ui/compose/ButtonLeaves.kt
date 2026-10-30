@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
@@ -39,6 +40,9 @@ import at.exponential.ui.model.segmentedSelect
 import at.exponential.ui.model.segmentedValues
 import at.exponential.ui.theme.ResolvedTextStyle
 import kotlinx.coroutines.delay
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Button / Toggle content: the spinner (`loading`) or the icon (host icon,
@@ -99,12 +103,15 @@ internal fun SegmentedLeaf(cx: LeafContext) {
     val h = if (bar) cx.inner.height else item.height ?: 36f
     // Icon ↔ label: the recipe's gap (none = 0, as the web and gpui).
     val itemGap = item.px("gap") ?: 0f
+    // The measurer's item style: the group's tracking rides along (gpui).
     val ts = ResolvedTextStyle(
         item.px("fontSize") ?: cx.textStyle.fontSize,
         (item.props["fontWeight"]?.number ?: 500.0).toInt(),
         cx.textStyle.lineHeight,
         item.fontFamily,
+        cx.textStyle.letterSpacing,
     )
+    val border = item.px("borderWidth") ?: 0f
     val fill = bar || props.flag("fill")
     // VAPP-162: `orientation: vertical` stacks the segments; a vertical
     // `bar` is THE navigation rail (items as wide as the rail, each
@@ -134,17 +141,19 @@ internal fun SegmentedLeaf(cx: LeafContext) {
             if (bar) {
                 SegmentedBarItem(cx, it, label, states, ink, if (vertical) railItem else h, badge, slot.leafPartBox(st.style).then(select))
             } else {
+                // VAPP-164: the item's width is the measurer's (set by
+                // [SegmentRow]); its padding is the centring slack around
+                // the content, never a px-rounded inset the label loses.
                 Box(
                     slot
                         .height(h.dp)
                         .leafPartBox(st.style)
-                        .then(select)
-                        .padding(horizontal = pad.dp),
+                        .then(select),
                     contentAlignment = Alignment.Center,
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(itemGap.dp), verticalAlignment = Alignment.CenterVertically) {
                         it["icon"]?.string?.let { name -> IconView(name, 16f, ink, model) }
-                        if (label.isNotEmpty()) LeafLine(cx, label, color = ink, ts = ts)
+                        if (label.isNotEmpty()) LeafLine(cx, label, Modifier.weight(1f, fill = false), color = ink, ts = ts)
                     }
                 }
             }
@@ -158,13 +167,57 @@ internal fun SegmentedLeaf(cx: LeafContext) {
         }
         return
     }
+    if (bar) {
+        InnerBox(cx, Alignment.CenterStart) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(cx.style.gap.dp), verticalAlignment = Alignment.CenterVertically) {
+                for ((k, it) in items.withIndex()) segment(k, it, Modifier.weight(1f))
+            }
+        }
+        return
+    }
+    // VAPP-164: each segment as wide as the measurer made it (2 × (padding
+    // + border) + icon + gap + label, the core's gap between), laid out at
+    // FRACTIONAL dp like the core and gpui. A Row of padded boxes rounded
+    // every padding and gap to whole px and ellipsized the last label.
+    val shaper = cx.model.textShaper()
+    val widths = items.map {
+        val label = cx.shown(it["label"]?.displayText ?: "")
+        val lw = if (label.isEmpty()) 0f else shaper.maxContent(label, ts)
+        val iw = if (it["icon"]?.string != null) 16f else 0f
+        2 * (pad + border) + iw + (if (iw > 0f && lw > 0f) itemGap else 0f) + lw
+    }
     InnerBox(cx, Alignment.CenterStart) {
-        Row(
-            if (fill) Modifier.fillMaxWidth() else Modifier,
-            horizontalArrangement = Arrangement.spacedBy(cx.style.gap.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            for ((k, it) in items.withIndex()) segment(k, it, if (fill) Modifier.weight(1f) else Modifier)
+        SegmentRow(widths, cx.style.gap, fill) {
+            for ((k, it) in items.withIndex()) segment(k, it, Modifier)
+        }
+    }
+}
+
+/**
+ * The horizontal segments at the measurer's widths ([widths], dp; `fill`
+ * shares the row equally), [gap] dp apart: positions accumulate in dp and
+ * each edge rounds to px once, so the row never drifts past its box.
+ */
+@Composable
+private fun SegmentRow(widths: List<Float>, gap: Float, fill: Boolean, content: @Composable () -> Unit) {
+    Layout(content, if (fill) Modifier.fillMaxWidth() else Modifier) { measurables, c ->
+        val d = density
+        val n = measurables.size
+        val avail = if (c.hasBoundedWidth) c.maxWidth else Int.MAX_VALUE
+        val share = if (fill && n > 0) (avail / d - gap * (n - 1)) / n else 0f
+        var x = 0f
+        val placed = measurables.mapIndexed { i, m ->
+            val w = if (fill) share else widths.getOrElse(i) { 0f }
+            val left = min((x * d).roundToInt(), avail)
+            val right = min(((x + w) * d).roundToInt(), avail)
+            x += w + gap
+            val wp = max(right - left, 0)
+            left to m.measure(Constraints(minWidth = wp, maxWidth = wp, maxHeight = c.maxHeight))
+        }
+        val width = if (fill) avail else placed.maxOfOrNull { (l, p) -> l + p.width } ?: 0
+        val height = placed.maxOfOrNull { it.second.height } ?: 0
+        layout(max(width, c.minWidth), max(height, c.minHeight)) {
+            for ((l, p) in placed) p.placeRelative(l, (height - p.height) / 2)
         }
     }
 }

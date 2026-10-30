@@ -206,9 +206,9 @@ struct TabLeaf: View {
                 if let icon = cx.props["icon"]?.string {
                     ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
                 }
-                Text(cx.textStyle.shown(cx.props.text("text"))).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
+                MeasuredLabel(text: cx.props.text("text"), ts: cx.textStyle, color: cx.ink)
                 if let count = cx.props["count"] {
-                    Text(count.displayText).font(cx.font).foregroundStyle(cx.themeColor("mutedForeground") ?? cx.ink).lineLimit(1)
+                    MeasuredLabel(text: count.displayText, ts: cx.textStyle, color: cx.themeColor("mutedForeground") ?? cx.ink)
                 }
             }
             .frame(width: cx.inner.width, height: cx.inner.height)
@@ -221,18 +221,37 @@ struct TabLeaf: View {
     }
 }
 
+/// A one-line label inside a control's row (a Button / Toggle label, a
+/// tab, an Accordion title, their counts): the TextKit label at the width
+/// the measurer gave it (`TextShaper.width`, tracking included), one line
+/// box tall. A SwiftUI `Text` sizes itself in its own pass (pixel-ceiled,
+/// no inherited tracking) and truncated a label that fit as measured
+/// (VAPP-164, the Segmented "Boa…" class). It still shrinks, truncating,
+/// when the row is given less than its width.
+struct MeasuredLabel: View {
+    let text: String
+    let ts: TextStyle
+    let color: Color
+
+    var body: some View {
+        TextLabel(text, ts, color: color, lines: 1)
+            .frame(maxWidth: TextShaper.width(ts.shown(text), ts))
+            .frame(height: ts.lineHeight)
+    }
+}
+
 /// An Accordion `trigger`: title (+ count) and a chevron that turns open.
 struct AccordionTriggerLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        let title = cx.textStyle.shown(cx.props.text("text"))
+        let title = cx.props.text("text")
         // Round 2 §7: the count is its own muted part after the title.
         return HStack(spacing: max(cx.style.gap, 8)) {
             HStack(spacing: 8) {
-                Text(title).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
+                MeasuredLabel(text: title, ts: cx.textStyle, color: cx.ink)
                 if let count = cx.props["count"] {
-                    Text(count.displayText).font(cx.font).foregroundStyle(cx.themeColor("mutedForeground") ?? cx.ink).lineLimit(1)
+                    MeasuredLabel(text: count.displayText, ts: cx.textStyle, color: cx.themeColor("mutedForeground") ?? cx.ink)
                 }
             }
             Spacer(minLength: 0)
@@ -298,7 +317,7 @@ struct ButtonLeaf: View {
                 ConceptIcon(name: "", size: iconSize, color: cx.ink, model: cx.model)
             }
             if !iconOnly, !label.isEmpty {
-                Text(cx.textStyle.shown(label)).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
+                MeasuredLabel(text: label, ts: cx.textStyle, color: cx.ink)
             }
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
