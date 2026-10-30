@@ -22,7 +22,8 @@ Server coupling becomes traits the hosts implement. Each lands with the first mo
 | --- | --- | --- | --- |
 | `LaunchSpec` | what to spawn and how (program, env, cwd, agent, picks, resume, MCP servers, context layers, confine root) | `engine::adapters::AdapterSpec` → `LaunchSpec` | built directly |
 | `EventSink` | where mapped events go | the steer publisher | the voice loop / UI |
-| `RunBackend` (4d) | report state, reply cards, consume queued messages, answers | `api::session_device` over tRPC | in memory |
+| `RunBackend` | the side-car a run brings up and its end sequence, the run record, reply cards, consumed messages, open cards | `engine::lifecycle::RunLifecycle` (outbox, publisher, tickers, kill pump, `sessions.*` over tRPC) | `NoBackend` (in memory) |
+| `PromptLocalizer` | a host prompt's attachment embeds, as the agent reads them | `engine::host::SteerLocalizer` (`steer::localize_message`) | none |
 | `AccountEnv` | config dir + env for the spawn | multi-account rotation | the CLI's default home |
 | `McpProvider` | the MCP servers a run gets | team + device servers | the user's own list |
 | `HostTools` | the host's OWN tools: display row, subject key, preview spec, code-mode script log | `engine::ExpHostTools` (contract `expToolDisplay` / `expToolPreview`, `codemode` reports) | `NoHostTools` |
@@ -102,28 +103,33 @@ caller changes until a later cleanup.
      (`locate_claude_transcript`), `engine::launch` (`RunOptions`, `ResumeHandle`, `EngineError`
      whose `Api` arm boxes the backend error, the ACP `_meta` keys, the aside tool posture) and
      `child_exit::until_either_closes`. `coding` converts `ResumeSeed`, `api` its `ApiError`.
-   - **4d, next: `host` and `session`.** They cannot move on their own: they and `lifecycle` /
-     `outbox` / `aside` (which stay in `engine`) use each other. `session::start` builds
-     `RunLifecycle`; `host` calls `lifecycle::{record_session_ids, lost_reason,
-     record_context_base}`, holds the `Outbox` and `AsideState` / `AsideEnd` on `SessionCtx`;
-     `lifecycle` reads `host::{SessionCtx, EngineCommand, EngineExit, EngineHost, KillFeed,
-     KillReason, SessionIds}`. So 4d first puts the lifecycle behind a trait on `SessionCtx`
-     (the outbox's `ConversationApi` reply / consume plus the `record_*` reports become
-     `RunBackend`, plain core types, `NoBackend` in the core, the tRPC impl in `engine`), then
-     moves `host` + `session`. What they still pull, i.e. the seams 4d defines: `RunBackend`
-     (`api::TrpcClient` on `SessionCtx` / `EngineStart` / `OpenTranscript`, `api::sessions::
-     AnswerInput` (the fresh-context downgrade), `api::session_device::LostReason`,
-     `ApiError` in `EngineExit::end`); a start from `LaunchSpec` instead of
-     `coding::PreparedLaunch` (`prepare_with_hooks`, `ResumeSeed`, `skill::system_append`,
-     `coding::aside`, `run_registry::{get, RunRecord}` in `HistoryHandle`, `pickup::LiveEngine`
-     / `write_back_card`, `end_session`, `computer::turn_started`, `launcher::STEER_IMAGES_DIR`);
-     from `steer` the relay behaviour behind a trait (`SteerRuntime` as a tokio handle the host
-     passes in, `TurnSignal` / `CaptionSignal` / `AgentTitleSignal`, `answer_tap::{notify,
-     card_resolution}`, `image_localizer` / `localize_message` / `ImageEmbeds` /
-     `AttachmentHook` / `has_attachment_embed` / `PublishSpec::embeds`, `CompactVerdict`) and
-     the pure parts into `wire` (`workflow_caption`, `RESUMED_IDLE_CAPTION`, `QUEUE_MAX`,
-     `CONFIG_ID_MAX`, `STOP_GRACE`, `blocked_wall_expired` (chrono)); `domain::plan_card::copy`
-     and `domain::session_kind` as core types pinned in `engine` tests (like 4b).
+   - **4d, done (the host and the session).** `engine::host` and `engine::session` moved whole
+     (`engine` re-exports both; `lifecycle`, `outbox` and `aside`'s posture stay there). The knot
+     is untied by `RunBackend`: the context holds it, the host calls it (`record_session_ids`,
+     `record_context_base`, `recorded_native_session_id`, `post_replies` / `resolve_question` /
+     `consume` / `open_cards`, `fresh_context_kept`, `turn_started`), and the core attaches it
+     before the connection thread and hands it the end sequence. Exponential's `RunLifecycle`
+     implements it (tRPC client, steer runtime, outbox, `lost`, the image hook stay on it).
+     Moved with them: `KillFeed` / `KillReason`, `EngineCommand`, `SessionIds`, `RunFacts`,
+     `SessionCtx` (public for a backend to read), `ExitState`, `EngineExit<End = ()>` (Exponential's
+     is `EngineExit<Result<(), ApiError>>` with its own `EngineHost`), `end_phases`, the aside's
+     one-shot state (`engine::aside`), and into `wire` the `TurnSignal` / `CaptionSignal` /
+     `AgentTitleSignal` and the answer tap (`wire::answer_tap`, `steer` re-exports both). The
+     steer runtime is a `tokio::runtime::Handle`; `domain::plan_card`'s gate line is
+     `PLAN_MODE_ON_LINE`, pinned to the fixture in `engine::host`'s tests. What stays in
+     `engine`: `EngineStart` from a `coding::PreparedLaunch`, `open_transcript`, the pickup's
+     `LiveEngine`, the run-record reads, `fresh_context_downgrade`, the steer image localizer and
+     `blocked()`'s expiry (chrono), on an `engine::EngineSession` that derefs to the core one.
+
+     **The server-free API:** `engine::start(LaunchSpec, SessionSpec, Arc<dyn RunBackend>) ->
+     EngineSession` (or `start_with(SessionSpec, adapter, backend)` for a scripted
+     `ConnectTo<Client>`). `SessionSpec::for_launch(&launch, runtime)` fills it from the launch;
+     set `sink` (an `EventSink`, e.g. `RecordingSink`) and `local_sink`. `NoBackend::with_host`
+     reports the exit. The `EngineSession` takes `send_prompt` / `deliver` (queued while a turn or
+     a compaction runs) / `answer` / `answer_card` / `set_config` / `set_mode` / `cancel_turn` /
+     `unqueue` / `kill`, and reads `subscribe` / `phase` / `turn_signal` / `wait`; a resume is a
+     new start with `ResumeHandle` (`session/load`). `tests/server_free_start.rs` drives it with
+     `NoBackend` + `RecordingSink` against the fake agent.
 5. A local backend and a runnable example: one turn plus the session history with your own login,
    no server.
 

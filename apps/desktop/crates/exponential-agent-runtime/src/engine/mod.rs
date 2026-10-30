@@ -9,20 +9,25 @@
 //! `context_layout` arithmetic, the result refs and the ACP `terminal/*`
 //! capability, and (part 4c) the ACP adapters themselves: a host starts the
 //! user's own `claude` / `codex` from a core [`LaunchSpec`] ([`adapters`],
-//! [`launch`]). The ACP host and the session follow (part 4d) behind `RunBackend`
-//! (see the README).
+//! [`launch`]), and (part 4d) the ACP host and the session: [`start`] drives
+//! that adapter into an [`EventSink`] behind a [`RunBackend`] ([`NoBackend`]
+//! = no server at all) and hands back the [`EngineSession`] a host answers,
+//! queues, stops and resumes through.
 
 pub mod adapters;
 pub mod api_retry;
+pub mod aside;
 pub mod child_exit;
 pub mod compaction;
 pub mod context_layout;
 pub mod exp_tool_refs;
+pub mod host;
 pub mod host_tools;
 pub mod launch;
 pub mod local;
 pub mod mapper;
 pub mod reply;
+pub mod session;
 pub mod sink;
 pub mod stall;
 pub mod terminals;
@@ -30,6 +35,11 @@ pub mod transport;
 
 pub use adapters::{Adapter, AdapterKind, LaunchSpec};
 pub use child_exit::ChildExitLink;
+pub use host::{
+    client_capabilities, EngineCommand, EngineExit, EngineHost, KillFeed, KillReason, LocalSink,
+    NoBackend, PromptLocalizer, RunBackend, RunFacts, SessionCtx, SessionIds,
+};
+pub use session::{start, start_with, ConfigValue, EngineSession, SessionSpec};
 pub use launch::{EngineError, ResumeHandle, RunOptions};
 pub use host_tools::{HostTools, NoHostTools, ScriptCall, ScriptReport};
 pub use mapper::{Mapper, MapperConfig};

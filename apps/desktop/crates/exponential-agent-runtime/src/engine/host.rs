@@ -1,0 +1,4226 @@
+//! EXP-746 — the ACP client host: what the engine advertises, what it asks of
+//! whoever started it, and the command loop that keeps ONE `ConnectionTo`
+//! open across a whole session.
+//!
+//! Two dispatch loops sit back to back — our `Client` role and the adapter's
+//! `Agent` role — and the ONE rule that keeps them alive is:
+//! **any handler that can take more than a few milliseconds must
+//! `cx.spawn(...)` with its `Responder` moved in.** Handlers run inside the
+//! dispatch loop and block every further message until they return, so a
+//! permission handler that awaits a relay round-trip inline deadlocks the
+//! whole session — silently, with no error. The matching hazard on the way
+//! out: a task handed to `ConnectionTo::spawn` that returns `Err` shuts the
+//! WHOLE connection down, so every spawned task swallows its error into
+//! `Responder::respond_with_error` and returns `Ok(())`.
+//!
+//! What runs where:
+//!
+//! - `session/update` → [`crate::mapper::Mapper::on_update`] INLINE (pure,
+//!   microseconds) and straight out through [`SessionCtx::dispatch`];
+//! - `session/request_permission` / `elicitation/create` → mapped inline (so
+//!   cards publish in arrival order) and then SPAWNED to await the answer;
+//! - `fs/read_text_file` / `fs/write_text_file` → SPAWNED onto a blocking
+//!   thread (EXP-766): `std::fs` on a FIFO, a dead network mount or a huge
+//!   file takes as long as it takes, and inline that stalls the connection;
+//! - `terminal/create|output|kill|release` → inline (a spawn, a buffer read,
+//!   a signal); `terminal/wait_for_exit` is SPAWNED, because it resolves only
+//!   when the child does (EXP-750);
+//! - `session/prompt` → spawned from the command loop, so a `Cancel` arriving
+//!   mid-turn still reaches the adapter.
+//!
+//! EXP-1426 part 4d: moved into the agent runtime out of Exponential's
+//! `engine::host` (which re-exports it). Everything server-shaped the host
+//! used to reach for (the run record, the Conversation outbox, the card
+//! write-back, the computer-use edge) is a [`RunBackend`] call now, and a
+//! host prompt's attachments localize through a [`PromptLocalizer`].
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+use agent_client_protocol::schema::v1::{
+    BooleanConfigOptionCapabilities, CancelNotification, ClientCapabilities,
+    ClientSessionCapabilities, CompactionCapabilities, ContentBlock, CreateElicitationRequest,
+    CreateElicitationResponse, CreateTerminalRequest, CreateTerminalResponse,
+    ElicitationAcceptAction, ElicitationAction, ElicitationCapabilities,
+    ElicitationContentValue, ElicitationFormCapabilities, FileSystemCapabilities,
+    InitializeRequest, KillTerminalRequest, KillTerminalResponse, LoadSessionRequest,
+    NewSessionRequest, PermissionOptionId, PromptRequest,
+    ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest, ReleaseTerminalResponse,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionConfigId, SessionConfigOptionValue,
+    SessionConfigOptionsCapabilities, SessionId, SessionModeId, SessionNotification,
+    SetSessionConfigOptionRequest, SetSessionModeRequest, StopReason, TerminalExitStatus,
+    TerminalId, TerminalOutputRequest, TerminalOutputResponse, TextContent,
+    WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
+    WriteTextFileResponse,
+};
+use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::{
+    on_receive_notification, on_receive_request, Client, ConnectTo, Error,
+};
+
+use super::launch::ResumeHandle;
+use super::local::{EnginePhase, LocalFeedEvent, ASK_WITHDRAWN_META_KEY};
+use super::mapper::{AnswerDecision, MapOut, Mapper, PendingAskKey, Reply, FLUSH_IDLE};
+use super::sink::EventSink;
+use super::terminals::{TerminalSink, Terminals};
+use crate::wire;
+
+/// Where the rich, host-local feed items go. `None` on the daemon, which
+/// publishes and nothing else.
+///
+/// It is called from INSIDE the ACP dispatch loop, so it must never block:
+/// the desktop pushes onto a channel and marshals to the gpui foreground
+/// itself (`EngineSession::subscribe` is the same stream, backlog first, for
+/// a view that attaches late).
+pub type LocalSink = Arc<dyn Fn(LocalFeedEvent) + Send + Sync>;
+
+// EXP-1426 part 4c: the `_meta` keys the adapters read and stamp.
+pub use super::launch::{
+    CANCEL_QUEUED_META_KEY, FRESH_CONTEXT_META_KEY, NATIVE_SESSION_META_KEY,
+};
+
+/// EXP-1280 (S-3: plan mode is gone server-side; a legacy mode switch still
+/// steers this line): the one line a person's switch INTO plan mode steers to the
+/// agent (plan mode is Exponential's: instructions + the server's `pr_open`
+/// gate, never the CLI's permission mode) = `plan-card.json`
+/// `copy.planModeGate`, the same sentence the server's gate speaks
+/// (EXP-1426: inlined here, pinned to the fixture in `engine`'s tests).
+pub fn plan_mode_on_line() -> &'static str {
+    PLAN_MODE_ON_LINE
+}
+
+/// [`plan_mode_on_line`]'s sentence.
+pub const PLAN_MODE_ON_LINE: &str = "Plan first: post your plan with exponential_show (plan) and end your turn; the answer arrives as your next message.";
+
+/// EXP-1280: the one line a person's switch OUT of plan mode steers.
+pub const PLAN_MODE_OFF_LINE: &str = "Plan mode is off: go ahead.";
+
+/// EXP-784: how many `session/prompt`s may be in flight on one session. A
+/// steer is a prompt, and a viewer hammering the input (or a relay replaying
+/// a backlog) used to open one request per message with nothing bounding
+/// them; the CLI folds or queues at its own pace. A third prompt waits for a
+/// slot INSIDE its spawned task — the command loop never blocks on it.
+/// FEED-62: a mid-turn message to claude that holds a bar line is exempt
+/// (the bar's `QUEUE_MAX` bounds those), so queued messages reach the agent
+/// together instead of one per finished turn.
+pub const TURN_SLOTS: usize = 2;
+
+/// FEED-153: how long a refused seed prompt waits before its one retry
+/// ([`SessionCtx::seed_retry`]) — several runs starting on one machine at
+/// once contend for the agent's own startup (its config, its login).
+pub const SEED_RETRY_AFTER: Duration = Duration::from_secs(2);
+
+/// How many local feed ROWS a session keeps for a late subscriber. A tab
+/// reopened mid-session replays this much and no more: `Output` chunks are
+/// unbounded by nature, and an engine that kept every one of them would grow
+/// without limit on a long run.
+///
+/// The cap is on rows only. Latest-wins STATE — the phase, `config_state`,
+/// `usage`, `diff` — is held in its own slots ([`LocalFeed`]) and replayed
+/// whatever the ring did, because those are emitted once (or rarely) and
+/// evicting them leaves a reopened tab unsteerable (EXP-746 review UI-2).
+pub const BACKLOG_CAP: usize = 4096;
+
+/// How large ONE coalesced `Output` row in the backlog may grow before the
+/// next chunk starts a fresh row. A live terminal (EXP-750) reads in 8 KB
+/// chunks — thousands of rows for one `bun dev` — and a ring of nothing but
+/// those evicts the transcript a reopened tab needs (the tool rows, the
+/// `TerminalBound` edge, the questions). Consecutive chunks of the same
+/// still-running call merge instead; this cap keeps a merged row from
+/// becoming one unbounded string.
+pub const MERGED_OUTPUT_CAP: usize = 256 * 1024;
+
+/// [`BACKLOG_CAP`] for a host with no `LocalSink` (the CLI daemon). It never
+/// reopens a view, but `exponential code` does subscribe a few statements
+/// AFTER `engine::start`, and without a ring every row emitted in that window
+/// was lost. Small enough that a daemon holding it for the whole run costs
+/// nothing, large enough to cover the attach window.
+pub const BACKLOG_CAP_HEADLESS: usize = 64;
+
+/// [`MERGED_OUTPUT_CAP`] for that same small backlog. The attach window
+/// carries at most a command or two, and a daemon has no card to scroll, so
+/// an output row is cut here instead of growing to a quarter megabyte.
+pub const MERGED_OUTPUT_CAP_HEADLESS: usize = 8 * 1024;
+
+/// Why the run must stop. Produced by the host's own kill source: the
+/// desktop's Electric `sync::kill_watch`, the CLI's 15 s tRPC poll.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KillReason {
+    /// Stop now (a relay `kill` frame, an `ended` row flipped by a person).
+    Now,
+    /// The agent declared its own run over (EXP-637) — wait `STOP_GRACE`
+    /// on the `TurnSignal` so the last turn lands before the row ends.
+    AfterTurn,
+}
+
+/// A kill source the HOST registered before `engine::start`, so the watch
+/// exists before the first frame can arrive. The engine only consumes edges;
+/// the decision (`kill_poll_decision`, EXP-681's `GATED_KILL_AFTER`,
+/// `ended_policy`) stays with the host that owns it.
+///
+/// Dropping this unwatches: the engine drops it FIRST in the end sequence, so
+/// the row's own `ended` flip can never bounce back as a second kill (EXP-283).
+pub struct KillFeed {
+    pub rx: flume::Receiver<KillReason>,
+    pub unwatch: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl KillFeed {
+    /// A feed nothing ever fires — tests, and `open_transcript` (a replay has
+    /// no row to kill).
+    pub fn inert() -> KillFeed {
+        let (_tx, rx) = flume::unbounded();
+        KillFeed { rx, unwatch: None }
+    }
+}
+
+impl Drop for KillFeed {
+    fn drop(&mut self) {
+        if let Some(unwatch) = self.unwatch.take() {
+            unwatch();
+        }
+    }
+}
+
+/// The one callback a server-free host implements ([`NoBackend`] fires it).
+/// Fired ONCE per run, off the engine thread. Exponential's own hosts
+/// implement `engine::EngineHost`, whose exit carries the row's last write.
+pub trait EngineHost: Send + Sync + 'static {
+    fn on_exit(&self, exit: EngineExit);
+}
+
+/// How a run finished. `end` is the result of the backend's last write
+/// (Exponential, EXP-1292: `coding::end_session` for a thread session, the
+/// idle report for an agent root, so the CLI can apply
+/// `registry::end_outcome_resolves` (EXP-641) without writing it twice;
+/// `engine::EngineExit` names it). A server-free run has none (`End = ()`).
+#[derive(Debug)]
+pub struct EngineExit<End = ()> {
+    pub session_id: String,
+    /// The publisher `bye` outcome, in today's vocabulary:
+    /// `exit:<code>` | `ended` | `killed`.
+    pub outcome: String,
+    /// Present when the adapter owned a child process.
+    pub child: Option<crate::spawn::ChildExit>,
+    /// A handshake or transport failure, for the screen's banner.
+    pub error: Option<String>,
+    pub end: Option<End>,
+}
+
+/// EXP-1426 part 4d: what the engine asks of whoever hosts the RUN beyond
+/// the events (the [`EventSink`]): the side-car it brings up, the end
+/// sequence, and the few writes the host loop makes along the way.
+/// Exponential's (`engine::lifecycle`) is the outbox, publisher, tickers,
+/// kill pump, run record and `sessions.*` over tRPC; [`NoBackend`] keeps
+/// everything in memory. Every call is cheap and never blocks the ACP loop.
+pub trait RunBackend: Send + Sync + 'static {
+    /// Bring up the host's side-car once the context exists, before the
+    /// connection thread starts. `commands` is the loop's own inbox (a kill,
+    /// a relay frame). The backend is already on [`SessionCtx::backend`].
+    fn attach(
+        &self,
+        _ctx: &Arc<SessionCtx>,
+        _commands: &flume::Sender<EngineCommand>,
+    ) -> Result<(), super::launch::EngineError> {
+        Ok(())
+    }
+
+    /// The end sequence, once the connection is gone. MUST finish
+    /// [`SessionCtx::exit`] (what `wait()` and `is_done()` read).
+    fn end(
+        &self,
+        ctx: &SessionCtx,
+        outcome: &str,
+        child: Option<crate::spawn::ChildExit>,
+        error: Option<String>,
+    );
+
+    /// D8: the ids `session/new` (or a mid-run `/clear`) taught the run.
+    fn record_session_ids(&self, _ctx: &SessionCtx) {}
+
+    /// EXP-1051: the measured context base, for the next resume.
+    fn record_context_base(&self, _ctx: &SessionCtx, _tokens: u64, _model: &str) {}
+
+    /// EXP-784: the agent-native id the host recorded for this run (the
+    /// `session/load` hint), if any.
+    fn recorded_native_session_id(&self, _ctx: &SessionCtx) -> Option<String> {
+        None
+    }
+
+    /// EXP-1292: one step's replies, in order (the Conversation).
+    fn post_replies(&self, _replies: Vec<Reply>) {}
+
+    /// A card the engine resolved (answered anywhere, or dismissed).
+    fn resolve_question(&self, _question_id: &str) {}
+
+    /// Host message ids the agent read (or that left its queue for good).
+    fn consume(&self, _message_ids: Vec<String>) {}
+
+    /// The question/plan cards this run posted that are still open: the
+    /// host's message id → the engine's question id.
+    fn open_cards(&self) -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::new()
+    }
+
+    /// EXP-1280: a "fresh context" approval landed mid-turn, so the context
+    /// stays; the host downgrades the stored card.
+    fn fresh_context_kept(&self, _message_id: &str) {}
+
+    /// EXP-1273: a turn the PERSON opened started (the computer-use abort
+    /// answer).
+    fn turn_started(&self, _session_id: &str) {}
+}
+
+/// EXP-1426 part 4d: the server-free backend. Messages queue through the
+/// command channel ([`super::session::EngineSession::deliver`]), answers stay
+/// local ([`super::session::EngineSession::answer`]), nothing is reported
+/// anywhere; the end sequence emits the end phases, finishes the exit and
+/// tells the optional [`EngineHost`].
+#[derive(Default)]
+pub struct NoBackend {
+    host: Option<Arc<dyn EngineHost>>,
+}
+
+impl NoBackend {
+    pub fn new() -> NoBackend {
+        NoBackend::default()
+    }
+
+    /// Tell `host` how the run ended.
+    pub fn with_host(host: Arc<dyn EngineHost>) -> NoBackend {
+        NoBackend { host: Some(host) }
+    }
+}
+
+impl RunBackend for NoBackend {
+    fn end(
+        &self,
+        ctx: &SessionCtx,
+        outcome: &str,
+        child: Option<crate::spawn::ChildExit>,
+        error: Option<String>,
+    ) {
+        for phase in end_phases(error.as_deref()) {
+            ctx.phase(phase);
+        }
+        let exit = EngineExit {
+            session_id: ctx.session_id.clone(),
+            outcome: outcome.to_string(),
+            child,
+            error,
+            end: None,
+        };
+        ctx.exit.finish(&exit);
+        if let Some(host) = &self.host {
+            host.on_exit(exit);
+        }
+    }
+}
+
+/// EXP-758: the phase edges an end sequence emits, in order. An exit that
+/// carries an error (a failed spawn, a handshake that never answered, a
+/// transport that died) says so FIRST: `EngineExit::error` used to reach the
+/// host callback alone, so the CLI printed nothing and the session tab showed
+/// an empty transcript that had simply "ended".
+pub fn end_phases(error: Option<&str>) -> Vec<EnginePhase> {
+    match error {
+        Some(error) => vec![EnginePhase::Failed(error.to_string()), EnginePhase::Ended],
+        None => vec![EnginePhase::Ended],
+    }
+}
+
+/// EXP-825 / EXP-1426 part 4d: localizes the attachment embeds of a prompt
+/// the HOST sends (the seed, a local composer message) for the agent: the
+/// announced text keeps the embeds, the agent reads what this returns.
+/// Exponential's downloads each attachment into the worktree and writes a
+/// manifest (`steer::localize_message`); `None` on the context sends the
+/// text as it is.
+pub trait PromptLocalizer: Send + Sync + 'static {
+    /// Does `text` carry anything to localize? Asked before spending a task.
+    fn wants(&self, text: &str) -> bool;
+
+    /// The text the agent reads.
+    fn localize(
+        &self,
+        text: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + '_>>;
+}
+
+/// What the client advertises at `initialize`.
+///
+/// `terminal: true` (EXP-750, revising D5): the five `terminal/*` methods run
+/// the agent's command on a PTY we own ([`crate::terminals`]), so a long
+/// command renders as a LIVE card with a Stop button instead of a block of
+/// text that appears once it is over. Output stays exactly as local as the
+/// `ToolCallContent::Content` path it joins — the wire never carried a
+/// command's stdout and still does not. `elicitation.form` is NOT optional — without it the
+/// claude port has to disallow `AskUserQuestion` and codex answers
+/// `requestUserInput` with `{}` immediately, silently discarding the agent's
+/// question.
+pub fn client_capabilities() -> ClientCapabilities {
+    ClientCapabilities::new()
+        .fs(FileSystemCapabilities::new()
+            .read_text_file(true)
+            .write_text_file(true))
+        .terminal(true)
+        .elicitation(ElicitationCapabilities::new().form(ElicitationFormCapabilities::new()))
+        .session(
+            ClientSessionCapabilities::new()
+                .config_options(
+                    SessionConfigOptionsCapabilities::new()
+                        .boolean(BooleanConfigOptionCapabilities::new()),
+                )
+                // EXP-724's relay `compaction` kind is fed by
+                // `SessionUpdate::CompactionUpdate`, which is gated behind the
+                // crate's `unstable_session_compaction` feature.
+                .compaction(CompactionCapabilities::new()),
+        )
+}
+
+/// Fire-and-forget commands the `main_fn` loop drains for the session's whole
+/// lifetime. This is the ONLY supported way to hold a `ConnectionTo` open
+/// across prompts: `Builder::into_connection_and_future` is private, so the
+/// connection lives exactly as long as `main_fn` does.
+pub enum EngineCommand {
+    Prompt(Vec<ContentBlock>),
+    /// Mid-turn steering — the same entry point a relay `input` frame takes.
+    Steer(String),
+    /// EXP-1292: a person's `messages` row — a steer that carries its row id,
+    /// which is the queue id while the agent has not read it and is reported
+    /// consumed (`sessions.consume`) the moment it reaches the agent.
+    ///
+    /// EXP-1280: `fresh` = take it in a FRESH context (a plan approved "in
+    /// a fresh context", [`FRESH_CONTEXT_META_KEY`]).
+    Deliver { message_id: String, text: String, fresh: bool },
+    /// EXP-1292: a question/plan card answered IN the Conversation, mapped
+    /// onto the open ask ([`Mapper::card_answer`]).
+    AnswerCard {
+        question_id: String,
+        card: serde_json::Value,
+    },
+    /// The user's Stop (Escape, the relay `cancel`): the turn AND whatever
+    /// the agent still holds queued behind it.
+    Cancel,
+    /// EXP-784: the stall watchdog's interrupt — the turn in flight only.
+    /// The steers a user queued while it sat silent are the reason the
+    /// watchdog exists ("the queued user messages flow", `stall.rs`), so
+    /// they must survive it; the adapter reads [`CANCEL_QUEUED_META_KEY`]
+    /// off the `session/cancel` to tell the two apart.
+    Interrupt,
+    SetConfig {
+        id: SessionConfigId,
+        value: SessionConfigOptionValue,
+    },
+    /// EXP-1280: `announce` = a PERSON moved plan mode (the relay
+    /// `set_mode`, `sessions.configure`): a real move steers the agent ONE
+    /// line ([`plan_mode_on_line`] / [`PLAN_MODE_OFF_LINE`]). The approval
+    /// path flips it silently.
+    SetMode { id: SessionModeId, announce: bool },
+    Answer(wire::RemoteAnswer),
+    /// A `/` command: an agent-advertised one becomes prompt text, a contract
+    /// one is handled by the host (`steer`'s `CommandLink`) before it ever gets
+    /// here.
+    Command {
+        name: String,
+        args: String,
+    },
+    /// Replay history through the mapper (`session/load`).
+    LoadHistory,
+    /// EXP-861: revoke ONE message held in the prompt queue (a viewer's
+    /// `unqueue` frame, the local composer's ×). Unknown ids are a no-op.
+    /// EXP-873: a message already SENT mid-turn cannot be taken back from
+    /// the agent one at a time — the slot is republished so the line the
+    /// client dropped optimistically comes back; only a Stop drops it.
+    Unqueue(String),
+    /// EXP-861: the turn ended (or a compaction closed) with messages held
+    /// — start them now, oldest first. Sent by [`SessionCtx::dispatch`] on
+    /// the idle edge, never by a client.
+    DrainQueue,
+    /// EXP-936: take the compaction step owed, if the agent is between turns
+    /// — the `/compact <keep>` an accepted `exponential_sessions_compact`
+    /// asked for, or the continuation prompt after it. Sent by the
+    /// publisher's compact hook on acceptance and by [`SessionCtx::dispatch`]
+    /// on every idle edge while a step is owed; a no-op mid-turn (the next
+    /// idle edge asks again).
+    AdvanceCompaction,
+    Shutdown {
+        outcome: &'static str,
+    },
+}
+
+/// EXP-861/EXP-873: one user message the agent has not read yet. `announce`
+/// is the text every client's bar shows (and the future `user_message`
+/// row); `held` is what [`start_turn`] gets while the host still holds the
+/// message back (a compaction is open) — `None` once it went to the agent
+/// mid-turn and only the agent's replay of it can close the line.
+pub(crate) struct QueuedPrompt {
+    pub(crate) id: String,
+    pub(crate) announce: String,
+    pub(crate) held: Option<TurnPrompt>,
+}
+
+impl QueuedPrompt {
+    /// The line as every client's bar draws it.
+    fn wire(&self) -> wire::QueuedMessage {
+        wire::QueuedMessage {
+            id: self.id.clone(),
+            text: self.announce.clone(),
+            sent: self.held.is_none(),
+        }
+    }
+}
+
+/// One user message as ACP content blocks.
+pub(crate) fn text_blocks(text: &str) -> Vec<ContentBlock> {
+    vec![ContentBlock::Text(TextContent::new(text))]
+}
+
+/// FEED-25: does this mapping step count as the agent being alive? Anything
+/// but a bare worktree `diff` snapshot does (the lifecycle ticker produces
+/// those on its own clock), and so does a turn-end edge. The two flags alone
+/// do not: `Cancel`'s bookkeeping flips `needs_input` without the agent
+/// having said a word, and the watchdog must not read its own interrupt as
+/// a sign of life.
+pub(crate) fn out_is_activity(out: &MapOut) -> bool {
+    let wire = out
+        .wire
+        .iter()
+        .any(|event| !matches!(event, wire::ActivityEvent::Diff { .. }));
+    let local = out.local.iter().any(|event| {
+        !matches!(
+            event,
+            LocalFeedEvent::Activity {
+                event: wire::ActivityEvent::Diff { .. },
+                ..
+            }
+        )
+    });
+    wire || local || out.idle == Some(true)
+}
+
+/// How often terminal output is allowed to move the activity clock.
+const TERMINAL_ACTIVITY_STEP: Duration = Duration::from_secs(1);
+
+/// FEED-25: does this terminal event count as the agent being alive? An
+/// agent's `terminal/*` command bypasses the mapper entirely, so without this
+/// a claude `Bash` call with a raised `BASH_MAX_TIMEOUT_MS` streams for half
+/// an hour and still reads as a wedged turn. Written bytes count, and so does
+/// the exit edge that closes the card (once per terminal, and a command
+/// finishing IS progress); a `bind` flush of nothing at all does not.
+pub(crate) fn terminal_is_activity(event: &LocalFeedEvent) -> bool {
+    match event {
+        LocalFeedEvent::Output {
+            chunk, exit_code, ..
+        } => !chunk.is_empty() || exit_code.is_some(),
+        _ => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The child a stdio adapter owns (EXP-746)
+// ---------------------------------------------------------------------------
+
+// EXP-1426 part 4: `ChildExitLink` (with its grace and banner note) moved to
+// the agent runtime alongside the transport that records into it.
+pub use super::child_exit::ChildExitLink;
+pub(crate) use super::child_exit::dropped_lines_note;
+
+/// EXP-784: the agent-native session handle recorded for THIS run, for the
+/// `session/load` hint. The launcher's resume record carries the previous
+/// run's native id as `claude_session_id` (its EXP-443 pin, chained through
+/// `agent_native_session_id`) and the engine upserts `agent_native_session_id`
+/// once the adapter reports; either names the conversation to reopen. A
+/// replay has no record and passes nothing.
+fn recorded_native_session_id(ctx: &SessionCtx) -> Option<String> {
+    if ctx.replay {
+        return None;
+    }
+    // EXP-1426: the record is the backend's.
+    ctx.backend.get()?.recorded_native_session_id(ctx)
+}
+
+// EXP-1426 part 4c: `until_either_closes` (every stdio adapter's `main_fn`)
+// moved into the agent runtime's `child_exit` with the adapters.
+
+// ---------------------------------------------------------------------------
+// Parked asks
+// ---------------------------------------------------------------------------
+
+/// What an answered (or cancelled) card does to the ACP request it is holding.
+#[derive(Clone, Debug)]
+pub(crate) enum AskOutcome {
+    Permission(String),
+    Elicitation(serde_json::Value),
+    /// `session/cancel`, a kill, or the connection going away: the ACP
+    /// contract requires the pending request to be answered, not dropped.
+    Cancelled,
+}
+
+/// The parked `Responder`s, keyed by [`PendingAskKey::responder_key`] — one
+/// entry per permission, one per ELICITATION (all its steps resolve the same
+/// request).
+#[derive(Default)]
+pub struct PendingAsks(Mutex<std::collections::HashMap<String, flume::Sender<AskOutcome>>>);
+
+impl PendingAsks {
+    fn park(&self, key: &PendingAskKey) -> flume::Receiver<AskOutcome> {
+        let (tx, rx) = flume::bounded(1);
+        if let Ok(mut asks) = self.0.lock() {
+            asks.insert(key.responder_key().to_string(), tx);
+        }
+        rx
+    }
+
+    fn resolve(&self, key: &str, outcome: AskOutcome) {
+        let sender = self
+            .0
+            .lock()
+            .ok()
+            .and_then(|mut asks| asks.remove(key));
+        if let Some(sender) = sender {
+            let _ = sender.send(outcome);
+        }
+    }
+
+    /// Cancel everything still parked (the ACP cancellation contract).
+    fn cancel_all(&self) {
+        let senders: Vec<flume::Sender<AskOutcome>> = match self.0.lock() {
+            Ok(mut asks) => asks.drain().map(|(_, sender)| sender).collect(),
+            Err(_) => Vec::new(),
+        };
+        for sender in senders {
+            let _ = sender.send(AskOutcome::Cancelled);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The local feed fan-out
+// ---------------------------------------------------------------------------
+
+/// The host-local feed: the attached sink (desktop/CLI), every `subscribe()`
+/// receiver, the backlog a late subscriber replays first, and the latest-wins
+/// STATE that never enters that backlog.
+pub struct LocalFeed {
+    inner: Mutex<FeedState>,
+    /// EXP-766: how much is retained for a LATE subscriber. Only a host with
+    /// a `LocalSink` (the desktop) reopens a view mid-run, so a headless host
+    /// keeps the small ring rather than the 4096-row one.
+    mode: BacklogMode,
+}
+
+/// How much of the feed a host retains for a late subscriber.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BacklogMode {
+    /// A host with a `LocalSink` (the desktop) reopens tabs mid-run and needs
+    /// the whole transcript back, output bytes included.
+    Full,
+    /// A headless host (the CLI daemon). It subscribes once, but a few
+    /// statements after `engine::start`, so it needs the attach window and
+    /// nothing more: [`BACKLOG_CAP_HEADLESS`] rows with their output bodies
+    /// cut at [`MERGED_OUTPUT_CAP_HEADLESS`].
+    Headless,
+}
+
+impl BacklogMode {
+    /// How many rows the ring holds.
+    fn rows(self) -> usize {
+        match self {
+            BacklogMode::Full => BACKLOG_CAP,
+            BacklogMode::Headless => BACKLOG_CAP_HEADLESS,
+        }
+    }
+
+    /// How large one coalesced `Output` row may grow.
+    fn output_bytes(self) -> usize {
+        match self {
+            BacklogMode::Full => MERGED_OUTPUT_CAP,
+            BacklogMode::Headless => MERGED_OUTPUT_CAP_HEADLESS,
+        }
+    }
+
+    /// Whether a single oversized chunk is CUT to fit that cap. Only the
+    /// small ring does; the desktop keeps every byte a command wrote.
+    fn cuts_output(self) -> bool {
+        matches!(self, BacklogMode::Headless)
+    }
+
+    /// The row as it is STORED. Live delivery always carries the event whole;
+    /// this only shapes what a late subscriber replays.
+    fn row(self, event: LocalFeedEvent) -> LocalFeedEvent {
+        let LocalFeedEvent::Output {
+            tool_call_id,
+            chunk,
+            exit_code,
+        } = &event
+        else {
+            return event;
+        };
+        if !self.cuts_output() || chunk.len() <= self.output_bytes() {
+            return event;
+        }
+        LocalFeedEvent::Output {
+            tool_call_id: tool_call_id.clone(),
+            chunk: wire::truncate_marked(chunk, self.output_bytes()),
+            exit_code: *exit_code,
+        }
+    }
+}
+
+impl Default for LocalFeed {
+    fn default() -> Self {
+        Self::new(true)
+    }
+}
+
+/// Everything one lock protects. The backlog, the subscribers and the state
+/// slots move together so an `emit` racing a `subscribe` can neither lose an
+/// event nor deliver it twice.
+#[derive(Default)]
+struct FeedState {
+    /// The ROWS, capped at [`BACKLOG_CAP`] — oldest evicted first.
+    backlog: std::collections::VecDeque<LocalFeedEvent>,
+    /// Latest-wins state, kept OUT of the ring because eviction would
+    /// otherwise silently drop it on a long run: the phase (the composer's
+    /// gate), and the latest-wins activity kinds — the relay's own
+    /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `context_layout`
+    /// (EXP-1051), `rate_limit`
+    /// (EXP-784), `turn` (EXP-848), `background_tasks` and the keyed
+    /// `workflow` cards (EXP-850), `diff`), which are slots in `SteerFeed`
+    /// too and never feed rows. A `tool_update` (EXP-785) is an ordinary row
+    /// of the ring.
+    phase: Option<EnginePhase>,
+    /// EXP-758: the [`EnginePhase::Failed`] edge, kept even after `Ended`
+    /// overwrote the phase slot a millisecond later. Without it the ONE line
+    /// that says why a run died would be invisible to every view that
+    /// attached after the end sequence, which is every view of a run that
+    /// failed in its handshake.
+    failure: Option<EnginePhase>,
+    config_state: Option<LocalFeedEvent>,
+    usage: Option<LocalFeedEvent>,
+    /// EXP-1051: the context-layout slot — published once per conversation,
+    /// so as a ring row it would be the FIRST thing a long run evicted and
+    /// no reopened tab would ever draw the bar again.
+    context_layout: Option<LocalFeedEvent>,
+    rate_limit: Option<LocalFeedEvent>,
+    /// EXP-848: the turn slot — the spinner's source of truth.
+    turn: Option<LocalFeedEvent>,
+    /// EXP-850 §2: the bottom strip's list — the FULL current set every time,
+    /// so only the newest frame matters.
+    background_tasks: Option<LocalFeedEvent>,
+    /// EXP-927: the agent's own task list — whole every time, newest only.
+    task_list: Option<LocalFeedEvent>,
+    /// EXP-861: the queue slot — the held messages, whole, newest frame only.
+    queue: Option<LocalFeedEvent>,
+    /// EXP-850 §3: the `workflow` cards, latest-wins PER ID and kept in
+    /// first-appearance order, exactly like `ActivityJournal::workflows`.
+    /// A running workflow republishes its card up to once a second for
+    /// minutes on end; as ring rows those frames alone would evict the whole
+    /// transcript of the run that spawned them.
+    workflows: Vec<(String, LocalFeedEvent)>,
+    diff: Option<LocalFeedEvent>,
+    subscribers: Vec<flume::Sender<LocalFeedEvent>>,
+}
+
+impl FeedState {
+    /// Which slot this event replaces, if it is state rather than a row.
+    fn slot(&mut self, event: &LocalFeedEvent) -> Option<&mut Option<LocalFeedEvent>> {
+        let LocalFeedEvent::Activity { event, .. } = event else {
+            return None;
+        };
+        match event {
+            wire::ActivityEvent::ConfigState { .. } => Some(&mut self.config_state),
+            wire::ActivityEvent::Usage { .. } => Some(&mut self.usage),
+            wire::ActivityEvent::ContextLayout { .. } => Some(&mut self.context_layout),
+            wire::ActivityEvent::RateLimit { .. } => Some(&mut self.rate_limit),
+            wire::ActivityEvent::Turn { .. } => Some(&mut self.turn),
+            wire::ActivityEvent::Queue { .. } => Some(&mut self.queue),
+            wire::ActivityEvent::BackgroundTasks { .. } => Some(&mut self.background_tasks),
+            wire::ActivityEvent::TaskList { .. } => Some(&mut self.task_list),
+            wire::ActivityEvent::Diff { .. } => Some(&mut self.diff),
+            _ => None,
+        }
+    }
+
+    /// EXP-850 §3: fold a `workflow` frame into its own keyed slot — the
+    /// newest frame for an id replaces its predecessor in place, a new id
+    /// appends, and the oldest card goes past
+    /// [`wire::frames::JOURNAL_WORKFLOW_CAP`]. `true` = folded, so the
+    /// caller must not push a row.
+    fn fold_workflow(&mut self, event: &LocalFeedEvent) -> bool {
+        let LocalFeedEvent::Activity {
+            event: wire::ActivityEvent::Workflow(workflow),
+            ..
+        } = event
+        else {
+            return false;
+        };
+        let id = workflow.id.clone();
+        match self.workflows.iter_mut().find(|(held, _)| *held == id) {
+            Some((_, held)) => *held = event.clone(),
+            None => {
+                self.workflows.push((id, event.clone()));
+                while self.workflows.len() > wire::frames::JOURNAL_WORKFLOW_CAP {
+                    self.workflows.remove(0);
+                }
+            }
+        }
+        true
+    }
+
+    /// Append a streaming terminal chunk onto the row it continues, instead
+    /// of pushing a row per PTY read. Only the LAST row qualifies, only for
+    /// the same tool call, and only while neither carries an exit code (the
+    /// closing event stays its own row, so a card still ends where it did).
+    /// `true` = merged, nothing to push.
+    fn coalesce(&mut self, event: &LocalFeedEvent, merged_cap: usize) -> bool {
+        let LocalFeedEvent::Output {
+            tool_call_id,
+            chunk,
+            exit_code: None,
+        } = event
+        else {
+            return false;
+        };
+        let Some(LocalFeedEvent::Output {
+            tool_call_id: last_id,
+            chunk: last_chunk,
+            exit_code: None,
+        }) = self.backlog.back_mut()
+        else {
+            return false;
+        };
+        if last_id != tool_call_id || last_chunk.len() + chunk.len() > merged_cap {
+            return false;
+        }
+        last_chunk.push_str(chunk);
+        true
+    }
+}
+
+impl LocalFeed {
+    /// `keep_backlog` = a late subscriber will want the WHOLE transcript back
+    /// ([`BacklogMode::Full`]); otherwise the small headless ring, which still
+    /// covers the window between `engine::start` and the CLI's `subscribe`.
+    /// The latest-wins slots are kept either way: they are what makes a feed
+    /// readable at all, and there are five of them.
+    pub fn new(keep_backlog: bool) -> Self {
+        Self {
+            inner: Mutex::new(FeedState::default()),
+            mode: if keep_backlog {
+                BacklogMode::Full
+            } else {
+                BacklogMode::Headless
+            },
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, FeedState> {
+        self.inner.lock().unwrap_or_else(|err| err.into_inner())
+    }
+
+    fn emit(&self, sink: Option<&LocalSink>, event: LocalFeedEvent) {
+        if let Some(sink) = sink {
+            sink(event.clone());
+        }
+        let mut state = self.lock();
+        if let LocalFeedEvent::Phase(phase) = &event {
+            if matches!(phase, EnginePhase::Failed(_)) {
+                state.failure = Some(phase.clone());
+            }
+            state.phase = Some(phase.clone());
+        } else if let Some(slot) = state.slot(&event) {
+            *slot = Some(event.clone());
+        } else if state.fold_workflow(&event) {
+            // EXP-850 §3: kept in its own keyed slot, never a ring row.
+        } else if !state.coalesce(&event, self.mode.output_bytes()) {
+            if state.backlog.len() >= self.mode.rows() {
+                state.backlog.pop_front();
+            }
+            state.backlog.push_back(self.mode.row(event.clone()));
+        }
+        state
+            .subscribers
+            .retain(|subscriber| subscriber.send(event.clone()).is_ok());
+    }
+
+    /// A receiver that replays the backlog FIRST, so a view attaching late
+    /// sees the whole session rather than the tail — then the latest-wins
+    /// state, in the relay's own replay order (`hub.ts`
+    /// `LATEST_REPLAY_ORDER`: the log, then `config_state`, `usage`,
+    /// `context_layout` (EXP-1051), `rate_limit`, `turn`, the workflow cards,
+    /// `background_tasks`, `diff`), with the phase last
+    /// because it is what the composer gates on.
+    ///
+    /// Replaying the state separately is what makes a REOPENED tab of a long
+    /// run steerable: the `Phase(Live)` edge is emitted once, before the first
+    /// agent frame, so a ring that overflowed would have evicted it and left
+    /// the view stuck in `Connecting` for the rest of the run (EXP-746 review
+    /// UI-2).
+    ///
+    /// A headless host replays the same way, off the small ring: `exponential
+    /// code` subscribes a few statements after `engine::start`, and those rows
+    /// would otherwise be gone by the time it does.
+    pub fn subscribe(&self) -> flume::Receiver<LocalFeedEvent> {
+        let (tx, rx) = flume::unbounded();
+        let mut state = self.lock();
+        for event in state.backlog.iter() {
+            let _ = tx.send(event.clone());
+        }
+        for event in [
+            &state.config_state,
+            &state.usage,
+            &state.context_layout,
+            &state.rate_limit,
+            &state.turn,
+            &state.queue,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let _ = tx.send(event.clone());
+        }
+        // EXP-850 §3: the keyed workflow cards sit between `turn` and
+        // `background_tasks`, and the diff stays last — the relay's own
+        // `LATEST_REPLAY_ORDER`.
+        for (_, event) in state.workflows.iter() {
+            let _ = tx.send(event.clone());
+        }
+        for event in [&state.background_tasks, &state.task_list, &state.diff].into_iter().flatten() {
+            let _ = tx.send(event.clone());
+        }
+        // EXP-758: the failure first, then the phase, in the same order the
+        // end sequence emitted them in, so a late view reads the error and
+        // then the end instead of an ended run with no explanation.
+        if let Some(failure) = state
+            .failure
+            .clone()
+            .filter(|failure| Some(failure) != state.phase.as_ref())
+        {
+            let _ = tx.send(LocalFeedEvent::Phase(failure));
+        }
+        if let Some(phase) = state.phase.clone() {
+            let _ = tx.send(LocalFeedEvent::Phase(phase));
+        }
+        state.subscribers.push(tx);
+        rx
+    }
+
+    /// Where the run is right now, for a host that wants the answer before the
+    /// replay reaches it.
+    pub fn phase(&self) -> Option<EnginePhase> {
+        self.lock().phase.clone()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The exit slot
+// ---------------------------------------------------------------------------
+
+/// The run's one-shot exit, readable by `wait()` and `is_done()`.
+///
+/// [`EngineExit`] is not `Clone` (Exponential's `ApiError` is not), and BOTH
+/// consumers are real: the desktop takes it through the host's `on_exit`, the
+/// CLI through `wait()`. So the full exit — including the backend's last
+/// write — goes to `on_exit`, and `wait()` rebuilds the same exit from the
+/// summary with `end: None`. Nothing downstream needs that result twice: the
+/// `SessionEndObserver` already applied it (EXP-641).
+#[derive(Default)]
+pub struct ExitState {
+    done: AtomicBool,
+    summary: Mutex<Option<ExitSummary>>,
+    waiters: Condvar,
+    lock: Mutex<()>,
+}
+
+#[derive(Clone)]
+struct ExitSummary {
+    session_id: String,
+    outcome: String,
+    child: Option<crate::spawn::ChildExit>,
+    error: Option<String>,
+}
+
+impl ExitState {
+    pub fn is_done(&self) -> bool {
+        self.done.load(Ordering::SeqCst)
+    }
+
+    pub fn finish<End>(&self, exit: &EngineExit<End>) {
+        if let Ok(mut summary) = self.summary.lock() {
+            *summary = Some(ExitSummary {
+                session_id: exit.session_id.clone(),
+                outcome: exit.outcome.clone(),
+                child: exit.child.clone(),
+                error: exit.error.clone(),
+            });
+        }
+        self.done.store(true, Ordering::SeqCst);
+        let _guard = self.lock.lock();
+        self.waiters.notify_all();
+    }
+
+    pub fn wait<End>(&self, timeout: Option<Duration>) -> Option<EngineExit<End>> {
+        let deadline = timeout.map(|timeout| std::time::Instant::now() + timeout);
+        let mut guard = self.lock.lock().unwrap_or_else(|err| err.into_inner());
+        while !self.is_done() {
+            match deadline {
+                Some(deadline) => {
+                    let now = std::time::Instant::now();
+                    if now >= deadline {
+                        return None;
+                    }
+                    let (next, _) = self
+                        .waiters
+                        .wait_timeout(guard, deadline - now)
+                        .unwrap_or_else(|err| err.into_inner());
+                    guard = next;
+                }
+                None => {
+                    guard = self
+                        .waiters
+                        .wait(guard)
+                        .unwrap_or_else(|err| err.into_inner())
+                }
+            }
+        }
+        drop(guard);
+        self.summary
+            .lock()
+            .ok()
+            .and_then(|summary| summary.clone())
+            .map(|summary| EngineExit {
+                session_id: summary.session_id,
+                outcome: summary.outcome,
+                child: summary.child,
+                error: summary.error,
+                end: None,
+            })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The session context
+// ---------------------------------------------------------------------------
+
+/// What the engine needs to know about the launch it is driving.
+#[derive(Clone, Debug, Default)]
+pub struct RunFacts {
+    pub worktree: PathBuf,
+    pub branch: String,
+    /// EXP-688: the ref "Latest changes" is measured from.
+    pub base_ref: Option<String>,
+    /// EXP-447: the clone whose installation token wants refreshing.
+    pub repository_id: Option<String>,
+    pub clone: PathBuf,
+}
+
+/// The ids a session learns at handshake time (D8).
+#[derive(Clone, Debug, Default)]
+pub struct SessionIds {
+    pub acp: Option<String>,
+    pub native: Option<String>,
+}
+
+/// Everything a running session needs that never changes after `start`.
+/// Cheap to clone behind an `Arc`; the mutable half (the pending-ask table,
+/// the ids learned at `session/new`) lives behind its own locks here.
+///
+/// EXP-1426 part 4d: public so a host's [`RunBackend`] can read the run it
+/// backs; only the engine writes it.
+pub struct SessionCtx {
+    pub session_id: String,
+    /// The launch facts the engine itself needs. NOT the whole
+    /// `PreparedLaunch`: `open_transcript` replays an ended run that never
+    /// had one (no row, no worktree gate).
+    pub run: RunFacts,
+    /// The tokio runtime the connection is driven on (Exponential:
+    /// `steer::SteerRuntime`'s), never one the engine spins up itself.
+    pub(crate) runtime: tokio::runtime::Handle,
+    pub data_dir: std::path::PathBuf,
+    /// EXP-1292/1341: a PERSISTENT session (an agent root) — its process
+    /// exiting idles the row instead of ending it (it never ends).
+    pub persistent: bool,
+    /// EXP-1292: the `messages.id` the seed prompt delivers (a resume's
+    /// waking message), consumed once the seed turn is sent.
+    pub(crate) seed_message_id: Option<String>,
+    /// EXP-1426 part 4d: the run's backend (Exponential: the Conversation
+    /// outbox, the run record, `sessions.*`). Set once, before the
+    /// connection thread starts; absent on a bare test context.
+    pub(crate) backend: OnceLock<Arc<dyn RunBackend>>,
+    /// EXP-1292: person `messages` ids handed to this engine and not yet
+    /// reported consumed — what tells a row id from the engine's own queue
+    /// ids (a local composer line), which have no row to consume.
+    pub(crate) message_ids: Mutex<std::collections::HashSet<String>>,
+    /// EXP-1005: see `EngineStart::rotation_host`.
+    pub rotation_host: bool,
+    pub publish: bool,
+    pub(crate) local_sink: Option<LocalSink>,
+    pub turn_signal: Arc<wire::TurnSignal>,
+    /// EXP-850 §8: the caption of the newest RUNNING workflow, in process —
+    /// what a session row hosted HERE reads (EXP-1292: local only, no column
+    /// carries it). Moved by [`SessionCtx::deliver`] off the `workflow`
+    /// events the mapper emits, and cleared at every turn end.
+    pub caption_signal: Arc<wire::CaptionSignal>,
+    /// EXP-1330: `Some` for a `/btw` aside run (one-shot: its first answer
+    /// ends it).
+    pub(crate) aside: Option<super::aside::AsideState>,
+    /// EXP-905: the agent's own conversation name (claude's transcript
+    /// `ai-title`, codex's thread name), normalised — the synced
+    /// `agent_title` column's one input. Moved by [`SessionCtx::deliver`] off
+    /// `MapOut::agent_title`; never cleared.
+    pub agent_title: Arc<wire::AgentTitleSignal>,
+    /// EXP-850 §3: the workflow cards this run has published, folded by id
+    /// (newest frame per id, oldest evicted past
+    /// [`wire::frames::JOURNAL_WORKFLOW_CAP`]) — the caption's only input.
+    /// The local feed is a RING that evicts, so the fold cannot be derived
+    /// from it; and the ticker thread must not walk a transcript once a
+    /// second either.
+    pub(crate) workflows: Mutex<Vec<wire::WorkflowState>>,
+    /// EXP-1317: the `question` cards this run has published and not yet
+    /// resolved (newest last, capped at [`OPEN_QUESTIONS_CAP`]) — what an
+    /// answer is translated against for the synced card's write-back
+    /// ([`answer_ask`] → `wire::answer_tap`). Folded by [`SessionCtx::deliver`]
+    /// off the wire, so EVERY answer path (relay frame, the local card, the
+    /// CLI's own TUI) resolves the same way; the publisher's journal used to
+    /// be the only source, and only the relay path read it.
+    pub(crate) open_questions: Mutex<std::collections::VecDeque<wire::ActivityEvent>>,
+    pub agent: crate::agent::CodingAgent,
+    /// REV2-17: the ONE redactor of this run — the session's launcher secrets
+    /// (EXP-73 credential file, a token in the remote URL, the
+    /// `.exp-mcp.json` key) plus the `expu_` key, on top of the static
+    /// patterns. The mapper holds the same `Arc` and the lifecycle's `diff`
+    /// ticker masks with it, so no publisher of this run carries a weaker
+    /// secret set than another. The key itself is deliberately NOT kept
+    /// here: a second redactor built from it alone is exactly the leak.
+    pub redactor: Arc<wire::Redactor>,
+    /// Read-only transcript replay: no row, no publisher, no outbox.
+    pub replay: bool,
+    pub(crate) resume: Option<ResumeHandle>,
+    /// The seed prompt, sent once the session exists.
+    pub(crate) prompt: Option<String>,
+    /// EXP-825: the attachment localizer for the host's OWN prompts (the
+    /// seed and a local composer message); Exponential's publisher shares
+    /// its download hook and restore map. `None` on a replay, which sends
+    /// nothing.
+    pub(crate) attachments: Option<Arc<dyn PromptLocalizer>>,
+    pub(crate) mapper: Mutex<Mapper>,
+    /// The relay sink. Set ONCE — by `start_with` (a test's recording sink)
+    /// or by the lifecycle when the publisher comes up; absent means this run
+    /// publishes nowhere (`publish: false`, or a replay).
+    pub sink: OnceLock<Arc<dyn EventSink>>,
+    pub feed: LocalFeed,
+    pub(crate) asks: PendingAsks,
+    /// EXP-750: the live `terminal/*` children this session spawned. Killed
+    /// at the end of the run, and on drop — nothing an agent started here
+    /// outlives it.
+    pub(crate) terminals: Terminals,
+    pub(crate) ids: Mutex<SessionIds>,
+    /// EXP-214: the latest pending flag; the lifecycle ticker forwards it.
+    pub needs_input: AtomicBool,
+    /// FEED-44 / EXP-1374 (FEED-139): the agent's latest `background_tasks`
+    /// list names a live background task of ANY kind — a backgrounded
+    /// subagent, a `run_in_background` shell, a workflow. The agent may end
+    /// its own turn while they run; the run is still working all that time,
+    /// so [`SessionCtx::agent_busy`] holds while this is set (and
+    /// [`SessionCtx::background`] reads true once the turn itself is over).
+    /// The turn signal itself is untouched (it gates the queue drain, the
+    /// kill-after-turn wait and the account switch, which all mean "no
+    /// prompt in flight").
+    pub background_tasks_live: AtomicBool,
+    /// EXP-804: the agent's usage wall as the mapper last saw it (`None` =
+    /// not blocked); the lifecycle ticker forwards it to the synced row.
+    /// A Mutex rather than an atomic because the value is a struct — it is
+    /// touched only on a rate-limit EDGE and once per tick, never on the hot
+    /// event path.
+    pub blocked: Mutex<Option<wire::SessionBlocked>>,
+    /// EXP-861/EXP-873: the user messages the agent has not read yet,
+    /// oldest first — HELD on the host while a compaction is open, or SENT
+    /// mid-turn and awaiting the agent's replay (claude takes a message in
+    /// at its next tool boundary and echoes it then). On the device so every
+    /// viewer (and a reconnecting one) sees the same bar. Published whole as
+    /// the `queue` slot on every change; the held lines drain through
+    /// [`EngineCommand::DrainQueue`] when the compaction ends, the sent ones
+    /// leave on the replay ([`MapOut::consumed`]) or the idle edge.
+    pub(crate) prompt_queue: Mutex<std::collections::VecDeque<QueuedPrompt>>,
+    /// EXP-861: the command loop's own inbox, so the drain can be requested
+    /// from [`SessionCtx::dispatch`] (which runs on whatever thread delivered
+    /// the idle edge). Set once by `spawn_engine`; absent on a bare test
+    /// context, where nothing drains.
+    pub(crate) queue_commands: OnceLock<flume::Sender<EngineCommand>>,
+    /// EXP-969: a drain asked for while the compaction gate was still open.
+    /// The gate's own close edge normally requests the drain, but a fold that
+    /// never lands one (a manual `/compact` with no `compact_boundary`) used
+    /// to strand every held line: the flush tick re-checks this flag and
+    /// drains the moment the gate is down.
+    pub(crate) drain_wanted: AtomicBool,
+    /// EXP-936: the run's own compaction asks — the verdict's facts (the
+    /// meter, the fold, the turn edges, fed by [`SessionCtx::dispatch`]) and
+    /// the step owed for an accepted one. Shared with the publisher's compact
+    /// hook, which decides on the socket loop.
+    pub(crate) compaction: Arc<Mutex<super::compaction::CompactionPolicy>>,
+    /// FEED-25: when the agent last produced anything the mapper emitted (or
+    /// a turn edge) — the stall watchdog's clock. The `diff` ticker's own
+    /// snapshots never advance it.
+    pub(crate) last_activity: Mutex<Instant>,
+    /// FEED-153: armed for the seed turn (the brief, or a wake's message):
+    /// a `session/prompt` the agent REFUSED outright (an error response,
+    /// not a turn that ran) is sent once more after [`SEED_RETRY_AFTER`]
+    /// instead of idling the run with nothing done. Disarmed by the seed's
+    /// first answer either way.
+    pub(crate) seed_retry: AtomicBool,
+    /// EXP-1418: every turn this run opened ([`start_turn`]), so the
+    /// lifecycle's one-second `busy` mirror reports `busy: true` for a turn
+    /// that opened AND closed between two ticks (the server's yolo turn
+    /// end needs the true edge before the idle one).
+    pub turns_started: std::sync::atomic::AtomicU64,
+    /// NEW-17: the agent was working when the host shut the run down (the
+    /// `Shutdown` command's moment): a suspend then reads `daemon_restart`
+    /// (Exponential's `lifecycle::lost_reason`).
+    pub busy_at_shutdown: AtomicBool,
+    /// FEED-61: the API-error retry's view of the turn stream, fed by
+    /// [`SessionCtx::dispatch`] and ticked by the lifecycle.
+    pub api_retry: Mutex<super::api_retry::ApiRetry>,
+    /// FEED-25: the reason a watchdog ended this run, surfaced as
+    /// `EnginePhase::Failed` ahead of `Ended` (the connection itself did not
+    /// error, so nothing else would say why).
+    pub(crate) failure: Mutex<Option<String>>,
+    pub exit: ExitState,
+    /// Set by `Shutdown`; wins over the child's exit code.
+    pub outcome: Mutex<Option<&'static str>>,
+    pub child_exit: ChildExitLink,
+}
+
+impl SessionCtx {
+    pub fn with_mapper<R>(&self, f: impl FnOnce(&mut Mapper) -> R) -> R {
+        let mut mapper = self.mapper.lock().unwrap_or_else(|err| err.into_inner());
+        f(&mut mapper)
+    }
+
+    /// D8: hand the ids learned so far to the backend (the run record).
+    fn record_session_ids(&self) {
+        if let Some(backend) = self.backend.get() {
+            backend.record_session_ids(self);
+        }
+    }
+
+    /// Route one mapping step: wire events to the relay, local events to the
+    /// host, and the two flags to their owners. The ONLY place events leave
+    /// the mapper.
+    pub fn dispatch(&self, out: MapOut) {
+        if out_is_activity(&out) {
+            self.touch_activity();
+        }
+        // EXP-861: the two edges that can reopen the held lines' gate — the
+        // turn ending, a compaction closing. Read before `deliver` consumes
+        // the vec; acted on after, so the gate reads the state this step set.
+        let idle_edge = out.idle == Some(true);
+        let gate_edge = idle_edge
+            || out.wire.iter().any(|event| {
+                matches!(
+                    event,
+                    wire::ActivityEvent::Compaction {
+                        phase: wire::frames::CompactionPhase::Ended,
+                        ..
+                    }
+                )
+            });
+        // EXP-873: the bar loses the messages this step saw the agent take
+        // in BEFORE their rows go out, so no client shows a line in both
+        // places for a frame. On the idle edge every sent line the mapper no
+        // longer awaits goes too (its prompt answered: read, or dropped by a
+        // Stop that cleared it first).
+        if !out.consumed.is_empty() {
+            self.consume_queued(&out.consumed);
+            // EXP-1292: the agent read these — their rows leave the
+            // Conversation's queue too.
+            self.consumed_messages(out.consumed.iter().cloned());
+        }
+        if idle_edge {
+            let awaited = self.with_mapper(|mapper| mapper.pending_delivery_ids());
+            self.retire_sent_except(&awaited);
+        }
+        // EXP-936: the compaction policy reads the meter, the fold and the
+        // turn edges off the same stream every viewer gets.
+        let compaction_step_owed = {
+            let mut policy = self.compaction.lock().unwrap_or_else(|err| err.into_inner());
+            for event in &out.wire {
+                policy.observe(event);
+            }
+            policy.has_pending()
+        };
+        // FEED-61: the retry policy reads the same stream. A replay's rows
+        // are history, never a turn to pick back up.
+        if !self.replay {
+            let now = Instant::now();
+            let mut retry = self.api_retry.lock().unwrap_or_else(|err| err.into_inner());
+            for event in &out.wire {
+                retry.observe(event, now);
+            }
+        }
+        self.deliver(out);
+        if gate_edge {
+            self.request_drain();
+        }
+        // After `deliver`, so the loop reads the idle signal this step set.
+        // The drain request went first: a held line starts its turn ahead of
+        // the `/compact`, which then waits for the next idle edge.
+        if idle_edge && compaction_step_owed {
+            if let Some(commands) = self.queue_commands.get() {
+                let _ = commands.send(EngineCommand::AdvanceCompaction);
+            }
+        }
+    }
+
+    /// EXP-936: the run's own compaction ask, as the publisher's hook (a
+    /// relay `compact_request`) and [`crate::EngineSession::request_compaction`]
+    /// both make it. The policy decides off the state `dispatch` fed it; an
+    /// acceptance owes the `/compact` step and nudges the command loop, which
+    /// takes it once the agent is between turns.
+    pub fn request_compaction(&self, keep: Option<String>) -> wire::frames::CompactVerdict {
+        let verdict = self
+            .compaction
+            .lock()
+            .map(|mut policy| policy.request(keep))
+            .unwrap_or(wire::frames::CompactVerdict::Refused(wire::frames::CompactRefusal::Cooldown));
+        if verdict == wire::frames::CompactVerdict::Accepted {
+            if let Some(commands) = self.queue_commands.get() {
+                let _ = commands.send(EngineCommand::AdvanceCompaction);
+            }
+        }
+        verdict
+    }
+
+    /// EXP-861: is a compaction open right now? A message that arrives then
+    /// is HELD (the agent is rewriting its context; a prompt sent into that
+    /// window is the one the CLI itself queues) until the fold ends.
+    /// EXP-873: a running turn no longer holds anything — a mid-turn
+    /// message goes to the agent at once and waits in the bar as `sent`.
+    pub fn compaction_open(&self) -> bool {
+        self.with_mapper(|mapper| mapper.compacting())
+    }
+
+    /// EXP-861: ask the command loop to send the held messages, if any and
+    /// if no compaction is open. Cheap when nothing is held (one lock, no
+    /// send). EXP-969: a request the open gate refuses is REMEMBERED, never
+    /// dropped — [`SessionCtx::poll_drain`] retries it on the flush tick, so
+    /// a fold whose `ended` edge never lands cannot strand the bar.
+    pub fn request_drain(&self) {
+        let held = self
+            .prompt_queue
+            .lock()
+            .map(|queue| queue.iter().any(|message| message.held.is_some()))
+            .unwrap_or(false);
+        if !held {
+            self.drain_wanted.store(false, Ordering::SeqCst);
+            return;
+        }
+        if self.compaction_open() {
+            self.drain_wanted.store(true, Ordering::SeqCst);
+            return;
+        }
+        self.drain_wanted.store(false, Ordering::SeqCst);
+        if let Some(commands) = self.queue_commands.get() {
+            let _ = commands.send(EngineCommand::DrainQueue);
+        }
+    }
+
+    /// EXP-969: the flush tick's half of [`SessionCtx::request_drain`] — a
+    /// drain the gate refused earlier goes out as soon as the gate is down
+    /// (the mapper's own `COMPACTION_MAX` backstop closes a fold nothing else
+    /// ever ends, and this is what notices).
+    pub fn poll_drain(&self) {
+        if self.drain_wanted.load(Ordering::SeqCst) {
+            self.request_drain();
+        }
+    }
+
+    /// EXP-873: is this agent one that replays every user message it takes
+    /// in (claude's `--replay-user-messages`)? Only then can a mid-turn
+    /// message wait in the bar for its replay; an agent that never echoes
+    /// (codex, whose `turn/steer` inserts the message at once) has its row
+    /// announced the moment it is sent, as before.
+    pub fn replays_user_messages(&self) -> bool {
+        matches!(self.agent, crate::agent::CodingAgent::Claude)
+    }
+
+    /// EXP-861: publish the `queue` slot as it stands — every client's bar
+    /// (an empty list closes it).
+    pub fn publish_queue(&self) {
+        let messages: Vec<wire::QueuedMessage> = self
+            .prompt_queue
+            .lock()
+            .map(|queue| queue.iter().map(QueuedPrompt::wire).collect())
+            .unwrap_or_default();
+        let mut out = MapOut::default();
+        self.with_mapper(|mapper| mapper.publish_queue(&messages, &mut out));
+        self.deliver(out);
+    }
+
+    /// EXP-861: hold one message back while a compaction is open. Past the
+    /// relay's cap the oldest is NOT dropped — the newest is refused instead
+    /// (the person can see the bar is full), so nothing typed earlier
+    /// vanishes.
+    ///
+    /// EXP-1292: a person's message row is held under its own `messages.id`
+    /// (`message_id`); the engine's own prompts get a fresh id. A message
+    /// ROW is never refused: the pickup already counts it handed and would
+    /// never hand it over again, so it would sit queued forever. The server
+    /// bounds those rows, and the bar only ever shows the first `QUEUE_MAX`.
+    fn enqueue_prompt(
+        &self,
+        announce: String,
+        prompt: TurnPrompt,
+        message_id: Option<String>,
+    ) -> bool {
+        let accepted = self
+            .prompt_queue
+            .lock()
+            .map(|mut queue| {
+                if message_id.is_none() && queue.len() >= wire::frames::QUEUE_MAX {
+                    return false;
+                }
+                queue.push_back(QueuedPrompt {
+                    id: message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                    announce,
+                    held: Some(prompt),
+                });
+                true
+            })
+            .unwrap_or(false);
+        if accepted {
+            // EXP-969: this line wants a drain the moment the gate is down,
+            // even if no edge ever announces it.
+            self.drain_wanted.store(true, Ordering::SeqCst);
+            self.publish_queue();
+        } else {
+            log::warn!(
+                "engine: session {} holds {} queued messages already; the newest was dropped",
+                self.session_id,
+                wire::frames::QUEUE_MAX
+            );
+        }
+        accepted
+    }
+
+    /// EXP-873: a message about to go to the agent MID-TURN joins the bar as
+    /// `sent`, under a fresh id the replay will close. `None` when the bar
+    /// is full: the message still goes, announced at once instead of
+    /// tracked (a full bar is the one thing that must never lose a line).
+    /// EXP-1292: a person's message row keeps its `messages.id` as the line's
+    /// id, so the replay that closes the line also consumes the row.
+    fn mark_sent(&self, announce: String, message_id: Option<String>) -> Option<String> {
+        let id = self.prompt_queue.lock().ok().and_then(|mut queue| {
+            if queue.len() >= wire::frames::QUEUE_MAX {
+                return None;
+            }
+            let id = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            queue.push_back(QueuedPrompt {
+                id: id.clone(),
+                announce,
+                held: None,
+            });
+            Some(id)
+        });
+        if id.is_some() {
+            self.publish_queue();
+        }
+        id
+    }
+
+    /// Is any line HELD on the host (not yet sent to the agent)?
+    fn holds_prompts(&self) -> bool {
+        self.prompt_queue
+            .lock()
+            .map(|queue| queue.iter().any(|message| message.held.is_some()))
+            .unwrap_or(false)
+    }
+
+    /// EXP-873: the agent took these sent messages in (their replays
+    /// arrived) — the bar loses them.
+    fn consume_queued(&self, ids: &[String]) {
+        let removed = self
+            .prompt_queue
+            .lock()
+            .map(|mut queue| {
+                let before = queue.len();
+                queue.retain(|message| !ids.contains(&message.id));
+                queue.len() != before
+            })
+            .unwrap_or(false);
+        if removed {
+            self.publish_queue();
+        }
+    }
+
+    /// EXP-873: on the idle edge, drop every SENT line the mapper is not
+    /// awaiting any more; the held ones (a compaction still open) stay.
+    fn retire_sent_except(&self, awaited: &[String]) {
+        let removed = self
+            .prompt_queue
+            .lock()
+            .map(|mut queue| {
+                let before = queue.len();
+                queue.retain(|message| message.held.is_some() || awaited.contains(&message.id));
+                queue.len() != before
+            })
+            .unwrap_or(false);
+        if removed {
+            self.publish_queue();
+        }
+    }
+
+    /// EXP-861: drop every held message (a Stop) and say so.
+    fn clear_prompt_queue(&self) {
+        let had_any = self
+            .prompt_queue
+            .lock()
+            .map(|mut queue| {
+                let had_any = !queue.is_empty();
+                queue.clear();
+                had_any
+            })
+            .unwrap_or(false);
+        if had_any {
+            self.publish_queue();
+        }
+    }
+
+    /// EXP-1292: a person's message row was handed to this engine.
+    pub fn note_message(&self, message_id: &str) {
+        if let Ok(mut ids) = self.message_ids.lock() {
+            ids.insert(message_id.to_string());
+        }
+        // EXP-1330: a person answered the aside back — it carries on.
+        if let Some(aside) = &self.aside {
+            aside.person_spoke();
+        }
+    }
+
+    /// EXP-1292: these queue ids reached the agent (or left its queue for
+    /// good — a Stop drops them); the ones that are person message rows are
+    /// reported consumed, once each. The engine's own ids pass through.
+    pub fn consumed_messages(&self, ids: impl IntoIterator<Item = String>) {
+        let rows: Vec<String> = match self.message_ids.lock() {
+            Ok(mut known) => ids.into_iter().filter(|id| known.remove(id)).collect(),
+            Err(_) => Vec::new(),
+        };
+        if rows.is_empty() {
+            return;
+        }
+        if let Some(backend) = self.backend.get() {
+            backend.consume(rows);
+        }
+    }
+
+    /// EXP-1292: a handed message row was unqueued (deleted) before the agent
+    /// read it — nothing to consume any more.
+    pub fn forget_message(&self, message_id: &str) {
+        if let Ok(mut ids) = self.message_ids.lock() {
+            ids.remove(message_id);
+        }
+    }
+
+    /// FEED-25: one engine-authored notice into the transcript — the stall
+    /// watchdog announcing the turn it just cancelled. Routed exactly like
+    /// mapper output but WITHOUT the activity clock: the session speaking
+    /// about the agent is not the agent waking up, and a touch here would
+    /// clear the watchdog's own pending interrupt before it can escalate.
+    pub fn notice(&self, text: String) {
+        let mut out = MapOut::default();
+        self.with_mapper(|mapper| mapper.on_notice(&text, &mut out));
+        self.deliver(out);
+    }
+
+    fn deliver(&self, mut out: MapOut) {
+        // EXP-1317: the open-question fold (see `open_questions`).
+        if let Ok(mut held) = self.open_questions.lock() {
+            for event in &out.wire {
+                fold_open_question(&mut held, event);
+            }
+        }
+        // EXP-1292: the Conversation's half of the step — the replies in
+        // order, and every card the engine resolved (answered anywhere, or
+        // dismissed) stops reading open. A replay writes nothing.
+        if let Some(backend) = self.backend.get() {
+            for event in &out.wire {
+                if let wire::ActivityEvent::QuestionResolved { id: Some(id), .. } = event {
+                    backend.resolve_question(id);
+                }
+            }
+            // EXP-1330: an aside's answer is its turn's final text reply.
+            backend.post_replies(std::mem::take(&mut out.replies));
+        }
+        // EXP-850 §8: the caption's one input. Read BEFORE the wire vec is
+        // consumed by the sink.
+        let workflows: Vec<&wire::WorkflowState> = out
+            .wire
+            .iter()
+            .filter_map(|event| match event {
+                wire::ActivityEvent::Workflow(workflow) => Some(workflow),
+                _ => None,
+            })
+            .collect();
+        if !workflows.is_empty() {
+            self.note_captions(&workflows);
+        }
+        // FEED-44: the latest list is the live set. EXP-1374 (FEED-139): ANY
+        // entry (shell, workflow, agent, other) keeps the run busy past its
+        // turn end, not only a subagent.
+        let tasks_listed = out.wire.iter().rev().find_map(|event| match event {
+            wire::ActivityEvent::BackgroundTasks { tasks, .. } => Some(!tasks.is_empty()),
+            _ => None,
+        });
+        if let Some(listed) = tasks_listed {
+            let was = self.background_tasks_live.swap(listed, Ordering::SeqCst);
+            // The last one finished while the turn is already over: the
+            // caption the idle edge kept for them goes now.
+            if was && !listed && self.turn_signal.is_idle() {
+                self.caption_signal.set(None);
+            }
+        }
+        if let Some(sink) = self.sink.get() {
+            for event in out.wire {
+                sink.send(event);
+            }
+        }
+        for event in out.local {
+            // EXP-750: the terminal a tool call embeds is bound BEFORE the
+            // edge is emitted, so the buffered output flushes onto the card
+            // the renderer is about to create.
+            if let LocalFeedEvent::TerminalBound {
+                tool_call_id,
+                terminal_id,
+            } = &event
+            {
+                self.terminals.bind(terminal_id, tool_call_id);
+            }
+            self.feed.emit(self.local_sink.as_ref(), event);
+        }
+        if let Some(title) = out.agent_title {
+            self.agent_title.set(Some(title));
+        }
+        // EXP-1051: the measured base, onto `runs.json`, so the next resume
+        // of this conversation carries it.
+        if let Some((tokens, model)) = out.context_base {
+            if let Some(backend) = self.backend.get() {
+                backend.record_context_base(self, tokens, &model);
+            }
+        }
+        if let Some(pending) = out.needs_input {
+            self.needs_input.store(pending, Ordering::SeqCst);
+        }
+        if let Some(wall) = out.blocked {
+            if let Ok(mut blocked) = self.blocked.lock() {
+                *blocked = wall;
+            }
+        }
+        if let Some(idle) = out.idle {
+            // EXP-1418: a turn the AGENT opened (EXP-1224's continuation)
+            // counts for the busy mirror like one `start_turn` opened.
+            if !idle {
+                self.turns_started.fetch_add(1, Ordering::SeqCst);
+            }
+            self.turn_signal.set_idle(idle);
+            // (EXP-1273's computer-use abort is NOT answered here: this
+            // edge also fires for a turn the agent opens on its own — see
+            // `start_turn`.)
+            self.aside_turn_edge(idle);
+            // EXP-850 §8: a turn that ended runs no workflow — the caption
+            // goes with it, on the same edge the busy flag does.
+            // FEED-44: while background tasks still run the run is still
+            // working, so the caption stays until their list empties.
+            if idle {
+                if !self.background_tasks_live.load(Ordering::SeqCst) {
+                    self.caption_signal.set(None);
+                }
+            } else if self.caption_signal.get().as_deref() == Some(wire::activity::RESUMED_IDLE_CAPTION) {
+                // EXP-906: the first prompt after a resume — the run is no
+                // longer waiting (a workflow card re-sets the caption later
+                // in the turn if there is one).
+                self.caption_signal.set(None);
+            }
+        }
+    }
+
+    /// EXP-850 §8: fold this step's workflow cards into the run's own map and
+    /// re-derive the caption — the NEWEST card still running, `None` once
+    /// they have all finished (the same rule `SteerFeed::running_workflow`
+    /// applies on every viewer).
+    fn note_captions(&self, cards: &[&wire::WorkflowState]) {
+        let caption = {
+            let mut workflows = match self.workflows.lock() {
+                Ok(workflows) => workflows,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            fold_workflow_caption(&mut workflows, cards)
+        };
+        self.caption_signal.set(caption);
+    }
+
+    /// EXP-1330: an aside's turn edge — its first answer ends the run (the
+    /// reply posts first: the end sequence flushes the outbox).
+    fn aside_turn_edge(&self, idle: bool) {
+        let Some(aside) = &self.aside else { return };
+        if !idle {
+            aside.turn_started();
+            return;
+        }
+        if aside.turn_ended() == super::aside::AsideEnd::End {
+            if let Some(commands) = self.queue_commands.get() {
+                let _ = commands.send(EngineCommand::Shutdown { outcome: "ended" });
+            }
+        }
+    }
+
+    /// EXP-848 / FEED-44: is the agent working right now — a prompt in
+    /// flight, OR background tasks (EXP-1374: any kind) still running after
+    /// the turn that launched them ended. The synced `busy` column's one
+    /// input.
+    pub fn agent_busy(&self) -> bool {
+        !self.turn_signal.is_idle() || self.background_tasks_live.load(Ordering::SeqCst)
+    }
+
+    /// EXP-1374: busy ONLY because of background tasks — the turn is over
+    /// and the list still names a live one. The synced `background`
+    /// column's one input (the card's "Background" state).
+    pub fn background(&self) -> bool {
+        self.turn_signal.is_idle() && self.background_tasks_live.load(Ordering::SeqCst)
+    }
+
+    /// FEED-25: the agent (or a turn edge) just said something.
+    pub fn touch_activity(&self) {
+        if let Ok(mut at) = self.last_activity.lock() {
+            *at = Instant::now();
+        }
+    }
+
+    /// FEED-25: the same clock, from the terminal reader thread — a chatty
+    /// command hits this per PTY read, so the write is rate-limited to one
+    /// per [`TERMINAL_ACTIVITY_STEP`]. The comparison IS the rate limit: the
+    /// stored instant only moves once the step has elapsed, which leaves the
+    /// clock at most one step behind and costs one uncontended lock.
+    pub fn touch_activity_throttled(&self) {
+        if let Ok(mut at) = self.last_activity.lock() {
+            let now = Instant::now();
+            if now.saturating_duration_since(*at) >= TERMINAL_ACTIVITY_STEP {
+                *at = now;
+            }
+        }
+    }
+
+    pub fn last_activity(&self) -> Instant {
+        self.last_activity
+            .lock()
+            .map(|at| *at)
+            .unwrap_or_else(|poisoned| *poisoned.into_inner())
+    }
+
+    /// FEED-25: record why a watchdog is ending this run. First reason wins.
+    pub fn set_failure(&self, reason: String) {
+        if let Ok(mut slot) = self.failure.lock() {
+            slot.get_or_insert(reason);
+        }
+    }
+
+    /// The reason for the ended banner, if any — the watchdog's, plus
+    /// (EXP-784) the transport's dropped-line count when it is nonzero: a
+    /// child whose stdout outran the reader lost frames the transcript can
+    /// never show, and a run that just says "ended" after that hides it.
+    pub fn take_failure(&self) -> Option<String> {
+        let failure = self.failure.lock().ok().and_then(|mut slot| slot.take());
+        let dropped = self.child_exit.dropped_lines();
+        if dropped == 0 {
+            return failure;
+        }
+        let note = dropped_lines_note(dropped);
+        Some(match failure {
+            Some(failure) => format!("{failure} ({note})"),
+            None => note,
+        })
+    }
+
+    /// A local-only edge (phases): never a wire event.
+    pub fn emit_local(&self, event: LocalFeedEvent) {
+        self.feed.emit(self.local_sink.as_ref(), event);
+    }
+
+    pub fn phase(&self, phase: EnginePhase) {
+        self.emit_local(LocalFeedEvent::Phase(phase));
+    }
+
+    pub fn ids(&self) -> SessionIds {
+        self.ids
+            .lock()
+            .map(|ids| ids.clone())
+            .unwrap_or_default()
+    }
+
+    fn set_ids(&self, acp: Option<String>, native: Option<String>) {
+        if let Ok(mut ids) = self.ids.lock() {
+            if acp.is_some() {
+                ids.acp = acp;
+            }
+            if native.is_some() {
+                ids.native = native;
+            }
+        }
+    }
+
+    /// The outcome the end sequence publishes as `bye`: an explicit kill
+    /// wins, then the child's exit code, then a plain `ended`.
+    pub fn end_outcome(&self) -> String {
+        if let Some(outcome) = self.outcome.lock().ok().and_then(|outcome| *outcome) {
+            return outcome.to_string();
+        }
+        match self.child_exit.get() {
+            Some(exit) => format!("exit:{}", exit.code),
+            None => "ended".to_string(),
+        }
+    }
+
+    fn set_outcome(&self, outcome: &'static str) {
+        if let Ok(mut slot) = self.outcome.lock() {
+            slot.get_or_insert(outcome);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The connection driver
+// ---------------------------------------------------------------------------
+
+/// The connection driver. Runs on the dedicated `acp-engine-<sid8>` thread
+/// inside `SteerRuntime::handle().block_on(..)` and does not return until the
+/// session ends.
+///
+/// Generic over the transport so the fake adapter in `tests/fake_agent.rs`
+/// drives the REAL host: `super::adapters::Adapter` is just one
+/// `ConnectTo<Client>` among them.
+pub(crate) async fn run_session<A>(
+    ctx: Arc<SessionCtx>,
+    adapter: A,
+    commands: flume::Receiver<EngineCommand>,
+) -> Result<(), Error>
+where
+    A: ConnectTo<Client> + 'static,
+{
+    let notify_ctx = ctx.clone();
+    let permission_ctx = ctx.clone();
+    let elicit_ctx = ctx.clone();
+    let create_ctx = ctx.clone();
+    let output_ctx = ctx.clone();
+    let wait_ctx = ctx.clone();
+    let kill_ctx = ctx.clone();
+    let release_ctx = ctx.clone();
+    let main_ctx = ctx.clone();
+
+    Client
+        .builder()
+        .name("exponential")
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                // EXP-784: an adapter whose native id CHANGED mid-run (claude
+                // after a `/clear` starts a fresh transcript under a new
+                // uuid) re-publishes it here, so the run record names the
+                // conversation a resume can actually reopen.
+                if let Some(native) = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(NATIVE_SESSION_META_KEY))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    if notify_ctx.ids().native.as_deref() != Some(native) {
+                        // codex's ACP id IS its thread id: a `/new` thread
+                        // is the one a resume's `session/load` reopens.
+                        let acp = matches!(notify_ctx.agent, crate::agent::CodingAgent::Codex)
+                            .then(|| native.to_string());
+                        notify_ctx.set_ids(acp, Some(native.to_string()));
+                        notify_ctx.record_session_ids();
+                    }
+                }
+                let mut out = MapOut::default();
+                notify_ctx.with_mapper(|mapper| mapper.on_update(&notification, &mut out));
+                // #NEW-79: a card the adapter withdrew is dismissed and its
+                // parked request answered, never left waiting.
+                let withdrawn = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(ASK_WITHDRAWN_META_KEY))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|ask_id| notify_ctx.with_mapper(|mapper| mapper.withdraw_ask(ask_id, &mut out)));
+                notify_ctx.dispatch(out);
+                if let Some(key) = withdrawn {
+                    notify_ctx.asks.resolve(&key, AskOutcome::Cancelled);
+                }
+                Ok(())
+            },
+            on_receive_notification!(),
+        )
+        .on_receive_request(
+            async move |request: RequestPermissionRequest, responder, cx| {
+                // Mapped INLINE so cards publish in arrival order; only the
+                // wait is spawned.
+                let mut out = MapOut::default();
+                let key = permission_ctx
+                    .with_mapper(|mapper| mapper.on_permission(&request, &mut out));
+                permission_ctx.dispatch(out);
+                let answers = permission_ctx.asks.park(&key);
+                cx.spawn(async move {
+                    let outcome = match answers.recv_async().await {
+                        Ok(AskOutcome::Permission(option_id)) => {
+                            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                                PermissionOptionId::new(option_id),
+                            ))
+                        }
+                        // A dropped sender is the connection going away: the
+                        // ACP contract still wants an answer.
+                        _ => RequestPermissionOutcome::Cancelled,
+                    };
+                    if let Err(err) = responder.respond(RequestPermissionResponse::new(outcome)) {
+                        log::warn!("engine: permission response failed: {err}");
+                    }
+                    Ok(())
+                })?;
+                Ok(())
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: CreateElicitationRequest, responder, cx| {
+                let ask_id = elicitation_id(&request);
+                let mut out = MapOut::default();
+                let key = elicit_ctx
+                    .with_mapper(|mapper| mapper.on_elicitation(&ask_id, &request, &mut out));
+                elicit_ctx.dispatch(out);
+                let answers = elicit_ctx.asks.park(&key);
+                cx.spawn(async move {
+                    let action = match answers.recv_async().await {
+                        Ok(AskOutcome::Elicitation(fields)) => ElicitationAction::Accept(
+                            ElicitationAcceptAction::new().content(elicitation_content(&fields)),
+                        ),
+                        _ => ElicitationAction::Cancel,
+                    };
+                    if let Err(err) = responder.respond(CreateElicitationResponse::new(action)) {
+                        log::warn!("engine: elicitation response failed: {err}");
+                    }
+                    Ok(())
+                })?;
+                Ok(())
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: ReadTextFileRequest, responder, cx| {
+                // EXP-766: SPAWNED onto a blocking thread. A path that is a
+                // FIFO, an unreachable network mount or a multi-gigabyte file
+                // blocks `std::fs` for as long as it likes, and inline that is
+                // the whole connection.
+                cx.spawn(async move {
+                    let read = tokio::task::spawn_blocking(move || read_text_file(&request)).await;
+                    let sent = match read {
+                        Ok(Ok(content)) => responder.respond(ReadTextFileResponse::new(content)),
+                        Ok(Err(err)) => responder.respond_with_internal_error(err),
+                        Err(err) => responder
+                            .respond_with_internal_error(std::io::Error::other(err.to_string())),
+                    };
+                    if let Err(err) = sent {
+                        log::warn!("engine: fs/read_text_file response failed: {err}");
+                    }
+                    Ok(())
+                })?;
+                Ok(())
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: WriteTextFileRequest, responder, cx| {
+                cx.spawn(async move {
+                    let written =
+                        tokio::task::spawn_blocking(move || write_text_file(&request)).await;
+                    let sent = match written {
+                        Ok(Ok(())) => responder.respond(WriteTextFileResponse::new()),
+                        Ok(Err(err)) => responder.respond_with_internal_error(err),
+                        Err(err) => responder
+                            .respond_with_internal_error(std::io::Error::other(err.to_string())),
+                    };
+                    if let Err(err) = sent {
+                        log::warn!("engine: fs/write_text_file response failed: {err}");
+                    }
+                    Ok(())
+                })?;
+                Ok(())
+            },
+            on_receive_request!(),
+        )
+        // EXP-750 — the five `terminal/*` methods. Four are inline (a spawn,
+        // a buffer read, a signal); only the wait can outlast the dispatch
+        // loop's patience, so it is the one that spawns.
+        .on_receive_request(
+            async move |request: CreateTerminalRequest, responder, _cx| match create_terminal(
+                &create_ctx,
+                &request,
+            ) {
+                Ok(terminal_id) => responder.respond(CreateTerminalResponse::new(terminal_id)),
+                Err(err) => responder.respond_with_internal_error(err),
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: TerminalOutputRequest, responder, _cx| match output_ctx
+                .terminals
+                .snapshot(request.terminal_id.0.as_ref())
+            {
+                Some(snapshot) => responder.respond(
+                    TerminalOutputResponse::new(snapshot.output, snapshot.truncated)
+                        .exit_status(snapshot.exit.as_ref().map(exit_status)),
+                ),
+                None => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: WaitForTerminalExitRequest, responder, cx| {
+                // The whole point of this one is to block until the command
+                // finishes — inline it and the session stops dispatching for
+                // as long as the agent's build takes.
+                let ctx = wait_ctx.clone();
+                cx.spawn(async move {
+                    let terminal_id = request.terminal_id.clone();
+                    let result = match ctx.terminals.wait(terminal_id.0.as_ref()).await {
+                        Some(exit) => {
+                            responder.respond(WaitForTerminalExitResponse::new(exit_status(&exit)))
+                        }
+                        None => responder.respond_with_error(unknown_terminal(&terminal_id)),
+                    };
+                    if let Err(err) = result {
+                        log::warn!("engine: terminal wait response failed: {err}");
+                    }
+                    Ok(())
+                })?;
+                Ok(())
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: KillTerminalRequest, responder, _cx| match kill_ctx
+                .terminals
+                .kill(request.terminal_id.0.as_ref())
+            {
+                true => responder.respond(KillTerminalResponse::new()),
+                false => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: ReleaseTerminalRequest, responder, _cx| match release_ctx
+                .terminals
+                .release(request.terminal_id.0.as_ref())
+            {
+                true => responder.respond(ReleaseTerminalResponse::new()),
+                false => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
+            },
+            on_receive_request!(),
+        )
+        .connect_with(adapter, async move |cx| {
+            let ctx = main_ctx;
+            ctx.phase(EnginePhase::Connecting);
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(client_capabilities()),
+            )
+            .block_task()
+            .await?;
+
+            let cwd = ctx.run.worktree.clone();
+            let (session_id, modes, options, meta) = match &ctx.resume {
+                // A recorded ACP session re-enters through `session/load`;
+                // every other resume shape is the ADAPTER's business (claude
+                // `--resume=`, codex `thread/resume`) and
+                // arrives here as a plain `session/new`.
+                Some(ResumeHandle::Acp(id)) => {
+                    let session_id = SessionId::new(id.clone());
+                    // EXP-784: the ACP id is the host's stable handle, not
+                    // the agent's own (claude's `--session-id` is minted
+                    // separately now). The record the launcher wrote for
+                    // this run carries the native one; it rides the load
+                    // request's `_meta` so the adapter reopens the right
+                    // transcript.
+                    let mut load = LoadSessionRequest::new(session_id.clone(), cwd.clone());
+                    if let Some(native) = recorded_native_session_id(&ctx) {
+                        let mut meta = serde_json::Map::new();
+                        meta.insert(
+                            NATIVE_SESSION_META_KEY.to_string(),
+                            serde_json::Value::String(native),
+                        );
+                        load = load.meta(meta);
+                    }
+                    let response = cx.send_request(load).block_task().await?;
+                    (
+                        session_id,
+                        response.modes.clone(),
+                        response.config_options.clone(),
+                        response.meta.clone(),
+                    )
+                }
+                _ => {
+                    let response = cx
+                        .send_request(NewSessionRequest::new(cwd.clone()))
+                        .block_task()
+                        .await?;
+                    (
+                        response.session_id.clone(),
+                        response.modes.clone(),
+                        response.config_options.clone(),
+                        response.meta.clone(),
+                    )
+                }
+            };
+            ctx.set_ids(
+                Some(session_id.0.to_string()),
+                meta.as_ref()
+                    .and_then(|meta| meta.get(NATIVE_SESSION_META_KEY))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+            );
+            ctx.record_session_ids();
+
+            let mut out = MapOut::default();
+            ctx.with_mapper(|mapper| {
+                mapper.on_session_state(
+                    modes.as_ref(),
+                    options.as_deref().unwrap_or_default(),
+                    &[],
+                    &mut out,
+                )
+            });
+            ctx.dispatch(out);
+            ctx.phase(EnginePhase::Live);
+            // Between turns from the very first moment: a kill that asks to
+            // wait for the turn (EXP-637) must not sit out `STOP_GRACE` on a
+            // session that never started one.
+            ctx.turn_signal.set_idle(true);
+            // EXP-848: and SEED the `turn` slot with it, so a viewer that
+            // joins before the first prompt reads `ended` off the replay
+            // instead of inferring it.
+            let mut out = MapOut::default();
+            ctx.with_mapper(|mapper| mapper.set_turn(wire::TurnState::Ended, true, &mut out));
+            ctx.dispatch(out);
+            // EXP-861: and the `queue` slot, empty — a run that ends with
+            // messages held keeps them in its last frame (see `Shutdown`),
+            // so a resumed run's inherited history would otherwise replay a
+            // bar full of lines this engine never held.
+            ctx.publish_queue();
+            // EXP-906: a resumed run with no start prompt spawns its agent
+            // only on the next message — say so on the synced row instead of
+            // reading as a hung run in every list.
+            if !ctx.replay && ctx.resume.is_some() && ctx.prompt.is_none() {
+                ctx.caption_signal
+                    .set(Some(wire::activity::RESUMED_IDLE_CAPTION.to_string()));
+            }
+
+            if ctx.replay {
+                // A transcript replay has nothing to steer: `session/load`
+                // already streamed its history through the notification
+                // handler above. Flush what the coalescers still hold (a
+                // replay has no turn end and may finish inside the 250 ms
+                // idle window) before the phase closes the feed.
+                let mut out = MapOut::default();
+                ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
+                ctx.dispatch(out);
+                ctx.phase(EnginePhase::Ended);
+                return Ok(());
+            }
+
+            // The in-flight turn counter: `idle` only flips back when the
+            // LAST turn answers, so a steered second prompt cannot end the
+            // turn early. EXP-784: it also carries the turn-slot semaphore.
+            let turns = Arc::new(TurnGate::new());
+            if let Some(prompt) = ctx.prompt.clone() {
+                // EXP-825: a composer prompt may embed images (the shared
+                // steer message shape); the agent gets the localized
+                // manifest, the feed and journal the original text.
+                let localized =
+                    localize_for_agent(prompt, ctx.attachments.as_ref()).await;
+                // FEED-153: a seed the agent refuses outright is retried once.
+                ctx.seed_retry.store(true, Ordering::SeqCst);
+                start_turn(
+                    &cx,
+                    &ctx,
+                    &session_id,
+                    TurnPrompt::Ready(localized),
+                    &turns,
+                    None,
+                );
+                // EXP-1292: a resume's seed IS the waking message row.
+                if let Some(message_id) = ctx.seed_message_id.clone() {
+                    ctx.note_message(&message_id);
+                    ctx.consumed_messages([message_id]);
+                }
+            }
+            loop {
+                tokio::select! {
+                    command = commands.recv_async() => {
+                        let Ok(command) = command else { break };
+                        if !handle_command(&cx, &ctx, &session_id, &turns, command) {
+                            break;
+                        }
+                    }
+                    // The agent went away (child EOF, a crash): the end
+                    // sequence turns the recorded child exit into
+                    // `exit:<code>`.
+                    () = cx.incoming_closed() => break,
+                    () = tokio::time::sleep(FLUSH_IDLE) => {
+                        let mut out = MapOut::default();
+                        ctx.with_mapper(|mapper| mapper.flush(&mut out));
+                        ctx.dispatch(out);
+                        // EXP-969: the gate may have come down without an
+                        // edge anyone dispatched (the mapper's stale-fold
+                        // backstop); a held line drains here.
+                        ctx.poll_drain();
+                    }
+                }
+            }
+            ctx.asks.cancel_all();
+            ctx.terminals.kill_all();
+            // EXP-766: the same dismissal `EngineCommand::Cancel` does. The
+            // loop ending with a card open used to leave that card published
+            // and `needs_input` true, so the ended run still read as waiting
+            // for an answer nobody can give.
+            let mut out = MapOut::default();
+            ctx.with_mapper(|mapper| {
+                mapper.on_cancel(&mut out);
+                // EXP-848: the loop is over, so no turn can be in flight —
+                // close the slot even if the prompt that was open never
+                // answered.
+                mapper.set_turn(wire::TurnState::Ended, false, &mut out);
+            });
+            ctx.dispatch(out);
+            // FEED-44: the agent is gone, and its background tasks with it
+            // — nothing may hold the run busy any more.
+            ctx.background_tasks_live.store(false, Ordering::SeqCst);
+            Ok(())
+        })
+        .await
+}
+
+/// Whether `mode_id` is one of the modes the agent advertised, read off the
+/// mapper's live `config_state` (the same list every client's mode picker
+/// paints). An empty or absent list means the session has no modes at all.
+fn advertises_mode(mapper: &Mapper, mode_id: &str) -> bool {
+    // The published ids went through the same clamp, so compare like for like.
+    let wanted = wire::truncate(mode_id, wire::activity::CONFIG_ID_MAX);
+    matches!(
+        mapper.config_state(),
+        wire::ActivityEvent::ConfigState { modes: Some(modes), .. }
+            if modes.iter().any(|mode| mode.id == wanted)
+    )
+}
+
+/// EXP-1280: the line a person's plan-mode move steers to the agent.
+fn plan_mode_line(mode_id: &str) -> &'static str {
+    if mode_id == super::adapters::PLAN_MODE_ID {
+        plan_mode_on_line()
+    } else {
+        PLAN_MODE_OFF_LINE
+    }
+}
+
+/// The engine's own mirror of a `session/set_mode` that answered Ok.
+///
+/// Gated on [`advertises_mode`]: a session with no modes answers Ok as a
+/// silent NO-OP, and mirroring that would publish a `config_state`
+/// naming a mode the run never entered.
+fn mirror_mode(mapper: &mut Mapper, mode_id: &str, out: &mut MapOut) {
+    if advertises_mode(mapper, mode_id) {
+        mapper.set_current_mode(mode_id, out);
+    }
+}
+
+/// Returns `false` when the loop must stop.
+fn handle_command(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    turns: &Arc<TurnGate>,
+    command: EngineCommand,
+) -> bool {
+    match command {
+        // EXP-825: a local composer message with image embeds is localized on
+        // the spawned turn path (never a download inline in this loop) —
+        // the same manifest the publisher builds for a steered one.
+        EngineCommand::Prompt(blocks) => {
+            let text = blocks_text(&blocks);
+            let prompt = if wants_localizing(ctx, &text) {
+                TurnPrompt::Localize(text.clone())
+            } else {
+                TurnPrompt::Ready(LocalizedPrompt {
+                    announce: text.clone(),
+                    blocks,
+                    fresh: false,
+                })
+            };
+            gate_or_start(cx, ctx, session_id, text, prompt, turns, None)
+        }
+        // EXP-1292: a person's message row — a steer under its own id. Image
+        // embeds localize on the spawned turn path like a composer message.
+        EngineCommand::Deliver { message_id, text, fresh } => {
+            ctx.note_message(&message_id);
+            // EXP-1280: a fresh context is cleared BETWEEN turns only (the
+            // claude adapter's `/clear` would be swallowed by a running
+            // turn). An approval landing mid-turn keeps the context, and
+            // its card is downgraded on the server (`sessions.resolveCard`
+            // with `fresh` absent → `fresh: false`), so the stored card
+            // never claims a reset that did not happen — a wake after a
+            // daemon restart would otherwise read `fresh: true` and start
+            // the conversation over.
+            let fresh = fresh
+                && {
+                    let idle = ctx.turn_signal.is_idle();
+                    if !idle {
+                        log::info!(
+                        "engine: session {} card {message_id} approved in a fresh context mid-turn: the context stays",
+                        ctx.session_id
+                    );
+                        // EXP-1426: Exponential's `sessions.resolveCard`
+                        // downgrade (`engine::host::fresh_context_downgrade`).
+                        if let Some(backend) = ctx.backend.get() {
+                            backend.fresh_context_kept(&message_id);
+                        }
+                    }
+                    idle
+                };
+            // A fresh-context prompt goes as it is (its plan's pictures
+            // stay links): the reset rides the request's `_meta`.
+            let prompt = if fresh {
+                TurnPrompt::Ready(LocalizedPrompt { fresh: true, ..LocalizedPrompt::plain(text.clone()) })
+            } else if wants_localizing(ctx, &text) {
+                TurnPrompt::Localize(text.clone())
+            } else {
+                TurnPrompt::Ready(LocalizedPrompt::plain(text.clone()))
+            };
+            gate_or_start(cx, ctx, session_id, text, prompt, turns, Some(message_id))
+        }
+        EngineCommand::AnswerCard { question_id, card } => {
+            let Some(mapped) = ctx.with_mapper(|mapper| mapper.card_answer(&question_id, &card))
+            else {
+                log::info!(
+                    "engine: session {} card answer for {question_id} matches no open ask",
+                    ctx.session_id
+                );
+                return true;
+            };
+            // The synced card IS what answered: no tap (the pickup marks it
+            // answered itself — a tap here would race that and re-resolve it).
+            resolve_ask(ctx, mapped.answer);
+            // The Conversation never shows a stepper's submit marker: the
+            // card that answered its last step submits the form.
+            if let Some(submit) = ctx.with_mapper(|mapper| mapper.pending_submit(&question_id)) {
+                resolve_ask(ctx, submit);
+            }
+        }
+        // EXP-873: a message that arrives while a turn is running goes to
+        // the agent AT ONCE (claude folds it in at its next tool boundary,
+        // codex `turn/steer`) and waits in every viewer's bar as `sent`
+        // until the agent's replay of it arrives — its row lands THEN, where
+        // the agent actually read it. One that arrives while a compaction is
+        // open is HELD until the fold ends ([`EngineCommand::DrainQueue`]).
+        EngineCommand::Steer(text) => gate_or_start(
+            cx,
+            ctx,
+            session_id,
+            text.clone(),
+            TurnPrompt::Ready(LocalizedPrompt::plain(text)),
+            turns,
+            None,
+        ),
+        // EXP-861: a Stop drops what the person queued as well as the turn
+        // (the `cancel_queued` semantics, now for the host's own queue); the
+        // stall watchdog's interrupt keeps it — those messages are what it
+        // is rescuing. EXP-873: the lines SENT mid-turn go the same way —
+        // the CLI drops what it had not taken in yet (`cancel_queued`), and
+        // the mapper stops awaiting their replays, so a dropped message never
+        // renders as read. Every client hands the bar's text back to the
+        // composer on its Stop.
+        EngineCommand::Cancel => {
+            // FEED-61: a person's Stop also stops the engine's own retry of
+            // a turn that died on an API error.
+            ctx.api_retry.lock().unwrap_or_else(|err| err.into_inner()).disarm();
+            ctx.with_mapper(|mapper| mapper.forget_deliveries());
+            // EXP-1292: the person's Stop drops their queued rows with the
+            // turn — handed and gone, so they are consumed, never re-sent.
+            let dropped: Vec<String> = ctx
+                .prompt_queue
+                .lock()
+                .map(|queue| queue.iter().map(|message| message.id.clone()).collect())
+                .unwrap_or_default();
+            ctx.consumed_messages(dropped);
+            ctx.clear_prompt_queue();
+            // EXP-936: the person said stop; a `/compact` owed from before
+            // would read as the run ignoring them.
+            if let Ok(mut policy) = ctx.compaction.lock() {
+                policy.cancel();
+            }
+            cancel_turn(cx, ctx, session_id, true)
+        }
+        EngineCommand::Interrupt => cancel_turn(cx, ctx, session_id, false),
+        EngineCommand::Unqueue(id) => {
+            // A held line goes; a SENT one cannot be taken back from the
+            // agent, so the slot is republished as it stands and the line
+            // the client dropped optimistically comes back (EXP-873).
+            let (known, revoked) = ctx
+                .prompt_queue
+                .lock()
+                .map(|mut queue| {
+                    let known = queue.iter().any(|message| message.id == id);
+                    let before = queue.len();
+                    queue.retain(|message| message.id != id || message.held.is_none());
+                    (known, queue.len() != before)
+                })
+                .unwrap_or((false, false));
+            // EXP-1292: a revoked row was deleted server-side; nothing left
+            // to consume.
+            if revoked {
+                ctx.forget_message(&id);
+            }
+            if known {
+                ctx.publish_queue();
+            }
+        }
+        EngineCommand::DrainQueue => {
+            if !ctx.compaction_open() {
+                drain_queue(cx, ctx, session_id, turns);
+            }
+        }
+        EngineCommand::AdvanceCompaction => {
+            // Between turns only: the ask lands mid-turn (it is a tool call
+            // of that turn), and the idle edge re-sends this command.
+            if !ctx.turn_signal.is_idle() || ctx.compaction_open() {
+                return true;
+            }
+            let step = ctx
+                .compaction
+                .lock()
+                .ok()
+                .and_then(|mut policy| policy.take_step());
+            let text = match step {
+                Some(super::compaction::CompactionStep::Compact { keep }) => {
+                    super::compaction::compact_command(keep.as_deref())
+                }
+                Some(super::compaction::CompactionStep::Continue) => {
+                    super::compaction::COMPACT_CONTINUE_PROMPT.to_string()
+                }
+                None => return true,
+            };
+            log::info!("engine: session {} compaction step: {text}", ctx.session_id);
+            gate_or_start(
+                cx,
+                ctx,
+                session_id,
+                text.clone(),
+                TurnPrompt::Ready(LocalizedPrompt::plain(text)),
+                turns,
+                None,
+            );
+        }
+        EngineCommand::SetConfig { id, value } => {
+            let sent = cx.send_request(SetSessionConfigOptionRequest::new(
+                session_id.clone(),
+                id,
+                value,
+            ));
+            let ctx = ctx.clone();
+            let _ = cx.spawn(async move {
+                let mut out = MapOut::default();
+                match sent.block_task().await {
+                    // The re-emitted `config_state` IS the confirmation (D4).
+                    Ok(response) => ctx.with_mapper(|mapper| {
+                        mapper.on_session_state(None, &response.config_options, &[], &mut out)
+                    }),
+                    Err(err) => {
+                        ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out))
+                    }
+                }
+                ctx.dispatch(out);
+                Ok(())
+            });
+        }
+        EngineCommand::SetMode { id: mode_id, announce } => {
+            // EXP-1280: a PERSON's real move tells the agent (one steered
+            // line, after the switch); the approval's flip is silent.
+            let line = ctx.with_mapper(|mapper| {
+                let moved = advertises_mode(mapper, &mode_id.0) && mapper.current_mode() != Some(mode_id.0.as_ref());
+                (announce && moved).then(|| plan_mode_line(&mode_id.0))
+            });
+            let sent = cx.send_request(SetSessionModeRequest::new(
+                session_id.clone(),
+                mode_id.clone(),
+            ));
+            // The line goes AFTER the switch request (one connection, in
+            // order), so the agent reads it in the mode it describes.
+            if let Some(line) = line {
+                gate_or_start(
+                    cx,
+                    ctx,
+                    session_id,
+                    line.to_string(),
+                    TurnPrompt::Ready(LocalizedPrompt::plain(line.to_string())),
+                    turns,
+                    None,
+                );
+            }
+            let ctx = ctx.clone();
+            let _ = cx.spawn(async move {
+                let mut out = MapOut::default();
+                match sent.block_task().await {
+                    // `set_mode` answers with nothing, so the engine mirrors
+                    // the mode itself; the agent's own `CurrentModeUpdate`
+                    // (when it sends one) is then a no-op re-emit.
+                    //
+                    // Only for a mode the agent actually ADVERTISES: an agent
+                    // with no mode list answers Ok as a silent no-op, and
+                    // mirroring that would publish a `config_state` claiming a
+                    // mode the run never entered.
+                    Ok(_) => ctx.with_mapper(|mapper| mirror_mode(mapper, &mode_id.0, &mut out)),
+                    Err(err) => {
+                        ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out))
+                    }
+                }
+                ctx.dispatch(out);
+                Ok(())
+            });
+        }
+        EngineCommand::Answer(answer) => answer_ask(ctx, answer),
+        EngineCommand::Command { name, args } => {
+            // An agent-advertised command is prompt text; the contract ones
+            // never reach the engine (steer's `CommandLink` owns those).
+            let text = if args.is_empty() {
+                format!("/{name}")
+            } else {
+                format!("/{name} {args}")
+            };
+            gate_or_start(
+                cx,
+                ctx,
+                session_id,
+                text.clone(),
+                TurnPrompt::Ready(LocalizedPrompt::plain(text)),
+                turns,
+                None,
+            );
+        }
+        EngineCommand::LoadHistory => {
+            let sent = cx.send_request(LoadSessionRequest::new(
+                session_id.clone(),
+                ctx.run.worktree.clone(),
+            ));
+            let ctx = ctx.clone();
+            let _ = cx.spawn(async move {
+                if let Err(err) = sent.block_task().await {
+                    let mut out = MapOut::default();
+                    ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out));
+                    ctx.dispatch(out);
+                }
+                Ok(())
+            });
+        }
+        EngineCommand::Shutdown { outcome } => {
+            // NEW-17: before the cancel below settles the turn.
+            if ctx.outcome.lock().map(|slot| slot.is_none()).unwrap_or(false) {
+                ctx.busy_at_shutdown.store(ctx.agent_busy(), Ordering::SeqCst);
+            }
+            ctx.set_outcome(outcome);
+            // EXP-861: messages still held at the end are NOT dropped from
+            // the slot — the run ends with the last `queue` frame listing
+            // them, so a client can rescue the text on its `ended` edge (the
+            // web moves it into the composer draft) instead of losing what
+            // the person typed. Republished here so that guarantee holds
+            // regardless of what the loop's epilogue emits after this.
+            let held = ctx
+                .prompt_queue
+                .lock()
+                .map(|queue| !queue.is_empty())
+                .unwrap_or(false);
+            if held {
+                ctx.publish_queue();
+            }
+            // EXP-758: ask before the transport insists. The connection is
+            // about to go away and the child's stdin with it (`ChildGuard`
+            // closes it, then SIGTERMs), so this is the agent's chance to
+            // abandon a live turn on its own terms; an idle session ignores
+            // it. Not routed through the mapper: a shutdown is not a user's
+            // cancel and needs no card of its own.
+            let _ = cx.send_notification(CancelNotification::new(session_id.clone()));
+            return false;
+        }
+    }
+    true
+}
+
+/// EXP-861/EXP-873: the compaction gate in front of [`send_prompt`]. Outside
+/// a compaction the prompt goes to the agent at once; inside one it is held
+/// and the `queue` slot republished. The gate is read on the command loop,
+/// the same thread that sends, so two messages cannot both slip through one
+/// edge out of order.
+///
+/// An open gate with messages still HELD is the compaction's end caught
+/// between `dispatch` opening it and the loop reading its [`EngineCommand::
+/// DrainQueue`]: a command already ahead of that request in the inbox (or a
+/// steer landing right on the edge) would otherwise go first and the held
+/// lines would wait behind it. So the held messages drain HERE, oldest
+/// first, and the new one goes behind them — send order on the transcript
+/// either way; the drain request that follows finds nothing.
+///
+/// EXP-1292: `message_id` names a person's message row; it rides the queue
+/// as the line's id and is consumed when the agent gets it. A full bar never
+/// refuses a row ([`SessionCtx::enqueue_prompt`]); the forget below covers a
+/// poisoned queue lock only.
+fn gate_or_start(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    announce: String,
+    prompt: TurnPrompt,
+    turns: &Arc<TurnGate>,
+    message_id: Option<String>,
+) {
+    if ctx.compaction_open() {
+        hold_prompt(ctx, announce, prompt, message_id);
+        return;
+    }
+    drain_queue(cx, ctx, session_id, turns);
+    // `/new` (a fresh conversation, contract `steerCommands`) is applied
+    // BETWEEN turns: mid-turn it is held until the turn ends. Whatever
+    // arrives behind a held `/new` belongs to the new conversation and waits
+    // with it — after the drain, a held line can only be that barrier.
+    let hold = (super::adapters::is_new_conversation_command(&announce)
+        && !ctx.turn_signal.is_idle())
+        || ctx.holds_prompts();
+    if hold {
+        hold_prompt(ctx, announce, prompt, message_id);
+        return;
+    }
+    send_prompt(cx, ctx, session_id, announce, prompt, turns, message_id);
+}
+
+/// Hold one message on the host ([`SessionCtx::enqueue_prompt`]); a refused
+/// one is forgotten.
+fn hold_prompt(ctx: &Arc<SessionCtx>, announce: String, prompt: TurnPrompt, message_id: Option<String>) {
+    let accepted = ctx.enqueue_prompt(announce, prompt, message_id.clone());
+    if !accepted {
+        if let Some(id) = &message_id {
+            ctx.forget_message(id);
+        }
+    }
+}
+
+/// One answer for a parked ask from the SESSION view — a relay `answer`
+/// frame, the IDE's local card, or the CLI's TUI (EXP-1292's Conversation
+/// cards go to [`resolve_ask`] directly).
+fn answer_ask(ctx: &Arc<SessionCtx>, answer: wire::RemoteAnswer) {
+    // EXP-1317: the synced card this question was posted as closes too
+    // (the host's tap writes `sessions.resolveCard`). This is the ONE choke
+    // point every answer path shares — the relay pump (`EngineCommand::
+    // Answer` off the publisher's `AnswerLink`), the IDE's local card
+    // (`EngineSession::answer`) and the CLI's own TUI — so the tap lives
+    // here, not in the publisher (which only saw the relay's). BEFORE the
+    // mapper resolves it: the tap maps the question onto the card's
+    // `messages.id` through the outbox's still-open cards, which `deliver`
+    // drops on the `question_resolved` this step emits.
+    let resolution = {
+        let held = ctx.open_questions.lock().unwrap_or_else(|err| err.into_inner());
+        let question = open_question(&held, &answer.question_id);
+        wire::answer_tap::card_resolution(&answer, question)
+    };
+    wire::answer_tap::notify(&ctx.session_id, &resolution);
+    resolve_ask(ctx, answer);
+}
+
+/// Resolve one answer in the mapper and release its parked ask — no tap
+/// (the Conversation's own card answers come straight here: the synced row
+/// is already what answered).
+fn resolve_ask(ctx: &Arc<SessionCtx>, answer: wire::RemoteAnswer) {
+    let mut out = MapOut::default();
+    let (key, decision) = ctx.with_mapper(|mapper| {
+        let key = mapper.ask_key(&answer);
+        let decision = mapper.on_answer(&key, &answer, &mut out);
+        (key, decision)
+    });
+    ctx.dispatch(out);
+    match decision {
+        AnswerDecision::Permission { option_id } => ctx
+            .asks
+            .resolve(key.responder_key(), AskOutcome::Permission(option_id)),
+        AnswerDecision::Elicitation {
+            fields,
+            submit: true,
+        } => ctx
+            .asks
+            .resolve(key.responder_key(), AskOutcome::Elicitation(fields)),
+        // A mid-stepper answer published the next step and resolves
+        // nothing; a re-tap re-acked; an unknown id was dropped.
+        _ => {}
+    }
+}
+
+/// EXP-1317: how many unresolved `question` cards [`SessionCtx::open_questions`]
+/// keeps (the oldest evicted past it) — the journal's workflow cap, for the
+/// same reason: a run that parks more open cards than this is already
+/// unreadable, and an evicted one still closes by its raw keys.
+const OPEN_QUESTIONS_CAP: usize = wire::frames::JOURNAL_WORKFLOW_CAP;
+
+/// EXP-1317: fold one wire event into the open-question table: a `question`
+/// replaces any held card of its id (an elicitation step re-published) and
+/// joins newest-last; a `question_resolved` with an id drops it. Anything
+/// else is ignored.
+fn fold_open_question(held: &mut std::collections::VecDeque<wire::ActivityEvent>, event: &wire::ActivityEvent) {
+    match event {
+        wire::ActivityEvent::Question { id, .. } => {
+            held.retain(|open| !matches!(open, wire::ActivityEvent::Question { id: open_id, .. } if open_id == id));
+            held.push_back(event.clone());
+            while held.len() > OPEN_QUESTIONS_CAP {
+                held.pop_front();
+            }
+        }
+        wire::ActivityEvent::QuestionResolved { id: Some(id), .. } => {
+            held.retain(|open| !matches!(open, wire::ActivityEvent::Question { id: open_id, .. } if open_id == id));
+        }
+        _ => {}
+    }
+}
+
+/// The held `question` card with `question_id`, if still open.
+fn open_question<'a>(
+    held: &'a std::collections::VecDeque<wire::ActivityEvent>,
+    question_id: &str,
+) -> Option<&'a wire::ActivityEvent> {
+    held.iter()
+        .rev()
+        .find(|open| matches!(open, wire::ActivityEvent::Question { id, .. } if id == question_id))
+}
+
+/// EXP-873: hand one message to the agent NOW. Between turns it is the next
+/// turn, announced as the user's row at once. Mid-turn, on an agent that
+/// replays what it takes in (claude), it joins the bar as `sent` and its row
+/// lands when the replay arrives — where the agent actually read it; on an
+/// agent that never echoes (codex `turn/steer`) the row is announced at
+/// once, as before.
+///
+/// EXP-1292: a message row is consumed here when it goes out announced (the
+/// next turn, codex's steer, a full bar) and on its replay when it waits in
+/// the bar as `sent`.
+fn send_prompt(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    announce: String,
+    prompt: TurnPrompt,
+    turns: &Arc<TurnGate>,
+    message_id: Option<String>,
+) {
+    let pending = if !ctx.turn_signal.is_idle() && ctx.replays_user_messages() {
+        ctx.mark_sent(announce, message_id.clone())
+    } else {
+        None
+    };
+    start_turn(cx, ctx, session_id, prompt, turns, pending.clone());
+    if pending.is_none() {
+        ctx.consumed_messages(message_id);
+    }
+}
+
+/// EXP-861: send every held message, oldest first. Called on the command
+/// loop only, with no compaction open; a no-op when nothing is held (no
+/// frame either). EXP-873: a held line sent between turns becomes the next
+/// turn and leaves the bar; one sent into a running turn (the compaction
+/// closed mid-turn — claude's auto-compaction does) stays in the bar under
+/// its id, now `sent`, until the agent's replay closes it.
+fn drain_queue(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    turns: &Arc<TurnGate>,
+) {
+    let replays = ctx.replays_user_messages();
+    // Re-derived per line: once the first held line starts a turn, the next
+    // one is a mid-turn message.
+    let mut idle = ctx.turn_signal.is_idle();
+    let mut starts: Vec<(TurnPrompt, Option<String>)> = Vec::new();
+    let mut announced: Vec<String> = Vec::new();
+    {
+        let mut queue = match ctx.prompt_queue.lock() {
+            Ok(queue) => queue,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if !queue.iter().any(|message| message.held.is_some()) {
+            return;
+        }
+        let mut kept = std::collections::VecDeque::new();
+        // A held `/new` is a barrier: it starts only between turns, and
+        // every line behind it waits for the turn it opens to end (they
+        // belong to the new conversation).
+        let mut barrier = false;
+        for message in queue.drain(..) {
+            if barrier {
+                kept.push_back(message);
+                continue;
+            }
+            if message.held.is_some()
+                && super::adapters::is_new_conversation_command(&message.announce)
+            {
+                barrier = true;
+                if !idle {
+                    kept.push_back(message);
+                    continue;
+                }
+            }
+            match message.held {
+                None => kept.push_back(message),
+                Some(prompt) if !idle && replays => {
+                    starts.push((prompt, Some(message.id.clone())));
+                    kept.push_back(QueuedPrompt {
+                        id: message.id,
+                        announce: message.announce,
+                        held: None,
+                    });
+                }
+                Some(prompt) => {
+                    starts.push((prompt, None));
+                    // EXP-1292: this line is the next turn — sent announced.
+                    announced.push(message.id);
+                    idle = false;
+                }
+            }
+        }
+        *queue = kept;
+    }
+    // The bar changes BEFORE the rows appear, so no client shows a message
+    // in both places for a frame.
+    ctx.publish_queue();
+    for (prompt, pending) in starts {
+        start_turn(cx, ctx, session_id, prompt, turns, pending);
+    }
+    ctx.consumed_messages(announced);
+}
+
+/// `session/cancel`, with the EXP-784 queued flag: `cancel_queued` is the
+/// user's Stop, `!cancel_queued` the stall watchdog's interrupt. Both dismiss
+/// the open cards and kill the agent's terminals — a stalled turn has no
+/// card open (`needs_input` gates the watchdog) and no terminal writing (its
+/// bytes would have reset the clock), so nothing of value is lost there.
+fn cancel_turn(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    cancel_queued: bool,
+) {
+    let mut meta = serde_json::Map::new();
+    meta.insert(CANCEL_QUEUED_META_KEY.to_string(), serde_json::Value::Bool(cancel_queued));
+    let _ = cx.send_notification(CancelNotification::new(session_id.clone()).meta(meta));
+    ctx.asks.cancel_all();
+    ctx.terminals.kill_all();
+    let mut out = MapOut::default();
+    ctx.with_mapper(|mapper| mapper.on_cancel(&mut out));
+    ctx.dispatch(out);
+}
+
+/// The in-flight turn bookkeeping one session shares between its prompts:
+/// the counter that keeps `idle` false until the LAST turn answers, and the
+/// EXP-784 slot semaphore ([`TURN_SLOTS`]) that bounds how many
+/// `session/prompt`s are open at once.
+pub(crate) struct TurnGate {
+    in_flight: AtomicUsize,
+    slots: tokio::sync::Semaphore,
+}
+
+impl TurnGate {
+    pub(crate) fn new() -> TurnGate {
+        TurnGate {
+            in_flight: AtomicUsize::new(0),
+            slots: tokio::sync::Semaphore::new(TURN_SLOTS),
+        }
+    }
+}
+
+/// EXP-825: one prompt split into what the FEED sees and what the AGENT
+/// gets. `announce` is the text as the person wrote it — image embeds as the
+/// `![image](/api/attachments/<id>)` tokens every viewer renders and dedupes
+/// against — while `blocks` carry the localized `Image #N: <path>` manifest
+/// the agent can actually read. For a prompt without images the two are the
+/// same text.
+pub(crate) struct LocalizedPrompt {
+    pub(crate) announce: String,
+    pub(crate) blocks: Vec<ContentBlock>,
+    /// EXP-1280: ask for a fresh context ([`FRESH_CONTEXT_META_KEY`]).
+    pub(crate) fresh: bool,
+}
+
+impl LocalizedPrompt {
+    /// A prompt that needs no localization (or already had it — a steered
+    /// message crosses the publisher's localizer first).
+    pub(crate) fn plain(text: String) -> LocalizedPrompt {
+        LocalizedPrompt {
+            blocks: text_blocks(&text),
+            announce: text,
+            fresh: false,
+        }
+    }
+}
+
+/// EXP-825: localize a host-side prompt's image embeds for the agent. The
+/// download runs through `attachments` (Exponential: the publisher's own
+/// hook and restore map), and the original text stays the announced one. No
+/// localizer, or nothing in the text to localize, costs nothing: the text is
+/// sent as it is.
+pub(crate) async fn localize_for_agent(
+    text: String,
+    attachments: Option<&Arc<dyn PromptLocalizer>>,
+) -> LocalizedPrompt {
+    let agent_text = match attachments {
+        Some(localizer) if localizer.wants(&text) => localizer.localize(text.clone()).await,
+        _ => text.clone(),
+    };
+    LocalizedPrompt {
+        announce: text,
+        blocks: text_blocks(&agent_text),
+        fresh: false,
+    }
+}
+
+/// Does this host-side prompt go through the localizer first?
+fn wants_localizing(ctx: &SessionCtx, text: &str) -> bool {
+    ctx.attachments.as_ref().is_some_and(|localizer| localizer.wants(text))
+}
+
+/// What [`start_turn`] is handed: a prompt ready to send, or one whose
+/// image embeds still have to be localized on the spawned path (EXP-825 —
+/// the local composer's message; never a download inline in the command
+/// loop). A prompt that localizes asynchronously can be overtaken by a
+/// steer arriving during the download — accepted.
+pub(crate) enum TurnPrompt {
+    Ready(LocalizedPrompt),
+    Localize(String),
+}
+
+/// Send one `session/prompt` as a TURN: spawned (never inline) so a `Cancel`
+/// arriving mid-turn is still dispatched, with the stop reason folded back
+/// through the mapper when the last in-flight turn answers.
+///
+/// EXP-784: the prompt is SENT only once a turn slot is held. A free slot is
+/// taken synchronously so back-to-back prompts keep their order on the
+/// wire; a full gate parks this prompt in its own task (logged at debug) and
+/// tokio's semaphore hands freed permits to waiters in FIFO order, so a
+/// later prompt never overtakes a parked one. The user's row and the idle
+/// edge are published immediately either way: the message is accepted, it
+/// is only its delivery to the agent that waits.
+///
+/// EXP-825: the user's row announces [`LocalizedPrompt::announce`] (the
+/// original text); the agent receives the localized blocks. A
+/// [`TurnPrompt::Localize`] prompt announces at once too, then localizes
+/// inside the spawned task before taking its slot.
+///
+/// EXP-873: `pending` names the bar line this prompt is (a message sent
+/// mid-turn). Nothing is announced then: the mapper is told what the agent
+/// will receive, and the agent's replay of it becomes the row. A localizing
+/// prompt registers inside its task, once the agent's text is known — still
+/// ahead of the send, so the replay can never outrun it.
+fn start_turn(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    prompt: TurnPrompt,
+    turns: &Arc<TurnGate>,
+    pending: Option<String>,
+) {
+    let (announce, ready_blocks, localize, fresh) = match prompt {
+        TurnPrompt::Ready(localized) => (localized.announce, Some(localized.blocks), None, localized.fresh),
+        TurnPrompt::Localize(text) => (text.clone(), None, Some(text), false),
+    };
+    match (&pending, &ready_blocks) {
+        // EXP-1098: the agent's replay may carry the LOCALIZED text (an
+        // image prompt's `Image #N: <path>` manifest) rather than the
+        // announce — both spellings retire the one echo, so the row stays
+        // single and keeps the person's own embeds.
+        (None, Some(blocks)) => {
+            let mut out = MapOut::default();
+            ctx.with_mapper(|mapper| {
+                mapper.on_prompt_with_agent_text(&announce, &blocks_text(blocks), &mut out)
+            });
+            ctx.dispatch(out);
+        }
+        (None, None) => announce_prompt(ctx, &announce),
+        (Some(id), Some(blocks)) => {
+            ctx.with_mapper(|mapper| mapper.on_prompt_sent(&blocks_text(blocks), &announce, id))
+        }
+        (Some(_), None) => {}
+    }
+    turns.in_flight.fetch_add(1, Ordering::SeqCst);
+    ctx.turns_started.fetch_add(1, Ordering::SeqCst);
+    ctx.turn_signal.set_idle(false);
+    // EXP-1273: the PERSON's message answers an Esc that aborted the run's
+    // computer use. Only here, never on the mapper's idle edge: a turn the
+    // agent opens by itself (EXP-1224) is not the person speaking again, and
+    // `tools::ABORTED` promises their input stays theirs until they do.
+    if let Some(backend) = ctx.backend.get() {
+        backend.turn_started(&ctx.session_id);
+    }
+    // EXP-848: the turn slot opens HERE — the one signal every client's
+    // `working` predicate reads (`on_stop` closes it).
+    let mut turn_out = MapOut::default();
+    ctx.with_mapper(|mapper| mapper.set_turn(wire::TurnState::Started, false, &mut turn_out));
+    ctx.dispatch(turn_out);
+    let request = ready_blocks.map(|blocks| {
+        let request = PromptRequest::new(session_id.clone(), blocks);
+        if fresh {
+            let mut meta = serde_json::Map::new();
+            meta.insert(FRESH_CONTEXT_META_KEY.to_string(), serde_json::Value::Bool(true));
+            request.meta(meta)
+        } else {
+            request
+        }
+    });
+    // FEED-62: a message sent MID-TURN to an agent that replays what it takes
+    // in (claude) holds a bar line (`pending`) and takes NO turn slot. Claude
+    // answers such a prompt only when the running turn's `result` lands, so
+    // under the slot bound the second one parked here for the whole turn and
+    // reached the agent alone, after the first had long been read. Written at
+    // once, every queued line waits in the CLI's own queue and the agent
+    // takes them in TOGETHER at its next boundary. The bar's cap
+    // (`QUEUE_MAX`, `mark_sent`) bounds these; a full bar hands back no
+    // `pending`, so the slot bound still applies past it.
+    let slotless = pending.is_some() && ctx.replays_user_messages();
+    let ready = request.as_ref().and_then(|request| {
+        if slotless {
+            return Some(cx.send_request(request.clone()));
+        }
+        turns.slots.try_acquire().ok().map(|permit| {
+            // Held by the spawned task below; the permit's own lifetime is
+            // tied to the gate through the `Arc` the task owns.
+            permit.forget();
+            cx.send_request(request.clone())
+        })
+    });
+    if ready.is_none() && localize.is_none() {
+        log::debug!(
+            "engine: session {} has {TURN_SLOTS} prompts in flight, queueing the next one",
+            ctx.session_id
+        );
+    }
+    // FEED-153: what a refused seed re-sends (a ready prompt only; the seed
+    // always is one).
+    let retry_blocks = request.as_ref().map(|request| request.prompt.clone());
+    let retry_session = session_id.clone();
+    let sent_cx = cx.clone();
+    let ctx = ctx.clone();
+    let turns = turns.clone();
+    let session_id = session_id.clone();
+    let _ = cx.spawn(async move {
+        let sent = match ready {
+            Some(sent) => sent,
+            None => {
+                let request = match (request, localize) {
+                    (Some(request), _) => request,
+                    (None, Some(text)) => {
+                        let localized =
+                            localize_for_agent(text, ctx.attachments.as_ref()).await;
+                        if let Some(id) = &pending {
+                            ctx.with_mapper(|mapper| {
+                                mapper.on_prompt_sent(
+                                    &blocks_text(&localized.blocks),
+                                    &announce,
+                                    id,
+                                )
+                            });
+                        } else {
+                            // EXP-1098: the row went out before the agent's
+                            // text existed; arm its spelling now, still
+                            // ahead of the send, so the replay dedupes.
+                            ctx.with_mapper(|mapper| {
+                                mapper.also_echo(&announce, &blocks_text(&localized.blocks))
+                            });
+                        }
+                        PromptRequest::new(session_id, localized.blocks)
+                    }
+                    (None, None) => unreachable!("a turn prompt is ready or localizable"),
+                };
+                if !slotless {
+                    match turns.slots.acquire().await {
+                        Ok(permit) => permit.forget(),
+                        // The gate is never closed; a closed semaphore would
+                        // mean the session is gone, and the request fails on
+                        // its own.
+                        Err(_) => {}
+                    }
+                }
+                sent_cx.send_request(request)
+            }
+        };
+        let result = sent.block_task().await;
+        if !slotless {
+            turns.slots.add_permits(1);
+        }
+        let remaining = turns.in_flight.fetch_sub(1, Ordering::SeqCst).saturating_sub(1);
+        let mut out = MapOut::default();
+        // FEED-153: the seed's first answer disarms its retry either way.
+        let seed = ctx.seed_retry.swap(false, Ordering::SeqCst);
+        match result {
+            Ok(response) => {
+                if remaining == 0 {
+                    ctx.with_mapper(|mapper| mapper.on_stop(response.stop_reason, &mut out));
+                }
+            }
+            // FEED-153: the seed refused outright — the turn stays open (the
+            // row keeps reading busy) and the same prompt goes again.
+            Err(err) if seed && remaining == 0 && retry_blocks.is_some() && ctx.child_exit.get().is_none() => {
+                log::warn!(
+                    "engine: session {}'s first turn was refused ({err}) — retrying in {}s",
+                    ctx.session_id,
+                    SEED_RETRY_AFTER.as_secs()
+                );
+                ctx.with_mapper(|mapper| {
+                    mapper.on_notice(&format!("Agent error: {err}. Retrying the first turn."), &mut out)
+                });
+                ctx.dispatch(out);
+                tokio::time::sleep(SEED_RETRY_AFTER).await;
+                let blocks = retry_blocks.unwrap_or_default();
+                let retry = LocalizedPrompt { announce: blocks_text(&blocks), blocks, fresh };
+                start_turn(&sent_cx, &ctx, &retry_session, TurnPrompt::Ready(retry), &turns, None);
+                return Ok(());
+            }
+            // NEW-17: the child itself went away — the end sequence's `lost`
+            // report says so; no error reply into the Conversation.
+            Err(err) if ctx.child_exit.get().is_some() => {
+                ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out));
+                if remaining == 0 {
+                    ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
+                }
+            }
+            Err(err) => {
+                // FEED-153: a turn that failed with nothing said says so in
+                // the Conversation — never a silent idle.
+                ctx.with_mapper(|mapper| mapper.on_turn_error(&err.to_string(), &mut out));
+                if remaining == 0 {
+                    ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
+                }
+            }
+        }
+        ctx.dispatch(out);
+        Ok(())
+    });
+}
+
+/// Publish what the host is about to send as the user's own message (the
+/// PTY path echoed typed input; an agent that never replays it, codex, would
+/// otherwise leave the transcript without the question the reply answers).
+fn announce_prompt(ctx: &Arc<SessionCtx>, text: &str) {
+    let mut out = MapOut::default();
+    ctx.with_mapper(|mapper| mapper.on_prompt(text, &mut out));
+    ctx.dispatch(out);
+}
+
+/// The text of a prompt's blocks, for the user's own message row.
+fn blocks_text(blocks: &[ContentBlock]) -> String {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The elicitation's id: its ACP scope where it has one, else a stable
+/// stand-in the mapper hashes. D3 pins the card id to the ACP tool-call id,
+/// and every ask an agent raises mid-tool is SESSION-scoped with that id on
+/// it (claude `AskUserQuestion`, codex `requestUserInput`), so the
+/// `<id>#<n>` stepper stays correlatable with the tool card it belongs to.
+/// A session scope with no tool call has nothing to name and falls
+/// through to the synthetic id.
+fn elicitation_id(request: &CreateElicitationRequest) -> String {
+    use agent_client_protocol::schema::v1::{ElicitationMode, ElicitationScope};
+    let scope = match &request.mode {
+        ElicitationMode::Form(form) => Some(&form.scope),
+        ElicitationMode::Url(url) => Some(&url.scope),
+        _ => None,
+    };
+    match scope {
+        Some(ElicitationScope::Session(scope)) => {
+            if let Some(tool_call_id) = &scope.tool_call_id {
+                return tool_call_id.to_string();
+            }
+        }
+        // The wire id, never `{:?}`: a numeric JSON-RPC id is `3`, not
+        // `Number(3)`.
+        Some(ElicitationScope::Request(scope)) => return scope.request_id.to_string(),
+        _ => {}
+    }
+    request
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get("askId"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The accumulated stepper fields in `elicitation/create`'s own shape.
+fn elicitation_content(
+    fields: &serde_json::Value,
+) -> std::collections::BTreeMap<String, ElicitationContentValue> {
+    let mut content = std::collections::BTreeMap::new();
+    let Some(object) = fields.as_object() else {
+        return content;
+    };
+    for (key, value) in object {
+        let value = match value {
+            serde_json::Value::String(text) => ElicitationContentValue::String(text.clone()),
+            serde_json::Value::Bool(flag) => ElicitationContentValue::Boolean(*flag),
+            serde_json::Value::Number(number) => match number.as_i64() {
+                Some(integer) => ElicitationContentValue::Integer(integer),
+                None => ElicitationContentValue::Number(number.as_f64().unwrap_or_default()),
+            },
+            serde_json::Value::Array(values) => ElicitationContentValue::StringArray(
+                values
+                    .iter()
+                    .filter_map(|value| value.as_str().map(str::to_string))
+                    .collect(),
+            ),
+            // Null (an unparseable number step) is simply not sent.
+            _ => continue,
+        };
+        content.insert(key.clone(), value);
+    }
+    content
+}
+
+/// `terminal/create`: the agent's command on a PTY of ours, streaming into
+/// the local feed. `cwd` defaults to the run's own worktree — an agent that
+/// names none means "where this session works", never wherever the desktop
+/// process happens to have been started.
+fn create_terminal(
+    ctx: &Arc<SessionCtx>,
+    request: &CreateTerminalRequest,
+) -> std::io::Result<String> {
+    let mut spec = crate::spawn::SpawnSpec::new(request.command.clone())
+        .args(request.args.clone())
+        .cwd(
+            request
+                .cwd
+                .clone()
+                .unwrap_or_else(|| ctx.run.worktree.clone()),
+        );
+    for variable in &request.env {
+        spec = spec.env(variable.name.clone(), variable.value.clone());
+    }
+    // WEAK on purpose: a terminal that outlives its session (a child ignoring
+    // its kill) must not keep the whole run's context alive with it.
+    let weak = Arc::downgrade(ctx);
+    let sink: TerminalSink = Arc::new(move |event| {
+        if let Some(ctx) = weak.upgrade() {
+            // FEED-25: a running command is the agent working, even though
+            // none of this ever reaches the mapper (or the wire).
+            if terminal_is_activity(&event) {
+                ctx.touch_activity_throttled();
+            }
+            ctx.emit_local(event);
+        }
+    });
+    ctx.terminals.create(&spec, request.output_byte_limit, sink)
+}
+
+/// A `ChildExit` in ACP's own shape. `exit_code` is `u32` there, so a signal
+/// death (our `-1`) reports the signal and no code, which is exactly what the
+/// schema means by "may be null if terminated by signal".
+fn exit_status(exit: &crate::spawn::ChildExit) -> TerminalExitStatus {
+    TerminalExitStatus::new()
+        .exit_code(u32::try_from(exit.code).ok())
+        .signal(exit.signal.clone())
+}
+
+/// An id we never handed out (or one already released): the agent's mistake,
+/// not ours, so it is `invalid_params` with the id spelled out.
+fn unknown_terminal(terminal_id: &TerminalId) -> Error {
+    Error::invalid_params().data(serde_json::Value::String(format!(
+        "unknown terminal `{}`",
+        terminal_id.0
+    )))
+}
+
+fn read_text_file(request: &ReadTextFileRequest) -> Result<String, std::io::Error> {
+    let content = std::fs::read_to_string(&request.path)?;
+    if request.line.is_none() && request.limit.is_none() {
+        return Ok(content);
+    }
+    // `line` is 1-based, `limit` a line count — the same window the agent
+    // would have read itself.
+    let start = request.line.unwrap_or(1).saturating_sub(1) as usize;
+    let lines: Vec<&str> = content.lines().skip(start).collect();
+    let lines = match request.limit {
+        Some(limit) => lines.into_iter().take(limit as usize).collect::<Vec<_>>(),
+        None => lines,
+    };
+    Ok(lines.join("\n"))
+}
+
+fn write_text_file(request: &WriteTextFileRequest) -> Result<(), std::io::Error> {
+    if let Some(parent) = request.path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&request.path, &request.content)
+}
+
+/// The engine thread's name: `acp-engine-<sid8>`.
+pub(crate) fn thread_name(session_id: &str) -> String {
+    let short: String = session_id.chars().take(8).collect();
+    format!("acp-engine-{short}")
+}
+
+/// EXP-850 §8 — fold workflow cards into a run's own map (latest-wins per id,
+/// oldest evicted past the journal's cap) and derive the caption: the NEWEST
+/// card still running, `None` once they have all finished. The same rule
+/// `SteerFeed::running_workflow` + `wire::workflow::workflow_caption` apply on every
+/// viewer; pure, so the precedence is testable without a session.
+pub(crate) fn fold_workflow_caption(
+    held: &mut Vec<wire::WorkflowState>,
+    cards: &[&wire::WorkflowState],
+) -> Option<String> {
+    for card in cards {
+        if card.id.is_empty() {
+            continue;
+        }
+        match held.iter_mut().find(|workflow| workflow.id == card.id) {
+            Some(workflow) => *workflow = (*card).clone(),
+            None => {
+                held.push((*card).clone());
+                while held.len() > wire::frames::JOURNAL_WORKFLOW_CAP {
+                    held.remove(0);
+                }
+            }
+        }
+    }
+    held.iter()
+        .rev()
+        .find(|workflow| workflow.status == wire::WorkflowStatus::Running)
+        .map(wire::workflow::workflow_caption)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EXP-1280: leaving plan mode keeps its own line; entering it says
+    /// the fixture's gate (pinned in `engine::host`'s tests).
+    #[test]
+    fn the_plan_mode_lines() {
+        assert_eq!(plan_mode_line(crate::engine::adapters::PLAN_MODE_ID), PLAN_MODE_ON_LINE);
+        assert!(plan_mode_on_line().contains("exponential_show"));
+        assert_eq!(plan_mode_line("default"), PLAN_MODE_OFF_LINE);
+    }
+
+    /// EXP-1317: the open-question table `answer_ask` translates an answer
+    /// against — folded off the wire like `deliver` does, so a plan card's
+    /// reject (its LAST option) still reads as `rejected` once the answer
+    /// comes in through the local card or the CLI, not only the relay. A
+    /// resolved card leaves the table; a re-published id replaces its older
+    /// frame; the cap evicts the oldest.
+    #[test]
+    fn an_answer_resolves_the_synced_card_off_the_open_question_table() {
+        let question = |id: &str, plan: bool| wire::ActivityEvent::Question {
+            text: "Proceed?".into(),
+            options: vec![
+                wire::QuestionOption::new("Yes", "allow"),
+                wire::QuestionOption::new("No", "reject"),
+            ],
+            multi_select: None,
+            plan_mode: plan.then_some(true),
+            id: id.into(),
+            ask_id: None,
+            index: None,
+            total: None,
+            header: None,
+            at: None,
+        };
+        let answer = |id: &str, key: &str, text: Option<&str>| wire::RemoteAnswer {
+            question_id: id.into(),
+            ask_id: None,
+            keys: vec![key.into()],
+            text: text.map(str::to_string),
+        };
+        let mut held = std::collections::VecDeque::new();
+        fold_open_question(&mut held, &wire::ActivityEvent::narration("x"));
+        fold_open_question(&mut held, &question("q-plan", true));
+        fold_open_question(&mut held, &question("q-ask", false));
+        assert_eq!(held.len(), 2);
+
+        // The plan's reject is a decision with the note; approve has none.
+        let rejected = wire::answer_tap::card_resolution(
+            &answer("q-plan", "reject", Some("Smaller")),
+            open_question(&held, "q-plan"),
+        );
+        assert_eq!(rejected.decision.as_deref(), Some("rejected"));
+        assert_eq!(rejected.feedback.as_deref(), Some("Smaller"));
+        // A question answers with the picked LABEL (the journal used to
+        // supply the options; the table does now).
+        let picked = wire::answer_tap::card_resolution(&answer("q-ask", "allow", None), open_question(&held, "q-ask"));
+        assert_eq!(picked.answer.as_deref(), Some("Yes"));
+        assert_eq!(picked.decision, None);
+
+        // Resolved = gone; an unknown id still closes by its raw key.
+        fold_open_question(
+            &mut held,
+            &wire::ActivityEvent::QuestionResolved {
+                id: Some("q-ask".into()),
+                ask_id: None,
+                answers: None,
+                dismissed: None,
+                at: None,
+            },
+        );
+        assert!(open_question(&held, "q-ask").is_none());
+        let raw = wire::answer_tap::card_resolution(&answer("q-ask", "allow", None), open_question(&held, "q-ask"));
+        assert_eq!(raw.answer.as_deref(), Some("allow"));
+
+        // A re-published id replaces its frame (one entry), and the cap holds.
+        fold_open_question(&mut held, &question("q-plan", false));
+        assert_eq!(held.len(), 1);
+        assert!(matches!(open_question(&held, "q-plan"), Some(wire::ActivityEvent::Question { plan_mode: None, .. })));
+        for index in 0..OPEN_QUESTIONS_CAP + 3 {
+            fold_open_question(&mut held, &question(&format!("q-{index}"), false));
+        }
+        assert_eq!(held.len(), OPEN_QUESTIONS_CAP);
+        assert!(open_question(&held, "q-plan").is_none(), "the oldest went");
+    }
+
+    /// EXP-850 §8: the caption's precedence — latest-wins per id, the NEWEST
+    /// running card speaks, and nothing speaks once they are all finished.
+    #[test]
+    fn the_caption_follows_the_newest_running_workflow() {
+        let card = |id: &str, status: wire::WorkflowStatus| wire::WorkflowState {
+            id: id.to_string(),
+            name: "wire-probe".to_string(),
+            status,
+            ..wire::WorkflowState::default()
+        };
+        let mut held: Vec<wire::WorkflowState> = Vec::new();
+        let first = card("wf-1", wire::WorkflowStatus::Running);
+        assert_eq!(
+            fold_workflow_caption(&mut held, &[&first]),
+            Some("Workflow wire-probe \u{b7} starting".to_string())
+        );
+        // A SECOND card takes the caption over while it runs...
+        let second = card("wf-2", wire::WorkflowStatus::Running);
+        assert_eq!(
+            fold_workflow_caption(&mut held, &[&second]),
+            Some("Workflow wire-probe \u{b7} starting".to_string())
+        );
+        assert_eq!(held.len(), 2);
+        // ... and hands it back to the one still running when it finishes.
+        let second_done = card("wf-2", wire::WorkflowStatus::Completed);
+        assert_eq!(
+            fold_workflow_caption(&mut held, &[&second_done]),
+            Some("Workflow wire-probe \u{b7} starting".to_string())
+        );
+        assert_eq!(held.len(), 2, "latest-wins per id, never an append");
+        // Nothing running: nothing to say.
+        let first_done = card("wf-1", wire::WorkflowStatus::Stopped);
+        assert_eq!(fold_workflow_caption(&mut held, &[&first_done]), None);
+        // An id-less card is ignored, and the map is capped like the journal.
+        let blank = card("", wire::WorkflowStatus::Running);
+        assert_eq!(fold_workflow_caption(&mut held, &[&blank]), None);
+        for index in 0..30 {
+            let more = card(&format!("wf-x{index}"), wire::WorkflowStatus::Completed);
+            fold_workflow_caption(&mut held, &[&more]);
+        }
+        assert_eq!(held.len(), wire::frames::JOURNAL_WORKFLOW_CAP);
+    }
+
+    #[test]
+    fn the_client_advertises_terminals_and_a_form_elicitation() {
+        let capabilities = client_capabilities();
+        assert!(capabilities.fs.read_text_file);
+        assert!(capabilities.fs.write_text_file);
+        // EXP-750: an agent's command may run as a LIVE terminal here — its
+        // output is still a local card and never a wire row.
+        assert!(capabilities.terminal);
+        assert!(capabilities
+            .elicitation
+            .as_ref()
+            .is_some_and(|elicitation| elicitation.supports_form()));
+    }
+
+    // ── FEED-25: what counts as the agent being alive ─────────────────────
+
+    #[test]
+    fn a_diff_snapshot_or_a_bare_flag_flip_is_not_activity() {
+        let diff = wire::ActivityEvent::Diff {
+            diff: "--- a\n+++ b\n".to_string(),
+            at: None,
+        };
+        let mut ticker = MapOut::default();
+        ticker.wire.push(diff.clone());
+        ticker.local.push(LocalFeedEvent::Activity {
+            event: diff,
+            tool_call_id: None,
+        });
+        assert!(!out_is_activity(&ticker), "the diff ticker runs on its own clock");
+
+        // `Cancel`'s bookkeeping: flags only, nothing the agent said.
+        let mut cancel = MapOut::default();
+        cancel.needs_input = Some(false);
+        assert!(!out_is_activity(&cancel));
+
+        let mut spoke = MapOut::default();
+        spoke.wire.push(wire::ActivityEvent::narration("still here"));
+        assert!(out_is_activity(&spoke));
+
+        let mut card = MapOut::default();
+        card.local.push(LocalFeedEvent::Plan {
+            entries: Vec::new(),
+        });
+        assert!(out_is_activity(&card));
+
+        // A turn-end edge resets the clock even when it carries no event.
+        let mut stopped = MapOut::default();
+        stopped.idle = Some(true);
+        assert!(out_is_activity(&stopped));
+        let mut started = MapOut::default();
+        started.idle = Some(false);
+        assert!(!out_is_activity(&started));
+    }
+
+    /// A `terminal/*` command never touches the mapper, so its bytes are the
+    /// engine's ONLY sign of life while a long build runs.
+    #[test]
+    fn terminal_bytes_and_the_exit_are_activity_but_an_empty_flush_is_not() {
+        let output = |chunk: &str, exit_code: Option<i32>| LocalFeedEvent::Output {
+            tool_call_id: "call-1".to_string(),
+            chunk: chunk.to_string(),
+            exit_code,
+        };
+        assert!(terminal_is_activity(&output("test 12 of 400\n", None)));
+        // The card's closing edge: a command that finished IS progress.
+        assert!(terminal_is_activity(&output("", Some(0))));
+        // A `bind` with nothing buffered and no exit says nothing at all.
+        assert!(!terminal_is_activity(&output("", None)));
+        assert!(!terminal_is_activity(&LocalFeedEvent::Phase(
+            EnginePhase::Live
+        )));
+    }
+
+    // ── The local feed's backlog and its latest-wins state (review UI-2) ───
+
+    fn narration(text: &str) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: wire::ActivityEvent::narration(text),
+            tool_call_id: None,
+        }
+    }
+
+    fn config_state(mode: &str) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: wire::ActivityEvent::ConfigState {
+                options: Vec::new(),
+                current_mode: Some(mode.to_string()),
+                modes: None,
+                commands: None,
+                at: None,
+            },
+            tool_call_id: None,
+        }
+    }
+
+    fn usage(used: i64) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: wire::ActivityEvent::usage(used, 200_000, None),
+            tool_call_id: None,
+        }
+    }
+
+    /// EXP-848: a turn edge as a local feed event.
+    fn turn(state: wire::TurnState) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: wire::ActivityEvent::turn(state),
+            tool_call_id: None,
+        }
+    }
+
+    /// EXP-850 §3: one workflow card frame; `tick` rides in `at` so a replay
+    /// can name WHICH frame of an id survived.
+    fn workflow(id: &str, status: wire::WorkflowStatus, tick: i64) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: wire::ActivityEvent::workflow(wire::WorkflowState {
+                id: id.to_string(),
+                name: "wire-probe".to_string(),
+                status,
+                at: Some(tick),
+                ..wire::WorkflowState::default()
+            }),
+            tool_call_id: Some(id.to_string()),
+        }
+    }
+
+    /// The `(id, tick)` of every workflow card in a replay, in order.
+    fn workflows(events: &[LocalFeedEvent]) -> Vec<(String, i64)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity {
+                    event: wire::ActivityEvent::Workflow(workflow),
+                    ..
+                } => Some((workflow.id.clone(), workflow.at.unwrap_or_default())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The wire kind of every activity event in a replay — the order the
+    /// relay's `LATEST_REPLAY_ORDER` pins.
+    fn activity_kinds(events: &[LocalFeedEvent]) -> Vec<&'static str> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity { event, .. } => Some(match event {
+                    wire::ActivityEvent::Narration { .. } => "narration",
+                    wire::ActivityEvent::Turn { .. } => "turn",
+                    wire::ActivityEvent::Queue { .. } => "queue",
+                    wire::ActivityEvent::Workflow(_) => "workflow",
+                    wire::ActivityEvent::BackgroundTasks { .. } => "background_tasks",
+                    wire::ActivityEvent::Diff { .. } => "diff",
+                    _ => "other",
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn turns(events: &[LocalFeedEvent]) -> Vec<wire::TurnState> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity {
+                    event: wire::ActivityEvent::Turn { state, .. },
+                    ..
+                } => Some(*state),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn drain(rx: &flume::Receiver<LocalFeedEvent>) -> Vec<LocalFeedEvent> {
+        rx.drain().collect()
+    }
+
+    fn narrations(events: &[LocalFeedEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity {
+                    event: wire::ActivityEvent::Narration { text, .. },
+                    ..
+                } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn modes(events: &[LocalFeedEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity {
+                    event: wire::ActivityEvent::ConfigState { current_mode, .. },
+                    ..
+                } => current_mode.clone(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn phases(events: &[LocalFeedEvent]) -> Vec<EnginePhase> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Phase(phase) => Some(phase.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_late_subscriber_replays_the_backlog_then_the_latest_state() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Connecting));
+        feed.emit(None, narration("first"));
+        feed.emit(None, config_state("plan"));
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, usage(1_000));
+        feed.emit(None, narration("second"));
+        feed.emit(None, config_state("default"));
+        feed.emit(None, usage(2_000));
+
+        let replay = drain(&feed.subscribe());
+        // Rows in order, then the state, then the phase — the relay's own
+        // replay order, so a stale copy can never win.
+        assert_eq!(narrations(&replay), vec!["first", "second"]);
+        assert_eq!(modes(&replay), vec!["default"]);
+        assert_eq!(phases(&replay), vec![EnginePhase::Live]);
+        assert!(matches!(
+            replay.last(),
+            Some(LocalFeedEvent::Phase(EnginePhase::Live))
+        ));
+        assert_eq!(feed.phase(), Some(EnginePhase::Live));
+    }
+
+    /// The bug this guards: `Phase(Live)` is emitted ONCE, before the first
+    /// agent frame, so on a long run it is the oldest thing in the ring. A tab
+    /// reopened after the ring overflowed used to replay a backlog with no
+    /// phase in it at all and sat in `Connecting` — composer disabled, chips
+    /// and usage pill missing — for the rest of the live run.
+    #[test]
+    fn an_overflowing_backlog_never_evicts_the_phase_config_or_usage() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Connecting));
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, config_state("plan"));
+        feed.emit(None, usage(1_234));
+        // EXP-848: the turn slot is state too — evicting it would leave a
+        // reopened tab spinning at an idle run (or silent under a working one).
+        feed.emit(None, turn(wire::TurnState::Started));
+        for index in 0..BACKLOG_CAP * 2 {
+            feed.emit(None, narration(&format!("row {index}")));
+        }
+
+        let replay = drain(&feed.subscribe());
+        let rows = narrations(&replay);
+        // The ring itself still drops its oldest rows.
+        assert_eq!(rows.len(), BACKLOG_CAP);
+        assert_eq!(rows.first().map(String::as_str), Some("row 4096"));
+        // …but the state a reopened tab needs survived every eviction.
+        assert_eq!(phases(&replay), vec![EnginePhase::Live]);
+        assert_eq!(modes(&replay), vec!["plan"]);
+        assert!(replay.iter().any(|event| matches!(
+            event,
+            LocalFeedEvent::Activity {
+                event: wire::ActivityEvent::Usage { context_used, .. },
+                ..
+            } if *context_used == 1_234
+        )));
+        assert_eq!(turns(&replay), vec![wire::TurnState::Started]);
+        // …and only the NEWEST turn edge: it is a slot, not a row.
+        feed.emit(None, turn(wire::TurnState::Ended));
+        assert_eq!(
+            turns(&drain(&feed.subscribe())),
+            vec![wire::TurnState::Ended]
+        );
+    }
+
+    /// EXP-850 §3: a running workflow republishes its card up to once a
+    /// second for as long as it runs. As ring rows those frames would evict
+    /// the transcript of the very run that spawned them, and a late view
+    /// would then replay thousands of copies of one card. They are a keyed
+    /// latest-wins slot instead: one frame per workflow id, outside the ring.
+    #[test]
+    fn republished_workflow_cards_never_evict_a_row_and_replay_once_per_id() {
+        let feed = LocalFeed::default();
+        feed.emit(None, narration("first"));
+        for index in 0..3_000 {
+            feed.emit(
+                None,
+                workflow("wf-1", wire::WorkflowStatus::Running, index),
+            );
+            feed.emit(
+                None,
+                workflow("wf-2", wire::WorkflowStatus::Running, index),
+            );
+        }
+        feed.emit(None, narration("last"));
+
+        let replay = drain(&feed.subscribe());
+        // The narration the run actually produced is still all of the ring.
+        assert_eq!(narrations(&replay), vec!["first", "last"]);
+        // One card per id, newest frame, in first-appearance order.
+        assert_eq!(
+            workflows(&replay),
+            vec![
+                ("wf-1".to_string(), 2_999),
+                ("wf-2".to_string(), 2_999)
+            ]
+        );
+        // Replay order: the rows, then `turn`, the cards, `background_tasks`,
+        // the diff — the relay's `LATEST_REPLAY_ORDER`.
+        feed.emit(None, turn(wire::TurnState::Started));
+        feed.emit(
+            None,
+            LocalFeedEvent::Activity {
+                event: wire::ActivityEvent::background_tasks(Vec::new()),
+                tool_call_id: None,
+            },
+        );
+        feed.emit(
+            None,
+            LocalFeedEvent::Activity {
+                event: wire::ActivityEvent::Diff {
+                    diff: "--- a\n+++ b\n".to_string(),
+                    at: None,
+                },
+                tool_call_id: None,
+            },
+        );
+        let replay = drain(&feed.subscribe());
+        assert_eq!(
+            activity_kinds(&replay),
+            vec![
+                "narration",
+                "narration",
+                "turn",
+                "workflow",
+                "workflow",
+                "background_tasks",
+                "diff"
+            ]
+        );
+        // The cap is the journal's: the oldest card goes, never a row.
+        for index in 0..wire::frames::JOURNAL_WORKFLOW_CAP + 4 {
+            feed.emit(
+                None,
+                workflow(&format!("wf-x{index}"), wire::WorkflowStatus::Completed, 1),
+            );
+        }
+        let replay = drain(&feed.subscribe());
+        assert_eq!(
+            workflows(&replay).len(),
+            wire::frames::JOURNAL_WORKFLOW_CAP
+        );
+        assert_eq!(narrations(&replay), vec!["first", "last"]);
+    }
+
+    /// EXP-766: the CLI daemon has no `LocalSink` and never reopens a view, so
+    /// it keeps the SMALL ring, not the 4096-row one. Live delivery and the
+    /// state slots are unchanged.
+    ///
+    /// The bug the small ring replaced (F14): with NO ring at all, `exponential
+    /// code` lost every row between `engine::start` and its own `subscribe` a
+    /// few statements later, which is the whole connect banner of a fast run.
+    #[test]
+    fn a_headless_backlog_keeps_the_attach_window_and_streams_live() {
+        let feed = LocalFeed::new(false);
+        let early = feed.subscribe();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, config_state("plan"));
+        feed.emit(None, usage(7));
+        for index in 0..BACKLOG_CAP * 2 {
+            feed.emit(None, narration(&format!("row {index}")));
+        }
+
+        // A subscriber attached BEFORE the run saw every row live.
+        assert_eq!(narrations(&drain(&early)).len(), BACKLOG_CAP * 2);
+
+        // A late one gets the state plus the tail of the small ring.
+        let replay = drain(&feed.subscribe());
+        let rows = narrations(&replay);
+        assert_eq!(rows.len(), BACKLOG_CAP_HEADLESS);
+        let newest = format!("row {}", BACKLOG_CAP * 2 - 1);
+        assert_eq!(rows.last(), Some(&newest));
+        assert_eq!(phases(&replay), vec![EnginePhase::Live]);
+        assert_eq!(modes(&replay), vec!["plan"]);
+    }
+
+    /// A daemon holds its ring for the whole run, so the 256 KiB output rows
+    /// the desktop wants are cut down to the attach-window size instead.
+    #[test]
+    fn a_headless_backlog_caps_the_output_rows_it_keeps() {
+        let feed = LocalFeed::new(false);
+        let rx = feed.subscribe();
+        let chunk = "x".repeat(MERGED_OUTPUT_CAP);
+        feed.emit(None, output("tc-1", &chunk, None));
+
+        // Live delivery is untouched: the CLI prints what the command wrote.
+        assert_eq!(
+            outputs(&drain(&rx))
+                .into_iter()
+                .map(|(_, chunk, _)| chunk.len())
+                .collect::<Vec<_>>(),
+            vec![MERGED_OUTPUT_CAP]
+        );
+
+        // What is RETAINED is bounded, and says it was cut.
+        let replayed = outputs(&drain(&feed.subscribe()));
+        assert_eq!(replayed.len(), 1);
+        assert!(replayed[0].1.len() <= MERGED_OUTPUT_CAP_HEADLESS);
+        assert!(replayed[0].1.ends_with(wire::TRUNCATION_MARKER));
+    }
+
+    fn output(tool_call_id: &str, chunk: &str, exit_code: Option<i32>) -> LocalFeedEvent {
+        LocalFeedEvent::Output {
+            tool_call_id: tool_call_id.to_string(),
+            chunk: chunk.to_string(),
+            exit_code,
+        }
+    }
+
+    fn outputs(events: &[LocalFeedEvent]) -> Vec<(String, String, Option<i32>)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Output {
+                    tool_call_id,
+                    chunk,
+                    exit_code,
+                } => Some((tool_call_id.clone(), chunk.clone(), *exit_code)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The bug this guards (EXP-750 review C5): a live terminal pushes ONE
+    /// row per 8 KB PTY read, so a dev server left running evicted the whole
+    /// transcript — tool rows, the `TerminalBound` edge, the questions — from
+    /// what a reopened tab replays, leaving the output chunks with no card to
+    /// hang off.
+    #[test]
+    fn streaming_terminal_chunks_coalesce_instead_of_evicting_the_transcript() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, narration("running the dev server"));
+        feed.emit(
+            None,
+            LocalFeedEvent::TerminalBound {
+                tool_call_id: "tc-1".into(),
+                terminal_id: "term-1".into(),
+            },
+        );
+        // 10k reads of a chatty server, 64 bytes each.
+        let chunk = "x".repeat(64);
+        let total = 10_000 * chunk.len();
+        for _ in 0..10_000 {
+            feed.emit(None, output("tc-1", &chunk, None));
+        }
+
+        let replay = drain(&feed.subscribe());
+        assert_eq!(narrations(&replay), vec!["running the dev server"]);
+        assert!(replay
+            .iter()
+            .any(|event| matches!(event, LocalFeedEvent::TerminalBound { .. })));
+        // Merged rows, not 10k of them, and the cap is the only thing that
+        // starts a new one — with every byte still there.
+        let rows = outputs(&replay);
+        assert_eq!(rows.len(), total / MERGED_OUTPUT_CAP + 1);
+        assert!(rows
+            .iter()
+            .all(|(id, chunk, code)| id == "tc-1" && chunk.len() <= MERGED_OUTPUT_CAP && code.is_none()));
+        assert_eq!(
+            rows.iter().map(|(_, chunk, _)| chunk.len()).sum::<usize>(),
+            total
+        );
+    }
+
+    /// What must NOT merge: another call's chunks, and the closing event —
+    /// the exit code stays its own row so the card still ends on it.
+    #[test]
+    fn coalescing_stops_at_another_call_and_at_the_exit_code() {
+        let feed = LocalFeed::default();
+        feed.emit(None, output("tc-1", "a", None));
+        feed.emit(None, output("tc-1", "b", None));
+        feed.emit(None, output("tc-2", "c", None));
+        feed.emit(None, output("tc-1", "d", None));
+        feed.emit(None, output("tc-1", "", Some(0)));
+        feed.emit(None, output("tc-1", "e", None));
+
+        assert_eq!(
+            outputs(&drain(&feed.subscribe())),
+            vec![
+                ("tc-1".to_string(), "ab".to_string(), None),
+                ("tc-2".to_string(), "c".to_string(), None),
+                ("tc-1".to_string(), "d".to_string(), None),
+                ("tc-1".to_string(), String::new(), Some(0)),
+                ("tc-1".to_string(), "e".to_string(), None),
+            ]
+        );
+    }
+
+    /// Coalescing is a BACKLOG concern: a live subscriber still gets every
+    /// chunk as it happens, or the card would stop streaming.
+    #[test]
+    fn a_live_subscriber_sees_every_terminal_chunk() {
+        let feed = LocalFeed::default();
+        let rx = feed.subscribe();
+        feed.emit(None, output("tc-1", "a", None));
+        feed.emit(None, output("tc-1", "b", None));
+
+        assert_eq!(
+            outputs(&drain(&rx)),
+            vec![
+                ("tc-1".to_string(), "a".to_string(), None),
+                ("tc-1".to_string(), "b".to_string(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_live_subscriber_still_sees_state_events_as_they_happen() {
+        let feed = LocalFeed::default();
+        let rx = feed.subscribe();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        feed.emit(None, config_state("plan"));
+        feed.emit(None, narration("row"));
+        feed.emit(None, usage(7));
+
+        let seen = drain(&rx);
+        assert_eq!(phases(&seen), vec![EnginePhase::Live]);
+        assert_eq!(modes(&seen), vec!["plan"]);
+        assert_eq!(narrations(&seen), vec!["row"]);
+        assert_eq!(seen.len(), 4);
+    }
+
+    /// An ended run keeps its own senders alive (the host holds the session),
+    /// so a tab reopened over it learns the run is over from the REPLAY or not
+    /// at all.
+    #[test]
+    fn a_reopened_tab_over_an_ended_run_replays_the_end() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
+        for index in 0..BACKLOG_CAP + 10 {
+            feed.emit(None, narration(&format!("row {index}")));
+        }
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Ended));
+
+        assert_eq!(feed.phase(), Some(EnginePhase::Ended));
+        assert_eq!(
+            phases(&drain(&feed.subscribe())),
+            vec![EnginePhase::Ended]
+        );
+    }
+
+    /// EXP-758: `Ended` follows `Failed` by a millisecond, so the failure has
+    /// to survive the latest-wins phase slot: otherwise `EngineExit::error`
+    /// reaches nobody and a run that never got past its handshake renders as
+    /// an empty transcript that says "ended".
+    #[test]
+    fn a_failed_run_replays_its_reason_before_the_end() {
+        let feed = LocalFeed::default();
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Connecting));
+        let failure = EnginePhase::Failed("the agent binary is gone".to_string());
+        feed.emit(None, LocalFeedEvent::Phase(failure.clone()));
+        // While it is the latest phase, it IS the phase a late host reads.
+        assert_eq!(feed.phase(), Some(failure.clone()));
+        feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Ended));
+
+        assert_eq!(
+            phases(&drain(&feed.subscribe())),
+            vec![failure, EnginePhase::Ended]
+        );
+        // The terminal phase is still what a "is this run over" check reads.
+        assert_eq!(feed.phase(), Some(EnginePhase::Ended));
+    }
+
+    #[test]
+    fn dropping_the_kill_feed_unwatches() {
+        let unwatched = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = unwatched.clone();
+        let (_tx, rx) = flume::unbounded::<KillReason>();
+        drop(KillFeed {
+            rx,
+            unwatch: Some(Box::new(move || {
+                flag.store(true, std::sync::atomic::Ordering::SeqCst)
+            })),
+        });
+        assert!(unwatched.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn the_engine_thread_is_named_after_the_session() {
+        assert_eq!(
+            thread_name("0f8c2a11-4d3e-4f0a-9c1d-8a7b6c5d4e3f"),
+            "acp-engine-0f8c2a11"
+        );
+    }
+
+    #[test]
+    fn elicitation_content_carries_every_step_shape() {
+        let fields = serde_json::json!({
+            "name": "exp",
+            "confirm": true,
+            "count": 3,
+            "tags": ["a", "b"],
+            "skipped": null
+        });
+        let content = elicitation_content(&fields);
+        assert_eq!(
+            content.get("name"),
+            Some(&ElicitationContentValue::String("exp".to_string()))
+        );
+        assert_eq!(
+            content.get("confirm"),
+            Some(&ElicitationContentValue::Boolean(true))
+        );
+        assert_eq!(
+            content.get("count"),
+            Some(&ElicitationContentValue::Integer(3))
+        );
+        assert_eq!(
+            content.get("tags"),
+            Some(&ElicitationContentValue::StringArray(vec![
+                "a".to_string(),
+                "b".to_string()
+            ]))
+        );
+        assert!(!content.contains_key("skipped"));
+    }
+
+    /// D3: the ask card is named by the ACP tool call it interrupts, so the
+    /// `<id>#<n>` stepper correlates with that tool's own card.
+    #[test]
+    fn a_session_scoped_elicitation_is_named_by_its_tool_call() {
+        use agent_client_protocol::schema::v1::{ElicitationSessionScope, ToolCallId};
+        let request = form_elicitation(
+            ElicitationSessionScope::new(SessionId::new("acp-1"))
+                .tool_call_id(ToolCallId::new("toolu_01ask")),
+        );
+        assert_eq!(elicitation_id(&request), "toolu_01ask");
+    }
+
+    /// A session scope with no tool call names nothing: the mapper mints the
+    /// synthetic id from the message instead.
+    #[test]
+    fn a_session_elicitation_without_a_tool_call_has_no_id() {
+        use agent_client_protocol::schema::v1::ElicitationSessionScope;
+        let request = form_elicitation(ElicitationSessionScope::new(SessionId::new("acp-1")));
+        assert_eq!(elicitation_id(&request), "");
+    }
+
+    /// A request-scoped ask (one that arrives before a session exists)
+    /// carries the WIRE id, never its `Debug` spelling.
+    #[test]
+    fn a_request_scoped_elicitation_carries_the_wire_request_id() {
+        use agent_client_protocol::schema::v1::{ElicitationRequestScope, RequestId};
+        assert_eq!(
+            elicitation_id(&form_elicitation(ElicitationRequestScope::new(
+                RequestId::Number(3)
+            ))),
+            "3"
+        );
+        assert_eq!(
+            elicitation_id(&form_elicitation(ElicitationRequestScope::new(
+                RequestId::Str("req-7".to_string())
+            ))),
+            "req-7"
+        );
+    }
+
+    fn form_elicitation(
+        scope: impl Into<agent_client_protocol::schema::v1::ElicitationScope>,
+    ) -> CreateElicitationRequest {
+        use agent_client_protocol::schema::v1::{ElicitationFormMode, ElicitationSchema};
+        CreateElicitationRequest::new(
+            ElicitationFormMode::new(scope, ElicitationSchema::new()),
+            "Which approach?",
+        )
+    }
+
+    // ── The `set_mode` mirror (F13) ───────────────────────────────────────
+
+    fn test_mapper() -> Mapper {
+        Mapper::new(crate::engine::mapper::MapperConfig {
+            redactor: Arc::new(wire::Redactor::new(Vec::new())),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: wire::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+            host_tools: Arc::new(crate::engine::NoHostTools),
+        })
+    }
+
+    fn advertise(mapper: &mut Mapper, current: &str, ids: &[&str]) {
+        use agent_client_protocol::schema::v1::{SessionMode, SessionModeState};
+        let modes = SessionModeState::new(
+            SessionModeId::new(current),
+            ids.iter()
+                .map(|id| SessionMode::new(SessionModeId::new(*id), *id))
+                .collect(),
+        );
+        let mut out = MapOut::default();
+        mapper.on_session_state(Some(&modes), &[], &[], &mut out);
+    }
+
+    fn current_mode(events: &[wire::ActivityEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                wire::ActivityEvent::ConfigState { current_mode, .. } => current_mode.clone(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The bug this guards: an agent that advertises NO modes answers
+    /// `set_mode` with a silent Ok. Mirroring that Ok published `current_mode = "plan"`
+    /// for a run that never entered plan mode, and every client painted it.
+    #[test]
+    fn a_set_mode_on_a_session_without_modes_publishes_no_config_state() {
+        let mut mapper = test_mapper();
+        let mut out = MapOut::default();
+        mirror_mode(&mut mapper, "plan", &mut out);
+
+        assert!(out.wire.is_empty(), "published {:?}", out.wire);
+        assert!(out.local.is_empty());
+        assert_eq!(current_mode(&[mapper.config_state()]), Vec::<String>::new());
+    }
+
+    /// An advertised mode still mirrors: `set_mode` answers with nothing, so
+    /// the re-emitted `config_state` is the only confirmation the wire has.
+    #[test]
+    fn a_set_mode_on_an_advertised_mode_still_mirrors_it() {
+        let mut mapper = test_mapper();
+        advertise(&mut mapper, "default", &["default", "plan"]);
+        let mut out = MapOut::default();
+        mirror_mode(&mut mapper, "plan", &mut out);
+
+        assert_eq!(current_mode(&out.wire), vec!["plan"]);
+    }
+
+    /// An agent WITH modes, asked for one that is not in its list: same rule,
+    /// nothing is mirrored.
+    #[test]
+    fn a_set_mode_on_an_unknown_mode_publishes_no_config_state() {
+        let mut mapper = test_mapper();
+        advertise(&mut mapper, "default", &["default", "acceptEdits"]);
+        let mut out = MapOut::default();
+        mirror_mode(&mut mapper, "plan", &mut out);
+
+        assert!(out.wire.is_empty(), "published {:?}", out.wire);
+        assert_eq!(current_mode(&[mapper.config_state()]), vec!["default"]);
+    }
+
+    /// EXP-825: a host prompt with something to localize is split — the
+    /// announced text keeps the person's embeds, the agent's block carries
+    /// what the localizer returned. Without a localizer, or with nothing it
+    /// wants, the text goes through untouched (Exponential's manifest shape
+    /// is pinned in `engine::host`'s tests).
+    #[test]
+    fn localize_for_agent_splits_announce_from_the_agent_text() {
+        struct Upper;
+        impl PromptLocalizer for Upper {
+            fn wants(&self, text: &str) -> bool {
+                text.contains("embed")
+            }
+            fn localize(
+                &self,
+                text: String,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + '_>> {
+                Box::pin(async move { text.to_uppercase() })
+            }
+        }
+        let localizer: Arc<dyn PromptLocalizer> = Arc::new(Upper);
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let localized = runtime.block_on(localize_for_agent("an embed".to_string(), Some(&localizer)));
+        assert_eq!(localized.announce, "an embed");
+        assert_eq!(blocks_text(&localized.blocks), "AN EMBED");
+        let plain = runtime.block_on(localize_for_agent("just words".to_string(), Some(&localizer)));
+        assert_eq!(blocks_text(&plain.blocks), "just words");
+        let unhooked = runtime.block_on(localize_for_agent("an embed".to_string(), None));
+        assert_eq!(blocks_text(&unhooked.blocks), "an embed");
+    }
+}
