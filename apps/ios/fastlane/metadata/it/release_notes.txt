@@ -1,2 +1,5 @@
-- Un pulsante di chiamata grigio ora dice cosa manca e dove risolverlo
-- Le schede che un agente aggiorna vengono modificate sul posto e passano in fondo alla chat
+- I messaggi delle sessioni vengono sigillati sui tuoi dispositivi, così il server non può più leggerli
+- Una domanda da una chat che hai avviato arriva come notifica sul telefono e mostra la domanda stessa
+- Toccando una decisione nella posta in arrivo si apre la chat che ti sta aspettando
+- Le storie mostrano le ultime 24 ore e la scheda Storie di una chat le mostra sul posto
+- Le chiamate continuano quando passi tra altoparlante, cuffie e Bluetooth

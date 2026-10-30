@@ -1,2 +1,5 @@
-- A szürke hívásgomb most megmondja, mi hiányzik, és hol javíthatod
-- Az ügynök által frissített kártyák helyben módosulnak, és a csevegés aljára kerülnek
+- A munkamenetek üzenetei az eszközeiden pecsételődnek le, így a szerver már nem tudja olvasni őket
+- Az általad indított csevegés kérdése értesítésként érkezik a telefonodra, és magát a kérdést mutatja
+- A beérkezett döntésre koppintva megnyílik a csevegés, amely rád vár
+- A történetek az utolsó 24 órát mutatják, és a csevegés Történetek lapja helyben jeleníti meg őket
+- A hívások akkor is működnek, ha hangszóró, fejhallgató és Bluetooth között váltasz
