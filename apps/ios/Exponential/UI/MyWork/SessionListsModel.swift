@@ -212,13 +212,14 @@ final class SessionListsModel {
         // into messages (`Chats.digestMessages`, `digestCases`), stands in
         // for them, so this observation tracks `conversations`, never
         // `messages`.
+        let rootIds = Dictionary(sessions.map { ($0.id, $0.rootId) }, uniquingKeysWith: { first, _ in first })
         let digestMessages = try Row.fetchAll(db, sql: """
             SELECT "session_id", "digest" FROM "conversations"
             WHERE "session_id" IS NOT NULL AND "session_id" <> ''
             """)
             .flatMap { row -> [TreeMessage] in
                 let sessionId: String = row["session_id"]
-                return Chats.digestMessages(sessionId: sessionId, digest: row["digest"] as String?)
+                return Chats.digestMessages(sessionId: sessionId, digest: row["digest"] as String?, rootId: rootIds[sessionId])
             }
         return Rows(
             sessions: sessions.map { TreeSession(sessionRow: $0) },

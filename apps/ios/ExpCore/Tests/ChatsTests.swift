@@ -609,4 +609,46 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(S.childDelayMs(2), 180)
         XCTAssertEqual(S.childDelayMs(20), 90 + 45 * 7)
     }
+
+    // MARK: - sealed-content.json `placeholder` (EXP-1459)
+
+    func testLockedPreviewCases() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("packages/domain-contract/fixtures/sealed-content.json")
+        let sealed = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let placeholder = try XCTUnwrap(sealed["placeholder"] as? [String: Any])
+        XCTAssertEqual(placeholder["icon"] as? String, SealedPlaceholder.icon)
+        let copy = try XCTUnwrap(placeholder["copy"] as? [String: String])
+        XCTAssertEqual(copy, ["noKey": SealedPlaceholder.copy(.noKey), "unreadable": SealedPlaceholder.copy(.unreadable)])
+        let reasons = try XCTUnwrap(placeholder["reasons"] as? [String: String])
+        for (status, reason) in reasons {
+            XCTAssertEqual(SealedPlaceholder.reason(try XCTUnwrap(SealStatus(rawValue: status)))?.rawValue, reason, status)
+        }
+        XCTAssertNil(SealedPlaceholder.reason(.plain))
+        XCTAssertNil(SealedPlaceholder.reason(.opened))
+
+        for testCase in try XCTUnwrap(placeholder["previewCases"] as? [[String: Any]]) {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let messages = try XCTUnwrap(testCase["messages"] as? [[String: Any]]).map { m -> TreeMessage in
+                let reason = (m["locked"] as? String).flatMap(LockedReason.init(rawValue:))
+                return TreeMessage(
+                    id: m["id"] as? String ?? "", sessionId: "r", authorKind: m["authorKind"] as? String ?? "",
+                    authorId: nil, body: m["body"] as? String ?? "",
+                    card: (m["card"] as? [String: Any]).map(TreeMessageCard.init(object:)),
+                    answeredAt: nil, consumedAt: nil, createdAt: m["createdAt"] as? String ?? "",
+                    sealStatus: reason.map { $0 == .noKey ? .noKey : .refused } ?? .plain
+                )
+            }
+            let got = Chats.chatPreview(
+                rootId: "r", messages: messages,
+                needsYou: testCase["needsYou"] as? Bool ?? false, busy: testCase["busy"] as? Bool ?? false
+            )
+            let expected = try XCTUnwrap(testCase["expected"] as? [String: String])
+            XCTAssertEqual(got.kind.rawValue, expected["kind"], name)
+            XCTAssertEqual(got.text, expected["text"], name)
+        }
+    }
+
 }

@@ -138,7 +138,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
-             "v86_session_read_story_seen_at"]
+             "v86_session_read_story_seen_at", "v87_session_seal"]
         )
     }
 
@@ -198,7 +198,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
-             "v86_session_read_story_seen_at"]
+             "v86_session_read_story_seen_at", "v87_session_seal"]
         )
     }
 
@@ -730,7 +730,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
-             "v86_session_read_story_seen_at"]
+             "v86_session_read_story_seen_at", "v87_session_seal"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -838,7 +838,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
-             "v86_session_read_story_seen_at"]
+             "v86_session_read_story_seen_at", "v87_session_seal"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1883,7 +1883,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "computer_use", "ultracode", "repository_id", "branch", "status", "busy",
              "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
              "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id",
-             "agent_instructions_at", "started_by_agent_id", "background"]
+             "agent_instructions_at", "started_by_agent_id", "background",
+             "seal_public_key", "seal_epoch", "sealed_title"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).
@@ -3570,7 +3571,7 @@ final class DatabaseMigrationTests: XCTestCase {
                     """, arguments: [shape])
             }
         }
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v86_session_read_story_seen_at"))
         XCTAssertTrue(try columnNames(pool, "session_reads").contains("story_seen_at"))
         try pool.read { db in
             let reset = try String.fetchAll(
@@ -3598,7 +3599,7 @@ final class DatabaseMigrationTests: XCTestCase {
                     """, arguments: [shape])
             }
         }
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v86_session_read_story_seen_at"))
         XCTAssertTrue(try columnNames(pool, "session_reads").contains("archived_at"))
         try pool.read { db in
             let reset = try String.fetchAll(
@@ -3615,6 +3616,47 @@ final class DatabaseMigrationTests: XCTestCase {
         try pool.write { db in try row.save(db) }
         let read = try pool.read { db in try SessionReadEntity.fetchOne(db, key: "r-1") }
         XCTAssertEqual(read?.archivedAt, "2026-10-27T11:00:00Z")
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // EXP-1458: v87 adds the tree key + sealed title to `sessions`,
+    // resetting ONLY the sessions cursor so synced roots re-arrive with them.
+    func testSessionSealColumnsAdded() throws {
+        let pool = try makePool("exp1458-session-seal")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v86_session_read_story_seen_at")
+        try pool.write { db in
+            for shape in ["messages", "sessions"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v87_session_seal"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["sessions"])
+        }
+        let wire = Data("""
+            {"id":"s-1","team_id":"t","user_id":"u","device_id":"d","created_at":"x","updated_at":"x",
+             "seal_public_key":"NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ","seal_epoch":"2",
+             "sealed_title":"exp-sealed:v1:2:abc"}
+            """.utf8)
+        let row = try JSONDecoder().decode(SessionEntity.self, from: wire)
+        try pool.write { db in try row.save(db) }
+        let read = try pool.read { db in try SessionEntity.fetchOne(db, key: "s-1") }
+        XCTAssertEqual(read?.sealKey, TreeSealKey(publicKey: "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ", epoch: 2))
+        XCTAssertEqual(read?.sealedTitle, "exp-sealed:v1:2:abc")
+        // Locked (no key here): the clear title stands in.
+        XCTAssertEqual(read?.openedTitle, nil)
+        try pool.write { db in try SealedRowsTouch.touch(db, rootIds: ["s-1"]) }
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
@@ -3639,7 +3681,7 @@ final class DatabaseMigrationTests: XCTestCase {
                     """, arguments: [shape])
             }
         }
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v85_agent_role"))
         try pool.read { db in
             let reset = try String.fetchAll(
                 db,

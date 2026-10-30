@@ -254,6 +254,8 @@ final class SessionTreeTests: XCTestCase {
             ["type": "event", "id": id, "event": event, "text": text]
         case let .divider(id, kind, at):
             ["type": "divider", "id": id, "kind": kind.rawValue, "at": at]
+        case let .locked(id, reason, author):
+            ["type": "locked", "id": id, "reason": reason.rawValue, "author": author]
         case let .surface(id, sessionId, title, surface):
             ["type": "surface", "id": id, "sessionId": sessionId, "title": json(title), "surface": json(surface)]
         }
@@ -888,4 +890,40 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertNil(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [pr("c", "closed")], teamPrs: []))
         XCTAssertEqual(ThreadRowWord.allCases.map(\.text), ["stack", "ready to merge", nil, "question", "needs input"])
     }
+
+    // MARK: - sealed-content.json `placeholder.rowCases` (EXP-1459)
+
+    func testLockedMessagesAreTheLockedRow() throws {
+        let sealed = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("packages/domain-contract/fixtures/sealed-content.json"))) as? [String: Any])
+        let placeholder = try XCTUnwrap(sealed["placeholder"] as? [String: Any])
+        let base = try XCTUnwrap(try cases(try fixture("session-thread.json")).first?["input"] as? [String: Any])
+        let root = try session(base["root"])
+        for testCase in try XCTUnwrap(placeholder["rowCases"] as? [[String: Any]]) {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let m = try XCTUnwrap(testCase["message"] as? [String: Any])
+            let reason = try XCTUnwrap(LockedReason(rawValue: try XCTUnwrap(m["locked"] as? String)))
+            let message = TreeMessage(
+                id: try XCTUnwrap(string(m["id"])), sessionId: root.id,
+                authorKind: try XCTUnwrap(string(m["authorKind"])), authorId: nil, body: "",
+                card: (m["card"] as? [String: Any]).map(TreeMessageCard.init(object:)),
+                answeredAt: nil, consumedAt: "2026-10-13T10:00:00.000Z", createdAt: "2026-10-13T10:05:00.000Z",
+                sealStatus: reason == .noKey ? .noKey : .refused
+            )
+            let view = SessionTree.buildSessionThread(
+                root: root,
+                sessions: try XCTUnwrap(base["sessions"] as? [Any]).map(session),
+                sessionIssues: try sessionIssues(base["sessionIssues"]),
+                issues: try issues(base["issues"]),
+                messages: [message],
+                pullRequests: try pullRequests(base["pullRequests"]),
+                now: try date(base["now"])
+            )
+            let rows = view.rows.filter { $0.id == message.id }.map(json)
+            assertJSON(rows, [testCase["expected"] as Any], name)
+        }
+    }
+
 }

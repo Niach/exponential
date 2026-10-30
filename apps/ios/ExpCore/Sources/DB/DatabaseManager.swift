@@ -55,6 +55,11 @@ public final class DatabaseManager: @unchecked Sendable {
         logger.info("Closed DB pool for account \(accountId, privacy: .public)")
     }
 
+    /// The accounts whose pool is open.
+    public var openAccountIds: [String] {
+        lock.withLock { Array(pools.keys) }
+    }
+
     /// Close every open pool. Intended for app teardown / sign-out-all.
     public func closeAll() {
         lock.lock()
@@ -2869,6 +2874,27 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'session-reads'
+                    """)
+            }
+        }
+
+        // v87 (EXP-1458): sealed session content. The ROOT row carries the
+        // tree's public key + epoch and the sealed title; rows already synced
+        // lack them, so the sessions cursor resets and they re-arrive.
+        migrator.registerMigration("v87_session_seal") { db in
+            guard try db.tableExists("sessions") else { return }
+            let existing = Set(try db.columns(in: "sessions").map(\.name))
+            guard !existing.contains("sealed_title") else { return }
+            try db.alter(table: "sessions") { t in
+                if !existing.contains("seal_public_key") { t.add(column: "seal_public_key", .text) }
+                if !existing.contains("seal_epoch") { t.add(column: "seal_epoch", .integer) }
+                t.add(column: "sealed_title", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
                     """)
             }
         }

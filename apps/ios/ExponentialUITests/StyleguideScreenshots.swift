@@ -28,7 +28,7 @@ import XCTest
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
-///   sg_chat-transcript · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
+///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_voice-call · sg_call-controls · sg_device-readiness ·
 ///   sg_story-ring · sg_story-viewer
 ///
@@ -947,7 +947,7 @@ final class StyleguideScreenshots: XCTestCase {
             "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
             "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
             "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
-            "story-tab",
+            "story-tab", "sealed-locked",
         ] {
             guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
             openThreadCards(app, entry)
@@ -967,6 +967,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "story-ring": snapshot("sg_story-ring", settle: 2)
             case "story-viewer": snapshot("sg_story-viewer", settle: 2)
             case "story-tab": snapshot("sg_story-tab", settle: 2)
+            case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }
