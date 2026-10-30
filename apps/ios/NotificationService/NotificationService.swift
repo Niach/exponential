@@ -8,7 +8,8 @@ import UserNotifications
 // shows the real title and body, merging `data` into `userInfo` exactly like
 // a plaintext FCM push so a tap routes identically (NotificationDelegate →
 // NotificationRouting). Anything it cannot open (no `s`, no key, no binding,
-// a tampered or foreign payload) is delivered unchanged. No Firebase, no GRDB:
+// a tampered or foreign payload) is delivered unchanged. A question push's
+// sealed text opens with the tree key in the shared keychain (#VAPP-45). No Firebase, no GRDB:
 // the extension's memory cap is ~24 MB.
 final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
@@ -32,7 +33,14 @@ final class NotificationService: UNNotificationServiceExtension {
             // A degraded over-budget payload may carry an empty title: keep
             // the placeholder rather than show a blank one.
             if !opened.title.isEmpty { content.title = opened.title }
-            content.body = opened.body ?? ""
+            // #VAPP-45: a question push carries its text sealed to the
+            // session tree; opened with the tree key the app holds, else the
+            // push's own (generic) body. The title stays.
+            content.body = QuestionPush.body(
+                data: opened.userInfo,
+                keysFor: { TreeKeyStore().keys(rootId: $0) },
+                fallback: opened.body ?? ""
+            )
             content.userInfo = opened.userInfo
             // Plaintext pushes ring with the default sound; the relay's
             // placeholder carries none.
