@@ -33,6 +33,9 @@ data class TeamInstall(
     val platform: String? = null,
     val endpointId: String,
     val x25519Public: String,
+    // EXP-1459: the steer device id of a desktop / daemon install (addendum 1:
+    // a new root wraps for the target device's install); absent = unknown.
+    val deviceId: String? = null,
 )
 
 /** One of the caller's own installs (`installs.mine`), revoked ones included. */

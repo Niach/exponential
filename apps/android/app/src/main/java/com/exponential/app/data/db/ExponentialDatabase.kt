@@ -477,8 +477,11 @@ import androidx.room.TypeConverters
     // v104 (S-3 stories): session_reads.story_seen_at (stories.json SEEN).
     //      Explicit [MIGRATION_103_104] adds the nullable column and
     //      refetches only the session_reads shape.
+    // v105 (EXP-1459): sessions.seal_public_key, seal_epoch, sealed_title
+    //      (sealed content). Explicit [MIGRATION_104_105] adds the nullable
+    //      columns and refetches only the sessions shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 104,
+    version = 105,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
