@@ -152,7 +152,7 @@ extension TextLabel {
     /// Plain text in a text style. `align` is PHYSICAL (the core resolved
     /// `start`/`end`; `end` is still read as the trailing edge of the
     /// surface for older callers).
-    init(_ text: String, _ ts: TextStyle, color: Color, align: String? = nil, lines: Int? = nil) {
+    init(_ text: String, _ ts: TextStyle, color: Color, align: String? = nil, lines: Int? = nil, underline: Bool = false) {
         let alignment: NSTextAlignment = switch align {
         case "center": .center
         case "right", "end": .right
@@ -161,6 +161,7 @@ extension TextLabel {
         default: .natural
         }
         var attrs = TextShaper.attributes(ts, align: alignment, lineBreak: (lines ?? 0) > 0 ? .byTruncatingTail : .byWordWrapping)
+        if underline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
         #if canImport(UIKit)
         attrs[.foregroundColor] = UIColor(color)
         #else
