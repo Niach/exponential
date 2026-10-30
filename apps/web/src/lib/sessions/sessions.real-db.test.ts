@@ -2594,19 +2594,51 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     expect(await texts(convo.sessionId)).toEqual([`Answer to M1.`, `Answer to M2.`])
   })
 
-  it(`replace edits the card of the running turn, not one a queued message precedes (F29)`, async () => {
+  it(`replace edits the latest card across turns in a thread session, whatever its title (#EXP-1446)`, async () => {
     const w = await world({ shared: true })
     const sent = await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `show it` } })
     const host = caller(w.owner)
     await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
     await deliver(host, sent.sessionId)
-    await sendSession({ userId: w.mate, input: { sessionId: sent.sessionId, text: `queued` } })
-    const first = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`a`), replace: true })
-    const same = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`b`), replace: true })
-    expect(same).toMatchObject({ messageId: first.messageId, replaced: true })
-    await deliver(host, sent.sessionId)
-    const next = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`c`), replace: true })
-    expect(next.replaced).toBe(false)
+    const titled = (title: string, text: string) =>
+      buildSurfaceCard({ title, surface: { root: { id: `t`, component: `Text`, props: { text } } } })
+    // No earlier card: a new one.
+    const first = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: titled(`Green`, `a`), replace: true })
+    expect(first.replaced).toBe(false)
+    for (const [title, text] of [[`Red`, `b`], [`Shipped`, `c`]] as const) {
+      await sendSession({ userId: w.mate, input: { sessionId: sent.sessionId, text: `next` } })
+      await deliver(host, sent.sessionId)
+      const next = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: titled(title, text), replace: true })
+      expect(next).toMatchObject({ messageId: first.messageId, replaced: true })
+    }
+    const cards = (await db.select().from(messages).where(eq(messages.sessionId, sent.sessionId))).filter(
+      (m) => m.card?.kind === `surface`
+    )
+    expect(cards).toHaveLength(1)
+    expect(cards[0]!.card).toMatchObject({ title: `Shipped` })
+  })
+
+  it(`replace edits the latest card across turns in an agent conversation, the Assistant's included (#EXP-1446)`, async () => {
+    const w = await world()
+    for (const role of [`agent`, `assistant`] as const) {
+      const [bot] = await db
+        .insert(agents)
+        .values({ teamId: w.teamId, name: `Bot ${role}`, deviceId: w.deviceId, ownerId: w.owner, role })
+        .returning({ id: agents.id })
+      const convo = await sendSession({ userId: w.owner, input: { agentId: bot!.id, text: `M1` } })
+      const host = caller(w.owner)
+      await host.claim({ sessionId: convo.sessionId, deviceId: w.deviceId })
+      await deliver(host, convo.sessionId)
+      const first = await postShowCard({ userId: w.owner, sessionId: convo.sessionId, card: surface(`1/2`), replace: true })
+      expect(first.replaced).toBe(false)
+      // The member writes: a new turn (and, for the Assistant, a new status card window).
+      await sendSession({ userId: w.owner, input: { sessionId: convo.sessionId, text: `M2` } })
+      await deliver(host, convo.sessionId)
+      const again = await postShowCard({ userId: w.owner, sessionId: convo.sessionId, card: surface(`2/2`), replace: true })
+      expect(again).toMatchObject({ messageId: first.messageId, replaced: true })
+      const row = (await db.select().from(messages).where(eq(messages.id, first.messageId)))[0]!
+      expect(JSON.stringify(row.card)).toContain(`2/2`)
+    }
   })
 
   it(`a thread's turn texts stay separate bubbles; its relayed copy in the parent follows an edit of the origin`, async () => {
@@ -2625,7 +2657,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     expect((await db.select().from(messages).where(eq(messages.id, copies[0]!.id)))[0]!.body).toBe(`Two, edited.`)
   })
 
-  it(`replace edits this turn's card, inserts after the next delivered input, and refuses an answered one`, async () => {
+  it(`replace edits the latest card of its family, across turns, and refuses an answered one`, async () => {
     const w = await world({ shared: true })
     const sent = await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `show it` } })
     const host = caller(w.owner)
@@ -2645,14 +2677,12 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     await expect(
       postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. C` }), replace: true })
     ).rejects.toMatchObject({ code: `CONFLICT` })
-    // The person's next message delivered: a new turn, a new card.
+    // The person's next message delivered: a new turn still edits the
+    // latest surface, past the answered plan (#EXP-1446).
     await sendSession({ userId: w.mate, input: { sessionId: sent.sessionId, text: `next` } })
-    const pending = (await db.select().from(messages).where(eq(messages.sessionId, sent.sessionId))).filter(
-      (m) => m.authorKind === `user` && m.consumedAt === null
-    )
-    await host.consume({ sessionId: sent.sessionId, messageIds: pending.map((m) => m.id) })
+    await deliver(host, sent.sessionId)
     const fresh = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`3/3`), replace: true })
-    expect(fresh.replaced).toBe(false)
+    expect(fresh).toMatchObject({ messageId: first.messageId, replaced: true })
   })
 })
 
