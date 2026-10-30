@@ -31,6 +31,8 @@ docs/reviews/
 apps/web/public/widget/
 # Built MCP Apps views (emitted by packages/mcp-apps, EXP-1183)
 apps/web/public/mcp-apps/
+# The browser's eNet node (scripts/build-enet-wasm.sh, EXP-1457)
+apps/web/public/enet/
 
 # Raw capture output for the screenshot store (EXP-566) — only the optimized
 # shots/**.webp are committed; regenerate with `bun run shots`.
