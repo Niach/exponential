@@ -14,10 +14,12 @@
 //!   / `exp:comments` / `exp:attachments` →
 //!   `domain::app_sources::source_value` over the scope team's synced rows;
 //!   VAPP-122 `exp:records?kind=…` → `domain::app_records::records_value`
-//!   over the hosting app's synced `app_records` rows, [`HostScope`]);
+//!   over the hosting app's synced `app_records` rows, [`HostScope`];
+//!   VAPP-161 the format's neutral `records:<kind>?…` = the same binding);
 //! - VAPP-122 `harness.records.upsert {kind, data, id?}` and
-//!   `harness.records.delete {id}` (tRPC `apps.records.*` as the viewer, no
-//!   consent card: the app's own rows; a refusal = a failed-action toast);
+//!   `harness.records.delete {id}` (VAPP-161: also `records.upsert` /
+//!   `records.delete`; tRPC `apps.records.*` as the viewer, no consent
+//!   card: the app's own rows; a refusal = a failed-action toast);
 //! - VAPP-120 typed host actions: every `exponential.<noun>.<op>` of
 //!   `domain::app_actions::APP_ACTIONS`, the same `tools/call` as
 //!   `harness.mcp` with `{op, …args}` (no `op` for `exponential.sessions.send`);
@@ -156,7 +158,7 @@ enum Query {
     Devices,
     /// VAPP-119 `exp:<name>?…` for a `domain::app_sources` name.
     Source { name: String, params: BTreeMap<String, String> },
-    /// VAPP-122 `exp:records?kind=…`.
+    /// VAPP-122 `exp:records?kind=…` (VAPP-161: or `records:<kind>?…`).
     Records(domain::app_records::RecordsQuery),
 }
 
@@ -310,9 +312,15 @@ fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+/// What a source of the `exp` or the `records` scheme reads.
 fn query_of(source: &ParsedSource) -> Option<Query> {
+    if let Some(params) = domain::app_records::records_source_params(&source.scheme, &source.name, &source.params) {
+        return Some(Query::Records(domain::app_records::parse_records_query(&params)));
+    }
+    if source.scheme != "exp" {
+        return None;
+    }
     match source.name.as_str() {
-        "records" => Some(Query::Records(domain::app_records::parse_records_query(&source.params))),
         "devices" => Some(Query::Devices),
         name if domain::app_sources::is_source(name) => {
             Some(Query::Source { name: name.to_string(), params: source.params.clone() })
@@ -1182,6 +1190,9 @@ impl IdeHost {
         functions.insert("harness.mcp".into(), mcp_fn());
         functions.insert("harness.records.upsert".into(), records_upsert_fn(scope.clone()));
         functions.insert("harness.records.delete".into(), records_delete_fn(scope.clone()));
+        // VAPP-161: the format's neutral spelling, the same functions.
+        functions.insert("records.upsert".into(), records_upsert_fn(scope.clone()));
+        functions.insert("records.delete".into(), records_delete_fn(scope.clone()));
         // VAPP-120: every MCP operation as a typed function.
         for name in domain::app_actions::APP_ACTIONS.iter() {
             if let Some(target) = domain::app_actions::parse_action_name(name) {
@@ -1190,6 +1201,8 @@ impl IdeHost {
         }
         let mut sources: HashMap<String, SourceResolver> = HashMap::new();
         sources.insert("exp".into(), exp_resolver(Rc::downgrade(&feeds)));
+        // VAPP-161: `records:<kind>?…` = `exp:records?kind=<kind>&…`.
+        sources.insert("records".into(), exp_resolver(Rc::downgrade(&feeds)));
         let extensions = match parse_extension(APP_EXTENSION_JSON) {
             Ok(ext) => vec![ext],
             Err(e) => {
@@ -1372,6 +1385,9 @@ mod tests {
         assert_eq!(records_feed_value(&feed, &query("exp:records"), now), Value::Null);
         let unscoped = RecordsFeed { scope: None, ..records_feed() };
         assert_eq!(records_feed_value(&unscoped, &query("exp:records?kind=entry"), now)["count"], 0);
+        // VAPP-161: the neutral spelling is the same binding (the name wins over `kind`).
+        assert_eq!(query("records:entry?sum=hours&kind=other"), query("exp:records?kind=entry&sum=hours"));
+        assert!(query_of(&exponential_ui::host::parse_source("other:records?kind=entry").unwrap()).is_none());
     }
 
     #[test]

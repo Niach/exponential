@@ -4,8 +4,9 @@ import Foundation
 /// is the spec, TS reference `src/app-records.ts`; desktop
 /// `domain::app_records`, Android `AppRecords.kt`). The `exp:records?…`
 /// binding's query grammar and the value it emits over the synced
-/// `app_records` rows. `AppRecordsTests` replays `queryCases`, `valueCases`
-/// and `countLabelCases`. Values are `CardJSON` (keys sorted when encoded).
+/// `app_records` rows (VAPP-161: also spelled `records:<kind>?…`).
+/// `AppRecordsTests` replays `queryCases`, `sourceCases`, `valueCases` and
+/// `countLabelCases`. Values are `CardJSON` (keys sorted when encoded).
 public enum AppRecords {
     // MARK: - Fixture constants
 
@@ -70,6 +71,16 @@ public enum AppRecords {
         }
         let month = Int(String(value.suffix(2))) ?? 0
         return (1...12).contains(month)
+    }
+
+    /// VAPP-161: a parsed binding source → the params `parseRecordsQuery`
+    /// takes (TS `recordsSourceParams`), for both spellings: the format's
+    /// neutral `records:<kind>?q` (the name wins over a `kind` param) and
+    /// `exp:records?kind=<kind>&q`; nil = not a records source.
+    public static func recordsSourceParams(scheme: String, name: String, params: [String: String]) -> [String: String]? {
+        if scheme == "records" { return params.merging(["kind": name]) { _, name in name } }
+        if scheme == "exp", name == "records" { return params }
+        return nil
     }
 
     /// The `exp:records` query params → the query (TS `parseRecordsQuery`).

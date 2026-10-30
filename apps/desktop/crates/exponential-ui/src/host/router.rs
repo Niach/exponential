@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use super::contract::{error_message, INVALID_MESSAGE, MESSAGE_KINDS, SOURCE_DENIED, SURFACE_NOT_FOUND, TEMPLATE_NOT_FOUND, UNSUPPORTED_CATALOG};
-use super::package::{package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package, PackageIssue};
+use super::package::{package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package_with, AvailableExtension, PackageIssue};
 use super::sources::parse_source;
 use crate::catalog::A2UI_VERSION;
 use crate::limits;
@@ -27,6 +27,9 @@ pub struct SurfaceInfo {
 #[derive(Debug, Clone, Default)]
 pub struct HostRouter {
     extension_ids: Vec<String>,
+    /// VAPP-161: their versions and components (a package's `extensions`
+    /// are checked against them; `None` = only that the id is registered).
+    extensions: Option<Vec<AvailableExtension>>,
     surfaces: IndexMap<String, SurfaceInfo>,
     packages: IndexMap<String, Value>,
 }
@@ -82,20 +85,37 @@ impl HostRouter {
         HostRouter { extension_ids: extension_ids.iter().map(|s| s.as_ref().to_string()).collect(), ..Default::default() }
     }
 
+    /// [`Self::new`] with the registered extensions' versions and components
+    /// (the TS `HostRouterOptions.extensions`).
+    pub fn with_extensions<S: AsRef<str>>(extension_ids: &[S], extensions: Option<Vec<AvailableExtension>>) -> Self {
+        HostRouter { extensions, ..Self::new(extension_ids) }
+    }
+
     pub fn supported_catalog_ids(&self) -> Vec<String> {
         supported_catalog_ids(&self.extension_ids)
     }
 
     pub fn register_extension(&mut self, id: &str) {
+        self.register_extension_with(id, None);
+    }
+
+    /// VAPP-161: with its version and components (`None` = `{id}`), kept
+    /// when the router checks extensions at all.
+    pub fn register_extension_with(&mut self, id: &str, available: Option<AvailableExtension>) {
         if !self.extension_ids.iter().any(|x| x == id) {
             self.extension_ids.push(id.to_string());
+        }
+        if let Some(extensions) = &mut self.extensions {
+            if !extensions.iter().any(|e| e.id == id) {
+                extensions.push(available.unwrap_or_else(|| AvailableExtension { id: id.to_string(), ..Default::default() }));
+            }
         }
     }
 
     /// Install a declarative package: its templates become `applyTemplate`
     /// targets. Returns the validation issues (installed only when none).
     pub fn install_package(&mut self, pkg: &Value) -> Vec<PackageIssue> {
-        let issues = validate_package(pkg, &self.supported_catalog_ids());
+        let issues = validate_package_with(pkg, &self.supported_catalog_ids(), self.extensions.as_deref());
         if issues.is_empty() {
             let id = pkg["id"].as_str().unwrap_or("").to_string();
             self.packages.insert(id, pkg.clone());

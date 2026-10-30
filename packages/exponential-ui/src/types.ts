@@ -153,6 +153,9 @@ export interface MacroDef {
 export interface ExtensionDef {
   id: string
   name: string
+  /** VAPP-161: `MAJOR.MINOR.PATCH`, what a package's `extensions` entry
+   *  is checked against (caret); unset = satisfies any. */
+  version?: string
   extends: string
   enums?: Record<string, readonly string[]>
   defs?: Record<string, DefSchema>

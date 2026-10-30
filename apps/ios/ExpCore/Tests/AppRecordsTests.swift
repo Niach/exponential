@@ -5,7 +5,7 @@ import XCTest
 // VAPP-122: app records, replayed ×4 against
 // packages/domain-contract/fixtures/app-records.json (TS `app-records.test.ts`,
 // desktop `domain::app_records`, Android `AppRecordsTest`): `queryCases`,
-// `valueCases` and `countLabelCases`, plus the query constants.
+// `sourceCases`, `valueCases` and `countLabelCases`, plus the query constants.
 final class AppRecordsTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -41,18 +41,48 @@ final class AppRecordsTests: XCTestCase {
         XCTAssertEqual(fixture["months"] as? [String], AppRecords.months)
     }
 
+    private func queryObject(_ q: AppRecords.Query) -> [String: Any] {
+        [
+            "kind": optional(q.kind), "app": optional(q.app), "mine": q.mine, "user": optional(q.user),
+            "sort": q.sort, "order": q.order, "limit": q.limit,
+            "filters": q.filters.map { ["field": $0.field, "op": $0.op, "value": $0.value] },
+            "sum": optional(q.sum), "by": optional(q.by), "month": optional(q.month),
+        ]
+    }
+
     func testQueryCases() throws {
         for item in try cases("queryCases") {
             let name = try XCTUnwrap(item["name"] as? String)
             let params = try XCTUnwrap(item["params"] as? [String: String])
-            let q = AppRecords.parseRecordsQuery(params)
-            let actual: [String: Any] = [
-                "kind": optional(q.kind), "app": optional(q.app), "mine": q.mine, "user": optional(q.user),
-                "sort": q.sort, "order": q.order, "limit": q.limit,
-                "filters": q.filters.map { ["field": $0.field, "op": $0.op, "value": $0.value] },
-                "sum": optional(q.sum), "by": optional(q.by), "month": optional(q.month),
-            ]
+            let actual = queryObject(AppRecords.parseRecordsQuery(params))
             XCTAssertEqual(actual as NSDictionary, try XCTUnwrap(item["expected"] as? NSDictionary), name)
+        }
+    }
+
+    /// The SDK's parseSource, inlined (ExpCore does not depend on the SDK).
+    private func parseSource(_ uri: String) throws -> (scheme: String, name: String, params: [String: String]) {
+        let colon = try XCTUnwrap(uri.firstIndex(of: ":"))
+        let rest = uri[uri.index(after: colon)...]
+        let name = rest.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
+        var params: [String: String] = [:]
+        for item in URLComponents(string: "x:?" + (rest.split(separator: "?", maxSplits: 1).dropFirst().first ?? ""))?.queryItems ?? [] {
+            params[item.name] = item.value ?? ""
+        }
+        return (uri[..<colon].lowercased(), name, params)
+    }
+
+    func testSourceCases() throws {
+        for item in try cases("sourceCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let source = try parseSource(try XCTUnwrap(item["source"] as? String))
+            let params = AppRecords.recordsSourceParams(scheme: source.scheme, name: source.name, params: source.params)
+            if let expected = item["expected"] as? NSDictionary {
+                let q = try XCTUnwrap(params.map(AppRecords.parseRecordsQuery), name)
+                XCTAssertEqual(queryObject(q) as NSDictionary, expected, name)
+            } else {
+                XCTAssertTrue(item["expected"] is NSNull, name)
+                XCTAssertNil(params, name)
+            }
         }
     }
 

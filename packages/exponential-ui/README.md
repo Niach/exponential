@@ -274,6 +274,15 @@ painters through the facade); `catalog/host.json` is the contract and
   (`sources()`, polled) plus `exponential.mcp` (`functions()`). Hosted apps
   (the peer-link transport, VAPP-10) embed through the same `Transport`
   interface.
+- **The package format, version 2** (VAPP-161, `docs/package-format.md`:
+  the prose spec other projects link to): `formatVersion`; the neutral
+  `records:<kind>?query` source + `records.upsert` / `records.delete` over a
+  host-provided `RecordStore` (`MemoryRecordStore` + `recordsHost` are the
+  reference); `tools` (MCP servers and scripts, `toolConsent` = the consent
+  card the host must show); `extensions` (declared, versioned); the package
+  FILE's `author` + Ed25519 `signature` over RFC 8785 canonical JSON
+  (`signPackageFile` / `verifyPackageFile`). Every version-1 package stays
+  valid.
 
 The Exponential app is a host like any other: web `apps/web/src/lib/exponential-ui-host.tsx`
 (`harness.*` functions, `exp:` over the Electric collections, the consent
@@ -310,6 +319,7 @@ against React.
 | `theme-invalid.json` | bad themes → the issues they must raise (paths ×4, never a crash) |
 | `control-geometry.json` | theme × control × props → the box a painter or override must measure to |
 | `host-transport.json` / `host-policy.json` / `host-router.json` | the host API (VAPP-91): decoders, the gate / urls / media / sources / negotiation, router flows → ops |
+| `host-package.json` | the package format (VAPP-161): records queries and values, tool consent, extension compatibility, canonical JSON, signatures (RFC 8032 test key) |
 | `format.json` | round 2: the format functions through the English fallback Formatter (= Intl en-US; UTC, and `zoned` at a fixed offset) + what a text prop shows for a bound number/boolean |
 | `template-items.json` | round 2: item keys (`#<index>` for missing/duplicate), Table row keys, accumulated (escaped) instance suffixes, template nodes lifted out of the tree, cycles reported |
 | `text-direction.json` | round 2: per-node direction (`direction` on any node) and the physical text alignment |

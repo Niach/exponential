@@ -39,6 +39,16 @@ export interface RecordsQuery {
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 const OPS: readonly RecordsFilterOp[] = [`gt`, `gte`, `lt`, `lte`]
 
+/** VAPP-161: a parsed binding source → the params `parseRecordsQuery`
+ *  takes, for both spellings: the format's neutral `records:<kind>?q` (the
+ *  name wins over a `kind` param) and `exp:records?kind=<kind>&q`; null =
+ *  not a records source. */
+export function recordsSourceParams(source: { scheme: string; name: string; params: Record<string, string> }): Record<string, string> | null {
+  if (source.scheme === `records`) return { ...source.params, kind: source.name }
+  if (source.scheme === `exp` && source.name === `records`) return source.params
+  return null
+}
+
 /** The `exp:records` query params (sorted keys, as `parseSource` gives
  *  them) → the query. Unknown keys are data-field filters. */
 export function parseRecordsQuery(params: Record<string, string>): RecordsQuery {

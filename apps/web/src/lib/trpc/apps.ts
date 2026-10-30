@@ -17,7 +17,7 @@ import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, validateAppPackage } from "@/lib/apps/package"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
-import { validateRecord } from "@exponential_app/ui"
+import { validateRecord, verifyPackageFile } from "@exponential_app/ui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_QUERY } from "@exp/domain-contract/app-records"
@@ -167,9 +167,15 @@ export const appUpdateInputSchema = z.object({
  *  package's rules, then every record against its kind's schema and the
  *  record cap): the issues the import step lists, and the file when there
  *  are none. A package's issue paths sit under `/package` in an app file. */
-export function checkAppImport(text: string): ParsedAppImport {
+export async function checkAppImport(text: string): Promise<ParsedAppImport> {
   const { issues: structural, file, bare } = parseAppImportShape(text)
   if (!file) return { issues: structural, file: null }
+  // VAPP-161: a signed file (the package format's `author` + `signature`)
+  // must verify; an unsigned one imports as before.
+  if (!bare) {
+    const verified = await verifyPackageFile(JSON.parse(text))
+    if (verified.status === `invalid`) return { issues: verified.issues, file: null }
+  }
   const at = (path: string) => (bare ? path : `/package${path === `/` ? `` : path}`)
   const issues: ImportIssue[] = appPackageIssues(file.package).map((issue) => ({ path: at(issue.path), message: issue.message }))
   if (issues.length === 0) {
@@ -303,7 +309,7 @@ export const appsRouter = router({
     .input(importInputSchema)
     .mutation(async ({ ctx, input }) => {
       await assertTeamMember(ctx.session.user.id, input.teamId)
-      const { issues, file } = checkAppImport(input.text)
+      const { issues, file } = await checkAppImport(input.text)
       return { issues, name: file?.app.name ?? null, records: file?.records.length ?? 0 }
     }),
 
@@ -316,7 +322,7 @@ export const appsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       await assertTeamMember(userId, input.teamId)
-      const { issues, file } = checkAppImport(input.text)
+      const { issues, file } = await checkAppImport(input.text)
       if (!file) {
         const listed = issues.slice(0, 10).map((issue) => `${issue.path}: ${issue.message}`)
         throw new TRPCError({ code: `BAD_REQUEST`, message: `the app file is invalid: ${listed.join(`; `)}` })

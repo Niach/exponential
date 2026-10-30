@@ -1,5 +1,6 @@
 package com.exponential.app.domain
 
+import at.exponential.ui.host.ParsedSource
 import at.exponential.ui.json.JsonValue
 import com.exponential.app.data.db.AppRecordEntity
 import java.text.NumberFormat
@@ -14,7 +15,7 @@ import kotlin.math.floor
 // VAPP-122: app RECORDS, the Android mirror of the pure reference
 // `packages/domain-contract/src/app-records.ts` (fixtures/app-records.json is
 // the spec; `AppRecordsTest` replays its `queryCases`, `valueCases` and
-// `countLabelCases` and locks the constants below to the fixture). The
+// `countLabelCases` (and VAPP-161 `sourceCases`) and locks the constants below to the fixture). The
 // `exp:records?…` binding's query grammar and the value it emits over the
 // synced `app_records` rows.
 object AppRecords {
@@ -65,6 +66,16 @@ object AppRecords {
 
     private val MONTH = Regex("^\\d{4}-(0[1-9]|1[0-2])$")
     private val RANGE_OPS = listOf("gt", "gte", "lt", "lte")
+
+    /** VAPP-161: a parsed binding source → the params [parseRecordsQuery]
+     *  takes, for both spellings: the format's neutral `records:<kind>?q` (the
+     *  name wins over a `kind` param) and `exp:records?kind=<kind>&q`; null =
+     *  not a records source. */
+    fun recordsSourceParams(source: ParsedSource): Map<String, String>? = when {
+        source.scheme == "records" -> (source.params + ("kind" to source.name)).toSortedMap()
+        source.scheme == "exp" && source.name == "records" -> source.params
+        else -> null
+    }
 
     /** JavaScript's `Number(text)` for a decimal literal (whitespace trimmed,
      *  "" = 0); null = NaN. Hex / binary / octal literals are not accepted. */

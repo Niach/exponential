@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import {
+  availableExtensions,
   defineExtension,
   supportedCatalogIds,
   validatePackage,
@@ -24,6 +25,8 @@ export const appExtension: ExtensionDef = defineExtension(extensionJson as unkno
 
 /** The catalog ids a package may name. */
 export const APP_CATALOG_IDS: readonly string[] = supportedCatalogIds([appExtension.id])
+/** VAPP-161: what a package's `extensions` may declare (the app extension). */
+const APP_EXTENSIONS = availableExtensions([appExtension])
 
 const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
 
@@ -45,7 +48,7 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
   if (bytes > APP_PACKAGE_MAX_BYTES) {
     return { ...none, rules: [{ path: `/`, message: `package is ${bytes} bytes; the cap is ${APP_PACKAGE_MAX_BYTES}: simplify it` }] }
   }
-  const sdk = validatePackage(pkg, APP_CATALOG_IDS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
+  const sdk = validatePackage(pkg, APP_CATALOG_IDS, APP_EXTENSIONS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
   if (sdk.length > 0) return { ...none, sdk }
   const valid = pkg as AppPackage
   const rules: PackageIssue[] = []
@@ -55,7 +58,7 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
   if (!Array.isArray(valid.sources)) {
     rules.push({ path: `/sources`, message: `package must declare sources: the exp: sources its bindings follow, e.g. ["exp:issues"] (or [] for none)` })
   } else {
-    const unknown = valid.sources.filter((source) => !APP_SOURCE_NAMES.some((name) => source === name || source.startsWith(`${name}?`)))
+    const unknown = valid.sources.filter((source) => !source.startsWith(`records:`) && !APP_SOURCE_NAMES.some((name) => source === name || source.startsWith(`${name}?`)))
     if (unknown.length > 0) {
       rules.push({ path: `/sources`, message: `sources ${unknown.join(`, `)} are not resolved by Exponential's app hosts; use ${APP_SOURCE_NAMES.join(`, `)}` })
     }
@@ -64,6 +67,12 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
     if (template.components.length > APP_TEMPLATE_MAX_COMPONENTS) {
       rules.push({ path: `/templates/${id}/components`, message: `template ${id} has ${template.components.length} components; the cap is ${APP_TEMPLATE_MAX_COMPONENTS}` })
     }
+  }
+  // VAPP-161: the format's tools need a host that runs MCP servers and
+  // scripts; Exponential's app hosts run none (an app calls the typed
+  // exponential.<noun>.<op> functions or harness.mcp instead).
+  if (valid.tools !== undefined) {
+    rules.push({ path: `/tools`, message: `Exponential's app hosts run no package tools: call exponential.<noun>.<op> or harness.mcp instead` })
   }
   // VAPP-122: the SDK checked every kind's schema; the contract caps how many.
   const kinds = Object.keys(valid.records ?? {})
@@ -118,7 +127,10 @@ export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
     value: `{rows: [{…data, id, createdAt, updatedAt, createdBy, author}], count, sum?, month?: {key, label, prev, next, days: [{date, day, weekday, count, sum}]}}: the app's OWN records of a kind, live (kind required; mine = the viewer's rows; any other key filters a data field: equals, or .gt .gte .lt .lte; sum = Σ of a number field; by + month = one month's rows and every day of it; app=<slug> reads another app's records)`,
   },
 ]
-/** The source names (`scheme:name`) the app hosts resolve ×4. */
+/** VAPP-161: the format's neutral spelling of `exp:records` (the catalog text). */
+const RECORDS_NEUTRAL_SOURCE = `- records:<kind>?<the same query> → the same value as exp:records?kind=<kind>: the package format's portable spelling (declare "records:*" or "records:<kind>" in sources)`
+/** The source names (`scheme:name`) the app hosts resolve ×4 (VAPP-161:
+ *  plus the format's neutral `records:<kind>`, any kind). */
 export const APP_SOURCE_NAMES: readonly string[] = APP_HOST_SOURCES.map((s) => s.source.split(`?`)[0]!)
 
 export const APP_HOST_FUNCTIONS: readonly { name: string; args: string; effect: string }[] = [
@@ -128,6 +140,8 @@ export const APP_HOST_FUNCTIONS: readonly { name: string; args: string; effect: 
   { name: `harness.mcp`, args: `{tool, arguments}`, effect: `a tools/call on Exponential's MCP as the viewer, after the person allows it` },
   { name: `harness.records.upsert`, args: `{kind, data, id?}`, effect: `creates a record of the app (or, with id, patches that record's data); no consent card: the app's own rows` },
   { name: `harness.records.delete`, args: `{id}`, effect: `deletes one record of the app` },
+  { name: `records.upsert`, args: `{kind, data, id?}`, effect: `the package format's name for harness.records.upsert (portable to other hosts)` },
+  { name: `records.delete`, args: `{id}`, effect: `the package format's name for harness.records.delete` },
 ]
 
 /** S-3 MCP `apps catalog {only}`: just the named components' props (what
@@ -141,7 +155,7 @@ export function componentCatalogText(names: readonly string[]): string {
 
 /** MCP `apps catalog`: everything an agent needs to write a package. */
 export function appCatalogText(): string {
-  const sources = APP_HOST_SOURCES.map((s) => `- ${s.source} → ${s.value}`).join(`\n`)
+  const sources = [...APP_HOST_SOURCES.map((s) => `- ${s.source} → ${s.value}`), RECORDS_NEUTRAL_SOURCE].join(`\n`)
   const functions = APP_HOST_FUNCTIONS.map((f) => `- ${f.name}(${f.args}): ${f.effect}`).join(`\n`)
   return [
     `# App package`,

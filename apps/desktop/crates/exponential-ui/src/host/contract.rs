@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 
 use crate::catalog::A2UI_VERSION;
 
-pub const HOST_CONTRACT_VERSION: u32 = 2;
+pub const HOST_CONTRACT_VERSION: u32 = 3;
 /// The four A2UI v0.9 server messages.
 pub const A2UI_MESSAGE_KINDS: &[&str] = &["createSurface", "updateComponents", "updateDataModel", "deleteSurface"];
 /// The two Exponential UI extensions.
@@ -65,6 +65,7 @@ pub const RECORD_KIND_PATTERN: &str = "^[a-z][a-z0-9_]{0,31}$";
 
 /// `catalog/host.json` without its `$comment`s, rebuilt from the constants.
 pub fn host_contract() -> Value {
+    use super::{record_store as rs, signature as sig, tools};
     json!({
         "version": HOST_CONTRACT_VERSION,
         "a2uiVersion": A2UI_VERSION,
@@ -84,7 +85,19 @@ pub fn host_contract() -> Value {
         "negotiation": {},
         "package": {
             "required": PACKAGE_REQUIRED,
-            "records": {"kindPattern": RECORD_KIND_PATTERN, "reserved": super::records::RECORD_RESERVED_KEYS, "types": super::records::RECORD_FIELD_TYPES, "formats": super::records::RECORD_FORMATS},
+            "formatVersion": super::package::PACKAGE_FORMAT_VERSION,
+            "records": {
+                "kindPattern": RECORD_KIND_PATTERN,
+                "reserved": super::records::RECORD_RESERVED_KEYS,
+                "types": super::records::RECORD_FIELD_TYPES,
+                "formats": super::records::RECORD_FORMATS,
+                "scheme": rs::RECORDS_SCHEME,
+                "functions": rs::RECORDS_FUNCTIONS,
+                "query": {"sortDefault": rs::RECORDS_SORT_DEFAULT, "orderDefault": rs::RECORDS_ORDER_DEFAULT, "limitDefault": rs::RECORDS_LIMIT_DEFAULT, "limitMax": rs::RECORDS_LIMIT_MAX, "reserved": rs::RECORDS_RESERVED_PARAMS},
+            },
+            "tools": {"idPattern": tools::TOOL_ID_PATTERN, "kinds": tools::TOOL_KINDS, "transports": tools::TOOL_TRANSPORTS, "functionPrefix": tools::TOOL_FUNCTION_PREFIX},
+            "extensions": {"versionPattern": super::package::EXTENSION_VERSION_PATTERN},
+            "signature": {"alg": sig::PACKAGE_FILE_SIGNATURE_ALG, "context": sig::PACKAGE_FILE_SIGNATURE_CONTEXT, "keyPrefix": sig::AUTHOR_KEY_PREFIX, "nameMax": sig::AUTHOR_NAME_MAX, "statuses": sig::PACKAGE_FILE_STATUSES},
         },
         "paint": {"hook": PAINT_ERROR_HOOK, "errorCode": RENDER_FAILED},
         "surface": {"settings": SURFACE_SETTINGS, "formatter": SURFACE_FORMATTER, "commands": SURFACE_COMMANDS},

@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package that stays valid.",
   "packages": {
     "acme.devices": {
       "id": "acme.devices",
@@ -303,6 +303,259 @@
           "title": "No schema"
         }
       }
+    },
+    "acme.v2": {
+      "formatVersion": 2,
+      "id": "acme.v2",
+      "name": "Hours v2",
+      "version": "2.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "list": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": {
+                "path": "/entries/count"
+              }
+            }
+          ],
+          "bindings": [
+            {
+              "path": "/entries",
+              "source": "records:entry?mine=1&sort=date"
+            }
+          ]
+        }
+      },
+      "functions": [
+        "records.*",
+        "tools.weather.*",
+        "tools.lint",
+        "tools.files.read"
+      ],
+      "sources": [
+        "records:*"
+      ],
+      "records": {
+        "entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "hours": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "date"
+            ]
+          }
+        }
+      },
+      "tools": {
+        "files": {
+          "kind": "mcp",
+          "title": "Files",
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            "/tmp/my notes"
+          ]
+        },
+        "lint": {
+          "kind": "script",
+          "title": "Lint",
+          "description": "Checks an entry",
+          "command": "bun",
+          "args": [
+            "lint.ts"
+          ],
+          "env": [
+            "LINT_LEVEL"
+          ]
+        },
+        "weather": {
+          "kind": "mcp",
+          "title": "Weather",
+          "url": "https://mcp.example.com/weather"
+        }
+      },
+      "extensions": []
+    },
+    "acme.v2broken": {
+      "formatVersion": 0,
+      "id": "acme.v2broken",
+      "name": "Broken v2",
+      "version": "1",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text"
+            }
+          ],
+          "bindings": [
+            {
+              "path": "/a",
+              "source": "records:missing"
+            },
+            {
+              "path": "/b",
+              "source": "records:entry"
+            }
+          ]
+        }
+      },
+      "records": {
+        "entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "tools": {
+        "Bad": {
+          "kind": "mcp",
+          "title": "x",
+          "url": "https://a.example"
+        },
+        "both": {
+          "kind": "mcp",
+          "title": "Both",
+          "url": "https://a.example",
+          "command": "x"
+        },
+        "neither": {
+          "kind": "mcp",
+          "title": "Neither"
+        },
+        "notool": 3,
+        "rel": {
+          "kind": "mcp",
+          "title": "Relative",
+          "url": "/mcp",
+          "args": [
+            "a"
+          ]
+        },
+        "script": {
+          "kind": "script",
+          "title": "",
+          "url": "https://a.example",
+          "env": [
+            "OK",
+            "1BAD"
+          ]
+        },
+        "weird": {
+          "kind": "plugin",
+          "title": "Weird",
+          "description": 5,
+          "command": "  ",
+          "args": "a b"
+        }
+      },
+      "extensions": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "1.0"
+        },
+        {
+          "id": "",
+          "version": "1.0.0",
+          "components": [
+            "Gantt",
+            ""
+          ]
+        },
+        {
+          "id": "https://ui.exponential.at/catalogs/core/v1",
+          "version": "1.0.0"
+        },
+        {
+          "id": "https://ui.exponential.at/catalogs/core/v1",
+          "version": "1.0.0"
+        },
+        "nope"
+      ]
+    },
+    "acme.future": {
+      "formatVersion": 3,
+      "id": "acme.future",
+      "name": "Future",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Hi"
+            }
+          ]
+        }
+      }
+    },
+    "acme.v1": {
+      "id": "acme.v1",
+      "name": "Plain",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Hi"
+            }
+          ]
+        }
+      },
+      "functions": [
+        "harness.toast"
+      ]
+    },
+    "acme.charts": {
+      "formatVersion": 2,
+      "id": "acme.charts",
+      "name": "Charts",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Hi"
+            }
+          ]
+        }
+      },
+      "extensions": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "1.4.0",
+          "components": [
+            "Gantt"
+          ]
+        }
+      ]
     }
   },
   "flows": [
@@ -1359,6 +1612,67 @@
           ]
         }
       ]
+    },
+    {
+      "name": "VAPP-161: a version-2 package with a registered extension installs; a newer format does not",
+      "extensionIds": [
+        "https://acme.example/catalogs/charts/v1"
+      ],
+      "packages": [
+        "acme.v2",
+        "acme.charts",
+        "acme.future",
+        "acme.v1"
+      ],
+      "installIssues": {
+        "acme.v2": [],
+        "acme.charts": [],
+        "acme.future": [
+          {
+            "path": "/formatVersion",
+            "message": "format version 3 is newer than this host (2)"
+          }
+        ],
+        "acme.v1": []
+      },
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "h",
+              "packageId": "acme.v2",
+              "templateId": "list"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "h",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "h",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": {
+                    "path": "/entries/count"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "records:entry?mine=1&sort=date"
+            }
+          ]
+        }
+      ]
     }
   ],
   "validation": [
@@ -1474,6 +1788,125 @@
         {
           "path": "/records/ok_kind/schema",
           "message": "a record schema is {type: \"object\", properties}"
+        }
+      ]
+    },
+    {
+      "package": "acme.v2",
+      "expected": []
+    },
+    {
+      "package": "acme.v2broken",
+      "expected": [
+        {
+          "path": "/formatVersion",
+          "message": "formatVersion is a positive integer"
+        },
+        {
+          "path": "/templates/t/bindings/0/source",
+          "message": "records:missing names no declared kind"
+        },
+        {
+          "path": "/tools/Bad",
+          "message": "a tool id is lowercase letters, digits, - and _"
+        },
+        {
+          "path": "/tools/both",
+          "message": "an mcp tool has a url or a command"
+        },
+        {
+          "path": "/tools/neither",
+          "message": "an mcp tool has a url or a command"
+        },
+        {
+          "path": "/tools/notool",
+          "message": "a tool is {kind, title, url | command}"
+        },
+        {
+          "path": "/tools/rel/url",
+          "message": "url is an absolute http(s) url"
+        },
+        {
+          "path": "/tools/rel/args",
+          "message": "args is a list of strings beside a command"
+        },
+        {
+          "path": "/tools/script/title",
+          "message": "title is a required string"
+        },
+        {
+          "path": "/tools/script/url",
+          "message": "a script runs a command, not a url"
+        },
+        {
+          "path": "/tools/script/command",
+          "message": "command is a non-empty string"
+        },
+        {
+          "path": "/tools/script/env",
+          "message": "env is a list of variable names beside a command"
+        },
+        {
+          "path": "/tools/weird/kind",
+          "message": "kind is mcp or script"
+        },
+        {
+          "path": "/tools/weird/description",
+          "message": "description is a string"
+        },
+        {
+          "path": "/tools/weird/command",
+          "message": "command is a non-empty string"
+        },
+        {
+          "path": "/tools/weird/args",
+          "message": "args is a list of strings beside a command"
+        },
+        {
+          "path": "/extensions/0/version",
+          "message": "version is MAJOR.MINOR.PATCH"
+        },
+        {
+          "path": "/extensions/0/id",
+          "message": "extension https://acme.example/catalogs/charts/v1 is not available on this host"
+        },
+        {
+          "path": "/extensions/1/id",
+          "message": "id is a required string"
+        },
+        {
+          "path": "/extensions/1/components",
+          "message": "components is a list of component names"
+        },
+        {
+          "path": "/extensions/3/id",
+          "message": "duplicate extension https://ui.exponential.at/catalogs/core/v1"
+        },
+        {
+          "path": "/extensions/4",
+          "message": "an extension is {id, version, components?}"
+        }
+      ]
+    },
+    {
+      "package": "acme.future",
+      "expected": [
+        {
+          "path": "/formatVersion",
+          "message": "format version 3 is newer than this host (2)"
+        }
+      ]
+    },
+    {
+      "package": "acme.v1",
+      "expected": []
+    },
+    {
+      "package": "acme.charts",
+      "expected": [
+        {
+          "path": "/extensions/0/id",
+          "message": "extension https://acme.example/catalogs/charts/v1 is not available on this host"
         }
       ]
     }

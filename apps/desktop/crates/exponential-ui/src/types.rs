@@ -365,6 +365,10 @@ pub struct ExtensionDef {
     pub id: String,
     #[serde(default)]
     pub name: String,
+    /// VAPP-161: `MAJOR.MINOR.PATCH`, what a package's `extensions` entry is
+    /// checked against (caret); `None` = satisfies any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     #[serde(default)]
     pub extends: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
