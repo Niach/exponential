@@ -249,8 +249,8 @@ final class SessionTreeTests: XCTestCase {
             ["type": "subagent", "id": id, "title": title, "status": status]
         case let .picture(id, attachmentId, width, height, caption):
             ["type": "picture", "id": id, "attachmentId": attachmentId, "width": json(width), "height": json(height), "caption": json(caption)]
-        case let .event(id, event, text):
-            ["type": "event", "id": id, "event": event, "text": text]
+        case let .event(id, event, text, sessionId):
+            ["type": "event", "id": id, "event": event, "text": text, "sessionId": json(sessionId)]
         case let .divider(id, kind, at):
             ["type": "divider", "id": id, "kind": kind.rawValue, "at": at]
         case let .locked(id, reason, author):

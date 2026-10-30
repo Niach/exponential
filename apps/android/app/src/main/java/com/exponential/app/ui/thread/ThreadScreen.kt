@@ -52,6 +52,7 @@ import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.InboxRoute
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
@@ -301,7 +302,26 @@ fun ThreadScreen(
     // N-12: THE Dock (dock.json): the suggested-tasks rows with an open item
     // ride the Dock. S-3: a waiting plan or question stays inline (a story).
     val dockedIds = remember(view) { threadDockedIds(view?.rows.orEmpty()) }
-    val openThreadSession: (String) -> Unit = { id -> if (viewModel.isOtherRoot(id)) onOpenThread(id) else onOpenSession(id) }
+    // #EXP-1464 (thread-row-action.json `open`): a session opens where it
+    // lives (inbox-route.json `sessionTarget`, [sessionTargetRoute]): my agent
+    // conversation root = its channel, a thread root = its thread, a thread's
+    // child or anything under an agent = its own session view. A session of
+    // THIS thread's strip opened in place before this ([ThreadContent]).
+    val openThreadSession: (String) -> Unit = { id ->
+        when (val target = if (id == viewModel.rootId) null else viewModel.sessionTarget(id)) {
+            is InboxRoute.SessionTarget.Agent -> onOpenThread(id)
+            is InboxRoute.SessionTarget.Thread ->
+                target.sessionId?.let(onOpenSession) ?: onOpenThread(target.threadId)
+            is InboxRoute.SessionTarget.Session -> onOpenSession(target.sessionId)
+            null -> if (viewModel.isOtherRoot(id)) onOpenThread(id) else onOpenSession(id)
+        }
+    }
+    val rowActions = ThreadRowActions(
+        blocked = viewModel::isBlocked,
+        waitingCard = { id ->
+            remember(id) { viewModel.waitingCard(id) }.collectAsStateWithLifecycle(null).value
+        },
+    )
     val suggestionActions = ThreadSuggestionActions(
         onStart = { rowId, itemId, deviceId, model -> viewModel.startSuggestion(rowId, itemId, deviceId, model) },
         onStartAll = viewModel::startAllSuggestions,
@@ -343,11 +363,9 @@ fun ThreadScreen(
                 onSelectKey = { selectedKey = it },
                 issueStatus = { statusById[it] },
                 meta = metaFor,
-                onOpenCard = { card ->
-                    // A `thread_started` card names ANOTHER root: open that
-                    // thread; every other card opens its raw session view.
-                    if (viewModel.isOtherRoot(card.sessionId)) onOpenThread(card.sessionId) else onOpenSession(card.sessionId)
-                },
+                // #EXP-1464: a session card opens where its session lives.
+                onOpenCard = { card -> openThreadSession(card.sessionId) },
+                rowActions = rowActions,
                 onAnswer = onAnswer,
                 onDecidePlan = onDecidePlan,
                 dockedIds = dockedIds,
@@ -630,6 +648,8 @@ fun ThreadContent(
      *  Stories tab, an agent channel) and its dot. */
     storiesPage: (@Composable (padding: PaddingValues) -> Unit)? = null,
     storiesDot: Boolean = false,
+    /** #EXP-1464: what an expanding session row needs (null = rows only open). */
+    rowActions: ThreadRowActions? = null,
 ) {
     // stories.json STORIES TAB: the host appends the Stories tab after the
     // last chip (never part of session-thread.json `tabs`): the phones'
@@ -786,7 +806,9 @@ fun ThreadContent(
                             dockedIds = dockedIds,
                             onSurfaceReply = onSurfaceReply,
                             origin = view.origin,
-                            onOpenXref = onOpenXref,
+                            // #EXP-1464: a session of this thread opens in place.
+                            onOpenXref = onOpenXref?.let { open -> { id -> if (!openSessionHere(id)) open(id) } },
+                            rowActions = rowActions,
                         )
                         FloatingBarEdge(
                             bottomInset = bottomInset,

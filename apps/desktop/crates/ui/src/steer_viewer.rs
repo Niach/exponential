@@ -2759,7 +2759,7 @@ impl SteerSessionView {
         let cards: Vec<AnyElement> = indices
             .iter()
             .filter_map(|&index| self.conv_cards.get(index).cloned())
-            .filter_map(|row| crate::thread_screen::card_row(&row, &self.session_id, &text, &self.images, window, cx))
+            .filter_map(|row| crate::thread_screen::card_row(&row, &self.session_id, &self.conv_cards, &text, &self.images, window, cx))
             .collect();
         v_flex().w_full().min_w_0().gap(px(transcript::GAP_BLOCK)).children(cards).into_any_element()
     }

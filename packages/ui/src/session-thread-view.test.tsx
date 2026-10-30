@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/session-thread.json"
@@ -82,7 +83,7 @@ const ROWS: ThreadRow[] = [
     feedback: null,
     surfaceData: null,
   },
-  { type: `event`, id: `e1`, event: `issue_linked`, text: `Linked APP-5` },
+  { type: `event`, id: `e1`, event: `issue_linked`, text: `Linked APP-5`, sessionId: null },
 ]
 
 /** N-12: the plan sheet's footer: the Yes button (its menu holds the fresh
@@ -161,6 +162,69 @@ describe(`ThreadConversation`, () => {
     const approve = plan.querySelector(`[data-slot="plan-card-decide"][data-decision="approved"]`)!
     fireEvent.click(approve)
     expect(onDecide).toHaveBeenCalledWith(`p1`, expect.objectContaining({ decision: `approved` }))
+  })
+
+  it(`#EXP-1464: a Needs you card expands into its waiting card, answers there, then reads Answered`, () => {
+    const waiting = ROWS.find((row) => row.type === `question`)!
+    const needs = { ...CARD, sessionId: `s9`, kindWord: `Needs you`, state: `needs_you`, tone: `amber`, running: false }
+    const WaitingCard = ({ children }: { sessionId: string; children: (row: never) => ReactNode }) => (
+      <>{children({ ...waiting, sessionId: `s9` } as never)}</>
+    )
+    const { onAnswer, onOpenSession, rerender } = renderRows([{ type: `session`, id: `c9`, card: needs as never }], {
+      rootId: `r`,
+      WaitingCard,
+    })
+    const card = screen.getByTestId(`session-card`)
+    fireEvent.click(card)
+    expect(onOpenSession).not.toHaveBeenCalled()
+    const expanded = screen.getByTestId(`thread-row-expanded`)
+    const question = expanded.querySelector(`[data-slot="thread-question"]`) as HTMLElement
+    expect(question.textContent).toContain(`Question`)
+    fireEvent.click(within(question).getByTestId(`thread-open-chat`))
+    expect(onOpenSession).toHaveBeenCalledWith(`s9`)
+    fireEvent.click(question.querySelectorAll(`[data-testid="plan-card-option"]`)[0]!)
+    fireEvent.click(within(question).getByTestId(`thread-question-answer`))
+    expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `A`, answers: [`A`] })
+    expect(screen.queryByTestId(`thread-row-expanded`)).toBeNull()
+    // The session works again: the row reads the quiet Answered and opens.
+    rerender(
+      <TooltipProvider>
+        <ThreadConversation
+          rows={[{ type: `session`, id: `c9`, card: { ...needs, kindWord: `Working`, state: `working`, tone: `foreground` } as never }]}
+          renderText={(text) => <p>{text}</p>}
+          attachmentSrc={(id) => `/api/attachments/${id}`}
+          onOpenSession={onOpenSession}
+          onAnswer={onAnswer}
+          rootId="r"
+          WaitingCard={WaitingCard}
+        />
+      </TooltipProvider>
+    )
+    expect(screen.getByTestId(`session-card`).textContent).toContain(`Answered`)
+  })
+
+  it(`#EXP-1464: event and report lines about a session open it; a line about nothing stays plain`, () => {
+    const onOpenXref = vi.fn()
+    renderRows(
+      [
+        { type: `event`, id: `e1`, event: `session_unclaimed`, text: `Fix was not picked up`, sessionId: `s3` },
+        { type: `event`, id: `e2`, event: `session_ended`, text: `Session ended`, sessionId: null },
+        {
+          type: `report`,
+          id: `r1`,
+          sessionId: `s4`,
+          text: `Report from Ship`,
+          summary: `Done`,
+          xref: { kind: `report`, sessionId: `s4`, name: `Ship`, agentId: null },
+        },
+      ],
+      { rootId: `r`, onOpenXref }
+    )
+    fireEvent.click(screen.getByTestId(`thread-event`))
+    expect(onOpenXref).toHaveBeenCalledWith(`s3`)
+    expect(screen.getByText(`Session ended`).closest(`button`)).toBeNull()
+    fireEvent.click(screen.getByTestId(`thread-xref`))
+    expect(onOpenXref).toHaveBeenCalledWith(`s4`)
   })
 
   it(`FEED-140: a docked waiting card stays inline; a superseded plan collapses`, () => {

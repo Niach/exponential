@@ -19,6 +19,7 @@ import {
   ThreadDock,
   threadDockedIds,
   ThreadConversation,
+  type WaitingCardRow,
   ThreadTabs,
   useIsMobile,
   userMessageCaption,
@@ -59,7 +60,7 @@ import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useSuggestionActions } from "@/hooks/use-suggestion-actions"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSession } from "@/hooks/use-session"
-import { useSessionMessages, type MessagePage } from "@/hooks/use-session-tree"
+import { useSessionMessages, useSessionWaitingCard, type MessagePage } from "@/hooks/use-session-tree"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -266,6 +267,12 @@ export function ThreadScreen({
     here: tab.kind === `session` ? tab.sessionId : root.id,
     back: search.back,
   })
+  /** #EXP-1464 (thread-row-action.json `open`): a conversation row's
+   *  session opens by inbox-route.json `sessionTarget`: a child of THIS
+   *  thread in place, anything else (a thread the agent started, a child of
+   *  an agent conversation) on its own route. */
+  const openRowSession = (sessionId: string) =>
+    !root.agentId && sessionId !== root.id && rowsById.has(sessionId) ? openSession(sessionId) : nav.open(sessionId)
   // EXP-1334: the linked issues' statuses (the strip's chip / group rows).
   // S-3: the status resolves through the team's statuses (statusId first);
   // an issue row that has not synced draws NO glyph, never a Backlog one.
@@ -466,7 +473,7 @@ export function ThreadScreen({
         users={users as User[]}
         canReply={permissions.isMember}
         busy={root.busy}
-        onOpenSession={openSession}
+        onOpenSession={openRowSession}
         onOpenXref={nav.open}
         agentFor={agentFor}
         topInset={topInset}
@@ -764,6 +771,8 @@ function ConversationBody({
             onOpenSession={onOpenSession}
             onOpenXref={onOpenXref}
             xrefAgent={xrefAgent}
+            rootId={root.id}
+            WaitingCard={SessionWaitingCard}
             origin={view.origin}
             onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
             onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
@@ -828,6 +837,17 @@ function ConversationBody({
       )}
     </div>
   )
+}
+
+/** #EXP-1464: an expanded session row's waiting card off the synced data. */
+function SessionWaitingCard({
+  sessionId,
+  children,
+}: {
+  sessionId: string
+  children: (row: WaitingCardRow | null | undefined) => ReactNode
+}) {
+  return <>{children(useSessionWaitingCard(sessionId))}</>
 }
 
 /** EXP-1323: a filed suggestion's issue = THE issue chip once it resolves

@@ -16,6 +16,7 @@ import {
 } from "@/lib/collections"
 import { sessionTitles } from "@exp/domain-contract/session-title"
 import { CHATS_TRANSCRIPT, digestMessages, type ConversationDigest } from "@exp/domain-contract/chats"
+import { sessionWaitingCard } from "@exp/domain-contract/thread-row-action"
 import { useNow } from "@/hooks/use-now"
 import { teamScopeIds } from "@/lib/team-scope"
 import {
@@ -27,6 +28,8 @@ import {
   partitionThreads,
   sessionCard,
   sessionConversationIds,
+  threadAskRow,
+  type ThreadRow,
   toTreeIssue,
   toTreeMessages,
   toTreePullRequest,
@@ -790,10 +793,16 @@ export function useLinkedSessions(
   messages: readonly MessageRow[]
 ): { tree: TreeSession[]; digests: TreeMessage[] } {
   const inTree = new Set(treeIds)
+  // #EXP-1464: and every session a card names (a `thread_started` card, a
+  // report, an event line): an agent's threads are roots of their own.
+  const cardSessionId = (message: MessageRow): string | null => {
+    const id = (message.card as { sessionId?: unknown } | null)?.sessionId
+    return typeof id === `string` ? id : null
+  }
   const authorIds = [
     ...new Set(
       messages
-        .map((message) => message.authorSessionId)
+        .flatMap((message) => [message.authorSessionId, cardSessionId(message)])
         .filter((id): id is string => Boolean(id) && !inTree.has(id as string))
     ),
   ].sort()
@@ -884,6 +893,25 @@ export function useSessionMessages(sessionId: string | null | undefined): Messag
   const keyVersion = useKeyVersion()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => keyMessageRows(rows, conversations), [rows, conversations, keyVersion])
+}
+
+/** #EXP-1464 (thread-row-action.json): an expanded session row's waiting
+ *  question / plan card (`sessionWaitingCard` over the session's newest
+ *  messages + its digest's waiting card, any tree); undefined = loading. */
+export function useSessionWaitingCard(
+  sessionId: string
+): Extract<ThreadRow, { type: `question` | `plan` }> | null | undefined {
+  const { conversations } = useConversationSessions()
+  const conversationIds = sessionConversationIds(conversations, [sessionId])
+  const sessionIds = useMemo(() => [sessionId], [sessionId])
+  const { rows, isReady } = useNewestMessages({ key: sessionId, conversationIds, sessionIds })
+  return useMemo(() => {
+    const messages = keyMessageRows(rows, conversations).map(toTreeMessage)
+    const id = sessionWaitingCard(sessionId, messages)
+    const message = id ? messages.find((row) => row.id === id) : undefined
+    if (message) return threadAskRow(message)
+    return isReady ? null : undefined
+  }, [rows, isReady, conversations, sessionId])
 }
 
 /** Every message of ONE tree (`root_id`): an agent's conversation shows

@@ -652,7 +652,14 @@ object SessionTree {
             val caption: String?,
         ) : ThreadRow
 
-        data class Event(override val id: String, val event: String, val text: String) : ThreadRow
+        /** #EXP-1464: [sessionId] = the synced session the line is about (its
+         *  card's `sessionId`), else null; thread-row-action.json opens it. */
+        data class Event(
+            override val id: String,
+            val event: String,
+            val text: String,
+            val sessionId: String? = null,
+        ) : ThreadRow
 
         /** Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
          *  painted as the centred divider pill; [kind] = `new` | `compact`. */
@@ -1162,7 +1169,10 @@ object SessionTree {
                     val text = eventText(card, issueMap, prMap) { id ->
                         byId[id]?.let { target -> sessionCard(target, titles[target.id] ?: "", now).name }
                     }
-                    if (text != null) rows.add(ThreadRow.Event(message.id, card.text("event"), text))
+                    if (text != null) {
+                        val about = card.str("sessionId")?.takeIf { byId.containsKey(it) }
+                        rows.add(ThreadRow.Event(message.id, card.text("event"), text, about))
+                    }
                 }
                 DomainContract.messageCardKindSurface -> surfaceRow(message)?.let(rows::add)
                 // NEW-1: a child's ask mirrored into its parent: the child's own

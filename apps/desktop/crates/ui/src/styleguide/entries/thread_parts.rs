@@ -305,7 +305,7 @@ pub(super) fn row(
         // S-3: another session's message = its link header above the bubble.
         return crate::thread_screen::with_xref(id, xref.as_ref(), author, bubble, cx);
     }
-    card_row(row, &case.view.root_id, &crate::thread_screen::ThreadText::default(), images, window, cx).unwrap_or_else(|| div().into_any_element())
+    card_row(row, &case.view.root_id, &case.view.rows, &crate::thread_screen::ThreadText::default(), images, window, cx).unwrap_or_else(|| div().into_any_element())
 }
 
 /// The rows of the second case the first has no example of.

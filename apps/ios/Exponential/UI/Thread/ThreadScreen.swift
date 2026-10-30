@@ -478,11 +478,19 @@ struct ThreadScreen: View {
 
     /// EXP-1343: a session of this thread's strip shows as its page; one
     /// the strip does not hold (another root's) pushes its own screen.
+    /// #EXP-1464: a child of this thread opens in place; any other session
+    /// by inbox-route.json `sessionTarget` (`AppRoute.openingSession`).
     private func openSession(_ sessionId: String) {
         if reachablePages.contains(.session(sessionId)) {
             selectPage(.session(sessionId))
         } else {
-            pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+            let route = AppRoute.openingSession(sessionId, accountId: accountId, deps: deps)
+            if case let .thread(_, threadId, _) = route, threadId == (rows?.root.id ?? rootId) {
+                // This very thread (a page the strip does not hold).
+                pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+            } else {
+                pushRoute(route)
+            }
         }
     }
 
@@ -538,9 +546,6 @@ struct ThreadScreen: View {
                             rows: rows,
                             view: view,
                             onOpenSession: { sessionId in openSession(sessionId) },
-                            onOpenThread: { threadId in
-                                pushRoute(.thread(accountId: accountId, threadId: threadId))
-                            },
                             onOpenXref: { xref in pushRoute(rows.xrefRoute(xref, accountId: accountId)) },
                             onSubmit: submitAnswer,
                             onUnqueue: unqueue,
