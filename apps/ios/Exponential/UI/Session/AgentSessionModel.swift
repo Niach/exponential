@@ -143,8 +143,9 @@ final class AgentSessionModel {
     /// device answers the join, the transcript is out of reach. Nil on a live
     /// session and once the transcript has arrived.
     enum HistoryState: Equatable {
-        /// The machine that holds the journal did not answer. Terminal:
-        /// nothing to redial for, the file is on that disk.
+        /// The machine that holds the journal did not answer. NOT terminal
+        /// (VAPP-169): the model redials when that device flips online, on a
+        /// wakeup and every `SteerEnet.staleMs` (`SteerOfflineRedial`).
         case deviceOffline
     }
 
@@ -1092,6 +1093,12 @@ final class AgentSessionModel {
         // comes back as stale as everything else — re-stamp it on the way in
         // instead of showing a minute-old count until the next tick.
         activityNow = Date()
+        // VAPP-169: the device-offline `ended` is final to the revival rule
+        // but not to the offline redial, which a wakeup always fires.
+        if offlineRedialPhase == .offline {
+            offlineRedial(.wakeup)
+            return
+        }
         let stale = phase == .live
             && (lastFrameAt.map { Date().timeIntervalSince($0) > Self.liveStaleSeconds } ?? true)
         let decision = SteerReconnectPolicy.revive(
@@ -1513,6 +1520,7 @@ final class AgentSessionModel {
             devicesPolledAt: SyncFreshness.shared.devicesPolledAt(accountId: accountId),
             now: now
         )
+        let wasOnline = hostDevice.online
         hostDevice = SessionHostDevice(
             label: hostRow.flatMap { $0.label.isEmpty ? nil : $0.label },
             online: hostRow.map { row in
@@ -1520,6 +1528,15 @@ final class AgentSessionModel {
                     ? true : (devicesFresh ? false : nil)
             } ?? nil
         )
+        // VAPP-169: a presence flip is an offline-redial trigger (online
+        // redials the offline copy and cuts a `starting` backoff short).
+        if hostDevice.online != wasOnline {
+            if hostDevice.online == true {
+                offlineRedial(.presenceOnline)
+            } else if hostDevice.online == false {
+                offlineRedial(.presenceOffline)
+            }
+        }
         agentUsage = AgentUsagePresentation.sessionUsage(
             status: session.status,
             cli: session.cli,
@@ -1746,7 +1763,44 @@ final class AgentSessionModel {
             } else {
                 history = .deviceOffline
                 phase = .ended(detail: nil)
+                scheduleOfflineRedial()
             }
+        }
+    }
+
+    /// VAPP-169: the row the offline-redial rule sees — nil for every phase
+    /// that rule says nothing about (connecting, live, a reconnecting close).
+    private var offlineRedialPhase: SteerOfflineRedial.Phase? {
+        switch phase {
+        case .ended: return history == .deviceOffline && session != nil ? .offline : .ended
+        case .starting: return .starting
+        default: return nil
+        }
+    }
+
+    /// VAPP-169 OFFLINE REDIAL: dial again WITHOUT touching the phase, so the
+    /// device-offline copy (or `starting`) holds across the attempt. NO FEED
+    /// lands back in `applyNoFeed` (the same copy, the timer re-armed); a feed
+    /// is the transcript (`markLive`).
+    private func offlineRedial(_ trigger: SteerOfflineRedial.Trigger) {
+        guard !stopped, !dialInFlight, let redialPhase = offlineRedialPhase,
+              SteerOfflineRedial.decide(phase: redialPhase, trigger: trigger) else { return }
+        logger.info("offline redial \(trigger.rawValue, privacy: .public) phase=\(redialPhase.rawValue, privacy: .public)")
+        retryTask?.cancel()
+        retryTask = nil
+        resetDialState()
+        Task { await dial() }
+    }
+
+    /// VAPP-169: while the device-offline copy shows, redial every `staleMs`
+    /// (presence lags, or is off).
+    private func scheduleOfflineRedial() {
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(SteerEnet.staleMs))
+            guard let self, !self.stopped, !Task.isCancelled else { return }
+            self.retryTask = nil
+            self.offlineRedial(.staleTimer)
         }
     }
 
@@ -2584,10 +2638,10 @@ final class AgentSessionModel {
             phase = .ended(detail: endDetail)
             return
         }
-        // EXP-773: the device that holds the journal is out of reach.
-        // Terminal on its own terms — nothing to redial for.
+        // EXP-773: the device that holds the journal is out of reach — still
+        // no transcript, so the no-feed rule (and its offline redial, VAPP-169).
         if history != nil {
-            phase = .ended(detail: nil)
+            applyNoFeed()
             return
         }
         if retryStarting {

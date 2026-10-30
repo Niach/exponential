@@ -367,12 +367,42 @@ public enum SteerNoFeedState: Equatable, Sendable {
     /// still be connecting." — and redial on the starting backoff.
     case starting
     /// The row ended: `ended` with the device-offline copy ("{device} is
-    /// offline. The transcript lives on that machine."). Nothing to redial.
+    /// offline. The transcript lives on that machine."). NOT terminal
+    /// (VAPP-169): the viewer redials per `SteerOfflineRedial`.
     case endedDeviceOffline
 
     /// - Parameter sessionOver: the synced row ended, or it vanished.
     public static func decide(sessionOver: Bool) -> SteerNoFeedState {
         sessionOver ? .endedDeviceOffline : .starting
+    }
+}
+
+/// OFFLINE REDIAL (VAPP-169, the fixture's `offlineRedial` cases): which
+/// signal redials a viewer showing no transcript. The redial holds the phase.
+public enum SteerOfflineRedial {
+    public enum Phase: String, Sendable {
+        /// The device-offline `ended` (NO FEED on an ended row).
+        case offline
+        /// Ended by `bye`: the transcript is on screen.
+        case ended
+        /// A live row nobody feeds yet (redials on its own backoff).
+        case starting
+    }
+
+    public enum Trigger: String, Sendable {
+        /// The session's device flipped online in presence.
+        case presenceOnline
+        case presenceOffline
+        /// Every `SteerEnet.staleMs` while the offline copy shows.
+        case staleTimer
+        /// App foreground, network back, the screen opened.
+        case wakeup
+    }
+
+    public static func decide(phase: Phase, trigger: Trigger) -> Bool {
+        if trigger == .presenceOffline || phase == .ended { return false }
+        if phase == .offline { return true }
+        return trigger != .staleTimer
     }
 }
 

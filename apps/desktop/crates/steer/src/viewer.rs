@@ -25,7 +25,7 @@
 //!
 //! | signal | meaning | what happens |
 //! |---|---|---|
-//! | NO FEED: no node, no endpoint, every endpoint refused, or no `activity_synced` in time | the device is not reachable (or not running the session yet) | a live row: [`ViewerPhase::Starting`] + jittered 3s→30s redial; an ended row: [`ViewerPhase::Ended`] `device_offline` |
+//! | NO FEED: no node, no endpoint, every endpoint refused, or no `activity_synced` in time | the device is not reachable (or not running the session yet) | a live row: [`ViewerPhase::Starting`] + jittered 3s→30s redial; an ended row: [`ViewerPhase::Ended`] `device_offline`, NOT terminal (VAPP-169): a silent redial on a kick (presence online, a wakeup) or every [`enet_steer::STALE`] |
 //! | `bye` | the run (or a stored replay, `history`) is finished | [`ViewerPhase::Ended`], stop |
 //! | `error` after the join | the device stopped serving the session | treated as NO FEED |
 //! | [`enet_steer::STALE`] of silence while live | the feed is dead, not the agent quiet (the device beats every 30s) | silent re-join |
@@ -71,6 +71,9 @@ pub struct ViewerTimings {
     pub retry_cap: Duration,
     /// How often the loop re-checks the staleness window.
     pub liveness_tick: Duration,
+    /// VAPP-169: the device-offline `Ended` redials this often (the
+    /// fixture's `staleMs`) on top of every kick.
+    pub offline_redial: Duration,
 }
 
 impl Default for ViewerTimings {
@@ -80,6 +83,7 @@ impl Default for ViewerTimings {
             retry_base: Duration::from_secs(3),
             retry_cap: Duration::from_secs(30),
             liveness_tick: Duration::from_secs(5),
+            offline_redial: enet_steer::STALE,
         }
     }
 }
@@ -118,7 +122,8 @@ impl EnetViewerSource for InstallViewerSource {
 // ---------------------------------------------------------------------------
 
 /// Where the connection stands. `Ended` and `Unauthorized` are TERMINAL — the
-/// loop has stopped and the handle is inert.
+/// loop has stopped and the handle is inert — except the device-offline
+/// `Ended` (VAPP-169), which keeps redialing.
 ///
 /// VAPP-167: serde so the daemon's viewer proxy ([`crate::viewer_proxy`])
 /// can stream it to a CLI over the local socket.
@@ -145,11 +150,52 @@ pub enum ViewerPhase {
 impl ViewerPhase {
     /// Whether the loop has stopped for good.
     pub fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            ViewerPhase::Ended { .. } | ViewerPhase::Unauthorized { .. }
-        )
+        !self.is_device_offline()
+            && matches!(
+                self,
+                ViewerPhase::Ended { .. } | ViewerPhase::Unauthorized { .. }
+            )
     }
+
+    /// VAPP-169: the device-offline `Ended` — the copy shows, the loop
+    /// redials.
+    pub fn is_device_offline(&self) -> bool {
+        matches!(self, ViewerPhase::Ended { outcome: Some(outcome) } if outcome == DEVICE_OFFLINE)
+    }
+
+    fn device_offline() -> Self {
+        ViewerPhase::Ended { outcome: Some(DEVICE_OFFLINE.to_string()) }
+    }
+}
+
+/// VAPP-169 (`steer-enet.json` `offlineRedial`): the phase a redial trigger
+/// meets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RedialPhase {
+    /// The device-offline `Ended`.
+    Offline,
+    /// Ended by `bye`: the transcript is on screen.
+    Ended,
+    Starting,
+}
+
+/// VAPP-169: what may prompt a redial.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RedialTrigger {
+    PresenceOnline,
+    PresenceOffline,
+    StaleTimer,
+    Wakeup,
+}
+
+/// VAPP-169 (TS `steerOfflineRedial`): whether `trigger` redials a viewer in
+/// `phase`. The loop enacts it: a kick (presence online, a wakeup) cuts any
+/// wait short, the stale timer runs only under the offline copy.
+pub fn offline_redial(phase: RedialPhase, trigger: RedialTrigger) -> bool {
+    if trigger == RedialTrigger::PresenceOffline || phase == RedialPhase::Ended {
+        return false;
+    }
+    phase == RedialPhase::Offline || trigger != RedialTrigger::StaleTimer
 }
 
 /// Everything the socket task tells the UI, in arrival order. Apply them to a
@@ -349,6 +395,7 @@ impl ViewerHandle {
     }
 
     /// False once the loop stopped for good (shutdown, ended, unauthorized).
+    /// VAPP-169: true under the device-offline `Ended` — it redials.
     pub fn is_active(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
@@ -547,12 +594,16 @@ async fn run_viewer_loop(
                 // no fallback. An ended row's transcript lives on its device;
                 // a live one may still be connecting (an `in_review` run is
                 // still alive and steerable, EXP-194).
+                // VAPP-169: the device-offline copy is not terminal: redial
+                // under it on a kick or every `offline_redial`, silently
+                // (the phase holds; NO FEED again re-sets the same one).
                 if session_ended.load(Ordering::SeqCst) {
-                    stop(&running, &mut phases, ViewerPhase::Ended { outcome: Some(DEVICE_OFFLINE.to_string()) });
-                    return;
+                    phases.set(ViewerPhase::device_offline());
+                    timings.offline_redial
+                } else {
+                    phases.set(ViewerPhase::Starting);
+                    backoff.next_delay_equal_jitter()
                 }
-                phases.set(ViewerPhase::Starting);
-                backoff.next_delay_equal_jitter()
             }
             // The user (or a wakeup) asked: no delay, no phase flap.
             ConnEnd::Kicked => Duration::ZERO,
@@ -816,6 +867,37 @@ async fn wait(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// VAPP-169: the fixture's `offlineRedial` cases.
+    #[test]
+    fn offline_redial_cases() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/steer-enet.json")).unwrap();
+        for case in fixture["offlineRedial"].as_array().unwrap() {
+            let phase = match case["phase"].as_str().unwrap() {
+                "offline" => RedialPhase::Offline,
+                "ended" => RedialPhase::Ended,
+                "starting" => RedialPhase::Starting,
+                other => panic!("unknown phase {other}"),
+            };
+            let trigger = match case["trigger"].as_str().unwrap() {
+                "presenceOnline" => RedialTrigger::PresenceOnline,
+                "presenceOffline" => RedialTrigger::PresenceOffline,
+                "staleTimer" => RedialTrigger::StaleTimer,
+                "wakeup" => RedialTrigger::Wakeup,
+                other => panic!("unknown trigger {other}"),
+            };
+            assert_eq!(offline_redial(phase, trigger), case["redial"].as_bool().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn the_device_offline_end_is_not_terminal() {
+        assert!(!ViewerPhase::device_offline().is_terminal());
+        assert!(ViewerPhase::device_offline().is_device_offline());
+        assert!(ViewerPhase::Ended { outcome: Some("history".into()) }.is_terminal());
+        assert!(ViewerPhase::Ended { outcome: None }.is_terminal());
+    }
 
     // ── Pure frame building ────────────────────────────────────────────────
 

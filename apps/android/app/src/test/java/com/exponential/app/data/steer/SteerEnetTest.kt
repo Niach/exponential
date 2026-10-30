@@ -24,6 +24,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
@@ -134,6 +135,27 @@ class SteerEnetTest {
         assertEquals(fixture["joinTimeoutMs"]!!.jsonPrimitive.long, defaults.joinTimeoutMs)
         assertEquals(fixture["staleMs"]!!.jsonPrimitive.long, defaults.staleMs)
         assertEquals(fixture["sendTimeoutMs"]!!.jsonPrimitive.long, defaults.sendTimeoutMs)
+    }
+
+    @Test
+    fun theOfflineRedialCasesAreTheFixtures() {
+        // VAPP-169: fixtures/steer-enet.json `offlineRedial`.
+        val cases = fixture["offlineRedial"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val phase = SteerRedialPhase.entries.single {
+                it.name.equals(case["phase"]!!.jsonPrimitive.content, ignoreCase = true)
+            }
+            val trigger = SteerRedialTrigger.entries.single {
+                it.name.equals(case["trigger"]!!.jsonPrimitive.content, ignoreCase = true)
+            }
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                case["redial"]!!.jsonPrimitive.boolean,
+                steerOfflineRedial(phase, trigger),
+            )
+        }
     }
 
     @Test
@@ -365,10 +387,18 @@ class SteerEnetTest {
             withTimeout(3_000) { while (connection.phase.value !is AgentPhase.Ended) delay(5) }
             assertEquals(AgentPhase.Ended(null), connection.phase.value)
             assertEquals(HistoryState.DeviceOffline, connection.history.value)
-            // Final: nothing redials.
+            // VAPP-169: nothing redials before staleMs; reapable once nobody
+            // shows it, yet revivable.
             delay(200)
             assertEquals(1, discoveries.get())
             assertTrue(connection.isFinished)
+            assertTrue(connection.isDeviceOffline)
+            // A wakeup redials holding the phase; NO FEED again = the same copy.
+            connection.kick("test")
+            withTimeout(3_000) { while (discoveries.get() < 2) delay(5) }
+            delay(50)
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            assertEquals(HistoryState.DeviceOffline, connection.history.value)
         } finally {
             connection.close()
         }

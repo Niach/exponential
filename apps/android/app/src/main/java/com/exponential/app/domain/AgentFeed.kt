@@ -2394,13 +2394,14 @@ fun ActivityFeedState.trimmed(): ActivityFeedState {
  * that it cannot be reached.
  */
 enum class HistoryState {
-    /** The machine holding the journal is not reachable. Terminal: nothing to
-     *  redial for, the file is on that disk. */
+    /** The machine holding the journal is not reachable. VAPP-169: not
+     *  terminal, the viewer redials when the device comes back. */
     DeviceOffline,
     ;
 
-    /** Nothing is going to change on its own — stop dialing. */
-    val terminal: Boolean get() = true
+    /** VAPP-169: the device-offline copy redials (fixtures/steer-enet.json
+     *  "OFFLINE REDIAL"), so nothing here is final. */
+    val terminal: Boolean get() = false
 }
 
 sealed interface AgentPhase {

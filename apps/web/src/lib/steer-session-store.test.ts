@@ -14,7 +14,13 @@ import {
   isSubagentScoped,
 } from "@/lib/agent-feed"
 import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
-import { encodeSteerEnvelope, parseSteerEnvelope, type SteerFrame } from "@exp/domain-contract/steer-enet"
+import enetFixture from "@exp/domain-contract/fixtures/steer-enet.json"
+import {
+  encodeSteerEnvelope,
+  parseSteerEnvelope,
+  STEER_ENET_STALE_MS,
+  type SteerFrame,
+} from "@exp/domain-contract/steer-enet"
 import { CLOSE_ENET_LOST, openEnetSteer, type SteerCarrier } from "@/lib/enet/steer-enet-viewer"
 
 // The store never reaches the real client in tests — every store gets fake
@@ -477,7 +483,7 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
-  it(`no feed on an ended row = ended with the device-offline copy, no redial`, async () => {
+  it(`no feed on an ended row = ended with the device-offline copy`, async () => {
     const openEnet = vi.fn(async () => null)
     const store = createSteerSessionStore(`session-1`, { openEnet })
     store.noteSessionStatus(`ended`)
@@ -488,10 +494,97 @@ describe(`connection lifecycle`, () => {
       kind: `ended`,
       detail: `buildbox is offline. The transcript lives on that machine.`,
     })
-    store.kick(`visible`)
-    await vi.advanceTimersByTimeAsync(60_000)
     expect(openEnet).toHaveBeenCalledTimes(1)
     store.dispose()
+  })
+
+  // VAPP-169 OFFLINE REDIAL: the device-offline ended keeps redialing (the
+  // stale timer, a wakeup, the device's presence flip online), holding the
+  // phase; a feed swaps the offline copy for the transcript.
+  describe(`the device-offline copy redials (offlineRedial)`, () => {
+    const offline = {
+      kind: `ended`,
+      detail: `buildbox is offline. The transcript lives on that machine.`,
+    }
+    const offlineStore = async () => {
+      let reachable = false
+      const made = makeStore({ feed: () => reachable })
+      // Watched (an unwatched ended store frees itself after ENDED_GRACE_MS).
+      made.store.subscribe(() => {})
+      made.store.noteSessionStatus(`ended`)
+      made.store.noteDeviceLabel(`buildbox`)
+      made.store.connect()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(made.store.getSnapshot().phase).toEqual(offline)
+      return { ...made, comeBack: () => (reachable = true) }
+    }
+
+    for (const c of enetFixture.offlineRedial.filter((c) => c.phase === `offline`)) {
+      it(`${c.name}`, async () => {
+        const { store, sockets, comeBack } = await offlineStore()
+        comeBack()
+        if (c.trigger === `staleTimer`) {
+          await vi.advanceTimersByTimeAsync(STEER_ENET_STALE_MS - 1_000)
+          expect(sockets).toHaveLength(0)
+          await vi.advanceTimersByTimeAsync(1_100)
+        } else if (c.trigger === `presenceOnline`) {
+          store.kick(`device-online`)
+          await vi.advanceTimersByTimeAsync(0)
+        } else if (c.trigger === `wakeup`) {
+          store.kick(`visible`)
+          await vi.advanceTimersByTimeAsync(0)
+        }
+        // presenceOffline is never a kick: nothing dials before the timer.
+        expect(sockets.length > 0).toBe(c.redial)
+        if (c.redial) {
+          // The redial holds the offline copy until the feed answers.
+          expect(store.getSnapshot().phase).toEqual(offline)
+          sockets[0].open()
+          sockets[0].frame({ t: `activity_reset` })
+          sockets[0].frame({ t: `activity`, event: { kind: `narration`, text: `back` }, seq: 0 })
+          sockets[0].frame({ t: `activity_synced`, firstSeq: 0, lastSeq: 0 })
+          sockets[0].frame({ t: `bye`, outcome: `history` })
+          sockets[0].serverClose(1000)
+          await vi.advanceTimersByTimeAsync(100)
+          expect(store.getSnapshot().phase).toEqual({ kind: `ended` })
+          expect(
+            store.getSnapshot().feed.map((item) => (item as { text: string }).text)
+          ).toEqual([`back`])
+        }
+        store.dispose()
+      })
+    }
+
+    it(`a redial that finds no feed again keeps the copy and the timer`, async () => {
+      const { store, sockets, comeBack } = await offlineStore()
+      store.kick(`device-online`)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(store.getSnapshot().phase).toEqual(offline)
+      comeBack()
+      await vi.advanceTimersByTimeAsync(STEER_ENET_STALE_MS + 100)
+      expect(sockets).toHaveLength(1)
+      store.dispose()
+    })
+
+    for (const c of enetFixture.offlineRedial.filter((c) => c.phase === `ended`)) {
+      it(`${c.name}`, async () => {
+        const { store, sockets } = makeStore()
+        store.noteSessionStatus(`ended`)
+        store.connect()
+        await vi.advanceTimersByTimeAsync(0)
+        sockets[0].open()
+        sockets[0].frame({ t: `activity_reset` })
+        sockets[0].frame({ t: `activity_synced` })
+        sockets[0].frame({ t: `bye`, outcome: `history` })
+        sockets[0].serverClose(1000)
+        expect(store.getSnapshot().phase).toEqual({ kind: `ended` })
+        if (c.trigger === `presenceOnline`) store.kick(`device-online`)
+        if (c.trigger === `wakeup`) store.kick(`visible`)
+        await vi.advanceTimersByTimeAsync(STEER_ENET_STALE_MS + 100)
+        expect(sockets).toHaveLength(c.redial ? 2 : 1)
+        store.dispose()
+      })
+    }
   })
 
   it(`the device-offline copy without a device name`, async () => {

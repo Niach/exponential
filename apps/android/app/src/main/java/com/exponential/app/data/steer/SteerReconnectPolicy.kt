@@ -45,7 +45,11 @@ fun steerRevivalAction(
     dialActive: Boolean,
     finished: Boolean,
     socketStale: Boolean,
+    /** VAPP-169: the device-offline ended (an ended row, NO FEED). Not
+     *  [finished]: a revival redials it (holding the phase). */
+    deviceOffline: Boolean = false,
 ): SteerRevivalAction = when {
+    deviceOffline -> if (dialActive) SteerRevivalAction.WakeRetry else SteerRevivalAction.Dial
     finished -> SteerRevivalAction.Nothing
     // Idle after a background park, or a loop that died under any phase.
     !dialActive -> SteerRevivalAction.Dial
@@ -55,4 +59,30 @@ fun steerRevivalAction(
     phase == AgentPhase.Live && socketStale -> SteerRevivalAction.RedialSilently
     // Connecting behind a live (bounded) dial, and a fresh Live socket.
     else -> SteerRevivalAction.Nothing
+}
+
+/** VAPP-169: the rows [steerOfflineRedial] decides for
+ *  (fixtures/steer-enet.json `offlineRedial`). */
+enum class SteerRedialPhase {
+    /** The device-offline ended: an ended row, NO FEED. */
+    Offline,
+
+    /** Ended by `bye`: the transcript is on screen. */
+    Ended,
+    Starting,
+}
+
+enum class SteerRedialTrigger { PresenceOnline, PresenceOffline, StaleTimer, Wakeup }
+
+/**
+ * VAPP-169 (fixtures/steer-enet.json "OFFLINE REDIAL"): whether [trigger]
+ * redials a viewer in [phase]. The device-offline ended redials on every
+ * trigger but the device going offline; a `bye`-ended transcript never does;
+ * a Starting row cuts its backoff short on presence online or a wakeup and
+ * otherwise keeps its own cadence (no stale timer).
+ */
+fun steerOfflineRedial(phase: SteerRedialPhase, trigger: SteerRedialTrigger): Boolean = when {
+    trigger == SteerRedialTrigger.PresenceOffline || phase == SteerRedialPhase.Ended -> false
+    phase == SteerRedialPhase.Offline -> true
+    else -> trigger != SteerRedialTrigger.StaleTimer
 }
