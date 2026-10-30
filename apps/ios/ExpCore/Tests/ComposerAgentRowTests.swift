@@ -80,6 +80,29 @@ final class ComposerAgentRowTests: XCTestCase {
         }
     }
 
+    /// #EXP-1450: picks never drop the subject (an agent tap drops only a
+    /// prompt).
+    func testReplaysEveryPickCase() throws {
+        let cases = try XCTUnwrap(try block()["pickCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        func subject(_ raw: Any?, _ name: String) throws -> AgentComposerPrompt.Subject? {
+            switch raw as? String {
+            case "issues": return .issues(count: 1)
+            case "prompt": return .prompt
+            case nil: return nil
+            case let other?:
+                XCTFail("\(name): unknown subject \(other)")
+                return nil
+            }
+        }
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let pick = try XCTUnwrap(ComposerAgentRow.Pick(rawValue: try XCTUnwrap(testCase["pick"] as? String)), name)
+            let after = ComposerAgentRow.subjectAfterPick(try subject(testCase["subject"], name), pick: pick)
+            XCTAssertEqual(after, try subject(testCase["expected"], name), name)
+        }
+    }
+
     func testConstantsCopyAndTestIdsMatchTheFixture() throws {
         let block = try block()
         XCTAssertEqual(block["temporaryId"] as? String, ComposerAgentRow.temporaryPick)

@@ -93,4 +93,21 @@ public enum ComposerAgentRow {
         default: current
         }
     }
+
+    /// What a pick is (`agentRow.pickCases`, #EXP-1450): an agent circle,
+    /// the dotted Temporary session circle, or any other option (a device,
+    /// an account, a model, effort, a + row…).
+    public enum Pick: String, Sendable {
+        case agent, temporary, option
+    }
+
+    /// What a pick does to the composer's subject (`agentRow.pickCases`):
+    /// PICKS NEVER DROP THE SUBJECT — an issue subject stays exactly as it
+    /// was; an agent tap drops only a PROMPT (a message to an agent takes
+    /// none), so that one answers nil.
+    public static func subjectAfterPick(
+        _ subject: AgentComposerPrompt.Subject?, pick: Pick
+    ) -> AgentComposerPrompt.Subject? {
+        pick == .agent && subject == .prompt ? nil : subject
+    }
 }

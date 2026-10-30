@@ -9,14 +9,17 @@ import GRDB
 /// THREAD root in the ACTIVE team (phones: the current board's team):
 ///
 /// - The SUBJECT is issue chips, OR one prompt chip (NEW-2: picked in the
-///   `/` menu, sent as `promptId`), OR the agent the agent row picked (S-3,
-///   composer-home.json `agentRow`: `pickAgent` / `clearAgent` = Temporary
-///   session); picking issues or a prompt REPLACES the current subject
-///   (exclusivity by swap, no disabled controls). No subject = the text is
-///   the request.
+///   `/` menu, sent as `promptId`); picking issues or a prompt REPLACES the
+///   current subject (exclusivity by swap, no disabled controls). No subject
+///   = the text is the request.
+/// - The RECIPIENT is the agent the agent row picked (S-3, composer-home.json
+///   `agentRow`: `pickAgent` / `clearAgent` = Temporary session). It is no
+///   subject (#EXP-1450 `pickCases`): an agent pick keeps the issue chips and
+///   their headline, dropping only a prompt; with no issues the subject reads
+///   `.agent`.
 /// - S-3 SEND TO AN AGENT: while `agentId` is set, `submit()` goes through
-///   `sendToAgent` = `sessions.send({agentId, text, attachmentIds})` into the
-///   viewer's conversation with that agent and publishes `landedAgentId`
+///   `sendToAgent` = `sessions.send({agentId, text, attachmentIds, issueIds})`
+///   into the viewer's conversation with that agent and publishes `landedAgentId`
 ///   (the page opens that agent's chat and consumes it). The pick STAYS
 ///   after the send (the row never resets itself); the "+" hides its runner
 ///   and work rows meanwhile (`temporary` false).
@@ -398,15 +401,19 @@ final class AgentComposerModel {
         return agents.first(where: { $0.id == agentId })
     }
 
+    /// #EXP-1450: the issue chips stay the subject under a picked agent (the
+    /// recipient is not a subject); `.agent` = an agent picked over nothing.
     var subject: AgentComposerPrompt.Subject {
+        let count = effectiveChecked.count
+        if count > 0 { return .issues(count: count) }
         if agentId != nil { return .agent }
         if promptId != nil { return .prompt }
-        let count = effectiveChecked.count
-        return count == 0 ? .none : .issues(count: count)
+        return .none
     }
 
+    /// A picked agent = a message ("Send"), whatever the subject.
     var submitTitle: String {
-        AgentComposerPrompt.submitTitle(for: subject)
+        AgentComposerPrompt.submitTitle(for: agentId != nil ? .agent : subject)
     }
 
     /// EXP-1038: the headline verb over the composer ("Implement"; a prompt's
@@ -459,12 +466,14 @@ final class AgentComposerModel {
     }
 
     /// S-3: the agent row's pick — the send goes to that agent
-    /// (`sendToAgent`), REPLACING the issue chips or a prompt.
+    /// (`sendToAgent`). #EXP-1450 (`agentRow.pickCases`): it never drops the
+    /// issue chips; only a prompt goes (a message to an agent takes none).
     func pickAgent(_ id: String) {
         touched = true
         agentId = id
-        promptId = nil
-        checked = []
+        if ComposerAgentRow.subjectAfterPick(subject, pick: .agent) == nil {
+            promptId = nil
+        }
     }
 
     /// S-3: the agent row's Temporary session — today's launch.
@@ -587,6 +596,7 @@ final class AgentComposerModel {
         // of the caller's is involved.
         if agentId != nil {
             if selectedAgent == nil { return "That agent is not available on this team." }
+            if overCap { return "At most \(Self.maxIssues) issues per session." }
             if !AgentComposerPrompt.withinLimit(draftText) {
                 return "The message is too long (\(AgentComposerPrompt.maxLength) characters at most)."
             }
@@ -611,7 +621,7 @@ final class AgentComposerModel {
     }
 
     /// A free request and an agent message need text or an attachment; an
-    /// issue or prompt subject never does.
+    /// issue or prompt subject never does (issues alone to an agent included).
     private var messageMissing: Bool {
         let bare = trimmedDraft.isEmpty && pendingImages.isEmpty && pendingFiles.isEmpty
         switch subject {
@@ -622,6 +632,7 @@ final class AgentComposerModel {
 
     var canSubmit: Bool {
         guard blocker == nil, !sending, !messageMissing else { return false }
+        if agentId != nil { return selectedAgent != nil }
         switch subject {
         case .agent: return selectedAgent != nil
         case .none: return device != nil
@@ -713,7 +724,7 @@ final class AgentComposerModel {
     /// draft, the chips and the strip stay and a toast offers Retry.
     func submit() {
         guard canSubmit, let teamId else { return }
-        let messagedAgentId = subject == .agent ? agentId : nil
+        let messagedAgentId = agentId
         guard messagedAgentId != nil || device != nil else { return }
         sending = true
         touched = true
@@ -768,7 +779,9 @@ final class AgentComposerModel {
                 files: pendingFiles.compactMap(\.wireFile)
             )
             if let messagedAgentId {
-                await sendToAgent(messagedAgentId, text: text, attachmentIds: attachmentIds)
+                await sendToAgent(
+                    messagedAgentId, text: text, attachmentIds: attachmentIds, issueIds: effectiveChecked
+                )
                 return
             }
             guard let device = self.device else { return }
@@ -787,17 +800,21 @@ final class AgentComposerModel {
 
     /// S-3 (composer-home.json `agentRow`): the message goes into the
     /// viewer's conversation with the picked agent —
-    /// `sessions.send({agentId, text, attachmentIds})`, opened on first use
-    /// server-side — and `landedAgentId` tells the page to open that chat.
+    /// `sessions.send({agentId, text, attachmentIds, issueIds})`, opened on
+    /// first use server-side (#EXP-1450: the kept issue chips forward onto
+    /// it) — and `landedAgentId` tells the page to open that chat.
     /// The draft clears; the agent pick stays.
-    private func sendToAgent(_ agentId: String, text: String?, attachmentIds: [String]) async {
+    private func sendToAgent(
+        _ agentId: String, text: String?, attachmentIds: [String], issueIds: [String]
+    ) async {
         do {
             _ = try await deps.sessionsApi.send(
                 accountId: accountId,
                 .agent(
                     agentId: agentId,
                     text: text,
-                    attachmentIds: attachmentIds.isEmpty ? nil : attachmentIds
+                    attachmentIds: attachmentIds.isEmpty ? nil : attachmentIds,
+                    issueIds: issueIds.isEmpty ? nil : issueIds
                 )
             )
             clearDraft()

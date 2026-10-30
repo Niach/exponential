@@ -286,7 +286,9 @@ struct AgentPageView: View {
         guard composer.agentId != want else { return }
         if let want {
             composer.pickAgent(want)
-        } else if composer.subject == AgentComposerPrompt.Subject.agent {
+        } else {
+            // #EXP-1450: an agent over issue chips reads the issues subject,
+            // so clear on the recipient itself, never on the subject.
             composer.clearAgent()
         }
     }
