@@ -37,7 +37,7 @@ const CHATS_JSON: &str = include_str!("../../../../../../../packages/domain-cont
 
 /// The fixture's own expected model: `listCases[0]` + `bubbleCases[0]` +
 /// S-3 `agentRowCases[0]` (the pinned agent rows, the Assistant first).
-fn model() -> (ChatList, Vec<AgentBubble>, Vec<AgentChatRow>) {
+pub(crate) fn model() -> (ChatList, Vec<AgentBubble>, Vec<AgentChatRow>) {
     let fixture: serde_json::Value = serde_json::from_str(CHATS_JSON).expect("chats.json parses");
     let list = serde_json::from_value(fixture["listCases"][0]["expected"].clone()).expect("list");
     let bubbles = serde_json::from_value(fixture["bubbleCases"][0]["expected"].clone()).expect("bubbles");

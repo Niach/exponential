@@ -31,13 +31,13 @@ const GLYPH_PX: f32 = 24.;
 /// A filter pick.
 pub(crate) type OnFilter = Rc<dyn Fn(ChatFilter, &mut Window, &mut App)>;
 
-/// The glyph before a row word ×4 (Android `ChatComponents`, iOS
-/// `wordIcon`): a stack = `pr-stack`, ready to merge = `pr-open`.
+/// The glyph before a row word ×4 (web `ChatRowText`, Android
+/// `ChatComponents`, iOS `wordIcon`): only a stack wears one (`pr-stack`);
+/// #EXP-1469: ready to merge has none, the lead disc already shows the PR.
 fn word_glyph(word: ThreadRowWord) -> Option<crate::icons::ExpIcon> {
     match word {
         ThreadRowWord::Stack => Some(registry::PR_STACK),
-        ThreadRowWord::ReadyToMerge => Some(registry::PR_OPEN),
-        ThreadRowWord::Merged | ThreadRowWord::Question => None,
+        ThreadRowWord::ReadyToMerge | ThreadRowWord::Merged | ThreadRowWord::Question => None,
     }
 }
 

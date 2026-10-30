@@ -516,12 +516,9 @@ private fun ChatRowWord(word: SessionTree.ThreadRowWord) {
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier.testTag("chat-row-word"),
     ) {
-        val icon = when (word) {
-            SessionTree.ThreadRowWord.Stack -> ExpIcons.prStack
-            SessionTree.ThreadRowWord.ReadyToMerge -> ExpIcons.prOpen
-            SessionTree.ThreadRowWord.Question, SessionTree.ThreadRowWord.NeedsInput -> ExpIcons.codingNeedsInput
-            SessionTree.ThreadRowWord.Merged -> null
-        }
+        // #EXP-1469: only `stack` wears a glyph ×4 (web ChatRowText, iOS
+        // ChatsView, desktop word_glyph); the lead disc already shows the PR.
+        val icon = if (word == SessionTree.ThreadRowWord.Stack) ExpIcons.prStack else null
         if (icon != null) Icon(icon, contentDescription = null, tint = muted, modifier = Modifier.size(14.dp))
         Text(word.text.orEmpty(), style = MaterialTheme.typography.labelMedium, color = muted, maxLines = 1)
     }
