@@ -261,7 +261,7 @@ fn named_id_key(kind: &str) -> String {
 fn ref_from_node(kind: &str, node: &Value) -> Option<EntityRef> {
     if let Value::String(raw) = node {
         let id = raw.trim();
-        if id.is_empty() {
+        if id.is_empty() || is_sealed(id) {
             return None;
         }
         let mut entity = EntityRef::new(kind, clamp(id));
@@ -310,10 +310,17 @@ fn ref_from_node(kind: &str, node: &Value) -> Option<EntityRef> {
     Some(entity)
 }
 
-/// The trimmed string under `key`, when it is one and not blank.
+/// The trimmed string under `key`, when it is one and not blank — never a
+/// SEALED one (EXP-1458: a body envelope `exp-sealed:…` is ciphertext, no
+/// id, identifier or title to show).
 fn string_at<'a>(row: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
     let trimmed = row.get(key)?.as_str()?.trim();
-    (!trimmed.is_empty()).then_some(trimmed)
+    (!trimmed.is_empty() && !is_sealed(trimmed)).then_some(trimmed)
+}
+
+/// EXP-1458: a sealed body envelope (`fixtures/sealed-content.json`).
+fn is_sealed(text: &str) -> bool {
+    text.starts_with("exp-sealed:")
 }
 
 fn first_string<'a>(row: &'a Map<String, Value>, keys: &[&str]) -> Option<&'a str> {

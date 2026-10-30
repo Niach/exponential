@@ -55,6 +55,7 @@ pub use exponential_agent_runtime::codex_sessions;
 pub use exponential_agent_runtime::codex_trust;
 pub mod context_layout;
 pub mod device_doctor;
+pub mod direct_inbox;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;
@@ -66,6 +67,7 @@ pub use exponential_agent_runtime::lockfile;
 pub mod managed_codex;
 // EXP-1099: the rotating log file + the heartbeat failure policy.
 pub mod logging;
+pub mod mcp_gateway;
 pub mod mcp_json;
 pub mod mcp_servers;
 pub mod process;

@@ -23,14 +23,26 @@
 //! [`FLUSH_GRACE`] for the queues to empty, so the last turn's reply lands
 //! before the row is reported ended — and a server that is down never holds
 //! the end sequence hostage.
+//!
+//! EXP-1458: a reply's body and card are SEALED to the session's tree
+//! (`coding::sealing`, the root as the host's synced rows name it) before
+//! they post — once, ahead of the retries; with no key holder or no root
+//! known they go out plaintext (still legal). The open-card map reads the
+//! unsealed card. A sealed question card carries its `askText` (what a
+//! listener's agent reads, sealed to the own tree), and a sealed line its
+//! `listenerCopies`: the text re-sealed for every listening tree outside
+//! the own one (`sessions.listeners` once, then each sealed reply's
+//! `listeners`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use api::session_device::ReplyCard;
+use api::session_device::{ListenerCopy, ListenerTree, ReplyCard, ReplyExtras, ReplyResult};
 use api::ApiError;
+use serde_json::Value;
+use coding::sealing;
 
 use crate::mapper::Reply;
 
@@ -55,14 +67,36 @@ const POLL: Duration = Duration::from_millis(50);
 
 /// The two device procedures the outbox calls — the real tRPC client, or a
 /// test's recording fake.
+/// EXP-1458: `reply` posts the card as JSON (a sealed card is no
+/// [`ReplyCard`]), the body as given (a body envelope when sealed) and the
+/// sealed reply's extras; `listeners` = `sessions.listeners`.
 pub trait ConversationApi: Send + Sync + 'static {
-    fn reply(&self, session_id: &str, body: &str, card: Option<&ReplyCard>) -> Result<String, ApiError>;
+    fn reply(
+        &self,
+        session_id: &str,
+        body: &str,
+        card: Option<&Value>,
+        extras: &ReplyExtras,
+    ) -> Result<ReplyResult, ApiError>;
+    fn listeners(&self, _session_id: &str) -> Result<Vec<ListenerTree>, ApiError> {
+        Ok(Vec::new())
+    }
     fn consume(&self, session_id: &str, message_ids: &[String]) -> Result<(), ApiError>;
 }
 
 impl ConversationApi for api::TrpcClient {
-    fn reply(&self, session_id: &str, body: &str, card: Option<&ReplyCard>) -> Result<String, ApiError> {
-        api::session_device::reply(self, session_id, body, card)
+    fn reply(
+        &self,
+        session_id: &str,
+        body: &str,
+        card: Option<&Value>,
+        extras: &ReplyExtras,
+    ) -> Result<ReplyResult, ApiError> {
+        api::session_device::reply_sealed(self, session_id, body, card, extras)
+    }
+
+    fn listeners(&self, session_id: &str) -> Result<Vec<ListenerTree>, ApiError> {
+        api::session_device::listeners(self, session_id)
     }
 
     fn consume(&self, session_id: &str, message_ids: &[String]) -> Result<(), ApiError> {
@@ -85,6 +119,145 @@ pub fn retryable(err: &ApiError) -> bool {
 fn card_question_id(card: Option<&ReplyCard>) -> Option<&str> {
     match card? {
         ReplyCard::Question { question_id, .. } => Some(question_id),
+        _ => None,
+    }
+}
+
+/// EXP-1458: what a reply posts as: its body and card sealed to the
+/// session's tree (or plaintext when sealing is impossible), plus the card's
+/// unsealed JSON. BLOCKING (a first seal may create the tree key).
+fn sealed_reply(session_id: &str, reply: &Reply) -> (String, Option<serde_json::Value>, Option<serde_json::Value>) {
+    let plain_card = reply.card.as_ref().and_then(|card| match serde_json::to_value(card) {
+        Ok(value) => Some(value),
+        Err(err) => {
+            log::warn!("engine: reply card of {session_id} not serializable: {err}");
+            None
+        }
+    });
+    let body = sealing::seal_body_or_plain(session_id, &reply.body);
+    let card = plain_card.as_ref().map(|card| sealing::seal_card_or_plain(session_id, card));
+    (body, card, plain_card)
+}
+
+/// EXP-1458: a sealed reply's extras: a question/plan card's ask text
+/// sealed to the own tree, and the line a listener reads (the reply text,
+/// or the ask text) re-sealed for every keyed listening tree. BLOCKING.
+fn reply_extras(
+    api: &dyn ConversationApi,
+    session_id: &str,
+    reply: &Reply,
+    plain_card: Option<&Value>,
+    listeners: &mut Option<Vec<ListenerTree>>,
+) -> ReplyExtras {
+    let asks = plain_card.filter(|card| matches!(card.get("kind").and_then(Value::as_str), Some("question" | "plan")));
+    let ask = asks.and_then(|card| ask_text(session_id, card));
+    let ask_text = ask.as_deref().and_then(|text| {
+        let sealed = sealing::seal_body_or_plain(session_id, text);
+        sealed.starts_with(sealing::SEALED_BODY_PREFIX).then_some(sealed)
+    });
+    // What reaches a listener: the ask, or a turn's text (a subagent /
+    // picture card relays nothing).
+    let line = match (&ask, plain_card) {
+        (Some(ask), _) => Some(ask.as_str()),
+        (None, None) if !reply.body.trim().is_empty() => Some(reply.body.as_str()),
+        _ => None,
+    };
+    let copies = line.map(|line| {
+        if listeners.is_none() {
+            match api.listeners(session_id) {
+                Ok(trees) => *listeners = Some(trees),
+                Err(err) => log::warn!("engine: sessions.listeners of {session_id} failed: {err}"),
+            }
+        }
+        listeners.as_deref().unwrap_or_default().iter().filter_map(|tree| listener_copy(tree, line)).collect::<Vec<_>>()
+    });
+    ReplyExtras {
+        ask_text,
+        listener_copies: copies.filter(|copies| !copies.is_empty()),
+        ..ReplyExtras::default()
+    }
+}
+
+/// `line` sealed to one listening tree's current key (`None` = a keyless
+/// tree: its listeners get the neutral line).
+fn listener_copy(tree: &ListenerTree, line: &str) -> Option<ListenerCopy> {
+    let (Some(epoch), Some(key)) = (tree.epoch, tree.public_key.as_deref()) else { return None };
+    let public = sealing::public_key_from_b64(key).ok()?;
+    if let Some(service) = sealing::service() {
+        service.keyring().set_current(&tree.root_id, epoch, public);
+    }
+    match sealing::seal_body_for_tree(&tree.root_id, line) {
+        Ok(body) => Some(ListenerCopy { root_id: tree.root_id.clone(), body }),
+        Err(err) => {
+            log::warn!("engine: no listener copy for tree {}: {err}", tree.root_id);
+            None
+        }
+    }
+}
+
+/// How long a plan's text runs in an ask before it is clipped.
+const ASK_PLAN_MAX: usize = 2000;
+
+/// EXP-1458: the text a listener's agent reads for an open card — the
+/// server's `askText` (apps/web lib/sessions/bus.ts), which it can no
+/// longer compose from a sealed card.
+pub(crate) fn ask_text(session_id: &str, card: &Value) -> Option<String> {
+    let copy = &domain::chats::CHATS.copy.preview;
+    let send = format!("exponential_sessions_send({{sessionId: \"{session_id}\", answer: {{…}}}})");
+    let str_of = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+    match card.get("kind").and_then(Value::as_str)? {
+        "question" => {
+            let options: Vec<&str> =
+                card.get("options").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+            let mut flags = Vec::new();
+            if card.get("multi").and_then(Value::as_bool) == Some(true) {
+                flags.push("several allowed");
+            }
+            if card.get("custom").and_then(Value::as_bool) != Some(false) {
+                flags.push("free text allowed");
+            }
+            let mut lines = vec![format!("{}{}", copy.ask_question_lead, str_of(card, "question"))];
+            if !options.is_empty() {
+                let flags = if flags.is_empty() { String::new() } else { format!(" ({})", flags.join(", ")) };
+                lines.push(format!("Options: {}{flags}", options.join(" | ")));
+            }
+            lines.push(format!(
+                "Answer with {send} where answer = {{answers: [\"<option>\"]}} or {{answer: \"<text>\"}} if you know it; otherwise end your turn, a person answers in the card."
+            ));
+            Some(lines.join("\n"))
+        }
+        "plan" => {
+            let plan = str_of(card, "plan");
+            let plan = if plan.chars().count() > ASK_PLAN_MAX {
+                format!("{}…", plan.chars().take(ASK_PLAN_MAX - 1).collect::<String>().trim_end())
+            } else {
+                plan
+            };
+            let questions: Vec<String> = card
+                .get("questions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|question| {
+                    let labels: Vec<String> = question
+                        .get("options")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .map(|option| str_of(option, "label"))
+                        .collect();
+                    format!("- {}: {} ({})", str_of(question, "id"), str_of(question, "prompt"), labels.join(" | "))
+                })
+                .collect();
+            let mut blocks = vec![copy.ask_plan_lead.clone(), plan];
+            if !questions.is_empty() {
+                blocks.push(format!("Questions:\n{}", questions.join("\n")));
+            }
+            blocks.push(format!(
+                "Decide with {send} where answer = {{decision: \"approved\" | \"rejected\", answers: {{\"<question id>\": [\"<option>\"]}}, feedback: \"<text>\"}} if it is yours to decide; otherwise end your turn, a person decides in the card."
+            ));
+            Some(blocks.join("\n\n"))
+        }
         _ => None,
     }
 }
@@ -125,10 +298,35 @@ impl Outbox {
             let shared = Arc::clone(&shared);
             let session_id = session_id.to_string();
             spawn_named(&format!("engine-replies-{}", short(&session_id)), move || {
+                // EXP-1458: the listening trees, fetched before the first
+                // sealed line that needs copies, then kept current off each
+                // sealed reply's result.
+                let mut listeners: Option<Vec<ListenerTree>> = None;
                 while let Some(reply) = next(&reply_rx, &shared.closing) {
+                    let (body, card, plain_card) = sealed_reply(&session_id, &reply);
+                    let sealed = body.starts_with(sealing::SEALED_BODY_PREFIX)
+                        || card.as_ref().is_some_and(|card| card.get("sealed").is_some());
+                    let extras = if sealed {
+                        reply_extras(api.as_ref(), &session_id, &reply, plain_card.as_ref(), &mut listeners)
+                    } else {
+                        ReplyExtras::default()
+                    };
                     let posted = with_retry(&shared.closing, "sessions.reply", false, || {
-                        api.reply(&session_id, &reply.body, reply.card.as_ref())
+                        api.reply(&session_id, &body, card.as_ref(), &extras)
+                    })
+                    .map(|result| {
+                        if sealed {
+                            listeners = Some(result.listeners);
+                        }
+                        result.message_id
                     });
+                    // A sealed question card's full form, for the device's
+                    // write-back of an answer given in the session view.
+                    if let (Some(message_id), Some(plain), Some(sealed)) = (&posted, &plain_card, &card) {
+                        if sealed.get("sealed").is_some() && card_question_id(reply.card.as_ref()).is_some() {
+                            coding::pickup::remember_sealed_card(message_id, &session_id, plain);
+                        }
+                    }
                     if let (Some(message_id), Some(question_id)) =
                         (posted, card_question_id(reply.card.as_ref()))
                     {
@@ -359,13 +557,62 @@ fn short(session_id: &str) -> &str {
     session_id.get(..8).unwrap_or(session_id)
 }
 
+/// EXP-1458: a [`sealing::SealService`] over an in-memory keyring for this
+/// crate's tests (coding's own fake is test-only there). Installing it is
+/// process-global: hold [`fake_seal::serial`], and use session ids no other
+/// test feeds to the keyring.
+#[cfg(test)]
+pub(crate) mod fake_seal {
+    use super::sealing::{self, Keyring, SealService};
+    use std::sync::{Arc, Mutex};
+
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    pub(crate) fn serial() -> std::sync::MutexGuard<'static, ()> {
+        SERIAL.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    #[derive(Default)]
+    pub(crate) struct Fake {
+        pub(crate) keyring: Keyring,
+    }
+
+    impl SealService for Fake {
+        fn keyring(&self) -> &Keyring {
+            &self.keyring
+        }
+        fn install_id(&self) -> Option<String> {
+            Some("install-1".into())
+        }
+        fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), String> {
+            if let Some(current) = self.keyring.current(root_id) {
+                return Ok(current);
+            }
+            let key = sealing::generate_tree_key();
+            self.keyring.insert_secret(root_id, 1, key.secret);
+            self.keyring.set_current(root_id, 1, key.public);
+            Ok((1, key.public))
+        }
+        fn public_key(&self, root_id: &str) -> Result<Option<(u32, [u8; 32])>, String> {
+            Ok(self.keyring.current(root_id))
+        }
+        fn fetch_secrets(&self, _root_id: &str) {}
+    }
+
+    pub(crate) fn install() -> Arc<Fake> {
+        let fake = Arc::new(Fake::default());
+        sealing::install(fake.clone());
+        fake
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[derive(Debug, Clone, PartialEq)]
     enum Call {
-        Reply(String, Option<ReplyCard>),
+        Reply(String, Option<serde_json::Value>),
         Consume(Vec<String>),
     }
 
@@ -377,10 +624,20 @@ mod tests {
         fail_replies: Mutex<usize>,
         stale: Option<String>,
         ids: std::sync::atomic::AtomicUsize,
+        extras: Mutex<Vec<ReplyExtras>>,
+        trees: Mutex<Vec<ListenerTree>>,
+        listener_calls: Mutex<usize>,
     }
 
     impl ConversationApi for Fake {
-        fn reply(&self, _session: &str, body: &str, card: Option<&ReplyCard>) -> Result<String, ApiError> {
+        fn reply(
+            &self,
+            _session: &str,
+            body: &str,
+            card: Option<&serde_json::Value>,
+            extras: &ReplyExtras,
+        ) -> Result<ReplyResult, ApiError> {
+            self.extras.lock().unwrap().push(extras.clone());
             {
                 let mut fail = self.fail_replies.lock().unwrap();
                 if *fail > 0 {
@@ -389,7 +646,13 @@ mod tests {
                 }
             }
             self.calls.lock().unwrap().push(Call::Reply(body.to_string(), card.cloned()));
-            Ok(format!("msg-{}", self.ids.fetch_add(1, Ordering::SeqCst) + 1))
+            let message_id = format!("msg-{}", self.ids.fetch_add(1, Ordering::SeqCst) + 1);
+            Ok(ReplyResult { message_id, listeners: self.trees.lock().unwrap().clone() })
+        }
+
+        fn listeners(&self, _session: &str) -> Result<Vec<ListenerTree>, ApiError> {
+            *self.listener_calls.lock().unwrap() += 1;
+            Ok(self.trees.lock().unwrap().clone())
         }
 
         fn consume(&self, _session: &str, ids: &[String]) -> Result<(), ApiError> {
@@ -423,7 +686,7 @@ mod tests {
             *fake.calls.lock().unwrap(),
             vec![
                 Call::Reply("first".into(), None),
-                Call::Reply(String::new(), Some(question("q-1"))),
+                Call::Reply(String::new(), Some(serde_json::to_value(question("q-1")).unwrap())),
                 Call::Reply("last".into(), None),
             ]
         );
@@ -495,8 +758,8 @@ mod tests {
     fn a_consume_the_server_never_took_is_reported_unconsumed() {
         struct Down;
         impl ConversationApi for Down {
-            fn reply(&self, _: &str, _: &str, _: Option<&ReplyCard>) -> Result<String, ApiError> {
-                Ok("m".into())
+            fn reply(&self, _: &str, _: &str, _: Option<&serde_json::Value>, _: &ReplyExtras) -> Result<ReplyResult, ApiError> {
+                Ok(ReplyResult { message_id: "m".into(), listeners: Vec::new() })
             }
             fn consume(&self, _: &str, _: &[String]) -> Result<(), ApiError> {
                 Err(ApiError::transport("offline"))
@@ -512,6 +775,73 @@ mod tests {
         outbox.consume(["m-1".to_string(), "m-gone".to_string()]);
         outbox.close(Duration::from_secs(5));
         assert!(outbox.unconsumed().is_empty());
+    }
+
+    /// EXP-1458: with a key holder and the session's root known, the body
+    /// and the card post sealed (no plaintext on the wire), the open-card
+    /// map still keys the posted card by its question id, and the full card
+    /// is kept for the device's write-back.
+    #[test]
+    fn replies_post_sealed_and_cards_still_open_by_question_id() {
+        let _serial = fake_seal::serial();
+        let fake = fake_seal::install();
+        fake.keyring.note_root("sealed-child", "sealed-root");
+        let api = Arc::new(Fake::default());
+        // One keyed listening tree (its secret held here only to check the
+        // copy), one keyless.
+        let listener = sealing::generate_tree_key();
+        fake.keyring.insert_secret("listener-root", 4, listener.secret);
+        *api.trees.lock().unwrap() = vec![
+            ListenerTree {
+                root_id: "listener-root".into(),
+                epoch: Some(4),
+                public_key: Some(sealing::b64url_encode(&listener.public)),
+            },
+            ListenerTree { root_id: "keyless-root".into(), epoch: None, public_key: None },
+        ];
+        let outbox = Outbox::spawn(api.clone(), "sealed-child");
+        outbox.post(vec![
+            Reply { body: "the secret answer".into(), card: None },
+            Reply { body: String::new(), card: Some(question("q-7")) },
+        ]);
+        outbox.close(Duration::from_secs(5));
+        let calls = api.calls.lock().unwrap().clone();
+        let [Call::Reply(body, None), Call::Reply(empty, Some(card))] = calls.as_slice() else {
+            sealing::uninstall();
+            panic!("{calls:?}");
+        };
+        // The tree's secret opens both back.
+        let opened_body = sealing::open_body("sealed-root", body).text;
+        let opened_card = sealing::open_card("sealed-root", card).card;
+        let extras = api.extras.lock().unwrap().clone();
+        let copy_of = |extras: &ReplyExtras| -> Vec<(String, Option<String>)> {
+            extras
+                .listener_copies
+                .iter()
+                .flatten()
+                .map(|copy| (copy.root_id.clone(), sealing::open_body("listener-root", &copy.body).text))
+                .collect()
+        };
+        let text_copies = copy_of(&extras[0]);
+        let ask_copies = copy_of(&extras[1]);
+        let ask = extras[1].ask_text.as_deref().and_then(|t| sealing::open_body("sealed-root", t).text);
+        sealing::uninstall();
+        assert_eq!(*api.listener_calls.lock().unwrap(), 1, "fetched once, then kept off the results");
+        assert_eq!(extras[0].ask_text, None);
+        assert_eq!(text_copies, vec![("listener-root".to_string(), Some("the secret answer".to_string()))]);
+        let ask = ask.expect("a sealed ask text");
+        assert!(ask.starts_with("Asks: Which?\nOptions: A | B (free text allowed)\nAnswer with exponential_sessions_send({sessionId: \"sealed-child\""), "{ask}");
+        assert_eq!(ask_copies, vec![("listener-root".to_string(), Some(ask.clone()))]);
+        assert!(body.starts_with("exp-sealed:v1:1:"), "{body}");
+        assert!(!body.contains("secret"));
+        assert_eq!(empty, "");
+        assert_eq!(card["kind"], "question");
+        assert!(card["sealed"].as_str().is_some_and(|s| s.starts_with("v1:1:")), "{card}");
+        assert!(card.get("question").is_none() && card.get("questionId").is_none() && card.get("options").is_none());
+        assert_eq!(outbox.open_cards(), HashMap::from([("msg-2".to_string(), "q-7".to_string())]));
+        assert_eq!(opened_body.as_deref(), Some("the secret answer"));
+        assert_eq!(opened_card["questionId"], "q-7");
+        assert_eq!(opened_card["question"], "Which?");
     }
 
     #[test]

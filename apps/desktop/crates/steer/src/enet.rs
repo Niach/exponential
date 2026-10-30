@@ -4,10 +4,11 @@
 //! steer tokio runtime, `installs.register` on every start, and the access
 //! allowlist = the endpoint ids `installs.list` returns for every team the
 //! user is in (refreshed on start, every [`ALLOWLIST_REFRESH`] and on a team
-//! change). No content travels here yet (#EXP-1458/#EXP-1459): the chat
-//! channel only carries the opt-in [`PING_ENV`] ping. EXP-1458: once
-//! registered the node also runs the install's KEY HOLDER
-//! (`seal_keys.rs`), the process's `coding::sealing` service.
+//! change). The chat channel carries the opt-in [`PING_ENV`] ping and,
+//! EXP-1458, agent-to-agent messages ([`DirectPayload`], sealed as stored;
+//! received ones land in `coding::direct_inbox`). Once registered the node
+//! also runs the install's KEY HOLDER (`seal_keys.rs`), the process's
+//! `coding::sealing` service, whose `deliver_direct` sends through here.
 //!
 //! Identity: 32 secret-key bytes as one lowercase hex line in a 0600 file
 //! (the locked file-store posture of `api::token_store`, never the OS
@@ -21,7 +22,7 @@ use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use api::error::ApiError;
@@ -48,6 +49,94 @@ pub const PING_ENV: &str = "EXP_ENET_PING";
 
 /// The ping body. Not content: a fixed probe.
 pub const PING_BODY: &[u8] = b"exp-enet-ping/1";
+
+/// The type tag of an agent-to-agent message on `exp/enet/chat/1`.
+pub const DIRECT_TAG: &str = "exp-msg";
+
+/// How long one agent-to-agent send waits for its ack.
+pub const DIRECT_SEND_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How long a send to a peer missing from the allowlist waits for the one
+/// refresh it triggers.
+pub const DIRECT_REFRESH_WAIT: Duration = Duration::from_secs(10);
+
+/// EXP-1458 (contract addendum 3): one agent-to-agent message over eNet
+/// chat, the sealed fields exactly as the server stored them:
+/// `{t:"exp-msg", v:1, messageId, sessionId, rootId, createdAt,
+/// authorSessionId, body, card?}`. Never opened in transit.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectPayload {
+    pub t: String,
+    pub v: u32,
+    pub message_id: String,
+    pub session_id: String,
+    pub root_id: String,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    pub author_session_id: String,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<serde_json::Value>,
+}
+
+/// The chat body for `message` (a sealed row the server accepted), or
+/// `None` when it is no agent-to-agent message (no target session, root or
+/// sender session, or nothing sealed to carry).
+pub fn direct_payload(message: &domain::rows::MessageRow) -> Option<Vec<u8>> {
+    let payload = DirectPayload {
+        t: DIRECT_TAG.to_string(),
+        v: 1,
+        message_id: message.id.clone(),
+        session_id: message.session_id.clone(),
+        root_id: message.root_id.clone().unwrap_or_default(),
+        created_at: message.created_at.clone(),
+        author_session_id: message.author_session_id.clone().unwrap_or_default(),
+        body: message.body.clone(),
+        card: message.card.clone(),
+    };
+    valid(&payload).then(|| serde_json::to_vec(&payload).ok()).flatten()
+}
+
+/// A chat body back into the pending-input row the pickup feeds: `None`
+/// for anything else (the ping) or a payload that breaks the rules (ids
+/// missing, the sender = the target, a body or card that is not sealed).
+pub fn parse_direct_payload(body: &[u8]) -> Option<domain::rows::MessageRow> {
+    if !body.starts_with(b"{") {
+        return None;
+    }
+    let payload: DirectPayload = serde_json::from_slice(body).ok()?;
+    if payload.t != DIRECT_TAG || payload.v != 1 || !valid(&payload) {
+        return None;
+    }
+    Some(domain::rows::MessageRow {
+        id: payload.message_id,
+        // Keyed by its session the way `key_messages_by_session` keys a
+        // synced row; the conversation is the Electric copy's business.
+        conversation_id: String::new(),
+        session_id: payload.session_id,
+        root_id: Some(payload.root_id),
+        author_kind: Some(domain::contract::MESSAGE_AUTHOR_KIND_AGENT.to_string()),
+        author_session_id: Some(payload.author_session_id),
+        body: payload.body,
+        card: payload.card,
+        created_at: payload.created_at,
+        ..Default::default()
+    })
+}
+
+fn valid(payload: &DirectPayload) -> bool {
+    let present = |s: &str| !s.is_empty();
+    present(&payload.message_id)
+        && present(&payload.session_id)
+        && present(&payload.root_id)
+        && present(&payload.author_session_id)
+        && payload.author_session_id != payload.session_id
+        && (payload.body.is_some() || payload.card.is_some())
+        && payload.body.as_deref().is_none_or(|b| b.starts_with(enet_core::sealed::SEALED_BODY_PREFIX))
+        && payload.card.as_ref().is_none_or(|c| c.get("sealed").is_some_and(serde_json::Value::is_string))
+}
 
 /// Which kind of install this process is (`installs.kind`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -522,6 +611,9 @@ async fn run(inner: Arc<Inner>) {
         }
         if matches!(registered, Registered::Yes) {
             start_holder(&inner, &identity);
+            if let Some(holder) = lock(&inner.holder).as_ref() {
+                holder.set_direct_sender(direct_sender(&inner));
+            }
         }
         let allowed = refresh_allowlist(&inner, &node, relay.as_ref()).await;
         if ping {
@@ -566,6 +658,74 @@ fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
     log::info!("enet: key holder running");
 }
 
+/// EXP-1458: the key holder's agent-to-agent sender: the sealed row as a
+/// [`DirectPayload`] over chat to the target install, on the steer runtime
+/// (fire and forget, acked or logged).
+fn direct_sender(inner: &Arc<Inner>) -> crate::seal_keys::DirectSender {
+    let weak = Arc::downgrade(inner);
+    let runtime = tokio::runtime::Handle::current();
+    Arc::new(move |to: &coding::sealing::DeliverTo, message: &domain::rows::MessageRow| {
+        let Some(body) = direct_payload(message) else {
+            log::debug!("enet: message {} is no direct message; Electric delivers it", message.id);
+            return;
+        };
+        let Some(peer) = parse_endpoint(&to.endpoint_id) else {
+            log::warn!("enet: deliverTo endpoint {:?} is malformed", to.endpoint_id);
+            return;
+        };
+        runtime.spawn(send_direct(weak.clone(), peer, message.id.clone(), body));
+    })
+}
+
+async fn send_direct(inner: Weak<Inner>, peer: EndpointId, message_id: String, body: Vec<u8>) {
+    let Some(inner) = inner.upgrade() else { return };
+    let Some(node) = lock(&inner.node).clone() else {
+        log::debug!("enet: node down; Electric delivers {message_id}");
+        return;
+    };
+    if !node.access().allowed_peers().contains(&peer) {
+        // Maybe the target registered after our last list: refresh once.
+        let mut passes = inner.passes.subscribe();
+        let seen = *passes.borrow();
+        inner.wake.notify_one();
+        let _ = tokio::time::timeout(DIRECT_REFRESH_WAIT, passes.wait_for(|n| *n > seen)).await;
+        if !node.access().allowed_peers().contains(&peer) {
+            log::info!("enet: {} is no team install; Electric delivers {message_id}", endpoint_hex(&peer));
+            return;
+        }
+    }
+    let started = std::time::Instant::now();
+    match tokio::time::timeout(DIRECT_SEND_TIMEOUT, node.send_chat(peer, body)).await {
+        Ok(Ok(_)) => log::info!(
+            "enet: direct {message_id} → {} acked in {:?}",
+            endpoint_hex(&peer),
+            started.elapsed()
+        ),
+        Ok(Err(err)) => log::info!("enet: direct {message_id} → {} failed: {err}", endpoint_hex(&peer)),
+        Err(_) => log::info!("enet: direct {message_id} → {} timed out", endpoint_hex(&peer)),
+    }
+}
+
+/// EXP-1458: an agent-to-agent message from an allowed peer goes into the
+/// process's direct inbox (still sealed); anything else is only logged.
+fn receive_chat(inner: &Inner, from: &EndpointId, body: &[u8]) {
+    if body == PING_BODY {
+        log::info!("enet: ping from {} (acked)", endpoint_hex(from));
+        return;
+    }
+    let Some(row) = parse_direct_payload(body) else {
+        log::info!("enet: chat from {} ({} bytes, acked)", endpoint_hex(from), body.len());
+        return;
+    };
+    let allowed = lock(&inner.node).as_ref().is_some_and(|node| node.access().allowed_peers().contains(from));
+    if !allowed {
+        log::warn!("enet: direct message from {} outside the allowlist dropped", endpoint_hex(from));
+        return;
+    }
+    log::info!("enet: direct {} for session {} from {}", row.id, row.session_id, endpoint_hex(from));
+    coding::direct_inbox::push(row);
+}
+
 async fn refresh_allowlist(inner: &Arc<Inner>, node: &Arc<Node>, relay: Option<&RelayUrl>) -> usize {
     let teams = Arc::clone(&inner.teams);
     let registry = Arc::clone(&inner.registry);
@@ -608,9 +768,7 @@ async fn log_events(inner: Arc<Inner>, mut events: tokio::sync::mpsc::UnboundedR
     let mut last_refused_refresh: Option<std::time::Instant> = None;
     while let Some(event) = events.recv().await {
         match event {
-            Event::Chat { from, message } => {
-                log::info!("enet: chat from {} ({} bytes, acked)", endpoint_hex(&from), message.body.len())
-            }
+            Event::Chat { from, message } => receive_chat(&inner, &from, &message.body),
             Event::PeerRefused { peer, .. } => {
                 log::info!("enet: refused {}", endpoint_hex(&peer));
                 // Maybe a teammate's install registered after our last
