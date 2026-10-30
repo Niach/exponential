@@ -1,2 +1,3 @@
-- Un unico aspetto per le schede: le risposte degli agenti e le schede che una sessione ti mostra hanno la stessa superficie, gli stessi angoli e margini delle altre app
-- Il titolo di una scheda compare sopra di essa nella chat
+- Le storie scorrono immagine per immagine a schermo intero, ognuna con la sua barra di avanzamento
+- Le notifiche si aprono sul tuo telefono e mostrano il messaggio completo
+- Il menu + dell'editor elenca i prompt del tuo team; la pagina dell'Assistente non ha più il campo istruzioni

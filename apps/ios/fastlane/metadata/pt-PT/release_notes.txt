@@ -1,2 +1,3 @@
-- Um só aspeto de cartão: as respostas dos agentes e os cartões que uma sessão te mostra têm a mesma superfície, cantos e margens que nas outras apps
-- O título de um cartão aparece por cima dele no chat
+- As histórias avançam imagem a imagem em ecrã inteiro, cada uma com a sua barra de progresso
+- As notificações abrem no teu telemóvel e mostram a mensagem completa
+- O menu + do editor lista os prompts da tua equipa; a página do Assistente já não tem campo de instruções

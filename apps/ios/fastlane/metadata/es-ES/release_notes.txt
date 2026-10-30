@@ -1,2 +1,3 @@
-- Un mismo aspecto de tarjeta: las respuestas de los agentes y las tarjetas que te muestra una sesión tienen la misma superficie, esquinas y márgenes que en las otras apps
-- El título de una tarjeta aparece encima de ella en el chat
+- Las historias avanzan imagen a imagen a pantalla completa, cada una con su propia barra de progreso
+- Las notificaciones se abren en tu teléfono y muestran el mensaje completo
+- El menú + del editor muestra los prompts de tu equipo; la página del Asistente ya no tiene campo de instrucciones

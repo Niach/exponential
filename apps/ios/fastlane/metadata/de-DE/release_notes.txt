@@ -1,2 +1,3 @@
-- Ein Kartenlook: Agent-Antworten und die Karten, die dir eine Sitzung zeigt, haben dieselbe Fläche, Ecken und Abstände wie in den anderen Apps
-- Der Titel einer Karte steht im Chat über ihr
+- Stories laufen Bild für Bild im Vollbild, jedes mit eigenem Fortschrittsbalken
+- Benachrichtigungen werden auf deinem Telefon geöffnet und zeigen die ganze Nachricht
+- Das +-Menü im Eingabefeld listet die Prompts deines Teams; die Assistent-Seite hat kein Anweisungsfeld mehr

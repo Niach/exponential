@@ -1,2 +1,3 @@
-- Ett kortutseende: agentsvar og kortene en økt viser deg har samme flate, hjørner og avstand som i de andre appene
-- Tittelen på et kort står over det i chatten
+- Stories spilles bilde for bilde i fullskjerm, hver med sin egen fremdriftslinje
+- Varsler åpnes på telefonen din og viser hele meldingen
+- Redigeringsfeltets +-meny viser teamets prompter; Assistent-siden har ikke lenger et instruksjonsfelt

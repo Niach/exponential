@@ -1,2 +1,3 @@
-- Un singur aspect pentru carduri: răspunsurile agenților și cardurile pe care ți le arată o sesiune au aceeași suprafață, colțuri și margini ca în celelalte aplicații
-- Titlul unui card apare deasupra lui în chat
+- Poveștile rulează imagine cu imagine pe tot ecranul, fiecare cu propria bară de progres
+- Notificările se deschid pe telefonul tău și arată mesajul complet
+- Meniul + din editor listează prompturile echipei tale; pagina Asistentului nu mai are câmp de instrucțiuni

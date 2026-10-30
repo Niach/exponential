@@ -1,2 +1,3 @@
-- Jednotný vzhľad kariet: odpovede agentov a karty, ktoré vám relácia ukáže, majú rovnaký povrch, rohy a okraje ako v ostatných aplikáciách
-- Názov karty je v chate nad ňou
+- Príbehy bežia obrázok po obrázku na celej obrazovke, každý s vlastným ukazovateľom priebehu
+- Upozornenia sa otvoria priamo v telefóne a ukážu celú správu
+- Ponuka + v editore zobrazuje prompty tvojho tímu; stránka Asistenta už nemá pole s pokynmi

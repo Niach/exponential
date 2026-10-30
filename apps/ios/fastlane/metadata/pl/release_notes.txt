@@ -1,2 +1,3 @@
-- Jeden wygląd kart: odpowiedzi agentów i karty, które pokazuje ci sesja, mają tę samą powierzchnię, rogi i marginesy co w innych aplikacjach
-- Tytuł karty jest w czacie nad nią
+- Relacje odtwarzają się obraz po obrazie na pełnym ekranie, każdy z własnym paskiem postępu
+- Powiadomienia otwierają się na telefonie i pokazują całą wiadomość
+- Menu + w edytorze pokazuje prompty twojego zespołu; strona Asystenta nie ma już pola instrukcji

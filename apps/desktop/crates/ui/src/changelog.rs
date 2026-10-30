@@ -46,6 +46,23 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-stories-frames",
+    date: "2026-10-30",
+    title: "Stories step through every picture, and a steadier desktop",
+    summary: "Stories play picture by picture, the composer lists your prompts, pushes open on your phone and the desktop no longer crashes during computer use.",
+    body: r#"- **Stories, frame by frame**: every picture or card in a story is its own step with its own progress bar; on phones stories fill the screen, and on desktop the side arrows step instead of closing.
+- **One thread strip**: a session's strip shows the conversation, its issue or one session tree button with a count, then Stories.
+- **Prompts in the composer**: the composer's + menu lists your team's prompts, and the account rows show your usage again.
+- **Notifications on your phone**: iOS and Android open encrypted pushes on the device and show the full message.
+- **Desktop crash fixed**: the desktop app no longer crashes when an agent using computer use switches to the Exponential window.
+- **Devices per team**: the device pickers only offer machines this team may use.
+- **Assistant settings**: the Assistant page has no Instructions field any more on web, desktop, iOS and Android.
+- **Library names**: Exponential's open libraries are now called eUI, eTalk, ePilot and eNet."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_114: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-quiet-assistant",
     date: "2026-10-30",
     title: "A quiet Assistant with one live status card",

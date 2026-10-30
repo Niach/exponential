@@ -1,2 +1,3 @@
-- Jedinstven izgled kartica: odgovori agenata i kartice koje ti sesija pokaže imaju istu površinu, kutove i razmake kao u ostalim aplikacijama
-- Naslov kartice nalazi se iznad nje u razgovoru
+- Priče se prikazuju slika po slika preko cijelog zaslona, svaka sa svojom trakom napretka
+- Obavijesti se otvaraju na tvom telefonu i prikazuju cijelu poruku
+- Izbornik + u uređivaču prikazuje promptove tvog tima; stranica Asistenta više nema polje za upute
