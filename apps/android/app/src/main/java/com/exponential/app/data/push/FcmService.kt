@@ -11,6 +11,9 @@ import com.exponential.app.MainActivity
 import com.exponential.app.R
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.electric.SyncManager
+import com.exponential.app.data.sealed.SealedFfi
+import com.exponential.app.data.sealed.SealedKeys
+import com.exponential.app.data.sealed.TreeKeyStore
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dagger.hilt.android.AndroidEntryPoint
@@ -23,6 +26,7 @@ class FcmService : FirebaseMessagingService() {
     @Inject lateinit var auth: AuthRepository
     @Inject lateinit var syncManager: SyncManager
     @Inject lateinit var pushKeyStore: PushKeyStore
+    @Inject lateinit var treeKeyStore: TreeKeyStore
 
     override fun onNewToken(token: String) {
         Log.i(TAG, "FCM token rotated")
@@ -50,9 +54,12 @@ class FcmService : FirebaseMessagingService() {
                 Log.w(TAG, "sealed push dropped (${if (secret == null) "no key" else "unopenable"})")
                 return
             }
+            // #VAPP-45: a question push carries its tree-sealed text; opened
+            // here with the tree keys this install holds, else the push's body.
+            val body = payload.body ?: payload.data["body"]
             showNotification(
                 title = payload.title ?: payload.data["title"] ?: "Exponential",
-                body = payload.body ?: payload.data["body"],
+                body = QuestionPush.body(payload.data, ::treeKeys, SealedFfi, body),
                 data = payload.data,
             )
             return
@@ -64,6 +71,13 @@ class FcmService : FirebaseMessagingService() {
             body = message.notification?.body ?: data["body"],
             data = data,
         )
+    }
+
+    /** [rootId]'s tree keys: the in-memory set, else every signed-in account's vault (the UI may not be running). */
+    private fun treeKeys(rootId: String): Map<Int, ByteArray> {
+        val keys = SealedKeys.of(rootId).toMutableMap()
+        for (account in auth.accounts.value) treeKeyStore.vault.all(account.id)[rootId]?.let(keys::putAll)
+        return keys
     }
 
     /** The ONE notification a push shows, plaintext or sealed: same channel, routing and ids. */

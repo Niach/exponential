@@ -590,6 +590,17 @@ object Chats {
         return question(plainLine(first.removePrefix(Copy.PREVIEW_ASK_QUESTION_LEAD)))
     }
 
+    /** #VAPP-45: the chat ask preview of an `ask` mirror whose body is
+     *  [askText] (question-push.json `questionPushText`, before the cut). */
+    fun askTextPreview(askText: String): ChatPreview = askPreview(
+        SessionTree.Message(
+            id = "", sessionId = "", authorKind = "agent", authorId = null, body = askText,
+            card = JsonObject(mapOf("kind" to JsonPrimitive(DomainContract.messageCardKindAsk))),
+            answeredAt = null, consumedAt = null, createdAt = "",
+        ),
+        visible = null,
+    )
+
     /** EXP-1459: a sealed message that does not open here (sealed-content.json `placeholder`). */
     private fun lockedPreview(reason: String) = ChatPreview(PREVIEW_KIND_LOCKED, SealedPlaceholder.copy(reason))
 
