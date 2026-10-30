@@ -413,9 +413,6 @@ impl AgentScreenView {
         self.rows = std::rc::Rc::new(rows);
         self.conv.waiting = crate::chat_transcript::waiting_indexes(self.rows.iter());
         self.rows_gen = self.rows_gen.wrapping_add(1);
-        // #EXP-1380 FOLLOW: an arrival keeps a reader inside the slack on
-        // the tail.
-        crate::chat_transcript::rearm_near_tail(&self.list);
         self.messages = messages.into_iter().map(|message| (message.id.clone(), message)).collect();
         let _ = name;
         // Thread 58cb32df: a surface card arriving while the chat is open
@@ -1163,7 +1160,11 @@ impl AgentScreenView {
         if tail {
             keys.push(RowKey { id: WORKING_ROW_ID, fingerprint: 0 });
         }
-        for op in plan_list_sync(&self.conv.keys, &keys) {
+        let ops = plan_list_sync(&self.conv.keys, &keys);
+        // #EXP-1380 FOLLOW: an arrival keeps a reader inside the slack on
+        // the tail.
+        crate::chat_transcript::rearm_on_arrival(&self.list, &ops);
+        for op in ops {
             match op {
                 ListOp::Splice { range, count } => self.list.splice(range, count),
                 ListOp::Remeasure(range) => self.list.remeasure_items(range),

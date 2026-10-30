@@ -1354,9 +1354,6 @@ impl SteerSessionView {
     /// not worth a cache to earn.
     fn sync_list(&mut self, cx: &mut gpui::Context<Self>) {
         self.refresh_derived();
-        // #EXP-1383 FOLLOW: an arrival keeps a reader inside the slack on
-        // the tail (the chats' rule).
-        crate::chat_transcript::rearm_near_tail(&self.list);
         self.reanchor_window();
         if std::mem::take(&mut self.extend_window) {
             self.grow_window();
@@ -1487,6 +1484,9 @@ impl SteerSessionView {
         if ops.is_empty() {
             return;
         }
+        // #EXP-1383 FOLLOW: an arrival keeps a reader inside the slack on
+        // the tail (the chats' rule).
+        crate::chat_transcript::rearm_on_arrival(&self.list, &ops);
         let mut bulk = false;
         for op in ops {
             match op {

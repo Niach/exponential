@@ -2986,9 +2986,6 @@ impl ThreadScreenView {
             self.conv.waiting =
                 crate::chat_transcript::waiting_indexes(self.conv.all.iter().map(|&index| &model.view.rows[index]));
             self.conv.tail = self.tail.is_some();
-            // #EXP-1380 FOLLOW: an arrival keeps a reader inside the slack
-            // on the tail.
-            crate::chat_transcript::rearm_near_tail(&self.list);
         }
         // #EXP-1380 WINDOW: the newest rows (up to the oldest waiting
         // card), pinned once painted; only the window is fingerprinted and
@@ -3039,7 +3036,11 @@ impl ThreadScreenView {
                 fingerprint: 0,
             });
         }
-        for op in plan_list_sync(&self.conv.keys, &keys) {
+        let ops = plan_list_sync(&self.conv.keys, &keys);
+        // #EXP-1380 FOLLOW: an arrival keeps a reader inside the slack on
+        // the tail.
+        crate::chat_transcript::rearm_on_arrival(&self.list, &ops);
+        for op in ops {
             match op {
                 ListOp::Splice { range, count } => self.list.splice(range, count),
                 ListOp::Remeasure(range) => self.list.remeasure_items(range),
