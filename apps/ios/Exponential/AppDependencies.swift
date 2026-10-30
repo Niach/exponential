@@ -1,7 +1,9 @@
 import ExpCore
+import ExpPush
 import FirebaseMessaging
 import Foundation
 import os
+import UIKit
 
 private let logger = Logger(subsystem: "at.exponential", category: "AppDependencies")
 
@@ -74,6 +76,9 @@ final class AppDependencies: @unchecked Sendable {
 
     // Push
     let pushTokenManager: PushTokenManager
+    /// EXP-1457: this install's eNet node + its registry entry; nil when the
+    /// build does not link eNet.
+    let installNode: InstallNodeCoordinator?
     let notificationDelegate: NotificationDelegate
 
     // EXP-452: best-effort per-account timezone claim (digest send hour).
@@ -201,6 +206,26 @@ final class AppDependencies: @unchecked Sendable {
             apnsToken: { Messaging.messaging().apnsToken }
         )
         self.pushTokenManager = pushTokenManager
+        // EXP-1457 step 1: one eNet identity per install, in the shared
+        // keychain group; the push key derives from it, so a rotated identity
+        // re-registers the push key too.
+        let identityStore = InstallIdentityStore()
+        // Built by ExponentialApp's @State on the main thread.
+        let (deviceLabel, devicePlatform) = MainActor.assumeIsolated {
+            (UIDevice.current.name, "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)")
+        }
+        self.installNode = InstallNodeCoordinator.make(
+            trpc: trpc,
+            auth: auth,
+            db: db,
+            identity: InstallIdentitySource(
+                loadOrCreate: { identityStore.loadOrCreate() },
+                rotate: { identityStore.rotate() }
+            ),
+            label: deviceLabel,
+            platform: devicePlatform,
+            onIdentityRotated: { pushTokenManager.resetRegistrations() }
+        )
         self.notificationDelegate = NotificationDelegate(pushTokenManager: pushTokenManager, deepLinkBus: deepLinkBus)
 
         self.timezoneClaimer = TimezoneClaimer(usersApi: usersApi, auth: auth)
@@ -224,6 +249,9 @@ final class AppDependencies: @unchecked Sendable {
         // Reconcile loop: registers the FCM token for every signed-in account,
         // so logins/switches after the Messaging callback still get pushes.
         pushTokenManager.start()
+        // Lazy and off the main thread: the node starts on the coordinator's
+        // own task once an account is signed in.
+        installNode?.start()
         // Claim-once loop: stamps the device timezone on accounts that never
         // had one captured (EXP-452 — mobile-only accounts digested in UTC).
         timezoneClaimer.start()

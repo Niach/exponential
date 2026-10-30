@@ -123,6 +123,12 @@ final class PushTokenManager: @unchecked Sendable {
         }
     }
 
+    /// The push key changed (EXP-1457: the install identity rotated): every
+    /// account registers the new public key on the next tick.
+    func resetRegistrations() {
+        lock.withLock { registered.removeAll() }
+    }
+
     /// Removes this device's token registration for one account. Must be
     /// awaited BEFORE the account's credentials are dropped — the request
     /// needs the bearer token, and the server scopes the delete to

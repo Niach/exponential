@@ -1,0 +1,7 @@
+# The push-only build (ENET_PUSH_ONLY=1, Swift only). Its own Swift module
+# name, so its C module (`ExponentialNetPushFFI`) and static library never
+# collide with the full build's when the iOS app links both (VAPP-40: the
+# app's ExpCore links the full node, the Notification Service Extension this
+# one).
+[bindings.swift]
+module_name = "ExponentialNetPush"

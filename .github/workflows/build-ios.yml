@@ -112,6 +112,14 @@ jobs:
           ENET_APPLE_TARGETS: aarch64-apple-ios
         run: bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
 
+      # VAPP-40 / EXP-1457: the FULL eNet node in ExpCore (the install's node
+      # + registry entry). Device slice only, like the push build.
+      - name: Build the full eNet xcframework
+        working-directory: ${{ github.workspace }}
+        env:
+          ENET_APPLE_TARGETS: aarch64-apple-ios
+        run: bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
+
       # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
       # fails without this.
       - name: Resolve SPM dependencies

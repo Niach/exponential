@@ -51,10 +51,11 @@ let surfaceSettings: SettingsDictionary = hasExponentialUi
     : [:]
 
 // EXP-1435: sealed pushes. `ExpPush` (Foundation + Security) holds the
-// device's X25519 push key in the shared keychain group and opens the relay's
-// sealed payloads through eNet's push-only UniFFI binding: the generated Swift
-// is COMMITTED under apps/desktop/crates/exponential-net-ffi/bindings/push,
-// its static library ships as a gitignored xcframework
+// install identity and the push key derived from it in the shared keychain
+// group and opens the relay's sealed payloads through eNet's push-only UniFFI
+// binding: the generated Swift is COMMITTED under
+// apps/desktop/crates/exponential-net-ffi/bindings/push (module
+// `ExponentialNetPush`), its static library ships as a gitignored xcframework
 // (`ENET_PUSH_ONLY=1 bash apps/desktop/crates/exponential-net-ffi/build-ios.sh`).
 // Like eUI, the binding compiles and links only when the xcframework exists
 // (`ENET_PUSH`); without it the project still builds, the Notification Service
@@ -62,16 +63,16 @@ let surfaceSettings: SettingsDictionary = hasExponentialUi
 // its bare FCM token (legacy). tuist caches the evaluated manifest by its
 // content, so after building or deleting the xcframework locally a stale
 // `hasEnetPush` survives until Project.swift changes (CI starts fresh).
-let enetPushFfiPath = URL(fileURLWithPath: #filePath)
+let enetFfiDir = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()
-    .appendingPathComponent("../desktop/crates/exponential-net-ffi/out/push/ExponentialNetFFI.xcframework")
+    .appendingPathComponent("../desktop/crates/exponential-net-ffi")
     .standardizedFileURL.path
-let hasEnetPush = FileManager.default.fileExists(atPath: enetPushFfiPath)
+let hasEnetPush = FileManager.default.fileExists(atPath: "\(enetFfiDir)/out/push/ExponentialNetPush.xcframework")
 let enetPushBinding: [TargetDependency] = hasEnetPush
-    ? [.xcframework(path: "../desktop/crates/exponential-net-ffi/out/push/ExponentialNetFFI.xcframework")]
+    ? [.xcframework(path: "../desktop/crates/exponential-net-ffi/out/push/ExponentialNetPush.xcframework")]
     : []
 let expPushSources: SourceFilesList = hasEnetPush
-    ? ["ExpPush/Sources/**", "../desktop/crates/exponential-net-ffi/bindings/push/swift/ExponentialNetFFI.swift"]
+    ? ["ExpPush/Sources/**", "../desktop/crates/exponential-net-ffi/bindings/push/swift/ExponentialNetPush.swift"]
     : ["ExpPush/Sources/**"]
 let enetPushSettings: SettingsDictionary = hasEnetPush
     ? ["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) ENET_PUSH"]
@@ -79,6 +80,30 @@ let enetPushSettings: SettingsDictionary = hasEnetPush
 // Every target that links ExpPush (a static framework) links the binding's
 // static library too.
 let expPushDependencies: [TargetDependency] = [.target(name: "ExpPush")] + enetPushBinding
+
+// VAPP-40 / EXP-1457: the FULL eNet node (iroh) in ExpCore, so every install
+// runs a node and registers it with the install registry. Same pattern: the
+// generated binding (COMMITTED, bindings/swift, module `ExponentialNetFFI`)
+// compiles into ExpCore and the gitignored `out/ExponentialNetFFI.xcframework`
+// (`bash apps/desktop/crates/exponential-net-ffi/build-ios.sh`) links into it
+// only when built (`ENET_NODE`); without it eNet stays off. Its C module and
+// library are named apart from the push build's, so ExpCore (a dynamic
+// framework: the node's library lives in it) and the extension never collide.
+let hasEnetNode = FileManager.default.fileExists(atPath: "\(enetFfiDir)/out/ExponentialNetFFI.xcframework")
+let enetNodeSources: [SourceFileGlob] = hasEnetNode
+    ? ["../desktop/crates/exponential-net-ffi/bindings/swift/ExponentialNetFFI.swift"]
+    : []
+// iroh's netwatch reads the network paths (Network, SystemConfiguration).
+let enetNodeBinding: [TargetDependency] = hasEnetNode
+    ? [
+        .xcframework(path: "../desktop/crates/exponential-net-ffi/out/ExponentialNetFFI.xcframework"),
+        .sdk(name: "Network", type: .framework),
+        .sdk(name: "SystemConfiguration", type: .framework),
+    ]
+    : []
+let enetNodeSettings: SettingsDictionary = hasEnetNode
+    ? ["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) ENET_NODE"]
+    : [:]
 
 let sharedDependencies: [TargetDependency] = [
     .external(name: "GRDB"),
@@ -92,8 +117,8 @@ let sharedDependencies: [TargetDependency] = [
 
 // ExpCore: iOS(+iPad) data/sync/domain layer. Foundation/GRDB/Security/
 // CryptoKit/os only — NO cmark/MarkdownUI/Firebase/SwiftUI.
-let expCoreSources: SourceFilesList = ["ExpCore/Sources/**"]
-let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")]
+let expCoreSources: SourceFilesList = .sourceFilesList(globs: ["ExpCore/Sources/**"] + enetNodeSources)
+let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")] + enetNodeBinding
 // ExpCore unit tests — currently the annotation-geometry parity gate that locks
 // AnnotationGeometry.swift to the TS source of truth (shapes.test.ts) for
 // web + iOS parity.
@@ -250,7 +275,7 @@ let project = Project(
             deploymentTargets: .iOS("17.4"),
             sources: expCoreSources,
             dependencies: expCoreDependencies,
-            settings: .settings(base: baseSettings)
+            settings: .settings(base: baseSettings.merging(enetNodeSettings) { _, new in new })
         ),
         .target(
             name: "ExpCoreTests",
@@ -260,7 +285,8 @@ let project = Project(
             deploymentTargets: .iOS("17.4"),
             sources: expCoreTestSources,
             dependencies: [.target(name: "ExpCore")],
-            settings: .settings(base: baseSettings)
+            // EnetInstallNodesTests run real nodes only when ExpCore links eNet.
+            settings: .settings(base: baseSettings.merging(enetNodeSettings) { _, new in new })
         ),
         .target(
             name: "ExpUI",

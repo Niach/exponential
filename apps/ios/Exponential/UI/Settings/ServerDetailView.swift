@@ -120,6 +120,8 @@ struct ServerDetailView: View {
             // Unregister while the credentials still exist — the
             // request needs the bearer token removeAccount drops.
             await deps.pushTokenManager.unregister(accountId: account.id)
+            // EXP-1457: revoke this install in the registry, still authed.
+            await deps.installNode?.signOut(accountId: account.id)
             // Revoke the server session AFTER the unregister (which
             // needs it live) and BEFORE removeAccount drops the token.
             if let token = account.token {
@@ -296,6 +298,8 @@ struct ServerDetailView: View {
                                 // Unregister while the credentials still exist — the
                                 // request needs the bearer token removeAccount drops.
                                 await deps.pushTokenManager.unregister(accountId: accountId)
+                                // EXP-1457: revoke this install in the registry, still authed.
+                                await deps.installNode?.signOut(accountId: accountId)
                                 // Revoke the server session AFTER the unregister
                                 // (which needs it live) and BEFORE the token drops.
                                 if let url, let token {
