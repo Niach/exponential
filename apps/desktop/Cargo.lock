@@ -3116,6 +3116,7 @@ dependencies = [
  "tokio-tungstenite",
  "unicode-bidi",
  "unicode-linebreak",
+ "unicode-segmentation",
  "url",
 ]
 

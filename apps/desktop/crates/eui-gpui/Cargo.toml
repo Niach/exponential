@@ -39,6 +39,9 @@ unicode-linebreak = "0.1.5"
 # (gpui shapes with the first strong character's); already in the lock via
 # cosmic-text.
 unicode-bidi = "0.3.18"
+# YO-30: grapheme clusters for the per-cluster font fallback and
+# letter-spacing (CSS tracks clusters, not code points); already in the lock.
+unicode-segmentation = "1.12"
 # VAPP-91 host runtime: transport threads and source emits hand their events
 # to the gpui main thread through one channel (already in the tree).
 flume.workspace = true
