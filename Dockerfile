@@ -96,6 +96,9 @@ EXPOSE 3000
 # NITRO_PORT, then PORT, then falls back to 3000. The self-host recipe runs the
 # image with -e PORT=5173, where a hardcoded 3000 measured the compose Caddy (or
 # nothing at all) instead of this container.
+# EXP-1474: healthy = the BODY says `"ok":true`, never the status alone — a
+# server whose every route fails a module import still answered /api/health
+# with 200 and the error page.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD bun -e "fetch('http://localhost:'+(Number.parseInt(process.env.NITRO_PORT||process.env.PORT||'')||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD bun -e "fetch('http://localhost:'+(Number.parseInt(process.env.NITRO_PORT||process.env.PORT||'')||3000)+'/api/health').then(r=>r.json()).then(b=>process.exit(b&&b.ok===true?0:1)).catch(()=>process.exit(1))"
 CMD ["sh", "-c", "bun --filter @exp/web migrate && bun .output/server/index.mjs"]

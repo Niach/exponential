@@ -690,16 +690,23 @@ impl SweepReport {
 /// and pushed → removed; otherwise WIP commit + `exp/leftover-<id8>` push +
 /// removed; no `origin` → kept dirty/ahead).
 ///
-/// "Over" = no run record names the worktree, or none of the records that
-/// do has a live host process (`hostPid` cleared at the run's end, or dead).
+/// "Ours" (EXP-1473) = a run record on `data_dir` names the worktree, or its
+/// branch is one of the account's open sessions (`policy.open`). Any other
+/// worktree belongs to another install sharing the repos root (its own data
+/// dir, another account) and is never touched: its sessions are not ours to
+/// judge over.
+///
+/// "Over" = none of the records naming the worktree has a live host process
+/// (`hostPid` cleared at the run's end, or dead).
 /// "Stale" = its last activity — the newer of the `.git` link file's mtime
 /// (refreshed whenever a launch claims the worktree) and the newest record's
 /// `recordedAt` — is older than `policy.max_age`. A live run's dir is never
 /// touched: `policy.live` plus every live host on `data_dir` shield it, and
 /// `finish_worktree` takes the clone's launch gate per worktree.
 ///
-/// The leftover id is the newest record's session id (first 8 chars); a
-/// record-less worktree uses its sanitized branch (`exp-EXP-42`). Blocking
+/// The leftover id is the newest record's session id (first 8 chars); an
+/// open session's record-less worktree uses its sanitized branch
+/// (`exp-EXP-42`). Blocking
 /// (spawned gits, a push per leftover) — run it on a background executor.
 pub fn sweep_stale_worktrees(
     clone: &Path,
@@ -736,6 +743,9 @@ pub fn sweep_stale_worktrees(
             .iter()
             .filter(|record| canonical(&record.cwd) == path)
             .collect();
+        if mine.is_empty() && !open_chat {
+            continue; // EXP-1473: another install's worktree
+        }
         if mine
             .iter()
             .any(|record| record.host_pid.is_some_and(crate::process::is_alive))
@@ -1431,31 +1441,41 @@ mod tests {
         record.recorded_at = crate::run_registry::now_secs() - 3600;
         crate::run_registry::record(&data_dir, record);
 
-        // Brand new, no record.
+        // Brand new, recorded.
         let young = worktree(&clone, "exp/EXP-60");
+        let mut record = crate::run_registry::sample_record("eeee5555-0000-0000-0000-000000000000");
+        record.cwd = young.clone();
+        record.host_pid = None;
+        record.recorded_at = crate::run_registry::now_secs() - 3600;
+        crate::run_registry::record(&data_dir, record);
 
-        // Stale, no record at all: finished, its id from the branch.
+        // Stale, no record, but the branch of an open (settled) session:
+        // finished, its id from the branch.
         let orphan = worktree(&clone, "exp/EXP-61");
-        commit_file(&orphan, "orphan.txt", "orphan work\n", "orphan");
         age_by(&orphan, 2 * day);
 
-        let report = sweep_stale_worktrees(&clone, &data_dir, SystemTime::now(), &SweepPolicy::default());
+        // EXP-1473: stale, no record and no open session of ours: another
+        // install's worktree (its own data dir or account), never touched.
+        let foreign = worktree(&clone, "exp/EXP-62");
+        commit_file(&foreign, "foreign.txt", "their work\n", "foreign");
+        age_by(&foreign, 2 * day);
+
+        let policy = SweepPolicy {
+            open: OpenBranches { settled: HashSet::from(["exp/EXP-61".to_string()]), ..OpenBranches::default() },
+            ..SweepPolicy::default()
+        };
+        let report = sweep_stale_worktrees(&clone, &data_dir, SystemTime::now(), &policy);
         let mut branches: Vec<&str> = report.finished.iter().map(|swept| swept.branch.as_str()).collect();
         branches.sort();
         assert_eq!(branches, vec!["exp/EXP-61", "exp/session-aaaa1111"], "{report:?}");
-        let mut leftovers = report.leftovers();
-        leftovers.sort();
         assert_eq!(
-            leftovers,
-            vec![
-                (None, "exp/leftover-exp-EXP-61"),
-                (Some("aaaa1111-0000-0000-0000-000000000000"), "exp/leftover-aaaa1111"),
-            ]
+            report.leftovers(),
+            vec![(Some("aaaa1111-0000-0000-0000-000000000000"), "exp/leftover-aaaa1111")]
         );
         assert!(!stale.exists() && !orphan.exists());
-        assert!(recent.exists() && young.exists());
+        assert!(recent.exists() && young.exists() && foreign.exists());
         assert!(origin_branch_exists(&origin, "exp/leftover-aaaa1111"));
-        assert!(origin_branch_exists(&origin, "exp/leftover-exp-EXP-61"));
+        assert!(!origin_branch_exists(&origin, "exp/leftover-exp-EXP-62"));
         assert!(!branch_exists(&clone, "exp/session-aaaa1111"));
 
         // A shorter policy reaches the hour-old one too (clean: no leftover).
@@ -1580,6 +1600,11 @@ mod tests {
 
         let held = worktree(&clone, "exp/session-dddd4444");
         age_by(&held, old);
+        let mut record = crate::run_registry::sample_record("dddd4444");
+        record.cwd = held.clone();
+        record.host_pid = None;
+        record.recorded_at = 0;
+        crate::run_registry::record(&data_dir, record);
         let policy = SweepPolicy {
             live: crate::run_cleanup::LiveHolders {
                 branches: vec!["exp/session-dddd4444".to_string()],

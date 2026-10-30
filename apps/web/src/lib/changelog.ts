@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-own-worktrees-and-short-ids`,
+    date: `2026-10-30`,
+    title: `Worktrees and short session ids, fixed`,
+    summary: `A second install on the same machine no longer cleans up your worktrees, and the CLI accepts short session ids again.`,
+    body: `- **Your worktrees stay yours**: the nightly cleanup only touches worktrees its own install started. A second daemon or app with its own data folder or account no longer removes another install's worktrees.
+- **Short session ids**: \`exponential sessions show\`, \`log\` and \`message\` accept an 8-character id prefix again, and \`exponential sessions --agents\` lists your agent conversations again.`,
+  },
+  {
     id: `2026-10-30-offline-redial`,
     date: `2026-10-30`,
     title: `Offline sessions reconnect on their own`,

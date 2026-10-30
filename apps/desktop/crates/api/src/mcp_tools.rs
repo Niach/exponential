@@ -237,6 +237,25 @@ pub fn teams_list(trpc: &TrpcClient) -> Result<Vec<RemoteTeam>, ApiError> {
     call_typed(trpc, "exponential_teams", &serde_json::json!({ "op": "list", "limit": MAX_PAGE }))
 }
 
+/// One `exponential_team_config {op: "agents_list"}` row (a team agent's
+/// definition; its sessions list through [`SessionsQuery::agent_id`]).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAgent {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// `exponential_team_config {op: "agents_list"}` — one team's agents.
+pub fn agents_list(trpc: &TrpcClient, team_id: &str) -> Result<Vec<RemoteAgent>, ApiError> {
+    call_typed(
+        trpc,
+        "exponential_team_config",
+        &serde_json::json!({ "op": "agents_list", "teamId": team_id, "limit": MAX_PAGE }),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Sessions (EXP-1292: the MCP v2 session tools — `sessions_send` is THE
 // entrypoint for a start and a message alike; reads are the server's
@@ -317,6 +336,9 @@ pub struct RemoteSession {
     pub last_turn_at: Option<String>,
     #[serde(default)]
     pub ended_at: Option<String>,
+    /// The list's order key (newest activity first).
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 /// `exponential_sessions_get`: ONE session tree (any member id resolves to
@@ -350,14 +372,15 @@ where
     Ok(<Option<Vec<T>> as Deserialize>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-/// `exponential_sessions_list` filters: the roots of one kind the caller may
-/// see (shared ones and their own), newest activity first.
+/// `exponential_sessions_list` filters: the thread roots the caller may see
+/// (shared ones and their own), newest activity first.
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionsQuery {
-    /// `thread` (the server's default) | `agent`.
+    /// The caller's own conversations with this agent instead of threads
+    /// (#1122 dropped the old `kind` filter: the server rejects it).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<String>,
+    pub agent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team_id: Option<String>,
     /// `true` = not ended.
@@ -674,10 +697,13 @@ mod tests {
 
     #[test]
     fn the_list_query_speaks_the_v2_filters() {
-        let query = SessionsQuery { kind: Some("agent".into()), live: Some(true), limit: 50, ..Default::default() };
+        let query = SessionsQuery { agent_id: Some("a1".into()), live: Some(true), limit: 50, ..Default::default() };
         assert_eq!(
             serde_json::to_string(&query).unwrap(),
-            r#"{"kind":"agent","live":true,"limit":50}"#
+            r#"{"agentId":"a1","live":true,"limit":50}"#
         );
+        // EXP-1473: the server's strict input rejects any `kind` key.
+        let threads = SessionsQuery { limit: 200, ..Default::default() };
+        assert_eq!(serde_json::to_string(&threads).unwrap(), r#"{"limit":200}"#);
     }
 }
