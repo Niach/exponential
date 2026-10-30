@@ -176,6 +176,19 @@ final class SteerEnetTests: XCTestCase {
         XCTAssertEqual(SteerNoFeedState.decide(sessionOver: true), .endedDeviceOffline)
     }
 
+    // VAPP-169 OFFLINE REDIAL: the device-offline `ended` redials on
+    // everything but presence going offline; a `bye`-ended transcript never.
+    func testOfflineRedialCases() throws {
+        let redial = try cases("offlineRedial")
+        XCTAssertFalse(redial.isEmpty)
+        for c in redial {
+            let name = c["name"] as? String ?? "?"
+            let phase = try XCTUnwrap(SteerOfflineRedial.Phase(rawValue: c["phase"] as? String ?? ""), name)
+            let trigger = try XCTUnwrap(SteerOfflineRedial.Trigger(rawValue: c["trigger"] as? String ?? ""), name)
+            XCTAssertEqual(SteerOfflineRedial.decide(phase: phase, trigger: trigger), c["redial"] as? Bool, name)
+        }
+    }
+
     // VAPP-43 STORED REPLAY: an ended row's journal comes back as reset,
     // replay, synced, then `bye {outcome:"history"}` — the join completes on
     // `activity_synced`, and a `bye` batched into the marker's envelope is
