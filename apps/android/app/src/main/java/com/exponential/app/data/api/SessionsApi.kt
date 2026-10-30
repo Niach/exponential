@@ -54,6 +54,8 @@ data class SessionsSendInput(
     // alone: the `@email` mentions as user ids (the server cannot read a
     // sealed text), and the tree key of a root that has none yet.
     val mentionUserIds: List<String>? = null,
+    /** The `#IDENT` issue refs of the text, resolved by the writer. */
+    val refIssueIds: List<String>? = null,
     val seal: SealInput? = null,
 ) {
     companion object {

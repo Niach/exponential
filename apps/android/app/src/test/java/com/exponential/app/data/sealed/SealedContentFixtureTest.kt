@@ -111,12 +111,12 @@ class SealedContentFixtureTest {
             val name = split.str("name")
             val opened = SealedFfi.openCard(split.obj("envelope").toString(), keys)
             assertEquals(name, SealStatus.Opened, opened.status)
-            assertEquals(name, JsonObject(split.obj("card") + split.obj("clear")), Json.parseToJsonElement(opened.cardJson))
+            assertEquals(name, JsonObject(split.obj("card") + (split.obj("clear") - "pictures")), Json.parseToJsonElement(opened.cardJson))
             // Our own seal of the full card carries exactly the clear part beside `sealed`.
             val sealed = Json.parseToJsonElement(SealedFfi.sealCard(card.str("treePublicKey"), 1, split.obj("card").toString())).jsonObject
             assertEquals(name, split.obj("clear"), JsonObject(sealed - "sealed"))
-            // Opening lays the clear part over the sealed card (`answered` is derived).
-            assertEquals(name, JsonObject(split.obj("card") + split.obj("clear")), Json.parseToJsonElement(SealedFfi.openCard(sealed.toString(), keys).cardJson))
+            // Opening lays the clear part over the sealed card (`answered` is derived), never `pictures`.
+            assertEquals(name, JsonObject(split.obj("card") + (split.obj("clear") - "pictures")), Json.parseToJsonElement(SealedFfi.openCard(sealed.toString(), keys).cardJson))
         }
     }
 

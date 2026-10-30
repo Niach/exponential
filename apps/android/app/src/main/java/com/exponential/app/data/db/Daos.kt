@@ -61,6 +61,10 @@ interface BoardDao {
 
 @Dao
 interface IssueDao {
+    // EXP-1459: `#IDENT` refs of a sealed text → issue ids (`refIssueIds`), case-insensitive.
+    @Query("SELECT * FROM issues WHERE upper(identifier) IN (:identifiers)")
+    suspend fun byIdentifiers(identifiers: List<String>): List<IssueEntity>
+
     @Query("SELECT * FROM issues WHERE board_id = :boardId ORDER BY sort_order, created_at")
     fun observeByBoard(boardId: String): Flow<List<IssueEntity>>
 

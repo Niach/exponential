@@ -43,7 +43,7 @@ internal data class SendTarget(val rootId: String?, val teamId: String?, val pub
  * - A new root (a thread, a first message to an agent / app): the key rides
  *   the send as `seal` (one server transaction) and is kept under the root
  *   the answer names.
- * - Mentions travel as `mentionUserIds`; attachment embeds go INSIDE the
+ * - Mentions travel as `mentionUserIds`, `#IDENT`s as `refIssueIds`; attachment embeds go INSIDE the
  *   sealed body (the server never appends to it).
  *
  * Nothing to seal with (no registered install yet, no eNet library) = the
@@ -67,7 +67,11 @@ class SealedWriter @Inject constructor(
         if (text.isBlank() && attachments.isEmpty()) return@withContext PreparedSend(input)
         val db = dbs.database(accountId)
         val mentions = mentionIds(db, text)
-        val withMentions = input.copy(mentionUserIds = mentions.takeIf { it.isNotEmpty() })
+        val refs = issueRefIds(db, text)
+        val withMentions = input.copy(
+            mentionUserIds = mentions.takeIf { it.isNotEmpty() },
+            refIssueIds = refs.takeIf { it.isNotEmpty() },
+        )
         try {
             val target = target(db, accountId, input) ?: return@withContext PreparedSend(withMentions)
             val body = SealedWrite.withAttachmentEmbeds(text, attachments)
@@ -90,10 +94,8 @@ class SealedWriter @Inject constructor(
             ) { result -> keep(accountId, result.sessionId, key.secret) }
         } catch (err: CancellationException) {
             throw err
-        } catch (err: TrpcException) {
-            throw err
         } catch (err: Throwable) {
-            // The eNet library is missing or refused the key: plaintext stays legal.
+            // No eNet library, or the server refused the key: plaintext stays legal.
             Log.w(TAG, "sealing a send failed: ${err.javaClass.simpleName}")
             PreparedSend(withMentions)
         }
@@ -129,6 +131,13 @@ class SealedWriter @Inject constructor(
         val emails = SealedWrite.mentionEmails(text)
         if (emails.isEmpty()) return emptyList()
         return runCatching { db.userDao().byEmails(emails).map { it.id }.distinct() }.getOrDefault(emptyList())
+    }
+
+    /** The text's `#IDENT` refs this install knows (the server never parses a sealed text). */
+    private suspend fun issueRefIds(db: ExponentialDatabase, text: String): List<String> {
+        val identifiers = SealedWrite.issueRefs(text)
+        if (identifiers.isEmpty()) return emptyList()
+        return runCatching { db.issueDao().byIdentifiers(identifiers).map { it.id }.distinct() }.getOrDefault(emptyList())
     }
 
     /** The tree [input] writes into; null when it cannot be told (sent in clear). */

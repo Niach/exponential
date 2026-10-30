@@ -2,6 +2,7 @@ package com.exponential.app.data.sealed
 
 import com.exponential.app.data.api.AnswerInput
 import com.exponential.app.domain.isInlineImage
+import com.exponential.app.ui.markdown.IssueRefs
 import com.exponential.app.ui.markdown.Mentions
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -17,6 +18,9 @@ import kotlinx.serialization.json.JsonPrimitive
 object SealedWrite {
     /** The `@email` tokens of [text], lowercased, once each (`mentionUserIds` resolves them). */
     fun mentionEmails(text: String): List<String> = Mentions.findAll(text).map { it.email.lowercase() }.distinct()
+
+    /** The `#IDENT` issue refs of [text], uppercased, once each (`refIssueIds` resolves them). */
+    fun issueRefs(text: String): List<String> = IssueRefs.findAll(text).map { it.identifier.uppercase() }.distinct()
 
     /** A session upload this process made: what its embed line needs. */
     data class Upload(val filename: String, val contentType: String)

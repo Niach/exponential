@@ -20,6 +20,11 @@ class SealedWriteTest {
     }
 
     @Test
+    fun issueRefsAreTheHashIdentifiersUppercasedOnce() {
+        assertEquals(listOf("EXP-12", "APP-3"), SealedWrite.issueRefs("fix #EXP-12 and #app-3, see #exp-12; not foo#EXP-9 or EXP-4"))
+    }
+
+    @Test
     fun attachmentsEmbedInsideTheBodyUnlessReferenced() {
         val uploads = mapOf(
             "a" to SealedWrite.Upload("shot [1].png", "image/png"),
