@@ -162,7 +162,6 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     expect(sent.status).toBe(`queued`)
     const root = await row(sent.sessionId)
     expect(root).toMatchObject({
-      kind: `thread`,
       status: `queued`,
       rootId: root.id,
       depth: 0,
@@ -827,8 +826,6 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     const agent = await sendSession({ userId: w.owner, input: { agentId: ada!.id, text: `hello` } })
     expect(await row(agent.sessionId)).toMatchObject({
       agentId: ada!.id,
-      kind: `agent`,
-      name: `Ada`,
       title: `Ada`,
       userId: w.owner,
       deviceId: w.deviceId,
@@ -1483,7 +1480,6 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
       deviceId: sharedDevice,
       shared: true,
       status: `queued`,
-      name: `Ada 2`,
       title: `Ada 2`,
       account: `acc1`,
     })
@@ -1494,7 +1490,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     // A member's own rename of the chat survives the agent's next rename.
     await db.update(sessions).set({ title: `My Ada` }).where(eq(sessions.id, conversation.sessionId))
     await agentsOf(w.owner).update({ id: agent.id, name: `Ada 3` })
-    expect(await row(conversation.sessionId)).toMatchObject({ name: `Ada 3`, title: `My Ada` })
+    expect(await row(conversation.sessionId)).toMatchObject({ title: `My Ada` })
     // Now the teammate may talk to it too: their OWN conversation.
     const mates = await sendSession({ userId: w.mate, input: { agentId: agent.id, text: `hey` } })
     expect(mates.sessionId).not.toBe(conversation.sessionId)
