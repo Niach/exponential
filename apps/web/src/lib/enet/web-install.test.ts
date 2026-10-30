@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { relayTicket } from "./relay-ticket"
 import {
   forgetIdentity,
   loadOrCreateIdentity,
@@ -39,6 +40,7 @@ function fakeEnet() {
       identity: string
       relay: string
       sent: Array<[string, string]>
+      tickets: string[]
       emit: (event: EnetEvent) => void
     }
   > = []
@@ -50,8 +52,11 @@ function fakeEnet() {
       const allowed = new Set<string>()
       let callback: ((event: EnetEvent) => void) | undefined
       const sent: Array<[string, string]> = []
+      const tickets: string[] = []
       const node = {
         sent,
+        tickets,
+        addTicket: (ticket: string) => void tickets.push(ticket),
         emit: (event: EnetEvent) => callback?.(event),
         onEvent: (cb: (event: EnetEvent) => void) => void (callback = cb),
         sendChat: async (to: string, body: Uint8Array) => void sent.push([to, new TextDecoder().decode(body)]),
@@ -165,6 +170,18 @@ describe(`WebInstall`, () => {
     const calls = api.list.mock.calls.length
     await vi.advanceTimersByTimeAsync(ALLOWLIST_REFRESH_MS * 2)
     expect(api.list.mock.calls.length).toBe(calls)
+  })
+
+  it(`teaches the node each allowed peer's address on the relay (EXP-1471)`, async () => {
+    const { enet, nodes } = fakeEnet()
+    const install = new WebInstall(`u1`, { loadEnet: async () => enet, api: fakeApi({ A: [SELF(0x11)] }), store: memoryStore() })
+    install.pin(SELF(0x22))
+    await install.setTeams([`A`])
+    await install.start()
+    const node = nodes[0]!
+    expect([...node.allowed].sort()).toEqual([SELF(0x11), SELF(0x22)])
+    expect(node.tickets.sort()).toEqual([relayTicket(SELF(0x11), ENET_RELAY_URL), relayTicket(SELF(0x22), ENET_RELAY_URL)].sort())
+    await install.stop()
   })
 
   it(`explicit sign-out revokes the install and forgets its identity`, async () => {

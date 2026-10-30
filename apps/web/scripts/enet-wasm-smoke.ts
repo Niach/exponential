@@ -17,6 +17,7 @@ import { createInterface } from "node:readline"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { IdentityStore, SealedIdentity } from "../src/lib/enet/identity-store"
+import { relayTicket } from "../src/lib/enet/relay-ticket"
 import { WebInstall, type EnetModule, type EnetNode, type InstallsApi } from "../src/lib/enet/web-install"
 import { createPublicKey, verify } from "node:crypto"
 import { installMessage, type InstallRegistration } from "../src/lib/enet/install-registration"
@@ -41,6 +42,7 @@ type WasmNodeJs = EnetNode & {
   addTicket: (t: string) => string
   onEvent: (cb: (e: { kind: string; from?: string; peer?: string; body?: Uint8Array }) => void) => void
   sendChat: (to: string, body: Uint8Array) => Promise<{ id: Uint8Array }>
+  events: Array<{ kind: string; from?: string; peer?: string; body?: Uint8Array }>
 }
 
 async function loadWasm() {
@@ -55,6 +57,11 @@ async function loadWasm() {
     startNode: async (relay, identity) => {
       const node = (await wasm.WasmNode.start(relay, identity)) as WasmNodeJs
       await node.online(WAIT_MS)
+      // A node has ONE event consumer and WebInstall takes it: tee every
+      // event into \`node.events\` for the checks below.
+      const consume = node.onEvent.bind(node)
+      node.events = []
+      node.onEvent = (cb) => consume((e) => (node.events.push(e), cb(e)))
       nodes.push(node)
       return node
     },
@@ -151,8 +158,7 @@ async function main() {
 
   if (!web.allowlist.has(desktop.endpointId) || web.allowlist.size !== 1) fail(`web allowlist ${[...web.allowlist]}`)
 
-  const webEvents: Array<{ kind: string; from?: string; peer?: string; body?: Uint8Array }> = []
-  webNode.onEvent((e) => webEvents.push(e))
+  const webEvents = webNode.events
   const webEvent = (pred: (e: (typeof webEvents)[number]) => boolean, what: string) =>
     timeout(
       (async () => {
@@ -168,7 +174,9 @@ async function main() {
   // The desktop allows its team's installs (what its own installs.list gives).
   desktop.send(`allow ${webNode.endpointId}`)
   desktop.send(`ticket ${webNode.ticket()}`)
-  webNode.addTicket(desktop.ticket)
+  // EXP-1471: the web learned the desktop's address from its allowlist
+  // (relayTicket), no ticket handed over; the foreign node needs one.
+  if (relayTicket(webNode.endpointId, RELAY_URL) !== webNode.ticket()) fail(`relayTicket drift: ${webNode.ticket()}`)
   foreignNode.addTicket(desktop.ticket)
 
   // web → desktop: acked.

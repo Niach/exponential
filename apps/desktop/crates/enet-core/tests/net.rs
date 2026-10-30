@@ -53,6 +53,16 @@ async fn ticket_round_trip() {
     a.shutdown().await.unwrap();
 }
 
+/// EXP-1471: the web builds a teammate's relay ticket itself
+/// (apps/web/src/lib/enet/relay-ticket.test.ts replays this vector).
+#[test]
+fn relay_ticket_vector() {
+    let id = Identity::from_bytes([7; 32]).endpoint_id();
+    let mut t = Ticket::new(id);
+    t.relays = vec!["https://relay.exponential.at".parse().unwrap()];
+    assert_eq!(t.to_string(), "enet15jfgyy7ctrjavpxvkb5rglwf7gkuo5vox27hxescd3vgsfcg2iwachlior2ha4z2f4xxezlmmf4s4zlyobxw4zlooruwc3bomf2c6aa");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn chat_round_trip_in_order() {
     let (a, _ea) = node().await;
