@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-inbox-decisions`,
+    date: `2026-10-30`,
+    title: `Agent questions open from the inbox`,
+    summary: `Tapping an inbox item where your Assistant or an agent needs a decision opens the chat it is waiting in.`,
+    body: `- **Decisions open from the inbox**: an inbox item like "Your Assistant needs a decision" now opens your Assistant with the question waiting in its chat, on web, desktop, iOS and Android; mentions in a chat open that chat too, and so does the push.`,
+  },
+  {
     id: `2026-10-30-call-reasons`,
     date: `2026-10-30`,
     title: `Calls say what's missing`,

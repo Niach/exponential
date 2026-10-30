@@ -69,8 +69,9 @@ class FcmService : FirebaseMessagingService() {
     /** The ONE notification a push shows, plaintext or sealed: same channel, routing and ids. */
     private fun showNotification(title: String, body: String?, data: Map<String, String>) {
         // Issue pushes carry an issueId (a reporter's reply too, SLOP-4);
-        // session_blocked pushes (EXP-980) carry a sessionId and route to
-        // the run.
+        // issue-less agent_message / session_blocked pushes carrying a
+        // sessionId (a decision, a mention, a wall) route to that session
+        // (#EXP-1456, the inbox row's rule).
         val target = PushDeepLinks.target(
             type = data["type"],
             issueId = data["issueId"],

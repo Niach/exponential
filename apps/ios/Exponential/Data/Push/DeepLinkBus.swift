@@ -29,7 +29,8 @@ final class DeepLinkBus: @unchecked Sendable {
     // EXP-1373: the row's team when the payload names one — the inbox shows
     // the active team's rows only, so the tap switches to it first.
     var pendingInboxTeamId: String?
-    // A session_blocked push tap (EXP-980): the session that hit a rate limit.
+    // A push tap naming a session (EXP-980 wall, #EXP-1456 any type): the
+    // navigator opens it by `InboxRoute.sessionTarget`.
     // Carries the recipient's server user id like the other push kinds, so a
     // multi-account device opens it under the account it was delivered to.
     var pendingSessionId: String?

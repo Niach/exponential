@@ -1,0 +1,189 @@
+{
+  "$comment": "#EXP-1456 (owner 2026-10-30): WHERE AN INBOX ROW OPENS ×4, the inbox row tap and the push tap alike. inboxRowTarget(row): a row with `issueId` opens its ISSUE (an `agent_message` about an issue opens that issue's Results face, EXP-933; every other issue row the issue). An issue-less row (`agent_message`, `session_blocked`) with `sessionId` opens THAT SESSION, whatever its type: an Assistant's or team agent's decision (#EXP-1439: question or plan card, `agent_message` titled `copy.decisionPush` of agent-settings.json), an @mention in a conversation (EXP-1291), a wall (EXP-980). An issue-less row without a session (an agent's broadcast, a device share removal, a pruned session) opens NOTHING. Any other issue-less type is not listed. Every tap marks the row read first. sessionTarget(session, viewerId): where a session opens, the S-3 inter-session rule (web lib/session-back.ts): the VIEWER's OWN agent CONVERSATION ROOT (its root is itself, carries `agentId`, and `userId` = the viewer) opens the AGENT's page (its channel: the waiting question or plan sits in its dock); a thread ROOT opens the THREAD; a thread's CHILD opens inside its thread (`threadId` + `sessionId`); anything else under an agent (a teammate's conversation, a child of a conversation) opens AS A SESSION on its own screen. `rootId` null = the row is its own root. A session the client has not synced opens the session route's not-found state, never nothing. Mirrors: TS src/inbox-route.ts, desktop `domain::inbox_route`, iOS ExpCore `InboxRoute.swift`, Android `domain/InboxRoute.kt`.",
+  "cases": [
+    {
+      "name": "assistant decision (agent conversation ask)",
+      "row": {
+        "type": "agent_message",
+        "issueId": null,
+        "sessionId": "s-assistant"
+      },
+      "expected": {
+        "kind": "session",
+        "sessionId": "s-assistant"
+      }
+    },
+    {
+      "name": "team agent plan in a thread",
+      "row": {
+        "type": "agent_message",
+        "issueId": null,
+        "sessionId": "s-thread"
+      },
+      "expected": {
+        "kind": "session",
+        "sessionId": "s-thread"
+      }
+    },
+    {
+      "name": "wall",
+      "row": {
+        "type": "session_blocked",
+        "issueId": null,
+        "sessionId": "s-walled"
+      },
+      "expected": {
+        "kind": "session",
+        "sessionId": "s-walled"
+      }
+    },
+    {
+      "name": "pruned wall",
+      "row": {
+        "type": "session_blocked",
+        "issueId": null,
+        "sessionId": null
+      },
+      "expected": {
+        "kind": "none"
+      }
+    },
+    {
+      "name": "agent broadcast without a target",
+      "row": {
+        "type": "agent_message",
+        "issueId": null,
+        "sessionId": null
+      },
+      "expected": {
+        "kind": "none"
+      }
+    },
+    {
+      "name": "agent message about an issue",
+      "row": {
+        "type": "agent_message",
+        "issueId": "i-1",
+        "sessionId": null
+      },
+      "expected": {
+        "kind": "issue",
+        "issueId": "i-1",
+        "face": "results"
+      }
+    },
+    {
+      "name": "comment",
+      "row": {
+        "type": "issue_comment",
+        "issueId": "i-2",
+        "sessionId": null
+      },
+      "expected": {
+        "kind": "issue",
+        "issueId": "i-2",
+        "face": null
+      }
+    },
+    {
+      "name": "unknown issue-less type",
+      "row": {
+        "type": "something_new",
+        "issueId": null,
+        "sessionId": "s-x"
+      },
+      "expected": {
+        "kind": "none"
+      }
+    }
+  ],
+  "sessionCases": [
+    {
+      "name": "the viewer's own Assistant conversation",
+      "viewerId": "u-me",
+      "session": {
+        "id": "s-assistant",
+        "rootId": "s-assistant",
+        "agentId": "a-assistant",
+        "userId": "u-me"
+      },
+      "expected": {
+        "kind": "agent",
+        "agentId": "a-assistant"
+      }
+    },
+    {
+      "name": "root id null = the row is its own root",
+      "viewerId": "u-me",
+      "session": {
+        "id": "s-agent",
+        "rootId": null,
+        "agentId": "a-scout",
+        "userId": "u-me"
+      },
+      "expected": {
+        "kind": "agent",
+        "agentId": "a-scout"
+      }
+    },
+    {
+      "name": "a teammate's agent conversation",
+      "viewerId": "u-me",
+      "session": {
+        "id": "s-theirs",
+        "rootId": "s-theirs",
+        "agentId": "a-scout",
+        "userId": "u-jonas"
+      },
+      "expected": {
+        "kind": "session",
+        "sessionId": "s-theirs"
+      }
+    },
+    {
+      "name": "thread root",
+      "viewerId": "u-me",
+      "session": {
+        "id": "s-thread",
+        "rootId": "s-thread",
+        "agentId": null,
+        "userId": "u-jonas"
+      },
+      "expected": {
+        "kind": "thread",
+        "threadId": "s-thread",
+        "sessionId": null
+      }
+    },
+    {
+      "name": "thread child",
+      "viewerId": "u-me",
+      "session": {
+        "id": "s-child",
+        "rootId": "s-thread",
+        "agentId": null,
+        "userId": "u-me"
+      },
+      "expected": {
+        "kind": "thread",
+        "threadId": "s-thread",
+        "sessionId": "s-child"
+      }
+    },
+    {
+      "name": "child under an agent conversation",
+      "viewerId": "u-me",
+      "session": {
+        "id": "s-agent-child",
+        "rootId": "s-assistant",
+        "agentId": "a-assistant",
+        "userId": "u-me"
+      },
+      "expected": {
+        "kind": "session",
+        "sessionId": "s-agent-child"
+      },
+      "$comment": "`agentId` and `userId` are the ROOT's (a child carries no agent: it resolves through its root)."
+    }
+  ]
+}

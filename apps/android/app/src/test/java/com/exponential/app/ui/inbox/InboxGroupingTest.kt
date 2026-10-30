@@ -134,6 +134,32 @@ class InboxGroupingTest {
     }
 
     /**
+     * #EXP-1456: an Assistant's decision (an issue-less `agent_message` with
+     * `session_id`) opens that session; a broadcast without one opens nothing.
+     */
+    @Test
+    fun agentMessageNamingASessionOpensIt() {
+        val state = buildInboxState(
+            notifications = listOf(
+                notification(
+                    "m1", teamId = "t1", sessionId = "s-assistant",
+                    type = DomainContract.notificationTypeAgentMessage,
+                    title = "Your Assistant needs a decision",
+                ),
+                notification("m2", teamId = "t1", type = DomainContract.notificationTypeAgentMessage),
+            ),
+            issues = emptyList(),
+            teams = listOf(team("t1", "Acme")),
+        )
+
+        val messages = state.entries.filterIsInstance<InboxEntry.Message>()
+        assertEquals(2, messages.size)
+        assertEquals("s-assistant", messages[0].sessionId)
+        assertNull(messages[1].sessionId)
+        assertEquals(2, state.totalUnread)
+    }
+
+    /**
      * EXP-980: a blocked coding run is its own issue-less entry, carrying the
      * run its tap opens; a row whose run was pruned still renders and only
      * marks read.

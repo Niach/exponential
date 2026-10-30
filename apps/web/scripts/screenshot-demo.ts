@@ -359,6 +359,13 @@ export const DEMO_AGENT_CONVERSATION_IDS = {
 } as const
 export const DEMO_AGENT_CONVERSATION_ID = DEMO_AGENT_CONVERSATION_IDS.triage
 
+/** #EXP-1456: the demo user's conversation with their Assistant: one waiting
+ *  question (a decision, #EXP-1439) and the inbox row its push wrote, so the
+ *  `inbox` view shows the session-routed row and its tap opens the
+ *  Assistant's page. */
+export const DEMO_ASSISTANT_CONVERSATION_ID = `3d7a91c4-52e8-4f0b-9a16-c84e2b5d7f30`
+export const DEMO_ASSISTANT_QUESTION = `Ship the board snapshot cache today, or wait for the editor bundle fix?`
+
 /**
  * The other thread roots, one per Threads-list state:
  *

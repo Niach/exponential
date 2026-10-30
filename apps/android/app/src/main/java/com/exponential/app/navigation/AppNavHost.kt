@@ -192,14 +192,18 @@ fun AppNavHost() {
                 navController.selectTab(MainTabs.THREADS, tabSwitch, restore = false)
                 navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
-            // EXP-980: a blocked run's push tap lands on the run itself. Same
-            // snapshot hazard as the issue route — the session screen reads
-            // its id from SavedStateHandle once.
+            // EXP-980 / #EXP-1456: a session push tap or inbox row (a wall,
+            // an agent's decision, an @mention) opens where that session
+            // lives (fixtures/inbox-route.json): my agent conversation = its
+            // channel, a thread root = the thread, else the session view.
+            // Same snapshot hazard as the issue route — the screens read
+            // their id from SavedStateHandle once.
             is DeepLinkBus.Target.Session -> {
+                val route = sessionTargetRoute(target.id, webLinkResolver.sessionTarget(target.id))
                 val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
                 guarded {
                     teamSwitch?.let(viewModel::applyTeamSwitch)
-                    navController.navigateDeepLink(Routes.session(target.id))
+                    navController.navigateDeepLink(route)
                 }
             }
             // EXP-1291: a thread link opens the thread (a root session).
@@ -719,11 +723,13 @@ private fun AuthenticatedNav(
             // Thread 58cb32df: the INBOX page — pushed from the Chats
             // header's inbox circle (no segments: My issues and Drafts moved
             // to the board's chips).
+            val inboxDeepLinks = applicationDeepLinkBus()
             PersonalScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
-                // EXP-980: a blocked-run row opens the run it is about.
-                onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
+                // EXP-980 / #EXP-1456: a row naming a session (a wall, an
+                // agent's decision, an @mention) opens it by the push's rule.
+                onOpenSession = { sessionId -> inboxDeepLinks.openSession(sessionId) },
                 // EXP-1291: an agent message's issue row opens the issue.
                 onOpenIssueGuide = { id -> navController.navigate("issue/$id") },
             )

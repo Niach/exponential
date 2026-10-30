@@ -93,8 +93,9 @@ fun InboxListContent(
                             onOpenIssue(entry.group.issue.id)
                         }
                     }
-                    // An agent's message (EXP-801) opens nothing — the row IS
-                    // the content; tapping marks it read.
+                    // An agent's message (EXP-801) marks read and, #EXP-1456,
+                    // opens the session it names (an Assistant's decision, an
+                    // @mention); a broadcast without one only marks read.
                     is InboxEntry.Message -> MessageInboxRow(
                         icon = ExpIcons.notificationAgentMessage,
                         notification = entry.notification,
@@ -102,6 +103,7 @@ fun InboxListContent(
                         unread = entry.unread,
                     ) {
                         viewModel.markMessageRead(entry.notification)
+                        entry.sessionId?.let(onOpenSession)
                     }
                     // A blocked run (EXP-980): marks read and opens the run —
                     // unless it has been pruned, when the row is all there is.

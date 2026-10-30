@@ -16,7 +16,9 @@ import SwiftUI
 /// model (segment control needs the unread count) and its observation
 /// lifecycle.
 struct InboxListContent: View {
+    @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
     let viewModel: InboxViewModel
 
     var body: some View {
@@ -46,40 +48,18 @@ struct InboxListContent: View {
                             .accessibilityIdentifier("notification-row")
                             .simultaneousGesture(TapGesture().onEnded { viewModel.markGroupRead(group) })
                         case .message(let entry):
-                            // An agent's message (EXP-801) opens nothing —
-                            // the row IS the content; tapping marks it read.
-                            Button {
-                                viewModel.markMessageRead(entry)
-                            } label: {
+                            // An agent's message (EXP-801) is the content;
+                            // #EXP-1456: one naming a session (an agent's
+                            // decision, a mention) opens it.
+                            sessionRowButton(entry.target, markRead: { viewModel.markMessageRead(entry) }) {
                                 messageRow(entry)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("notification-row")
                         case .blockedRun(let entry):
                             // A blocked session (EXP-980) opens the SESSION. A
                             // row whose session has been pruned has nowhere to
                             // go, so it only marks itself read.
-                            if let sessionId = entry.sessionId {
-                                NavigationLink(
-                                    value: AppRoute.agentSession(
-                                        accountId: accountId, sessionId: sessionId
-                                    )
-                                ) {
-                                    blockedRunRow(entry)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("notification-row")
-                                .simultaneousGesture(TapGesture().onEnded {
-                                    viewModel.markBlockedRunRead(entry)
-                                })
-                            } else {
-                                Button {
-                                    viewModel.markBlockedRunRead(entry)
-                                } label: {
-                                    blockedRunRow(entry)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("notification-row")
+                            sessionRowButton(entry.target, markRead: { viewModel.markBlockedRunRead(entry) }) {
+                                blockedRunRow(entry)
                             }
                         }
                     }
@@ -90,6 +70,27 @@ struct InboxListContent: View {
             // row was fully hidden under it before.
             .tabBarBottomInset()
         }
+    }
+
+    /// #EXP-1456 (inbox-route.json): an issue-less row's tap marks it read
+    /// first, then opens its session by `InboxRoute.sessionTarget` (the
+    /// viewer's own agent conversation = the agent's page, a thread = the
+    /// thread, else the session); no target = only mark read.
+    private func sessionRowButton<Label: View>(
+        _ target: InboxRoute.RowTarget,
+        markRead: @escaping () -> Void,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        Button {
+            markRead()
+            if case let .session(sessionId) = target {
+                pushRoute(AppRoute.openingSession(sessionId, accountId: accountId, deps: deps))
+            }
+        } label: {
+            label()
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("notification-row")
     }
 
     private func streamRow(_ group: InboxViewModel.Group) -> some View {

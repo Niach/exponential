@@ -85,8 +85,28 @@ class PushDeepLinksTest {
         )
     }
 
+    /** #EXP-1456: an Assistant's decision (or an @mention) carries its
+     *  session and opens it, the same as a wall. */
     @Test
-    fun `a session id without the blocked type is ignored`() {
+    fun `an agent message push naming a session targets the session`() {
+        assertEquals(
+            PushDeepLinks.Target.Session("s-assistant"),
+            PushDeepLinks.target(
+                type = PushDeepLinks.TYPE_AGENT_MESSAGE,
+                issueId = null,
+                sessionId = "s-assistant",
+            ),
+        )
+        // An issue still wins: the issue's Results face.
+        assertEquals(
+            PushDeepLinks.Target.IssueGuide("i1"),
+            PushDeepLinks.target(type = PushDeepLinks.TYPE_AGENT_MESSAGE, issueId = "i1", sessionId = "s-1"),
+        )
+    }
+
+    /** fixtures/inbox-route.json: an unlisted issue-less type opens nothing. */
+    @Test
+    fun `a session id on an unlisted issue-less type is ignored`() {
         assertNull(
             PushDeepLinks.target(
                 type = "issue_comment",

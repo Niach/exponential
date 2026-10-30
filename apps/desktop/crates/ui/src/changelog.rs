@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-inbox-decisions",
+    date: "2026-10-30",
+    title: "Agent questions open from the inbox",
+    summary: "Tapping an inbox item where your Assistant or an agent needs a decision opens the chat it is waiting in.",
+    body: r#"- **Decisions open from the inbox**: an inbox item like "Your Assistant needs a decision" now opens your Assistant with the question waiting in its chat, on web, desktop, iOS and Android; mentions in a chat open that chat too, and so does the push."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_116: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-call-reasons",
     date: "2026-10-30",
     title: "Calls say what's missing",

@@ -40,8 +40,9 @@
 //! Click routing reuses the rail Inbox's own paths: an issue-anchored row
 //! opens the issue detail fully scoped on its board (switching the window's
 //! team when needed; SLOP-4: a `reporter_reply` row is one of those), a
-//! `session_blocked` / `agent_message` row naming its session opens that
-//! session's screen (EXP-1294: its thread, or the session inside it), a
+//! issue-less `session_blocked` / `agent_message` row naming its session
+//! opens that session's screen (#EXP-1456 inbox-route.json: the viewer's own
+//! agent conversation = the agent's page, a thread, or the session), a
 //! bundle opens the Inbox tab. With every shell window closed
 //! (macOS dock-resident app) the host's open-window hook is asked for one
 //! first. Mark-read stays what it is — the rail rows mark on click; a toast
@@ -58,7 +59,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, FixedOffset};
-use domain::contract::{NOTIFICATION_TYPE_AGENT_MESSAGE, NOTIFICATION_TYPE_SESSION_BLOCKED};
 use domain::rows::Notification;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Context, Entity, Global, SharedString,
@@ -187,26 +187,16 @@ enum Route {
 }
 
 fn route_for(row: &Notification) -> Route {
-    // EXP-980/EXP-1294: a blocked session and an agent's message open the
-    // session they are about; a row whose session has been pruned falls back
-    // to its issue, else the inbox.
-    let session_kind = matches!(
-        row.kind.as_deref(),
-        Some(NOTIFICATION_TYPE_SESSION_BLOCKED) | Some(NOTIFICATION_TYPE_AGENT_MESSAGE)
-    );
-    if session_kind {
-        if let Some(session_id) = row.session_id.as_deref().filter(|id| !id.is_empty()) {
-            return Route::Session {
-                session_id: session_id.to_string(),
-            };
-        }
+    // #EXP-1456 (inbox-route.json), the inbox row's own rule: an issue row
+    // opens its issue; an issue-less `agent_message` / `session_blocked`
+    // naming a session (an Assistant's decision, a mention, a wall) opens
+    // that session; anything else (a pruned session, a broadcast) the Inbox.
+    use domain::inbox_route::{inbox_row_target, InboxRowTarget};
+    match inbox_row_target(row.kind.as_deref(), row.issue_id.as_deref(), row.session_id.as_deref()) {
+        InboxRowTarget::Issue { issue_id, .. } => Route::Issue { issue_id },
+        InboxRowTarget::Session { session_id } => Route::Session { session_id },
+        InboxRowTarget::None => Route::Inbox,
     }
-    if let Some(issue_id) = &row.issue_id {
-        return Route::Issue {
-            issue_id: issue_id.clone(),
-        };
-    }
-    Route::Inbox
 }
 
 /// One composed system notification.
@@ -718,6 +708,7 @@ pub(crate) const DUPLICATE_AGENT_TITLE: &str = "Duplicate agent";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::contract::{NOTIFICATION_TYPE_AGENT_MESSAGE, NOTIFICATION_TYPE_SESSION_BLOCKED};
 
     fn row(id: &str, created_at: &str) -> Notification {
         Notification {
@@ -763,13 +754,16 @@ mod tests {
         }
     }
 
-    /// EXP-1294: an agent's message opens the session it names; without
-    /// one it falls back to its issue, and an issue-less, session-less one
+    /// #EXP-1456 (inbox-route.json): an issue-less agent message (an
+    /// Assistant's decision, a mention) opens the session it names; one
+    /// about an issue opens the issue, and an issue-less, session-less one
     /// (EXP-801) still lands in the Inbox.
     #[test]
     fn an_agent_message_routes_to_its_session() {
         let message = Notification {
             kind: Some(NOTIFICATION_TYPE_AGENT_MESSAGE.to_string()),
+            issue_id: None,
+            team_id: Some("team-a".to_string()),
             session_id: Some("s-m".to_string()),
             ..row("m", "2026-08-27T10:00:00+00:00")
         };
@@ -779,9 +773,19 @@ mod tests {
                 session_id: "s-m".to_string()
             }
         );
+        let about_issue = Notification {
+            issue_id: Some("issue-m".to_string()),
+            ..message.clone()
+        };
+        assert_eq!(
+            route_for(&about_issue),
+            Route::Issue {
+                issue_id: "issue-m".to_string()
+            }
+        );
         let session_less = Notification {
             session_id: None,
-            ..message.clone()
+            ..about_issue
         };
         assert_eq!(
             route_for(&session_less),

@@ -2,6 +2,7 @@ package com.exponential.app.data.push
 
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.domain.InboxRoute
 import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -52,6 +53,27 @@ class WebLinkResolver @Inject constructor(
     suspend fun isLocalRoot(sessionId: String): Boolean? {
         val accountId = auth.activeAccountId.value ?: return null
         return runCatching { dbHolder.database(accountId).sessionDao().getById(sessionId)?.isRoot }.getOrNull()
+    }
+
+    /**
+     * #EXP-1456 (fixtures/inbox-route.json `sessionCases`, the S-3 rule):
+     * where the synced session [sessionId] opens for the signed-in viewer —
+     * the agent's channel for my own agent conversation root, the thread for
+     * a thread's root or child, else the session itself. A child resolves
+     * its agent + owner through its root. Null when the row is not synced
+     * (yet): the caller opens the session route's not-found state.
+     */
+    suspend fun sessionTarget(sessionId: String): InboxRoute.SessionTarget? = activeDb(null) { db ->
+        val session = db.sessionDao().getById(sessionId) ?: return@activeDb null
+        val rootId = session.rootId.takeIf { it.isNotEmpty() } ?: session.id
+        val root = if (rootId == session.id) session else db.sessionDao().getById(rootId)
+        InboxRoute.sessionTarget(
+            id = session.id,
+            rootId = rootId,
+            agentId = root?.agentId ?: session.agentId,
+            userId = root?.userId ?: session.userId,
+            viewerId = auth.userId.value,
+        )
     }
 
     /**
