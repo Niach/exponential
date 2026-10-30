@@ -319,8 +319,8 @@ const isAsk = (card: { kind: string }) => card.kind === `plan` || card.kind === 
 /**
  * S-3 `exponential_show {replace: true}`: the session's latest own card of
  * the same family (a plain surface vs an ask/plan), whatever the turn or
- * title (#EXP-1446), is edited in place: the same row, so every client's
- * card updates instead of a new one landing. A card a person already
+ * title (#EXP-1446), is edited in place and moved to the bottom: the same
+ * row, so every client's card updates instead of a new one landing. A card a person already
  * answered is final (refused); none of the family = a new card. → the
  * edited row, or null to insert.
  */
@@ -411,7 +411,13 @@ export async function postShowCard(args: {
         await generateTxId(tx)
         const now = new Date()
         const card = carryPictures(target.card, args.card)
-        await tx.update(messages).set({ card, updatedAt: now }).where(eq(messages.id, target.id))
+        // Edited AND moved to the bottom (#EXP-1446): every client orders a
+        // chat by created_at (ties by id) and re-sorts on a synced update.
+        // The DB clock, so it lands after every row its `now()` stamped.
+        await tx
+          .update(messages)
+          .set({ card, createdAt: sql`clock_timestamp()`, updatedAt: now })
+          .where(eq(messages.id, target.id))
         if (isAsk(args.card)) {
           // The parent's / watchers' ask mirrors keep pointing at the row;
           // their text follows (a neutral private line stays as it is).

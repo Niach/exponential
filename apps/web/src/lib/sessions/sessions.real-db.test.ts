@@ -2618,6 +2618,29 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     expect(cards[0]!.card).toMatchObject({ title: `Shipped` })
   })
 
+  it(`a replaced card moves to the bottom of the chat (#EXP-1446)`, async () => {
+    const w = await world({ shared: true })
+    const sent = await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `show it` } })
+    const host = caller(w.owner)
+    await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
+    await deliver(host, sent.sessionId)
+    const first = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`a`), replace: false })
+    await host.reply({ sessionId: sent.sessionId, body: `Working.` })
+    await sendSession({ userId: w.mate, input: { sessionId: sent.sessionId, text: `next` } })
+    await deliver(host, sent.sessionId)
+    const before = (await db.select().from(messages).where(eq(messages.id, first.messageId)))[0]!
+    const edited = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`b`), replace: true })
+    expect(edited).toMatchObject({ messageId: first.messageId, replaced: true })
+    // The clients' transcript order: created_at, ties by id.
+    const ordered = (await db.select().from(messages).where(eq(messages.sessionId, sent.sessionId))).sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id)
+    )
+    expect(ordered.length).toBeGreaterThan(2)
+    expect(ordered.at(-1)!.id).toBe(first.messageId)
+    expect(ordered.at(-1)!.createdAt.getTime()).toBeGreaterThan(before.createdAt.getTime())
+    expect(JSON.stringify(ordered.at(-1)!.card)).toContain(`"b"`)
+  })
+
   it(`replace edits the latest card across turns in an agent conversation, the Assistant's included (#EXP-1446)`, async () => {
     const w = await world()
     for (const role of [`agent`, `assistant`] as const) {
