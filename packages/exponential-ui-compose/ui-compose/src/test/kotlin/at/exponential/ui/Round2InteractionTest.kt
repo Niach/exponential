@@ -177,6 +177,13 @@ class Round2InteractionTest {
     }
 
     @Test
+    fun theTextClustersFixtureReplays() {
+        val cases = Round2Suites.textClusters()
+        assertTrue(cases.size >= 4)
+        assertEquals(emptyList<String>(), cases.filter { it.second != null }.map { "${it.first}: ${it.second}" })
+    }
+
+    @Test
     fun theVoiceWaveFixtureReplaysThroughTheFacade() {
         val cases = Round2Suites.voiceWave()
         assertTrue(cases.size >= 7)

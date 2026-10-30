@@ -3083,7 +3083,7 @@ dependencies = [
 
 [[package]]
 name = "eui-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cosmic-text",
  "indexmap 2.14.0",
@@ -3098,7 +3098,7 @@ dependencies = [
 
 [[package]]
 name = "eui-gpui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eui-core",
  "flume 0.11.1",
@@ -3212,7 +3212,7 @@ dependencies = [
 
 [[package]]
 name = "exponential-ui-ffi"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eui-core",
  "indexmap 2.14.0",
