@@ -6,7 +6,7 @@
 //! which pushes the current screen on the back stack (the shell's Back pops
 //! it), so links are bidirectional.
 
-use gpui::{div, px, AnyElement, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window};
+use gpui::{div, prelude::FluentBuilder as _, px, AnyElement, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window};
 use gpui_component::{h_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::session_tree::{SessionXref, THREAD};
@@ -56,8 +56,28 @@ pub(crate) fn session_xref_with(
     on_click: impl Fn(&mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
+    xref_line(id, xref, mark, Some(Box::new(on_click)), cx)
+}
+
+/// #EXP-1464 (thread-row-action.json): the line with no action (a report
+/// about the conversation's own root): no chevron, no hover, no press.
+pub(crate) fn session_xref_plain(key: &str, xref: &SessionXref, cx: &App) -> AnyElement {
+    let mark = xref_mark(xref.agent_id.as_deref(), cx);
+    xref_line(xref_id(key), xref, mark, None, cx)
+}
+
+/// The line itself: with `on_click` = a button (pointer, hover =
+/// foreground, press = the pressed wash, the trailing `›`).
+fn xref_line(
+    id: impl Into<ElementId>,
+    xref: &SessionXref,
+    mark: AnyElement,
+    on_click: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    cx: &App,
+) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let foreground = cx.theme().foreground;
+    let interactive = on_click.is_some();
     h_flex()
         .id(id)
         .max_w_full()
@@ -66,8 +86,6 @@ pub(crate) fn session_xref_with(
         .items_center()
         .text_xs()
         .text_color(muted)
-        .cursor_pointer()
-        .hover(move |style| style.text_color(foreground))
         .child(div().flex_shrink_0().child(SharedString::from(THREAD.copy.xref.lead(&xref.kind).to_string())))
         .child(mark)
         .child(
@@ -78,8 +96,16 @@ pub(crate) fn session_xref_with(
                 .font_weight(gpui::FontWeight::MEDIUM)
                 .child(SharedString::from(xref.name.clone())),
         )
-        .child(Icon::new(registry::UI_CHEVRON_RIGHT).with_size(px(XREF_CHEVRON_PX)).flex_shrink_0())
-        .on_click(move |_, window, cx| on_click(window, cx))
+        .when(interactive, |this| {
+            this.child(Icon::new(registry::UI_CHEVRON_RIGHT).with_size(px(XREF_CHEVRON_PX)).flex_shrink_0())
+        })
+        .when_some(on_click, |this, on_click| {
+            this.cursor_pointer()
+                .rounded(px(theme::tokens::radius::SM))
+                .hover(move |style| style.text_color(foreground))
+                .active(|style| style.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
+                .on_click(move |_, window, cx| on_click(window, cx))
+        })
         .into_any_element()
 }
 

@@ -551,6 +551,13 @@ export type ThreadRow =
   /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
   | { type: `surface`; id: string; sessionId: string; title: string | null; surface: CardSurface }
 
+/** #EXP-1464: a `question` / `plan` message as THE card's row (an expanded
+ *  session row's waiting card, thread-row-action.json), else null. */
+export function threadAskRow(message: TreeMessage): Extract<ThreadRow, { type: `question` | `plan` }> | null {
+  const card = message.card
+  return card && (card.kind === `question` || card.kind === `plan`) ? askRow(message, card) : null
+}
+
 /** A `question` / `plan` card's Conversation row (its own thread, or an
  *  escalated card read from its origin message). */
 function askRow(

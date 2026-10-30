@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-conversation-session-rows",
+    date: "2026-10-30",
+    title: "Session rows open from a chat",
+    summary: "Tap a session's row in a chat to open it, or answer its question right there.",
+    body: r#"- **Conversations**: tap a session's row to open it. A row that needs you opens its question or plan right there, so you can answer in place.
+- **Every line goes somewhere**: "Report from", "was not picked up" and the other session lines open that session; only rows that do something show a chevron."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_118: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-inbox-decisions",
     date: "2026-10-30",
     title: "Agent questions open from the inbox",

@@ -335,10 +335,14 @@ export const SESSION_CARD_TONE: Record<string, string> = {
 export function SessionCard({
   card,
   onOpen,
+  expanded,
   className,
 }: {
   card: SessionCardModel
   onOpen?: () => void
+  /** #EXP-1464: the row is expanded into its waiting card (the chevron
+   *  turns down; a tap collapses it). */
+  expanded?: boolean
   className?: string
 }) {
   const header = (
@@ -349,7 +353,11 @@ export function SessionCard({
       kindWordClassName={SESSION_CARD_TONE[card.tone]}
       running={card.running}
       trailing={card.elapsed}
-      after={onOpen ? <ChevronIcon className="size-3.5 shrink-0" /> : undefined}
+      after={
+        onOpen ? (
+          <ChevronIcon className={cn(`size-3.5 shrink-0 transition-transform`, expanded && `rotate-90`)} />
+        ) : undefined
+      }
     />
   )
   const caption = card.caption ? (
@@ -379,7 +387,8 @@ export function SessionCard({
       type="button"
       data-testid={card.testId}
       data-state={card.state}
-      className={cn(shell, `hover:bg-glass-active/50`)}
+      aria-expanded={expanded}
+      className={cn(shell, `hover:bg-glass-active/50 active:bg-glass-active`)}
       onClick={onOpen}
     >
       {header}
