@@ -1,4 +1,5 @@
 import { isPersistent } from "@exp/domain-contract/session-kind"
+import { isAssistantConversation, turnHasMemberInput } from "@/lib/agents/assistant-chat"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
@@ -871,6 +872,16 @@ export const sessionsRouter = router({
         throw new TRPCError({ code: `BAD_REQUEST`, message: `A reply needs a body or a card` })
       }
       const asks = card?.kind === `question` || card?.kind === `plan`
+      // #EXP-1439 (agent-settings.json `assistant.chat`): an Assistant's
+      // text lands only in a turn its member started; a check-in or a
+      // child's line updates its status card, never the chat.
+      if (
+        !card &&
+        (await isAssistantConversation(ctx.db, session)) &&
+        !(await turnHasMemberInput(ctx.db, session.id))
+      ) {
+        return { messageId: ``, ...(await noOpTx(ctx.db)) }
+      }
       const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         // S-3: an agent conversation keeps ONE text per person message: a
