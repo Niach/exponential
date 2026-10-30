@@ -5,6 +5,16 @@ It spawns the user's own, unmodified `claude` / `codex` binary over ACP, streams
 does, lists the CLIs' own session history (with their own session names), runs the agent's login
 in a PTY and wires MCP servers. One local account, no server.
 
+## Consuming
+
+`publish = false` (it compiles a fixture from `packages/` in with `include_str!`):
+depend on a release tag, `agent-runtime-v<version>`, per the git-tag policy in
+`docs/libraries.md` ("Consuming from another repo"):
+
+```toml
+exponential-agent-runtime = { git = "https://github.com/Niach/exponential", tag = "agent-runtime-v0.1.0" }
+```
+
 ## Rules
 
 1. **No server coupling.** No tRPC, token store, device id, steer relay or pickup loop. The crate

@@ -16,14 +16,14 @@ Exponential links it from the IDE and the `exponential` daemon (through
 ## Consuming
 
 `publish = false`: consume it as a git dependency on a release tag. Tags are
-`epilot-v<version>`, `<version>` being the crate's `version` (today the desktop
-workspace's). `epilot-screen` ships under the same tag. No `epilot-v*` tag has
-been cut yet; until the first one, pin a `rev` instead.
+`epilot-v<version>`, `<version>` being the crate's `version`. `epilot-screen`
+ships under the same tag. The rules are the git-tag policy in
+`docs/libraries.md` ("Consuming from another repo").
 
 ```toml
 [dependencies]
-epilot = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.14.84" }
-epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.14.84" }
+epilot = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.1.0" }
+epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.1.0" }
 ```
 
 The rules are compiled in from `packages/domain-contract/fixtures/` with

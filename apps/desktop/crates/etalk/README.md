@@ -51,13 +51,17 @@ Windows download the pinned runtime on first use.
 ## Consuming it
 
 The crates are consumed as a git dependency on a tag, `etalk-v<version>`
-(the desktop workspace version), because the fixtures are compiled in from
-`packages/etalk/fixtures` and only a checkout of this repo carries them. No `etalk-v*` tag has been cut yet; until the first one, pin a
-`rev` instead:
+(the crates' own version), because the fixtures are compiled in from
+`packages/etalk/fixtures` and only a checkout of this repo carries them. Every
+eTalk crate uses the same tag; the rules are the git-tag policy in
+`docs/libraries.md` ("Consuming from another repo"):
 
 ```toml
-etalk = { git = "https://github.com/Niach/exponential", tag = "etalk-v0.14.84" }
+etalk = { git = "https://github.com/Niach/exponential", tag = "etalk-v0.1.0" }
 ```
+
+The contract (the fixtures and their TypeScript references) is also on npm
+as `@exponential_app/etalk`, same version.
 
 `etalk-gpui` also needs the same gpui and gpui-component revisions as this
 workspace (see the eUI gpui revision policy).

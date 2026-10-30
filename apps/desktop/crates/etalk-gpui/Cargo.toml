@@ -14,7 +14,6 @@ readme = "README.md"
 # crate never links Exponential's server or app crates (ui, sync, api, coding,
 # steer, domain, engine, updater).
 etalk = { path = "../etalk" }
-theme = { path = "../theme" }
 # The SDK: the glass bar, pills, call buttons and the voice wave.
 eui-core = { path = "../eui-core" }
 eui-gpui = { path = "../eui-gpui" }
