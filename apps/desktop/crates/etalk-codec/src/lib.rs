@@ -18,7 +18,7 @@ pub const BACKEND: &str = if cfg!(feature = "libopus") {
 };
 
 #[cfg(not(any(feature = "libopus", feature = "opus-rs")))]
-compile_error!("call-codec needs an Opus backend: the `opus-rs` (default) or the `libopus` feature");
+compile_error!("etalk-codec needs an Opus backend: the `opus-rs` (default) or the `libopus` feature");
 
 /// voice-call.json `constants.frameMs`.
 pub const FRAME_MS: u32 = 20;

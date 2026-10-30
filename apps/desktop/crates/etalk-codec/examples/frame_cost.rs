@@ -4,8 +4,8 @@
 //! 32 kbps (encoded by it). CPU only, one thread; run it inside the heavy
 //! lane, once per backend:
 //!
-//!   cargo run --release -p call-codec --example frame_cost -- <speech.wav> [frames]
-//!   cargo run --release -p call-codec --features libopus --example frame_cost -- …
+//!   cargo run --release -p etalk-codec --example frame_cost -- <speech.wav> [frames]
+//!   cargo run --release -p etalk-codec --features libopus --example frame_cost -- …
 //!
 //! The clip is 16-bit mono PCM (`crates/etalk-engine/assets/builtin-en.wav`),
 //! resampled to each leg's rate and looped.
