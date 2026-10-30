@@ -114,6 +114,18 @@ public enum SessionQueries {
             """, arguments: StatementArguments(ids))
     }
 
+    /// #EXP-1464: the question / plan card messages of `sessionIds` (their
+    /// conversations'), oldest first.
+    public static func cardMessages(db: Database, sessionIds: [String]) throws -> [SessionMessage] {
+        guard !sessionIds.isEmpty else { return [] }
+        let marks = Array(repeating: "?", count: sessionIds.count).joined(separator: ", ")
+        return try SessionMessage.fetchAll(db, sql: """
+            \(keyedMessagesSQL) AND "conversations"."session_id" IN (\(marks))
+                AND json_valid("messages"."card") AND json_extract("messages"."card", '$.kind') IN ('question', 'plan')
+            ORDER BY "messages"."created_at" ASC, "messages"."id" ASC
+            """, arguments: StatementArguments(sessionIds))
+    }
+
     /// One session's own messages (its conversation's), oldest first.
     public static func messages(db: Database, sessionId: String) throws -> [SessionMessage] {
         try SessionMessage.fetchAll(db, sql: """

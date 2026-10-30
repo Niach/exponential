@@ -70,6 +70,11 @@ struct ThreadRows: Sendable {
     /// S-3: the root team's statuses: an issue chip's glyph resolves its
     /// `statusId` through them (the anchor only as their fallback).
     var issueStatuses: [ResolvedIssueStatus] = IssueStatusResolver.builtinFallbackTeam
+    /// #EXP-1464 (thread-row-action.json): the question / plan messages of
+    /// the sessions a card names OUTSIDE this tree — a Needs you card
+    /// expands into its session's waiting card (`sessionWaitingCard`).
+    /// Never rows of their own.
+    var namedCards: [SessionMessage] = []
 
     /// A conversation WITH someone: an agent's (its header names the agent,
     /// its `…` is the agent menu), or (VAPP-110) an app's editor session.
@@ -337,6 +342,7 @@ struct ThreadRows: Sendable {
         if !named.isEmpty {
             sessions += try SessionEntity.filter(Array(named).contains(Column("id"))).fetchAll(db)
         }
+        let namedCards = try named.isEmpty ? [] : SessionQueries.cardMessages(db: db, sessionIds: named.sorted())
         let foreignRoots = Set(sessions.map(\.rootId).filter { !$0.isEmpty }).subtracting(sessions.map(\.id))
         if !foreignRoots.isEmpty {
             sessions += try SessionEntity.filter(Array(foreignRoots).contains(Column("id"))).fetchAll(db)
@@ -400,6 +406,7 @@ struct ThreadRows: Sendable {
             issueStatuses: IssueStatusResolver.teamStatusesOrFallback(
                 try IssueStatusEntity.filter(Column("team_id") == root.teamId).fetchAll(db)
             ),
+            namedCards: namedCards,
             stackIssueIds: stackIssueIds,
             stackIssues: stackIssues,
             xrefAgents: xrefAgents
@@ -449,6 +456,13 @@ struct ThreadRows: Sendable {
         if let agentId = root.startedByAgentId, !agentId.isEmpty {
             parts.append(try stamp(db, table: "sessions", where: "\"agent_id\" = ?1 AND \"id\" = \"root_id\"", agentId))
         }
+        // #EXP-1464: the question / plan cards of the sessions cards name.
+        parts.append(try String.fetchOne(db, sql: """
+            SELECT count(*) || ':' || ifnull(max("m"."updated_at"), '') || ':' || count("m"."answered_at")
+            FROM "messages" "m" JOIN "conversations" "c" ON "c"."id" = "m"."conversation_id"
+            WHERE "m"."root_id" <> ?1 AND "c"."session_id" IN (\(named))
+                AND json_valid("m"."card") AND json_extract("m"."card", '$.kind') IN ('question', 'plan')
+            """, arguments: [id]) ?? "")
         // S-3: the team's agents (the marks of the links).
         parts.append(try stamp(db, table: "agents", where: "\"team_id\" = ?1", root.teamId))
         if let agentId = root.agentId { parts.append(try stamp(db, table: "agents", where: "\"id\" = ?1", agentId)) }

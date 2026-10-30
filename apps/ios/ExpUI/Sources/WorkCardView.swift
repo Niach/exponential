@@ -324,6 +324,8 @@ public struct WorkCardHeaderRow: View {
     var running = false
     /// A chevron at the trailing edge: the row opens something.
     var chevron = false
+    /// #EXP-1464: the chevron turned down (the row expanded in place).
+    var expanded = false
 
     public init(
         icon: String,
@@ -333,7 +335,8 @@ public struct WorkCardHeaderRow: View {
         kindTint: Color = .white.opacity(TextOpacity.tertiary),
         trailing: String?,
         running: Bool,
-        chevron: Bool = false
+        chevron: Bool = false,
+        expanded: Bool = false
     ) {
         self.icon = icon
         self.iconTint = iconTint
@@ -343,6 +346,7 @@ public struct WorkCardHeaderRow: View {
         self.trailing = trailing
         self.running = running
         self.chevron = chevron
+        self.expanded = expanded
     }
 
     public var body: some View {
@@ -375,6 +379,7 @@ public struct WorkCardHeaderRow: View {
             if chevron {
                 AppIcon(AppIcons.uiChevronRight, size: 12)
                     .foregroundStyle(muted)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
             }
         }
         .padding(.horizontal, 12)
@@ -395,10 +400,26 @@ public struct SessionCardView: View {
     /// EXP-1323: drawn as a row INSIDE another card (a started suggestion):
     /// no shell of its own.
     let bare: Bool
+    /// #EXP-1464 (thread-row-action.json): expanded in place (the chevron
+    /// turns down); `kindWord` / `tone` override the card's own (`Answered`,
+    /// muted), nil = its own.
+    let expanded: Bool
+    let kindWord: String?
+    let tone: String?
 
-    public init(card: SessionCard, bare: Bool = false, onOpen: (() -> Void)?) {
+    public init(
+        card: SessionCard,
+        bare: Bool = false,
+        expanded: Bool = false,
+        kindWord: String? = nil,
+        tone: String? = nil,
+        onOpen: (() -> Void)?
+    ) {
         self.card = card
         self.bare = bare
+        self.expanded = expanded
+        self.kindWord = kindWord
+        self.tone = tone
         self.onOpen = onOpen
     }
 
@@ -420,7 +441,7 @@ public struct SessionCardView: View {
                 .stroke(bare ? Color.clear : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(card.name), \(card.kindWord)")
+        .accessibilityLabel("\(card.name), \(kindWord ?? card.kindWord)")
         .accessibilityIdentifier(card.testId)
     }
 
@@ -428,17 +449,19 @@ public struct SessionCardView: View {
     private var content: some View { row }
 
     private var row: some View {
-        WorkCardHeaderRow(
+        let tone = tone ?? card.tone
+        return WorkCardHeaderRow(
             icon: Self.glyph(card.state),
-            iconTint: Self.tint(card.tone),
+            iconTint: Self.tint(tone),
             name: card.name,
-            kindWord: card.kindWord,
-            kindTint: card.tone == "amber" || card.tone == "rose"
-                ? Self.tint(card.tone)
+            kindWord: kindWord ?? card.kindWord,
+            kindTint: tone == "amber" || tone == "rose"
+                ? Self.tint(tone)
                 : .white.opacity(TextOpacity.tertiary),
             trailing: card.elapsed,
             running: card.running,
-            chevron: onOpen != nil
+            chevron: onOpen != nil,
+            expanded: expanded
         )
     }
 
@@ -465,8 +488,10 @@ public struct SessionCardView: View {
 
 /// A tappable row inside a card: the active fill while pressed (no scale —
 /// a row is not a button face).
-struct PressableRowStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
+public struct PressableRowStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(configuration.isPressed ? GlassTokens.fillActive : Color.clear)
     }
