@@ -38,8 +38,8 @@ class VoiceCallAudioTest {
         val handoff = RoutingHandoff<String>()
         val call = Any()
         handoff.claim(call) { "normal" }
-        assertEquals("normal", handoff.restore(call))
-        assertNull(handoff.restore(call))
+        assertEquals("normal", handoff.restore(call) {})
+        assertNull(handoff.restore(call) {})
     }
 
     @Test
@@ -51,7 +51,29 @@ class VoiceCallAudioTest {
         // The second call routes while the first still joins its threads:
         // the device reads "in call" now, which must never be put back.
         handoff.claim(second) { "in call" }
-        assertNull(handoff.restore(first))
-        assertEquals("normal", handoff.restore(second))
+        assertNull(handoff.restore(first) {})
+        assertEquals("normal", handoff.restore(second) {})
+    }
+
+    @Test
+    fun aCallClaimingDuringARestoreKeepsTheOriginalMode() {
+        val handoff = RoutingHandoff<String>()
+        var mode = "normal"
+        val first = Any()
+        val second = Any()
+        handoff.claim(first) { mode }
+        mode = "in call"
+        var claimer: Thread? = null
+        handoff.restore(first) { previous ->
+            // The next call claims while the old mode is being written back:
+            // it must wait for the write, never save "in call" as previous.
+            claimer = Thread { handoff.claim(second) { mode } }.also { it.start() }
+            while (claimer!!.state != Thread.State.BLOCKED) Thread.yield()
+            mode = previous
+        }
+        claimer!!.join(2_000)
+        mode = "in call"
+        handoff.restore(second) { mode = it }
+        assertEquals("normal", mode)
     }
 }

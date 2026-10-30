@@ -323,7 +323,7 @@ internal class VoiceCallAudio(
         val request = focus ?: return
         runCatching {
             // A call started since then routes now: leave its routing alone.
-            routing.restore(this)?.let { (previousMode, previousSpeaker) ->
+            routing.restore(this) { (previousMode, previousSpeaker) ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     audioManager.clearCommunicationDevice()
                 } else {
@@ -620,6 +620,9 @@ internal class JitterBuffer(private val prebuffer: Int, private val cap: Int = p
  * may route first: it keeps the state saved before the FIRST call, and the
  * previous call's late [restore] gets nothing (it would undo the new
  * call's routing).
+ *
+ * #NEW-94: [restore] writes the old routing back under the lock, so a new
+ * call's [claim] never reads the ending call's mode as "previous".
  */
 internal class RoutingHandoff<S : Any> {
     private var owner: Any? = null
@@ -631,10 +634,16 @@ internal class RoutingHandoff<S : Any> {
         this.owner = owner
     }
 
-    /** The state to put back, when [owner] still holds the routing; else null. */
-    @Synchronized fun restore(owner: Any): S? {
+    /**
+     * When [owner] still holds the routing, [put]s the saved state back
+     * (under the lock) and returns it; else null.
+     */
+    @Synchronized fun restore(owner: Any, put: (S) -> Unit): S? {
         if (this.owner !== owner) return null
         this.owner = null
-        return saved.also { saved = null }
+        val previous = saved ?: return null
+        saved = null
+        put(previous)
+        return previous
     }
 }
