@@ -54,4 +54,9 @@ echo "== android .so (profile mobile: LTO, stripped)"
 FEATURE_ARGS=()
 if [ -n "${ENET_FEATURES+x}" ]; then FEATURE_ARGS=(--no-default-features --features "$ENET_FEATURES"); fi
 cargo ndk "${NDK_TARGETS[@]}" -o "$OUT/jniLibs" rustc -p exponential-net-ffi --profile mobile --crate-type cdylib ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"}
-for abi in ${ABIS//,/ }; do ls -la "$OUT/jniLibs/$abi/"; done
+# cargo-ndk copies EVERY .so in the (possibly shared) target profile dir: keep
+# only the facade, or stray dylibs (iroh-*, irpc-*) ship in the APK.
+for abi in ${ABIS//,/ }; do
+  find "$OUT/jniLibs/$abi" -name '*.so' ! -name 'libexponential_net_ffi.so' -delete
+  ls -la "$OUT/jniLibs/$abi/"
+done

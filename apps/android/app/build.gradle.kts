@@ -79,7 +79,7 @@ val buildEnetFfi = tasks.register<Exec>("buildEnetFfi") {
     val desktop = File(repoRoot, "apps/desktop")
     inputs.dir(File(enetFfiCrate, "src"))
     inputs.dir(File(desktop, "crates/enet-core/src"))
-    inputs.files(File(enetFfiCrate, "Cargo.toml"), File(desktop, "crates/enet-core/Cargo.toml"), File(desktop, "Cargo.lock"))
+    inputs.files(File(enetFfiCrate, "build-android.sh"), File(enetFfiCrate, "Cargo.toml"), File(desktop, "crates/enet-core/Cargo.toml"), File(desktop, "Cargo.lock"))
     outputs.dir(File(enetFfiCrate, "out/jniLibs"))
     onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
         // CI never ships an app without its eNet node.
