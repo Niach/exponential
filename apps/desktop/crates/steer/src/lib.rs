@@ -169,8 +169,8 @@ pub use publisher::{
     PublisherTickets, TrpcPublisherTickets,
 };
 pub use viewer::{
-    chunk_input, spawn_viewer, spawn_viewer_with, TrpcViewerTickets, ViewerEvent, ViewerHandle,
-    ViewerPhase, ViewerTickets, ViewerTimings, INPUT_CHUNK_UTF16,
+    chunk_input, spawn_viewer, spawn_viewer_over, spawn_viewer_with, EnetViewerSource, TrpcViewerTickets,
+    ViewerEvent, ViewerHandle, ViewerPhase, ViewerTickets, ViewerTimings, INPUT_CHUNK_UTF16,
 };
 
 // ---------------------------------------------------------------------------

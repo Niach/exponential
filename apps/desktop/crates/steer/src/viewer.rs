@@ -46,7 +46,23 @@
 //!
 //! Steering is owner-only and enforced at MINT time (EXP-312) — there is no
 //! client-side gate here, and there must not be one.
+//!
+//! ## eNet first (VAPP-33)
+//!
+//! With an [`EnetViewerSource`], every dial first tries the device directly
+//! over eNet's chat channel (`fixtures/steer-enet.json`): the endpoints
+//! `installs.forSession` names, newest first, each sent a `join` until one
+//! answers with its replay up to `activity_synced` within
+//! [`enet_steer::JOIN_TIMEOUT`]. The same reducer events come out and every
+//! [`ViewerHandle`] frame goes back over eNet. No node, no endpoint, every
+//! endpoint refusing or silent = the relay ticket path above, and eNet is
+//! retried after [`ENET_RETRY`]. A joined eNet feed silent for
+//! [`enet_steer::STALE`] re-joins.
+//!
+//! [`enet_steer::JOIN_TIMEOUT`]: crate::enet_steer::JOIN_TIMEOUT
+//! [`enet_steer::STALE`]: crate::enet_steer::STALE
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -62,7 +78,12 @@ use crate::frames::{
     ActivityEvent, ClientFrame, ViewerFrame, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
     CLOSE_UNAUTHORIZED,
 };
+use crate::enet_steer;
 use crate::{dial, Backoff, DialError, SteerRuntime, WsStream};
+
+/// VAPP-33: after eNet could not be built (or its device went away), the
+/// relay serves this long before eNet is tried again.
+pub const ENET_RETRY: Duration = Duration::from_secs(120);
 
 /// The relay rejects `input` frames over 8 KiB; chunk well under that. The cap
 /// is measured in UTF-16 code units — the relay validates against a JS
@@ -141,6 +162,15 @@ impl ViewerTickets for TrpcViewerTickets {
     fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
         Ok(api::steer::mint_viewer_ticket(&self.trpc, &self.session_id)?.into_ticket())
     }
+}
+
+/// VAPP-33: where a viewer finds the session's device over eNet.
+pub trait EnetViewerSource: Send + Sync + 'static {
+    /// This install's running node, if any.
+    fn node(&self) -> Option<Arc<enet_core::Node>>;
+    /// BLOCKING (`installs.forSession`): the endpoint ids (hex) of the
+    /// installs running `session_id`, newest first.
+    fn endpoints(&self, session_id: &str) -> Result<Vec<String>, ApiError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +504,18 @@ pub fn spawn_viewer_with(
     events_tx: flume::Sender<ViewerEvent>,
     timings: ViewerTimings,
 ) -> ViewerHandle {
+    spawn_viewer_over(runtime, tickets, None, session_id, events_tx, timings)
+}
+
+/// VAPP-33: [`spawn_viewer_with`] trying eNet (`enet`) before the relay.
+pub fn spawn_viewer_over(
+    runtime: &SteerRuntime,
+    tickets: Arc<dyn ViewerTickets>,
+    enet: Option<Arc<dyn EnetViewerSource>>,
+    session_id: String,
+    events_tx: flume::Sender<ViewerEvent>,
+    timings: ViewerTimings,
+) -> ViewerHandle {
     let (cmd_tx, cmd_rx) = flume::unbounded();
     let running = Arc::new(AtomicBool::new(true));
     let connected = Arc::new(AtomicBool::new(false));
@@ -488,6 +530,7 @@ pub fn spawn_viewer_with(
     runtime.handle().spawn(run_viewer_loop(
         session_id,
         tickets,
+        enet,
         events_tx,
         timings,
         cmd_rx,
@@ -547,6 +590,7 @@ impl Phases {
 async fn run_viewer_loop(
     session_id: String,
     tickets: Arc<dyn ViewerTickets>,
+    enet: Option<Arc<dyn EnetViewerSource>>,
     events_tx: flume::Sender<ViewerEvent>,
     timings: ViewerTimings,
     cmd_rx: flume::Receiver<ViewerCmd>,
@@ -567,8 +611,31 @@ async fn run_viewer_loop(
     // session never stopped being live); a repeat means something is
     // pathological, so it takes the backoff instead of spinning.
     let mut consecutive_evictions = 0u32;
+    // VAPP-33: when eNet may be tried again (`None` = now).
+    let mut enet_retry_at: Option<Instant> = None;
 
-    while running.load(Ordering::SeqCst) {
+    'dial: while running.load(Ordering::SeqCst) {
+        let mut over_enet = false;
+        let end = 'conn: {
+        // VAPP-33: the device directly over eNet first.
+        if let Some(source) = enet.as_ref().filter(|_| enet_retry_at.is_none_or(|at| Instant::now() >= at)) {
+            match join_over_enet(source, &session_id).await {
+                Some(link) => {
+                    over_enet = true;
+                    break 'conn pump_connection(
+                        &mut Link::Enet(link),
+                        &events_tx,
+                        &mut phases,
+                        &cmd_rx,
+                        &timings,
+                        &mut backoff,
+                        &connected,
+                    )
+                    .await;
+                }
+                None => enet_retry_at = Some(Instant::now() + ENET_RETRY),
+            }
+        }
         // Mint (blocking reqwest off the reactor), then dial IMMEDIATELY —
         // the ticket's connect window is ~60s (§8.7).
         let tickets_for_mint = tickets.clone();
@@ -631,7 +698,7 @@ async fn run_viewer_loop(
                 {
                     return;
                 }
-                continue;
+                continue 'dial;
             }
         };
 
@@ -649,7 +716,7 @@ async fn run_viewer_loop(
                     return;
                 }
                 unauthorized_once = true;
-                continue; // re-mint once, immediately (§8.7)
+                continue 'dial; // re-mint once, immediately (§8.7)
             }
             Err(DialError::Other(reason)) => {
                 log::debug!("steer viewer: connect failed: {reason}");
@@ -662,7 +729,7 @@ async fn run_viewer_loop(
                 {
                     return;
                 }
-                continue;
+                continue 'dial;
             }
         };
         unauthorized_once = false;
@@ -677,7 +744,7 @@ async fn run_viewer_loop(
             {
                 return;
             }
-            continue;
+            continue 'dial;
         }
         log::debug!("steer viewer: join sent for room {session_id}");
 
@@ -685,8 +752,8 @@ async fn run_viewer_loop(
         // connection, so the flag flips in `pump_connection` on the frame
         // that answers the join. Sending before that would be swallowed —
         // and locally echoed as if it had landed.
-        let end = pump_connection(
-            &mut ws,
+        pump_connection(
+            &mut Link::Ws(&mut ws),
             &events_tx,
             &mut phases,
             &cmd_rx,
@@ -694,7 +761,17 @@ async fn run_viewer_loop(
             &mut backoff,
             &connected,
         )
-        .await;
+        .await
+        };
+        // VAPP-33: an eNet feed whose device went away (or refused) hands
+        // the next dial to the relay; a stale one simply re-joins.
+        if over_enet && matches!(end, ConnEnd::Starting | ConnEnd::Dropped(_) | ConnEnd::Unauthorized) {
+            enet_retry_at = Some(Instant::now() + ENET_RETRY);
+        }
+        let end = match end {
+            ConnEnd::Starting | ConnEnd::Unauthorized if over_enet => ConnEnd::Kicked,
+            end => end,
+        };
 
         if connected.swap(false, Ordering::SeqCst) {
             let _ = events_tx.send(ViewerEvent::Connected(false));
@@ -789,7 +866,7 @@ fn stop(running: &Arc<AtomicBool>, phases: &mut Phases, phase: ViewerPhase) {
 
 /// One connection's select loop.
 async fn pump_connection(
-    ws: &mut WsStream,
+    ws: &mut Link<'_>,
     events_tx: &flume::Sender<ViewerEvent>,
     phases: &mut Phases,
     cmd_rx: &flume::Receiver<ViewerCmd>,
@@ -816,10 +893,8 @@ async fn pump_connection(
         tokio::select! {
             cmd = cmd_rx.recv_async() => match cmd {
                 Ok(ViewerCmd::Frames(frames)) => {
-                    for frame in frames {
-                        if ws.send(Message::Text(frame)).await.is_err() {
-                            return ConnEnd::Dropped(Some("send failed".into()));
-                        }
+                    if !ws.send(frames).await {
+                        return ConnEnd::Dropped(Some("send failed".into()));
                     }
                 }
                 Ok(ViewerCmd::Kick) => {
@@ -838,11 +913,11 @@ async fn pump_connection(
                     if healthy {
                         continue;
                     }
-                    let _ = ws.close(None).await;
+                    ws.close().await;
                     return ConnEnd::Kicked;
                 }
                 Ok(ViewerCmd::Shutdown) | Err(_) => {
-                    let _ = ws.close(None).await; // 1000 normal closure
+                    ws.close().await; // 1000 normal closure / `leave`
                     return ConnEnd::Shutdown;
                 }
             },
@@ -954,10 +1029,16 @@ async fn pump_connection(
                     Some(Err(err)) => {
                         return pending_end
                             .take()
-                            .unwrap_or(ConnEnd::Dropped(Some(err.to_string())));
+                            .unwrap_or(ConnEnd::Dropped(Some(err)));
                     }
                     None => {
                         return pending_end.take().unwrap_or(ConnEnd::Dropped(None));
+                    }
+                }
+                // eNet has no close frame: a `bye`/`error` IS the end.
+                if ws.is_enet() {
+                    if let Some(end) = pending_end.take() {
+                        return end;
                     }
                 }
             },
@@ -965,8 +1046,8 @@ async fn pump_connection(
                 // EXP-648: silence past three relay keepalives means the
                 // socket is dead, not that the agent is parked on a question.
                 if phases.is(&ViewerPhase::Live) {
-                    if last_rx.elapsed() > timings.live_stale {
-                        let _ = ws.close(None).await;
+                    if last_rx.elapsed() > ws.live_stale(timings) {
+                        ws.close().await;
                         return ConnEnd::Stale;
                     }
                 // …and BEFORE the room is live the same reasoning runs on a
@@ -976,12 +1057,146 @@ async fn pump_connection(
                 // Without this the loop waits on `ws.next()` forever, since
                 // no close frame is ever coming. Web `JOIN_ACK_TIMEOUT_MS`.
                 } else if last_rx.elapsed() > timings.join_ack {
-                    let _ = ws.close(None).await;
+                    ws.close().await;
                     return ConnEnd::Dropped(Some("join went unanswered".into()));
                 }
             }
         }
     }
+}
+
+/// One viewer connection's carrier: the relay socket, or (VAPP-33) the
+/// device directly over eNet chat. The pump reads both the same way.
+enum Link<'a> {
+    Ws(&'a mut WsStream),
+    Enet(EnetLink),
+}
+
+/// A joined eNet feed: the device's frames arrive on `sub`; `held` = what
+/// arrived while joining (the replay), delivered first.
+struct EnetLink {
+    node: Arc<enet_core::Node>,
+    device: enet_core::EndpointId,
+    session_id: String,
+    sub: enet_steer::ViewerSubscription,
+    held: VecDeque<String>,
+}
+
+impl Link<'_> {
+    fn is_enet(&self) -> bool {
+        matches!(self, Link::Enet(_))
+    }
+
+    /// The live silence that means dead: the relay beats every 15s, the
+    /// device every 30s.
+    fn live_stale(&self, timings: &ViewerTimings) -> Duration {
+        match self {
+            Link::Ws(_) => timings.live_stale,
+            Link::Enet(_) => enet_steer::STALE,
+        }
+    }
+
+    async fn next(&mut self) -> Option<Result<Message, String>> {
+        match self {
+            Link::Ws(ws) => ws.next().await.map(|msg| msg.map_err(|err| err.to_string())),
+            Link::Enet(link) => {
+                if let Some(frame) = link.held.pop_front() {
+                    return Some(Ok(Message::Text(frame)));
+                }
+                link.sub.frames.recv_async().await.ok().map(|frame| Ok(Message::Text(frame)))
+            }
+        }
+    }
+
+    /// Writes `frames` in order (one envelope over eNet). `false` = gone.
+    async fn send(&mut self, frames: Vec<String>) -> bool {
+        match self {
+            Link::Ws(ws) => {
+                for frame in frames {
+                    if ws.send(Message::Text(frame)).await.is_err() {
+                        return false;
+                    }
+                }
+                true
+            }
+            Link::Enet(link) => {
+                match enet_steer::send_envelope(&link.node, link.device, &link.session_id, &frames).await {
+                    Ok(()) => true,
+                    Err(err) => {
+                        log::debug!("steer viewer: eNet send failed: {err}");
+                        false
+                    }
+                }
+            }
+        }
+    }
+
+    /// Close the socket / tell the device we `leave` (best effort).
+    async fn close(&mut self) {
+        match self {
+            Link::Ws(ws) => {
+                let _ = WsStream::close(ws, None).await;
+            }
+            Link::Enet(link) => {
+                let (node, device, session_id) = (Arc::clone(&link.node), link.device, link.session_id.clone());
+                tokio::spawn(async move {
+                    let _ = enet_steer::send_envelope(&node, device, &session_id, &[LEAVE_FRAME.to_string()]).await;
+                });
+            }
+        }
+    }
+}
+
+const LEAVE_FRAME: &str = r#"{"t":"leave"}"#;
+
+/// VAPP-33 DISCOVERY: `join` each install running the session, newest
+/// first, until one answers with its replay up to `activity_synced` within
+/// [`enet_steer::JOIN_TIMEOUT`]. `None` = the relay instead.
+async fn join_over_enet(source: &Arc<dyn EnetViewerSource>, session_id: &str) -> Option<EnetLink> {
+    let node = source.node()?;
+    let lookup = Arc::clone(source);
+    let id = session_id.to_string();
+    let endpoints = match tokio::task::spawn_blocking(move || lookup.endpoints(&id)).await {
+        Ok(Ok(endpoints)) => endpoints,
+        Ok(Err(err)) => {
+            log::debug!("steer viewer: installs.forSession failed: {err}");
+            return None;
+        }
+        Err(_) => return None,
+    };
+    let own = node.endpoint_id();
+    let join = ClientFrame::join().to_json();
+    for device in endpoints.iter().filter_map(|hex| crate::enet::parse_endpoint(hex)).filter(|id| *id != own) {
+        let sub = enet_steer::subscribe(session_id, device);
+        if let Err(err) = enet_steer::send_envelope(&node, device, session_id, &[join.clone()]).await {
+            log::debug!("steer viewer: eNet join to {} failed: {err}", crate::enet::endpoint_hex(&device));
+            continue;
+        }
+        let deadline = tokio::time::Instant::now() + enet_steer::JOIN_TIMEOUT;
+        let mut held = VecDeque::new();
+        loop {
+            let Ok(Ok(frame)) = tokio::time::timeout_at(deadline, sub.frames.recv_async()).await else {
+                log::debug!("steer viewer: eNet join to {} unanswered", crate::enet::endpoint_hex(&device));
+                break;
+            };
+            let tag = serde_json::from_str::<serde_json::Value>(&frame)
+                .ok()
+                .and_then(|value| value.get("t").and_then(|t| t.as_str()).map(str::to_string));
+            match tag.as_deref() {
+                Some("error") => {
+                    log::debug!("steer viewer: {} refused the eNet join: {frame}", crate::enet::endpoint_hex(&device));
+                    break;
+                }
+                Some("activity_synced") => {
+                    held.push_back(frame);
+                    log::info!("steer viewer: joined {session_id} over eNet");
+                    return Some(EnetLink { node, device, session_id: session_id.to_string(), sub, held });
+                }
+                _ => held.push_back(frame),
+            }
+        }
+    }
+    None
 }
 
 fn close_code(frame: &Option<CloseFrame<'_>>) -> Option<u16> {

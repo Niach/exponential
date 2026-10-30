@@ -288,3 +288,136 @@ async fn a_teammate_is_refused_from_a_private_session() {
     teammate.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The desktop viewer's eNet source in the tests: a fixed node + endpoints.
+struct Source {
+    node: Option<Arc<enet_core::Node>>,
+    endpoints: Vec<String>,
+}
+
+impl steer::EnetViewerSource for Source {
+    fn node(&self) -> Option<Arc<enet_core::Node>> {
+        self.node.clone()
+    }
+    fn endpoints(&self, _session_id: &str) -> Result<Vec<String>, ApiError> {
+        Ok(self.endpoints.clone())
+    }
+}
+
+/// No relay for the viewer either: a fallback ends `Unauthorized`.
+struct NoViewerRelay;
+
+impl steer::ViewerTickets for NoViewerRelay {
+    fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
+        Ok(None)
+    }
+}
+
+async fn next_event(events: &flume::Receiver<steer::ViewerEvent>) -> steer::ViewerEvent {
+    tokio::time::timeout(WAIT, events.recv_async()).await.expect("an event in time").expect("viewer running")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_desktop_viewer_steers_over_enet_and_falls_back_to_the_relay() {
+    use steer::{ViewerEvent, ViewerPhase};
+    let dir = std::env::temp_dir().join(format!("enet-steer-viewer-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = Arc::new(Registry::default());
+    let device = start(&registry, &dir, "carol", InstallKind::Daemon);
+    let viewer = start(&registry, &dir, "carol", InstallKind::Desktop);
+    for install in [&device, &viewer] {
+        tokio::time::timeout(WAIT, install.passes_at_least(1)).await.unwrap();
+    }
+    for install in [&device, &viewer] {
+        install.refresh();
+        tokio::time::timeout(WAIT, install.passes_at_least(2)).await.unwrap();
+    }
+    let d = device.node().unwrap();
+    let v = viewer.node().unwrap();
+    d.add_ticket(&v.ticket());
+    v.add_ticket(&d.ticket());
+
+    let session_id = format!("sess-viewer-{}", std::process::id());
+    // Leaked: a runtime may not drop inside the test's async context.
+    let runtime: &SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
+    let recorded = Arc::new(Recorded::default());
+    let publisher = steer::publish(
+        runtime,
+        PublishSpec {
+            session_id: session_id.clone(),
+            audience: Some(coding::SteerAudience {
+                team_id: "team-1".into(),
+                starter_user_id: "carol".into(),
+                shared: false,
+            }),
+            ..Default::default()
+        },
+        Arc::new(NoRelay),
+        hooks(&recorded),
+    );
+    publisher.activity_sender().send(ActivityEvent::narration("hello from the device"));
+    wait_until(|| enet_steer::has_room(&session_id)).await;
+
+    // eNet: own endpoint skipped, the device joined, the reducer fed.
+    let (events_tx, events) = flume::unbounded();
+    let source = Source {
+        node: Some(Arc::clone(&v)),
+        endpoints: vec![enet::endpoint_hex(&v.endpoint_id()), enet::endpoint_hex(&d.endpoint_id())],
+    };
+    let handle = steer::spawn_viewer_over(
+        runtime,
+        Arc::new(NoViewerRelay),
+        Some(Arc::new(source)),
+        session_id.clone(),
+        events_tx,
+        steer::ViewerTimings::default(),
+    );
+    let mut seen = Vec::new();
+    while !seen.iter().any(|event| matches!(event, ViewerEvent::Synced { .. })) {
+        seen.push(next_event(&events).await);
+    }
+    assert!(seen.contains(&ViewerEvent::Reset));
+    assert!(seen.contains(&ViewerEvent::Connected(true)));
+    assert!(seen.contains(&ViewerEvent::Phase(ViewerPhase::Live)));
+    assert!(seen.iter().any(|event| matches!(
+        event,
+        ViewerEvent::Activity(0, ActivityEvent::Narration { text, .. }) if text == "hello from the device"
+    )));
+    assert!(handle.send_message("go"));
+    wait_until(|| recorded.inputs.lock().unwrap().iter().any(|bytes| bytes == b"go")).await;
+    publisher.activity_sender().send(ActivityEvent::narration("live"));
+    loop {
+        if let ViewerEvent::Activity(1, _) = next_event(&events).await {
+            break;
+        }
+    }
+    // The run ends: the viewer ends with it.
+    publisher.shutdown(Some("exit:0".into()));
+    loop {
+        if let ViewerEvent::Phase(ViewerPhase::Ended { outcome }) = next_event(&events).await {
+            assert_eq!(outcome.as_deref(), Some("exit:0"));
+            break;
+        }
+    }
+
+    // No endpoint: the relay path (here disabled, so `Unauthorized`).
+    let (events_tx, events) = flume::unbounded();
+    let _fallback = steer::spawn_viewer_over(
+        runtime,
+        Arc::new(NoViewerRelay),
+        Some(Arc::new(Source { node: Some(Arc::clone(&v)), endpoints: Vec::new() })),
+        "sess-nowhere".into(),
+        events_tx,
+        steer::ViewerTimings::default(),
+    );
+    loop {
+        if let ViewerEvent::Phase(ViewerPhase::Unauthorized { .. }) = next_event(&events).await {
+            break;
+        }
+    }
+
+    device.stop();
+    viewer.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
