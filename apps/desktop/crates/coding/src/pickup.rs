@@ -12,6 +12,7 @@
 //! code` — from both running a row; `sessions.claim` is idempotent per
 //! device, so the server cannot tell them apart.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use api::session_device;
@@ -445,15 +446,35 @@ impl PickupAction {
 /// Rows naming another device and sessions [`PickupInput::in_flight`] get
 /// nothing; a killed session gets nothing else in the same pass.
 pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
+    // EXP-1458: the session → root map (and the roots' keys) the engine's
+    // sealing reads, then the rows this pass may hand on OPENED: an
+    // unconsumed input / answered card, or a card a live engine holds open.
+    // Everything else stays as synced (and is never decrypted here).
+    crate::sealing::note_sessions(input.sessions);
+    let held_open: HashSet<&str> =
+        input.live.values().flat_map(|view| view.open_cards.keys().map(String::as_str)).collect();
+    let opened: Vec<Cow<'_, MessageRow>> = input
+        .messages
+        .iter()
+        .map(|m| {
+            let unconsumed = m.consumed_at.as_deref().is_none_or(str::is_empty);
+            if is_sealed_message(m) && (unconsumed || held_open.contains(m.id.as_str())) {
+                Cow::Owned(open_for_agent(m))
+            } else {
+                Cow::Borrowed(m)
+            }
+        })
+        .collect();
+    let all_messages: Vec<&MessageRow> = opened.iter().map(|m| m.as_ref()).collect();
     let rows: HashMap<&str, &SessionRow> =
         input.sessions.iter().map(|row| (row.id.as_str(), row)).collect();
     let messages: HashMap<&str, &MessageRow> =
-        input.messages.iter().map(|row| (row.id.as_str(), row)).collect();
+        all_messages.iter().map(|row| (row.id.as_str(), *row)).collect();
     // EXP-1329: pending INPUT — a person's message or another session's (a
     // child's report), the latter worded as its turn ([`input_text`]).
-    let inputs: Vec<MessageRow> = input
-        .messages
+    let inputs: Vec<MessageRow> = all_messages
         .iter()
+        .copied()
         .filter(|m| is_pending_input(m))
         .map(|m| MessageRow { body: Some(input_text(m, input.sessions)), ..m.clone() })
         .collect();
@@ -466,9 +487,9 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     }
     // EXP-1280: answered tool-posted cards, worded as the agent's next turn
     // (`domain::plan_card::answer_text`), oldest first per session.
-    let answered_cards: Vec<MessageRow> = input
-        .messages
+    let answered_cards: Vec<MessageRow> = all_messages
         .iter()
+        .copied()
         .filter(|m| is_answered_tool_card(m))
         .map(|m| MessageRow { body: Some(answered_card_text(m)), ..m.clone() })
         .collect();
@@ -580,8 +601,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         // still open (unanswered, or answered and not handed): the row's
         // off-flip is the server's, never a person's — and may land first.
         let plan_card = cards.iter().any(|m| m.card.as_ref().is_some_and(card_approved))
-            || input
-                .messages
+            || all_messages
                 .iter()
                 .any(|m| m.session_id == session_id && is_open_own_plan_card(m) && !view.handed.contains(&m.id));
         // #EXP-1383: an agent's leading `/new` is no turn a switch could
@@ -691,8 +711,16 @@ pub fn card_message_for(open_cards: &HashMap<String, String>, question_id: &str)
 /// EXP-1316: write a relay-resolved card back (`sessions.resolveCard`) on
 /// its own thread — idempotent server-side, never blocks the engine; a
 /// failure is a log line (the card merely stays open elsewhere).
-pub fn write_back_card(trpc: std::sync::Arc<api::TrpcClient>, input: api::sessions::AnswerInput) {
+///
+/// EXP-1458: a SEALED card (one this process posted or opened,
+/// [`remember_sealed_card`]) is written back as `sealedCard`: the full card
+/// with the answer merged in ([`answered_card`]), re-sealed, beside the
+/// clear `decision` / `fresh`.
+pub fn write_back_card(trpc: std::sync::Arc<api::TrpcClient>, mut input: api::sessions::AnswerInput) {
     let spawned = std::thread::Builder::new().name("resolve-card".to_string()).spawn(move || {
+        if input.sealed_card.is_none() {
+            input.sealed_card = sealed_answer(&input);
+        }
         if let Err(err) = api::sessions::resolve_card(&trpc, &input) {
             log::warn!("pickup: resolve card {} failed: {err}", input.message_id);
         }
@@ -795,13 +823,9 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
         .and_then(serde_json::Value::as_str)
         .filter(|id| !id.is_empty())
         .unwrap_or(from);
-    let name = sessions
-        .iter()
-        .find(|row| row.id == from)
-        .and_then(|row| row.title.as_deref())
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .unwrap_or("Session");
+    // EXP-1458: a sealed title reads opened (else its neutral fallback).
+    let title = sessions.iter().find(|row| row.id == from).and_then(crate::sealing::open_session_title);
+    let name = title.as_deref().map(str::trim).filter(|title| !title.is_empty()).unwrap_or("Session");
     if message.card_kind() == Some("report") {
         let summary = card
             .and_then(|card| card.get("summary"))
@@ -816,6 +840,166 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
 
 fn message_order(a: &MessageRow, b: &MessageRow) -> std::cmp::Ordering {
     (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id))
+}
+
+// --- EXP-1458: sealed content ------------------------------------------------
+
+/// A row whose body or card is sealed (`exp-sealed:` / `{.., sealed}`).
+fn is_sealed_message(message: &MessageRow) -> bool {
+    message.body.as_deref().is_some_and(|body| body.starts_with(crate::sealing::SEALED_BODY_PREFIX))
+        || message.card.as_ref().is_some_and(|card| card.get("sealed").is_some())
+}
+
+/// The agent-facing copy of a sealed row ([`crate::sealing::open_message`]:
+/// locked content reads [`crate::sealing::LOCKED_TEXT`]); an opened
+/// question/plan card is remembered for its write-back.
+fn open_for_agent(message: &MessageRow) -> MessageRow {
+    let opened = crate::sealing::open_message(message);
+    let was_sealed = message.card.as_ref().is_some_and(|card| card.get("sealed").is_some());
+    if let (true, Some(card)) = (was_sealed, opened.card.as_ref()) {
+        if card.get("sealed").is_none() && matches!(opened.card_kind(), Some("plan" | "question")) {
+            remember_sealed_card(&message.id, &message.session_id, card);
+        }
+    }
+    opened
+}
+
+/// How many sealed cards [`remember_sealed_card`] keeps.
+const SEALED_CARDS_KEPT: usize = 128;
+
+/// `messages.id` → (session, the card's FULL opened form), newest last.
+static SEALED_CARDS: std::sync::Mutex<Vec<(String, String, serde_json::Value)>> = std::sync::Mutex::new(Vec::new());
+
+/// EXP-1458: the full form of a SEALED question/plan card (the engine's
+/// outbox after posting it, the pickup after opening it), so a device
+/// write-back ([`write_back_card`]) can re-seal it with the answer.
+pub fn remember_sealed_card(message_id: &str, session_id: &str, card: &serde_json::Value) {
+    let mut cards = locked(&SEALED_CARDS);
+    cards.retain(|(id, _, _)| id != message_id);
+    cards.push((message_id.to_string(), session_id.to_string(), card.clone()));
+    let excess = cards.len().saturating_sub(SEALED_CARDS_KEPT);
+    cards.drain(..excess);
+}
+
+fn sealed_card_of(message_id: &str) -> Option<(String, serde_json::Value)> {
+    locked(&SEALED_CARDS)
+        .iter()
+        .find(|(id, _, _)| id == message_id)
+        .map(|(_, session, card)| (session.clone(), card.clone()))
+}
+
+/// The `sealedCard` of a device write-back, `None` when the card is not a
+/// sealed one this process knows (or sealing is impossible now: the
+/// plaintext answer goes as ever).
+fn sealed_answer(input: &api::sessions::AnswerInput) -> Option<serde_json::Value> {
+    let (session_id, card) = sealed_card_of(&input.message_id)?;
+    let answered = answered_card(&card, input)?;
+    let sealed = crate::sealing::seal_card_or_plain(&session_id, &answered);
+    sealed.get("sealed").is_some().then_some(sealed)
+}
+
+/// EXP-1458: the card with its answer in it, the server's `answeredCard`
+/// (apps/web lib/sessions/card-answer.ts) for the card it can no longer
+/// read: a question takes `answer` + `answers` (the picked labels, else the
+/// free text), a plan `decision` + `fresh` + `feedback` (+ `answers`);
+/// either may carry `surfaceData`. `None` = nothing to answer it with.
+pub fn answered_card(card: &serde_json::Value, input: &api::sessions::AnswerInput) -> Option<serde_json::Value> {
+    use serde_json::Value;
+    let picks = |labels: &[Value]| -> Vec<String> {
+        labels.iter().filter_map(Value::as_str).map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()
+    };
+    let mut out = card.as_object()?.clone();
+    match card.get("kind").and_then(Value::as_str)? {
+        "question" => {
+            let labels = input.answers.as_ref().and_then(Value::as_array).map(|a| picks(a)).unwrap_or_default();
+            let (answer, answers) = if labels.is_empty() {
+                let answer = input.answer.as_deref()?.trim().to_string();
+                (answer.clone(), vec![answer])
+            } else {
+                (labels.join(&domain::plan_card::PLAN_CARD.answer_text.joiner), labels)
+            };
+            out.insert("answer".into(), Value::String(answer));
+            out.insert("answers".into(), serde_json::json!(answers));
+        }
+        "plan" => {
+            let decision = input.decision.clone()?;
+            let fresh = decision == "approved" && input.fresh == Some(true);
+            out.insert("decision".into(), Value::String(decision));
+            out.insert("fresh".into(), Value::Bool(fresh));
+            let feedback = input.feedback.as_deref().map(str::trim).filter(|f| !f.is_empty());
+            out.insert("feedback".into(), feedback.map_or(Value::Null, |f| Value::String(f.to_string())));
+            if let Some(given) = input.answers.as_ref().and_then(Value::as_object) {
+                let answers: serde_json::Map<String, Value> = given
+                    .iter()
+                    .filter_map(|(id, labels)| {
+                        let picked = picks(labels.as_array()?);
+                        (!picked.is_empty()).then(|| (id.clone(), serde_json::json!(picked)))
+                    })
+                    .collect();
+                out.insert("answers".into(), Value::Object(answers));
+            }
+        }
+        _ => return None,
+    }
+    if let Some(surface) = input.surface_data.as_ref().filter(|s| !s.is_null()) {
+        out.insert("surfaceData".into(), surface.clone());
+    }
+    Some(Value::Object(out))
+}
+
+/// EXP-1458: the server-composed brief with every sealed body inside it
+/// opened (`sessions.brief` quotes the first message's body verbatim, and
+/// the server cannot read a sealed one); content this install cannot open
+/// reads [`crate::sealing::LOCKED_TEXT`].
+pub fn open_embedded_bodies(root_id: &str, text: &str) -> String {
+    const PREFIX: &str = crate::sealing::SEALED_BODY_PREFIX;
+    if !text.contains(PREFIX) {
+        return text.to_string();
+    }
+    let token_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_');
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(PREFIX) {
+        out.push_str(&rest[..at]);
+        let token_rest = &rest[at + PREFIX.len()..];
+        let len = token_rest.find(|c: char| !token_char(c)).unwrap_or(token_rest.len());
+        let token = &rest[at..at + PREFIX.len() + len];
+        let opened = crate::sealing::open_body_text(root_id, token);
+        out.push_str(opened.as_deref().unwrap_or(crate::sealing::LOCKED_TEXT));
+        rest = &rest[at + token.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `sessions.brief` with its sealed bodies opened ([`open_embedded_bodies`]
+/// with the session's root).
+fn fetch_brief(trpc: &api::TrpcClient, session_id: &str) -> Result<session_device::SessionBrief, ApiError> {
+    let mut brief = session_device::brief(trpc, session_id)?;
+    if brief.brief.contains(crate::sealing::SEALED_BODY_PREFIX) {
+        let root = crate::sealing::root_of(session_id).unwrap_or_else(|| session_id.to_string());
+        brief.brief = open_embedded_bodies(&root, &brief.brief);
+    }
+    Ok(brief)
+}
+
+/// The row a launch / wake prepares from: its root noted for the engine's
+/// sealing (a row that names one: a row rebuilt from a run record does
+/// not), its title opened.
+fn opened_launch_row(row: &SessionRow) -> SessionRow {
+    if row.root_id.as_deref().is_some_and(|root| !root.is_empty()) {
+        crate::sealing::note_sessions(std::slice::from_ref(row));
+    }
+    match row.sealed_title.as_deref().filter(|t| !t.is_empty()) {
+        None => row.clone(),
+        Some(_) => SessionRow { title: crate::sealing::open_session_title(row), ..row.clone() },
+    }
+}
+
+/// A device-written reply (a refusal, a failed start) sealed to the
+/// session's tree when it can be.
+fn device_reply(trpc: &api::TrpcClient, session_id: &str, text: &str) -> Result<String, ApiError> {
+    session_device::reply(trpc, session_id, &crate::sealing::seal_body_or_plain(session_id, text), None)
 }
 
 /// A per-session lockfile under `{data_dir}/session-claims/` held for the
@@ -1626,7 +1810,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
                 if !claim_lost(status) {
                     locked(&deps.live.claim_refused).insert(row.id.clone(), row.updated_at.clone());
                     let reason = format!("Couldn't start this session: {message}");
-                    if let Err(err) = session_device::reply(&deps.coding.trpc, &row.id, &reason, None) {
+                    if let Err(err) = device_reply(&deps.coding.trpc, &row.id, &reason) {
                         log::warn!("pickup: claim refusal of {} not replied: {err}", row.id);
                     }
                 }
@@ -1638,7 +1822,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             },
         }
     }
-    let brief = match session_device::brief(&deps.coding.trpc, &row.id) {
+    let brief = match fetch_brief(&deps.coding.trpc, &row.id) {
         Ok(brief) => brief,
         Err(err) if transient(&err) => {
             return Err(gave_up(err.to_string()));
@@ -1657,7 +1841,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         issue_identifiers = (deps.issue_identifiers)(row.root_id_or_self());
     }
     let req = SessionLaunchRequest {
-        session: row.clone(),
+        session: opened_launch_row(&row),
         brief,
         issue_identifiers,
         resume: None,
@@ -1710,7 +1894,7 @@ pub fn start_failure(error: &str) -> String {
 fn fail_start(session_id: &str, error: &str, tried: &[String], deps: &PickupDeps) {
     let reason = start_failure(error);
     log::warn!("pickup: session {session_id} failed to start: {error}");
-    if let Err(err) = session_device::reply(&deps.coding.trpc, session_id, &reason, None) {
+    if let Err(err) = device_reply(&deps.coding.trpc, session_id, &reason) {
         log::warn!("pickup: start failure of session {session_id} not replied: {err}");
     }
     let tried: Vec<String> =
@@ -1940,7 +2124,7 @@ fn deliver(
     };
     // A transient failure here leaves everything as it was: the next pass
     // tries again.
-    let brief = session_device::brief(&deps.coding.trpc, session_id)
+    let brief = fetch_brief(&deps.coding.trpc, session_id)
         .map_err(|err| format!("brief of session {session_id}: {err}"))?;
     let mut identifiers = (deps.issue_identifiers)(row.root_id_or_self());
     if identifiers.is_empty() {
@@ -1988,7 +2172,7 @@ fn deliver(
             // whatever the prepare below does).
             WakeAccount::Refused(reason) => {
                 log::info!("pickup: account switch of {session_id} on wake refused: {reason}");
-                if let Err(err) = session_device::reply(&deps.coding.trpc, session_id, &reason, None) {
+                if let Err(err) = device_reply(&deps.coding.trpc, session_id, &reason) {
                     log::warn!("pickup: switch refusal of {session_id} not replied: {err}");
                 }
                 honor_row_account(deps, session_id, &mut resume.record, account.as_deref());
@@ -1997,7 +2181,7 @@ fn deliver(
         };
     }
     let req = SessionLaunchRequest {
-        session: row.clone(),
+        session: opened_launch_row(&row),
         brief,
         issue_identifiers: identifiers,
         resume,
@@ -2082,7 +2266,7 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
         }
         reason
     };
-    let brief = session_device::brief(&deps.coding.trpc, session_id)
+    let brief = fetch_brief(&deps.coding.trpc, session_id)
         .map_err(|err| give_up(format!("brief of session {session_id}: {err}")))?;
     let record = crate::run_registry::get(&deps.coding.data_dir, session_id);
     let mut identifiers = brief_issue_identifiers(&brief.brief);
@@ -2090,7 +2274,7 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
         identifiers = (deps.issue_identifiers)(row.root_id_or_self());
     }
     let req = SessionLaunchRequest {
-        session: row.clone(),
+        session: opened_launch_row(&row),
         brief,
         issue_identifiers: identifiers,
         resume: record.map(|record| ResumeRun {
@@ -2191,7 +2375,7 @@ pub fn settle_unstarted(trpc: &api::trpc::TrpcClient, session_id: &str) {
 /// a stale copy of a session that moved to another device idles nothing.
 pub fn settle_unstarted_on(trpc: &api::trpc::TrpcClient, session_id: &str, device_id: Option<&str>) {
     log::warn!("pickup: session {session_id} was claimed but never started here");
-    if let Err(err) = session_device::reply(trpc, session_id, UNSTARTED_REPLY, None) {
+    if let Err(err) = device_reply(trpc, session_id, UNSTARTED_REPLY) {
         log::warn!("pickup: unstarted session {session_id} not replied: {err}");
     }
     if let Err(err) = crate::idle_session_on(trpc, session_id, device_id) {
@@ -2221,7 +2405,7 @@ pub fn continue_after_restart(row: &SessionRow, deps: &PickupDeps) -> Result<boo
     let Some(claim) = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)? else {
         return Ok(false);
     };
-    let brief = session_device::brief(&deps.coding.trpc, session_id)
+    let brief = fetch_brief(&deps.coding.trpc, session_id)
         .map_err(|err| format!("brief of session {session_id}: {err}"))?;
     spawn_continuation(row, record, claim, brief, RESTART_CONTINUATION.to_string(), deps).map(|()| true)
 }
@@ -2260,7 +2444,7 @@ pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), S
         return Ok(());
     };
     let attempt = deps.live.note_revive(session_id);
-    let brief = match session_device::brief(&deps.coding.trpc, session_id) {
+    let brief = match fetch_brief(&deps.coding.trpc, session_id) {
         Ok(brief) => brief,
         Err(err) => {
             if attempt >= MAX_LAUNCH_ATTEMPTS {
@@ -2297,7 +2481,7 @@ fn spawn_continuation(
     }
     let persistent = row.is_persistent();
     let req = SessionLaunchRequest {
-        session: row.clone(),
+        session: opened_launch_row(&row),
         brief,
         issue_identifiers: identifiers,
         resume: Some(ResumeRun {
@@ -2623,7 +2807,7 @@ pub fn switch_session(
     if account_moves {
         if let Some(reason) = switch_refusal(&record, &target, deps) {
             log::info!("pickup: account switch of {session_id} refused: {reason}");
-            if let Err(err) = session_device::reply(&deps.coding.trpc, session_id, &reason, None) {
+            if let Err(err) = device_reply(&deps.coding.trpc, session_id, &reason) {
                 log::warn!("pickup: switch refusal of {session_id} not replied: {err}");
             }
             // The row says the login the run keeps.
@@ -2713,7 +2897,7 @@ pub fn switch_session(
     let claim = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)
         .map_err(failed)?
         .ok_or_else(|| failed(format!("session {session_id} is held by another process")))?;
-    let brief = session_device::brief(&deps.coding.trpc, session_id)
+    let brief = fetch_brief(&deps.coding.trpc, session_id)
         .map_err(|err| failed(format!("brief of session {session_id}: {err}")))?;
     let mut identifiers = (deps.issue_identifiers)(row.root_id_or_self());
     if identifiers.is_empty() {
@@ -2735,7 +2919,7 @@ pub fn switch_session(
     // recorded login.
     options.account = account_moves.then_some(target);
     let req = SessionLaunchRequest {
-        session: launch_row.clone(),
+        session: opened_launch_row(&launch_row),
         brief,
         issue_identifiers: identifiers,
         resume: Some(resume),
@@ -3004,7 +3188,7 @@ fn spawn(
 /// `idle`, so a later message can try again.
 fn refuse(persistent: bool, session_id: &str, reason: &str, waking: bool, deps: &PickupDeps) {
     log::warn!("pickup: session {session_id} refused: {reason}");
-    if let Err(err) = session_device::reply(&deps.coding.trpc, session_id, reason, None) {
+    if let Err(err) = device_reply(&deps.coding.trpc, session_id, reason) {
         log::warn!("pickup: refusal of session {session_id} not replied: {err}");
     }
     let settled = if persistent || waking {
@@ -3382,6 +3566,136 @@ mod tests {
             card: Some(serde_json::json!({"kind": "report", "sessionId": child, "summary": summary})),
             ..message(id, parent, "2026-10-02T00:00:05Z")
         }
+    }
+
+    /// EXP-1458: sealed rows reach the agent OPENED — a person's body, a
+    /// child's report summary and message under its opened title — and a
+    /// row this install cannot open reads the locked placeholder, never
+    /// ciphertext. The same on a wake (Resume) and a live delivery.
+    #[test]
+    fn sealed_inputs_reach_the_agent_opened() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let parent = SessionRow { root_id: Some("sp".to_string()), ..session("sp", "idle", DEV, "2026-10-01T00:00:00Z") };
+        let mut child = SessionRow {
+            parent_id: Some("sp".to_string()),
+            root_id: Some("sp".to_string()),
+            title: Some("Session".to_string()),
+            ..session("sc", "ended", DEV, "2026-10-01T00:00:01Z")
+        };
+        fake.keyring.note_sessions(&[parent.clone(), child.clone()]);
+        child.sealed_title = Some(sealing::seal_body("sp", "Fix the cart").unwrap());
+        let sealed = |text: &str| sealing::seal_body_or_plain("sp", text);
+        let person = MessageRow { body: Some(sealed("hello sealed")), ..message("sm1", "sp", "2026-10-02T00:00:01Z") };
+        let report = MessageRow {
+            body: Some(sealed("Opened PR #12.")),
+            card: Some(sealing::seal_card_or_plain(
+                "sp",
+                &serde_json::json!({"kind": "report", "sessionId": "sc", "summary": "Opened PR #12."}),
+            )),
+            ..report("sr1", "sp", "sc", "")
+        };
+        assert!(report.card.as_ref().unwrap().get("summary").is_none());
+        let asked = MessageRow {
+            author_kind: Some("agent".to_string()),
+            author_session_id: Some("sc".to_string()),
+            body: Some(sealed("Which branch?")),
+            ..message("sq1", "sp", "2026-10-02T00:00:06Z")
+        };
+        let foreign = sealing::generate_tree_key();
+        let locked_row = MessageRow {
+            body: Some(enet_core::sealed::seal_body(&foreign.public, 1, "not for us").unwrap()),
+            ..message("sl1", "sp", "2026-10-02T00:00:07Z")
+        };
+        let rows = vec![person, report, asked, locked_row];
+        let expected = vec![
+            "hello sealed".to_string(),
+            "Report from Fix the cart (session sc, ended): Opened PR #12.".to_string(),
+            "Message from Fix the cart (session sc): Which branch?".to_string(),
+            sealing::LOCKED_TEXT.to_string(),
+        ];
+        let bodies = |messages: &[MessageRow]| messages.iter().map(|m| m.body.clone().unwrap_or_default()).collect::<Vec<_>>();
+
+        let woke = Pass::new(vec![parent.clone(), child.clone()], rows.clone()).run();
+        let live = Pass::new(vec![parent, child], rows).live("sp", LiveView::default()).run();
+        sealing::uninstall();
+        let [PickupAction::Resume { messages, .. }] = woke.as_slice() else { panic!("{woke:?}") };
+        assert_eq!(bodies(messages), expected);
+        let [PickupAction::Deliver { messages, .. }] = live.as_slice() else { panic!("{live:?}") };
+        assert_eq!(bodies(messages), expected);
+    }
+
+    /// EXP-1458: an engine card answered in the card reaches the engine
+    /// opened; a device write-back of a sealed card re-seals the FULL card
+    /// with the answer; a brief's sealed body opens (locked when it can't).
+    #[test]
+    fn sealed_cards_answer_opened_and_write_back_sealed() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let row = SessionRow { root_id: Some("sa".to_string()), ..session("sa", "running", DEV, "2026-10-01T00:00:00Z") };
+        fake.keyring.note_sessions(std::slice::from_ref(&row));
+        let full = serde_json::json!({"kind": "question", "question": "Which?", "options": ["a", "b"], "questionId": "q-1"});
+        let answered = serde_json::json!({
+            "kind": "question", "question": "Which?", "options": ["a", "b"], "questionId": "q-1", "answer": "a",
+        });
+        let card_row = MessageRow { card: Some(sealing::seal_card_or_plain("sa", &answered)), ..card("sq", "sa", true) };
+        let view = LiveView { open_cards: HashMap::from([("sq".to_string(), "q-1".to_string())]), ..LiveView::default() };
+        let actions = Pass::new(vec![row], vec![card_row]).live("sa", view).run();
+
+        remember_sealed_card("sw", "sa", &full);
+        let input = api::sessions::AnswerInput { message_id: "sw".into(), answer: Some(" b ".into()), ..Default::default() };
+        let written = sealed_answer(&input);
+        let reopened = written.as_ref().map(|card| sealing::open_card("sa", card).card);
+        let plain_input = api::sessions::AnswerInput { message_id: "unknown".into(), ..input.clone() };
+        let unknown = sealed_answer(&plain_input);
+
+        let envelope = sealing::seal_body("sa", "Speed it up").unwrap();
+        let foreign = sealing::generate_tree_key();
+        let other = enet_core::sealed::seal_body(&foreign.public, 1, "x").unwrap();
+        let brief = open_embedded_bodies("sa", &format!("## Request\n\n{envelope}\n\n## Note\n\n({other})"));
+        sealing::uninstall();
+
+        let [PickupAction::Answer { question_id, card, .. }] = actions.as_slice() else { panic!("{actions:?}") };
+        assert_eq!(question_id, "q-1");
+        assert_eq!(card["answer"], "a");
+        assert_eq!(card["question"], "Which?");
+
+        let written = written.expect("a sealed write-back");
+        assert!(written.get("answer").is_none() && written["sealed"].is_string(), "{written}");
+        assert_eq!(written["answered"], true);
+        let reopened = reopened.unwrap();
+        assert_eq!(reopened["answer"], "b");
+        assert_eq!(reopened["answers"], serde_json::json!(["b"]));
+        assert_eq!(reopened["questionId"], "q-1");
+        assert_eq!(unknown, None, "a card this process never saw goes plaintext");
+        assert_eq!(brief, format!("## Request\n\nSpeed it up\n\n## Note\n\n({})", sealing::LOCKED_TEXT));
+    }
+
+    #[test]
+    fn answered_card_mirrors_the_servers_merge() {
+        let plan = serde_json::json!({"kind": "plan", "plan": "Do it", "questions": [{"id": "q"}]});
+        let input = api::sessions::AnswerInput {
+            message_id: "m".into(),
+            decision: Some("approved".into()),
+            fresh: Some(true),
+            feedback: Some("  ".into()),
+            answers: Some(serde_json::json!({"q": [" A ", ""], "r": []})),
+            ..Default::default()
+        };
+        let merged = answered_card(&plan, &input).unwrap();
+        assert_eq!(merged["decision"], "approved");
+        assert_eq!(merged["fresh"], true);
+        assert!(merged["feedback"].is_null());
+        assert_eq!(merged["answers"], serde_json::json!({"q": ["A"]}));
+        let question = serde_json::json!({"kind": "question", "question": "Which?"});
+        let picks = api::sessions::AnswerInput { answers: Some(serde_json::json!(["a", "b"])), ..Default::default() };
+        let merged = answered_card(&question, &picks).unwrap();
+        assert_eq!(merged["answers"], serde_json::json!(["a", "b"]));
+        assert!(merged["answer"].as_str().is_some_and(|a| a.contains('a') && a.contains('b')));
+        assert_eq!(answered_card(&question, &api::sessions::AnswerInput::default()), None);
+        assert_eq!(answered_card(&serde_json::json!({"kind": "report"}), &input), None);
     }
 
     #[test]

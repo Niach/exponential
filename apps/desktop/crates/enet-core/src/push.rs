@@ -108,7 +108,7 @@ pub fn push_seal(recipient_public: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8
 
 /// [`push_seal`] with a caller-chosen ephemeral secret: test vectors only
 /// (a reused ephemeral key reuses the nonce).
-fn push_seal_with(eph: [u8; 32], recipient_public: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn push_seal_with(eph: [u8; 32], recipient_public: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
     let eph_pub = MontgomeryPoint::mul_base_clamped(eph).to_bytes();
     let shared = MontgomeryPoint(*recipient_public).mul_clamped(eph);
     let k = derive_key(&shared, &eph_pub, recipient_public)?;

@@ -293,7 +293,7 @@ struct ChatsView: View {
             time: row.time,
             preview: row.preview.text,
             previewLabel: previewLabel(row.preview.kind),
-            previewItalic: row.preview.kind == .working,
+            previewItalic: row.preview.kind == .working || row.preview.kind == .locked,
             needsYou: row.needsYou,
             unreadCount: row.unreadCount
         ) {
@@ -316,7 +316,7 @@ struct ChatsView: View {
             time: row.time,
             preview: row.preview.text,
             previewLabel: previewLabel(row.preview.kind),
-            previewItalic: row.preview.kind == .working,
+            previewItalic: row.preview.kind == .working || row.preview.kind == .locked,
             needsYou: row.needsYou,
             unreadCount: row.unreadCount,
             word: row.word?.text,

@@ -929,6 +929,61 @@ fn mcp_url(base_url: &str) -> String {
     format!("{}/api/mcp", base_url.trim_end_matches('/'))
 }
 
+/// EXP-1458: where a launched session's agent reaches Exponential's MCP —
+/// `(base URL, bearer)` with `{base}/api/mcp` the endpoint. While this
+/// process seals (a [`crate::sealing::service`] is installed) that is the
+/// device's loopback MCP GATEWAY (`codemode::gateway_grant`): the agent
+/// holds a per-run gateway token and the real `expu_` key stays in the
+/// grant, which forwards every call upstream through
+/// [`crate::mcp_gateway::SealingTransform`] (content sealed on the way up,
+/// opened on the way back). No service, or no loopback port = the direct
+/// wiring, unchanged. `codemode::revoke` (the engine's run end) drops the
+/// grant with the run's code-mode token.
+#[cfg(not(test))]
+fn gateway_allowed_here() -> bool {
+    true
+}
+
+// The seal service is process-global and other tests install one: a
+// launcher test routes through the gateway only when it opts in on its own
+// thread.
+#[cfg(test)]
+thread_local! {
+    static GATEWAY_IN_TEST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn gateway_allowed_here() -> bool {
+    GATEWAY_IN_TEST.with(std::cell::Cell::get)
+}
+
+fn mcp_route(deps: &CodingDeps, row: &SessionRow, personal_key: &str) -> (String, String) {
+    let direct = || (deps.trpc.base_url().to_string(), personal_key.to_string());
+    if crate::sealing::service().is_none() || !gateway_allowed_here() {
+        return direct();
+    }
+    let upstream = codemode::Upstream {
+        name: crate::mcp_servers::RESERVED_CONFIG_KEY.to_string(),
+        url: mcp_url(deps.trpc.base_url()),
+        headers: vec![
+            ("Authorization".to_string(), format!("Bearer {personal_key}")),
+            (api::trpc::SESSION_HEADER.to_string(), row.id.clone()),
+        ],
+    };
+    let transform = Arc::new(crate::mcp_gateway::SealingTransform::new(
+        &row.id,
+        row.root_id_or_self(),
+        Some(Arc::clone(&deps.trpc)),
+    ));
+    match codemode::gateway_grant(&row.id, &row.id, upstream, transform) {
+        Ok(grant) => (grant.url, grant.token),
+        Err(reason) => {
+            log::warn!("coding: the MCP gateway is unavailable, wiring {} directly: {reason}", row.id);
+            direct()
+        }
+    }
+}
+
 /// A single filesystem path segment from an untrusted server id — a crafted
 /// id can never escape the directory it is joined onto.
 fn path_segment(id: &str) -> Option<String> {
@@ -1911,13 +1966,15 @@ fn prepare_session(
     }
 
     // Step 3 — the EXP-474 ignore guard, then the per-agent MCP wiring
-    // pinned to the row.
+    // pinned to the row (EXP-1458: through the device's MCP gateway when
+    // this process seals).
     guard_agent_mcp(agent, &cwd, false)?;
+    let (mcp_base, mcp_key) = mcp_route(deps, row, &personal_key);
     let agent_mcp = wire_agent_mcp(
         agent,
         &cwd,
-        deps.trpc.base_url(),
-        &personal_key,
+        &mcp_base,
+        &mcp_key,
         Some(&session_id),
         false,
     )?;
@@ -1927,7 +1984,7 @@ fn prepare_session(
     let mut team_mcp = resolve_mcp_servers(deps, &session_id);
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
     let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label);
-    let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
+    let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &mcp_key, &session_id, &label);
     attach_screen_memory(screen_memory_allowed(req), &mut team_mcp, &session_id);
 
     // EXP-210: stamp THIS agent into the workspace's recorded-agent marker
@@ -2032,7 +2089,7 @@ fn prepare_session(
         &cwd,
         workspace.as_ref().map(|workspace| workspace.clone.as_path()),
         options,
-        &personal_key,
+        &mcp_key,
         &session_id,
         &team_mcp,
         codex_originator.as_deref(),
@@ -2563,11 +2620,18 @@ fn prepare_resume(
         Err(reason) => return Ok(Prepared::Disabled(reason)),
     };
     guard_agent_mcp(agent, &cwd, false)?;
+    // EXP-1458: through the device's MCP gateway when this process seals
+    // (never for a `/btw` aside, which carries no `exponential` entry).
+    let (mcp_base, mcp_key) = if record.is_aside() {
+        (deps.trpc.base_url().to_string(), personal_key.to_string())
+    } else {
+        mcp_route(deps, row, &personal_key)
+    };
     let agent_mcp = wire_agent_mcp(
         agent,
         &cwd,
-        deps.trpc.base_url(),
-        &personal_key,
+        &mcp_base,
+        &mcp_key,
         Some(&session_id),
         false,
     )?;
@@ -2588,7 +2652,7 @@ fn prepare_resume(
     let computer_use =
         !aside && attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label);
     let code_mode =
-        !aside && attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
+        !aside && attach_code_mode(&mut team_mcp, &agent_mcp, &mcp_key, &session_id, &label);
     if !aside {
         attach_screen_memory(screen_memory_allowed(req), &mut team_mcp, &session_id);
     }
@@ -2623,7 +2687,7 @@ fn prepare_resume(
         &cwd,
         record.clone.as_deref(),
         &options,
-        &personal_key,
+        &mcp_key,
         &session_id,
         &team_mcp,
         codex_originator.as_deref(),
@@ -3795,6 +3859,45 @@ mod tests {
     /// EXP-1292: one claimed row with one issue — the brief is the seed
     /// prompt verbatim, the worktree sits on `exp/<IDENTIFIER>`, the branch
     /// is reported once the worktree exists, and no row is created.
+    #[cfg(unix)]
+    #[test]
+    fn a_sealing_process_routes_the_sessions_mcp_through_the_gateway() {
+        let _serial = crate::sealing::test_support::serial();
+        let dir = temp_dir("session-gateway");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, _captured) = canned_server_recording(repo_calls());
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        crate::sealing::test_support::install_fake();
+        GATEWAY_IN_TEST.with(|on| on.set(true));
+        let prepared = ready(launch(session_request(row("sess-gw", Some("repo-happy")), &["EXP-42"]), &deps));
+        GATEWAY_IN_TEST.with(|on| on.set(false));
+        crate::sealing::uninstall();
+        let AgentMcp::ClaudeInline { url, session_id } = &prepared.acp.mcp else {
+            panic!("expected the inline MCP posture, got {:?}", prepared.acp.mcp);
+        };
+        assert!(url.starts_with("http://127.0.0.1:") && url.ends_with("/gateway/api/mcp"), "{url}");
+        assert_eq!(session_id.as_deref(), Some("sess-gw"));
+        let token = prepared.spawn.env.iter().find(|(k, _)| k == MCP_TOKEN_ENV).map(|(_, v)| v.clone()).unwrap();
+        assert!(token.starts_with("gw"), "the agent holds the gateway token, never the expu_ key");
+        assert!(!prepared.spawn.env.iter().any(|(_, v)| v == "expu_seeded"), "{:?}", prepared.spawn.env);
+        codemode::revoke("sess-gw");
+
+        // No service: the direct wiring, unchanged.
+        let (base, _captured) = canned_server_recording(repo_calls());
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        GATEWAY_IN_TEST.with(|on| on.set(true));
+        let prepared = ready(launch(session_request(row("sess-gw2", Some("repo-happy")), &["EXP-42"]), &deps));
+        GATEWAY_IN_TEST.with(|on| on.set(false));
+        match &prepared.acp.mcp {
+            AgentMcp::ClaudeInline { url, .. } => assert_eq!(url, &mcp_url(&base)),
+            other => panic!("{other:?}"),
+        }
+        assert!(prepared.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_seeded".to_string())));
+    }
+
     #[cfg(unix)]
     #[test]
     fn prepare_session_full_sequence() {

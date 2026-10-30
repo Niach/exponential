@@ -12,7 +12,7 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -66,6 +66,7 @@ struct ThreadCardsScreen: View {
                     case "schedule-picker": SchedulePickerSpecimens()
                     case "mention-pill": MentionPillSpecimens()
                     case "session-xref": SessionXrefSpecimens()
+                    case "sealed-locked": SealedLockedSpecimens()
                     case "voice-call": VoiceCallSpecimens()
                     case "call-controls": CallControlsSpecimens()
                     case "device-readiness": DeviceReadinessSpecimens()

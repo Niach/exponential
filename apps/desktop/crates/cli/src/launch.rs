@@ -431,7 +431,7 @@ fn foreground_pass(
                         if let Err(err) = api::session_device::reply(
                             &deps.coding.trpc,
                             session_id,
-                            coding::pickup::REASON_FOREGROUND_SWITCH,
+                            &coding::sealing::seal_body_or_plain(session_id, coding::pickup::REASON_FOREGROUND_SWITCH),
                             None,
                         ) {
                             log::warn!("foreground pickup: switch refusal not replied: {err}");

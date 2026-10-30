@@ -8,6 +8,11 @@
     "generate": "bun run ./scripts/generate.ts",
     "test": "bun test ./src"
   },
+  "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^2.2.0"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./contract": "./contract.json",
@@ -26,6 +31,7 @@
     "./session-tree": "./src/session-tree.ts",
     "./session-title": "./src/session-title.ts",
     "./session-kind": "./src/session-kind.ts",
+    "./inbox-route": "./src/inbox-route.ts",
     "./message-conversation": "./src/message-conversation.ts",
     "./guide-viewer": "./src/guide-viewer.ts",
     "./agent-settings": "./src/agent-settings.ts",
@@ -46,6 +52,7 @@
     "./app-sources": "./src/app-sources.ts",
     "./app-actions": "./src/app-actions.ts",
     "./app-export": "./src/app-export.ts",
+    "./sealed-content": "./src/sealed-content.ts",
     "./fixtures/*": "./fixtures/*"
   }
 }

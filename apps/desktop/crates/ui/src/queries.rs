@@ -678,7 +678,9 @@ impl InboxGroup {
 
 /// One agent message (EXP-801): an issue-less `agent_message` row is its own
 /// entry — never bundled, each is a distinct thing someone's agent said.
-/// Click marks it read; there is nowhere to navigate.
+/// Click marks it read and, #EXP-1456, opens the session it names (an
+/// Assistant's decision, an @mention: [`MessageInboxEntry::session_id`]);
+/// a broadcast without a session leads nowhere.
 pub struct MessageInboxEntry {
     pub item: domain::rows::Notification,
     /// The synced team's name (`None` when the team row hasn't synced).
@@ -688,6 +690,25 @@ pub struct MessageInboxEntry {
 impl MessageInboxEntry {
     pub fn unread(&self) -> usize {
         usize::from(self.item.read_at.is_none())
+    }
+
+    /// The session the row opens (inbox-route.json), if any.
+    pub fn session_id(&self) -> Option<String> {
+        row_session_target(&self.item)
+    }
+}
+
+/// #EXP-1456: the session an issue-less row opens, per
+/// [`domain::inbox_route::inbox_row_target`] (`None` = the tap only marks
+/// it read).
+fn row_session_target(item: &domain::rows::Notification) -> Option<String> {
+    match domain::inbox_route::inbox_row_target(
+        item.kind.as_deref(),
+        item.issue_id.as_deref(),
+        item.session_id.as_deref(),
+    ) {
+        domain::inbox_route::InboxRowTarget::Session { session_id } => Some(session_id),
+        _ => None,
     }
 }
 
@@ -706,9 +727,9 @@ impl SessionInboxEntry {
         usize::from(self.item.read_at.is_none())
     }
 
-    /// The run to open, when it is still synced.
-    pub fn session_id(&self) -> Option<&str> {
-        self.item.session_id.as_deref().filter(|id| !id.is_empty())
+    /// The run to open (inbox-route.json); `None` once pruned.
+    pub fn session_id(&self) -> Option<String> {
+        row_session_target(&self.item)
     }
 }
 
@@ -1658,7 +1679,7 @@ mod tests {
             panic!("expected a Session entry");
         };
         assert_eq!(first.item.id, "b-1");
-        assert_eq!(first.session_id(), Some("s-1"));
+        assert_eq!(first.session_id().as_deref(), Some("s-1"));
         assert_eq!(first.team_name.as_deref(), Some("Acme"));
         assert!(matches!(&entries[1], InboxEntry::Message(_)));
         let InboxEntry::Session(second) = &entries[2] else {
@@ -1667,6 +1688,34 @@ mod tests {
         // The run is gone; the row stays, it just leads nowhere.
         assert_eq!(second.session_id(), None);
         assert_eq!(entries.iter().map(InboxEntry::unread).sum::<usize>(), 3);
+    }
+
+    /// #EXP-1456 (inbox-route.json): an issue-less agent message naming a
+    /// session (an Assistant's decision, an @mention) opens that session; a
+    /// broadcast without one only marks read.
+    #[test]
+    fn inbox_agent_messages_open_the_session_they_name() {
+        let message = |id: &str, session_id: Option<&str>, created_at: &str| {
+            let mut row = notification(id, None, Some("w-1"), "agent_message", created_at, false);
+            row.session_id = session_id.map(str::to_string);
+            row
+        };
+        let entries = build_inbox_entries(
+            vec![
+                message("m-1", Some("s-assistant"), "2026-07-18T10:00:00Z"),
+                message("m-2", None, "2026-07-18T09:00:00Z"),
+            ],
+            |_| None,
+            |_| Some("Acme".to_string()),
+        );
+        let sessions: Vec<Option<String>> = entries
+            .iter()
+            .map(|entry| match entry {
+                InboxEntry::Message(entry) => entry.session_id(),
+                _ => panic!("expected a Message entry"),
+            })
+            .collect();
+        assert_eq!(sessions, [Some("s-assistant".to_string()), None]);
     }
 
     #[test]

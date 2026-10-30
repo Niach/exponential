@@ -1,1 +1,6 @@
 out/
+# The Android library (android/): Gradle state + the SDK path.
+android/.gradle/
+android/build/
+android/.kotlin/
+android/local.properties

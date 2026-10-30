@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import fixture from "@exp/domain-contract/fixtures/inbox-route.json" with { type: "json" }
 import { BACK_STACK_CAP, backParam, backSearch, parseBack, pushBack, sessionTarget, type TargetSession } from "./session-back"
 
 // S-3: the web back stack (`back` in the route search) and where an xref opens.
@@ -38,4 +39,28 @@ describe(`session back stack`, () => {
     expect(sessionTarget(`ak1`, lookup, `u1`)).toEqual({ to: `session`, sessionId: `ak1` })
     expect(sessionTarget(`ghost`, lookup, `u1`)).toEqual({ to: `session`, sessionId: `ghost` })
   })
+})
+
+// #EXP-1456: the inbox opens sessions by this rule; inbox-route.json locks it
+// ×4 (`agentId` + `userId` there are the root's: a child carries neither).
+describe(`session target replays inbox-route.json`, () => {
+  for (const entry of fixture.sessionCases) {
+    it(entry.name, () => {
+      const { session } = entry
+      const rootId = session.rootId ?? session.id
+      const rows = new Map<string, TargetSession>([
+        [rootId, { id: rootId, rootId, agentId: session.agentId, userId: session.userId }],
+      ])
+      if (rootId !== session.id) rows.set(session.id, { id: session.id, rootId, agentId: null, userId: session.userId })
+      const target = sessionTarget(session.id, (id) => rows.get(id), entry.viewerId)
+      const expected = entry.expected as { kind: string; agentId?: string; threadId?: string; sessionId?: string | null }
+      expect(target).toEqual(
+        expected.kind === `agent`
+          ? { to: `agent`, agentId: expected.agentId }
+          : expected.kind === `thread`
+            ? { to: `thread`, threadId: expected.threadId, session: expected.sessionId }
+            : { to: `session`, sessionId: expected.sessionId }
+      )
+    })
+  }
 })

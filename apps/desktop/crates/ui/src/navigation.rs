@@ -323,15 +323,56 @@ pub(crate) fn second_sidebar_for(
 /// thread, an agent root its channel, any other session (and a row that has
 /// not synced yet) its session view, which shares its root's tab.
 pub(crate) fn session_screen_for(session_id: &str, cx: &App) -> Screen {
-    let session_id = session_id.to_string();
-    match crate::session_data::session(&session_id, cx) {
-        // NEW-6: a conversation opens its AGENT's page (the caller's own
-        // conversation shows there).
-        Some(row) if row.is_root() && row.is_agent() => Screen::Agent {
-            agent_id: row.agent_id.clone().unwrap_or(session_id),
+    let viewer = crate::queries::active_account(cx).map(|account| account.user_id);
+    session_screen_with(
+        session_id,
+        |id| crate::session_data::session(id, cx),
+        viewer.as_deref(),
+    )
+}
+
+/// The pure core of [`session_screen_for`]: #EXP-1456 / S-3
+/// [`domain::inbox_route::session_target`] (inbox-route.json) read off the
+/// row and its ROOT (`agent_id` + `user_id` are the root's). Only the
+/// viewer's OWN agent conversation opens the agent's page; a thread child
+/// opens as its session view (which shares its root's tab); a row (or
+/// root) that has not synced opens the session route's not-found state.
+pub(crate) fn session_screen_with(
+    session_id: &str,
+    lookup: impl Fn(&str) -> Option<domain::rows::SessionRow>,
+    viewer_id: Option<&str>,
+) -> Screen {
+    use domain::inbox_route::{session_target, SessionTarget};
+    let fallback = || Screen::Session {
+        session_id: session_id.to_string(),
+    };
+    let Some(row) = lookup(session_id) else {
+        return fallback();
+    };
+    let root_id = row.root_id_or_self().to_string();
+    let root = if root_id == row.id { Some(row.clone()) } else { lookup(&root_id) };
+    let Some(root) = root else {
+        return fallback();
+    };
+    match session_target(
+        &row.id,
+        Some(&root_id),
+        root.agent_id.as_deref(),
+        root.user_id.as_deref(),
+        viewer_id,
+    ) {
+        SessionTarget::Agent { agent_id } => Screen::Agent { agent_id },
+        SessionTarget::Thread {
+            thread_id,
+            session_id: None,
+        } => Screen::Thread {
+            session_id: thread_id,
         },
-        Some(row) if row.is_root() => Screen::Thread { session_id },
-        _ => Screen::Session { session_id },
+        SessionTarget::Thread {
+            session_id: Some(session_id),
+            ..
+        }
+        | SessionTarget::Session { session_id } => Screen::Session { session_id },
     }
 }
 
@@ -2266,6 +2307,38 @@ mod tests {
             issue_id: "i1".into()
         }
         .undockable());
+    }
+
+    /// #EXP-1456 (inbox-route.json `sessionCases`): the viewer's own agent
+    /// conversation opens the agent's page, a teammate's and a child under
+    /// it their session, a thread root the thread, a thread child (and an
+    /// unsynced row) the session view.
+    #[test]
+    fn session_screen_follows_the_inbox_route_rule() {
+        let row = |id: &str, root: &str, agent: Option<&str>, user: &str| domain::rows::SessionRow {
+            id: id.to_string(),
+            root_id: Some(root.to_string()),
+            agent_id: agent.map(str::to_string),
+            user_id: Some(user.to_string()),
+            ..Default::default()
+        };
+        let rows = [
+            row("s-assistant", "s-assistant", Some("a-assistant"), "u-me"),
+            row("s-agent-child", "s-assistant", None, "u-me"),
+            row("s-theirs", "s-theirs", Some("a-scout"), "u-jonas"),
+            row("s-thread", "s-thread", None, "u-jonas"),
+            row("s-child", "s-thread", None, "u-me"),
+        ];
+        let open = |id: &str| {
+            session_screen_with(id, |id| rows.iter().find(|row| row.id == id).cloned(), Some("u-me"))
+        };
+        let session = |id: &str| Screen::Session { session_id: id.to_string() };
+        assert_eq!(open("s-assistant"), Screen::Agent { agent_id: "a-assistant".to_string() });
+        assert_eq!(open("s-agent-child"), session("s-agent-child"));
+        assert_eq!(open("s-theirs"), session("s-theirs"));
+        assert_eq!(open("s-thread"), Screen::Thread { session_id: "s-thread".to_string() });
+        assert_eq!(open("s-child"), session("s-child"));
+        assert_eq!(open("s-missing"), session("s-missing"));
     }
 
     /// EXP-746: a capture run (and a debug session) reaches ONE coding

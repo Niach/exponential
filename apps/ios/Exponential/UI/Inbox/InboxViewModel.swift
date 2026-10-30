@@ -15,18 +15,20 @@ final class InboxViewModel {
 
     /// One agent message (EXP-801): an issue-less `agent_message` row is its
     /// own entry — never bundled, each is a distinct thing someone's agent
-    /// said. Tapping marks it read; there is nowhere to navigate.
+    /// said. Tapping marks it read; #EXP-1456: a row naming a session (an
+    /// agent's decision, a mention) opens it (`target`).
     struct MessageEntry: Identifiable {
         let notification: NotificationEntity
         /// Resolved team name (nil when unresolved); shown only with >1 team.
         let teamName: String?
         var id: String { "message:\(notification.id)" }
         var unread: Int { notification.readAt == nil ? 1 : 0 }
+        var target: InboxRoute.RowTarget { InboxViewModel.target(notification) }
     }
 
     /// One blocked run (EXP-980): an issue-less `session_blocked` row is its
     /// own entry, like an agent message. Tapping marks it read AND opens the
-    /// run; a row whose `sessionId` is NULL (the run has been pruned) still
+    /// run (`target`); a row whose `sessionId` is NULL (the run has been pruned) still
     /// renders and only marks read.
     struct BlockedRunEntry: Identifiable {
         let notification: NotificationEntity
@@ -34,7 +36,12 @@ final class InboxViewModel {
         let teamName: String?
         var id: String { "blocked-run:\(notification.id)" }
         var unread: Int { notification.readAt == nil ? 1 : 0 }
-        var sessionId: String? { notification.sessionId }
+        var target: InboxRoute.RowTarget { InboxViewModel.target(notification) }
+    }
+
+    /// #EXP-1456: where a row opens (fixtures/inbox-route.json).
+    nonisolated static func target(_ n: NotificationEntity) -> InboxRoute.RowTarget {
+        InboxRoute.inboxRowTarget(type: n.type, issueId: n.issueId, sessionId: n.sessionId)
     }
 
     /// One merged stream (web parity): issue groups, agent messages and

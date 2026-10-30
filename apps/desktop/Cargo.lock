@@ -1700,18 +1700,22 @@ dependencies = [
  "codemode",
  "dirs",
  "domain",
+ "enet-core",
  "epilot",
  "epilot-screen",
  "etalk",
+ "eui-core",
  "exponential-agent-runtime",
  "flate2",
  "libc",
  "log",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tar",
  "terminal",
+ "tiny_http",
  "toml 0.8.23",
  "updater",
  "uuid",
@@ -2962,7 +2966,7 @@ dependencies = [
 
 [[package]]
 name = "etalk"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "base64 0.22.1",
  "block2 0.6.2",
@@ -2984,7 +2988,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-codec"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "log",
  "opus-rs",
@@ -2993,7 +2997,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-crispasr"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "flate2",
  "libc",
@@ -3007,7 +3011,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-engine"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "cpal",
  "decibri-aec",
@@ -3023,7 +3027,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-ffi"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "etalk",
  "etalk-codec",
@@ -3033,7 +3037,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-gpui"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "ashpd",
  "async-io",
@@ -3065,7 +3069,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-wakeword"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "libc",
  "sha2 0.10.9",
@@ -3203,6 +3207,7 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.4.3",
  "js-sys",
+ "serde_json",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -10360,6 +10365,7 @@ version = "0.14.86"
 dependencies = [
  "api",
  "domain",
+ "enet-core",
  "flume 0.11.1",
  "gpui",
  "log",
@@ -11749,6 +11755,7 @@ dependencies = [
  "comrak",
  "dirs",
  "domain",
+ "enet-core",
  "engine",
  "epilot-screen",
  "etalk",

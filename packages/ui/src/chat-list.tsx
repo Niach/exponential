@@ -383,7 +383,7 @@ function ChatRowText({
           <span
             className={cn(
               `line-clamp-2 min-w-0 flex-1 text-sm leading-snug text-muted-foreground`,
-              row.preview.kind === `working` && `italic`
+              (row.preview.kind === `working` || row.preview.kind === `locked`) && `italic`
             )}
           >
             {prefix && <span className="text-foreground/85">{prefix}</span>}

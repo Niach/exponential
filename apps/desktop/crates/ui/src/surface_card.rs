@@ -62,26 +62,28 @@ pub(crate) fn divider_row(id: &str, kind: DividerKind, at: &str, cx: &App) -> An
 
 /// [`divider_row`] with the time already formatted (the styleguide's).
 pub(crate) fn divider_pill(id: &str, kind: DividerKind, time: &str, cx: &App) -> AnyElement {
+    transcript_pill(format!("{}-{id}", CHATS.test_ids.divider), kind.icon(), divider_label(kind, time), cx)
+}
+
+/// EXP-1459: THE locked row (sealed-content.json `placeholder`): the divider
+/// pill with the lock concept and the reason's copy, no time.
+pub(crate) fn locked_pill(id: &str, reason: domain::sealed::LockedReason, cx: &App) -> AnyElement {
+    let placeholder = &*domain::sealed::PLACEHOLDER;
+    transcript_pill(format!("sealed-locked-{id}"), &placeholder.icon, placeholder.text(reason).to_string(), cx)
+}
+
+/// The transcript's centred glass pill: a concept glyph + a muted xs label.
+fn transcript_pill(test_id: String, icon: &str, label: String, cx: &App) -> AnyElement {
     use crate::surface::{glass_pill, PillMode, PillSize};
     let muted = cx.theme().muted_foreground;
-    let icon = registry::concept_by_name(kind.icon()).unwrap_or(registry::UI_INFO);
+    let icon = registry::concept_by_name(icon).unwrap_or(registry::UI_INFO);
     h_flex()
         .w_full()
         .justify_center()
         .child(
-            glass_pill(
-                SharedString::from(format!("{}-{id}", CHATS.test_ids.divider)),
-                PillSize::Sm,
-                PillMode::Readonly,
-                cx,
-            )
-            .child(Icon::new(icon).with_size(px(PillSize::Sm.glyph())).text_color(muted))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(divider_label(kind, time))),
-            ),
+            glass_pill(SharedString::from(test_id), PillSize::Sm, PillMode::Readonly, cx)
+                .child(Icon::new(icon).with_size(px(PillSize::Sm.glyph())).text_color(muted))
+                .child(div().text_xs().text_color(muted).child(SharedString::from(label))),
         )
         .into_any_element()
 }

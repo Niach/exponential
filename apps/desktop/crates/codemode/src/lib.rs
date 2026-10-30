@@ -26,6 +26,7 @@
 
 mod catalog;
 mod client;
+mod gateway;
 mod reports;
 mod runtime;
 mod server;
@@ -33,6 +34,7 @@ pub mod worker;
 
 use std::sync::{Arc, OnceLock};
 
+pub use gateway::{GatewayTransform, GatewayUpstream, ROUTE as GATEWAY_ROUTE};
 pub use reports::{publish as file_report, take_report, ScriptReport};
 pub use runtime::{CallRecord, LOG_CAP};
 pub use server::{META_CALLS_KEY, META_COUNT_KEY, META_ELAPSED_KEY, SERVER_NAME};
@@ -98,6 +100,25 @@ fn host() -> Result<&'static Host, String> {
 pub fn grant(session_id: &str, label: &str, upstreams: Vec<Upstream>, direct_only: Vec<String>) -> Result<Grant, String> {
     let host = host()?;
     Ok(Grant { url: host.url.clone(), token: host.hub.grant(session_id, label, upstreams, direct_only) })
+}
+
+/// EXP-1458: admit the run `session_id` to the MCP GATEWAY: the agent
+/// reaches `upstream` (Exponential's `/api/mcp` with the run's real
+/// headers) through `format!("{}/api/mcp", grant.url)` with `grant.token`
+/// as its bearer, every `tools/call` passing through `transform`. A gateway
+/// grant the run held before stops working; [`revoke`] drops it too.
+pub fn gateway_grant(
+    session_id: &str,
+    label: &str,
+    upstream: Upstream,
+    transform: Arc<dyn GatewayTransform>,
+) -> Result<Grant, String> {
+    let host = host()?;
+    let base = host.url.trim_end_matches("/mcp");
+    Ok(Grant {
+        url: format!("{base}{}", gateway::ROUTE),
+        token: host.hub.gateways.grant(session_id, label, upstream, transform),
+    })
 }
 
 /// The run ended: its token is dead, a script still running is cancelled

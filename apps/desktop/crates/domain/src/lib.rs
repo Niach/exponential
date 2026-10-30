@@ -81,6 +81,9 @@
 //! * [`entity_preview`] — EXP-920's entity-chip rule over a settled
 //!   Exponential tool row's `preview.refs` (icon concept, noun, clamped
 //!   label, `list` grouping), byte-locked ×4 by `fixtures/entity-chip.json`;
+//! * [`inbox_route`] — #EXP-1456: where an inbox row / toast opens (issue,
+//!   session, nothing) and where a session opens (agent page, thread,
+//!   session), byte-locked ×4 by `fixtures/inbox-route.json`;
 //! * [`app_link`] — EXP-1188: what a clicked markdown link in agent prose
 //!   opens (issue | run in-app, another instance page, external, ignored),
 //!   byte-locked ×4 by `fixtures/app-link.json`.
@@ -129,6 +132,8 @@ pub mod enums;
 pub mod guide_viewer;
 pub mod hydrate;
 pub mod image_message;
+// #EXP-1456: where an inbox row (and its toast) opens, fixture-locked ×4.
+pub mod inbox_route;
 pub mod issue_draft;
 pub mod issue_estimate;
 pub mod issue_graph;
@@ -154,6 +159,8 @@ pub mod relations;
 pub mod relations_view;
 pub mod reporter_reply;
 pub mod rows;
+// EXP-1459: the state of a sealed body, card or title on this install.
+pub mod sealed;
 // NEW-2: THE schedule picker (cron <-> rows, labels, summary), fixture-locked ×4.
 pub mod schedule_picker;
 pub mod session_results;

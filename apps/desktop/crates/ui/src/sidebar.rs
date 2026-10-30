@@ -2967,7 +2967,10 @@ impl ListPanel {
 
     /// One agent message row (EXP-801): the bot glyph and the sentence
     /// ("Ada's agent: Build finished"), the team name when synced. Click
-    /// marks the row read — the row IS the content, there is nowhere to go.
+    /// marks the row read and, #EXP-1456 (inbox-route.json), opens the
+    /// session it names (an Assistant's decision lands on the agent's page,
+    /// its dock holding the question or plan; a mention its thread/session);
+    /// a broadcast without a session only marks read.
     /// ONE line (web's compact sidebar row): no body, no stamp.
     fn inbox_message_row(
         &self,
@@ -2980,6 +2983,12 @@ impl ListPanel {
         } else {
             Vec::new()
         };
+        let target = entry
+            .session_id()
+            .map(|id| crate::navigation::session_screen_for(&id, cx));
+        let selected = target.as_ref().is_some_and(|screen| {
+            resolved_screen(&self.nav, cx).as_ref() == Some(screen)
+        });
         let sentence: SharedString = entry.item.title.clone().unwrap_or_default().into();
         let team_name: Option<SharedString> = entry.team_name.clone().map(Into::into);
         let type_icon =
@@ -2990,11 +2999,14 @@ impl ListPanel {
             sentence,
             team_name,
             unread,
-            false,
+            selected,
             cx,
         )
-        .on_click(cx.listener(move |_, _, _, cx| {
+        .on_click(cx.listener(move |this, _, window, cx| {
             mark_group_read(&unread_ids, cx);
+            if let Some(screen) = target.clone() {
+                this.open_from_list(screen, window, cx);
+            }
         }))
         .into_any_element()
     }
@@ -3014,14 +3026,14 @@ impl ListPanel {
         } else {
             Vec::new()
         };
-        let session_id = entry.session_id().map(str::to_string);
+        // #EXP-1456: the screen the session opens as (inbox-route.json).
+        let target = entry
+            .session_id()
+            .map(|id| crate::navigation::session_screen_for(&id, cx));
         // EXP-1192: the run this row opened reads selected beside it, like
         // an issue row beside its detail.
-        let selected = session_id.as_deref().is_some_and(|id| {
-            matches!(
-                resolved_screen(&self.nav, cx),
-                Some(Screen::Session { session_id }) if session_id == id
-            )
+        let selected = target.as_ref().is_some_and(|screen| {
+            resolved_screen(&self.nav, cx).as_ref() == Some(screen)
         });
         let sentence: SharedString = entry.item.title.clone().unwrap_or_default().into();
         let team_name: Option<SharedString> = entry.team_name.clone().map(Into::into);
@@ -3043,10 +3055,10 @@ impl ListPanel {
             // (a switch would swap the whole strip away mid-step). A
             // pruned session leads nowhere.
             mark_group_read(&unread_ids, cx);
-            let Some(session_id) = session_id.clone() else {
+            let Some(screen) = target.clone() else {
                 return;
             };
-            this.open_from_list(Screen::Session { session_id }, window, cx);
+            this.open_from_list(screen, window, cx);
         }))
         .into_any_element()
     }

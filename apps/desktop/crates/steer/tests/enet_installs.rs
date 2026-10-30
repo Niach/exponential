@@ -71,6 +71,7 @@ impl InstallRegistry for As {
                 endpoint_id: input.endpoint_id.clone(),
                 x25519_public: input.x25519_public.clone(),
                 last_seen_at: None,
+                device_id: input.device_id.clone(),
             },
             false,
         ));

@@ -753,3 +753,56 @@ struct StorySpecimensScreen: View {
         .accessibilityIdentifier("thread-cards-screen")
     }
 }
+
+/// EXP-1459 `sealed-locked` (sealed-content.json `placeholder`): content this
+/// install can't open (yet), the web entry's composition: in the transcript
+/// THE divider pill with the lock (no time), never a bubble; in the chats
+/// list the preview line italic muted, like `working`.
+struct SealedLockedSpecimens: View {
+    @Environment(AppDependencies.self) private var deps
+
+    private var context: AgentMarkdownContext {
+        AgentMarkdownContext(baseURL: nil, accountId: "", httpClient: deps.httpClient)
+    }
+
+    private func pill(_ reason: LockedReason) -> some View {
+        TranscriptDividerPill(
+            icon: AppIcons.conceptOrName(SealedPlaceholder.icon) ?? SealedPlaceholder.icon,
+            text: SealedPlaceholder.copy(reason)
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 14) {
+                UserMessageBubble(
+                    text: "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.",
+                    context: context,
+                    caption: "21:02"
+                )
+                pill(.noKey)
+                AgentChatBubble(time: "21:09") {
+                    AgentMarkdownText(text: "Deferred the shape subscribe until after the first frame.", context: context, options: [.hardLineBreaks])
+                }
+                pill(.unreadable)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                ChatRowView(
+                    title: "Running one", time: "09:25",
+                    preview: SealedPlaceholder.copy(.noKey), previewItalic: true
+                ) { ChatLeadMark(lead: .working) }
+                ChatRowView(
+                    title: "Needs you one", time: "09:10",
+                    preview: "Snapshot?", previewLabel: "Question:", needsYou: true
+                ) { ChatLeadMark(lead: .needsYou) }
+                ChatRowView(
+                    title: "Open PR", time: "08:30",
+                    preview: SealedPlaceholder.copy(.unreadable), previewItalic: true,
+                    unreadCount: 1, word: ThreadRowWord.readyToMerge.text
+                ) { ChatLeadMark(lead: .open) }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("sealed-locked-specimen")
+    }
+}

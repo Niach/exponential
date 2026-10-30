@@ -12,14 +12,15 @@
 //! - call ([`CALL_ALPN`]): opaque audio frames over QUIC datagrams.
 //!
 //! Plus [`push`]: sealed push payloads (X25519 + HKDF-SHA256 +
-//! ChaCha20-Poly1305) for the push relay's `/push` API.
+//! ChaCha20-Poly1305) for the push relay's `/push` API, and [`sealed`]:
+//! session content sealed to a tree key over the same primitive (EXP-1458).
 //!
 //! Every connection is QUIC/TLS 1.3 authenticated by the peers' ed25519 keys;
 //! a relay only ever forwards ciphertext between endpoint ids. Incoming
 //! connections are gated by the node's [`Access`] policy.
 //!
 //! Feature `node` (default) = everything above. Without it
-//! (`--no-default-features`) the crate is [`push`] alone on RustCrypto (no
+//! (`--no-default-features`) the crate is [`push`] + [`sealed`] alone on RustCrypto (no
 //! iroh, no tokio): what a Notification Service Extension links.
 
 #[cfg(feature = "node")]
@@ -40,6 +41,7 @@ mod identity;
 #[cfg(feature = "node")]
 mod node;
 pub mod push;
+pub mod sealed;
 #[cfg(feature = "node")]
 mod records;
 #[cfg(feature = "node")]

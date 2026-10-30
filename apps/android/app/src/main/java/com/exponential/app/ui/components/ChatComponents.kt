@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.SealedPlaceholder
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.Stories
 import com.exponential.app.ui.icons.ExpIcons
@@ -497,7 +498,8 @@ private fun ChatPreviewText(preview: Chats.ChatPreview, modifier: Modifier = Mod
     Text(
         text,
         style = style,
-        fontStyle = if (preview.kind == "working") FontStyle.Italic else null,
+        // EXP-1459: a locked preview reads italic muted like `working`.
+        fontStyle = if (preview.kind == "working" || preview.kind == Chats.PREVIEW_KIND_LOCKED) FontStyle.Italic else null,
         color = muted,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
@@ -862,11 +864,13 @@ fun ChatDeleteConfirm(
  * A transcript divider (session-thread.json `divider` row): a person's `/new`
  * or `/compact` line painted as the centred glass pill
  * `copy.dividers.<kind> · HH:mm` (icon ui-clean / coding-compact), never a
- * bubble.
+ * bubble. EXP-1459: kind `locked-noKey` | `locked-unreadable` = the same pill
+ * with the lock (sealed-content.json `placeholder`), no time.
  */
 @Composable
 fun TranscriptDivider(kind: String, time: String?, modifier: Modifier = Modifier) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    val locked = kind.removePrefix(LOCKED_DIVIDER_PREFIX).takeIf { kind.startsWith(LOCKED_DIVIDER_PREFIX) }
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Row(
             modifier = Modifier
@@ -874,18 +878,23 @@ fun TranscriptDivider(kind: String, time: String?, modifier: Modifier = Modifier
                 .background(GlassTokens.CardFill, CircleShape)
                 .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape)
                 .padding(horizontal = 14.dp, vertical = 6.dp)
-                .testTag(Chats.TestIds.DIVIDER),
+                .testTag(if (locked != null) SEALED_LOCKED_TEST_ID else Chats.TestIds.DIVIDER),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
-                if (kind == Chats.DIVIDER_KIND_COMPACT) ExpIcons.codingCompact else ExpIcons.uiClean,
+                when {
+                    locked != null -> ExpIcons.uiPrivate
+                    kind == Chats.DIVIDER_KIND_COMPACT -> ExpIcons.codingCompact
+                    else -> ExpIcons.uiClean
+                },
                 contentDescription = null,
                 tint = muted,
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                listOfNotNull(Chats.Copy.divider(kind), time?.takeIf { it.isNotEmpty() }).joinToString(" · "),
+                if (locked != null) SealedPlaceholder.copy(locked)
+                else listOfNotNull(Chats.Copy.divider(kind), time?.takeIf { it.isNotEmpty() }).joinToString(" · "),
                 style = MaterialTheme.typography.labelMedium,
                 color = muted,
                 maxLines = 1,
@@ -893,6 +902,12 @@ fun TranscriptDivider(kind: String, time: String?, modifier: Modifier = Modifier
         }
     }
 }
+
+/** EXP-1459: the [TranscriptDivider] kind of a locked row (`locked-<reason>`). */
+const val LOCKED_DIVIDER_PREFIX = "locked-"
+
+/** EXP-1459: the locked pill's test tag (component tests, captures). */
+const val SEALED_LOCKED_TEST_ID = "sealed-locked"
 
 /** A day pill over the transcript (`Today`, `Yesterday`, a date). */
 @Composable

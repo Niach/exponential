@@ -2,6 +2,7 @@ import { and, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, ne, or,
 import type { MessageAuthorKind, MessageCard } from "@exp/db-schema/domain"
 import { conversations, messages, sessions, type Session } from "@/db/schema"
 import type { Tx } from "@/lib/sessions/tx"
+import { isSealedBody, SEALED_BODY_LIKE } from "@/lib/sessions/sealed"
 
 // EXP-1291: every Conversation row goes through `insertMessage`. The
 // visibility mirrors (`root_id`, `team_id`, `shared`, `owner_id` = the
@@ -89,6 +90,10 @@ export async function insertMessage(
     consumedAt?: Date | null
     /** S-3: the row this one is a bus copy of (patched on its edit). */
     originMessageId?: string | null
+    /** EXP-1458: clear metadata (lib/sessions/sealed.ts). */
+    attachmentIds?: string[] | null
+    mentionUserIds?: string[] | null
+    refIssueIds?: string[] | null
   }
 ): Promise<string> {
   const mirror = await sessionMirror(tx, session)
@@ -107,6 +112,9 @@ export async function insertMessage(
       card: message.card ?? null,
       consumedAt: message.consumedAt ?? null,
       originMessageId: message.originMessageId ?? null,
+      attachmentIds: message.attachmentIds?.length ? message.attachmentIds : null,
+      mentionUserIds: message.mentionUserIds?.length ? message.mentionUserIds : null,
+      refIssueIds: message.refIssueIds?.length ? message.refIssueIds : null,
     })
     .returning({ id: messages.id })
   return row!.id
@@ -153,7 +161,7 @@ export async function editAgentTurnText(
   tx: Tx,
   sessionId: string,
   body: string
-): Promise<{ id: string; before: string } | null> {
+): Promise<{ id: string; before: string; mentionUserIds: string[] | null } | null> {
   // The turn starts at the newest input the device DELIVERED (its
   // `consumed_at`): a message still queued mid-turn is the NEXT turn's, so
   // it must not cut this turn's answer off (F29).
@@ -164,7 +172,7 @@ export async function editAgentTurnText(
     .orderBy(desc(messages.consumedAt))
     .limit(1)
   const [text] = await tx
-    .select({ id: messages.id, body: messages.body })
+    .select({ id: messages.id, body: messages.body, mentionUserIds: messages.mentionUserIds })
     .from(messages)
     .where(
       and(
@@ -180,17 +188,50 @@ export async function editAgentTurnText(
     .for(`update`)
   if (!text) return null
   await tx.update(messages).set({ body, updatedAt: new Date() }).where(eq(messages.id, text.id))
-  return { id: text.id, before: text.body }
+  return { id: text.id, before: text.body, mentionUserIds: text.mentionUserIds ?? null }
 }
 
 /** S-3: an edited row's bus copies take its new text. Only a copy still
  *  carrying the old text: a neutral private line (#EXP-1408, a reader who
- *  may not see the origin) never gains the text. */
-export async function patchBusCopies(tx: Tx, originId: string, before: string, after: string): Promise<void> {
+ *  may not see the origin) never gains the text. EXP-1458: a sealed text
+ *  is copied byte for byte only within its own tree; a copy in another
+ *  tree takes the device's `copies` entry for that TREE (replacing a copy
+ *  it sealed before), else it keeps what it has. */
+export async function patchBusCopies(
+  tx: Tx,
+  originId: string,
+  before: string,
+  after: string,
+  copies?: ReadonlyArray<{ rootId: string; body?: string }>
+): Promise<void> {
+  const now = new Date()
+  const sealed = isSealedBody(before) || isSealedBody(after)
   await tx
     .update(messages)
-    .set({ body: after, updatedAt: new Date() })
-    .where(and(eq(messages.originMessageId, originId), eq(messages.body, before.trim())))
+    .set({ body: after, updatedAt: now })
+    .where(
+      and(
+        eq(messages.originMessageId, originId),
+        eq(messages.body, before.trim()),
+        ...(sealed
+          ? [sql`${messages.rootId} = (SELECT o.root_id FROM messages o WHERE o.id = ${originId})`]
+          : [])
+      )
+    )
+  if (!isSealedBody(after)) return
+  for (const copy of copies ?? []) {
+    if (!copy.body) continue
+    await tx
+      .update(messages)
+      .set({ body: copy.body, updatedAt: now })
+      .where(
+        and(
+          eq(messages.originMessageId, originId),
+          eq(messages.rootId, copy.rootId),
+          sql`${messages.body} LIKE ${SEALED_BODY_LIKE}`
+        )
+      )
+  }
 }
 
 /** A person's message: the bus (consumed_at NULL until the device delivers it).

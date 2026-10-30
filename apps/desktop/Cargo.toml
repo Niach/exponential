@@ -146,6 +146,14 @@ agent-client-protocol = { version = "=2.1.0", features = ["unstable_session_comp
 ztracing = { path = "crates/ztracing" }
 ztracing_macro = { path = "crates/ztracing_macro" }
 
+# #EXP-1460: etalk-gpui takes eUI and ePilot through their release tags (one
+# copy for a git consumer); inside this workspace they ARE the local crates.
+[patch."https://github.com/Niach/exponential"]
+eui-core = { path = "crates/eui-core" }
+eui-gpui = { path = "crates/eui-gpui" }
+epilot = { path = "crates/epilot" }
+epilot-screen = { path = "crates/epilot-screen" }
+
 # Debuginfo is the bulk of a debug tree on this dependency set (EXP-76: ~8GB
 # per fresh build, most of it dep debuginfo plus the ~7k .o files macOS's
 # split-debuginfo=unpacked keeps around as its containers). Workspace crates

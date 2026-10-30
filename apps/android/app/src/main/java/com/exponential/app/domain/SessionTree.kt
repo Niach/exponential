@@ -1,5 +1,6 @@
 package com.exponential.app.domain
 
+import com.exponential.app.data.sealed.SealedContent
 import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.IssueEntity
@@ -112,6 +113,10 @@ object SessionTree {
         val createdAt: String,
         /** EXP-1323: the session that posted it (absent = null). */
         val authorSessionId: String? = null,
+        /** EXP-1459: sealed content this install cannot open (yet):
+         *  `noKey` | `unreadable` ([SealedPlaceholder]); [body] is empty and
+         *  [card] its clear part. Null = opened or plaintext. */
+        val locked: String? = null,
     )
 
     /** [state] (NEW-1) = contract `prState`; only [treeState] reads it (null = unknown, never merged). */
@@ -653,6 +658,11 @@ object SessionTree {
          *  painted as the centred divider pill; [kind] = `new` | `compact`. */
         data class Divider(override val id: String, val kind: String, val at: String) : ThreadRow
 
+        /** EXP-1459 (sealed-content.json `placeholder`): content this install
+         *  cannot open (yet), whatever its kind: THE transcript pill with the
+         *  lock; [reason] = `noKey` | `unreadable`, [author] user | agent | system. */
+        data class Locked(override val id: String, val reason: String, val author: String) : ThreadRow
+
         /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
         data class Surface(
             override val id: String,
@@ -1074,6 +1084,14 @@ object SessionTree {
         val escalated = mutableSetOf<String>()
         for (message in conversation) {
             val card = message.card
+            message.locked?.let { reason ->
+                val author = when (message.authorKind) {
+                    DomainContract.messageAuthorKindUser, DomainContract.messageAuthorKindAgent -> message.authorKind
+                    else -> DomainContract.messageAuthorKindSystem
+                }
+                rows.add(ThreadRow.Locked(message.id, reason, author))
+                continue
+            }
             if (card == null) {
                 val author = when (message.authorKind) {
                     DomainContract.messageAuthorKindUser, DomainContract.messageAuthorKindAgent -> message.authorKind
@@ -1734,18 +1752,24 @@ object SessionTree {
 
     /** [sessionId] = the session the row's conversation belongs to (resolved
      *  by [messages] or by a DAO query scoped to that session's conversation). */
-    fun message(row: MessageEntity, sessionId: String): Message = Message(
-        id = row.id,
-        sessionId = sessionId,
-        authorKind = row.authorKind,
-        authorId = row.authorId,
-        body = row.body,
-        card = parseObject(row.card),
-        answeredAt = row.answeredAt,
-        consumedAt = row.consumedAt,
-        createdAt = row.createdAt,
-        authorSessionId = row.authorSessionId,
-    )
+    fun message(row: MessageEntity, sessionId: String): Message {
+        // EXP-1459: the DAO already opened what this install can; what stays
+        // sealed is LOCKED (empty body, the card's clear part).
+        val opened = SealedContent.openMessage(row.rootId, row.body, row.card)
+        return Message(
+            id = row.id,
+            sessionId = sessionId,
+            authorKind = row.authorKind,
+            authorId = row.authorId,
+            body = opened.body,
+            card = parseObject(opened.cardJson),
+            answeredAt = row.answeredAt,
+            consumedAt = row.consumedAt,
+            createdAt = row.createdAt,
+            authorSessionId = row.authorSessionId,
+            locked = opened.locked,
+        )
+    }
 
     fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt, archivedAt = row.archivedAt, storySeenAt = row.storySeenAt)
 

@@ -204,7 +204,8 @@ public enum AskDock {
     public static func sessionCards(_ messages: [TreeMessage]) -> [SessionCard] {
         var cards: [(card: SessionCard, at: Double)] = []
         for message in messages {
-            guard let card = message.card else { continue }
+            // EXP-1459: a locked card can't be answered here: out of the dock.
+            guard let card = message.card, !message.isLocked else { continue }
             let engine = card.questionId != nil
             let at = SessionTree.ms(message.createdAt) ?? 0
             switch card.kind {

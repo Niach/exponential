@@ -29,6 +29,7 @@ import { agentsRouter } from "@/lib/trpc/agents"
 import { steerRouter } from "@/lib/trpc/steer"
 import { devicesRouter } from "@/lib/trpc/devices"
 import { installsRouter } from "@/lib/trpc/installs"
+import { sessionKeysRouter } from "@/lib/trpc/session-keys"
 import { billingRouter } from "@/lib/trpc/billing"
 import { onboardingRouter } from "@/lib/trpc/onboarding"
 import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
@@ -63,6 +64,7 @@ export const appRouter = router({
   devices: devicesRouter,
   // EXP-1457 / VAPP-37: the eNet install registry.
   installs: installsRouter,
+  sessionKeys: sessionKeysRouter,
   teamInvites: teamInvitesRouter,
   teamMembers: teamMembersRouter,
   users: usersRouter,

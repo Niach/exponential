@@ -6,7 +6,14 @@ name: release-etalk
 # Not on crates.io (publish = false): consumers depend on the tag with git = + tag =
 # (docs/libraries.md "Consuming from another repo"). EXP-1420: the contract
 # (packages/etalk) publishes as npm @exponential_app/etalk at the same version.
-# A dispatched dry run tests and stops before publishing anything.
+# #EXP-1441: the phone facade etalk-ffi ships like eUI's (release-eui.yml):
+#   SwiftPM  ExponentialTalk: the xcframework zip on this release + the tagged
+#            distribution repo Niach/exponential-talk-swift (SWIFT_DIST_TOKEN)
+#   Maven    at.exponential:etalk via the Central Portal
+#            (MAVEN_CENTRAL_USERNAME/PASSWORD + SIGNING_KEY/PASSWORD)
+# Every registry step is gated on its secret (without it the job builds and
+# uploads what it would have published as an artifact). A dispatched dry run
+# tests, builds and stops before publishing anything.
 
 on:
   push:
@@ -75,6 +82,101 @@ jobs:
         run: cargo test --no-fail-fast --locked -p etalk -p etalk-codec -p etalk-engine -p etalk-crispasr -p etalk-wakeword -p etalk-gpui -p etalk-ffi
       - name: A git consumer builds (docs/libraries.md, the git-tag policy)
         run: scripts/libs/git-consumer-smoke.sh etalk "$GITHUB_SHA"
+      - name: etalk-ffi's committed bindings match the generator
+        run: |
+          bash apps/desktop/crates/etalk-ffi/generate-bindings.sh
+          git diff --exit-code -- apps/desktop/crates/etalk-ffi/bindings
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Kotlin binding suite (the committed binding vs the host .so)
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
+          # The self-hosted runner's HOME is read-only: the kotlinc + JNA jars cache in the job's temp.
+          XDG_CACHE_HOME: ${{ runner.temp }}/cache
+        run: bash apps/desktop/crates/etalk-ffi/run-binding-tests.sh kotlin
+
+  swift:
+    needs: [version, pick]
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27
+        run: bash .github/scripts/select-xcode.sh
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
+      - name: Swift binding suite (the committed binding vs the host dylib)
+        run: bash apps/desktop/crates/etalk-ffi/run-binding-tests.sh swift
+      - name: Build the xcframework
+        run: |
+          bash apps/desktop/crates/etalk-ffi/build-ios.sh
+          git diff --exit-code -- apps/desktop/crates/etalk-ffi/bindings
+      - name: The package builds against the xcframework (a path binary)
+        run: |
+          bash apps/desktop/crates/etalk-ffi/release/swift-package.sh ${{ needs.version.outputs.version }} dist-swift-local --local
+          (cd dist-swift-local/package && swift build)
+          rm -rf dist-swift-local
+      - name: Zip + the distribution package
+        run: bash apps/desktop/crates/etalk-ffi/release/swift-package.sh ${{ needs.version.outputs.version }} dist-swift
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swift
+          path: dist-swift/
+
+  maven:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0 ndk;28.2.13676358'
+      - run: cargo install cargo-ndk --locked
+      - name: Build the Android libraries (the committed Kotlin binding, drift-gated in `test`)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          SKIP_BINDINGS: '1'
+        run: bash apps/desktop/crates/etalk-ffi/build-android.sh
+      - name: The Central Portal bundle
+        env:
+          ORG_GRADLE_PROJECT_talkVersion: ${{ needs.version.outputs.version }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > apps/desktop/crates/etalk-ffi/android/local.properties
+          bash apps/desktop/crates/etalk-ffi/release/central-bundle.sh
+      - name: Upload to Maven Central (or keep the bundle)
+        env:
+          USER: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          PASS: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          SIGNED: ${{ secrets.SIGNING_KEY != '' }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then echo "::notice::dry run: the Central bundle is an artifact, not uploaded"; exit 0; fi
+          if [ -z "$USER" ] || [ "$SIGNED" != "true" ]; then echo "::warning::Maven Central credentials or the signing key are not set: the bundle is an artifact, not uploaded"; exit 0; fi
+          curl --fail -X POST "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=etalk-${{ needs.version.outputs.version }}" \
+            -H "Authorization: Bearer $(printf '%s:%s' "$USER" "$PASS" | base64 -w0)" \
+            -F bundle=@apps/desktop/crates/etalk-ffi/android/build/central-bundle.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maven
+          path: apps/desktop/crates/etalk-ffi/android/build/central-bundle.zip
 
   npm:
     needs: version
@@ -106,30 +208,83 @@ jobs:
           if-no-files-found: ignore
 
   release:
-    needs: [version, test, npm]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+    needs: [version, test, npm, swift, maven]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: npm
-          path: npm
+          path: artifacts
+      - name: Collect the release files + checksums
+        run: |
+          mkdir out
+          cp artifacts/swift/ExponentialTalkFFI.xcframework.zip out/
+          cp artifacts/maven/central-bundle.zip out/etalk-${{ needs.version.outputs.version }}-bundle.zip
+          cp artifacts/npm/*.tgz out/ 2>/dev/null || true
+          cp LICENSE NOTICE out/
+          (cd out && sha256sum * > SHA256SUMS)
+          ls -l out
       - name: Release notes
         env:
           V: ${{ needs.version.outputs.version }}
         run: |
-          printf '%s\n\n' "eTalk $V. npm: \`@exponential_app/etalk@$V\` (the contract + fixtures). Rust: a git dependency (not on crates.io: the crates compile repo fixtures in with include_str!)." > notes.md
+          printf '%s\n\n' "eTalk $V. npm: \`@exponential_app/etalk@$V\` (the contract + fixtures). SwiftPM: \`https://github.com/Niach/exponential-talk-swift\` $V, product \`ExponentialTalk\`. Maven Central: \`at.exponential:etalk:$V\`. Rust: a git dependency (not on crates.io: the crates compile repo fixtures in with include_str!)." > notes.md
           printf '```toml\n%b\n```\n' "etalk = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-codec = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-engine = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-crispasr = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-wakeword = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-gpui = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }" >> notes.md
           cat notes.md
+      - uses: actions/upload-artifact@v4
+        if: env.DRY_RUN == 'true'
+        with:
+          name: release-files
+          path: out/
       - name: GitHub release
+        if: env.DRY_RUN != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: etalk-v${{ needs.version.outputs.version }}
           name: eTalk ${{ needs.version.outputs.version }}
           make_latest: false
           body_path: notes.md
-          files: |
-            LICENSE
-            NOTICE
-            npm/*.tgz
+          files: out/*
+
+  swift-dist:
+    # After the release: the package's binaryTarget url points at the zip
+    # this release just uploaded. A dry run does everything but the push
+    # (a `git push --dry-run`, which still needs the token's write access).
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: swift
+          path: dist-swift
+      - name: Push the tagged SwiftPM repo
+        env:
+          SWIFT_DIST_TOKEN: ${{ secrets.SWIFT_DIST_TOKEN }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          if [ -z "$SWIFT_DIST_TOKEN" ]; then echo "::warning::SWIFT_DIST_TOKEN is not set: the package is an artifact, not pushed"; exit 0; fi
+          git clone "https://x-access-token:${SWIFT_DIST_TOKEN}@github.com/Niach/exponential-talk-swift.git" dist-repo
+          # #EXP-1467: --checksum, never rsync's size+mtime quick check: a
+          # version bump keeps every file's size (0.2.1 → 0.2.2, one checksum
+          # for another) and the unpacked artifact and the fresh clone share
+          # their mtime second, so the quick check copied nothing.
+          rsync -a --checksum --delete --exclude .git dist-swift/package/ dist-repo/
+          cd dist-repo
+          git config user.name "exponential-release" && git config user.email "release@exponential.at"
+          git add -A
+          git status --short
+          if git diff --cached --quiet; then echo "::notice::main already holds the $V package"; else git commit -q -m "ExponentialTalk $V"; fi
+          if [ "$DRY_RUN" = "true" ]; then
+            # A dry run's rebuilt zip has a new checksum, so it never tags:
+            # it proves the token can write with a scratch ref, pushed nowhere.
+            git push --dry-run origin HEAD:refs/heads/release-dry-run
+            echo "::notice::dry run: the $V package was not pushed (the token can write)"
+            exit 0
+          fi
+          # Idempotent re-runs: an existing tag must already be this commit.
+          if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
+            [ "$(git rev-parse "$V^{commit}")" = "$(git rev-parse HEAD)" ] || { echo "::error::tag $V already exists on another commit"; exit 1; }
+          else
+            git tag "$V"
+          fi
+          git push origin HEAD "$V"

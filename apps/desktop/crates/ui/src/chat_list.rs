@@ -171,7 +171,7 @@ pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
         .line_clamp(2)
         .text_sm()
         .text_color(theme.muted_foreground)
-        .when(row.preview.kind == ChatPreviewKind::Working, |this| this.italic())
+        .when(matches!(row.preview.kind, ChatPreviewKind::Working | ChatPreviewKind::Locked), |this| this.italic())
         .child(match prefix {
             Some(prefix) => gpui::StyledText::new(format!("{prefix}{rest}"))
                 .with_highlights([(

@@ -507,6 +507,9 @@ CREATE OR REPLACE TRIGGER sync_session_conversation_mirrors
 -- the blank / image lines the title rule skips are dropped BEFORE the cut),
 -- so the title reads the same line as over the whole message; every other
 -- text drops its leading blank / image-only lines (`digestText`) likewise.
+-- EXP-1458: a SEALED body (`exp-sealed:` envelope) is kept whole, never cut
+-- (clients open it, then apply the line / length rules); a sealed card is
+-- copied whole (its clear fields + `sealed`).
 CREATE OR REPLACE FUNCTION conversation_digest_ms(at timestamptz)
 RETURNS text AS $$
   SELECT to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
@@ -559,8 +562,10 @@ RETURNS jsonb AS $$
     'id', m.id,
     'authorKind', m.author_kind::text,
     'authorSessionId', m.author_session_id,
-    'body', left(body, 500),
-    'card', CASE WHEN m.card IS NULL OR jsonb_typeof(m.card) <> 'object' THEN NULL ELSE jsonb_strip_nulls(jsonb_build_object(
+    'body', CASE WHEN starts_with(m.body, 'exp-sealed:') THEN m.body ELSE left(body, 500) END,
+    'card', CASE WHEN m.card IS NULL OR jsonb_typeof(m.card) <> 'object' THEN NULL
+      WHEN m.card ? 'sealed' THEN m.card
+      ELSE jsonb_strip_nulls(jsonb_build_object(
       'kind', m.card->>'kind',
       'question', CASE WHEN jsonb_typeof(m.card->'question') = 'string' THEN left(conversation_digest_text(m.card->>'question'), 500) END,
       'plan', CASE WHEN jsonb_typeof(m.card->'plan') = 'string' THEN left(conversation_digest_text(m.card->>'plan'), 500) END,

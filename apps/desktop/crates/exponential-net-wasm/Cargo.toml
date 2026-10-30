@@ -19,6 +19,8 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 tokio = { version = "1", default-features = false, features = ["sync"] }
+# sealed cards cross as JSON strings (EXP-1458).
+serde_json = "1"
 
 # The browser's randomness for every getrandom generation in the tree, selected
 # HERE (crate-level features, no workspace .cargo/config.toml): 0.4 (iroh,

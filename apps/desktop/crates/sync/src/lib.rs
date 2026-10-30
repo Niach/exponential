@@ -29,6 +29,8 @@ pub mod health;
 pub mod kill_watch;
 pub mod manager;
 pub mod protocol;
+// EXP-1459: sealed session content, opened where rows enter memory.
+pub mod sealed;
 pub mod shapes;
 pub mod store;
 pub mod wake;

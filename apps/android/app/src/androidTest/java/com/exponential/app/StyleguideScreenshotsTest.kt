@@ -61,6 +61,8 @@ import com.exponential.app.ui.styleguide.ChatMenusSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatMenusSpecimenTestId
 import com.exponential.app.ui.styleguide.ChatSelectionSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatSelectionSpecimenTestId
+import com.exponential.app.ui.styleguide.SealedLockedSpecimenScreen
+import com.exponential.app.ui.styleguide.SealedLockedSpecimenTestId
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenTestId
 import com.exponential.app.ui.styleguide.MentionPillSpecimenScreen
@@ -133,7 +135,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card · sg_session-xref ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
- *   sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
+ *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
  *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories
  *
@@ -214,6 +216,8 @@ class StyleguideScreenshotsTest {
             "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
             // #EXP-1388: the Chats multi-selection + the Archived entry.
             "sg_chat-selection",
+            // EXP-1459: the locked state for sealed content.
+            "sg_sealed-locked",
             // Thread e4a04d22: the member pill in a chat.
             "sg_mention-pill",
             // VAPP-120: the consent card with a typed action's words.
@@ -1278,6 +1282,10 @@ class StyleguideScreenshotsTest {
         // rows selected) over THE bar in the tab bar's slot.
         show(ChatSelectionSpecimenTestId) { ChatSelectionSpecimenScreen() }
         flow.screenshot("sg_chat-selection")
+        // EXP-1459: sealed content this install cannot open (yet): the
+        // transcript's lock pills + the list's locked previews.
+        show(SealedLockedSpecimenTestId) { SealedLockedSpecimenScreen() }
+        flow.screenshot("sg_sealed-locked")
         show(SchedulePickerSpecimenTestId) { SchedulePickerSpecimenScreen() }
         flow.screenshot("sg_schedule-picker")
         // Thread e4a04d22: `@email` as the member's pill in a chat, an

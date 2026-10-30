@@ -256,6 +256,13 @@ describe(`toolResultPreview (EXP-920)`, () => {
     expect(toolResultPreview(`exponential_issues_create`, null)).toEqual([])
   })
 
+  it(`EXP-1458: a sealed envelope is never a ref's display text (nor cut short)`, () => {
+    const sealed = `exp-sealed:v1:1:${`A`.repeat(200)}`
+    expect(toolResultPreview(`exponential_issues_get`, { id: `i-1`, title: sealed, body: sealed })).toEqual([
+      { kind: `issue`, id: `i-1` },
+    ])
+  })
+
   it(`reads the adapter-namespaced name like the bare one`, () => {
     const result = { id: `i-1`, identifier: `EXP-1`, title: `x` }
     expect(toolResultPreview(`mcp__exponential__exponential_issues_get`, result)).toEqual(

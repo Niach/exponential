@@ -2214,10 +2214,11 @@ impl SteerSessionView {
             self.editing_step = None;
         }
         let key = key.to_string();
+        let plan = crate::sealing::plan_answer(&input.message_id, cx);
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::sessions::answer(&trpc, &input) })
+                .spawn(async move { crate::sealing::answer_blocking(&trpc, &input, &plan) })
                 .await;
             let Err(err) = result else {
                 return;
@@ -3427,12 +3428,13 @@ impl SteerSessionView {
             crate::action_error::failed_action("send", "the message", None, cx);
             return;
         };
+        let plan = crate::sealing::plan_send(&input, cx);
         self.sending = true;
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .spawn(async move { crate::sealing::send_blocking(&trpc, &input, &plan) })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.sending = false;
@@ -3491,12 +3493,13 @@ impl SteerSessionView {
             return;
         };
         let input = api::sessions::SendInput::message(&self.session_id, text, Vec::new());
+        let plan = crate::sealing::plan_send(&input, cx);
         self.notice = None;
         cx.notify();
         cx.spawn(async move |_this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .spawn(async move { crate::sealing::send_blocking(&trpc, &input, &plan) })
                 .await;
             if let Err(err) = result {
                 let _ = cx.update(|cx| crate::action_error::failed_action_err("change", "the model", &err, cx));

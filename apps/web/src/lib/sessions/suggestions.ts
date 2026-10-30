@@ -14,6 +14,7 @@ import { boardVisible } from "@/lib/board-visibility"
 import { assertCanSteer, isSessionPrincipal, loadSessionForUser } from "@/lib/sessions/access"
 import { assertIssuesInTeam, linkIssues } from "@/lib/sessions/issues"
 import { insertMessage, messageWithSession } from "@/lib/sessions/messages"
+import { isSealedCard } from "@/lib/sessions/sealed"
 import { sendSession } from "@/lib/sessions/send"
 import type { Tx } from "@/lib/sessions/tx"
 import {
@@ -32,6 +33,9 @@ import {
 // message row's lock, in the same transaction as what it records, gated
 // like answering a card (`assertCanSteer` on the card's session).
 
+const sealedRefused = () =>
+  new TRPCError({ code: `BAD_REQUEST`, message: `This card is sealed: the server cannot act on its items` })
+
 /** The card message + its session, steer-gated. */
 async function loadSuggestionCard(userId: string, messageId: string) {
   const [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, messageId)).limit(1)
@@ -39,6 +43,9 @@ async function loadSuggestionCard(userId: string, messageId: string) {
   const session = await loadSessionForUser(userId, message.sessionId)
   await assertCanSteer(userId, session)
   const card = message.card as MessageCard | null
+  // EXP-1458: a sealed card's items live inside `sealed`: the server never
+  // reads (or stamps) them.
+  if (isSealedCard(card)) throw sealedRefused()
   if (!card || card.kind !== `suggestions`) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `This message suggests nothing` })
   }
@@ -152,6 +159,7 @@ async function loadRepliesCard(userId: string, messageId: string) {
   const session = await loadSessionForUser(userId, message.sessionId)
   await assertCanSteer(userId, session)
   const card = message.card as MessageCard | null
+  if (isSealedCard(card)) throw sealedRefused()
   if (!card || card.kind !== `replies`) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `This message offers no replies` })
   }

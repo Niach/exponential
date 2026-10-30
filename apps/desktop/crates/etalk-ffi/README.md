@@ -70,5 +70,25 @@ fixture through the bindings (the events built natively, and once more
 through their wire form) and round-trip a 440 Hz tone through the codec with
 one packet lost and recovered.
 
-Distribution (SwiftPM `ExponentialTalk`, Maven `at.exponential:etalk`, the naming table)
-follows the first `etalk-v*` tag (`docs/libraries.md`).
+## Distribution
+
+Every `etalk-v*` tag (`release-etalk.yml`, `docs/libraries.md`) publishes:
+
+- **SwiftPM**: `https://github.com/Niach/exponential-talk-swift`, tagged
+  `<version>`, product `ExponentialTalk` (`import ExponentialTalk`; iOS 15+,
+  macOS 12+). The xcframework zip is an asset of the `etalk-v<version>`
+  release. `release/swift-package.sh` writes the package (`--local` for a
+  path binary you can `swift build`).
+- **Maven Central**: `at.exponential:etalk:<version>` (an AAR: the `.so` for
+  arm64-v8a, armeabi-v7a, x86_64 + the binding, package
+  `at.exponential.talk.ffi`; JNA comes along). `android/` is the Gradle
+  library on eUI Compose's toolchain; `release/central-bundle.sh` is the
+  Portal bundle.
+
+```swift
+.package(url: "https://github.com/Niach/exponential-talk-swift", exact: "0.2.2")
+```
+
+```kotlin
+implementation("at.exponential:etalk:0.2.2")
+```

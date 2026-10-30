@@ -3,11 +3,14 @@ import { sessionTitles, type TitleSession } from "@exp/domain-contract/session-t
 import { db } from "@/db/connection"
 import { issues, messages, sessionIssues } from "@/db/schema"
 import { inSessions, messageSessionId } from "@/lib/sessions/messages"
+import { SEALED_BODY_LIKE } from "@/lib/sessions/sealed"
 
 // EXP-1341/NEW-1: the server's ONE display-title derivation = the contract's
 // `sessionTitle` (fixtures/session-title.json) over the same rows the
 // clients sync: each session's OWN issue rows and its input messages.
-// Batched: one read per table for any set.
+// Batched: one read per table for any set. EXP-1458: a sealed input body
+// (`exp-sealed:`) never becomes a title: the server skips it in SQL and the
+// next plaintext input (or the issue / fallback) names the session.
 
 type Reader = Pick<typeof db, `select`>
 
@@ -46,6 +49,7 @@ export async function deriveSessionTitles(
             and(
               inSessions(ids),
               isNull(messages.card),
+              sql`${messages.body} NOT LIKE ${SEALED_BODY_LIKE}`,
               or(
                 sql`${messages.authorKind} = 'user'`,
                 sql`${messages.authorSessionId} IS NOT NULL AND ${messages.authorSessionId} <> ${messageSessionId()}`

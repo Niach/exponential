@@ -480,6 +480,8 @@ object Chats {
                 consumedAt = null,
                 createdAt = createdAt,
                 authorSessionId = m.optText("authorSessionId"),
+                // EXP-1459: a slot the DAO could not open (SealedContent.conversation).
+                locked = m.optText("locked"),
             )
             if (authorKind == "agent" && card?.kind() != "event") {
                 val at = ms(createdAt) ?: 0L
@@ -588,6 +590,12 @@ object Chats {
         return question(plainLine(first.removePrefix(Copy.PREVIEW_ASK_QUESTION_LEAD)))
     }
 
+    /** EXP-1459: a sealed message that does not open here (sealed-content.json `placeholder`). */
+    private fun lockedPreview(reason: String) = ChatPreview(PREVIEW_KIND_LOCKED, SealedPlaceholder.copy(reason))
+
+    /** EXP-1459: the preview kind of a locked message, painted italic muted like `working`. */
+    const val PREVIEW_KIND_LOCKED = "locked"
+
     /** The root conversation's preview line (`previewCases`). */
     /** [visible] = the viewer's synced session ids (null = no check, #EXP-1399 review). */
     fun chatPreview(
@@ -602,7 +610,7 @@ object Chats {
                 it.sessionId == rootId &&
                     (it.authorKind == DomainContract.messageAuthorKindUser || it.authorKind == DomainContract.messageAuthorKindAgent)
             }
-            .filter { m -> m.card?.let { it.kind() in PREVIEW_CARDS } ?: m.body.isNotBlank() }
+            .filter { m -> m.locked != null || (m.card?.let { it.kind() in PREVIEW_CARDS } ?: m.body.isNotBlank()) }
             .sortedWith(compareByDescending<SessionTree.Message> { ms(it.createdAt) ?: 0L }.thenByDescending { it.id })
         if (needsYou) {
             val waiting = own.firstOrNull { m ->
@@ -612,10 +620,11 @@ object Chats {
                         it == DomainContract.messageCardKindAsk
                 }
             }
-            if (waiting != null) return askPreview(waiting, visible)
+            if (waiting != null) return waiting.locked?.let(::lockedPreview) ?: askPreview(waiting, visible)
         }
         if (busy) return ChatPreview("working", Copy.PREVIEW_WORKING)
         val newest = own.firstOrNull() ?: return ChatPreview("empty", Copy.PREVIEW_EMPTY)
+        newest.locked?.let { return lockedPreview(it) }
         if (newest.authorKind == DomainContract.messageAuthorKindUser) {
             val divider = commandDivider(newest.body)
             if (divider != null) return ChatPreview(divider, Copy.divider(divider))

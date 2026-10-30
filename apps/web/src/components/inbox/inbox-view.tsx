@@ -8,13 +8,18 @@ import type { NotificationType } from "@exp/db-schema/domain"
 import { notificationTypeValues } from "@exp/db-schema/domain"
 import type { Issue, Notification, Board, Team } from "@/db/schema"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { inboxRowTarget } from "@exp/domain-contract/inbox-route"
 import { trpc } from "@/lib/trpc-client"
 import {
   issueCollection,
   notificationCollection,
   boardCollection,
+  sessionCollection,
   teamCollection,
 } from "@/lib/collections"
+import { useSession } from "@/hooks/use-session"
+import { sessionTarget } from "@/lib/session-back"
+import type { SessionRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 import { compactRelativeTime as relativeTime } from "@/lib/relative-time"
 
@@ -73,11 +78,11 @@ type IssueGroup = {
 // EXP-801: an agent's message (`agent_message`, issue-less, team-scoped) is
 // its own entry (EXP-933: one WITH an issue joins that issue's group and
 // opens its Results) — one per row, never bundled: each is a distinct thing
-// someone's agent said. Clicking marks it read; there is nowhere to go.
+// someone's agent said.
 //
-// EXP-980: a `session_blocked` row (a run of yours hit a rate limit) is the
-// same one-row entry, except that it HAS somewhere to go: the run
-// (`session_id` + the team's slug).
+// #EXP-1456 (inbox-route.json): an issue-less row naming a session (an
+// Assistant's decision, a mention, EXP-980's wall) opens that session; one
+// without a session only marks read.
 type MessageGroup = {
   kind: `message`
   teamId: string | null
@@ -187,10 +192,12 @@ export function InboxView({
             kind: `message`,
             teamId: team?.id ?? null,
             teamName: team?.name ?? null,
-            session:
-              n.type === `session_blocked` && n.sessionId && team
-                ? { teamSlug: team.slug, sessionId: n.sessionId }
-                : null,
+            session: (() => {
+              const target = inboxRowTarget(n)
+              return target.kind === `session` && team
+                ? { teamSlug: team.slug, sessionId: target.sessionId }
+                : null
+            })(),
             items: [n],
             unread: n.readAt ? 0 : 1,
           })
@@ -235,6 +242,31 @@ export function InboxView({
   // One mutation per group, not one per row (REV-48): the server-side
   // by-issue clear also catches rows the client hasn't synced yet.
   const navigate = useNavigate()
+  const { data: auth } = useSession()
+  const viewerId = auth?.user?.id ?? null
+  // #EXP-1456: the S-3 rule (lib/session-back.ts): the viewer's own agent
+  // conversation opens the agent's page, where its question waits in the
+  // dock; anything else opens through the session route, which lands a
+  // thread's sessions inside their thread.
+  const openSession = (session: { teamSlug: string; sessionId: string }) => {
+    const search = from ? { from } : {}
+    const target = sessionTarget(
+      session.sessionId,
+      (id) => sessionCollection.get(id) as SessionRow | undefined,
+      viewerId
+    )
+    if (target.to === `agent`) {
+      void navigate({
+        to: `/t/$teamSlug/agents/$agentId`,
+        params: { teamSlug: session.teamSlug, agentId: target.agentId },
+        search,
+      })
+      return
+    }
+    // EXP-1246/1250: like an issue row, the run opens beside the list in
+    // the inbox's one preview tab.
+    void navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: session, search })
+  }
   const markGroupRead = async (g: Group) => {
     if (g.unread === 0) return
     if (g.kind === `issue`) {
@@ -287,15 +319,7 @@ export function InboxView({
                   data-testid={`inbox-row-${latest.type}`}
                   onClick={() => {
                     void markGroupRead(g)
-                    if (g.session) {
-                      // EXP-1246/1250: like an issue row, the run opens
-                      // beside the list in the inbox's one preview tab.
-                      void navigate({
-                        to: `/t/$teamSlug/sessions/$sessionId`,
-                        params: g.session,
-                        search: from ? { from } : {},
-                      })
-                    }
+                    if (g.session) openSession(g.session)
                   }}
                 >
                   <RowGlyph icon={MessageIcon} compact={compact} />

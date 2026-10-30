@@ -29,6 +29,14 @@ epilot = { path = "../epilot" }
 # EXP-1236: the device's code-mode MCP server (scripts over the run's other
 # MCP servers), wired into every run beside the team servers.
 codemode = { path = "../codemode" }
+# EXP-1458: sealed session content (`sealing.rs`): the seal/open primitives
+# alone (no iroh node; the node lives in `steer::enet`).
+enet-core = { path = "../enet-core", default-features = false }
+# EXP-1458: the device MCP gateway (`mcp_gateway.rs`) builds and validates
+# `exponential_show` cards before sealing them (the server can no longer see
+# the surface): the SAME reducer + core catalog as the TS reference. No
+# built-in themes: only the reducer is used.
+eui-core = { path = "../eui-core", default-features = false }
 # NEW-58: the voice device's screen memory (`get_screenshots`): the
 # launcher mints the voice conversation's grant while the IDE captures.
 epilot-screen = { path = "../epilot-screen" }
@@ -69,3 +77,9 @@ log = "0.4"
 # THROUGHOUT (§7.1 "gpui-free-at-its-core state machine") — the thin
 # gpui-facing driver the optional dep once carried went with the PTY path
 # (EXP-773), and nothing under `src/` has referenced it since.
+
+[dev-dependencies]
+# EXP-1458: the MCP gateway tests run a fake upstream on loopback and call
+# the gateway over HTTP (both already in the tree via codemode).
+tiny_http = { version = "0.12", default-features = false }
+reqwest = { workspace = true }

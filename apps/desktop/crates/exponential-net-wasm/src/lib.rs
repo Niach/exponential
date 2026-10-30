@@ -283,3 +283,86 @@ pub fn push_seal(recipient_public: Vec<u8>, plaintext: Vec<u8>) -> Result<Vec<u8
 pub fn push_open(recipient_secret: Vec<u8>, sealed: Vec<u8>) -> Result<Vec<u8>, JsValue> {
     net::push_open(&bytes32(&recipient_secret, "recipient secret key")?, &sealed).map_err(err)
 }
+
+// --- sealed session content (EXP-1458) ----------------------------------
+// fixtures/sealed-content.json is the spec (the web app's own reference is
+// @exp/domain-contract/sealed-content; these are the same functions over
+// enet-core). Cards cross as JSON strings, public keys and envelopes as
+// base64url strings, secrets as Uint8Array; `keys` = [{epoch, secret}].
+
+fn epoch_keys(keys: Array) -> Result<impl Fn(u32) -> Option<[u8; 32]>, JsValue> {
+    let mut out = Vec::new();
+    for key in keys.iter() {
+        let epoch = Reflect::get(&key, &JsValue::from_str("epoch"))?
+            .as_f64()
+            .filter(|e| e.fract() == 0.0 && *e >= 1.0 && *e <= u32::MAX as f64)
+            .ok_or_else(|| err("keys[].epoch must be a positive integer"))? as u32;
+        let secret = Uint8Array::new(&Reflect::get(&key, &JsValue::from_str("secret"))?).to_vec();
+        out.push((epoch, bytes32(&secret, "tree secret")?));
+    }
+    Ok(move |epoch| out.iter().find(|(e, _)| *e == epoch).map(|(_, s)| *s))
+}
+
+fn epoch_value(epoch: Option<u32>) -> JsValue {
+    epoch.map(|e| JsValue::from_f64(e as f64)).unwrap_or(JsValue::NULL)
+}
+
+/// `{secret: Uint8Array, publicKey: string}` (publicKey = `sessions.seal_public_key`).
+#[wasm_bindgen(js_name = generateTreeKey)]
+pub fn generate_tree_key() -> JsValue {
+    let key = net::sealed::generate_tree_key();
+    obj(&[
+        ("secret", Uint8Array::from(&key.secret[..]).into()),
+        ("publicKey", JsValue::from_str(&key.public_key())),
+    ])
+}
+
+/// `session_keys.wrapped` for a reader install (its base64url x25519 public).
+#[wasm_bindgen(js_name = wrapTreeKey)]
+pub fn wrap_tree_key(install_public: String, tree_secret: Vec<u8>) -> Result<String, JsValue> {
+    let public = net::sealed::public_key_from_b64(&install_public).map_err(err)?;
+    net::sealed::wrap_tree_key(&public, &bytes32(&tree_secret, "tree secret")?).map_err(err)
+}
+
+#[wasm_bindgen(js_name = unwrapTreeKey)]
+pub fn unwrap_tree_key(install_secret: Vec<u8>, wrapped: String) -> Result<Vec<u8>, JsValue> {
+    Ok(net::sealed::unwrap_tree_key(&bytes32(&install_secret, "install secret")?, &wrapped).map_err(err)?.to_vec())
+}
+
+/// `exp-sealed:v1:<epoch>:<b64url>` (a message body or a sealed title).
+#[wasm_bindgen(js_name = sealBody)]
+pub fn seal_body(tree_public_key: String, epoch: u32, text: String) -> Result<String, JsValue> {
+    let public = net::sealed::public_key_from_b64(&tree_public_key).map_err(err)?;
+    net::sealed::seal_body(&public, epoch, &text).map_err(err)
+}
+
+/// `{status, epoch, text}` (status: plain, opened, noKey, unsupported, malformed, refused).
+#[wasm_bindgen(js_name = openBody)]
+pub fn open_body(body: String, keys: Array) -> Result<JsValue, JsValue> {
+    let opened = net::sealed::open_body(&body, &epoch_keys(keys)?);
+    Ok(obj(&[
+        ("status", JsValue::from_str(opened.status.as_str())),
+        ("epoch", epoch_value(opened.epoch)),
+        ("text", opened.text.map(|t| JsValue::from_str(&t)).unwrap_or(JsValue::NULL)),
+    ]))
+}
+
+/// The card envelope as JSON: `{...clear, "sealed": "v1:…"}`.
+#[wasm_bindgen(js_name = sealCard)]
+pub fn seal_card(tree_public_key: String, epoch: u32, card_json: String) -> Result<String, JsValue> {
+    let public = net::sealed::public_key_from_b64(&tree_public_key).map_err(err)?;
+    let card: serde_json::Value = serde_json::from_str(&card_json).map_err(err)?;
+    Ok(net::sealed::seal_card(&public, epoch, &card).map_err(err)?.to_string())
+}
+
+/// `{status, epoch, cardJson}`: the full card (plain / opened) or the clear part.
+#[wasm_bindgen(js_name = openCard)]
+pub fn open_card(card_json: String, keys: Array) -> Result<JsValue, JsValue> {
+    let card: serde_json::Value = serde_json::from_str(&card_json).map_err(err)?;
+    let opened = net::sealed::open_card(&card, &epoch_keys(keys)?);
+    Ok(obj(&[
+        ("status", JsValue::from_str(opened.status.as_str())),
+        ("epoch", epoch_value(opened.epoch)),
+        ("cardJson", JsValue::from_str(&opened.card.to_string())),
+    ]))
+}

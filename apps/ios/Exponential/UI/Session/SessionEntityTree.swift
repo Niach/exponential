@@ -22,7 +22,7 @@ extension TreeSession {
             needsInput: row.needsInput,
             blocked: TreeSessionBlocked.parse(row.blocked),
             shared: row.shared,
-            title: row.title,
+            title: row.openedTitle,
             guide: TreeGuideEntry.parseList(row.guide),
             startedAt: row.startedAt,
             endedAt: row.endedAt,
@@ -55,19 +55,23 @@ extension TreeIssue {
 
 extension TreeMessage {
     /// A synced `messages` row keyed to its conversation's session (NEW-8),
-    /// its `card` jsonb parsed tolerantly.
+    /// its `card` jsonb parsed tolerantly; EXP-1459: a sealed body/card opens
+    /// with the tree's key (locked = `sealStatus` says why).
     init(messageRow row: SessionMessage) {
+        let opened = SealedMessage.open(body: row.body, card: row.card, rootId: row.message.rootId)
         self.init(
             id: row.id,
             sessionId: row.sessionId,
             authorKind: row.authorKind,
             authorId: row.authorId,
-            body: row.body,
-            card: TreeMessageCard.parse(row.card),
+            body: opened.body,
+            card: TreeMessageCard.parse(opened.card),
             answeredAt: row.answeredAt,
             consumedAt: row.consumedAt,
             createdAt: row.createdAt,
-            authorSessionId: row.authorSessionId
+            authorSessionId: row.authorSessionId,
+            sealStatus: opened.status,
+            escalated: TreeMessageCard.parse(SealedMessage.escalatedCard(row.card, rootId: row.message.rootId))
         )
     }
 }

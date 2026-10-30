@@ -544,6 +544,28 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
     public let createdAt: String
     /// EXP-1323: the session that posted it (nil = none).
     public let authorSessionId: String?
+    /// EXP-1459: `plain` / `opened` = readable; anything else = this install
+    /// can't open it (yet): the body is empty and the card is its clear part.
+    public let sealStatus: SealStatus
+    /// EXP-1459: an escalated `ask` mirror's `sealedCard` (the origin card
+    /// sealed to THIS tree), opened; nil = none or locked.
+    public let escalated: TreeMessageCard?
+
+    /// The content is sealed and this install can't open it (yet).
+    public var isLocked: Bool { !sealStatus.isReadable }
+
+    /// EXP-1459: this origin as an escalated mirror shows it: itself when
+    /// readable, else the mirror's opened `sealedCard` of the same kind.
+    public func opened(escalated: TreeMessageCard?) -> TreeMessage {
+        guard isLocked, let escalated, escalated.kind == card?.kind else { return self }
+        return TreeMessage(
+            id: id, sessionId: sessionId, authorKind: authorKind, authorId: authorId,
+            body: body, card: escalated, answeredAt: answeredAt, consumedAt: consumedAt,
+            createdAt: createdAt, authorSessionId: authorSessionId, sealStatus: .opened
+        )
+    }
+    /// Why (sealed-content.json `placeholder`); nil = readable.
+    public var locked: LockedReason? { SealedPlaceholder.reason(sealStatus) }
 
     public init(
         id: String,
@@ -555,9 +577,13 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
         answeredAt: String?,
         consumedAt: String?,
         createdAt: String,
-        authorSessionId: String? = nil
+        authorSessionId: String? = nil,
+        sealStatus: SealStatus = .plain,
+        escalated: TreeMessageCard? = nil
     ) {
         self.authorSessionId = authorSessionId
+        self.sealStatus = sealStatus
+        self.escalated = escalated
         self.id = id
         self.sessionId = sessionId
         self.authorKind = authorKind
@@ -806,6 +832,9 @@ public enum ThreadRow: Equatable, Sendable {
     /// Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
     /// the centred divider pill; `at` = the message's createdAt (wire text).
     case divider(id: String, kind: Chats.DividerKind, at: String)
+    /// EXP-1459 (sealed-content.json `placeholder`): content this install
+    /// cannot open (yet), whatever its kind: THE transcript pill, no time.
+    case locked(id: String, reason: LockedReason, author: String)
     /// Thread 58cb32df (chats.json): an agent's inline Exponential UI
     /// preview (`surface` card); `title` trimmed, nil = none.
     case surface(id: String, sessionId: String, title: String?, surface: CardSurface)
@@ -866,6 +895,7 @@ public enum ThreadRow: Equatable, Sendable {
              let .picture(id, _, _, _, _),
              let .event(id, _, _),
              let .divider(id, _, _),
+             let .locked(id, _, _),
              let .surface(id, _, _, _):
             id
         }
@@ -1672,6 +1702,11 @@ public enum SessionTree {
         for message in messages { messagesById[message.id] = message }
         var escalated = Set<String>()
         for message in conversation {
+            if let reason = message.locked {
+                let author = message.authorKind == "user" || message.authorKind == "agent" ? message.authorKind : "system"
+                rows.append(.locked(id: message.id, reason: reason, author: author))
+                continue
+            }
             guard let card = message.card else {
                 let author = message.authorKind == "user" || message.authorKind == "agent"
                     ? message.authorKind
@@ -1741,11 +1776,13 @@ public enum SessionTree {
             // mirror draws nothing here. #EXP-1399: a mirror from ANOTHER
             // tree (an agent's conversation watching a thread, `escalate`) =
             // the origin's session card + THE origin card, read from its
-            // message (first mirror wins).
+            // message (first mirror wins). EXP-1459: an origin this install
+            // can't open draws the mirror's `sealedCard` (sealed to this tree).
             case "ask":
                 guard let targetId = card.sessionId, let target = byId[targetId],
                       !treeIds.contains(target.id),
-                      let originId = card.messageId, let origin = messagesById[originId],
+                      let originId = card.messageId, let synced = messagesById[originId],
+                      case let origin = synced.opened(escalated: message.escalated),
                       origin.sessionId == target.id,
                       // #EXP-1399 review: only the origin session's own mirror draws it.
                       message.authorSessionId == target.id,

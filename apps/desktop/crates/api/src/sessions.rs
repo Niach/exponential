@@ -96,6 +96,40 @@ pub struct SendInput {
     /// (a meeting part whose answer was lost).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_message_id: Option<String>,
+    /// EXP-1458: the users `text` mentions (the server cannot read a
+    /// sealed body; the writer resolves `@email`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mention_user_ids: Option<Vec<String>>,
+    /// EXP-1458: the issues `text` references (`#IDENT`), resolved by the
+    /// writer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_issue_ids: Option<Vec<String>>,
+    /// EXP-1458: a root without a key gets it inline, in the send's own
+    /// transaction (a new thread, agent conversation, app editor).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seal: Option<SendSeal>,
+    /// EXP-1458: `name` as a body envelope (writes `sessions.sealed_title`;
+    /// the plaintext `name` stays neutral or absent).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sealed_name: Option<String>,
+}
+
+/// EXP-1458 `sessions.send` `seal`: the new tree's key, wrapped for every
+/// reader the writer resolved (its own install included).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendSeal {
+    pub install_id: String,
+    pub public_key: String,
+    pub epoch: u32,
+    pub wraps: Vec<SealWrap>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SealWrap {
+    pub install_id: String,
+    pub wrapped: String,
 }
 
 impl SendInput {
@@ -142,6 +176,11 @@ pub struct SendOutput {
     pub message_id: Option<String>,
     #[serde(default, alias = "txid")]
     pub tx_id: Option<i64>,
+    /// EXP-1458 (addendum 3): the install executing the target session
+    /// (`{installId, endpointId}`, `coding::sealing::DeliverTo`); `None` =
+    /// no direct delivery.
+    #[serde(default)]
+    pub deliver_to: Option<serde_json::Value>,
 }
 
 /// THE send ([`SendInput`]).
@@ -288,6 +327,11 @@ pub struct AnswerInput {
     /// EXP-1280: the inline surface's data model at answer time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surface_data: Option<serde_json::Value>,
+    /// EXP-1458: the FULL card re-sealed with the answer in it
+    /// (`{...clear, sealed}`); with it go only the clear `decision` /
+    /// `fresh`, never `answer` / `answers` / `feedback` / `surfaceData`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sealed_card: Option<serde_json::Value>,
 }
 
 /// Answer a question/plan card in place.
@@ -764,6 +808,19 @@ mod tests {
         answer(&client(&base), &input).unwrap();
         assert!(request(&captured).ends_with(
             r#"{"messageId":"m-3","decision":"approved","answers":{"layout":["Two columns"]},"surfaceData":{"size":"lg"}}"#
+        ));
+        // EXP-1458: a sealed card's answered form beside the clear decision.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
+        let input = AnswerInput {
+            message_id: "m-4".into(),
+            decision: Some("approved".into()),
+            fresh: Some(false),
+            sealed_card: Some(serde_json::json!({"decision": "approved", "kind": "plan", "sealed": "v1:1:AAAA"})),
+            ..AnswerInput::default()
+        };
+        answer(&client(&base), &input).unwrap();
+        assert!(request(&captured).ends_with(
+            r#"{"messageId":"m-4","decision":"approved","fresh":false,"sealedCard":{"decision":"approved","kind":"plan","sealed":"v1:1:AAAA"}}"#
         ));
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
         unqueue(&client(&base), "m-2").unwrap();

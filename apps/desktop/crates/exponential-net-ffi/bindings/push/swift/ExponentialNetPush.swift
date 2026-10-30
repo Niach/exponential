@@ -419,6 +419,22 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -473,6 +489,191 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
         writeInt(&buf, len)
         writeBytes(&buf, value)
     }
+}
+
+
+/**
+ * One tree secret this install holds.
+ */
+public struct EnetEpochKey: Equatable, Hashable {
+    public var epoch: UInt32
+    public var secret: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(epoch: UInt32, secret: Data) {
+        self.epoch = epoch
+        self.secret = secret
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnetEpochKey: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetEpochKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetEpochKey {
+        return
+            try EnetEpochKey(
+                epoch: FfiConverterUInt32.read(from: &buf), 
+                secret: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnetEpochKey, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.epoch, into: &buf)
+        FfiConverterData.write(value.secret, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetEpochKey_lift(_ buf: RustBuffer) throws -> EnetEpochKey {
+    return try FfiConverterTypeEnetEpochKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetEpochKey_lower(_ value: EnetEpochKey) -> RustBuffer {
+    return FfiConverterTypeEnetEpochKey.lower(value)
+}
+
+
+public struct EnetOpenedBody: Equatable, Hashable {
+    public var status: EnetSealStatus
+    public var epoch: UInt32?
+    /**
+     * Set for plain and opened only.
+     */
+    public var text: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: EnetSealStatus, epoch: UInt32?, 
+        /**
+         * Set for plain and opened only.
+         */text: String?) {
+        self.status = status
+        self.epoch = epoch
+        self.text = text
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnetOpenedBody: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetOpenedBody: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetOpenedBody {
+        return
+            try EnetOpenedBody(
+                status: FfiConverterTypeEnetSealStatus.read(from: &buf), 
+                epoch: FfiConverterOptionUInt32.read(from: &buf), 
+                text: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnetOpenedBody, into buf: inout [UInt8]) {
+        FfiConverterTypeEnetSealStatus.write(value.status, into: &buf)
+        FfiConverterOptionUInt32.write(value.epoch, into: &buf)
+        FfiConverterOptionString.write(value.text, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetOpenedBody_lift(_ buf: RustBuffer) throws -> EnetOpenedBody {
+    return try FfiConverterTypeEnetOpenedBody.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetOpenedBody_lower(_ value: EnetOpenedBody) -> RustBuffer {
+    return FfiConverterTypeEnetOpenedBody.lower(value)
+}
+
+
+public struct EnetOpenedCard: Equatable, Hashable {
+    public var status: EnetSealStatus
+    public var epoch: UInt32?
+    /**
+     * JSON: the full card (plain / opened) or the clear part alone.
+     */
+    public var cardJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: EnetSealStatus, epoch: UInt32?, 
+        /**
+         * JSON: the full card (plain / opened) or the clear part alone.
+         */cardJson: String) {
+        self.status = status
+        self.epoch = epoch
+        self.cardJson = cardJson
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnetOpenedCard: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetOpenedCard: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetOpenedCard {
+        return
+            try EnetOpenedCard(
+                status: FfiConverterTypeEnetSealStatus.read(from: &buf), 
+                epoch: FfiConverterOptionUInt32.read(from: &buf), 
+                cardJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnetOpenedCard, into buf: inout [UInt8]) {
+        FfiConverterTypeEnetSealStatus.write(value.status, into: &buf)
+        FfiConverterOptionUInt32.write(value.epoch, into: &buf)
+        FfiConverterString.write(value.cardJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetOpenedCard_lift(_ buf: RustBuffer) throws -> EnetOpenedCard {
+    return try FfiConverterTypeEnetOpenedCard.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetOpenedCard_lower(_ value: EnetOpenedCard) -> RustBuffer {
+    return FfiConverterTypeEnetOpenedCard.lower(value)
 }
 
 
@@ -539,6 +740,63 @@ public func FfiConverterTypeEnetPushKeypair_lift(_ buf: RustBuffer) throws -> En
 #endif
 public func FfiConverterTypeEnetPushKeypair_lower(_ value: EnetPushKeypair) -> RustBuffer {
     return FfiConverterTypeEnetPushKeypair.lower(value)
+}
+
+
+/**
+ * A session tree's keypair: `public_key` = `sessions.seal_public_key`.
+ */
+public struct EnetTreeKey: Equatable, Hashable {
+    public var secret: Data
+    public var publicKey: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(secret: Data, publicKey: String) {
+        self.secret = secret
+        self.publicKey = publicKey
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnetTreeKey: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetTreeKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetTreeKey {
+        return
+            try EnetTreeKey(
+                secret: FfiConverterData.read(from: &buf), 
+                publicKey: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnetTreeKey, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.secret, into: &buf)
+        FfiConverterString.write(value.publicKey, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetTreeKey_lift(_ buf: RustBuffer) throws -> EnetTreeKey {
+    return try FfiConverterTypeEnetTreeKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetTreeKey_lower(_ value: EnetTreeKey) -> RustBuffer {
+    return FfiConverterTypeEnetTreeKey.lower(value)
 }
 
 
@@ -718,6 +976,200 @@ public func FfiConverterTypeEnetError_lift(_ buf: RustBuffer) throws -> EnetErro
 public func FfiConverterTypeEnetError_lower(_ value: EnetError) -> RustBuffer {
     return FfiConverterTypeEnetError.lower(value)
 }
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What opening sealed content gave (fixture spelling: plain, opened,
+ * noKey, unsupported, malformed, refused).
+ */
+
+public enum EnetSealStatus: Equatable, Hashable {
+    
+    case plain
+    case opened
+    case noKey
+    case unsupported
+    case malformed
+    case refused
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension EnetSealStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetSealStatus: FfiConverterRustBuffer {
+    typealias SwiftType = EnetSealStatus
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetSealStatus {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .plain
+        
+        case 2: return .opened
+        
+        case 3: return .noKey
+        
+        case 4: return .unsupported
+        
+        case 5: return .malformed
+        
+        case 6: return .refused
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: EnetSealStatus, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .plain:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .opened:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .noKey:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .unsupported:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .malformed:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .refused:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetSealStatus_lift(_ buf: RustBuffer) throws -> EnetSealStatus {
+    return try FfiConverterTypeEnetSealStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetSealStatus_lower(_ value: EnetSealStatus) -> RustBuffer {
+    return FfiConverterTypeEnetSealStatus.lower(value)
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = UInt32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeEnetEpochKey: FfiConverterRustBuffer {
+    typealias SwiftType = [EnetEpochKey]
+
+    public static func write(_ value: [EnetEpochKey], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeEnetEpochKey.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [EnetEpochKey] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [EnetEpochKey]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeEnetEpochKey.read(from: &buf))
+        }
+        return seq
+    }
+}
+public func generateTreeKey() -> EnetTreeKey  {
+    return try!  FfiConverterTypeEnetTreeKey_lift(try! rustCall() {
+    uniffi_exponential_net_ffi_fn_func_generate_tree_key($0
+    )
+})
+}
+public func openBody(body: String, keys: [EnetEpochKey])throws  -> EnetOpenedBody  {
+    return try  FfiConverterTypeEnetOpenedBody_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_func_open_body(
+        FfiConverterString.lower(body),
+        FfiConverterSequenceTypeEnetEpochKey.lower(keys),$0
+    )
+})
+}
+public func openCard(cardJson: String, keys: [EnetEpochKey])throws  -> EnetOpenedCard  {
+    return try  FfiConverterTypeEnetOpenedCard_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_func_open_card(
+        FfiConverterString.lower(cardJson),
+        FfiConverterSequenceTypeEnetEpochKey.lower(keys),$0
+    )
+})
+}
 /**
  * The install's push keypair derived from its 32 identity bytes.
  */
@@ -757,6 +1209,50 @@ public func pushSeal(recipientPublic: Data, plaintext: Data)throws  -> Data  {
     )
 })
 }
+/**
+ * A body (or sealed title) envelope: `exp-sealed:v1:<epoch>:<b64url>`.
+ */
+public func sealBody(treePublicKey: String, epoch: UInt32, text: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_func_seal_body(
+        FfiConverterString.lower(treePublicKey),
+        FfiConverterUInt32.lower(epoch),
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * A card envelope (JSON in, JSON out): `{...clear, "sealed": "v1:…"}`.
+ */
+public func sealCard(treePublicKey: String, epoch: UInt32, cardJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_func_seal_card(
+        FfiConverterString.lower(treePublicKey),
+        FfiConverterUInt32.lower(epoch),
+        FfiConverterString.lower(cardJson),$0
+    )
+})
+}
+public func unwrapTreeKey(installSecret: Data, wrapped: String)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(
+        FfiConverterData.lower(installSecret),
+        FfiConverterString.lower(wrapped),$0
+    )
+})
+}
+/**
+ * `session_keys.wrapped` for a reader install (`install_public` = its
+ * base64url `installs.x25519_public`).
+ */
+public func wrapTreeKey(installPublic: String, treeSecret: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_func_wrap_tree_key(
+        FfiConverterString.lower(installPublic),
+        FfiConverterData.lower(treeSecret),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -773,6 +1269,15 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_exponential_net_ffi_checksum_func_generate_tree_key() != 12122) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_open_body() != 11262) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_open_card() != 12774) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_net_ffi_checksum_func_push_keypair_derive() != 7760) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -783,6 +1288,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_func_push_seal() != 37617) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_seal_body() != 44895) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_seal_card() != 34112) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_unwrap_tree_key() != 64941) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_wrap_tree_key() != 45859) {
         return InitializationResult.apiChecksumMismatch
     }
 

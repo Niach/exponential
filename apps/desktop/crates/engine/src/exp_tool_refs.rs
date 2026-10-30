@@ -57,6 +57,21 @@ mod tests {
         }
     }
 
+    /// EXP-1458: a sealed string (`exp-sealed:…`) is ciphertext: never a
+    /// ref's id, identifier or title.
+    #[test]
+    fn sealed_strings_never_become_refs() {
+        let result = json!([
+            {"id": "cs-1", "title": "exp-sealed:v1:1:AAAA"},
+            {"id": "exp-sealed:v1:1:BBBB", "title": "Hidden"},
+        ]);
+        let refs = exp_tool_refs("exponential_sessions_list", &result, &json!({}));
+        let sessions: Vec<_> = refs.iter().filter(|r| r.kind == "session").collect();
+        assert_eq!(sessions.len(), 1, "{refs:?}");
+        assert_eq!(sessions[0].id, "cs-1");
+        assert_eq!(sessions[0].title, None);
+    }
+
     /// EXP-1426: the core inlines these contract values; a contract change
     /// fails here instead of drifting.
     #[test]

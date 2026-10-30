@@ -2071,6 +2071,15 @@ export const sessions = pgTable(
     agentInstructionsAt: timestamp(`agent_instructions_at`, {
       withTimezone: true,
     }),
+    // ── sealed content (EXP-1458, fixtures/sealed-content.json) ──
+    // ROOT rows only: the tree's X25519 public key (base64url, 32 bytes) and
+    // its current epoch; both NULL until a key exists (`sessionKeys.create`).
+    // SYNCED: anyone who may write to the tree seals to it.
+    sealPublicKey: varchar(`seal_public_key`, { length: 43 }),
+    sealEpoch: integer(`seal_epoch`),
+    // The title as a body envelope (`exp-sealed:v1:…`); `title` stays a
+    // neutral fallback. SYNCED.
+    sealedTitle: text(`sealed_title`),
     ...timestamps,
   },
   (table) => [
@@ -2098,6 +2107,40 @@ export const sessions = pgTable(
     index(`idx_sessions_device_live`)
       .on(table.deviceId, table.status)
       .where(sql`status <> 'ended'`),
+  ]
+)
+
+// EXP-1458: a session tree's secret, wrapped (`push_seal`) for each reader
+// install, per epoch (fixtures/sealed-content.json). The readers rule and
+// the key API live in `lib/trpc/session-keys.ts`. Server-only, no shape.
+export const sessionKeys = pgTable(
+  `session_keys`,
+  {
+    id: uuidPk(),
+    rootId: uuid(`root_id`)
+      .notNull()
+      .references((): AnyPgColumn => sessions.id, { onDelete: `cascade` }),
+    epoch: integer().notNull(),
+    installId: uuid(`install_id`)
+      .notNull()
+      .references(() => installs.id, { onDelete: `cascade` }),
+    // base64url(push_seal(installs.x25519_public, tree_secret)), 81 bytes.
+    wrapped: text().notNull(),
+    createdByInstallId: uuid(`created_by_install_id`).references(
+      () => installs.id,
+      { onDelete: `set null` }
+    ),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex(`uniq_session_keys_root_epoch_install`).on(
+      table.rootId,
+      table.epoch,
+      table.installId
+    ),
+    index(`idx_session_keys_install`).on(table.installId),
   ]
 )
 
@@ -2523,6 +2566,16 @@ export const messages = pgTable(
     // tRPC only): a retried send naming it again returns this row instead
     // of posting twice. SERVER-ONLY: never in the shape's columns.
     clientMessageId: varchar(`client_message_id`, { length: 64 }),
+    // ── EXP-1458: clear metadata of a (possibly sealed) message ──
+    // The attachments it carries (claimed at send): clients render them
+    // beside the body, which the server never edits when sealed. SYNCED.
+    attachmentIds: uuid(`attachment_ids`).array(),
+    // The people it mentions (the writer names them; plaintext = parsed
+    // from `@email`): who a notification reaches. SERVER-ONLY.
+    mentionUserIds: text(`mention_user_ids`).array(),
+    // The issues it references (`#IDENT`; the writer names them when the
+    // body is sealed): a PR's share (lib/sessions/pr-issues.ts). SERVER-ONLY.
+    refIssueIds: uuid(`ref_issue_ids`).array(),
     ...timestamps,
   },
   (table) => [

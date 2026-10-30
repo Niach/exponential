@@ -708,14 +708,12 @@ impl engine::outbox::ConversationApi for RecordingConversation {
         &self,
         _session_id: &str,
         body: &str,
-        card: Option<&api::session_device::ReplyCard>,
-    ) -> Result<String, api::ApiError> {
+        card: Option<&serde_json::Value>,
+        _extras: &api::session_device::ReplyExtras,
+    ) -> Result<api::session_device::ReplyResult, api::ApiError> {
         let mut replies = self.replies.lock().expect("the reply log is not poisoned");
-        replies.push((
-            body.to_string(),
-            card.map(|card| serde_json::to_value(card).expect("a card serializes")),
-        ));
-        Ok(format!("msg-{}", replies.len()))
+        replies.push((body.to_string(), card.cloned()));
+        Ok(api::session_device::ReplyResult { message_id: format!("msg-{}", replies.len()), listeners: Vec::new() })
     }
 
     fn consume(&self, _session_id: &str, message_ids: &[String]) -> Result<(), api::ApiError> {

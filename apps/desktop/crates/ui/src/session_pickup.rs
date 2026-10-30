@@ -96,6 +96,17 @@ pub(crate) fn install(cx: &mut App) {
     let local = LocalSessions::global(cx);
     cx.observe(&local, |_, cx| schedule(cx)).detach();
     schedule(cx);
+    // EXP-1458: a direct (eNet) message runs a pass at once.
+    let (arrived, arrivals) = flume::unbounded::<()>();
+    coding::direct_inbox::on_arrival(Box::new(move || {
+        let _ = arrived.send(());
+    }));
+    cx.spawn(async move |cx| {
+        while arrivals.recv_async().await.is_ok() {
+            cx.update(schedule);
+        }
+    })
+    .detach();
     // S-4: the daemon's idle release — a quiescent chat gives its agent
     // process back (the row idles, the worktree stays, the next message
     // resumes it). Off the UI thread; a release re-plans.
@@ -200,8 +211,11 @@ fn run_pass(cx: &mut App) {
         .collect();
     let hosted: HashSet<&str> = sessions.iter().map(|row| row.id.as_str()).collect();
     // NEW-8: keyed through their conversation (`session_id` = resolved).
-    let messages: Vec<MessageRow> =
+    let mut messages: Vec<MessageRow> =
         crate::session_data::keyed_messages(cx, |owner, _| hosted.contains(owner));
+    // EXP-1458: agent-to-agent messages that came over eNet ahead of their
+    // synced copy (deduped by id against it).
+    coding::direct_inbox::merge(&mut messages);
     for session_id in live.prune() {
         log::debug!("[pickup] session {session_id}'s engine is gone");
     }

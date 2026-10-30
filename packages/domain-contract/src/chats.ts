@@ -15,6 +15,7 @@ import {
   type TreeSession,
   type TreeSessionRead,
 } from "./session-tree"
+import { SEALED_BODY_PREFIX, SEALED_PLACEHOLDER, type LockedReason } from "./sealed-content"
 
 export const CHATS_COPY = fixture.copy
 export const CHATS_TEST_IDS = fixture.testIds
@@ -68,6 +69,8 @@ export type ChatPreviewKind =
   | `new`
   | `compact`
   | `empty`
+  /** EXP-1459: the previewed message is sealed and does not open here. */
+  | `locked`
 
 export interface ChatPreview {
   kind: ChatPreviewKind
@@ -188,6 +191,11 @@ export const PRIVATE_REPLY_LEAD = fixture.copy.preview.privateReplyLead
 export const PRIVATE_REPORT_LEAD = fixture.copy.preview.privateReportLead
 export const PRIVATE_PR_LEAD = fixture.copy.preview.privatePrLead
 
+/** EXP-1459: a sealed message that does not open here (sealed-content.json `placeholder`). */
+function lockedPreview(reason: LockedReason): ChatPreview {
+  return { kind: `locked`, text: SEALED_PLACEHOLDER.copy[reason] }
+}
+
 /** The root conversation's preview line (`previewCases`). */
 export function chatPreview(input: {
   rootId: string
@@ -201,17 +209,18 @@ export function chatPreview(input: {
   const visible = input.visibleSessionIds ? new Set(input.visibleSessionIds) : null
   const own = input.messages
     .filter((m) => m.sessionId === input.rootId && (m.authorKind === `user` || m.authorKind === `agent`))
-    .filter((m) => (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : m.body.trim() !== ``))
+    .filter((m) => m.locked || (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : m.body.trim() !== ``))
     .sort((a, b) => (ms(b.createdAt) ?? 0) - (ms(a.createdAt) ?? 0) || (a.id < b.id ? 1 : -1))
   if (input.needsYou) {
     const waiting = own.find(
       (m) => m.answeredAt === null && (m.card?.kind === `question` || m.card?.kind === `plan` || m.card?.kind === `ask`)
     )
-    if (waiting) return askPreview(waiting, visible)
+    if (waiting) return waiting.locked ? lockedPreview(waiting.locked) : askPreview(waiting, visible)
   }
   if (input.busy) return { kind: `working`, text: copy.working }
   const newest = own[0]
   if (!newest) return { kind: `empty`, text: copy.empty }
+  if (newest.locked) return lockedPreview(newest.locked)
   if (newest.authorKind === `user`) {
     const divider = commandDivider(newest.body)
     if (divider) return { kind: divider, text: fixture.copy.dividers[divider] }
@@ -569,7 +578,8 @@ export interface DigestMessage {
   authorKind: string
   authorSessionId: string | null
   body: string
-  card: { kind: string; question?: string; plan?: string; title?: string } | null
+  /** EXP-1458: a sealed card = its clear fields + `sealed`, whole. */
+  card: { kind: string; question?: string; plan?: string; title?: string; sealed?: string; [key: string]: unknown } | null
   answeredAt: string | null
   createdAt: string
 }
@@ -627,9 +637,16 @@ export function digestText(text: string): string {
   return lines.find((line) => line.trim() !== ``) ?? text
 }
 
+// EXP-1458 (fixtures/sealed-content.json): a SEALED body is kept whole
+// (never line-split or cut: the client opens it, then applies the line and
+// length rules); a sealed card is copied whole (its clear fields + `sealed`,
+// which is all it holds).
 function digestMessage(m: TreeMessage, body: string = digestText(m.body)): DigestMessage {
+  const sealedBody = m.body.startsWith(SEALED_BODY_PREFIX)
   const card = m.card
-    ? {
+    ? `sealed` in m.card
+      ? ({ ...m.card, kind: String(m.card.kind) } as DigestMessage[`card`] & {})
+      : {
         kind: String(m.card.kind),
         ...(typeof m.card.question === `string` ? { question: cut(digestText(m.card.question)) } : {}),
         ...(typeof m.card.plan === `string` ? { plan: cut(digestText(m.card.plan)) } : {}),
@@ -640,7 +657,7 @@ function digestMessage(m: TreeMessage, body: string = digestText(m.body)): Diges
     id: m.id,
     authorKind: m.authorKind,
     authorSessionId: m.authorSessionId ?? null,
-    body: cut(body),
+    body: sealedBody ? m.body : cut(body),
     card,
     answeredAt: m.answeredAt,
     createdAt: m.createdAt,

@@ -27,6 +27,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import com.exponential.app.ui.components.LOCKED_DIVIDER_PREFIX
 import com.exponential.app.ui.components.TranscriptDivider
 import com.exponential.app.ui.theme.liveArrival
 import androidx.compose.foundation.layout.Column
@@ -968,6 +969,7 @@ fun ThreadConversation(
                         }
                     }
                     is SessionTree.ThreadRow.Divider -> TranscriptDivider(row.kind, clockTime(row.at))
+                    is SessionTree.ThreadRow.Locked -> TranscriptDivider(LOCKED_DIVIDER_PREFIX + row.reason, null)
                     is SessionTree.ThreadRow.Surface -> AgentColumn {
                         SurfaceCard(
                             row = row,
