@@ -218,6 +218,13 @@ is refused before anything is seeded, looked up or pruned
 (`packages/shots/src/capture-db.ts`; twice on 2026-10-28 a capture pruned the
 shared DB's device rows).
 
+A fully isolated stack (its own compose project on other ports, VAPP-170)
+needs no local patches: `SHOTS_PROXY_URL` (default `https://localhost:3000`)
+and `SHOTS_RELAY_URL` (default `ws://localhost:4002`) name its Caddy and steer
+relay, and `SHOTS_PRIVATE_DOTENV=1` says this worktree's `.env` files are that
+stack's own, so their `DATABASE_URL` may be the capture DB (the compose default
+`localhost:54321/exponential` stays refused).
+
 ## Per-platform lanes
 
 | platform   | lane                                                                 |

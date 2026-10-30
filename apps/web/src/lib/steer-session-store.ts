@@ -660,6 +660,9 @@ export interface SteerSessionSnapshot {
    *  client can ask the device for it — what the transcript's "Load earlier"
    *  affordance is gated on. */
   canLoadEarlier: boolean
+  /** VAPP-171: the `ended` phase is the device-offline one (no feed: its
+   *  `detail` is the "{device} is offline" copy the empty column shows ×4). */
+  deviceOffline: boolean
 }
 
 export interface SteerDraftSnapshot {
@@ -912,6 +915,7 @@ export function createSteerSessionStore(
     answerStates,
     connected,
     canLoadEarlier: false,
+    deviceOffline,
   }
   let draftSnapshot: SteerDraftSnapshot = { text: draftText, images: draftImages }
 
@@ -941,6 +945,7 @@ export function createSteerSessionStore(
       // EXP-796: a page can only be asked for over an OPEN feed — once the
       // device dropped this viewer, the button goes.
       canLoadEarlier: historyTruncated && !historyExhausted && connected,
+      deviceOffline,
     }
     notify()
   }

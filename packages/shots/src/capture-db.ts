@@ -14,11 +14,20 @@
  *   - with a throwaway stack configured, a missing capture DB, or one that is
  *     the shared dev DB from `.env`, is REFUSED before anything is seeded,
  *     looked up or pruned.
+ *
+ * VAPP-170: a worktree whose `.env` files are the isolated stack's OWN (a
+ * private compose project on other ports) says so with
+ * `SHOTS_PRIVATE_DOTENV=1`: its `.env` DB is then the capture DB, not the
+ * shared one, and only the compose default (`localhost:54321/exponential`,
+ * the F27 shared dev DB) stays refused.
  */
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { repoRoot } from "./paths.ts"
+
+/** The compose default every worktree shares (F27, `local-db-guard.ts`). */
+const COMPOSE_SHARED_DB_URL = `postgres://localhost:54321/exponential`
 
 /** The stack every dev runs (`bun dev` / Caddy): not a throwaway one. */
 const DEFAULT_STACK_URLS = new Set([`http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:3000`, `http://127.0.0.1:3000`])
@@ -71,15 +80,16 @@ export function throwawayStackUrl(env: Record<string, string | undefined>): stri
 export function resolveCaptureDb({ env, sharedUrl }: CaptureDbInput): CaptureDb {
   const url = env.SHOTS_DATABASE_URL?.trim() || env.DATABASE_URL?.trim()
   const stack = throwawayStackUrl(env)
+  const shared = env.SHOTS_PRIVATE_DOTENV?.trim() === `1` ? COMPOSE_SHARED_DB_URL : sharedUrl
   if (stack) {
     if (!url) {
       return {
         refused: `a throwaway capture stack is configured (${stack}) but no SHOTS_DATABASE_URL / DATABASE_URL is exported: the helpers would fall back to apps/web/.env, the SHARED dev DB. Export the stack's DATABASE_URL.`,
       }
     }
-    if (sharedUrl && sameDatabase(url, sharedUrl)) {
+    if (shared && sameDatabase(url, shared)) {
       return {
-        refused: `a throwaway capture stack is configured (${stack}) but the capture DATABASE_URL is the shared dev DB from .env: refusing to seed, look up or prune it. Export the stack's own DATABASE_URL.`,
+        refused: `a throwaway capture stack is configured (${stack}) but the capture DATABASE_URL is the shared dev DB from .env: refusing to seed, look up or prune it. Export the stack's own DATABASE_URL (or SHOTS_PRIVATE_DOTENV=1 when this worktree's .env is the isolated stack's own).`,
       }
     }
   }

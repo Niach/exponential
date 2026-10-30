@@ -3561,6 +3561,14 @@ pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
 /// and with it the device journal, is gone).
 pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this session";
 
+/// VAPP-171: the device-offline `Ended` with nothing to show — the empty
+/// column's copy, byte-identical ×4 (web `steer-session-store.ts`, iOS
+/// `historyStatus`, Android `historyStatus`).
+pub(crate) fn device_offline_copy(label: Option<&str>) -> String {
+    let label = label.map(str::trim).filter(|label| !label.is_empty()).unwrap_or("The device");
+    format!("{label} is offline. The transcript lives on that machine.")
+}
+
 /// The sessions of `root_id`'s tree that are working right now (the synced
 /// `busy`, the ONE spinner input ×4) — what a root's composer Stops.
 pub(crate) fn busy_tree_sessions(root_id: &str, cx: &App) -> Vec<String> {
@@ -4594,7 +4602,16 @@ impl SteerSessionView {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
             // S-3: no paused body (an offline host is invisible).
-            let body: AnyElement = if matches!(
+            let body: AnyElement = if self.phase.is_device_offline() {
+                // VAPP-171: an ended row no device fed — the machine that
+                // holds its transcript, named (×4).
+                centered(vec![div()
+                    .text_xs()
+                    .text_color(muted)
+                    .text_center()
+                    .child(device_offline_copy(self.device(cx).label.as_deref()))
+                    .into_any_element()])
+            } else if matches!(
                 self.phase,
                 ViewerPhase::Connecting | ViewerPhase::Starting | ViewerPhase::Reconnecting
             ) {
@@ -7159,7 +7176,7 @@ impl SteerSessionView {
         let paused = self.paused(cx);
         if self.source.read_only() && !matches!(self.phase, ViewerPhase::Ended { .. }) {
             out.push(banner("replay", "ui-info", "Replay", REPLAY_BANNER.to_string(), DockTint::Muted, None));
-        } else if self.feed.is_empty() && !self.is_local() && self.session_over() {
+        } else if self.feed.is_empty() && !self.is_local() && self.session_over() && !self.phase.is_device_offline() {
             out.push(banner("replay", "ui-info", "Replay", REPLAY_EMPTY_BANNER.to_string(), DockTint::Muted, None));
         }
         match &self.phase {
@@ -8721,7 +8738,7 @@ fn now_epoch_ms() -> i64 {
 
 #[cfg(test)]
 mod work_elapsed_tests {
-    use super::work_elapsed_ms;
+    use super::{device_offline_copy, work_elapsed_ms};
 
     #[test]
     fn a_work_card_counts_from_the_call_start() {
@@ -8734,6 +8751,14 @@ mod work_elapsed_tests {
         assert_eq!(work_elapsed_ms(Some(1_000), None, false, 60_000), None);
         // A skewed clock never goes negative.
         assert_eq!(work_elapsed_ms(Some(9_000), None, true, 6_000), Some(0));
+    }
+
+    /// VAPP-171: the device-offline copy ×4, never "No transcript".
+    #[test]
+    fn device_offline_copy_names_the_machine() {
+        assert_eq!(device_offline_copy(Some("buildbox")), "buildbox is offline. The transcript lives on that machine.");
+        assert_eq!(device_offline_copy(None), "The device is offline. The transcript lives on that machine.");
+        assert_eq!(device_offline_copy(Some("  ")), "The device is offline. The transcript lives on that machine.");
     }
 }
 

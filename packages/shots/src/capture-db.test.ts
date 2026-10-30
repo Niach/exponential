@@ -31,6 +31,17 @@ describe(`resolveCaptureDb`, () => {
     expect(resolveCaptureDb({ env, sharedUrl: SHARED })).toHaveProperty(`refused`)
   })
 
+  test(`SHOTS_PRIVATE_DOTENV=1: the worktree's own .env DB is the isolated stack's, not the shared one (VAPP-170)`, () => {
+    const PRIVATE = `postgres://exp:exp@localhost:54331/exponential`
+    const env = { SHOTS_DEV_URL: `http://localhost:5181`, DATABASE_URL: PRIVATE }
+    expect(resolveCaptureDb({ env, sharedUrl: PRIVATE })).toHaveProperty(`refused`)
+    expect(resolveCaptureDb({ env: { ...env, SHOTS_PRIVATE_DOTENV: `1` }, sharedUrl: PRIVATE })).toEqual({ env: { DATABASE_URL: PRIVATE } })
+    // The compose default stays refused whatever the .env says.
+    expect(
+      resolveCaptureDb({ env: { ...env, DATABASE_URL: SHARED, SHOTS_PRIVATE_DOTENV: `1` }, sharedUrl: PRIVATE })
+    ).toHaveProperty(`refused`)
+  })
+
   test(`the default dev URL is not a throwaway stack`, () => {
     expect(resolveCaptureDb({ env: { SHOTS_DEV_URL: `http://localhost:5173` }, sharedUrl: SHARED })).toEqual({ env: {} })
   })
