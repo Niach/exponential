@@ -10048,7 +10048,9 @@ version = "0.14.86"
 dependencies = [
  "api",
  "coding",
+ "data-encoding",
  "domain",
+ "enet-core",
  "etalk",
  "etalk-codec",
  "exponential-agent-runtime",
@@ -10056,6 +10058,7 @@ dependencies = [
  "futures-util",
  "log",
  "regex",
+ "ring",
  "serde",
  "serde_json",
  "terminal",
