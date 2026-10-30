@@ -1,2 +1,3 @@
-- Un seul style de carte : les réponses des agents et les cartes qu'une session te montre ont la même surface, les mêmes coins et les mêmes marges que dans les autres apps
-- Le titre d'une carte s'affiche au-dessus d'elle dans le chat
+- Les stories défilent image par image en plein écran, chacune avec sa propre barre de progression
+- Les notifications s'ouvrent sur ton téléphone et affichent le message complet
+- Le menu + de l'éditeur liste les prompts de ton équipe ; la page de l'Assistant n'a plus de champ d'instructions

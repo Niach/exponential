@@ -1,2 +1,3 @@
-- Ett kortutseende: agentsvar och korten som en session visar dig har samma yta, hörn och marginaler som i de andra apparna
-- Ett korts titel står ovanför det i chatten
+- Stories spelas bild för bild i helskärm, var och en med sin egen förloppsindikator
+- Notiser öppnas på din telefon och visar hela meddelandet
+- Redigerarens +-meny visar ditt teams prompter; Assistent-sidan har inte längre något instruktionsfält

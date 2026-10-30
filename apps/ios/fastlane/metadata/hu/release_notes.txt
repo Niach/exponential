@@ -1,2 +1,3 @@
-- Egységes kártyamegjelenés: az ügynökök válaszai és a munkamenet által mutatott kártyák felülete, sarkai és térközei ugyanolyanok, mint a többi alkalmazásban
-- A kártya címe a csevegésben a kártya fölött jelenik meg
+- A történetek képről képre, teljes képernyőn futnak, mindegyik saját folyamatjelzővel
+- Az értesítések a telefonodon nyílnak meg, és a teljes üzenetet mutatják
+- A szerkesztő + menüje a csapatod promptjait listázza; az Asszisztens oldalán már nincs utasítás mező

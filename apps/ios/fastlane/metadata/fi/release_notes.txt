@@ -1,2 +1,3 @@
-- Yhtenäinen korttien ulkoasu: agenttien vastauksilla ja istunnon näyttämillä korteilla on sama pinta, kulmat ja reunukset kuin muissa sovelluksissa
-- Kortin otsikko näkyy keskustelussa sen yläpuolella
+- Tarinat etenevät kuva kerrallaan koko näytöllä, jokaisella oma edistymispalkki
+- Ilmoitukset avautuvat puhelimessasi ja näyttävät koko viestin
+- Kirjoituskentän +-valikko näyttää tiimisi promptit; Avustajan sivulla ei ole enää ohjekenttää

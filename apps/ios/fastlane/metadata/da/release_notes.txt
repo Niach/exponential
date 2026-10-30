@@ -1,2 +1,3 @@
-- Ét kortudseende: agentsvar og de kort, en session viser dig, har samme flade, hjørner og afstand som i de andre apps
-- Et korts titel står over det i chatten
+- Stories afspilles billede for billede i fuld skærm, hver med sin egen statuslinje
+- Notifikationer åbnes på din telefon og viser hele beskeden
+- Editorens +-menu viser dit teams prompts; Assistent-siden har ikke længere et instruktionsfelt

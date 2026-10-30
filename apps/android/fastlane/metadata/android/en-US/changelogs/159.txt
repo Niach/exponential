@@ -1,0 +1,3 @@
+- Stories play picture by picture and fill the screen, each with its own progress bar
+- Notifications open on your phone and show the full message
+- The composer's + menu lists your team's prompts; the Assistant page has no Instructions field any more

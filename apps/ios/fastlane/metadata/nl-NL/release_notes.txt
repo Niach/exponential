@@ -1,2 +1,3 @@
-- Eén kaartstijl: antwoorden van agents en de kaarten die een sessie je toont hebben hetzelfde vlak, dezelfde hoeken en marges als in de andere apps
-- De titel van een kaart staat in de chat erboven
+- Stories spelen beeld voor beeld op volledig scherm, elk met een eigen voortgangsbalk
+- Meldingen openen op je telefoon en tonen het volledige bericht
+- Het +-menu van de editor toont de prompts van je team; de Assistent-pagina heeft geen instructieveld meer
