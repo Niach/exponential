@@ -3,7 +3,7 @@
 //!
 //! It renders ONE coding session's activity feed + composer over whichever
 //! [`FeedSource`] it is handed: the in-process ACP engine, a read-only replay
-//! of a finished run, or [`steer::spawn_viewer`] over the relay for a run on
+//! of a finished run, or [`steer::spawn_viewer`] over eNet for a run on
 //! another machine (another desktop, the headless CLI daemon, a shared
 //! server). EXP-746 moved every one of those into the center pane's
 //! [`crate::session_screen`]; the bottom dock keeps PTY tabs and nothing
@@ -3644,10 +3644,11 @@ fn sync_offline(cx: &App) -> bool {
         .unwrap_or(false)
 }
 
-/// Dial `session_id`: VAPP-33 eNet straight to the device first (this
-/// account's node + `installs.forSession`), the relay as the fallback. `None`
-/// when the steer runtime never came up or nobody is signed in — the caller
-/// then renders the unauthorized banner instead of a dead feed.
+/// Dial `session_id` over eNet straight to the device (this account's node
+/// + `installs.forSession`; VAPP-43: the relay carries no session content, so
+/// there is no fallback — no node reads as "no feed": the starting / ended
+/// states). `None` when the steer runtime never came up or nobody is signed
+/// in — the caller then renders the unavailable banner instead of a dead feed.
 fn spawn_viewer(
     session_id: &str,
     events_tx: flume::Sender<ViewerEvent>,
@@ -3655,40 +3656,10 @@ fn spawn_viewer(
 ) -> Option<ViewerHandle> {
     let runtime = crate::steer_wiring::runtime(cx)?;
     let trpc = Arc::new(crate::queries::trpc_client(cx)?);
-    let tickets = Arc::new(steer::TrpcViewerTickets {
-        trpc: Arc::clone(&trpc),
-        session_id: session_id.to_string(),
-    });
     let enet = crate::enet_wiring::active_node(cx).map(|install| {
-        Arc::new(EnetSource { install, trpc: Arc::clone(&trpc) }) as Arc<dyn steer::EnetViewerSource>
+        Arc::new(steer::InstallViewerSource { install, trpc }) as Arc<dyn steer::EnetViewerSource>
     });
-    Some(steer::spawn_viewer_over(
-        &runtime,
-        tickets,
-        enet,
-        session_id.to_string(),
-        events_tx,
-        steer::ViewerTimings::default(),
-    ))
-}
-
-/// VAPP-33: the viewer's way to the device over eNet.
-struct EnetSource {
-    install: steer::enet::InstallNode,
-    trpc: Arc<api::TrpcClient>,
-}
-
-impl steer::EnetViewerSource for EnetSource {
-    fn node(&self) -> Option<Arc<enet_core::Node>> {
-        self.install.node()
-    }
-
-    fn endpoints(&self, session_id: &str) -> Result<Vec<String>, api::error::ApiError> {
-        Ok(api::installs::for_session(&self.trpc, session_id)?
-            .into_iter()
-            .map(|install| install.endpoint_id)
-            .collect())
-    }
+    Some(steer::spawn_viewer(&runtime, enet, session_id.to_string(), events_tx))
 }
 
 // ---------------------------------------------------------------------------

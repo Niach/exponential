@@ -128,9 +128,8 @@ final class TrpcErrorInfoTests: XCTestCase {
         XCTAssertEqual(error.trpcUserMessage, "No repository linked to this board")
     }
 
-    // The tRPC `code` is the structured signal callers classify on — e.g. the
-    // agent-session viewer treats NOT_FOUND / FORBIDDEN from steer.mintTicket
-    // as terminal instead of retrying the reconnect loop forever.
+    // The tRPC `code` is the structured signal callers classify on — e.g. a
+    // NOT_FOUND / FORBIDDEN is terminal instead of a reason to retry forever.
 
     func testErrorCodeIsExtracted() {
         let error = TrpcError.httpError(404, envelope(message: "Coding session not found", code: "NOT_FOUND"))

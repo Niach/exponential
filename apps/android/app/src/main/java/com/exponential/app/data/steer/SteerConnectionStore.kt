@@ -3,8 +3,6 @@ package com.exponential.app.data.steer
 import android.util.Log
 import com.exponential.app.data.api.InstallsApi
 import com.exponential.app.data.api.IssueImagesApi
-import com.exponential.app.data.api.STEER_CLIENT
-import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -12,9 +10,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.enet.EnetNodeManager
-import io.ktor.client.HttpClient
 import javax.inject.Inject
-import javax.inject.Named
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,13 +34,7 @@ private const val TAG = "SteerConnectionStore"
 class SteerConnectionStore @Inject constructor(
     private val auth: AuthRepository,
     private val holder: DatabaseHolder,
-    private val steerApi: SteerApi,
     private val issueImagesApi: IssueImagesApi,
-    // The ping-free WebSocket client (EXP-656): OkHttp's 30s pingInterval on
-    // the shared client is a PONG DEADLINE for a socket, which failed the
-    // relay connection on a ~30s cadence and made every viewer replay its
-    // room log. Steer liveness rides the relay's own keepalive instead.
-    @Named(STEER_CLIENT) private val client: HttpClient,
     private val json: Json,
     private val syncManager: SyncManager,
     private val enetNodes: EnetNodeManager,
@@ -67,7 +57,7 @@ class SteerConnectionStore @Inject constructor(
     init {
         // Every reason the shapes have to suspect they're behind (app
         // foreground, a network coming back, a DNS change, a push, a
-        // pull-to-refresh) is a reason to suspect the relay socket died the
+        // pull-to-refresh) is a reason to suspect the steer feed died the
         // same way (EXP-625). The connection decides what that means for it;
         // most kicks are no-ops on a healthy socket.
         scope.launch {
@@ -89,7 +79,7 @@ class SteerConnectionStore @Inject constructor(
             val connection = connections.getOrPut(codingSessionId) {
                 SteerConnection(
                     codingSessionId = codingSessionId,
-                    transport = KtorSteerTransport(auth, steerApi, client, enetDialer()),
+                    transport = EnetSteerTransport(enetDialer()),
                     sessionFlow = accountDatabaseFlow(auth, holder)
                         .scopedQuery<SessionEntity?>(null) {
                             it.sessionDao().observeById(codingSessionId)
@@ -104,8 +94,8 @@ class SteerConnectionStore @Inject constructor(
         }
     }
 
-    /// VAPP-33: steer over the active account's eNet node first; the relay
-    /// stays the fallback (until VAPP-43).
+    /// VAPP-33: steer over the active account's eNet node. VAPP-43: the only
+    /// feed; the steer relay carries no session content.
     private fun enetDialer() = EnetSteerDialer(
         node = { auth.activeAccountId.value?.let(enetNodes::peer) },
         discover = { sessionId ->
@@ -143,7 +133,7 @@ class SteerConnectionStore @Inject constructor(
     /**
      * App visibility, driven by ExponentialApp's ProcessLifecycleOwner
      * observer alongside the shape loops. Backgrounding parks every socket
-     * after a grace window — a relay socket per open session must not keep a
+     * after a grace window — a steer feed per open session must not keep a
      * radio warm for a process the user can't see — while keeping the feed,
      * the draft and the pending images; foregrounding revives them.
      */
@@ -196,6 +186,6 @@ class SteerConnectionStore @Inject constructor(
 // A quick app switch, a share sheet or the photo picker must not cost the live
 // session anything. Deliberately NOT the shape loops' behaviour, which park
 // instantly since EXP-656: a shape loop resumes from a persisted cursor for the
-// price of one GET, while a relay socket resumes by re-minting a ticket and
-// taking a full room replay.
+// price of one GET, while a steer feed resumes by re-joining over eNet and
+// taking a full replay.
 private const val BACKGROUND_PARK_DELAY_MS = 30_000L

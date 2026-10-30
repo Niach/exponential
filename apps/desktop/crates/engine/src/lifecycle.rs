@@ -627,15 +627,14 @@ fn attach_publisher(
 
     let hooks = steer::PublisherHooks {
         write_input: line_buffered_input(commands.clone()),
-        // EXP-283: ONLY an explicit relay `kill` frame lands here — socket
-        // closes never do.
+        // EXP-283: ONLY an explicit `kill` lands here (an eNet viewer's, or
+        // VAPP-43 the relay's down the control socket).
         kill: {
             let commands = commands.clone();
             Arc::new(move |_signal| {
                 let _ = commands.send(EngineCommand::Shutdown { outcome: "killed" });
             })
         },
-        error: Arc::new(|message| log::warn!("engine publisher: {message}")),
         answers: Some(Arc::clone(&answer_link)),
         agent: crate::adapters::AdapterKind::from_agent(ctx.agent).session_agent(),
         text_sink: Some({
@@ -680,10 +679,6 @@ fn attach_publisher(
         }),
     };
 
-    let tickets: Arc<dyn steer::PublisherTickets> = Arc::new(steer::TrpcPublisherTickets {
-        trpc: Arc::clone(&life.trpc),
-        session_id: ctx.session_id.clone(),
-    });
     let handle = steer::publish(
         &life.runtime,
         steer::PublishSpec {
@@ -700,7 +695,6 @@ fn attach_publisher(
             // VAPP-33: the eNet steer room's access rule.
             audience: life.audience.clone(),
         },
-        tickets,
         hooks,
     );
 

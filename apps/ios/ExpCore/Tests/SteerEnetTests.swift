@@ -4,7 +4,7 @@ import XCTest
 
 // VAPP-33: `packages/domain-contract/fixtures/steer-enet.json` replayed
 // (constants, parse, access, batch), the viewer-side routing rule, and the
-// transport choice with every fallback to the steer relay.
+// transport choice with every no-feed outcome (VAPP-43: no relay fallback).
 final class SteerEnetTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -104,19 +104,19 @@ final class SteerEnetTests: XCTestCase {
 
     // MARK: - The transport choice
 
-    func testNoNodeFallsBackToTheRelay() async {
+    func testNoNodeIsNoFeed() async {
         let carrier = FakeCarrier(ready: false)
-        await assertFallback(carrier, .noNode)
+        await assertNoFeed(carrier, .noNode)
     }
 
-    func testNoEndpointFallsBackToTheRelay() async {
-        await assertFallback(FakeCarrier(endpoints: []), .noEndpoint)
+    func testNoEndpointIsNoFeed() async {
+        await assertNoFeed(FakeCarrier(endpoints: []), .noEndpoint)
     }
 
-    func testFailedLookupFallsBackToTheRelay() async {
+    func testFailedLookupIsNoFeed() async {
         let carrier = FakeCarrier(endpoints: [])
         carrier.lookupFails = true
-        await assertFallback(carrier, .lookupFailed)
+        await assertNoFeed(carrier, .lookupFailed)
     }
 
     func testNoSuchSessionTriesTheNextEndpointAndJoinsIt() async throws {
@@ -144,25 +144,68 @@ final class SteerEnetTests: XCTestCase {
         XCTAssertEqual(carrier.sent("new").last?.types, ["leave"])
     }
 
-    func testEveryEndpointRefusedFallsBackToTheRelay() async {
+    func testEveryEndpointRefusedIsNoFeed() async {
         let carrier = FakeCarrier(endpoints: ["a", "b", "c"])
         carrier.answer["a"] = [[#"{"t":"error","code":"no_such_session"}"#]]
         carrier.answer["b"] = [[#"{"t":"error","code":"unauthorized"}"#]]
         carrier.unreachable = ["c"]
-        await assertFallback(carrier, .allRefused)
+        await assertNoFeed(carrier, .allRefused)
         XCTAssertEqual(carrier.joinedPeers, ["a", "b", "c"])
     }
 
-    func testNoActivitySyncedInTimeFallsBackToTheRelay() async {
+    func testNoActivitySyncedInTimeIsNoFeed() async {
         let carrier = FakeCarrier(endpoints: ["slow", "never"])
         carrier.answer["slow"] = [[#"{"t":"activity_reset"}"#]]
         let outcome = await SteerEnetJoiner.join(
             carrier: carrier, accountId: "a", sessionId: "s1", timeout: .milliseconds(200)
         )
-        guard case .fallback(.timeout) = outcome else { return XCTFail("expected a timeout, got \(outcome)") }
+        guard case .noFeed(.timeout) = outcome else { return XCTFail("expected a timeout, got \(outcome)") }
         // One deadline for the whole choice: the second endpoint is not tried.
         XCTAssertEqual(carrier.joinedPeers, ["slow"])
         XCTAssertTrue(carrier.closed.contains("slow"))
+    }
+
+    // VAPP-43 NO FEED: whatever the reason, the viewer shows its existing
+    // states — a row still alive = `starting` (and redials), an ended row =
+    // `ended` with the device-offline copy.
+    func testNoFeedOnALiveRowIsStarting() {
+        XCTAssertEqual(SteerNoFeedState.decide(sessionOver: false), .starting)
+    }
+
+    func testNoFeedOnAnEndedRowIsEndedDeviceOffline() {
+        XCTAssertEqual(SteerNoFeedState.decide(sessionOver: true), .endedDeviceOffline)
+    }
+
+    // VAPP-43 STORED REPLAY: an ended row's journal comes back as reset,
+    // replay, synced, then `bye {outcome:"history"}` — the join completes on
+    // `activity_synced`, and a `bye` batched into the marker's envelope is
+    // kept (after the marker), never dropped.
+    func testStoredReplayKeepsTheByeBatchedAfterTheMarker() async {
+        let carrier = FakeCarrier(endpoints: ["dev"])
+        carrier.answer["dev"] = [
+            [#"{"t":"activity_reset"}"#, #"{"t":"activity","seq":0,"event":{"kind":"narration","text":"done"}}"#],
+            [#"{"t":"activity_synced","firstSeq":0,"lastSeq":0}"#, #"{"t":"bye","outcome":"history"}"#],
+        ]
+        let outcome = await SteerEnetJoiner.join(carrier: carrier, accountId: "a", sessionId: "s1", timeout: .seconds(2))
+        guard case let .joined(link, replay) = outcome else { return XCTFail("not joined: \(outcome)") }
+        XCTAssertEqual(replay.compactMap(SteerEnet.frameType), ["activity_reset", "activity", "activity_synced", "bye"])
+        XCTAssertNil(SteerOutcome.endDetail("history"))
+        link.close()
+    }
+
+    func testStoredReplayByeInItsOwnEnvelopeFollowsOnTheLink() async {
+        let carrier = FakeCarrier(endpoints: ["dev"])
+        carrier.answer["dev"] = [
+            [#"{"t":"activity_reset"}"#, #"{"t":"activity_synced","firstSeq":0,"lastSeq":0}"#],
+            [#"{"t":"bye","outcome":"history"}"#],
+        ]
+        let outcome = await SteerEnetJoiner.join(carrier: carrier, accountId: "a", sessionId: "s1", timeout: .seconds(2))
+        guard case let .joined(link, replay) = outcome else { return XCTFail("not joined: \(outcome)") }
+        XCTAssertEqual(replay.compactMap(SteerEnet.frameType), ["activity_reset", "activity_synced"])
+        var iterator = link.stream {}.makeAsyncIterator()
+        let rest = await iterator.next()
+        XCTAssertEqual(rest?.compactMap(SteerEnet.frameType), ["bye"])
+        link.close()
     }
 
     func testAFailedSendAfterTheJoinReportsTheDrop() async throws {
@@ -184,9 +227,9 @@ final class SteerEnetTests: XCTestCase {
         link.close()
     }
 
-    private func assertFallback(_ carrier: FakeCarrier, _ reason: SteerEnetFallback, file: StaticString = #filePath, line: UInt = #line) async {
+    private func assertNoFeed(_ carrier: FakeCarrier, _ reason: SteerEnetNoFeed, file: StaticString = #filePath, line: UInt = #line) async {
         let outcome = await SteerEnetJoiner.join(carrier: carrier, accountId: "a", sessionId: "s1", timeout: .seconds(2))
-        guard case let .fallback(got) = outcome else { return XCTFail("joined, expected \(reason)", file: file, line: line) }
+        guard case let .noFeed(got) = outcome else { return XCTFail("joined, expected \(reason)", file: file, line: line) }
         XCTAssertEqual(got, reason, file: file, line: line)
     }
 

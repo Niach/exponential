@@ -4,17 +4,18 @@
 //!
 //! - `sessions [list] [--device <label|id>] [--status s] [--agents] [--limit n]`
 //! - `sessions show <id>`: one session, its device, branch and its thread's issues
-//! - `sessions log <id> [--follow]`: the transcript, over the steer relay
+//! - `sessions log <id> [--follow]`: the transcript, over eNet from its device
 //! - `sessions message <id> <text…>` / `sessions stop <id>` / `sessions end <id>`
 //!
 //! Reads and the message/stop/end writes go through the instance's own MCP
 //! v2 tools (`api::mcp_tools`) — the same server paths an agent's
 //! `exponential_sessions_*` calls take. A message to an idle session wakes
 //! the SAME row on its device. Transcripts live ONLY on the host
-//! device, so `log` is a steer VIEWER (`steer::spawn_viewer`, the desktop's
-//! own client): the relay replays a live room, or asks the owning device to
-//! republish an ended run's journal (`history_request`). Viewing a LIVE run
-//! is owner-only (EXP-312) — the mint says no for anyone else.
+//! device, so `log` reads this machine's own journal when it holds one and
+//! is otherwise a steer VIEWER over eNet (`steer::spawn_viewer`, the
+//! desktop's own client; VAPP-43: the relay carries no session content): the
+//! device answers with the live run or its stored journal, under the
+//! session's access rule (`fixtures/steer-enet.json`).
 //!
 //! Every `<id>` may be a unique prefix of a root session's UUID (the list
 //! prints eight characters; the list tool reads roots only).
@@ -430,22 +431,64 @@ fn log(args: &[String]) -> CommandResult {
     stream_transcript(&ctx, tree.session(&id).unwrap_or(&tree.root), follow)
 }
 
-/// How long a non-follow `log` waits for the replay to complete. The relay
-/// gives a republishing device 20s before it answers `history_unavailable`.
+/// How long a non-follow `log` waits for the replay to complete.
 const REPLAY_BUDGET: Duration = Duration::from_secs(45);
 
-/// Print a run's transcript through a steer viewer. Without `follow` it
-/// stops once the replay is complete (`activity_synced`); with it, it keeps
-/// printing a live run until the room ends (Ctrl-C to leave early). Also
-/// the tail of `code`/`run --device --follow`.
+/// How long the viewer's eNet node may take to come up and load its first
+/// allowlist.
+const ENET_START_BUDGET: Duration = Duration::from_secs(15);
+
+/// This CLI install's eNet node, for the viewer. It shares its identity with
+/// the daemon (`cli-enet-identity`), so it refuses while the daemon runs:
+/// two processes on one endpoint id would knock each other off the relay.
+fn viewer_install(ctx: &Ctx, runtime: &steer::SteerRuntime, row: &RemoteSession) -> anyhow::Result<steer::enet::InstallNode> {
+    use steer::enet::{InstallKind, InstallNode, InstallSpec};
+    if let Some(pid) = super::daemon::daemon_pid(&ctx.data_dir) {
+        bail!(
+            "this session's transcript lives on its device and travels over eNet, whose identity the running daemon (pid {pid}) holds here — open the session in the desktop app, or stop the daemon and retry"
+        );
+    }
+    let teams: Vec<String> = row.team_id.iter().cloned().collect();
+    let install = InstallNode::start(
+        runtime.handle(),
+        InstallSpec {
+            kind: InstallKind::Daemon,
+            user_id: ctx.account.user_id.clone(),
+            device_id: Some(ctx.device_id()),
+            label: Some(api::users::hostname()),
+            identity_path: steer::enet::identity_path(&ctx.data_dir, &ctx.account.id, InstallKind::Daemon),
+            net: steer::enet::EnetConfig::default(),
+        },
+        Arc::clone(&ctx.trpc) as Arc<dyn steer::enet::InstallRegistry>,
+        Arc::new(move || teams.clone()),
+    );
+    if !install.wait_passes_blocking(1, ENET_START_BUDGET) {
+        log::debug!("sessions log: the eNet node is not ready yet; joining anyway");
+    }
+    Ok(install)
+}
+
+/// Print a run's transcript. This machine's own journal needs no network
+/// (an ended run, or no `follow`); otherwise a steer viewer over eNet:
+/// without `follow` it stops once the replay is complete
+/// (`activity_synced`); with it, it keeps printing a live run until it ends
+/// (Ctrl-C to leave early). Also the tail of `code`/`run --device --follow`.
 pub fn stream_transcript(ctx: &Ctx, row: &RemoteSession, follow: bool) -> CommandResult {
+    let ended = row.status == "ended";
+    if !follow || ended {
+        if let Some(events) = steer::read_journal(&ctx.data_dir, &row.id).filter(|events| !events.is_empty()) {
+            let state = Mutex::new(super::code::AttachState::default());
+            for event in &events {
+                super::code::print_activity(event, &state);
+            }
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
     let runtime = steer::SteerRuntime::new().context("start the steer runtime")?;
+    let install = viewer_install(ctx, &runtime, row)?;
     let (events_tx, events_rx) = flume::unbounded();
-    let tickets = Arc::new(steer::TrpcViewerTickets {
-        trpc: Arc::clone(&ctx.trpc),
-        session_id: row.id.clone(),
-    });
-    let handle = steer::spawn_viewer(&runtime, tickets, row.id.clone(), events_tx);
+    let enet = Arc::new(steer::InstallViewerSource { install: install.clone(), trpc: Arc::clone(&ctx.trpc) });
+    let handle = steer::spawn_viewer(&runtime, Some(enet), row.id.clone(), events_tx);
     let ended = row.status == "ended";
     if ended {
         handle.note_session_ended();
@@ -496,9 +539,6 @@ pub fn stream_transcript(ctx: &Ctx, row: &RemoteSession, follow: bool) -> Comman
                         Some("device_offline") => Err(anyhow!(
                             "the device that holds this transcript is offline — transcripts live only on the session's device"
                         )),
-                        Some("history_unavailable") => {
-                            Err(anyhow!("the session's device had no transcript to send"))
-                        }
                         _ => {
                             if follow && !ended {
                                 println!("-- session ended --");
@@ -508,12 +548,10 @@ pub fn stream_transcript(ctx: &Ctx, row: &RemoteSession, follow: bool) -> Comman
                     };
                 }
                 steer::ViewerPhase::Unauthorized { detail } => {
-                    break Err(match detail {
-                        Some(detail) => anyhow!("can't show this session's transcript: {detail}"),
-                        None => anyhow!(
-                            "the relay refused to show this session: a live session is visible only to its owner"
-                        ),
-                    });
+                    break Err(anyhow!(
+                        "can't show this session's transcript: {}",
+                        detail.as_deref().unwrap_or("refused")
+                    ));
                 }
                 _ => {}
             },
@@ -521,6 +559,7 @@ pub fn stream_transcript(ctx: &Ctx, row: &RemoteSession, follow: bool) -> Comman
         }
     };
     handle.shutdown();
+    install.stop();
     outcome
 }
 

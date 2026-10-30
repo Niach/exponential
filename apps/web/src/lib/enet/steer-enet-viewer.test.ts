@@ -104,6 +104,21 @@ describe(`transport choice`, () => {
     expect(view.frames.map((f) => f.t)).toEqual([`activity_reset`, `activity`, `activity_synced`])
   })
 
+  // VAPP-43 stored replay of an ENDED row: the device batches the marker and
+  // its `bye {history}` into one envelope; the bye still reaches the store.
+  it(`a stored replay's bye in the marker's envelope is delivered, then the socket closes`, async () => {
+    const stored = (frames: SteerFrame[]) =>
+      frames.some((f) => f.t === `join`) ? [...REPLAY, { t: `bye`, outcome: `history` }] : []
+    const { carrier, allowed } = fakeCarrier({ d1: stored })
+    const opening = openEnetSteer(SESSION, { carrier: async () => carrier, forSession: endpoints(`d1`) })
+    await vi.advanceTimersByTimeAsync(5)
+    const view = attach((await opening)!)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(view.frames.map((f) => f.t)).toEqual([`activity_reset`, `activity`, `activity_synced`, `bye`])
+    expect(view.closes).toEqual([1000])
+    expect(allowed.get(`d1`)).toBe(0)
+  })
+
   it(`on no_such_session tries the next endpoint`, async () => {
     const { carrier, sent, allowed } = fakeCarrier({ d1: refuse, d2: live })
     const opening = openEnetSteer(SESSION, { carrier: async () => carrier, forSession: endpoints(`d1`, `d2`) })
@@ -127,7 +142,7 @@ describe(`transport choice`, () => {
   })
 })
 
-describe(`fallback to the relay (null)`, () => {
+describe(`no feed (null, no fallback since VAPP-43)`, () => {
   it(`no node`, async () => {
     const forSession = vi.fn(endpoints(`d1`))
     expect(await openEnetSteer(SESSION, { carrier: async () => undefined, forSession })).toBeNull()
@@ -221,7 +236,7 @@ describe(`a joined feed`, () => {
     expect(view.frames.map((f) => f.seq)).toEqual([1])
   })
 
-  it(`bye closes the socket like the relay does`, async () => {
+  it(`bye closes the socket`, async () => {
     const { deliver, view, socket } = await joined()
     deliver(`d1`, encodeSteerEnvelope(SESSION, [{ t: `bye`, outcome: `ended` }, { t: `keepalive` }]))
     await vi.advanceTimersByTimeAsync(0)
@@ -247,7 +262,7 @@ describe(`a joined feed`, () => {
     expect(sent).toHaveLength(0)
     await vi.advanceTimersByTimeAsync(2)
     expect(sent.map((s) => s.frames)).toEqual([[{ t: `join`, channel: `activity` }]])
-    // The device answers the re-join with a full replay, like a relay reconnect.
+    // The device answers the re-join with a full replay.
     await vi.advanceTimersByTimeAsync(5)
     expect(view.frames.map((f) => f.t)).toEqual([`keepalive`, `activity_reset`, `activity`, `activity_synced`])
     expect(socket.readyState).toBe(1)

@@ -404,26 +404,6 @@ data class SteerDevice(
     }
 }
 
-/**
- * A minted relay ticket + the full `ws(s)://<relay>/ws?ticket=<token>` dial
- * URL. `disabled == true` (or nil ticket/url) means steer is off on this
- * instance — a result, not an error.
- */
-@Serializable
-data class SteerTicketResult(
-    val ticket: String? = null,
-    val url: String? = null,
-    val disabled: Boolean = false,
-) {
-    val isUsable: Boolean get() = !disabled && !ticket.isNullOrBlank() && !url.isNullOrBlank()
-}
-
-@Serializable
-private data class ViewerTicketInput(
-    val kind: String = "viewer",
-    @SerialName("sessionId") val codingSessionId: String,
-)
-
 @Singleton
 class SteerApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -435,15 +415,5 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
             input = buildJsonObject { },
             inputSerializer = JsonObject.serializer(),
             outputSerializer = SteerConfigResult.serializer(),
-        )
-
-    /** `steer.mintTicket({kind:'viewer'})` — watch/steer a running session. */
-    suspend fun mintViewerTicket(accountId: String, codingSessionId: String): SteerTicketResult =
-        trpc.mutation(
-            accountId,
-            path = "steer.mintTicket",
-            input = ViewerTicketInput(codingSessionId = codingSessionId),
-            inputSerializer = ViewerTicketInput.serializer(),
-            outputSerializer = SteerTicketResult.serializer(),
         )
 }

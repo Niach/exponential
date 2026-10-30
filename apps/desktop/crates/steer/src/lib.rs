@@ -1,30 +1,31 @@
-//! `steer` — the desktop's relay client, in all THREE roles (masterplan-v3
-//! §3.1 / §08).
+//! `steer` — the desktop's live-session layer (masterplan-v3 §3.1 / §08),
+//! on the team's ONLY tokio runtime (isolated from gpui's executors and the
+//! blocking reqwest sync stack):
 //!
-//! Three modules over one WebSocket client stack, on the team's ONLY tokio
-//! runtime (isolated from gpui's executors and the blocking reqwest sync stack):
+//! - [`control_channel`] — the per-account device-presence socket to the
+//!   steer relay: `online` registration, the `check_in` nudge, NEW-55 call
+//!   rings and (VAPP-43) the relay's session-scoped `kill` / `interrupt` /
+//!   `compact_request`, 15-minute disabled recheck, exponential backoff with
+//!   the >60s-lived reset rule. EXP-1292: no starts (those are `queued`
+//!   `sessions` rows, `coding::pickup`).
+//! - [`publisher`] — the per-coding-session publisher: record the scrubbed
+//!   [`activity`] stream (the [`journal`] + the [`history`] file), serve it
+//!   to eNet viewers ([`enet_steer`]), route remote `input`/`answer`/
+//!   `set_config` into the engine, and kill. VAPP-43: it never dials the
+//!   relay — the relay carries no session content.
+//! - [`viewer`] (EXP-696) — the other end: watch and steer a session running
+//!   on ANOTHER of the user's devices, over eNet to that device only. It
+//!   joins `channel:'activity'`, turns the inbound stream into
+//!   [`viewer::ViewerEvent`]s and sends messages/answers/keystrokes back. The
+//!   pure feed model it drives is [`feed`] (a port of the web store's reducer
+//!   + `agent-feed.ts`), and the composer's image template is
+//!   [`image_message`]. Transport and model are deliberately split: the feed
+//!   is testable with no socket, the socket with no UI.
 //!
-//! - [`control_channel`] — the per-account device-presence socket: `online`
-//!   registration, the `check_in` nudge and history asks, 15-minute disabled
-//!   recheck, exponential backoff with the >60s-lived reset rule. EXP-1292:
-//!   no starts (those are `queued` `sessions` rows, `coding::pickup`).
-//! - [`publisher`] — the per-coding-session publisher: push the scrubbed
-//!   [`activity`] stream, replay the session [`journal`] on every (re)connect,
-//!   route remote `input`/`answer`/`set_config` into the engine, claim/
-//!   take-over, kill, and auto-reconnect resuming the room.
-//! - [`viewer`] (EXP-696) — the other end of that wire: watch and steer a
-//!   session running on ANOTHER of the user's devices, the role web/iOS/
-//!   Android have had since EXP-249. It joins `channel:'activity'`, turns the
-//!   inbound stream into [`viewer::ViewerEvent`]s and sends messages/answers/
-//!   keystrokes back. The pure feed model it drives is [`feed`] (a port of
-//!   the web store's reducer + `agent-feed.ts`), and the composer's image
-//!   template is [`image_message`]. Transport and model are deliberately
-//!   split: the feed is testable with no socket, the socket with no UI.
-//!
-//! Wire protocol and ticket format are FROZEN (`apps/steer-relay/src/protocol.ts`,
-//! `packages/steer-ticket`) — [`frames`] mirrors them byte-for-byte and the
-//! desktop is a ticket **consumer only** (server-minted over
-//! `api::steer::mint_*`; it never signs, §8.0/§8.2).
+//! The steer frames are FROZEN (`apps/steer-relay/src/protocol.ts`,
+//! `fixtures/steer-enet.json`) — [`frames`] mirrors them byte-for-byte. The
+//! desktop is a control-ticket **consumer only** (server-minted over
+//! `api::steer::mint_control_ticket`; it never signs, §8.0/§8.2).
 //!
 //! ## The seams other crates consume (stated for the §7/§8 hookup)
 //!
@@ -39,14 +40,14 @@
 //! 2. **Control channel** — once per signed-in account, call
 //!    [`control_channel::spawn_control_channel`] with the persistent
 //!    [`persistent_device_id`] and `api::users::hostname()` as the label —
-//!    presence, check-in and history only. EXP-1292: starts and messages
-//!    reach the device as `sessions`/`messages` rows (`coding::pickup`),
-//!    never over the relay.
+//!    presence, check-in, call rings and the session-scoped commands.
+//!    EXP-1292: starts and messages reach the device as `sessions`/`messages`
+//!    rows (`coding::pickup`), never over the relay.
 //! 3. **Kill-switch** — EXP-1292: the synced `sessions` row flipping to
 //!    `ended` is the pickup pass's `Kill` action (`coding::pickup`); it kills
 //!    the engine, which stops the publisher and says a clean `bye`.
 //! 4. **Viewer attach** (EXP-696) — for a session hosted ELSEWHERE, call
-//!    [`viewer::spawn_viewer`] with a [`viewer::TrpcViewerTickets`] and a
+//!    [`viewer::spawn_viewer`] with an [`viewer::EnetViewerSource`] and a
 //!    `flume` sender; drain the receiver on the UI side into a
 //!    [`feed::SteerFeed`] and render it. The UI owns exactly two timers —
 //!    the [`feed::ANSWER_ACK_TIMEOUT`] card lock and the EXP-656
@@ -101,8 +102,7 @@ use serde::Deserialize;
 
 pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig};
 pub use control_channel::{
-    spawn_control_channel, CheckInFn, ControlApi, ControlChannelHandle, DeviceIdentity,
-    HistoryPageAsk, HistoryPageFn, HistoryPageReply, HistoryRequestFn, TrpcControlApi,
+    spawn_control_channel, CheckInFn, ControlApi, ControlChannelHandle, DeviceIdentity, TrpcControlApi,
 };
 pub use activity::{
     clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,
@@ -151,12 +151,11 @@ pub use image_message::{
     MAX_STEER_FILES, MAX_STEER_IMAGES,
 };
 pub use history::{
-    history_chunk_frame, history_page_for, journal_dir, journal_path, prune_journals,
-    prune_session_history,
-    publish_history, read_journal, read_journal_page, read_journal_seq, remove_journal,
-    serve_history_page, serve_history_request, HistoryInFlight, JournalWriter,
+    history_chunk_frame, journal_dir, journal_path, prune_journals, prune_session_history,
+    read_journal, read_journal_page, read_journal_seq, remove_journal, JournalWriter,
     HISTORY_PAGE_MAX, JOURNAL_FILE_CAP, JOURNAL_CAP_NOTICE,
 };
+pub use enet_steer::{StoredJournals, StoredSession};
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use tool_group_summary::{tool_group_summary, ToolCallSummary, TOOL_GROUP_SUMMARY_SEPARATOR};
 pub use exp_tool::{exp_tool_display, exp_tool_row, exp_tool_subject_key, ExpToolDisplay};
@@ -165,12 +164,11 @@ pub use exp_tool_group::{
 };
 pub use publisher::{
     has_attachment_embed, has_image_embed, image_localizer, localize_message, publish, ActivitySender, AttachmentHook,
-    CompactHook, ImageEmbeds, KillSignal, PublishSpec, PublisherHandle, PublisherHooks,
-    PublisherTickets, TrpcPublisherTickets,
+    CompactHook, CompactReply, ControlCmd, ImageEmbeds, KillSignal, PublishSpec, PublisherHandle, PublisherHooks,
 };
 pub use viewer::{
-    chunk_input, spawn_viewer, spawn_viewer_over, spawn_viewer_with, EnetViewerSource, TrpcViewerTickets,
-    ViewerEvent, ViewerHandle, ViewerPhase, ViewerTickets, ViewerTimings, INPUT_CHUNK_UTF16,
+    chunk_input, spawn_viewer, spawn_viewer_with, EnetViewerSource, InstallViewerSource, ViewerEvent, ViewerHandle, ViewerPhase,
+    ViewerTimings, INPUT_CHUNK_UTF16,
 };
 
 // ---------------------------------------------------------------------------
@@ -195,8 +193,7 @@ impl SteerRuntime {
         Ok(Arc::new(Self { runtime }))
     }
 
-    /// Public for the relay integration tests (they spawn fake viewer
-    /// sockets on the same runtime); not part of the app-facing API.
+    /// The runtime's handle (the eNet node and the tests spawn on it).
     pub fn handle(&self) -> &tokio::runtime::Handle {
         self.runtime.handle()
     }

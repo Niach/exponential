@@ -1,6 +1,15 @@
-// The relay hub: device presence + session rooms + (NEW-55) voice call
-// rooms, all in memory (masterplan §3.1/§3.4). No DB, no persistence — if the relay restarts, sockets reconnect
-// and re-announce; nothing durable is lost because nothing durable existed.
+// The relay hub: device presence, the control routes down a device's control
+// socket (check_in, kill, interrupt, compact_request) and (NEW-55) voice call
+// rooms, all in memory (masterplan §3.1/§3.4). No DB, no persistence: if the
+// relay restarts, sockets reconnect and re-announce; nothing durable is lost
+// because nothing durable existed.
+//
+// VAPP-43: the hub carries NO session content. Session rooms, the activity
+// log + replay, viewers, keepalives and the stored-transcript machinery are
+// gone: every viewer reads a session over eNet from the device that runs it
+// (fixtures/steer-enet.json). A content frame (`CONTENT_FRAME_TYPES`) from any
+// socket is answered `error content_refused` and dropped, never forwarded and
+// never logged beyond its type.
 
 import type { SteerTicketClaims } from "@exp/steer-ticket"
 import {
@@ -12,28 +21,26 @@ import {
   CALL_MAX_FRAMES_PER_SECOND,
   CALL_MAX_MS,
   CALL_RING_TIMEOUT_MS,
-  CLOSE_PUBLISHER_IDLE,
   CLOSE_REPLACED,
   CLOSE_SESSION_ENDED,
-  CLOSE_SLOW_CONSUMER,
   describeClientFrameRejection,
+  isContentFrameType,
   parseClientFrame,
-  type ActivityEvent,
   type ClientFrame,
   type CompactRefusal,
   type ServerFrame,
 } from "./protocol"
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
-// adapts ServerWebSocket to this. Text-only since EXP-249 removed the binary
-// PTY mirror — except NEW-55's voice calls, whose Opus frames go out through
-// `sendBinary` and only ever to a call room's peer.
+// adapts ServerWebSocket to this. Text-only except NEW-55's voice calls,
+// whose Opus frames go out through `sendBinary` and only ever to a call
+// room's peer.
 export interface RelaySocket {
   send(data: string): void
   /** NEW-55: one binary WebSocket frame (a call's audio). */
   sendBinary(data: Uint8Array): void
   close(code?: number, reason?: string): void
-  /** Bytes queued on the socket, for viewer backpressure. */
+  /** Bytes queued on the socket, for call backpressure. */
   bufferedAmount(): number
 }
 
@@ -42,8 +49,6 @@ interface Conn {
   claims: SteerTicketClaims
   // control sockets announce a deviceId via `online`.
   deviceId?: string
-  // publisher/viewer sockets belong to a room after hello/join.
-  sessionId?: string
   /** NEW-55: caller/call_host sockets belong to a call room once it opened
    *  (caller) or they were admitted to it (host). Cleared when the room ends,
    *  so the socket's own close is inert afterwards. */
@@ -54,112 +59,6 @@ interface Conn {
   frameTokensAt?: number
   /** Last time this socket's rejected-frame warning was logged (rate limit). */
   lastFrameWarnAt?: number
-}
-
-/** One replayable activity event, pre-serialized once: the same string feeds
- *  the live fan-out and every later join replay. */
-interface ActivityEntry {
-  framed: string
-  bytes: number
-  /** EXP-748: set to the subagentId when this entry is a subagent's tool
-   *  headline — the class of event the caps give up FIRST. */
-  subagentTool?: string
-  /** EXP-783: the publisher's own monotonic index, echoed verbatim inside
-   *  `framed`. Kept here too so `activity_synced` can name the span the log
-   *  covers without re-parsing it. */
-  seq: number
-}
-
-interface Room {
-  sessionId: string
-  issueId?: string
-  publisher: Conn | null
-  /** Publisher dropped without `bye`; room closes when the grace expires. */
-  staleTimer: ReturnType<typeof setTimeout> | null
-  /** REV2-X: Last time we received ANY message from the publisher (including
-   * pings). Updated on every publisher frame to detect dead publishers during
-   * idle periods (plan mode). */
-  lastPublisherActivity: number
-  // ── Scrubbed activity channel (tool headlines / narration / diffs) ──────
-  // activityMembers: authenticated viewer tickets that joined with
-  // channel:'activity' — the only audience there is (EXP-90 removed the
-  // anonymous one, EXP-249 the PTY mirror).
-  activityMembers: Set<Conn>
-  /** Replayable scrubbed event log, capped by count AND bytes. */
-  activityLog: ActivityEntry[]
-  /** Running serialized size of activityLog (the byte-budget accumulator). */
-  activityBytes: number
-  /** EXP-748: live subagent tool entries in activityLog, by subagentId — one
-   *  subagent keeps at most SUBAGENT_TOOL_CAP of them. */
-  subagentToolCounts: Map<string, number>
-  /** Their total, so the count cap knows in O(1) whether anything is left to
-   *  give up before it starts dropping the main transcript. */
-  subagentToolEntries: number
-  /** Scan hint: no subagent tool entry lives BELOW this index, so the search
-   *  for the oldest one starts here instead of at the head. */
-  subagentScanFrom: number
-  /** EXP-773: the room exists only to catch a device's history replay — no
-   *  publisher has hello'd yet, and its `historyTimer` closes it if none
-   *  does. A viewer that joins one is told `history_pending` instead of
-   *  `activity_synced`. */
-  pendingHistory: boolean
-  /** EXP-773: fires HISTORY_TIMEOUT_MS after the ask went down the device's
-   *  control socket — the device is online but produced nothing. */
-  historyTimer: ReturnType<typeof setTimeout> | null
-  /** EXP-746: latest-wins STATE by kind (`diff`, `config_state`, `usage`,
-   *  `rate_limit`, `turn`, `background_tasks`, and EXP-850's per-id
-   *  `workflow:{id}` cards) —
-   *  the newest one replaces its predecessor, stays OUT of the count/byte
-   *  budget, and the join replay sends them after the log. Each schema
-   *  already caps the payload (a diff at 512KB, a config at 8 options). */
-  lastByKind: Map<string, ActivityEntry>
-  /** EXP-783: this log has EVICTED at least one event since it was last
-   *  cleared, so it is a tail rather than the whole run. Reported on
-   *  `activity_synced` so a client knows the pages below it must be asked
-   *  for from the device (`history_page`) and are not simply absent. */
-  activityTruncated: boolean
-  /** EXP-783: the `history_page` asks in flight, by the RELAY-issued id the
-   *  publisher answers with (EXP-795: every viewer numbers its own asks from
-   *  `p1`, so two viewers in one room would otherwise share a key and one
-   *  would receive the other's page). Dropped with the viewer, with the
-   *  publisher the ask went to, with the room, and by its own timer. */
-  historyPages: Map<string, HistoryPageAsk>
-  /** EXP-796: the machine this history room was opened AGAINST — the ticket's
-   *  device, under the account it is registered to. Set by `requestHistory`
-   *  and looked up LIVE on every page ask, so a device that re-dialed its
-   *  control socket in between still answers. Absent on a room a publisher
-   *  opened itself. */
-  historyDevice: { userId: string; deviceId: string } | null
-  /** EXP-796: the device replayed its journal and said `bye {outcome:
-   *  'history'}`; the room now LINGERS with no publisher so the parked
-   *  viewers can page ("Load earlier") down the device's control socket.
-   *  Closed by `lingerTimer`, by the last viewer leaving, or by the device
-   *  going away with a page in flight. */
-  historyServed: boolean
-  /** #EXP-1405: opened for a session the server still calls ALIVE (the
-   *  ticket's `live` claim: an idle row whose run went away). Its replay is
-   *  not an ending: the room lingers for as long as a viewer stays (the
-   *  run's publisher takes it back when it continues), and every way it
-   *  fails answers the retryable `no_such_session`, never a terminal `bye`. */
-  live: boolean
-  /** #EXP-1415: the run's LIVE publisher (a `hello` without `replay`) holds
-   *  this room, or held it and is inside its reconnect grace. A device's
-   *  journal replay is refused while this is set: the live one always wins,
-   *  because a `replaced` close is terminal for it. */
-  liveHeld: boolean
-  /** S-4: the publisher said `bye {outcome: 'suspended'}` — the desktop
-   *  released an idle chat's agent process, the session itself lives on.
-   *  The room is inside its reconnect grace like a dropped publisher's, and
-   *  its expiry is the retryable `no_such_session` (`dropLiveRoom`), never a
-   *  terminal `bye`. Cleared by the next publisher `hello`. */
-  suspended: boolean
-  /** EXP-796: fires HISTORY_ROOM_LINGER_MS after the replay's `bye`. */
-  lingerTimer: ReturnType<typeof setTimeout> | null
-  /** EXP-936: the ONE `compact_request` awaiting the host's verdict, or
-   *  null. Resolved by the publisher's `compact_verdict`, by the publisher
-   *  dropping, by the room closing, or by its own timer — never left
-   *  dangling, since the web server's tool call is blocked on it. */
-  compactAsk: CompactAsk | null
 }
 
 /** NEW-55: one voice call — a `caller` streaming to the member's voice
@@ -193,271 +92,72 @@ function callDeviceKey(ownerId: string, deviceId: string): string {
   return `${ownerId}\n${deviceId}`
 }
 
-/** The `noHistory` backoff's key: one machine (under its owner) and one
- *  session. The session id comes last, so `clearNoHistory` matches a suffix. */
-function noHistoryKey(ownerId: string, deviceId: string, sessionId: string): string {
-  return `${callDeviceKey(ownerId, deviceId)}\n${sessionId}`
+/** The device a control route names: the account it is registered under
+ *  (the session's host) and its steer deviceId. */
+export interface DeviceRef {
+  userId: string
+  deviceId: string
 }
 
 /** EXP-936: what `POST /sessions/:id/compact` gets back. `delivered: false`
- *  = no live publisher held the room, or the one that did never answered
- *  (a host older than EXP-936 ignores the frame); the web server turns
- *  that into a tool error, never into a verdict. */
+ *  = the device's control socket is not connected (`device_offline`), it
+ *  never answered (`no_verdict`: a host older than the frame), or another ask
+ *  for the session still waits (`busy`); the web server turns that into a
+ *  tool error, never into a verdict. */
 export type CompactOutcome =
-  | { delivered: false; reason: `no_publisher` | `no_verdict` | `busy` }
+  | { delivered: false; reason: `device_offline` | `no_verdict` | `busy` }
   | { delivered: true; accepted: boolean; refusedBecause?: CompactRefusal }
 
+/** One in-flight compaction ask: the control socket it went down, and the
+ *  device (owner + deviceId) whose verdict alone settles it. */
 interface CompactAsk {
+  control: Conn
+  ownerId: string
+  deviceId: string
   resolve: (outcome: CompactOutcome) => void
   timer: ReturnType<typeof setTimeout>
 }
 
-/** One in-flight `history_page`: who gets the chunks, under which id THEY
- *  asked, and the timer that frees the slot if no chunk ever comes. */
-interface HistoryPageAsk {
-  viewer: Conn
-  requestId: string
-  timer: ReturnType<typeof setTimeout>
-}
-
-// EXP-249: full-history re-publish on reconnect means a long session's log is
-// the whole session. Bounded twice — a count cap for pathological chatter and
-// a byte budget for pathological size; the byte budget is a hard bound and
-// evicts oldest-first, and both always leave at least one event.
-//
-// EXP-748: the count cap is TWO-TIER. A parallelising agent spends most of a
-// long run inside subagents, so the flat cap used to evict the main
-// transcript — the narration a viewer actually reads — to make room for a
-// fan-out's tool spam. So the count cap gives up subagent tool headlines
-// FIRST (oldest first, across every subagent) and only drops the head once
-// none are left; on top of that ONE subagent keeps at most
-// SUBAGENT_TOOL_CAP of them, so a single runaway fan-out cannot spend the
-// whole budget. The `subagent` card's `toolCalls` (protocol.ts) is what keeps
-// the count honest once entries are evicted.
-const ACTIVITY_LOG_CAP = 2000
-const ACTIVITY_BYTE_CAP = 4 * 1024 * 1024
-const SUBAGENT_TOOL_CAP = 50
-
-// EXP-746: kinds that are latest-wins STATE rather than transcript rows.
-// Appending them would burn the budgets above on stale snapshots — a `usage`
-// frame per turn on a long run would evict real transcript events out of the
-// replay window. EXP-784 adds `rate_limit`; a `tool_update` (EXP-785) is a
-// plain log row, deliberately NOT here — it folds into its tool row. EXP-848
-// adds `turn`, so a late joiner learns whether the agent is mid-turn.
-const LATEST_WINS_KINDS = new Set([
-  `diff`,
-  `config_state`,
-  `usage`,
-  // EXP-1051: where the window the `usage` meter measures went, layer by
-  // layer. Published once per conversation (again after a `/clear`), so it is
-  // a SLOT beside `usage` and never a transcript row.
-  `context_layout`,
-  `rate_limit`,
-  `turn`,
-  // EXP-850 §2/§3: the bottom strip and the workflow cards. A `workflow` is
-  // latest-wins PER ID, so its key is `workflow:{id}` (see `latestWinsKey`)
-  // and one room may hold WORKFLOW_SLOT_CAP of them.
-  `background_tasks`,
-  `workflow`,
-  // EXP-927: the agent's own task list, the strip's first block.
-  `task_list`,
-  // EXP-861: the queued user messages behind a running turn.
-  `queue`,
-])
-// Replay order for the latest-wins slots — CANONICAL, not a leftover: this is
-// the order every join replay hands the slots to a client. The keyed
-// `workflow` cards sit between `turn` and `background_tasks` (EXP-850 §3) and
-// `diff` lands LAST, so the changes bar repaints after the cards it belongs
-// beside.
-const LATEST_REPLAY_ORDER = [
-  `config_state`,
-  `usage`,
-  // EXP-1051: right behind the meter it decomposes — a client that folds the
-  // layout first would draw a bar with no scale.
-  `context_layout`,
-  `rate_limit`,
-  `turn`,
-  `queue`,
-  `workflow`,
-  `background_tasks`,
-  `task_list`,
-  `diff`,
-] as const
-
-// EXP-850 §3: how many workflow cards one room keeps — the desktop journal's
-// JOURNAL_WORKFLOW_CAP, mirrored so a relay replay and a device replay carry
-// the same set. Oldest evicted (JS Map keeps insertion order).
-const WORKFLOW_SLOT_CAP = 16
-
-/** The `lastByKind` key an event occupies. EXP-850: a `workflow` is keyed by
- *  its id (one card per workflow, all of them replayed), everything else by
- *  its kind alone. */
-function latestWinsKey(event: ActivityEvent): string {
-  if (event.kind === `workflow`) return `workflow:${event.id}`
-  return event.kind
-}
-
-// An activity socket with more than this queued is evicted: activity is
-// low-volume JSON, so saturation means the consumer is gone, not lagging.
-const VIEWER_HIGH_WATER = 512 * 1024
-const PUBLISHER_GRACE_MS = 60_000
-/** S-4: the `bye` outcome of an idle chat releasing its agent process
- *  (`SUSPEND_OUTCOME`, crates/engine/src/session.rs). */
-const SUSPENDED_OUTCOME = `suspended`
-// REV2-X: If we receive no frames (including pings) from a publisher for this
-// long, assume the connection is dead and close the room. Desktop pings every
-// 30s, so 90s = 3 missed pings = definitely dead. Fixes the plan-mode hang
-// where a dropped connection sits undetected and UIs retry `no_such_session`.
-const PUBLISHER_IDLE_TIMEOUT_MS = 90_000
-const PUBLISHER_IDLE_CHECK_INTERVAL_MS = 30_000
-// EXP-648: viewers (web/iOS/Android) redial a nominally live socket that has
-// been silent for 45s — three of these ticks — because nothing else tells
-// them a quiet socket from a dead one: the desktop's 30s ping is a WS control
-// frame Bun hands to `ping`, never to `message`, so while an agent waits on a
-// question or plan approval the relay used to send viewers NOTHING, and every
-// foreground/push/network kick cost a mint + activity_reset + full replay.
-// Same 3-missed-ticks ratio as the publisher's 30s ping / 90s idle window.
-const VIEWER_KEEPALIVE_INTERVAL_MS = 15_000
 // A frame the schema rejects is dropped on the floor; without a log line a
-// publisher/client version skew is invisible from the relay side. One warning
-// per SOCKET per window keeps a chatty or hostile client from filling the
-// log.
+// client version skew is invisible from the relay side. One warning per
+// SOCKET per window keeps a chatty or hostile client from filling the log.
 const FRAME_WARN_INTERVAL_MS = 30_000
-// EXP-773: how long a pending history room waits for the device to hello. It
-// has to mint a publisher ticket (a tRPC round trip) and read a file back, so
-// the window is generous; past it the viewer is told the transcript is not
-// coming rather than left spinning.
-const HISTORY_TIMEOUT_MS = 20_000
-/** EXP-773: the `bye` outcome a history replay ends with (steer's
- *  `HISTORY_OUTCOME`) — the room answers `activity_synced` before closing,
- *  because the parked viewers have just been sent a complete transcript. */
-const HISTORY_OUTCOME = `history`
-/** EXP-783: how many `history_page` asks one room may have outstanding. A
- *  viewer pages one screen at a time and a chunk is bounded by
- *  `HISTORY_PAGE_MAX`, so this only exists to stop a misbehaving client from
- *  making a device replay its journal in parallel forever. */
-const HISTORY_PAGES_IN_FLIGHT = 4
-/** EXP-795: how long one `history_page` ask may wait for its chunk. The
- *  publisher answers inline off a bounded file read, so a slot still open
- *  after this belongs to a publisher that is gone — freed, or the room's
- *  in-flight cap would fill with dead asks and refuse every viewer. */
-const HISTORY_PAGE_TIMEOUT_MS = 20_000
 /** EXP-936: how long a `compact_request` may wait for the host's verdict.
- *  The device answers off in-memory state the moment the frame lands, so a
- *  slot still open after this is a host that does not speak the frame; the
+ *  The device answers off in-memory state the moment the frame lands, so an
+ *  ask still open after this is a host that does not speak the frame; the
  *  web server's own fetch timeout sits above this, so the relay always
  *  answers first with a structured `no_verdict`. */
 export const COMPACT_VERDICT_TIMEOUT_MS = 4_000
-/** EXP-796: how long a history room stays up after the device's replay said
- *  `bye {outcome:'history'}`. The parked viewers keep their sockets and page
- *  older transcript through the device's control socket; the room goes when
- *  this expires or the last viewer leaves, whichever is first, and viewers
- *  never re-dial to page. */
-export const HISTORY_ROOM_LINGER_MS = 5 * 60_000
-/** #EXP-1415: a session whose device had no transcript to give (it answered
- *  `history_none`, or stayed silent past HISTORY_TIMEOUT_MS) is not asked
- *  again for this long, doubling per miss up to the cap: joins inside the
- *  window are answered at once (`no_such_session` for a live session,
- *  `history_unavailable` for an ended one) instead of parking 20s each. A
- *  publisher `hello` for the session clears it. */
-export const NO_HISTORY_BACKOFF_MS = 30_000
-export const NO_HISTORY_BACKOFF_CAP_MS = 10 * 60_000
-/** #EXP-1415: how many sessions the backoff table remembers (oldest out). */
-const NO_HISTORY_MAX_ENTRIES = 10_000
 
 function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
 }
 
-/** Serialized once: every tick fans the same bytes to every joined viewer. */
-const KEEPALIVE_FRAME = frame({ t: `keepalive` })
-
-/** EXP-700: server-injected input chunk size — mirrors the browser viewer's
- * INPUT_CHUNK_CHARS (steer-session-store.ts). Well under the socket's
- * `maxPayloadLength` (1 MiB, index.ts): the chunking keeps injected text in
- * paste-sized pieces the publisher forwards smoothly, not at a frame cap. */
-const INPUT_CHUNK_CHARS = 4096
-/** EXP-656: end-of-join-replay marker (see `ServerFrame`). EXP-783 made it
- *  room-dependent — it names the span the replay covered — so it is built per
- *  room by `Hub.activitySyncedFrame` rather than serialized once. */
-function activitySyncedFrame(room: Room): string {
-  // A room whose log is empty (nothing but latest-wins slots so far) names the
-  // empty span at 0: the client keeps nothing below it, which is the full swap
-  // an empty replay wants anyway.
-  const first = room.activityLog[0]?.seq ?? 0
-  const last = room.activityLog[room.activityLog.length - 1]?.seq ?? 0
-  // The log is a tail when this room evicted — and (EXP-795) when the
-  // publisher's own replay started above zero: its in-memory journal is a
-  // bounded tail of the file it wrote, and a resumed run inherits its
-  // predecessor's lines. Either way the pages below `firstSeq` exist on the
-  // device, and a client gated on this flag alone could never ask for them.
-  const truncated = room.activityTruncated || first > 0
-  return frame({
-    t: `activity_synced`,
-    firstSeq: first,
-    lastSeq: last,
-    truncated: truncated || undefined,
-  })
-}
+/** Serialized once: the answer to every refused content frame. */
+const CONTENT_REFUSED_FRAME = frame({ t: `error`, code: `content_refused` })
 
 export class Hub {
   private conns = new Map<RelaySocket, Conn>()
-  /** userId → deviceId → control connection: the routing table `/start` and
-   *  `/nudge` send down, and nothing else. EXP-672 dropped the outbound
-   *  presence listing (label/connectedAt/caps) — the web server reads the
+  /** userId → deviceId → control connection: the routing table nudge, kill,
+   *  interrupt, compact and call rings send down, and nothing else. EXP-672
+   *  dropped the outbound presence listing — the web server reads the
    *  persisted `devices` row for everything it shows or gates on. */
   private devices = new Map<string, Map<string, Conn>>()
-  /** sessionId (== coding_sessions.id) → room. */
-  private rooms = new Map<string, Room>()
+  /** EXP-936: sessionId → its ONE in-flight compaction ask. */
+  private compactAsks = new Map<string, CompactAsk>()
   /** NEW-55: callId → call room, and the voice device (owner + deviceId) →
    *  its ONE running callId (a second caller reads `busy`). */
   private calls = new Map<string, CallRoom>()
   private callsByDevice = new Map<string, string>()
-  /** REV2-X: Periodic check for idle publishers. */
-  private idleCheckInterval: ReturnType<typeof setInterval>
-  /** EXP-648: the viewer keepalive tick. */
-  private keepaliveInterval: ReturnType<typeof setInterval>
 
   // EXP-553: monotonic counters for the admin performance page — exposed via
   // counters() on the secret-gated /stats endpoint (stats() stays gauges-only
   // because /healthz is public).
   private connectionsAccepted = 0
-  private activityFramesFanned = 0
-  private slowConsumerEvictions = 0
-  // EXP-656: churn diagnostics — a viewer that redials every ~30s shows up as
-  // a join rate, a desktop the idle detector keeps detaching as idle closes.
-  private viewerJoins = 0
-  private publisherIdleCloses = 0
-  // EXP-773: how often a viewer asked a device for a stored transcript, and
-  // the two ways that ask fails.
-  private historyRequests = 0
-  private historyDeviceOffline = 0
-  private historyTimeouts = 0
-  /** #EXP-1415: `history_none` answers, joins answered from the backoff,
-   *  and journal replays refused because a live publisher holds the room. */
-  private historyNone = 0
-  private historyBackoffAnswers = 0
-  private replayRefusals = 0
-  /** #EXP-1415: the no-transcript backoff (insertion-ordered, so the oldest
-   *  entry is the first key), keyed by `noHistoryKey`: the MACHINE asked, not
-   *  just the session, so a session that moved from device A to device B asks
-   *  B at once instead of waiting out A's misses (up to 10 min). */
-  private noHistory = new Map<string, { until: number; misses: number }>()
-  /** EXP-783: `history_page` asks routed to a publisher, and (EXP-795) how
-   *  many of them the publisher never answered. */
-  private historyPageRequests = 0
-  private historyPageTimeouts = 0
-  /** EXP-795: numbers the relay-issued `history_page` ids. */
-  private historyPageSeq = 0
-  /** EXP-796: `history_page` asks routed down a device's CONTROL socket (a
-   *  lingering history room has no publisher), and the two ways a lingering
-   *  room ends without its viewers leaving — the linger timer, and the device
-   *  going offline with a page in flight. */
-  private historyPagesViaDevice = 0
-  private historyRoomLingerExpiries = 0
-  private historyRoomDeviceLost = 0
-  /** EXP-936: `compact_request`s routed to a publisher, and how many the
-   *  host never answered (a host older than the frame). */
+  /** VAPP-43: session content frames refused (any role). */
+  private contentFramesRefused = 0
+  /** EXP-936: `compact_request`s sent down a control socket, and how many
+   *  the host never answered (a host older than the frame). */
   private compactRequests = 0
   private compactVerdictTimeouts = 0
   /** NEW-55: calls rung, the three ways a ring fails, and the audio frames
@@ -472,24 +172,14 @@ export class Hub {
   private callFramesDropped = 0
   private callFramesSkipped = 0
 
-  constructor() {
-    // REV2-X: Start the idle publisher detector — checks every 30s for
-    // publishers that haven't sent ANY frame (including pings) in 90s.
-    this.idleCheckInterval = setInterval(() => {
-      this.checkIdlePublishers()
-    }, PUBLISHER_IDLE_CHECK_INTERVAL_MS)
-    this.keepaliveInterval = setInterval(() => {
-      this.sendViewerKeepalives()
-    }, VIEWER_KEEPALIVE_INTERVAL_MS)
-  }
-
-  /** Stop the periodic ticks (for clean shutdown/tests). */
+  /** Stop every timer (for clean shutdown/tests). */
   destroy() {
-    clearInterval(this.idleCheckInterval)
-    clearInterval(this.keepaliveInterval)
     // NEW-55: every call's ring, length and idle timers die with the hub.
     for (const call of [...this.calls.values()]) {
       this.removeCall(call)
+    }
+    for (const sessionId of [...this.compactAsks.keys()]) {
+      this.settleCompactAsk(sessionId, { delivered: false, reason: `device_offline` })
     }
   }
 
@@ -500,11 +190,7 @@ export class Hub {
     this.conns.set(sock, conn)
     this.connectionsAccepted += 1
 
-    if (claims.role === `publisher` && claims.sessionId) {
-      // Room attaches on `hello` — nothing yet.
-    } else if (claims.role === `viewer` && claims.sessionId) {
-      // Viewers join on `join` — nothing yet.
-    } else if (claims.role === `caller`) {
+    if (claims.role === `caller`) {
       // NEW-55: a caller rings on connect — its ticket is the whole ask.
       this.ringCall(conn)
     } else if (claims.role === `call_host`) {
@@ -516,14 +202,13 @@ export class Hub {
     const conn = this.conns.get(sock)
     if (!conn) return
 
-    // REV2-X: Update last activity timestamp for publisher connections — ANY
-    // message (including pings) counts, so an idle-but-connected publisher
-    // (plan mode) stays alive while a truly dead publisher times out.
-    if (conn.claims.role === `publisher` && conn.sessionId) {
-      const room = this.rooms.get(conn.sessionId)
-      if (room && room.publisher === conn) {
-        room.lastPublisherActivity = Date.now()
-      }
+    // VAPP-43: session content never crosses the relay. Checked on the frame
+    // TYPE alone, before any schema: a content frame is refused whatever it
+    // carries, and its content is never parsed further nor logged.
+    const t = frameType(data)
+    if (t !== null && isContentFrameType(t)) {
+      this.refuseContent(conn, t)
+      return
     }
 
     const msg = parseClientFrame(data)
@@ -614,7 +299,7 @@ export class Hub {
 
   /** One rate-limited line for a frame the schema rejected: the socket's role,
    *  the frame's `t`, and the first zod issue's path — structure only, never
-   *  frame CONTENT (the activity channel is scrubbed and stays that way). */
+   *  frame CONTENT. */
   private warnRejectedFrame(conn: Conn, raw: string) {
     if (!this.mayWarn(conn)) return
     const { t, issue } = describeClientFrameRejection(raw)
@@ -623,23 +308,15 @@ export class Hub {
     )
   }
 
-  /** REV2-X: Bun delivers protocol-level ping frames to a dedicated `ping`
-   * handler, NOT to `message`, so an idle publisher's 30s keepalive pings
-   * never reach onMessage. Without this hook, lastPublisherActivity would
-   * stop refreshing during a live-but-quiet session (plan mode / a parked
-   * agent), and checkIdlePublishers would wrongly detach the publisher after
-   * 90s (a churny reconnect at best — EXP-283 made the idle close
-   * non-terminal). Bump activity here exactly as onMessage does for data
-   * frames. */
-  onPing(sock: RelaySocket) {
-    const conn = this.conns.get(sock)
-    if (!conn) return
-    if (conn.claims.role === `publisher` && conn.sessionId) {
-      const room = this.rooms.get(conn.sessionId)
-      if (room && room.publisher === conn) {
-        room.lastPublisherActivity = Date.now()
-      }
-    }
+  /** VAPP-43: answer a session content frame with `content_refused` on the
+   *  socket that sent it and drop it. The socket stays open (a control
+   *  socket's presence must survive a stray frame from an old build); the
+   *  log names the role and the type, never a byte of the frame. */
+  private refuseContent(conn: Conn, t: string) {
+    this.contentFramesRefused += 1
+    conn.sock.send(CONTENT_REFUSED_FRAME)
+    if (!this.mayWarn(conn)) return
+    console.warn(`[hub] refused ${conn.claims.role} content frame (t=${t})`)
   }
 
   onClose(sock: RelaySocket) {
@@ -654,35 +331,20 @@ export class Hub {
       return
     }
 
+    // A compaction ask that went down THIS socket has nobody left to answer.
+    for (const [sessionId, ask] of [...this.compactAsks]) {
+      if (ask.control === conn) {
+        this.settleCompactAsk(sessionId, { delivered: false, reason: `device_offline` })
+      }
+    }
+
     // Device presence eviction.
     if (conn.deviceId) {
       const byDevice = this.devices.get(conn.claims.sub)
       if (byDevice?.get(conn.deviceId) === conn) {
-        byDevice!.delete(conn.deviceId)
-        if (byDevice!.size === 0) this.devices.delete(conn.claims.sub)
-        // EXP-796: a page ask went down THIS socket and nothing will answer
-        // it — the device is off the table, not merely replaced.
-        this.deviceLeftHistoryRooms(conn.claims.sub, conn.deviceId)
+        byDevice.delete(conn.deviceId)
+        if (byDevice.size === 0) this.devices.delete(conn.claims.sub)
       }
-    }
-
-    if (!conn.sessionId) return
-    const room = this.rooms.get(conn.sessionId)
-    if (!room) return
-
-    if (room.publisher === conn) {
-      // Publisher dropped without bye → grace period for reconnect.
-      this.detachPublisher(room)
-      return
-    }
-
-    room.activityMembers.delete(conn)
-    // EXP-783: a page this viewer asked for has nowhere to go now.
-    this.dropHistoryPages(room, conn)
-    // EXP-796: a lingering history room exists for its viewers alone — the
-    // last one leaving takes it down (nobody is left to tell).
-    if (room.historyServed && room.activityMembers.size === 0) {
-      this.closeRoom(room, HISTORY_OUTCOME)
     }
   }
 
@@ -695,13 +357,13 @@ export class Hub {
         let byDevice = this.devices.get(conn.claims.sub)
         // REV-11: a socket re-announcing under a NEW deviceId must evict the
         // entry it registered before — onClose only reclaims the LAST
-        // announced id, so without this every extra `online` frame leaked a
-        // DeviceEntry forever (unbounded heap for a hostile control client,
-        // and ghost devices whose nudge sends into a dead socket).
+        // announced id, so without this every extra `online` frame leaked an
+        // entry forever (unbounded heap for a hostile control client, and
+        // ghost devices whose nudge sends into a dead socket).
         // One control socket owns at most one presence entry.
         if (conn.deviceId && conn.deviceId !== msg.deviceId) {
           if (byDevice?.get(conn.deviceId) === conn) {
-            byDevice!.delete(conn.deviceId)
+            byDevice.delete(conn.deviceId)
           }
         }
         conn.deviceId = msg.deviceId
@@ -718,337 +380,18 @@ export class Hub {
         return
       }
 
-      case `hello`: {
-        if (conn.claims.role !== `publisher`) return
-        const sessionId = conn.claims.sessionId
-        if (!sessionId || msg.sessionId !== sessionId) return
-        const replay = msg.replay === true
-        let room = this.rooms.get(sessionId)
-        // #EXP-1415: a journal replay never takes a room from the run's live
-        // publisher, connected or inside its reconnect grace (`is_publishing`
-        // on the device can miss that window: an idle run's publisher coming
-        // back while the ask is in flight). Refused before the socket joins
-        // the room, so its frames and its close touch nothing here.
-        if (replay && room?.liveHeld && (room.publisher || room.staleTimer !== null)) {
-          this.replayRefusals += 1
-          conn.sock.close(CLOSE_REPLACED, `live_publisher`)
-          return
-        }
-        conn.sessionId = sessionId
-        // A publisher for the session exists, so it has a transcript now.
-        // Its ticket names no device, so every machine's entry goes.
-        this.clearNoHistory(sessionId)
-        if (!room) {
-          room = this.newRoom(sessionId, conn, msg.issueId)
-          room.liveHeld = !replay
-          this.rooms.set(sessionId, room)
-        } else {
-          room.liveHeld = !replay
-          // EXP-773: the publisher this room was WAITING for (a history
-          // replay, or a live publisher that raced the ask) — the room stops
-          // being pending and the timeout is off.
-          if (room.historyTimer) {
-            clearTimeout(room.historyTimer)
-            room.historyTimer = null
-          }
-          // EXP-796: a publisher into a LINGERING room (a second replay from
-          // a redial) takes it back: the linger is off and the log is a
-          // replay's again, so the flow below starts it empty.
-          if (room.lingerTimer) {
-            clearTimeout(room.lingerTimer)
-            room.lingerTimer = null
-          }
-          room.pendingHistory = false
-          room.historyServed = false
-          // Re-hello after a drop, a live publisher taking a replay's room
-          // back, or a second replay: every publisher opens with its own
-          // `activity_reset`, which clears this log and tells the viewers —
-          // the relay never guesses what survived the gap.
-          if (room.staleTimer) {
-            clearTimeout(room.staleTimer)
-            room.staleTimer = null
-          }
-          if (room.publisher && room.publisher !== conn) {
-            room.publisher.sock.close(CLOSE_REPLACED, `replaced`)
-          }
-          // EXP-795: a page ask addressed to the previous socket is dead.
-          this.dropHistoryPages(room)
-          room.suspended = false
-          room.publisher = conn
-          room.lastPublisherActivity = Date.now() // REV2-X: reconnect resets the timer
-        }
-        return
-      }
-
-      case `join`: {
-        const sessionId = conn.claims.sessionId
-        if (!sessionId) return
-        if (conn.claims.role !== `viewer`) return
-
-        let room = this.rooms.get(sessionId)
-        if (!room) {
-          // EXP-773: the room is not up, but the ticket may name the machine
-          // that RAN the session — the transcript lives on that device's
-          // disk, never here. Ask it for one; the room opens PENDING and the
-          // viewer parks until the replay arrives (or the timer gives up).
-          room = this.requestHistory(conn, sessionId)
-          if (!room) return // an error frame went out and the socket is closed
-        } else if (room.historyDevice) {
-          // #EXP-1405: `live` is the CURRENT joiner's claim, never a stale
-          // one — a ticket minted after the session ended says so, and the
-          // room must stop outliving its viewers (the linger comes back).
-          room.live = conn.claims.live === true
-          this.armLinger(room)
-        }
-        conn.sessionId = sessionId
-
-        room.activityMembers.add(conn)
-        // `activity_reset` first: a reconnecting client keeps rendering its
-        // old feed until the relay says otherwise, so the replay that follows
-        // is always a complete, self-contained picture.
-        conn.sock.send(frame({ t: `activity_reset` }))
-        this.replayActivity(room, conn)
-        if (room.pendingHistory) {
-          // EXP-773: a second viewer joining a pending room gets whatever has
-          // landed so far and the same "still fetching" marker — never
-          // `activity_synced`, which would claim a complete picture.
-          conn.sock.send(frame({ t: `history_pending` }))
-        } else {
-          // EXP-656: unconditional — an empty log still ends with the marker,
-          // so a client never waits out its quiet fallback on a fresh room.
-          conn.sock.send(activitySyncedFrame(room))
-        }
-        this.viewerJoins += 1
-        return
-      }
-
-      case `input`: {
-        const room = this.roomFor(conn)
-        if (!room || !room.publisher) return
-        // Steering is seamless and owner-only (EXP-312): tickets are minted
-        // exclusively for the session owner, so a joined viewer's keystrokes
-        // just flow — no operator claim, no perm tier.
-        if (!room.activityMembers.has(conn)) return
-        room.publisher.sock.send(frame({ t: `input`, data: msg.data }))
-        return
-      }
-
-      case `answer`: {
-        const room = this.roomFor(conn)
-        if (!room || !room.publisher) return
-        // Same gating as `input`.
-        if (!room.activityMembers.has(conn)) return
-        room.publisher.sock.send(
-          frame({
-            t: `answer`,
-            questionId: msg.questionId,
-            ...(msg.askId !== undefined ? { askId: msg.askId } : {}),
-            keys: msg.keys,
-            ...(msg.text !== undefined ? { text: msg.text } : {}),
-          })
-        )
-        return
-      }
-
-      case `kill`: {
-        const room = this.roomFor(conn)
-        if (!room || !room.publisher) return
-        // Same gating as `input` — a joined (owner-minted) viewer.
-        if (!room.activityMembers.has(conn)) return
-        room.publisher.sock.send(frame({ t: `kill` }))
-        return
-      }
-
-      case `interrupt`: {
-        const room = this.roomFor(conn)
-        if (!room || !room.publisher) return
-        // Same gating as `input` — a joined (owner-minted) viewer.
-        if (!room.activityMembers.has(conn)) return
-        room.publisher.sock.send(frame({ t: `interrupt` }))
-        return
-      }
-
-      case `unqueue`: {
-        const room = this.roomFor(conn)
-        if (!room || !room.publisher) return
-        // Same gating as `input`.
-        if (!room.activityMembers.has(conn)) return
-        room.publisher.sock.send(frame({ t: `unqueue`, id: msg.id }))
-        return
-      }
-
-      case `set_config`: {
-        const room = this.roomFor(conn)
-        if (!room || !room.publisher) return
-        // EXP-746: same gating as `input` — membership is only ever granted
-        // by the `join` arm, which checks claims.role === 'viewer', so the
-        // role test is transitive (regression-locked by the stale
-        // public_viewer test).
-        if (!room.activityMembers.has(conn)) return
-        room.publisher.sock.send(
-          frame({ t: `set_config`, id: msg.id, value: msg.value })
-        )
-        return
-      }
-
-      case `set_mode`: {
-        const room = this.roomFor(conn)
-        if (!room || !room.publisher) return
-        // Same gating as `input`.
-        if (!room.activityMembers.has(conn)) return
-        room.publisher.sock.send(frame({ t: `set_mode`, id: msg.id }))
-        return
-      }
-
-      case `activity`: {
-        // Publisher-only: the desktop's scrubbed event stream.
-        const room = this.roomFor(conn)
-        if (!room || room.publisher !== conn) return
-        const entry = this.entryFor(msg.event, msg.seq)
-        if (LATEST_WINS_KINDS.has(msg.event.kind)) {
-          const key = latestWinsKey(msg.event)
-          // EXP-850 §3: a room that starts more than WORKFLOW_SLOT_CAP
-          // workflows drops its OLDEST card (its transcript rows stay) rather
-          // than growing an unbounded map.
-          if (msg.event.kind === `workflow` && !room.lastByKind.has(key)) {
-            for (const held of room.lastByKind.keys()) {
-              if (this.workflowSlotCount(room) < WORKFLOW_SLOT_CAP) break
-              if (held.startsWith(`workflow:`)) room.lastByKind.delete(held)
-            }
-          }
-          room.lastByKind.set(key, entry)
-        } else {
-          this.appendActivity(room, entry)
-        }
-        this.fanoutActivity(room, entry.framed)
-        return
-      }
-
-      // EXP-783: viewer → "give me the page below `beforeSeq`". The room's
-      // replay log is a TAIL; the whole run only exists on the device, so the
-      // ask goes to the LIVE publisher, which reads its journal file. EXP-795:
-      // forwarded under a relay-issued id (viewers number their own asks, so
-      // two in one room collide). EXP-796: a LINGERING history room (the
-      // device replayed and left) routes the ask down that device's control
-      // socket instead, and the chunk comes back naming the session; a room
-      // with neither takes no asks. A lingering room whose device has gone
-      // offline is answered the way a join finds an offline device:
-      // `error device_offline`, then a terminal `bye` — for every viewer,
-      // since no page can ever come.
-      case `history_page`: {
-        const room = this.roomFor(conn)
-        if (!room || !room.activityMembers.has(conn)) return
-        let target = room.publisher
-        let viaDevice = false
-        if (!target && room.historyServed && room.historyDevice) {
-          target =
-            this.devices
-              .get(room.historyDevice.userId)
-              ?.get(room.historyDevice.deviceId) ?? null
-          if (!target) {
-            this.historyRoomDeviceLost += 1
-            this.closeHistoryRoom(room, `device_offline`)
-            return
-          }
-          viaDevice = true
-        }
-        if (!target) return
-        if (room.historyPages.size >= HISTORY_PAGES_IN_FLIGHT) return
-        const relayId = `h${++this.historyPageSeq}`
-        const timer = setTimeout(() => {
-          if (room.historyPages.delete(relayId)) this.historyPageTimeouts += 1
-        }, HISTORY_PAGE_TIMEOUT_MS)
-        room.historyPages.set(relayId, {
-          viewer: conn,
-          requestId: msg.requestId,
-          timer,
-        })
-        target.sock.send(
-          frame({
-            t: `history_page`,
-            sessionId: room.sessionId,
-            requestId: relayId,
-            beforeSeq: msg.beforeSeq,
-            limit: msg.limit,
-          })
-        )
-        this.historyPageRequests += 1
-        if (viaDevice) this.historyPagesViaDevice += 1
-        return
-      }
-
-      // #EXP-1415: the device has no transcript for a pending room it was
-      // asked about. Only the device the room was opened against counts.
-      case `history_none`: {
-        if (conn.claims.role !== `control` || !conn.deviceId) return
-        const room = this.rooms.get(msg.sessionId)
-        if (!room || room.publisher || !room.pendingHistory) return
-        const device = room.historyDevice
-        if (
-          !device ||
-          device.userId !== conn.claims.sub ||
-          device.deviceId !== conn.deviceId
-        ) {
-          return
-        }
-        this.historyNone += 1
-        this.noteNoHistory(noHistoryKey(device.userId, device.deviceId, room.sessionId))
-        this.failPendingHistory(room)
-        return
-      }
-
-      // EXP-783: publisher → one page of older transcript, delivered to the
-      // ONE viewer that asked for it under the id IT used. Deliberately never
-      // appended to `activityLog`: these events are older than everything in
-      // it, and the log is the join tail, not the run.
-      //
-      // EXP-796: a device's CONTROL socket answers too — a lingering history
-      // room has no publisher — and then `sessionId` names the room. Only the
-      // device the room was opened against may answer it (same owner, same
-      // deviceId), and only a room that is actually lingering.
-      case `history_chunk`: {
-        const room =
-          conn.claims.role === `control`
-            ? this.historyRoomServedBy(conn, msg.sessionId)
-            : this.roomFor(conn)
-        if (!room) return
-        if (conn.claims.role !== `control` && room.publisher !== conn) return
-        const ask = room.historyPages.get(msg.requestId)
-        if (!ask) return
-        if (msg.done) this.dropHistoryPage(room, msg.requestId)
-        if (!room.activityMembers.has(ask.viewer)) return
-        ask.viewer.sock.send(
-          frame({
-            t: `history_chunk`,
-            requestId: ask.requestId,
-            events: msg.events,
-            seqs: msg.seqs,
-            done: msg.done,
-          })
-        )
-        return
-      }
-
-      case `activity_reset`: {
-        // Publisher-only: the desktop is about to re-publish its full history.
-        const room = this.roomFor(conn)
-        if (!room || room.publisher !== conn) return
-        this.clearActivityLog(room)
-        this.fanoutActivity(room, frame({ t: `activity_reset` }))
-        return
-      }
-
-      // EXP-936: publisher-only — the host's answer to the room's ONE
-      // pending `compact_request`. Never fanned out, never logged: the
-      // verdict belongs to the web server's awaiting HTTP call alone. A
-      // verdict with no ask open (its timer fired first, or a stray frame)
-      // is dropped.
+      // EXP-936: the host's answer to the session's ONE pending
+      // `compact_request`, on the CONTROL socket of the device it was sent
+      // to (same owner + deviceId); any other socket's verdict is ignored.
+      // Never forwarded: the verdict belongs to the web server's awaiting
+      // HTTP call alone. A verdict with no ask open is dropped.
       case `compact_verdict`: {
-        const room = this.roomFor(conn)
-        if (!room || room.publisher !== conn) return
-        if (msg.sessionId !== room.sessionId) return
+        if (conn.claims.role !== `control` || !conn.deviceId) return
+        const ask = this.compactAsks.get(msg.sessionId)
+        if (!ask) return
+        if (ask.ownerId !== conn.claims.sub || ask.deviceId !== conn.deviceId) return
         this.settleCompactAsk(
-          room,
+          msg.sessionId,
           msg.accepted
             ? { delivered: true, accepted: true }
             : {
@@ -1083,152 +426,78 @@ export class Hub {
         this.endCall(call, conn, msg.reason, true)
         return
       }
-
-      case `bye`: {
-        const room = this.roomFor(conn)
-        if (!room || room.publisher !== conn) return
-        // EXP-773: a history replay ends with a COMPLETE transcript, so the
-        // parked viewers are told the picture is whole before the room goes.
-        // Any other outcome is a live session ending and gets none.
-        if (msg.outcome === HISTORY_OUTCOME) {
-          const synced = activitySyncedFrame(room)
-          for (const member of room.activityMembers.keys()) {
-            member.sock.send(synced)
-          }
-          // EXP-796: the room LINGERS without its publisher so the viewers
-          // can page older transcript ("Load earlier") through the device's
-          // control socket — nobody re-dials. A room a publisher opened
-          // itself (no device to page through) still closes as before.
-          if (room.historyDevice) {
-            this.lingerHistoryRoom(room, conn)
-            return
-          }
-        }
-        // S-4: an idle chat releasing its agent process is no ending — the
-        // session resumes on the next message, on a new publisher. Old and
-        // new clients alike stay retryable only on `publisher_lost`, so the
-        // viewers hear exactly that, the sockets stay open, and the room
-        // takes the dropped publisher's grace (its expiry: `dropLiveRoom`).
-        if (msg.outcome === SUSPENDED_OUTCOME) {
-          room.suspended = true
-          conn.sessionId = undefined
-          this.detachPublisher(room)
-          const lost = frame({ t: `bye`, outcome: `publisher_lost` })
-          for (const member of room.activityMembers.keys()) {
-            member.sock.send(lost)
-          }
-          return
-        }
-        // #EXP-1405: the session itself ended — nothing is live any more,
-        // so the room answers with the ending, never the retryable drop.
-        room.live = false
-        this.closeRoom(room, msg.outcome ?? `ended`)
-        return
-      }
     }
   }
 
   // ── Admin (server-to-server HTTP, secret-authed) ──────────────────────────
 
-  sessionInfo(sessionId: string) {
-    const room = this.rooms.get(sessionId)
-    if (!room) return { live: false as const }
-    return {
-      live: room.publisher !== null,
-      viewers: room.activityMembers.size,
-      issueId: room.issueId ?? null,
-    }
+  /** The control socket of a device, or undefined when it is not connected. */
+  private controlFor(device: DeviceRef): Conn | undefined {
+    return this.devices.get(device.userId)?.get(device.deviceId)
   }
 
-  /** EXP-481: fire-and-forget `check_in` nudge to a device's control socket —
-   * "the server persisted new work for you, heartbeat now". Returns whether a
-   * live socket received it; the heartbeat pickup is the durable path either
-   * way. */
+  /** EXP-481: fire-and-forget check-in nudge to a device's control socket.
+   * Returns whether a live socket received it; the heartbeat pickup is the
+   * durable path either way. */
   nudge(userId: string, deviceId: string): boolean {
-    const control = this.devices.get(userId)?.get(deviceId)
+    const control = this.controlFor({ userId, deviceId })
     if (!control) return false
     control.sock.send(frame({ t: `check_in` }))
     return true
   }
 
-  /** Server-side kill (steer.killSession fallback path). */
-  killSession(sessionId: string): boolean {
-    const room = this.rooms.get(sessionId)
-    // #EXP-1415: every end the server makes posts here (`sessions/lifecycle`
-    // relay kills), and it is the only way a LIVE history room (an idle
-    // session's transcript, up while watched) learns the row ended: from
-    // here on it is an ended session's room. Served → its viewers get the
-    // ending now; still pending → the replay's outcome is terminal.
-    if (room?.historyDevice && room.live) {
-      room.live = false
-      if (room.historyServed && !room.publisher) {
-        this.closeRoom(room, HISTORY_OUTCOME)
-        return false
-      }
-    }
-    // S-4: a suspended chat has no process to kill — the server's end is
-    // the ending its viewers were waiting out the grace for.
-    if (room?.suspended && !room.publisher) {
-      room.live = false
-      this.closeRoom(room, `ended`)
-      return false
-    }
-    if (!room?.publisher) return false
-    room.publisher.sock.send(frame({ t: `kill` }))
+  /** Server-side kill (every end the server makes): `kill {sessionId}` down
+   *  the control socket of the device running the session. The DB row flip
+   *  the device watches is the durable path; this only cuts its latency. */
+  killSession(sessionId: string, device: DeviceRef): boolean {
+    const control = this.controlFor(device)
+    if (!control) return false
+    control.sock.send(frame({ t: `kill`, sessionId }))
     return true
   }
 
   /** EXP-1291: server-side Stop (`sessions.stop`): interrupt the running
-   * turn exactly like a viewer's `interrupt` frame; the session stays live. */
-  interruptSession(sessionId: string): boolean {
-    const room = this.rooms.get(sessionId)
-    if (!room?.publisher) return false
-    room.publisher.sock.send(frame({ t: `interrupt` }))
+   *  turn on the device; the session stays live. */
+  interruptSession(sessionId: string, device: DeviceRef): boolean {
+    const control = this.controlFor(device)
+    if (!control) return false
+    control.sock.send(frame({ t: `interrupt`, sessionId }))
     return true
   }
 
-  /** EXP-700: server-side text injection — the web app relays a parent/child
-   * message into the session's agent as if the owner typed it. Same
-   * convention as the browser viewer: text chunked at ≤4096 chars (never
-   * splitting a surrogate pair, frames cap at 8 KiB), then a SEPARATE `\r`
-   * submit frame — bundled, TUI apps treat the trailing return as a paste. */
-  injectInput(sessionId: string, text: string): boolean {
-    const room = this.rooms.get(sessionId)
-    if (!room?.publisher) return false
-    for (let i = 0; i < text.length; ) {
-      let end = Math.min(i + INPUT_CHUNK_CHARS, text.length)
-      const last = end < text.length ? text.charCodeAt(end - 1) : 0
-      if (last >= 0xd800 && last <= 0xdbff) end += 1
-      room.publisher.sock.send(frame({ t: `input`, data: text.slice(i, end) }))
-      i = end
+  /** EXP-936: relay the run's own `exponential_sessions_compact` down its
+   *  device's control socket and wait for the host's verdict. The host
+   *  decides — it holds the context meter, the turn count since the last
+   *  compaction and the open-fold state — and the relay only carries the
+   *  answer back. One ask per session at a time: a second one while the
+   *  first waits reads `busy` rather than queueing behind a verdict that
+   *  will answer it too. */
+  requestCompaction(
+    sessionId: string,
+    device: DeviceRef,
+    keep?: string
+  ): Promise<CompactOutcome> {
+    const control = this.controlFor(device)
+    if (!control) {
+      return Promise.resolve({ delivered: false, reason: `device_offline` })
     }
-    room.publisher.sock.send(frame({ t: `input`, data: `\r` }))
-    return true
-  }
-
-  /** EXP-936: relay the run's own `exponential_sessions_compact` to its
-   *  publisher and wait for the host's verdict. The host decides — it holds
-   *  the context meter, the turn count since the last compaction and the
-   *  open-fold state — and the relay only carries the answer back. One ask
-   *  per room at a time: a second one while the first waits reads `busy`
-   *  rather than queueing behind a verdict that will answer it too. */
-  requestCompaction(sessionId: string, keep?: string): Promise<CompactOutcome> {
-    const room = this.rooms.get(sessionId)
-    if (!room?.publisher) {
-      return Promise.resolve({ delivered: false, reason: `no_publisher` })
-    }
-    if (room.compactAsk) {
+    if (this.compactAsks.has(sessionId)) {
       return Promise.resolve({ delivered: false, reason: `busy` })
     }
-    const publisher = room.publisher
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.compactVerdictTimeouts += 1
-        this.settleCompactAsk(room, { delivered: false, reason: `no_verdict` })
+        this.settleCompactAsk(sessionId, { delivered: false, reason: `no_verdict` })
       }, COMPACT_VERDICT_TIMEOUT_MS)
-      room.compactAsk = { resolve, timer }
+      this.compactAsks.set(sessionId, {
+        control,
+        ownerId: device.userId,
+        deviceId: device.deviceId,
+        resolve,
+        timer,
+      })
       this.compactRequests += 1
-      publisher.sock.send(
+      control.sock.send(
         frame({
           t: `compact_request`,
           sessionId,
@@ -1238,13 +507,13 @@ export class Hub {
     })
   }
 
-  /** EXP-936: answer (or give up on) the room's pending compaction ask. A
+  /** EXP-936: answer (or give up on) a session's pending compaction ask. A
    *  no-op when none is open, so every exit path may call it. */
-  private settleCompactAsk(room: Room, outcome: CompactOutcome) {
-    const ask = room.compactAsk
+  private settleCompactAsk(sessionId: string, outcome: CompactOutcome) {
+    const ask = this.compactAsks.get(sessionId)
     if (!ask) return
     clearTimeout(ask.timer)
-    room.compactAsk = null
+    this.compactAsks.delete(sessionId)
     ask.resolve(outcome)
   }
 
@@ -1252,7 +521,6 @@ export class Hub {
     return {
       connections: this.conns.size,
       devices: [...this.devices.values()].reduce((n, m) => n + m.size, 0),
-      rooms: this.rooms.size,
       calls: this.calls.size,
     }
   }
@@ -1261,21 +529,7 @@ export class Hub {
   counters() {
     return {
       connectionsAccepted: this.connectionsAccepted,
-      activityFramesFanned: this.activityFramesFanned,
-      slowConsumerEvictions: this.slowConsumerEvictions,
-      viewerJoins: this.viewerJoins,
-      publisherIdleCloses: this.publisherIdleCloses,
-      historyRequests: this.historyRequests,
-      historyDeviceOffline: this.historyDeviceOffline,
-      historyTimeouts: this.historyTimeouts,
-      historyNone: this.historyNone,
-      historyBackoffAnswers: this.historyBackoffAnswers,
-      replayRefusals: this.replayRefusals,
-      historyPageRequests: this.historyPageRequests,
-      historyPageTimeouts: this.historyPageTimeouts,
-      historyPagesViaDevice: this.historyPagesViaDevice,
-      historyRoomLingerExpiries: this.historyRoomLingerExpiries,
-      historyRoomDeviceLost: this.historyRoomDeviceLost,
+      contentFramesRefused: this.contentFramesRefused,
       compactRequests: this.compactRequests,
       compactVerdictTimeouts: this.compactVerdictTimeouts,
       callRings: this.callRings,
@@ -1287,12 +541,6 @@ export class Hub {
       callFramesDropped: this.callFramesDropped,
       callFramesSkipped: this.callFramesSkipped,
     }
-  }
-
-  // ── Internals ──────────────────────────────────────────────────────────────
-
-  private roomFor(conn: Conn): Room | undefined {
-    return conn.sessionId ? this.rooms.get(conn.sessionId) : undefined
   }
 
   // ── NEW-55: voice calls ────────────────────────────────────────────────────
@@ -1464,532 +712,14 @@ export class Hub {
       this.callsByDevice.delete(key)
     }
   }
+}
 
-  /** EXP-795: retire one `history_page` ask — answered, or given up on. */
-  private dropHistoryPage(room: Room, relayId: string) {
-    const ask = room.historyPages.get(relayId)
-    if (!ask) return
-    clearTimeout(ask.timer)
-    room.historyPages.delete(relayId)
-  }
-
-  /** Retire every in-flight ask (the publisher they went to is gone, or the
-   *  room is), or only `viewer`'s (it left). */
-  private dropHistoryPages(room: Room, viewer?: Conn) {
-    for (const [relayId, ask] of room.historyPages) {
-      if (viewer === undefined || ask.viewer === viewer) {
-        this.dropHistoryPage(room, relayId)
-      }
-    }
-  }
-
-  /** The publisher went away but the session did not: detach it and give it
-   *  PUBLISHER_GRACE_MS to come back (a re-`hello` clears the timer). */
-  private detachPublisher(room: Room) {
-    room.publisher = null
-    // EXP-795: every page ask went down THIS socket; none is coming back.
-    this.dropHistoryPages(room)
-    // EXP-936: nor is the compaction verdict.
-    this.settleCompactAsk(room, { delivered: false, reason: `no_publisher` })
-    room.staleTimer ??= setTimeout(() => {
-      room.staleTimer = null
-      // #EXP-1405: a device dropping mid-replay in a LIVE room is no
-      // ending — the viewers get the retryable drop and redial.
-      // S-4: nor is a suspended chat's publisher staying away.
-      if ((room.historyDevice && room.live) || room.suspended) {
-        this.dropLiveRoom(room)
-        return
-      }
-      this.closeRoom(room, `publisher_lost`)
-    }, PUBLISHER_GRACE_MS)
-  }
-
-  /** EXP-796: the device's replay is complete — detach it and keep the room
-   *  up for its viewers, for HISTORY_ROOM_LINGER_MS at most. The publisher
-   *  socket is the device's short-lived replay connection; it closes itself
-   *  right after the `bye`, and `onClose` then finds it is no member. */
-  private lingerHistoryRoom(room: Room, publisher: Conn) {
-    room.publisher = null
-    // #EXP-1415: a `bye history` is a replay's by definition (an old device
-    // sends no `replay` marker): nothing live holds this room.
-    room.liveHeld = false
-    publisher.sessionId = undefined
-    // Asks addressed to the replay socket are dead with it.
-    this.dropHistoryPages(room)
-    if (room.staleTimer) {
-      clearTimeout(room.staleTimer)
-      room.staleTimer = null
-    }
-    room.historyServed = true
-    if (room.lingerTimer) clearTimeout(room.lingerTimer)
-    room.lingerTimer = null
-    // Nobody stayed for the replay: nothing to linger for.
-    if (room.activityMembers.size === 0) {
-      this.closeRoom(room, HISTORY_OUTCOME)
-      return
-    }
-    this.armLinger(room)
-  }
-
-  /** EXP-796: start the linger countdown on a served history room.
-   *  #EXP-1405: a live session's transcript stays up while it is watched —
-   *  the last viewer leaving (`onClose`) takes the room down — so a live
-   *  room arms nothing. A join whose ticket no longer says `live` (the
-   *  session ended meanwhile) re-arms it through here. */
-  private armLinger(room: Room) {
-    if (room.live || room.lingerTimer || room.publisher || !room.historyServed) {
-      return
-    }
-    room.lingerTimer = setTimeout(() => {
-      room.lingerTimer = null
-      // A publisher took the room back (a second replay), or it closed and
-      // reopened under the same id: this linger is not its linger.
-      if (!room.historyServed || room.publisher) return
-      if (this.rooms.get(room.sessionId) !== room) return
-      this.historyRoomLingerExpiries += 1
-      this.closeRoom(room, HISTORY_OUTCOME)
-    }, HISTORY_ROOM_LINGER_MS)
-  }
-
-  /** EXP-796: end a lingering history room with a TERMINAL answer — `error
-   *  code` to every viewer, then the `bye` + close `closeRoom` sends. The
-   *  same shape `requestHistory` and the 20s timer use, so every client
-   *  lands in Ended instead of reading a plain drop and redialing.
-   *  #EXP-1405: a LIVE session's room is never ended: it goes the way a join
-   *  without a room does (`dropLiveRoom`), and the clients redial. */
-  private closeHistoryRoom(room: Room, code: string) {
-    if (room.live) {
-      this.dropLiveRoom(room)
-      return
-    }
-    const err = frame({ t: `error`, code })
-    for (const member of room.activityMembers.keys()) {
-      member.sock.send(err)
-    }
-    this.closeRoom(room, code)
-  }
-
-  /** #EXP-1415: a pending history room the device cannot serve. A live
-   *  session's viewers get the retryable `no_such_session` (their redials
-   *  land on the backoff, not on the device); an ended one's the terminal
-   *  `history_unavailable`, as before. */
-  private failPendingHistory(room: Room) {
-    if (this.rooms.get(room.sessionId) !== room) return
-    if (room.live) {
-      this.dropLiveRoom(room)
-      return
-    }
-    for (const member of room.activityMembers.keys()) {
-      member.sock.send(frame({ t: `error`, code: `history_unavailable` }))
-    }
-    this.closeRoom(room, `history_unavailable`)
-  }
-
-  /** #EXP-1415: one more miss for `key` (`noHistoryKey`): back off 30s,
-   *  doubling. */
-  private noteNoHistory(key: string) {
-    const prior = this.noHistory.get(key)
-    const misses = (prior?.misses ?? 0) + 1
-    const wait = Math.min(
-      NO_HISTORY_BACKOFF_MS * 2 ** (misses - 1),
-      NO_HISTORY_BACKOFF_CAP_MS
-    )
-    this.noHistory.delete(key)
-    if (this.noHistory.size >= NO_HISTORY_MAX_ENTRIES) {
-      const oldest = this.noHistory.keys().next().value
-      if (oldest !== undefined) this.noHistory.delete(oldest)
-    }
-    this.noHistory.set(key, { until: Date.now() + wait, misses })
-  }
-
-  /** Drop `sessionId`'s backoff on every machine (a bounded scan: hellos are
-   *  rare next to frames, and the map is capped). */
-  private clearNoHistory(sessionId: string) {
-    const suffix = `\n${sessionId}`
-    for (const key of this.noHistory.keys()) {
-      if (key.endsWith(suffix)) this.noHistory.delete(key)
-    }
-  }
-
-  /** #EXP-1405: take a live session's history room down with the answer a
-   *  join without any room gets (`error no_such_session`, then the close,
-   *  NO `bye`): every client (web, desktop, iOS, Android, old builds too)
-   *  reads it as "not up yet", keeps its transcript and redials while the
-   *  synced row stays alive. */
-  private dropLiveRoom(room: Room) {
-    if (room.staleTimer) clearTimeout(room.staleTimer)
-    if (room.historyTimer) clearTimeout(room.historyTimer)
-    if (room.lingerTimer) clearTimeout(room.lingerTimer)
-    this.dropHistoryPages(room)
-    this.settleCompactAsk(room, { delivered: false, reason: `no_publisher` })
-    if (this.rooms.get(room.sessionId) === room) this.rooms.delete(room.sessionId)
-    const err = frame({ t: `error`, code: `no_such_session` })
-    for (const member of room.activityMembers.keys()) {
-      member.sock.send(err)
-      member.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
-    }
-    room.activityMembers.clear()
-  }
-
-  /** EXP-796: the lingering history room a control socket may answer a
-   *  `history_chunk` for: `sessionId` names it, it has no publisher, and it
-   *  was opened against THIS device under THIS account. */
-  private historyRoomServedBy(
-    conn: Conn,
-    sessionId: string | undefined
-  ): Room | undefined {
-    if (!sessionId || !conn.deviceId) return undefined
-    const room = this.rooms.get(sessionId)
-    if (!room || room.publisher || !room.historyServed) return undefined
-    const device = room.historyDevice
-    if (
-      !device ||
-      device.userId !== conn.claims.sub ||
-      device.deviceId !== conn.deviceId
-    ) {
-      return undefined
-    }
-    return room
-  }
-
-  /** EXP-796: a device left the presence table. Every lingering history room
-   *  opened against it that has a page IN FLIGHT is answered `device_offline`
-   *  (terminal — the ask went down the socket that just died); a lingering
-   *  room with nothing pending stays up, and its next ask finds the device
-   *  missing and answers the same way. */
-  private deviceLeftHistoryRooms(userId: string, deviceId: string) {
-    for (const room of [...this.rooms.values()]) {
-      if (!room.historyServed || room.historyPages.size === 0) continue
-      const device = room.historyDevice
-      if (!device || device.userId !== userId || device.deviceId !== deviceId) {
-        continue
-      }
-      this.historyRoomDeviceLost += 1
-      this.closeHistoryRoom(room, `device_offline`)
-    }
-  }
-
-  /** Drop the replay log and everything derived from it. The caller decides
-   *  whether members hear an `activity_reset` about it. */
-  private clearActivityLog(room: Room) {
-    room.activityLog = []
-    room.activityBytes = 0
-    room.subagentToolCounts.clear()
-    room.subagentToolEntries = 0
-    room.subagentScanFrom = 0
-    room.lastByKind.clear()
-    room.activityTruncated = false
-  }
-
-  /** A fresh room. `publisher: null` + `pendingHistory: true` is the EXP-773
-   *  shape: a room opened by a VIEWER, waiting for the device to replay. */
-  private newRoom(
-    sessionId: string,
-    publisher: Conn | null,
-    issueId?: string
-  ): Room {
-    return {
-      sessionId,
-      issueId,
-      publisher,
-      staleTimer: null,
-      lastPublisherActivity: Date.now(), // REV2-X
-      pendingHistory: publisher === null,
-      historyTimer: null,
-      activityMembers: new Set(),
-      activityLog: [],
-      activityBytes: 0,
-      subagentToolCounts: new Map(),
-      subagentToolEntries: 0,
-      subagentScanFrom: 0,
-      lastByKind: new Map(),
-      activityTruncated: false,
-      historyPages: new Map(),
-      historyDevice: null,
-      historyServed: false,
-      live: false,
-      liveHeld: publisher !== null,
-      suspended: false,
-      lingerTimer: null,
-      compactAsk: null,
-    }
-  }
-
-  /** EXP-773: a viewer joined a session with no live room. If its ticket
-   *  names the device that ran the session AND that device's control socket
-   *  is online under the SAME user, open a pending room and ask the device
-   *  for its stored transcript. Otherwise answer and close, as before.
-   *  #EXP-1405: a `live` ticket (a session the server still calls alive)
-   *  never draws a terminal answer: an offline device or a silent one is
-   *  `no_such_session`, which every client redials from.
-   *  Returns the room to park the viewer in, or `undefined` when the socket
-   *  has already been answered with an error. */
-  private requestHistory(conn: Conn, sessionId: string): Room | undefined {
-    const deviceId = conn.claims.deviceId
-    if (!deviceId) {
-      // No device claim (a session that never named one): nothing can
-      // serve the transcript.
-      conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
-      conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
-      return undefined
-    }
-    // Devices are indexed under their OWNER, and for a shared-device run
-    // (EXP-432) that is the HOST, not the requester the ticket was minted
-    // for — so the mint names the account to look the device up under. Both
-    // ids come from the signed ticket, so this still reaches only the machine
-    // the web app decided ran this session.
-    const deviceOwnerId = conn.claims.deviceOwnerId ?? conn.claims.sub
-    const control = this.devices.get(deviceOwnerId)?.get(deviceId)
-    const live = conn.claims.live === true
-    if (!control && live) {
-      this.historyDeviceOffline += 1
-      conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
-      conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
-      return undefined
-    }
-    if (!control) {
-      conn.sock.send(frame({ t: `error`, code: `device_offline` }))
-      // The `bye` is not decoration: a viewer that sees a close with no `bye`
-      // reads it as a transport drop and redials forever (the desktop's
-      // `ConnEnd::Dropped`). This is terminal — the transcript is a file on a
-      // machine that is not here — so answer it exactly like the timeout path
-      // does through `closeRoom`: error, then `bye` naming the outcome, then
-      // the close. Every viewer lands in Ended.
-      conn.sock.send(frame({ t: `bye`, outcome: `device_offline` }))
-      conn.sock.close(CLOSE_SESSION_ENDED, `device_offline`)
-      this.historyDeviceOffline += 1
-      return undefined
-    }
-    // #EXP-1415: the device said (or showed) it has no transcript a moment
-    // ago: answer now, never park the viewer on another 20s ask.
-    const backoffKey = noHistoryKey(deviceOwnerId, deviceId, sessionId)
-    const backoff = this.noHistory.get(backoffKey)
-    if (backoff && backoff.until > Date.now()) {
-      this.historyBackoffAnswers += 1
-      if (live) {
-        conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
-        conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
-      } else {
-        conn.sock.send(frame({ t: `error`, code: `history_unavailable` }))
-        conn.sock.send(frame({ t: `bye`, outcome: `history_unavailable` }))
-        conn.sock.close(CLOSE_SESSION_ENDED, `history_unavailable`)
-      }
-      return undefined
-    }
-    const room = this.newRoom(sessionId, null)
-    // EXP-796: remembered so the room can page through the device once the
-    // replay is over and the publisher socket is gone.
-    room.historyDevice = { userId: deviceOwnerId, deviceId }
-    room.live = live
-    room.historyTimer = setTimeout(() => {
-      room.historyTimer = null
-      this.historyTimeouts += 1
-      // #EXP-1415: an old device answers a missing journal with silence.
-      this.noteNoHistory(backoffKey)
-      this.failPendingHistory(room)
-    }, HISTORY_TIMEOUT_MS)
-    this.rooms.set(sessionId, room)
-    control.sock.send(frame({ t: `history_request`, sessionId }))
-    this.historyRequests += 1
-    return room
-  }
-
-  private entryFor(event: ActivityEvent, seq: number): ActivityEntry {
-    const framed = frame({ t: `activity`, event, seq })
-    const entry: ActivityEntry = {
-      framed,
-      bytes: Buffer.byteLength(framed, `utf8`),
-      seq,
-    }
-    // EXP-748: tag the entries the count cap is allowed to sacrifice.
-    // EXP-773: prose a subagent wrote renders inside that subagent's card, so
-    // it is second class exactly like the calls around it — and so does an
-    // API failure of its own turn.
-    if (
-      (event.kind === `tool` ||
-        event.kind === `narration` ||
-        event.kind === `thought` ||
-        event.kind === `api_error`) &&
-      event.subagentId
-    ) {
-      entry.subagentTool = event.subagentId
-    }
-    return entry
-  }
-
-  private appendActivity(room: Room, entry: ActivityEntry) {
-    room.activityLog.push(entry)
-    room.activityBytes += entry.bytes
-    if (entry.subagentTool) {
-      const count = (room.subagentToolCounts.get(entry.subagentTool) ?? 0) + 1
-      room.subagentToolCounts.set(entry.subagentTool, count)
-      room.subagentToolEntries += 1
-      // Per-subagent tier: one fan-out never owns more than its share.
-      if (count > SUBAGENT_TOOL_CAP) {
-        this.evictOldestSubagentTool(room, entry.subagentTool)
-      }
-    }
-    // Count tier: spend subagent tool calls before the main transcript.
-    while (room.activityLog.length > ACTIVITY_LOG_CAP) {
-      if (!this.evictOldestSubagentTool(room)) this.dropHead(room)
-    }
-    // Byte tier: a hard bound, so it stays plain oldest-first.
-    while (
-      room.activityBytes > ACTIVITY_BYTE_CAP &&
-      room.activityLog.length > 1
-    ) {
-      this.dropHead(room)
-    }
-  }
-
-  /** Evict the oldest subagent tool entry — of `subagentId` when given, of
-   *  any subagent otherwise. Returns false when there is none left to give
-   *  up, which is the count cap's signal to fall back to the head. */
-  private evictOldestSubagentTool(room: Room, subagentId?: string): boolean {
-    if (room.subagentToolEntries === 0) return false
-    const log = room.activityLog
-    let i = Math.min(room.subagentScanFrom, log.length)
-    for (; i < log.length; i++) {
-      const tag = log[i]!.subagentTool
-      if (tag && (subagentId === undefined || tag === subagentId)) break
-    }
-    if (i >= log.length) return false
-    const [entry] = log.splice(i, 1)
-    room.activityBytes -= entry!.bytes
-    room.activityTruncated = true
-    this.forgetSubagentTool(room, entry!.subagentTool!)
-    // Only the un-filtered scan proves nothing older survives below `i`; a
-    // per-subagent hit may sit past an older entry of another subagent.
-    if (subagentId === undefined) room.subagentScanFrom = i
-    return true
-  }
-
-  /** Drop the oldest event outright: the byte budget's hard bound, and the
-   *  count cap once no subagent tool call is left to sacrifice. */
-  private dropHead(room: Room) {
-    const entry = room.activityLog.shift()
-    if (!entry) return
-    room.activityBytes -= entry.bytes
-    room.activityTruncated = true
-    if (entry.subagentTool) this.forgetSubagentTool(room, entry.subagentTool)
-    if (room.subagentScanFrom > 0) room.subagentScanFrom -= 1
-  }
-
-  private forgetSubagentTool(room: Room, subagentId: string) {
-    const left = (room.subagentToolCounts.get(subagentId) ?? 1) - 1
-    if (left > 0) room.subagentToolCounts.set(subagentId, left)
-    else room.subagentToolCounts.delete(subagentId)
-    room.subagentToolEntries -= 1
-  }
-
-  /** Fan one pre-serialized text frame to the activity audience. Activity is
-   *  low-volume JSON, so a saturated socket is evicted outright — there is no
-   *  drop-and-recover path. */
-  private fanoutActivity(room: Room, framed: string) {
-    for (const member of room.activityMembers.keys()) {
-      if (member.sock.bufferedAmount() > VIEWER_HIGH_WATER) {
-        member.sock.close(CLOSE_SLOW_CONSUMER, `slow_consumer`)
-        this.slowConsumerEvictions += 1
-        continue
-      }
-      member.sock.send(framed)
-      this.activityFramesFanned += 1
-    }
-  }
-
-  /** Replay the scrubbed event log, then the latest-wins state slots, to one
-   *  socket. EXP-746: the slots come last and in a fixed order so a joining
-   *  viewer paints its chips, meter and diff from the end of the burst. */
-  private replayActivity(room: Room, conn: Conn) {
-    for (const entry of room.activityLog) {
-      conn.sock.send(entry.framed)
-    }
-    for (const kind of LATEST_REPLAY_ORDER) {
-      // EXP-850 §3: every workflow card, in the order the room learned them.
-      if (kind === `workflow`) {
-        for (const [key, entry] of room.lastByKind) {
-          if (key.startsWith(`workflow:`)) conn.sock.send(entry.framed)
-        }
-        continue
-      }
-      const entry = room.lastByKind.get(kind)
-      if (entry) conn.sock.send(entry.framed)
-    }
-  }
-
-  /** EXP-850 §3: how many workflow cards a room holds. */
-  private workflowSlotCount(room: Room): number {
-    let held = 0
-    for (const key of room.lastByKind.keys()) {
-      if (key.startsWith(`workflow:`)) held += 1
-    }
-    return held
-  }
-
-  private closeRoom(room: Room, outcome: string) {
-    if (room.staleTimer) clearTimeout(room.staleTimer)
-    if (room.historyTimer) clearTimeout(room.historyTimer)
-    if (room.lingerTimer) clearTimeout(room.lingerTimer)
-    this.dropHistoryPages(room)
-    this.settleCompactAsk(room, { delivered: false, reason: `no_publisher` })
-    this.rooms.delete(room.sessionId)
-    const msg = frame({ t: `bye`, outcome })
-    for (const member of room.activityMembers.keys()) {
-      member.sock.send(msg)
-      member.sock.close(CLOSE_SESSION_ENDED, `session_ended`)
-    }
-    room.activityMembers.clear()
-  }
-
-  /** REV2-X: Periodic check for publishers that have sent no frames (including
-   * pings) within PUBLISHER_IDLE_TIMEOUT_MS. A silent publisher is a dead
-   * publisher — detach it so viewers stop retrying `no_such_session`.
-   *
-   * EXP-283: the close code MUST NOT be CLOSE_SESSION_ENDED — publishers
-   * treated 4001 as a terminal remote kill (tear down the live agent + the
-   * whole terminal tab), so a publisher that merely slept through the idle
-   * window (laptop suspend, network stall) had its live coding session
-   * killed the moment it woke up and read the close frame. An idle socket is
-   * a transport-level determination, never a session end: close with the
-   * dedicated CLOSE_PUBLISHER_IDLE, which every desktop (old and new) treats
-   * as a plain drop and reconnects from. */
-  private checkIdlePublishers() {
-    const now = Date.now()
-    for (const room of this.rooms.values()) {
-      if (!room.publisher) continue // already detached
-      const idleMs = now - room.lastPublisherActivity
-      if (idleMs >= PUBLISHER_IDLE_TIMEOUT_MS) {
-        console.log(
-          `[hub] publisher for session ${room.sessionId} idle for ${Math.floor(idleMs / 1000)}s — detaching publisher`
-        )
-        // Closing the socket triggers onClose's grace-period logic: if the
-        // publisher reconnects within the grace window, re-hello resets
-        // lastPublisherActivity so the next idle check won't re-fire; if it
-        // doesn't reconnect, the grace timer closes the room.
-        this.publisherIdleCloses += 1
-        room.publisher.sock.close(
-          CLOSE_PUBLISHER_IDLE,
-          `publisher_idle_${Math.floor(idleMs / 1000)}s`
-        )
-      }
-    }
-  }
-
-  /** EXP-648: one `keepalive` frame to every JOINED viewer. Only
-   *  activityMembers, never publishers or control sockets — and membership
-   *  is granted synchronously before the join's `activity_reset` + replay go
-   *  out, so a keepalive can never be a socket's first frame (every client
-   *  disarms its join-ack deadline on the first frame, whatever it is).
-   *  Rooms whose publisher dropped (grace window) still get one: the frame
-   *  vouches for the SOCKET, and a redial there would replay the same log.
-   *  A saturated socket is skipped, not evicted — eviction is the activity
-   *  fan-out's call, and none of the activity counters move here. */
-  private sendViewerKeepalives() {
-    for (const room of this.rooms.values()) {
-      for (const member of room.activityMembers.keys()) {
-        if (member.sock.bufferedAmount() > VIEWER_HIGH_WATER) continue
-        member.sock.send(KEEPALIVE_FRAME)
-      }
-    }
+/** A text frame's `t`, when it is JSON with a string `t`; null otherwise. */
+function frameType(raw: string): string | null {
+  try {
+    const t = (JSON.parse(raw) as { t?: unknown } | null)?.t
+    return typeof t === `string` ? t : null
+  } catch {
+    return null
   }
 }

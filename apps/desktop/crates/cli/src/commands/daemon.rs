@@ -432,7 +432,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // it names; the allowlist reads the synced `teams` rows.
     let enet = runtime.as_ref().map(|runtime| {
         let teams = Arc::clone(&pickup);
-        steer::enet::InstallNode::start(
+        let node = steer::enet::InstallNode::start(
             runtime.handle(),
             steer::enet::InstallSpec {
                 kind: steer::enet::InstallKind::Daemon,
@@ -448,7 +448,18 @@ fn run_daemon(args: &[String]) -> CommandResult {
             },
             Arc::clone(&ctx.trpc) as Arc<dyn steer::enet::InstallRegistry>,
             Arc::new(move || synced_team_ids(&teams)),
-        )
+        );
+        // VAPP-43 STORED REPLAY: this machine's journals, read under the
+        // access rule of the synced `sessions` rows.
+        let rows = Arc::clone(&pickup);
+        node.serve_stored(steer::StoredJournals {
+            data_dir: ctx.data_dir.clone(),
+            session: Arc::new(move |session_id| {
+                let store = rows.store()?;
+                steer::StoredSession::of(&session_row(&store, session_id)?)
+            }),
+        });
+        node
     });
     let mut enet_teams = synced_team_ids(&pickup);
     let mut last_team_check = Instant::now();
@@ -1387,42 +1398,12 @@ fn dial_control(
     let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
         check_in.store(true, Ordering::SeqCst);
     });
-    // EXP-773: serve this machine's stored transcript back to the relay. The
-    // guard is per SOCKET, which is all it has to be: a redial is rare and a
-    // relay only asks once per viewer join.
-    let history_runtime = Arc::clone(runtime);
-    let history_trpc = Arc::clone(&ctx.trpc);
-    let history_dir = ctx.data_dir.clone();
-    let history_in_flight = steer::HistoryInFlight::new();
-    let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id: String, reply| {
-        let tickets: Arc<dyn steer::PublisherTickets> = Arc::new(steer::TrpcPublisherTickets {
-            trpc: Arc::clone(&history_trpc),
-            session_id: session_id.clone(),
-        });
-        steer::serve_history_request(
-            &history_runtime,
-            tickets,
-            history_dir.clone(),
-            session_id,
-            history_in_flight.clone(),
-            reply,
-        );
-    });
-    // EXP-796: "Load earlier" on a run this machine already replayed — the
-    // page comes off the same journal, back down the control socket.
-    let page_runtime = Arc::clone(runtime);
-    let page_dir = ctx.data_dir.clone();
-    let on_history_page: steer::HistoryPageFn = Arc::new(move |ask, reply| {
-        steer::serve_history_page(&page_runtime, page_dir.clone(), ask, reply);
-    });
     let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(Arc::clone(&ctx.trpc)));
     Some(steer::spawn_control_channel(
         runtime,
         device,
         control_api,
         on_check_in,
-        on_history_request,
-        on_history_page,
         // NEW-55: the daemon is never a voice device (the voice runs in the
         // IDE alone), so a ring is not its to answer.
         Arc::new(|_ring| {}),

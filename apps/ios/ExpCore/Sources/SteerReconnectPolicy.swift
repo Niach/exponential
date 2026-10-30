@@ -1,66 +1,25 @@
 import Foundation
 
-/// EXP-621: what a viewer socket does after it closes, decided from the relay's
-/// close code alone. The relay's codes live in `apps/steer-relay/src/protocol.ts`
-/// — a close is NOT automatically a network fault, and treating every one as a
-/// dropped connection made the screen flash "Reconnecting…" and walk up the
-/// backoff curve for closes the relay expects the client to shrug off.
-public enum SteerCloseCode {
-    /// CLOSE_UNAUTHORIZED — the ticket was refused. Retrying re-refuses.
-    public static let unauthorized = 4003
-    /// CLOSE_SLOW_CONSUMER — the relay dropped this viewer because its send
-    /// queue backed up (hub.ts). The room is fine and the ticket is fine: the
-    /// only correct answer is to dial straight back in and replay.
-    public static let slowConsumer = 4008
-}
+/// The pure revival rule (EXP-625), shared by the model and its tests. The
+/// relay close-code rule (EXP-621: slow consumer, unauthorized) is gone with
+/// the relay viewer (VAPP-43): an eNet link carries no close code.
+public enum SteerReconnectPolicy {}
 
-/// The outcome of a closed viewer socket.
-public enum SteerCloseDecision: Equatable, Sendable {
-    /// The session is over — nothing left to dial.
-    case ended
-    /// Redial NOW: no backoff escalation, and the caller keeps its current
-    /// phase so no "Reconnecting…" banner flashes for a hiccup the viewer
-    /// never needed to know about.
-    case redialImmediately
-    /// The ordinary drop — auto-redial on the jittered backoff curve.
-    case reconnectWithBackoff
-    /// A permanent no. Stay closed and stop dialing.
-    case terminalClosed
-}
-
-/// The pure close-code rule, shared by the model and its tests.
-public enum SteerReconnectPolicy {
-    /// - Parameters:
-    ///   - closeCode: the socket's close code, when one was readable. Unknown
-    ///     codes (and no code at all — a socket that failed before any close
-    ///     frame) take the ordinary backoff path, exactly as before EXP-621.
-    ///   - sessionOver: the synced row says the session ended, or it vanished.
-    public static func decide(closeCode: Int?, sessionOver: Bool) -> SteerCloseDecision {
-        if sessionOver { return .ended }
-        switch closeCode {
-        case SteerCloseCode.unauthorized: return .terminalClosed
-        case SteerCloseCode.slowConsumer: return .redialImmediately
-        default: return .reconnectWithBackoff
-        }
-    }
-}
-
-/// The relay's protocol words that must never be shown to a human.
+/// The steer protocol words that must never be shown to a human.
 public enum SteerOutcome {
-    /// EXP-773: `bye` outcomes (and the error codes that precede two of them)
-    /// that carry NO caption of their own. `ended` is the ordinary close;
-    /// `history` is the journal republish of an ENDED run closing itself out
-    /// once the transcript has been delivered, so the feed simply stays with
-    /// the plain ended caption; `history_unavailable` and `device_offline`
-    /// already wrote a human line via `AgentSessionModel.HistoryState`, and
-    /// the raw code would only overwrite it. Anything else the relay coins is
-    /// better shown than swallowed. Byte-equal on Android
+    /// EXP-773: `bye` outcomes (and error codes) that carry NO caption of
+    /// their own. `ended` is the ordinary close; `history` is the device's
+    /// stored replay of an ENDED run closing itself out once the transcript
+    /// has been delivered (VAPP-43), so the feed simply stays with the plain
+    /// ended caption; `history_unavailable` and `device_offline` were the
+    /// retired relay's codes, kept in the set for cross-client parity.
+    /// Anything else a peer coins is better shown than swallowed. Byte-equal on Android
     /// (`SILENT_END_OUTCOMES`) and the web (`steer-session-store.ts`).
     public static let silentEndOutcomes: Set<String> = [
         "ended", "history", "history_unavailable", "device_offline",
     ]
 
-    /// The end banner's caption for a relay outcome or error code — nil means
+    /// The end banner's caption for a `bye` outcome or error code — nil means
     /// the plain "Session ended".
     public static func endDetail(_ outcome: String?) -> String? {
         guard let outcome, !outcome.isEmpty, !silentEndOutcomes.contains(outcome) else {
@@ -105,15 +64,15 @@ public enum SteerRevivalDecision: Equatable, Sendable {
 extension SteerReconnectPolicy {
     /// EXP-625: mobile viewers got stuck on "Connecting…" forever after a
     /// background because every revival entry point was PHASE-gated. A model
-    /// whose dial wedged mid-`.connecting` (a hung mint, or a socket the relay
-    /// never answered the join on) matched no branch, so nothing left in the
+    /// whose dial wedged mid-`.connecting` (a hung lookup, or a join the device
+    /// never answered) matched no branch, so nothing left in the
     /// process could revive it. The gate is now whether a dial is ACTUALLY
     /// alive, not what the phase claims.
     ///
     /// - Parameters:
     ///   - phase: the model's phase, flattened.
     ///   - dialInFlight: a dial is between its entry and its outcome — it owns
-    ///     a socket (or a mint) right now.
+    ///     a link (or an endpoint lookup) right now.
     ///   - retryArmed: a retry wait is parked, waiting to start a dial.
     ///     Neither flag means nothing is going to happen on its own, whatever
     ///     the phase.
@@ -145,7 +104,7 @@ extension SteerReconnectPolicy {
         // cycle right here — and starting a second one alongside it leaves the
         // first socket joined and unowned: its close then runs against the new
         // dial, orphaning the live socket and regressing the phase. The
-        // join-ack deadline already bounds an in-flight dial, so waiting it out
+        // eNet join timeout already bounds an in-flight dial, so waiting it out
         // is both safe and correct.
         if dialInFlight { return .nothing }
         switch phase {

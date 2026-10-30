@@ -917,14 +917,9 @@ private fun RunFaceContent(
     val placeholderBody: @Composable () -> Unit = {
         when {
             // EXP-773: a finished run's transcript lives on the
-            // machine that ran it, and the relay is asking that
-            // machine for it. Say which machine, and say plainly when
-            // it cannot answer — this is not a connection problem the
-            // viewer can wait out.
-            // EXP-1259 D8.3: the transcript's first load = placeholder rows
-            // in its own column, the phase as a muted caption.
-            feed.isEmpty() && history == HistoryState.Pending ->
-                TranscriptPlaceholder(historyStatus(history, hostDevice.displayLabel))
+            // machine that ran it (VAPP-43: served over eNet). Say
+            // plainly when that machine cannot answer — this is not a
+            // connection problem the viewer can wait out.
             feed.isEmpty() && history != null -> CenteredState {
                 Text(
                     historyStatus(history, hostDevice.displayLabel),
@@ -5569,10 +5564,8 @@ internal fun rateLimitCaption(message: String?, resetsAtMs: Long?, nowMs: Long):
  * desktop `session.rs`).
  */
 private fun historyStatus(state: HistoryState?, device: String): String = when (state) {
-    HistoryState.Pending -> "Fetching the transcript from $device…"
     HistoryState.DeviceOffline ->
         "$device is offline. The transcript lives on that machine."
-    HistoryState.Unavailable -> "No transcript on $device."
     null -> ""
 }
 

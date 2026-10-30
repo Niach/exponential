@@ -6,8 +6,9 @@ import os
 // message = one envelope `{t:"exp-steer", v:1, sessionId, frames}` carrying
 // the steer relay's wire frames unchanged (each with its own `t`). Mirrors the
 // TS reference `@exp/domain-contract/steer-enet` and crates/steer
-// `enet_steer.rs`. The viewer joins the session's device here and falls back
-// to the steer relay when it can't (until VAPP-43).
+// `enet_steer.rs`. The viewer joins the session's device here; since VAPP-43
+// the steer relay carries no session content, so a viewer that can't join has
+// NO FEED (`SteerEnetNoFeed`) and shows its existing states instead.
 
 private let logger = Logger(subsystem: "at.exponential", category: "SteerEnet")
 
@@ -347,21 +348,38 @@ public final class SteerEnetInbox: @unchecked Sendable {
     }
 }
 
-/// Why a viewer stays on (or goes back to) the steer relay.
-public enum SteerEnetFallback: String, Equatable, Sendable {
+/// Why a viewer has no feed (VAPP-43: there is no relay to fall back to).
+public enum SteerEnetNoFeed: String, Equatable, Sendable {
     case noNode, lookupFailed, noEndpoint, allRefused, timeout
 }
 
 public enum SteerEnetJoinOutcome: Sendable {
-    /// Joined: `replay` = every frame up to and including `activity_synced`.
+    /// Joined: `replay` = every frame up to and including `activity_synced`,
+    /// plus whatever followed it in the same envelope.
     case joined(SteerEnetLink, replay: [String])
-    case fallback(SteerEnetFallback)
+    case noFeed(SteerEnetNoFeed)
+}
+
+/// What a viewer with NO FEED shows (the fixture's `$comment`): its existing
+/// states with their existing copy, whatever the reason.
+public enum SteerNoFeedState: Equatable, Sendable {
+    /// The row is still alive: "The live stream isn't up yet. The desktop may
+    /// still be connecting." — and redial on the starting backoff.
+    case starting
+    /// The row ended: `ended` with the device-offline copy ("{device} is
+    /// offline. The transcript lives on that machine."). Nothing to redial.
+    case endedDeviceOffline
+
+    /// - Parameter sessionOver: the synced row ended, or it vanished.
+    public static func decide(sessionOver: Bool) -> SteerNoFeedState {
+        sessionOver ? .endedDeviceOffline : .starting
+    }
 }
 
 /// The transport choice: `installs.forSession` → `join` the first endpoint →
 /// on `error no_such_session` (or `unauthorized`, or a failed send) the next
 /// → no node / no endpoint / every endpoint refused / no `activity_synced`
-/// within `joinTimeoutMs` = the steer relay.
+/// within `joinTimeoutMs` = no feed.
 public enum SteerEnetJoiner {
     public static func join(
         carrier: SteerEnetCarrier,
@@ -369,15 +387,15 @@ public enum SteerEnetJoiner {
         sessionId: String,
         timeout: Duration = .milliseconds(SteerEnet.joinTimeoutMs)
     ) async -> SteerEnetJoinOutcome {
-        guard await carrier.ready() else { return .fallback(.noNode) }
+        guard await carrier.ready() else { return .noFeed(.noNode) }
         let endpoints: [String]
         do {
             endpoints = try await carrier.endpoints(accountId: accountId, sessionId: sessionId)
         } catch {
             logger.info("installs.forSession failed: \(error.localizedDescription, privacy: .public)")
-            return .fallback(.lookupFailed)
+            return .noFeed(.lookupFailed)
         }
-        guard !endpoints.isEmpty else { return .fallback(.noEndpoint) }
+        guard !endpoints.isEmpty else { return .noFeed(.noEndpoint) }
         let deadline = ContinuousClock.now + timeout
         for peer in endpoints {
             let link = await carrier.open(sessionId: sessionId, peer: peer)
@@ -390,10 +408,10 @@ public enum SteerEnetJoiner {
                 continue
             case .timedOut:
                 link.close()
-                return .fallback(.timeout)
+                return .noFeed(.timeout)
             }
         }
-        return .fallback(.allRefused)
+        return .noFeed(.allRefused)
     }
 
     private enum Attempt: Sendable { case joined([String]), refused, timedOut }
@@ -413,13 +431,18 @@ public enum SteerEnetJoiner {
                 }
                 var replay: [String] = []
                 while let frames = await link.next() {
-                    for frame in frames {
+                    for (index, frame) in frames.enumerated() {
                         if let code = SteerEnet.errorCode(frame),
                            code == "no_such_session" || code == "unauthorized" {
                             return .refused
                         }
                         replay.append(frame)
                         if SteerEnet.frameType(frame) == "activity_synced" {
+                            // The rest of this envelope is the live feed's
+                            // first frames (a stored replay batches its
+                            // `bye {history}` right after the marker): keep
+                            // them, in order.
+                            replay.append(contentsOf: frames[(index + 1)...])
                             return .joined(replay)
                         }
                     }

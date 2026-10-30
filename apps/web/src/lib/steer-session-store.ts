@@ -1,6 +1,5 @@
 import { trpc } from "@/lib/trpc-client"
 import { releaseTurnLog } from "@/lib/session-turn-events"
-import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import {
   ackAnswer,
   answerKey,
@@ -60,39 +59,26 @@ import type { SessionStatus } from "@exp/db-schema/domain"
 import { currentSteerCarrier } from "@/lib/enet/steer-bridge"
 import { CLOSE_ENET_LOST, openEnetSteer } from "@/lib/enet/steer-enet-viewer"
 
-// EXP-621: the viewer connection to the steer relay, lifted OUT of
+// EXP-621: the viewer connection to the session's feed, lifted OUT of
 // AgentSessionView into a module-level per-session store (the pattern of
 // lib/collections.ts). The socket, feed, phase, answer state AND the
 // composer draft all live here, so leaving the session page, switching dock
 // tabs or navigating around the app detaches the VIEW without dropping the
 // CONNECTION — reopening renders the retained feed instantly, no
-// "Connecting…" phase and no full activity replay. The relay explicitly
-// allows multiple concurrent viewers and an established socket outlives its
-// 60s ticket, so background connections are protocol-safe; fewer redials
-// also spares the relay's per-IP connect budget.
+// "Connecting…" phase and no full activity replay. VAPP-43: the feed rides
+// eNet's chat channel to the device itself (lib/enet/steer-enet-viewer.ts,
+// fixtures/steer-enet.json); the steer relay carries no session content.
 
-// ── Wire protocol (activity-viewer side of apps/steer-relay/src/protocol.ts) ─
+// ── Wire protocol (the steer frames of apps/steer-relay/src/protocol.ts, ─────
+// ── carried over eNet) ───────────────────────────────────────────────────────
 
 // Relay rejects input frames > 8 KiB; chunk pastes well under that.
 const INPUT_CHUNK_CHARS = 4096
-/** Redial backoff while the desktop's publisher socket is still starting:
- *  3s doubling to 30s. Each redial mints a fresh ticket and opens a fresh
- *  relay socket, so a fixed cadence across many waiting viewers would eat the
- *  relay's per-IP connect budget in lockstep. */
+/** Redial backoff while the desktop's publisher is still starting (or its
+ *  device is unreachable over eNet): 3s doubling to 30s, so many waiting
+ *  viewers never redial in lockstep. */
 const STARTING_RETRY_BASE_MS = 3_000
 const STARTING_RETRY_MAX_MS = 30_000
-/** The relay evicts a viewer whose socket saturates (a stalled tab behind an
- *  OS file dialog, a backgrounded phone) with close code 4008 — see
- *  CLOSE_SLOW_CONSUMER in apps/steer-relay/src/protocol.ts. That is an
- *  eviction, not an ending: the session is still live, so the store redials
- *  silently instead of stranding the user on "Disconnected". */
-const CLOSE_SLOW_CONSUMER = 4008
-/** The relay refused the ticket (CLOSE_UNAUTHORIZED). A retry mints the same
- *  "no" forever, so this close is terminal (the mobile viewers agree). Today
- *  the relay refuses a bad ticket at the HTTP upgrade instead (401, which a
- *  browser reports as 1006 — rightly retryable, every redial mints a fresh
- *  ticket), so this is protocol completeness rather than a hot path. */
-const CLOSE_UNAUTHORIZED = 4003
 /** A disposal grace once a store is neither kept by the dock strip's reaper
  *  nor subscribed — long enough to survive transient empty live-query results
  *  and route remounts, which must never kill a background socket. */
@@ -100,18 +86,14 @@ const RETAIN_GRACE_MS = 60_000
 /** A store whose session ENDED and lost its last subscriber lingers briefly
  *  so a quick re-open still shows the tail, then self-disposes. */
 const ENDED_GRACE_MS = 5_000
-/** EXP-625: the mint is a network round-trip with no deadline of its own.
- *  A request issued as the tab suspended can hang forever, and the store
- *  would sit on "Connecting…" with nothing to click. Bound it. */
-const MINT_TIMEOUT_MS = 20_000
-/** EXP-625: the relay ALWAYS answers a join (`activity_reset` + replay, or
- *  `error no_such_session` then close 4001), so silence after the join means
+/** EXP-625: a joined feed ALWAYS answers the store's join (the replay that
+ *  proved it), so silence after the join means
  *  a dead socket: one that opened but never delivers a frame. Close it so
  *  the normal onclose path runs and the user gets a Reconnect affordance
  *  instead of an eternal "Connecting…". */
 const JOIN_ACK_TIMEOUT_MS = 15_000
-/** EXP-648: the relay sends every joined viewer a `keepalive` frame every
- *  15s (apps/steer-relay/src/hub.ts), so three of those missing on a
+/** EXP-648: the device sends every joined viewer a `keepalive` frame every
+ *  `keepaliveMs` (fixtures/steer-enet.json), so three of those missing on a
  *  nominally live socket means the socket is dead — one the OS killed under
  *  a suspended tab without ever delivering a close frame — not that the
  *  agent is quiet (an agent parked on a question or plan approval sends
@@ -128,8 +110,6 @@ const LIVE_STALE_MS = 45_000
  *  `replayQuietSeconds`/`replayMaxSeconds` — move all three in lockstep. */
 export const REPLAY_QUIET_MS = 400
 export const REPLAY_MAX_MS = 3_000
-/** What the mint race resolves to when the deadline wins (EXP-625). */
-const MINT_TIMED_OUT = Symbol(`mint-timed-out`)
 
 /** Equal jitter (half fixed, half random) — desynchronizes viewers that
  *  started waiting together while keeping a floor on the delay. */
@@ -425,11 +405,7 @@ type ServerFrame =
       seqs: number[]
       done: boolean
     }
-  // EXP-773: no live room, but the session's device is online — the relay
-  // parked this viewer and asked the machine to republish the run's journal.
-  // The transcript arrives as an ordinary replay, then a `bye`.
-  | { t: `history_pending` }
-  // EXP-648: the relay's liveness beat to joined viewers. Carries nothing;
+  // EXP-648: the device's liveness beat to joined viewers. Carries nothing;
   // its only effect is the `lastFrameAt` stamp taken above the switch.
   | { t: `keepalive` }
   | { t: `bye`; outcome?: string }
@@ -457,17 +433,13 @@ export type ViewerPhase =
   // backoff (3s → 30s).
   | { kind: `starting` }
   | { kind: `live` }
-  // EXP-773: the run is over and its transcript lives on the device — the
-  // relay is fetching it. Rows stream in under this phase and the `bye`
-  // that follows turns it into `ended`.
-  | { kind: `history_pending`; detail?: string }
-  // The session ended (relay `bye`, or the room was never live).
+  // The session ended (the device's `bye`, or no feed for an ended row:
+  // VAPP-43, the device-offline copy).
   | { kind: `ended`; detail?: string }
-  // Unexpected socket loss — offer a manual Reconnect (fresh ticket).
-  // `terminal` (EXP-648) marks a "no" a retry cannot turn into a "yes":
-  // steering disabled on the instance, a mint refused for ownership or a
-  // gone row, a ticket the relay rejected. The wakeup kicks leave those
-  // alone instead of re-minting on every tab switch; the explicit Reconnect
+  // Unexpected feed loss — offer a manual Reconnect (a fresh dial).
+  // `terminal` (EXP-648) marks a "no" a retry cannot turn into a "yes"
+  // (the device refusing this viewer). The wakeup kicks leave those
+  // alone instead of redialing on every tab switch; the explicit Reconnect
   // button still tries.
   | { kind: `closed`; detail?: string; terminal?: boolean }
 
@@ -706,22 +678,12 @@ export interface AddDraftImagesResult {
 }
 
 interface SteerStoreDeps {
-  mintTicket: (codingSessionId: string) => Promise<
-    { disabled: true } | { ticket: string; url: string }
-  >
-  createSocket: (url: string) => WebSocket
-  /** VAPP-33: the feed over eNet's chat channel, joined and shaped like the
-   *  relay socket; null = dial the relay (the fallback until #VAPP-43). */
-  openEnet?: (codingSessionId: string) => Promise<WebSocket | null>
+  /** VAPP-33: the feed over eNet's chat channel, joined and shaped like a
+   *  WebSocket; null = NO FEED (VAPP-43: there is no relay fallback). */
+  openEnet: (codingSessionId: string) => Promise<WebSocket | null>
 }
 
 const defaultDeps: SteerStoreDeps = {
-  mintTicket: (codingSessionId) =>
-    trpc.steer.mintTicket.mutate(
-      { kind: `viewer`, sessionId: codingSessionId },
-      { context: { skipErrorToast: true } }
-    ) as Promise<{ disabled: true } | { ticket: string; url: string }>,
-  createSocket: (url) => new WebSocket(url),
   openEnet: async (codingSessionId) =>
     (await openEnetSteer(codingSessionId, {
       carrier: currentSteerCarrier,
@@ -753,7 +715,7 @@ export interface SteerSessionStore {
   loadEarlier(): boolean
   /** The synced row is the truth for "still running" inside the redial
    *  loops — the OWNING view feeds it; an unwatched store falls back to the
-   *  relay's own signals plus the dock reaper. EXP-1293: the `sessions`
+   *  device's own signals plus the dock reaper. EXP-1293: the `sessions`
    *  row's status — `queued` reads as starting, `ended` as over. */
   noteSessionStatus(status: SessionStatus): void
   /** EXP-773: the host machine's label, for the history phases' copy. */
@@ -828,12 +790,11 @@ export function createSteerSessionStore(
   // the backoff; a live connection resets it so the next stall starts fast.
   let retries = 0
   let sessionStatus: SessionStatus | null = null
-  /** EXP-773: the host machine's label, for the history phases' copy. The
+  /** EXP-773: the host machine's label, for the device-offline copy. The
    *  owning view feeds it off the synced devices row. */
   let deviceLabel: string | null = null
   // EXP-625: dial liveness, so a wakeup can tell a dial that is merely young
-  // from one that is stuck. Both timers are generation-scoped.
-  let mintTimer: ReturnType<typeof setTimeout> | null = null
+  // from one that is stuck. The timer is generation-scoped.
   let joinAckTimer: ReturnType<typeof setTimeout> | null = null
   let dialStartedAt = 0
   let lastFrameAt = 0
@@ -968,8 +929,8 @@ export function createSteerSessionStore(
       runningWorkflow: newestRunningWorkflow([...workflows.values()]),
       answerStates,
       connected,
-      // EXP-796: a page can only be asked for over an OPEN socket — once the
-      // relay closed the (lingering) history room, the button goes.
+      // EXP-796: a page can only be asked for over an OPEN feed — once the
+      // device dropped this viewer, the button goes.
       canLoadEarlier: historyTruncated && !historyExhausted && connected,
     }
     notify()
@@ -1012,13 +973,9 @@ export function createSteerSessionStore(
     }
   }
 
-  /** EXP-625: drop both dial deadlines. Every path that abandons a dial
+  /** EXP-625: drop the dial deadline. Every path that abandons a dial
    *  (a new dial, reconnect, dispose, the socket closing) goes through here. */
   const clearDialTimers = () => {
-    if (mintTimer) {
-      clearTimeout(mintTimer)
-      mintTimer = null
-    }
     if (joinAckTimer) {
       clearTimeout(joinAckTimer)
       joinAckTimer = null
@@ -1060,28 +1017,11 @@ export function createSteerSessionStore(
   const markLive = (): boolean => {
     retries = 0
     if (phase.kind === `live`) return false
-    // EXP-773: a history republish streams the same frames a live room does,
-    // but the run is over — the caption keeps saying so until the marker.
-    if (phase.kind === `history_pending`) return false
-    // EXP-796: an ended phase never lifts back to live on the same dial — a
-    // lingering history room's keepalives and pages are not a run, and the
-    // synced row stays the source of truth (a redial resets the phase).
+    // EXP-796: an ended phase never lifts back to live on the same dial —
+    // keepalives and pages are not a run, and the synced row stays the
+    // source of truth (a redial resets the phase).
     if (phase.kind === `ended`) return false
     phase = { kind: `live` }
-    return true
-  }
-
-  /** EXP-796: the device's replay is fully in. The relay keeps the history
-   *  room OPEN for a while (no `bye`, keepalives, "Load earlier" pages down
-   *  the device's control socket), so the phase moves off "loading" here
-   *  rather than at a close: an ENDED row is over — the transcript is on
-   *  screen, read-only, the socket lingers only for pages — while a row the
-   *  server still calls alive waits for its publisher, whose takeover of the
-   *  lingering room lands on this same socket as an ordinary replay. */
-  const markHistoryServed = (): boolean => {
-    if (phase.kind !== `history_pending`) return false
-    retries = 0
-    phase = sessionStatus === `ended` ? { kind: `ended` } : { kind: `starting` }
     return true
   }
 
@@ -1877,8 +1817,8 @@ export function createSteerSessionStore(
     const gen = ++generation
     clearDialTimers()
     // A superseded socket's HANDLERS are inert (the generation gate), but the
-    // socket is not: left open it stays joined at the relay as a duplicate
-    // viewer until the room closes. Every dial abandons its predecessor, so
+    // socket is not: left open it stays joined at the device as a duplicate
+    // viewer until the run ends. Every dial abandons its predecessor, so
     // the close belongs here — that makes every caller safe, `kick`'s
     // `starting` retry (which dials straight over an in-flight dial) included.
     if (ws) {
@@ -1888,7 +1828,7 @@ export function createSteerSessionStore(
       // history of a room this dial is leaving — keep what the reader sees.
       discardStaging()
       // A page asked for on that socket is not coming either (EXP-795): the
-      // relay drops the ask with the viewer, so a new one may go out.
+      // device drops the ask with the viewer, so a new one may go out.
       historyRequest = null
       if (connected) {
         connected = false
@@ -1905,313 +1845,208 @@ export function createSteerSessionStore(
       commit()
     }
 
+    // VAPP-43: eNet is the only carrier (its own deadlines: joinTimeoutMs).
+    // No endpoint, no node, every endpoint refused or no `activity_synced`
+    // in time = NO FEED, shown with the existing states: a row still alive
+    // waits in `starting` and redials on the backoff, an ended row is over
+    // and its transcript sits on a machine this viewer cannot reach.
+    const sock = await deps.openEnet(sessionId).catch(() => null)
+    if (disposed || gen !== generation) {
+      sock?.close()
+      return
+    }
+    if (!sock) {
+      if (sessionStatus === `ended`) {
+        phase = {
+          kind: `ended`,
+          detail: `${deviceLabel ?? `The device`} is offline. The transcript lives on that machine.`,
+        }
+        clearCompaction()
+        restoreQueueToDraft()
+        commit()
+        onEnded()
+      } else {
+        phase = { kind: `starting` }
+        commit()
+        scheduleRedial()
+      }
+      return
+    }
+
     // `bye` / no_such_session must win over the generic close handler.
     let sawEnd = false
     let retryStarting = false
-    // EXP-773: a history error a redial can only repeat — the close it
+    // A refusal a redial can only repeat (`unauthorized`): the close it
     // precedes is terminal, so the wakeup kicks leave it alone.
     let terminalError = false
-    // EXP-773: this dial was parked on a device transcript. On a run the
-    // synced row still calls live that answer is about the JOURNAL, never
-    // about the run: the publisher just has not hello'd yet.
-    let sawHistoryPending = false
     let detail: string | null = null
 
-    try {
-      // VAPP-33: eNet first (its own deadlines: joinTimeoutMs); a joined
-      // feed skips the mint, anything else falls through to the relay.
-      const viaEnet = deps.openEnet ? await deps.openEnet(sessionId).catch(() => null) : null
-      if (disposed || gen !== generation) {
-        viaEnet?.close()
+    ws = sock
+    sock.onopen = () => {
+      if (disposed || gen !== generation) return
+      connected = true
+      commit()
+      // The feed is NEVER wiped here (protocol v2): the device sends an
+      // explicit `activity_reset` immediately before its join replay, so
+      // a redial that never lands keeps showing what was already there.
+      sock.send(JSON.stringify({ t: `join`, channel: `activity` }))
+      // NOT live yet: the phase flips to live on the first confirming
+      // frame (the replay's `activity_reset`).
+      // EXP-625: the join is always answered, so arm a deadline for that
+      // answer. A feed that stays mute is closed here, and the onclose path
+      // below turns it into an honest, retryable phase.
+      joinAckTimer = setTimeout(() => {
+        joinAckTimer = null
+        if (disposed || gen !== generation) return
+        sock.close()
+      }, JOIN_ACK_TIMEOUT_MS)
+    }
+    sock.onmessage = (event) => {
+      if (disposed || gen !== generation || typeof event.data !== `string`)
+        return
+      // Any frame at all proves the feed is alive (EXP-625).
+      lastFrameAt = Date.now()
+      if (joinAckTimer) {
+        clearTimeout(joinAckTimer)
+        joinAckTimer = null
+      }
+      const frame = parseServerFrame(event.data)
+      if (!frame) return
+      switch (frame.t) {
+        case `activity`: {
+          const f = frame as Extract<ServerFrame, { t: `activity` }>
+          activityQueue.enqueue({ t: `event`, event: f.event, seq: f.seq })
+          if (markLive()) commit()
+          return
+        }
+        case `keepalive`:
+          // EXP-648: already counted by the `lastFrameAt` stamp above.
+          // Never a phase change and never a commit — it must not touch
+          // the feed or re-render anything. The one exception: its cadence
+          // proves a staged replay burst is over, so while a replay is
+          // staging (or a reset is still queued ahead of it) it rides the
+          // queue to end it.
+          if (staged !== null || queuedResets > 0) {
+            activityQueue.enqueue({ t: `keepalive` })
+          }
+          return
+        case `activity_reset`: {
+          queuedResets++
+          activityQueue.enqueue({ t: `reset` })
+          if (markLive()) commit()
+          return
+        }
+        case `activity_synced`: {
+          // EXP-656: the end-of-replay marker — the join succeeded and the
+          // staged replay commits.
+          // EXP-783: it names the span, so the commit keeps the pages this
+          // client had already scrolled back to load.
+          const f = frame as Extract<ServerFrame, { t: `activity_synced` }>
+          historyTruncated = f.truncated === true
+          activityQueue.enqueue({ t: `synced`, firstSeq: f.firstSeq })
+          if (markLive()) commit()
+          return
+        }
+        // EXP-783: one page of older transcript. It goes in FRONT of
+        // everything on screen, so it rides the same queue (order with the
+        // live tail matters) and never touches the staging buffer.
+        case `history_chunk`: {
+          const f = frame as Extract<ServerFrame, { t: `history_chunk` }>
+          if (f.requestId !== historyRequest) return
+          if (f.done) historyRequest = null
+          activityQueue.enqueue({ t: `page`, events: f.events, seqs: f.seqs })
+          return
+        }
+        case `bye`: {
+          // The run ended, or (VAPP-43) a stored journal of an ended row
+          // was served (`history`): the feed stays, with the plain ended
+          // caption. The device drops this viewer and the socket closes.
+          const f = frame as Extract<ServerFrame, { t: `bye` }>
+          sawEnd = true
+          detail =
+            f.outcome && f.outcome !== `ended` && f.outcome !== `history`
+              ? f.outcome
+              : null
+          return
+        }
+        case `error`: {
+          const f = frame as Extract<ServerFrame, { t: `error` }>
+          if (f.code === `no_such_session`) {
+            // The device no longer runs it nor holds its journal (a re-join
+            // after the run went away) — auto-retry while the synced row
+            // still says running.
+            retryStarting = true
+          } else {
+            detail = f.message ?? f.code
+            terminalError = f.code === `unauthorized`
+          }
+          sock.close()
+          return
+        }
+        default:
+          // Unknown frames from a newer device are inert.
+          return
+      }
+    }
+    sock.onclose = (event) => {
+      if (disposed || gen !== generation) return
+      clearDialTimers()
+      ws = null
+      connected = false
+      // A half-delivered replay is worth less than the last complete
+      // picture — the reader keeps what they were reading (EXP-656).
+      discardStaging()
+      // Nor is an in-flight page ask answered on a closed feed (EXP-795).
+      historyRequest = null
+      if (sawEnd) {
+        phase = { kind: `ended`, detail: detail ?? undefined }
+        // A run that ended mid-fold is not compacting any more (EXP-724).
+        clearCompaction()
+        // EXP-861: nothing is queued on a run that is over — the device
+        // dropped its queue with the turn it was waiting for, so the text
+        // goes back to the draft.
+        restoreQueueToDraft()
+        commit()
+        onEnded()
         return
       }
-      let sock: WebSocket
-      if (viaEnet) {
-        sock = viaEnet
-      } else {
-        // EXP-625: race the mint against its deadline. The attached noop catch
-        // keeps a LATE rejection (after the deadline already won) from
-        // surfacing as an unhandled rejection. The race still sees it while
-        // it is the pending outcome.
-        const minting = deps.mintTicket(sessionId)
-        minting.catch(() => {})
-        const minted = await Promise.race([
-          minting,
-          new Promise<typeof MINT_TIMED_OUT>((resolve) => {
-            mintTimer = setTimeout(() => {
-              mintTimer = null
-              resolve(MINT_TIMED_OUT)
-            }, MINT_TIMEOUT_MS)
-          }),
-        ])
-        if (disposed || gen !== generation) return
-        if (mintTimer) {
-          clearTimeout(mintTimer)
-          mintTimer = null
-        }
-        if (minted === MINT_TIMED_OUT) {
-          phase = {
-            kind: `closed`,
-            detail: `Couldn't get a viewer ticket in time.`,
-          }
-          commit()
-          return
-        }
-        if (`disabled` in minted && minted.disabled) {
-          phase = {
-            kind: `closed`,
-            detail: `Live steering is unavailable on this instance.`,
-            terminal: true,
-          }
-          commit()
-          return
-        }
-        const { url } = minted as { ticket: string; url: string }
-        sock = deps.createSocket(url)
-      }
-      ws = sock
-      sock.onopen = () => {
-        if (disposed || gen !== generation) return
-        connected = true
-        commit()
-        // The feed is NEVER wiped here (protocol v2): the relay sends an
-        // explicit `activity_reset` immediately before its join replay, so
-        // a redial that never lands keeps showing what was already there.
-        sock.send(JSON.stringify({ t: `join`, channel: `activity` }))
-        // NOT live yet — the relay may answer the join with no_such_session
-        // (desktop still starting). The phase flips to live on the first
-        // confirming server frame instead (the relay sends activity_reset
-        // immediately on a successful join).
-        // EXP-625: the relay answers every join, so arm a deadline for that
-        // answer. A socket that opened but stays mute (a stale connection a
-        // suspended tab woke up with) is closed here, and the onclose path
-        // below turns it into an honest, retryable phase.
-        joinAckTimer = setTimeout(() => {
-          joinAckTimer = null
-          if (disposed || gen !== generation) return
-          sock.close()
-        }, JOIN_ACK_TIMEOUT_MS)
-      }
-      sock.onmessage = (event) => {
-        if (disposed || gen !== generation || typeof event.data !== `string`)
-          return
-        // Any frame at all proves the socket is alive (EXP-625).
-        lastFrameAt = Date.now()
-        if (joinAckTimer) {
-          clearTimeout(joinAckTimer)
-          joinAckTimer = null
-        }
-        const frame = parseServerFrame(event.data)
-        if (!frame) return
-        switch (frame.t) {
-          case `activity`: {
-            const f = frame as Extract<ServerFrame, { t: `activity` }>
-            activityQueue.enqueue({ t: `event`, event: f.event, seq: f.seq })
-            if (markLive()) commit()
-            return
-          }
-          case `keepalive`:
-            // EXP-648: already counted by the `lastFrameAt` stamp above.
-            // Never a phase change and never a commit — it must not touch
-            // the feed or re-render anything. The one exception: its 15s
-            // cadence proves a staged replay burst is over, so while a
-            // replay is staging (or a reset is still queued ahead of it) it
-            // rides the queue to end it.
-            if (staged !== null || queuedResets > 0) {
-              activityQueue.enqueue({ t: `keepalive` })
-            }
-            return
-          case `activity_reset`: {
-            queuedResets++
-            activityQueue.enqueue({ t: `reset` })
-            if (markLive()) commit()
-            return
-          }
-          case `activity_synced`: {
-            // EXP-656: the relay's end-of-replay marker — the join succeeded
-            // and the staged replay commits.
-            // EXP-783: it names the span, so the commit keeps the pages this
-            // client had already scrolled back to load.
-            const f = frame as Extract<ServerFrame, { t: `activity_synced` }>
-            historyTruncated = f.truncated === true
-            activityQueue.enqueue({ t: `synced`, firstSeq: f.firstSeq })
-            if (markHistoryServed()) {
-              commit()
-              if (phase.kind === `ended`) onEnded()
-            } else if (markLive()) {
-              commit()
-            }
-            return
-          }
-          // EXP-783: one page of older transcript. It goes in FRONT of
-          // everything on screen, so it rides the same queue (order with the
-          // live tail matters) and never touches the staging buffer.
-          case `history_chunk`: {
-            const f = frame as Extract<ServerFrame, { t: `history_chunk` }>
-            if (f.requestId !== historyRequest) return
-            if (f.done) historyRequest = null
-            activityQueue.enqueue({ t: `page`, events: f.events, seqs: f.seqs })
-            return
-          }
-          case `history_pending`: {
-            // EXP-773: the relay parked this viewer and asked the device for
-            // the run's journal. Never a redial state — the relay answers
-            // with the transcript, `history_unavailable` or `device_offline`.
-            sawHistoryPending = true
-            phase = {
-              kind: `history_pending`,
-              detail: `Fetching the transcript from ${deviceLabel ?? `the device`}…`,
-            }
-            commit()
-            return
-          }
-          case `bye`: {
-            const f = frame as Extract<ServerFrame, { t: `bye` }>
-            if (f.outcome === `publisher_lost`) {
-              // The desktop's relay socket dropped but the session may still
-              // be running — the synced row is the truth. Stay retryable.
-              detail = `The desktop's connection to the relay dropped. Retry once it reconnects.`
-            } else {
-              sawEnd = true
-              // EXP-773: `history` is the journal republish closing itself
-              // out — the feed stays, with the plain ended caption. The two
-              // history failures arrive as an `error` frame FIRST and then as
-              // this outcome; the caption that arm wrote is the human one, so
-              // it is never overwritten with the raw code.
-              if (!terminalError) {
-                detail =
-                  f.outcome &&
-                  f.outcome !== `ended` &&
-                  f.outcome !== `history` &&
-                  f.outcome !== `history_unavailable` &&
-                  f.outcome !== `device_offline`
-                    ? f.outcome
-                    : null
-              }
-            }
-            return
-          }
-          case `error`: {
-            const f = frame as Extract<ServerFrame, { t: `error` }>
-            if (f.code === `no_such_session`) {
-              // Not live on the relay (yet) — auto-retry while the synced
-              // row still says running.
-              detail = `The live stream isn't up yet. The desktop may still be connecting.`
-              retryStarting = true
-              sock.close()
-            } else if (f.code === `device_offline`) {
-              // EXP-773: the transcript is a FILE on that machine — no
-              // retry here can conjure it up, so this close is terminal.
-              detail = `${deviceLabel ?? `The device`} is offline. The transcript lives on that machine.`
-              terminalError = true
-            } else if (f.code === `history_unavailable`) {
-              detail = `No transcript on ${deviceLabel ?? `the device`}.`
-              terminalError = true
-            } else {
-              detail = f.message ?? f.code
-            }
-            return
-          }
-          default:
-            // Unknown frames from a newer relay are inert.
-            return
-        }
-      }
-      sock.onclose = (event) => {
-        if (disposed || gen !== generation) return
-        clearDialTimers()
-        ws = null
-        connected = false
-        // A half-delivered replay is worth less than the last complete
-        // picture — the reader keeps what they were reading (EXP-656).
-        discardStaging()
-        // Nor is an in-flight page ask answered on a closed socket (EXP-795).
-        historyRequest = null
-        // EXP-773: the relay opens a pending history room for ANY join it
-        // has no live room for, so a run whose publisher is still connecting
-        // gets a device answer instead of `no_such_session`: a partial
-        // transcript, `history_unavailable` or `device_offline`, each closing
-        // the socket. None of them is an ending while the synced row says the
-        // run is alive — go back to `starting` and redial for the publisher.
-        if (sawHistoryPending && sessionStatus !== `ended`) {
+      if (retryStarting) {
+        // An idle session is still alive and steerable (EXP-194) — only
+        // a truly ended session stops the redial.
+        if (sessionStatus !== `ended`) {
           phase = { kind: `starting` }
           commit()
           scheduleRedial()
-          return
-        }
-        if (sawEnd) {
-          phase = { kind: `ended`, detail: detail ?? undefined }
-          // A run that ended mid-fold is not compacting any more (EXP-724).
-          clearCompaction()
-          // EXP-861: nothing is queued on a run that is over — the device
-          // dropped its queue with the turn it was waiting for, so the text
-          // goes back to the draft.
+        } else {
+          phase = { kind: `ended` }
           restoreQueueToDraft()
           commit()
           onEnded()
-          return
         }
-        if (retryStarting) {
-          // An idle session is still alive and steerable (EXP-194) — only
-          // a truly ended session stops the redial.
-          if (sessionStatus !== `ended`) {
-            phase = { kind: `starting` }
-            commit()
-            scheduleRedial()
-          } else {
-            phase = { kind: `ended` }
-            restoreQueueToDraft()
-            commit()
-            onEnded()
-          }
-          return
-        }
-        // EXP-621: a slow-consumer eviction is not an ending — the session
-        // is still live on the relay. Redial silently (the phase — usually
-        // `live` — holds steady, so nothing flickers and the composer never
-        // loses its footing; the commit still surfaces `connected: false` so
-        // the send button dims honestly for the gap); the shared backoff
-        // bounds a pathological evict-redial loop.
-        //
-        // EXP-781: an ENDED row gets the same treatment once we have seen
-        // `history_pending`. That replay is the device pushing a whole
-        // journal in a burst, which is exactly what trips the eviction, and
-        // the staging was just discarded above — without a redial the phase
-        // lands in `closed`, where `kick()` refuses to recover it and the
-        // reader is stranded on an empty transcript. Retrying is safe: the
-        // next join replays from scratch.
-        if (
-          (event.code === CLOSE_SLOW_CONSUMER || event.code === CLOSE_ENET_LOST) &&
-          (sessionStatus !== `ended` || sawHistoryPending)
-        ) {
-          commit()
-          scheduleRedial()
-          return
-        }
-        phase = {
-          kind: `closed`,
-          detail: detail ?? undefined,
-          terminal: terminalError || event.code === CLOSE_UNAUTHORIZED,
-        }
-        commit()
+        return
       }
-    } catch (error) {
-      if (disposed || gen !== generation) return
-      // A mint refused for ownership (FORBIDDEN) or for a row that is gone
-      // (NOT_FOUND) is terminal: it stays `closed` rather than `ended` — a
-      // reaped row is disposed by the registry's retention sweep anyway.
-      // Everything else (a network failure, a 5xx) is worth a retry.
-      const code = trpcErrorCode(error)
+      // EXP-621: a lost eNet feed (silent past a re-join, a send that never
+      // landed) is not an ending. Redial silently (the phase — usually
+      // `live` — holds steady, so nothing flickers; the commit still
+      // surfaces `connected: false` so the send button dims honestly for
+      // the gap); the shared backoff bounds a pathological loop. An ended
+      // row too (EXP-781): a stored replay cut short is retried from
+      // scratch, and a device that is gone lands on the no-feed path.
+      if (event.code === CLOSE_ENET_LOST) {
+        commit()
+        scheduleRedial()
+        return
+      }
       phase = {
         kind: `closed`,
-        detail: trpcErrorMessage(error, `Couldn't get a viewer ticket`),
-        terminal: code === `FORBIDDEN` || code === `NOT_FOUND`,
+        detail: detail ?? undefined,
+        terminal: terminalError,
       }
       commit()
     }
   }
 
-  // ── Steering (message-shaped; owner-only — the mint refuses anyone else) ──
+  // ── Steering (message-shaped; the device applies the access rule) ─────────
 
   /**
    * Forward raw input (chunked ≤4 KiB, never splitting a surrogate pair).
@@ -2228,7 +2063,7 @@ export function createSteerSessionStore(
     return true
   }
 
-  /** Protocol v2 answer: the relay forwards it verbatim to the desktop, which
+  /** Protocol v2 answer: it reaches the desktop verbatim, which
    *  drives its own picker and confirms with `answer_ack`. The ONLY answer
    *  path (EXP-672) — a card without a wire id is not answerable from here. */
   const sendAnswerFrame = (
@@ -2253,8 +2088,8 @@ export function createSteerSessionStore(
     return true
   }
 
-  /** EXP-790: cancel the agent's current turn. The relay forwards the frame
-   *  to the publisher verbatim; the engine's `session/cancel` dismisses every
+  /** EXP-790: cancel the agent's current turn. The frame reaches the
+   *  publisher verbatim; the engine's `session/cancel` dismisses every
    *  open card and the feed shows the interrupted turn. */
   const sendInterruptFrame = (): boolean => {
     if (ws?.readyState !== WebSocket.OPEN) return false
@@ -2327,8 +2162,8 @@ export function createSteerSessionStore(
           // An unexpected close stays terminal BY DESIGN until something
           // says the world changed, and a wakeup is exactly that. A
           // session the synced row calls ended is left alone, and so is a
-          // close no retry can fix (EXP-648, see ViewerPhase) — that used to
-          // cost one mint per visibility/online event per retained store.
+          // close no retry can fix (EXP-648, see ViewerPhase) — that would
+          // cost one dial per visibility/online event per retained store.
           if (current.terminal) return
           if (sessionStatus !== `ended`) store.reconnect()
           return
@@ -2344,9 +2179,9 @@ export function createSteerSessionStore(
           // The desktop's publisher may well have arrived while we were
           // away, so retry NOW instead of waiting out a 30s backoff step.
           // The phase holds, so nothing flickers.
-          // EXP-796: unless a socket is OPEN and talking — a served history
-          // room lingers for the publisher's takeover, which arrives on it;
-          // redialing would only throw the transcript away and re-ask.
+          // EXP-796: unless a feed is OPEN and talking — the device keeps an
+          // idle row's viewer joined for the publisher's takeover, which
+          // arrives on it; redialing would only throw the transcript away.
           // An in-flight dial (open, nothing heard yet) is still retried:
           // only a socket that has answered THIS dial recently is left be.
           if (
@@ -2360,8 +2195,8 @@ export function createSteerSessionStore(
           return
         case `live`:
           // EXP-648: live on paper over a socket that has said nothing for
-          // longer than three relay keepalives is dead — redial under the
-          // `live` phase (the 4008 mechanics) so a socket that turns out
+          // longer than three device keepalives is dead — redial under the
+          // `live` phase (the CLOSE_ENET_LOST mechanics) so a socket that turns out
           // fine never flashes "Disconnected". Silence is measured from the
           // LATER of the last frame and the current dial's start: a young
           // in-flight redial (visible + online firing back to back) is left

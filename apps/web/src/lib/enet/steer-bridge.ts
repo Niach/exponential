@@ -2,16 +2,16 @@
 // in the tab holding the Web Lock (use-web-install.ts), so every OTHER tab of
 // the profile reaches it over a BroadcastChannel: the node's tab serves the
 // bridge (sends chat for the others, pins their device endpoints, rebroadcasts
-// every inbound steer envelope), the others are clients. Decision: bridge,
-// not relay-only for non-node tabs. A user's sessions open in whichever tab
-// they clicked, so relay-only there would leave most views on the relay the
-// switch-off (#VAPP-43) removes; the bridge is a few message kinds and the
+// every inbound steer envelope), the others are clients. A user's sessions
+// open in whichever tab they clicked, and since VAPP-43 the steer relay
+// carries no session content, so a tab without the bridge would have no feed
+// at all; the bridge is a few message kinds and the
 // viewer rule (joined session + joined endpoint) already filters what each
 // tab applies. Every tab shares ONE endpoint id, so the node's tab counts
 // joins per (device, session) across tabs and forwards a `leave` only when
 // the last tab leaves; a second tab's `join` restarts the feed for all of
-// them, which each store takes as a relay-style re-join (staged, one commit).
-// No node tab answering within WHO_TIMEOUT_MS = no carrier = the relay.
+// them, which each store takes as a re-join (staged, one commit).
+// No node tab answering within WHO_TIMEOUT_MS = no carrier = no feed.
 
 import { encodeSteerEnvelope, parseSteerEnvelope, STEER_ENET_SEND_TIMEOUT_MS } from "@exp/domain-contract/steer-enet"
 import type { SteerCarrier } from "./steer-enet-viewer"
@@ -245,7 +245,7 @@ export function setLocalSteerCarrier(carrier: SteerCarrier | undefined) {
   local = carrier
 }
 
-/** The node here, else the bridge to the node's tab, else none (= the relay). */
+/** The node here, else the bridge to the node's tab, else none (= no feed). */
 export function currentSteerCarrier(): Promise<SteerCarrier | undefined> {
   if (local) return Promise.resolve(local)
   if (typeof BroadcastChannel === `undefined`) return Promise.resolve(undefined)

@@ -9,15 +9,16 @@ import os
 /// the activity channel is that it is scrubbed, and a log is not.
 private let logger = Logger(subsystem: "at.exponential", category: "AgentSessionModel")
 
-/// Viewer side of the steer relay's ACTIVITY channel (EXP-32 — the session's
-/// raw work; apps/steer-relay/src/protocol.ts). Mints a viewer ticket over
-/// tRPC, dials the returned ws(s) URL with URLSessionWebSocketTask, joins with
+/// Viewer side of the steer ACTIVITY channel (EXP-32 — the session's raw
+/// work; the frames of apps/steer-relay/src/protocol.ts). Since VAPP-43 it
+/// rides eNet only (Enet/SteerEnet.swift, fixtures/steer-enet.json): joins the
+/// device that runs (or holds the journal of) the session with
 /// {"t":"join","channel":"activity"}, and receives scrubbed {t:'activity',
 /// event} frames (narration / tool headlines / questions / subagents /
-/// permissions / worktree diffs). Every frame is JSON — a stray BINARY frame
-/// is ignored.
+/// permissions / worktree diffs). No device to join = NO FEED: the existing
+/// `starting` / ended-device-offline states, never a relay fallback.
 ///
-/// EXP-1295 (Model v3): the relay is the LIVE layer only. A message is a
+/// EXP-1295 (Model v3): the steer channel is the LIVE layer only. A message is a
 /// `messages` row (`sessions.send({sessionId})`), Stop is `sessions.stop`,
 /// a queued message is revoked with `sessions.unqueue` — the database is the
 /// bus. A question card still answers over ONE semantic `answer` frame.
@@ -28,16 +29,15 @@ final class AgentSessionModel {
         case idle
         case connecting
         case live
-        /// The relay reported no_such_session while the synced row still says
-        /// running — the desktop is still dialing its publisher socket. The
-        /// model auto-redials (fresh ticket) every ~3s until the room is live.
+        /// No device fed the session (no node, no endpoint, every endpoint
+        /// refused, join timeout, or `no_such_session`) while the synced row
+        /// is still alive. The model redials every ~3s until a device answers.
         case starting
-        /// The session ended (relay `bye`). Feed retained, input hidden.
+        /// The session ended (`bye`). Feed retained, input hidden.
         case ended(detail: String?)
-        /// Unexpected socket loss / ticket failure. With `reconnecting` the
-        /// model auto-redials on jittered exponential backoff (EXP-243 — no
-        /// manual Reconnect button); false only for terminal states (steer
-        /// disabled on this instance).
+        /// Unexpected link loss. With `reconnecting` the model auto-redials on
+        /// jittered exponential backoff (EXP-243 — no manual Reconnect
+        /// button); false only for terminal states.
         case closed(detail: String?, reconnecting: Bool)
     }
 
@@ -81,7 +81,7 @@ final class AgentSessionModel {
         }
     }
     /// The feed stays visible while disconnected (closed/ended states) and is
-    /// cleared ONLY by the relay's `activity_reset` frame (EXP-249) — the relay
+    /// cleared ONLY by the device's `activity_reset` frame (EXP-249) — the device
     /// sends one to every activity viewer immediately before its join replay,
     /// so the client never has to guess when to wipe. Item shapes and the pure
     /// grouping/resolution rules live in ExpCore's AgentFeed.
@@ -138,21 +138,14 @@ final class AgentSessionModel {
         parsedDiffCache = (latestDiff, parsed)
         return parsed
     }
-    /// EXP-773: where an ENDED run's transcript is coming from. The relay has
-    /// no room for a finished session, so it asks the device that ran it to
-    /// republish its on-disk journal; these are the three answers. Nil on a
-    /// live session and once the transcript has arrived.
+    /// EXP-773: why an ENDED run has no transcript. The device that ran it
+    /// replays its on-disk journal over eNet (VAPP-43 stored replay); when no
+    /// device answers the join, the transcript is out of reach. Nil on a live
+    /// session and once the transcript has arrived.
     enum HistoryState: Equatable {
-        /// The relay woke the device and is waiting for it to publish.
-        case pending
-        /// The machine that holds the journal is not reachable. Terminal:
+        /// The machine that holds the journal did not answer. Terminal:
         /// nothing to redial for, the file is on that disk.
         case deviceOffline
-        /// The device answered and has no journal for this run. Terminal.
-        case unavailable
-
-        /// Nothing is going to change on its own — stop dialing.
-        var isTerminal: Bool { self != .pending }
     }
 
     private(set) var history: HistoryState?
@@ -239,7 +232,7 @@ final class AgentSessionModel {
     private(set) var activityNow = Date()
     /// EXP-746: the agent's live configuration behind the composer chips —
     /// model, effort, mode, and the agent's own slash commands. Latest-wins
-    /// STATE beside the feed, never a row: the relay replays the newest
+    /// STATE beside the feed, never a row: the device replays the newest
     /// `config_state` after its log, so a join and a reconnect both repaint
     /// from one frame.
     private(set) var sessionConfig: AgentSessionConfig?
@@ -293,8 +286,8 @@ final class AgentSessionModel {
     /// EXP-829/EXP-909: the command queue the overlay's one-shot usage refresh
     /// rides. Set by the session screen; nil = nothing is ever queued.
     var devicesApi: DevicesApi?
-    /// VAPP-33: this install's eNet node, tried before the steer relay on
-    /// every dial. Set by the session screen; nil = relay only.
+    /// VAPP-33: this install's eNet node, the ONE steer carrier (VAPP-43).
+    /// Set by the session screen; nil = no node = no feed.
     @ObservationIgnored var steerEnet: SteerEnetCarrier?
     /// The host machine as the devices shape presents it — the usage
     /// refresh's target.
@@ -364,9 +357,9 @@ final class AgentSessionModel {
         SlashCommands.agentId(session?.cli, acp: sessionConfig != nil)
     }
 
-    /// The composer's model pill: the live relay model, else the synced
+    /// The composer's model pill: the live steer model, else the synced
     /// row's pick, else the host's default, else the contract defaults — so a
-    /// thread with no live relay still names its model.
+    /// thread with no live feed still names its model.
     /// `row` overrides `session` (a thread's root row arrives first).
     func composerModelValue(row: SessionEntity? = nil) -> String {
         let row = row ?? session
@@ -396,7 +389,7 @@ final class AgentSessionModel {
     }
 
     /// EXP-621: the session is finished as far as this screen is concerned —
-    /// the relay said `bye` or the synced row ended/vanished. The ONLY state
+    /// the device said `bye` or the synced row ended/vanished. The ONLY state
     /// that retires the composer: every other one (connecting, starting,
     /// reconnecting) keeps it on screen with sending disabled, so a draft is
     /// never lost to a hiccup. Also what SteerSessionStore reaps on.
@@ -405,10 +398,10 @@ final class AgentSessionModel {
         return sessionEnded
     }
 
-    /// Whether a RELAY frame can go out right now (a question's `answer`, a
-    /// mode switch) — a live socket on a live session. `connected` matters
-    /// beyond the phase: a silent slow-consumer redial (4008) deliberately
-    /// keeps `phase == .live` while the socket is briefly down.
+    /// Whether a steer frame can go out right now (a question's `answer`, a
+    /// mode switch) — a live link on a live session. `connected` matters
+    /// beyond the phase: a silent stale redial deliberately keeps
+    /// `phase == .live` while the link is briefly down.
     var canSteer: Bool { phase == .live && connected && !sessionEnded }
 
     /// EXP-1295: this viewer may post to the session and Stop it — a live row
@@ -606,7 +599,7 @@ final class AgentSessionModel {
 
     /// EXP-783 — one `history_page` ask, at most one in flight.
     ///
-    /// A viewer that joined a long-running session holds only the relay's
+    /// A viewer that joined a long-running session holds only the device's
     /// replay TAIL (`truncated` on `activity_synced` is how it knows), and the
     /// pages below it exist only in the device's journal.
     private func requestOlderPage() -> Bool {
@@ -861,7 +854,6 @@ final class AgentSessionModel {
     private let accountId: String
     private let sessionId: String
     private let currentUserId: String?
-    private let steerApi: SteerApi
     private let sessionsApi: SessionsApi
     private let attachmentsApi: AttachmentsApi
     private let issuesApi: IssuesApi
@@ -870,10 +862,9 @@ final class AgentSessionModel {
     /// keystroke that armed it (the composer model keeps the same handle).
     @ObservationIgnored private var issueRefAugmentor: IssueRefAugmentor?
 
-    private var task: URLSessionWebSocketTask?
-    /// VAPP-33: the joined device over eNet's chat channel. While set it IS
-    /// the socket: every client frame goes over it, its frames feed the same
-    /// reducer the relay's do.
+    /// VAPP-33: the joined device over eNet's chat channel — the ONE steer
+    /// link (VAPP-43): every client frame goes over it, its frames feed the
+    /// reducer.
     @ObservationIgnored private var enetLink: SteerEnetLink?
     @ObservationIgnored private var enetPumpTask: Task<Void, Never>?
     @ObservationIgnored private var enetStaleTask: Task<Void, Never>?
@@ -901,7 +892,7 @@ final class AgentSessionModel {
     /// can stamp it without threading it through every branch.
     @ObservationIgnored private var currentSeq: Int?
     /// EXP-783: the `history_page` request in flight — a chunk for any other
-    /// id is not ours; whether the relay said its log is a TAIL (so there IS
+    /// id is not ours; whether the device said its log is a TAIL (so there IS
     /// older transcript to ask the device for); and whether a page came back
     /// with nothing new (stop asking).
     @ObservationIgnored private var historyRequest: String?
@@ -920,21 +911,17 @@ final class AgentSessionModel {
     /// fired backoff retry, EXP-243) can't install a second socket or stomp
     /// the winner's phase.
     private var dialGeneration = 0
-    /// EXP-625: a dial is between its entry and its outcome (mint failure,
-    /// disabled ticket, first frame, or a close). Together with an armed
+    /// EXP-625: a dial is between its entry and its outcome (joined, no
+    /// feed, or a superseding dial). Together with an armed
     /// `retryTask` this is `dialActive`, the ONE thing a wake signal gates on:
-    /// the phase lies (a wedged mint sits at `.connecting` forever), a live
+    /// the phase lies (a wedged dial sits at `.connecting` forever), a live
     /// dial does not.
     private var dialInFlight = false
     /// When the current dial started, and when the last frame arrived on it.
-    /// `lastFrameAt == nil` means the relay has not answered this dial's join.
+    /// `lastFrameAt == nil` means the device has not answered this dial's
+    /// join (the eNet joiner bounds that wait with `joinTimeoutMs`).
     private var dialStartedAt: Date?
     private var lastFrameAt: Date?
-    /// Fires if the relay never answers the join (EXP-625). The relay ALWAYS
-    /// answers one (activity_reset + replay, or no_such_session then a close),
-    /// so silence past the deadline means the socket is dead in a way no
-    /// receive callback will ever report.
-    private var joinAckTask: Task<Void, Never>?
     private var sessionObservationTask: Task<Void, Never>?
     /// EXP-549/550: the synced `devices` rows behind `hostDevice`, plus the
     /// clock that re-derives offline-ness (GRDB only re-fires on WRITES, and
@@ -962,10 +949,10 @@ final class AgentSessionModel {
     /// EXP-724: the backstop behind an open compaction strip — armed on
     /// `started`, cancelled by `ended` and by every clear.
     private var compactionTimeoutTask: Task<Void, Never>?
-    /// EXP-582: inbound relay frames waiting for the next flush. The socket's
-    /// receive callback hops to the main actor ONCE PER FRAME, and with every
+    /// EXP-582: inbound steer frames waiting for the next flush. A receive
+    /// callback that hops to the main actor ONCE PER FRAME, and with every
     /// frame mutating `feed` directly each one bought a full SwiftUI render
-    /// plus a `scrollTo` — a join replay of a long history (the relay replays
+    /// plus a `scrollTo` — a join replay of a long history (the device replays
     /// its whole activity log frame by frame) froze the UI and heated the
     /// device for the duration. Frames now queue here and are applied in one
     /// batch per flush, so the replay costs one render per batch.
@@ -1002,7 +989,7 @@ final class AgentSessionModel {
     /// lockstep.
     private static let answerLockSeconds: Double = 8
     /// EXP-656: a join replay is STAGED, not applied — see SteerReplayStaging.
-    /// The relay's `activity_synced` marker ends it; these bound the fallback
+    /// The device's `activity_synced` marker ends it; these bound the fallback
     /// for a publisher-driven republish that carries no marker. Quiet: the
     /// replay arrives as one burst, so 400ms of silence means it is over. Cap:
     /// a stalled republish commits what it has rather than holding the buffer.
@@ -1014,24 +1001,22 @@ final class AgentSessionModel {
     /// to their nominal times, coarse enough to be one task for the window
     /// instead of one per replayed frame.
     private static let replayWatchSeconds: Double = 0.1
-    /// Redial cadence while the desktop's publisher socket is still starting.
+    /// Redial cadence while no device feeds a live row (the `starting` state).
     private static let startingRetrySeconds: Double = 3
     /// Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
     /// exponential 3s→30s, mirroring the web viewer's starting retry — the
     /// jitter desyncs a herd of viewers all foregrounding at once.
     private static let reconnectBaseSeconds: Double = 3
     private static let reconnectMaxSeconds: Double = 30
-    /// How long a dial waits for the relay's answer to its join before treating
-    /// the socket as dead (EXP-625). Generous: the join answer carries the full
-    /// activity replay, and a cold relay behind a slow network takes a moment.
-    private static let joinAckSeconds: Double = 15
-    /// A nominally live socket that has delivered nothing for this long is
+    /// A nominally live link that has delivered nothing for this long is
     /// suspect, so a wake signal redials it silently rather than trusting the
-    /// phase. The relay sends every joined viewer a `keepalive` frame every
-    /// 15s (EXP-648), so this is three missed ticks: an agent parked on a
+    /// phase. The device sends every joined viewer a `keepalive` frame every
+    /// `SteerEnet.keepaliveMs` (EXP-648), so this is more than one missed tick: an agent parked on a
     /// question or a plan approval produces no frames of its own, and must
     /// not read as a dead socket.
     private static let liveStaleSeconds: Double = 45
+    /// The `starting` state's caption: no device feeds a live row yet.
+    private static let startingDetail = "The live stream isn't up yet. The desktop may still be connecting."
     /// Shown when the session's row no longer exists — a swept row (or one
     /// that left this client's sync scope) is over as far as any client can
     /// tell, and nothing about it is retryable.
@@ -1046,7 +1031,6 @@ final class AgentSessionModel {
         accountId: String,
         session: SessionEntity,
         currentUserId: String?,
-        steerApi: SteerApi,
         sessionsApi: SessionsApi,
         attachmentsApi: AttachmentsApi,
         issuesApi: IssuesApi,
@@ -1055,7 +1039,6 @@ final class AgentSessionModel {
         self.accountId = accountId
         self.sessionId = session.id
         self.currentUserId = currentUserId
-        self.steerApi = steerApi
         self.sessionsApi = sessionsApi
         self.attachmentsApi = attachmentsApi
         self.issuesApi = issuesApi
@@ -1075,12 +1058,12 @@ final class AgentSessionModel {
         if phase == .idle { connect() }
     }
 
-    /// Dial (or re-dial, with a fresh ticket) the relay room.
+    /// Dial (or re-dial) the session's device over eNet.
     ///
     /// - Parameter force: dial even from `.connecting` (EXP-625). That phase
     ///   used to be an unconditional early-return, which is exactly what made a
-    ///   wedged dial unrecoverable: a mint that never returns, or a socket the
-    ///   relay never answered, leaves the model at `.connecting` with nothing
+    ///   wedged dial unrecoverable: a dial that never returns leaves the model
+    ///   at `.connecting` with nothing
     ///   in flight and every revival path bouncing off the guard. `dial()`
     ///   bumps `dialGeneration`, so a forced connect makes the wedged dial's
     ///   callbacks inert. `.live` stays guarded: a live socket needs no dial.
@@ -1138,19 +1121,9 @@ final class AgentSessionModel {
         case .redialSilently:
             redialNow()
         case .nothing:
-            // Live and fresh: still ping-probe (EXP-243), because a socket the
-            // OS killed while suspended reports nothing until the next receive
-            // fails, which may never happen.
-            guard phase == .live else { return }
-            task?.sendPing { [weak self] error in
-                guard error != nil else { return }
-                Task { @MainActor in
-                    guard let self, self.connected else { return }
-                    logger.info("ping probe failed, treating the socket as closed")
-                    self.disconnectSocket()
-                    self.onSocketClosed()
-                }
-            }
+            // Live and fresh: the eNet stale watch (`armEnetStaleWatch`)
+            // re-joins and then redials a link that went quiet.
+            break
         }
     }
 
@@ -1168,7 +1141,7 @@ final class AgentSessionModel {
     }
 
     /// Revive after a shutdown(): re-arm the session observation and redial
-    /// (the relay replays the full activity log on join, rebuilding the feed).
+    /// (the device replays the full activity log on join, rebuilding the feed).
     /// Since EXP-621 the socket outlives the screen — SteerSessionStore only
     /// shuts a model down when it retires it — so this is a no-op on the
     /// normal navigate-away-and-back path, kept for the paths that do stop.
@@ -1188,8 +1161,6 @@ final class AgentSessionModel {
         stopped = true
         retryTask?.cancel()
         retryTask = nil
-        joinAckTask?.cancel()
-        joinAckTask = nil
         dialInFlight = false
         lastFrameAt = nil
         cancelAnswerExpiries()
@@ -1210,13 +1181,11 @@ final class AgentSessionModel {
         pendingFrames = []
         discardStaging()
         // Reset to the pre-connection state so a later resume() can redial: the
-        // socket is gone, so leaving phase at .live/.connecting would make
+        // link is gone, so leaving phase at .live/.connecting would make
         // connect()'s guard early-return and the reopened view would show a
-        // stale "live" status over a dead socket (EXP-221). The normal
-        // socket-drop path sets .closed itself and never routes through here.
+        // stale "live" status over a dead link (EXP-221). The normal
+        // link-drop path sets .closed itself and never routes through here.
         phase = .idle
-        task?.cancel(with: .goingAway, reason: nil)
-        task = nil
         closeEnetLink()
     }
 
@@ -1224,7 +1193,7 @@ final class AgentSessionModel {
 
     /// Send one message to the session: a `messages` row through
     /// `sessions.send({sessionId})`. An idle session resumes on it; sent
-    /// mid-turn, the device holds it until the turn ends (the relay's
+    /// mid-turn, the device holds it until the turn ends (the steer feed's
     /// `queue` slot shows it meanwhile).
     ///
     /// Returns whether the message actually went out (EXP-621): a caller
@@ -1719,7 +1688,7 @@ final class AgentSessionModel {
 
     private func dial() async {
         // Whatever the last dial left open is superseded here and now: closing
-        // it before bumping the generation means the relay drops that viewer
+        // it before bumping the generation means the device drops that viewer
         // instead of keeping a joined socket nobody owns, and the close lands
         // on a generation this model no longer answers to.
         disconnectSocket()
@@ -1735,172 +1704,66 @@ final class AgentSessionModel {
         dialInFlight = true
         dialStartedAt = Date()
         lastFrameAt = nil
-        joinAckTask?.cancel()
-        joinAckTask = nil
-        if let carrier = steerEnet {
-            let outcome = await SteerEnetJoiner.join(carrier: carrier, accountId: accountId, sessionId: sessionId)
-            guard !stopped, generation == dialGeneration else {
-                if case let .joined(link, _) = outcome { link.close(sendLeave: true) }
-                if generation == dialGeneration { dialInFlight = false }
-                return
-            }
-            switch outcome {
-            case let .joined(link, replay):
-                logger.info("joined over eNet")
-                attachEnet(link, replay: replay, generation: generation)
-                return
-            case let .fallback(reason):
-                // The steer relay exactly as before (until VAPP-43).
-                logger.info("eNet fallback \(reason.rawValue, privacy: .public), dialing the relay")
-            }
-        }
-        let ticket: SteerTicket
-        do {
-            ticket = try await steerApi.mintViewerTicket(accountId: accountId, sessionId: sessionId)
-        } catch {
-            guard !stopped, generation == dialGeneration else {
-                if generation == dialGeneration { dialInFlight = false }
-                return
-            }
+        guard let carrier = steerEnet else {
             dialInFlight = false
-            logger.info("dial mint failed code=\(error.trpcErrorCode ?? "none", privacy: .public)")
-            switch error.trpcErrorCode {
-            case "NOT_FOUND":
-                // The sessions row is gone (stale rows get swept), so
-                // the mint answers NOT_FOUND forever AND the row can never
-                // report `ended` again — the only other exit from the
-                // reconnect loop. Terminal, or the screen would sit at the 30s
-                // backoff cap showing a raw error for as long as it stays open.
-                phase = .ended(detail: Self.sessionGoneDetail)
-            case "FORBIDDEN":
-                // Access to the session was revoked (membership/permission) —
-                // another permanent no, not a drop.
-                phase = .closed(detail: error.trpcUserMessage, reconnecting: false)
-            default:
-                // Often transient (foregrounding before the network is back) —
-                // keep auto-retrying on backoff.
-                phase = .closed(
-                    detail: "Couldn't get a viewer ticket. \(error.localizedDescription)",
-                    reconnecting: true
-                )
-                scheduleReconnect()
-            }
+            logger.info("no eNet node, no feed")
+            applyNoFeed()
             return
         }
+        let outcome = await SteerEnetJoiner.join(carrier: carrier, accountId: accountId, sessionId: sessionId)
         guard !stopped, generation == dialGeneration else {
+            if case let .joined(link, _) = outcome { link.close(sendLeave: true) }
             if generation == dialGeneration { dialInFlight = false }
             return
         }
-        guard !ticket.isDisabled, let url = ticket.connectURL() else {
-            // Config state, not a transient failure — retrying can't help.
+        switch outcome {
+        case let .joined(link, replay):
+            logger.info("joined over eNet")
+            attachEnet(link, replay: replay, generation: generation)
+        case let .noFeed(reason):
+            // VAPP-43: the relay carries no session content, so there is no
+            // fallback: the existing states with their existing copy.
             dialInFlight = false
-            phase = .closed(detail: "Live sessions are unavailable on this instance.", reconnecting: false)
-            return
-        }
-        logger.info("dial mint ok, opening socket")
-        let t = URLSession.shared.webSocketTask(with: url)
-        task = t
-        connected = true
-        t.resume()
-        // The feed is NOT wiped here (EXP-249): the relay sends an explicit
-        // `activity_reset` to every activity viewer right before its join
-        // replay, so the clear happens when the replay actually starts —
-        // wiping on dial blanked the screen for the whole ticket+socket
-        // round-trip, and left a failed dial showing nothing at all.
-        // After a reconnect the replayed transcript event is the ONLY copy of
-        // a sent message — it must render, so no stale echo may swallow it.
-        recentEchoes = []
-        sendText(#"{"t":"join","channel":"activity"}"#)
-        armJoinAckDeadline(generation: generation)
-        // NOT live yet — the relay may answer the join with no_such_session
-        // (the desktop is still starting). The phase flips on the first
-        // confirming server frame instead (see markLive()), so the starting /
-        // reconnect retry loops never flash the Live header + composer.
-        receiveLoop(generation: generation)
-    }
-
-    /// EXP-625: bound the wait for the relay's answer to our join. The relay
-    /// ALWAYS answers one (apps/steer-relay/src/hub.ts: `activity_reset` plus
-    /// the replay, or `error no_such_session` followed by a 4001 close), so
-    /// silence past the deadline means a socket that opened and then died
-    /// without ever failing a receive. That is the shape of the wedge users hit
-    /// after a background, and nothing else in the model notices it.
-    private func armJoinAckDeadline(generation: Int) {
-        joinAckTask?.cancel()
-        joinAckTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.joinAckSeconds))
-            guard let self, !Task.isCancelled else { return }
-            guard generation == self.dialGeneration, self.connected, self.lastFrameAt == nil else {
-                return
-            }
-            logger.warning("join not answered within \(Self.joinAckSeconds)s, redialing")
-            self.disconnectSocket()
-            self.onSocketClosed(generation: generation)
+            logger.info("eNet no feed \(reason.rawValue, privacy: .public)")
+            applyNoFeed()
         }
     }
 
-    /// Every callback carries the `dialGeneration` its socket belongs to and
-    /// goes inert once that generation is superseded: a stale socket's close
-    /// would otherwise null out the CURRENT `task` (stopping the new receive
-    /// loop from re-arming) and drag a freshly live phase back to `.starting`.
-    private func receiveLoop(generation: Int) {
-        // The completion runs off the main actor; extract Sendable payloads and
-        // hop back (same shape as the deleted SteerViewerModel's loop).
-        task?.receive { [weak self] result in
-            switch result {
-            case .success(.string(let text)):
-                Task { @MainActor in
-                    guard let self, generation == self.dialGeneration else { return }
-                    self.enqueue(text, generation: generation)
-                    self.rearm(generation: generation)
-                }
-            case .success:
-                // Stray BINARY frame — the PTY mirror is gone from the
-                // protocol (EXP-249), so an old desktop's 0x01 output is the
-                // only source left and it is never renderable here.
-                Task { @MainActor in
-                    guard let self, generation == self.dialGeneration else { return }
-                    self.rearm(generation: generation)
-                }
-            case .failure:
-                Task { @MainActor in
-                    guard let self, generation == self.dialGeneration else { return }
-                    // EXP-621: the relay's close code decides what happens next
-                    // (SteerReconnectPolicy) — read it BEFORE onSocketClosed
-                    // drops the task. `closeCode` is an imported ObjC enum with
-                    // no case for the relay's 4xxx codes, so only its rawValue
-                    // is ever touched; anything unrecognizable (0/.invalid)
-                    // falls through to the ordinary backoff path.
-                    let code = self.task?.closeCode.rawValue
-                    self.onSocketClosed(closeCode: code, generation: generation)
-                }
+    /// VAPP-43 NO FEED (fixtures/steer-enet.json): a row still alive is
+    /// `starting` and redials on its cadence; an ended row is `ended` with
+    /// the device-offline copy (a vanished row keeps its own "no longer
+    /// available" caption).
+    private func applyNoFeed() {
+        switch SteerNoFeedState.decide(sessionOver: sessionEnded) {
+        case .starting:
+            endDetail = Self.startingDetail
+            phase = .starting
+            scheduleStartingRetry()
+        case .endedDeviceOffline:
+            retryTask = nil
+            if session == nil {
+                phase = .ended(detail: Self.sessionGoneDetail)
+            } else {
+                history = .deviceOffline
+                phase = .ended(detail: nil)
             }
         }
     }
 
-    private func rearm(generation: Int) {
-        if !stopped, connected, generation == dialGeneration { receiveLoop(generation: generation) }
-    }
-
-    /// A frame the relay only sends AFTER a successful join (`activity_reset`
+    /// A frame the device only sends AFTER a successful join (`activity_reset`
     /// goes out immediately on join; a bad one answers `no_such_session`
-    /// instead) — the single proof the room is really live. An open socket
-    /// proves nothing:
-    /// `resume()` never fails synchronously, so a refusing relay still opens
-    /// one, and flipping to live on connect would zero the backoff on every
-    /// attempt and redial at ~3s forever instead of walking up to the 30s cap.
+    /// instead) — the single proof the feed is really live.
     /// Mirrors the Android `FrameResult.live` handling.
     private func markLive() {
-        // EXP-773: a room answered, so the journal fetch (if there was one) is
-        // over — whatever arrives next IS the transcript.
+        // EXP-773: a device answered, so whatever arrives next IS the
+        // transcript.
         history = nil
-        // EXP-796: an ENDED run's transcript comes down an open socket too —
-        // the relay keeps its history room open for minutes after the
-        // device's replay so older pages can still be asked for — and that
-        // socket is not a live run. The synced row is the truth: the phase
+        // EXP-796/VAPP-43: an ENDED run's transcript comes down a joined link
+        // too — the device's stored replay, closed by `bye {history}` — and
+        // that link is not a live run. The synced row is the truth: the phase
         // goes straight to `ended` (the header, the composer and every
         // steering gate already read the row), and paging keeps riding the
-        // socket until it really closes (`connected`, not the phase, gates
+        // link until it really closes (`connected`, not the phase, gates
         // `canLoadEarlier`).
         if sessionEnded {
             if case .ended = phase { return }
@@ -1913,19 +1776,17 @@ final class AgentSessionModel {
     }
 
     /// Queue a frame and arm one flush for the batch (EXP-582). The flush is a
-    /// plain main-actor task: everything the socket delivered before it gets
+    /// plain main-actor task: everything the link delivered before it gets
     /// to run — the whole burst of a replay — is applied together, and a lone
     /// live frame still lands within the same run-loop turn.
     private func enqueue(_ text: String, generation: Int) {
         guard !stopped, connected, generation == dialGeneration else { return }
         // EXP-625: the first frame IS the join answer, so it ends this dial and
         // disarms the deadline. Every frame restamps `lastFrameAt`, which is
-        // what a wake signal reads to tell a live socket from a quiet corpse.
+        // what a wake signal reads to tell a live link from a quiet corpse.
         if lastFrameAt == nil {
             let elapsed = dialStartedAt.map { Date().timeIntervalSince($0) } ?? -1
             logger.info("dial answered, first frame in \(elapsed, format: .fixed(precision: 1))s")
-            joinAckTask?.cancel()
-            joinAckTask = nil
             dialInFlight = false
         }
         lastFrameAt = Date()
@@ -1943,8 +1804,8 @@ final class AgentSessionModel {
                 self.reproject()
             }
             for frame in frames {
-                // A frame can tear the socket down (`no_such_session`); the
-                // rest of the batch belonged to that dead room.
+                // A frame can tear the link down (`no_such_session`, `bye`);
+                // the rest of the batch belonged to that dead feed.
                 guard self.connected else { return }
                 self.onText(frame)
             }
@@ -1975,8 +1836,8 @@ final class AgentSessionModel {
                 handleActivityEvent(obj["event"] as? [String: Any])
                 currentSeq = nil
             case .commit:
-                // `activity_synced` is the relay's end-of-replay marker; a
-                // `keepalive` (its own 15s beat) proves the burst is over for
+                // `activity_synced` is the device's end-of-replay marker; a
+                // `keepalive` (its own beat) proves the burst is over for
                 // a republish that carries no marker.
                 // EXP-783: the marker also names the SPAN it replayed, so the
                 // commit keeps the pages the reader scrolled back to load.
@@ -1995,10 +1856,6 @@ final class AgentSessionModel {
             return
         }
         switch t {
-        // EXP-773: the relay has no live room for this session and is asking
-        // the device that ran it to republish its journal. Deliberately NOT a
-        // `markLive` — nothing has joined a room yet, and flashing the live
-        // header over a finished run would be a lie.
         // EXP-783: one page of OLDER transcript, answering this viewer's
         // `history_page`. PREPENDED, never appended.
         case "history_chunk":
@@ -2008,43 +1865,22 @@ final class AgentSessionModel {
             let events = (obj["events"] as? [[String: Any]]) ?? []
             let seqs = (obj["seqs"] as? [Int]) ?? []
             prependPage(events, seqs: seqs)
-        case "history_pending":
-            history = .pending
         case "bye":
-            let outcome = obj["outcome"] as? String
-            if outcome == "publisher_lost" {
-                // The desktop's relay socket dropped but the session may still
-                // be running — the synced row is the truth. Stay retryable
-                // (closed, auto-reconnecting).
-                endDetail = "The desktop's connection to the relay dropped. Waiting for it to come back."
-            } else {
-                sawEnd = true
-                // EXP-773: a protocol word is never a caption — `history` (the
-                // journal republish closing itself out) and the two history
-                // failures leave the banner on its plain "Session ended", and
-                // the failures already said their piece through `history`.
-                endDetail = SteerOutcome.endDetail(outcome)
-            }
-            // VAPP-33: the device drops an eNet viewer after `bye`; the relay
-            // closes its socket instead. Same close path either way.
-            if enetLink != nil {
-                disconnectSocket()
-                onSocketClosed()
-            }
+            // The run ended, or the device's stored replay of an ended run is
+            // done (`history`, VAPP-43): either way the device drops this
+            // viewer. A protocol word is never a caption (EXP-773).
+            sawEnd = true
+            endDetail = SteerOutcome.endDetail(obj["outcome"] as? String)
+            disconnectSocket()
+            onSocketClosed()
         case "error":
             let code = (obj["code"] as? String) ?? "error"
             if code == "no_such_session" {
-                // Not live on the relay (yet). With the synced row still
-                // running this flips into the auto-retrying starting phase.
+                // The joined device no longer runs nor holds the session (a
+                // re-sent `join` after it lost it): no feed. A live row flips
+                // into the auto-retrying starting phase.
                 retryStarting = true
-                endDetail = "The live stream isn't up yet. The desktop may still be connecting."
-                disconnectSocket()
-                onSocketClosed()
-            } else if code == "device_offline" || code == "history_unavailable" {
-                // EXP-773: the transcript lives on the machine that ran the
-                // session, and it either can't be reached or has nothing. Both
-                // are final — a redial would ask the same question again.
-                history = code == "device_offline" ? .deviceOffline : .unavailable
+                endDetail = Self.startingDetail
                 disconnectSocket()
                 onSocketClosed()
             } else {
@@ -2076,7 +1912,7 @@ final class AgentSessionModel {
         // EXP-746: the config/usage slots go too (EXP-848: the turn slot with
         // them, via `clearLiveWork` above). `resetFeed` only ever runs inside
         // `commitStaging`, which re-applies every staged frame at once, and the
-        // relay's join replay always carries the current
+        // device's join replay always carries the current
         // `config_state`/`usage`/`turn` after the log (latest-wins kinds) — so
         // the chips repaint inside the same batch and never blank. Keeping a
         // stale config across a session swap would be the actual bug.
@@ -2142,7 +1978,7 @@ final class AgentSessionModel {
     private var isStaging: Bool { stagedFrames != nil }
 
     /// Open (or restart) a staging window. The visible feed is untouched: a
-    /// second `activity_reset` means the relay superseded the replay we were
+    /// second `activity_reset` means the device superseded the replay we were
     /// buffering, not that the reader should lose what is on screen.
     private func beginStaging() {
         stagedFrames = []
@@ -2653,27 +2489,25 @@ final class AgentSessionModel {
 
     private func disconnectSocket() {
         connected = false
-        joinAckTask?.cancel()
-        joinAckTask = nil
         pendingFrames = []
         discardStaging()
-        // A page asked for on that socket is not coming either (EXP-795): the
-        // relay drops the ask with the viewer, so a new one may go out.
+        // A page asked for on that link is not coming either (EXP-795): the
+        // device drops the ask with the viewer, so a new one may go out.
         historyRequest = nil
-        task?.cancel(with: .goingAway, reason: nil)
-        task = nil
         closeEnetLink()
     }
 
     // MARK: - eNet (VAPP-33)
 
     /// The joiner already holds the replay (everything up to `activity_synced`):
-    /// it goes through `enqueue` like a relay burst, then the link's live frames.
+    /// it goes through `enqueue` as one burst, then the link's live frames.
     private func attachEnet(_ link: SteerEnetLink, replay: [String], generation: Int) {
         enetLink = link
         connected = true
-        // Same as a relay dial: the replayed transcript is the only copy of a
-        // sent message after a reconnect.
+        // After a reconnect the replayed transcript is the only copy of a sent
+        // message — it must render, so no stale echo may swallow it. The feed
+        // is NOT wiped here (EXP-249): the device's `activity_reset` opens the
+        // replay's staging window.
         recentEchoes = []
         for frame in replay { enqueue(frame, generation: generation) }
         let stream = link.stream { [weak self, weak link] in
@@ -2694,7 +2528,7 @@ final class AgentSessionModel {
 
     /// No frame for `staleMs` = re-send `join` (the device restarts the
     /// feed); still nothing one more `staleMs` later = a dead link: the close
-    /// path redials (eNet first, then the relay).
+    /// path redials.
     private func armEnetStaleWatch(_ link: SteerEnetLink, generation: Int) {
         enetStaleTask?.cancel()
         let stale = Double(SteerEnet.staleMs) / 1000
@@ -2732,76 +2566,54 @@ final class AgentSessionModel {
         enetLink = nil
     }
 
-    /// - Parameters:
-    ///   - closeCode: the relay's close code when the socket reported one. Nil
-    ///     for every teardown this model drives itself (a `no_such_session`
-    ///     frame, a failed foreground ping), which keeps their pre-EXP-621
-    ///     behavior.
-    ///   - generation: the `dialGeneration` the closed socket belonged to. A
-    ///     close from a SUPERSEDED dial is inert — its socket is already gone,
-    ///     and letting it run would drop the CURRENT dial's task (its receive
-    ///     loop then never re-arms) and drag a freshly live phase back. Nil for
-    ///     the teardowns this model drives itself against whatever socket is
-    ///     current.
-    private func onSocketClosed(closeCode: Int? = nil, generation: Int? = nil) {
+    /// - Parameter generation: the `dialGeneration` the closed link belonged
+    ///   to. A close from a SUPERSEDED dial is inert — its link is already
+    ///   gone, and letting it run would drag a freshly live phase back. Nil for
+    ///   the teardowns this model drives itself against whatever link is
+    ///   current.
+    private func onSocketClosed(generation: Int? = nil) {
         if let generation, generation != dialGeneration { return }
-        joinAckTask?.cancel()
-        joinAckTask = nil
         dialInFlight = false
         guard !stopped else { return }
-        logger.info("socket closed code=\(closeCode ?? 0)")
+        logger.info("link closed")
         connected = false
         pendingFrames = []
         discardStaging()
-        task = nil
         closeEnetLink()
         if sawEnd {
             phase = .ended(detail: endDetail)
             return
         }
-        // EXP-773: the device that holds the journal said no (or is away).
-        // Terminal on its own terms — the synced row may still read running
-        // (a run whose device dropped), and backing off would only re-ask.
-        if history?.isTerminal == true {
+        // EXP-773: the device that holds the journal is out of reach.
+        // Terminal on its own terms — nothing to redial for.
+        if history != nil {
             phase = .ended(detail: nil)
             return
         }
-        if retryStarting, !sessionEnded {
-            // A queued or live row: the device is still dialing its
-            // publisher, so keep asking.
-            phase = .starting
-            scheduleStartingRetry()
+        if retryStarting {
+            // No feed (VAPP-43): a live row is `starting`, an ended one gets
+            // the device-offline copy.
+            applyNoFeed()
             return
         }
-        switch SteerReconnectPolicy.decide(closeCode: closeCode, sessionOver: sessionEnded) {
-        case .ended:
+        if sessionEnded {
             // The row already says ended — the redial loops exit on exactly
             // this, so skip straight to the end state instead of scheduling a
             // retry whose only job is to notice it.
             phase = .ended(detail: nil)
-        case .redialImmediately:
-            redialNow()
-        case .terminalClosed:
-            // The relay refused this viewer (4003). Backoff would just
-            // re-refuse; the mint's own FORBIDDEN path is equally terminal.
-            phase = .closed(
-                detail: "You're no longer authorized for this session.", reconnecting: false
-            )
-        case .reconnectWithBackoff:
-            // Never park on a dead socket behind a manual button (EXP-243) —
-            // auto-redial on backoff; the phase carries the reconnecting flag
-            // so the UI shows "Reconnecting…" instead of a Reconnect action.
-            phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
-            scheduleReconnect()
+            return
         }
+        // Never park on a dead link behind a manual button (EXP-243) —
+        // auto-redial on backoff; the phase carries the reconnecting flag
+        // so the UI shows "Reconnecting…" instead of a Reconnect action.
+        phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
+        scheduleReconnect()
     }
 
-    /// EXP-621: redial without touching the phase — the relay evicted a slow
-    /// consumer (4008), which says nothing about the session, the ticket or the
-    /// network. Flipping to `.closed(reconnecting:)` would flash a
-    /// "Reconnecting…" banner and hide the composer for a round trip, and
-    /// counting it as a failed attempt would walk the backoff curve up towards
-    /// 30s for a drop the client caused. The join replay repaints the feed.
+    /// EXP-621: redial without touching the phase — a wake signal found a
+    /// nominally live link gone quiet. Flipping to `.closed(reconnecting:)`
+    /// would flash a "Reconnecting…" banner and hide the composer for a round
+    /// trip. The join replay repaints the feed.
     private func redialNow() {
         retryTask?.cancel()
         reconnectAttempts = 0
@@ -2812,24 +2624,22 @@ final class AgentSessionModel {
         }
     }
 
-    /// Redial (fresh ticket) after ~3s while the desktop is still starting —
+    /// Redial after ~3s while no device feeds the live row —
     /// the phase stays `.starting` so the header doesn't flicker.
     private func scheduleStartingRetry() {
         retryTask?.cancel()
         retryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.startingRetrySeconds))
             guard let self, !self.stopped, !Task.isCancelled else { return }
-            if self.sessionEnded {
-                self.retryTask = nil
-                self.phase = .ended(detail: nil)
-                return
-            }
+            // A row that ended meanwhile still gets this one dial: the device
+            // answers with its stored replay (then `bye {history}`), or no
+            // device does and the no-feed rule shows the device-offline copy.
             self.resetDialState()
             await self.dial()
         }
     }
 
-    /// Auto-redial (fresh ticket) after an unexpected drop (EXP-243) — the
+    /// Auto-redial after an unexpected drop (EXP-243) — the
     /// phase stays `.closed(reconnecting: true)` across the wait and the dial
     /// so the banner doesn't flicker; a foreground kick() cancels the
     /// wait and dials immediately.
@@ -2858,13 +2668,8 @@ final class AgentSessionModel {
     }
 
     private func sendText(_ text: String) {
-        guard connected else { return }
-        if let enetLink {
-            enetLink.send([text])
-            return
-        }
-        guard let task else { return }
-        task.send(.string(text)) { _ in }
+        guard connected, let enetLink else { return }
+        enetLink.send([text])
     }
 
 }

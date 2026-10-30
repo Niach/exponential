@@ -4,7 +4,6 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import com.exponential.app.data.api.IssueImagesApi
-import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.SessionEntity
@@ -37,7 +36,6 @@ import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.trimmed
 import com.exponential.app.domain.withId
-import io.ktor.http.HttpStatusCode
 import kotlin.math.pow
 import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
@@ -75,15 +73,15 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
-// Viewer side of the steer relay's ACTIVITY channel (EXP-32 — the mobile
-// "Agent session" chat view; apps/steer-relay/src/protocol.ts): the socket
-// joins with {"t":"join","channel":"activity"} and receives scrubbed
+// Viewer side of the steer ACTIVITY channel (EXP-32 — the mobile "Agent
+// session" chat view; apps/steer-relay/src/protocol.ts frames, carried over
+// eNet since VAPP-33 and ONLY over eNet since VAPP-43): the feed joins with {"t":"join","channel":"activity"} and receives scrubbed
 // {t:'activity', event} frames (narration / tool headlines / questions /
 // subagents / worktree diffs). The PTY mirror is gone (EXP-249) — a stray
 // BINARY frame from an old desktop is dropped by the transport. Steering is
 // message-shaped and fully seamless (EXP-312 — no operator claim, no
-// view/steer perm split; the ticket mint is owner-only, so a live connection
-// just steers): chunked input + a separate \r; answers are ALWAYS semantic
+// view/steer perm split; the device's access rule decides, so a live
+// connection just steers): chunked input + a separate \r; answers are ALWAYS semantic
 // {t:'answer'} frames keyed by the card's wire id (EXP-672 retired the
 // raw-keystroke fallback — an id-less card from a pre-EXP-249 desktop renders
 // read-only).
@@ -103,7 +101,7 @@ import kotlinx.serialization.json.putJsonArray
 
 private const val TAG = "SteerConnection"
 
-// Relay rejects input frames > 8 KiB; chunk pastes well under that.
+// The relay protocol caps input frames at 8 KiB; chunk pastes well under that.
 private const val INPUT_CHUNK_CHARS = 4096
 
 /** How long an unacknowledged answer keeps its card locked (EXP-249): the
@@ -119,10 +117,9 @@ private const val ANSWER_ACK_TIMEOUT_MS = 8_000L
  *  nothing about it is retryable. */
 private const val SESSION_GONE_DETAIL = "This session is no longer available."
 
-/** Shown when a dial gets no answer at all: the relay ALWAYS answers a join
- *  (activity_reset + replay, or an error frame then close), so silence means a
- *  dead socket, not a slow one. */
-private const val NO_ANSWER_DETAIL = "The live relay didn't answer."
+/** Shown when a joined feed says nothing at all: it opens with its held
+ *  replay, so silence means a dead feed, not a slow one. */
+private const val NO_ANSWER_DETAIL = "The live connection dropped."
 
 /** Echo-FIFO bounds (EXP-78): a mid-turn steered message can take a while to
  *  hit the transcript, but an unmatched echo must not swallow an identical
@@ -130,12 +127,12 @@ private const val NO_ANSWER_DETAIL = "The live relay didn't answer."
 private const val ECHO_CAP = 8
 private const val ECHO_TTL_MS = 300_000L
 
-/** EXP-773: the relay `bye` outcomes (and the error codes that precede two of
- *  them) that carry NO caption of their own. `ended` is the ordinary close;
- *  `history` is the journal republish of an ENDED run closing itself out once
- *  the transcript has been delivered, so the feed simply keeps the plain ended
- *  caption; `history_unavailable` and `device_offline` already wrote a human
- *  line through [HistoryState], and the raw code would only overwrite it.
+/** EXP-773: the `bye` outcomes (and error codes) that carry NO caption of
+ *  their own. `ended` is the ordinary close; `history` is an ENDED row's
+ *  stored journal closing itself out once the transcript has been delivered
+ *  (VAPP-43), so the feed simply keeps the plain ended caption;
+ *  `history_unavailable` and `device_offline` are the retired relay codes,
+ *  kept so the set stays the cross-client one.
  *  Byte-equal on iOS (`SteerOutcome.silentEndOutcomes`) and the web
  *  (`steer-session-store.ts`). */
 internal val SILENT_END_OUTCOMES = setOf(
@@ -145,9 +142,9 @@ internal val SILENT_END_OUTCOMES = setOf(
     "device_offline",
 )
 
-/** The end banner's caption for a relay outcome or error code — null means the
+/** The end banner's caption for a `bye` outcome or error code — null means the
  *  plain "Session ended". A protocol word is never shown to a human; anything
- *  else the relay coins is better shown than swallowed. */
+ *  else the device coins is better shown than swallowed. */
 internal fun steerEndDetail(outcome: String?): String? =
     outcome?.takeIf { it.isNotEmpty() && it !in SILENT_END_OUTCOMES }
 
@@ -155,17 +152,16 @@ internal fun steerEndDetail(outcome: String?): String? =
  * Every wait the dial loop takes (EXP-625). All of them are bounded: an
  * unbounded one is how a viewer ends up parked on "Connecting…" forever.
  *
- * [joinAckMs] and [upgradeMs] exist because ktor's HttpTimeout does not cover
- * a websocket upgrade or a socket that upgrades and then says nothing.
+ * [joinAckMs] bounds a joined feed that then says nothing.
  * [liveStaleMs] is how long a nominally-live socket may stay silent before a
  * revival kick treats it as dead. There is no pong to probe with, so the
- * probe is a silent redial. The relay sends every joined viewer a
- * `keepalive` frame every 15s (EXP-648), so 45s is three missed ticks: a
- * quiet agent (parked on a question or a plan approval) no longer reads as
- * a dead socket.
+ * probe is a silent redial. The device sends every joined viewer a
+ * `keepalive` frame every 30s (EXP-648, fixtures/steer-enet.json), so 90s
+ * is three missed ticks: a quiet agent (parked on a question or a plan
+ * approval) no longer reads as a dead socket.
  */
 data class SteerTimings(
-    /** Redial cadence while the desktop's publisher socket is still starting. */
+    /** Redial cadence while no feed is up yet (the Starting state). */
     val startingRetryMs: Long = 3_000,
     /** Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
      *  exponential 3s→30s, mirroring the web viewer's starting retry — the
@@ -173,14 +169,13 @@ data class SteerTimings(
     val reconnectBaseMs: Long = 3_000,
     val reconnectMaxMs: Long = 30_000,
     val joinAckMs: Long = 15_000,
-    val upgradeMs: Long = 20_000,
-    /** 3x the relay's viewer keepalive interval (apps/steer-relay/src/hub.ts). */
-    val liveStaleMs: Long = 45_000,
+    /** 3x the viewer keepalive interval (fixtures/steer-enet.json `keepaliveMs`). */
+    val liveStaleMs: Long = 90_000,
     /**
      * EXP-656: how long a staged join replay may stay quiet before it is
-     * committed anyway. The relay marks the end of its replay with
-     * `activity_synced`, so this only covers a publisher-driven republish (the
-     * relay marks no end for one) — long enough that a chunky replay does not
+     * committed anyway. The device marks the end of its replay with
+     * `activity_synced`, so this only covers a publisher-driven republish (it
+     * marks no end for one) — long enough that a chunky replay does not
      * commit in halves, short enough that the feed is never visibly late.
      */
     val replayQuietMs: Long = 400,
@@ -190,7 +185,7 @@ data class SteerTimings(
 )
 
 /**
- * One live viewer connection to a coding session's relay room.
+ * One live viewer connection to a coding session's steer feed.
  *
  * Created and owned by [SteerConnectionStore]; the screen's ViewModel is a
  * façade over it. Everything the user would hate to lose on a back-tap lives
@@ -240,9 +235,8 @@ class SteerConnection internal constructor(
      * Whether a socket is actually up right now — true from the join frame
      * until the socket goes away, independent of [phase].
      *
-     * The two differ during the silent 4008 redial (a slow-consumer eviction
-     * redials at once and deliberately HOLDS the Live phase, so the header
-     * doesn't flicker). The composer needs the honest answer: without it its
+     * The two differ during a silent liveness redial (it deliberately HOLDS
+     * the Live phase, so the header doesn't flicker). The composer needs the honest answer: without it its
      * send button stayed enabled over a dead socket and a tap no-oped in
      * silence.
      */
@@ -250,10 +244,10 @@ class SteerConnection internal constructor(
     val connected: StateFlow<Boolean> = _connected
 
     /**
-     * EXP-773: where an ENDED run's transcript is coming from. The relay has
-     * no live room for a finished session, so it asks the device that ran it
-     * to republish its on-disk journal; [HistoryState] is the three answers.
-     * Null on a live session and once the transcript starts arriving.
+     * EXP-773: why an ENDED run shows no transcript. VAPP-43: the device that
+     * ran it replays its stored journal over eNet; when no endpoint answers
+     * this is [HistoryState.DeviceOffline] (the transcript lives on that
+     * machine). Null on a live session and once the transcript arrives.
      */
     private val _history = MutableStateFlow<HistoryState?>(null)
     val history: StateFlow<HistoryState?> = _history
@@ -273,7 +267,7 @@ class SteerConnection internal constructor(
      */
     private var stagedFrames: MutableList<Pair<JsonObject, Long?>>? = null
     /** EXP-783: the `history_page` ask in flight — a chunk for any other id is
-     *  not ours; whether the relay said its log is a TAIL (so there IS older
+     *  not ours; whether the device said its log is a TAIL (so there IS older
      *  transcript to ask the device for); and whether a page came back with
      *  nothing new (stop asking). */
     private var historyRequest: String? = null
@@ -395,8 +389,7 @@ class SteerConnection internal constructor(
      * Start a fresh dial loop, replacing any running one.
      *
      * [silent] seeds the loop's silent flag so an externally-triggered redial
-     * reuses the 4008 mechanics: dial at once and hold the current phase, Live
-     * included. A liveness redial of a socket that turns out to be fine must
+     * dials at once and holds the current phase, Live included. A liveness redial of a socket that turns out to be fine must
      * not flash "Reconnecting…" at the user.
      */
     fun connect(silent: Boolean = false) {
@@ -406,8 +399,7 @@ class SteerConnection internal constructor(
         Log.i(TAG, "[$sid] connect(silent=$silent)")
         connectJob = scope.launch {
             val me = currentCoroutineContext()[Job]
-            // Set by a slow-consumer close (EXP-621) or by a silent revival:
-            // the next dial must not touch the phase.
+            // Set by a silent revival: the next dial must not touch the phase.
             var quiet = silent
             var dials = 0
             while (isActive) {
@@ -423,23 +415,15 @@ class SteerConnection internal constructor(
                 quiet = false
                 when (outcome) {
                     DialOutcome.RetryStarting -> {
-                        // The desktop hasn't published the room yet. Keep
-                        // redialing (fresh ticket each time) while the synced
-                        // row still says running.
-                        setPhase(AgentPhase.Starting, "no_such_session")
+                        // No feed yet (VAPP-43: no eNet endpoint answered, and
+                        // there is no relay behind it). Keep redialing while
+                        // the synced row still says running; a row that ended
+                        // meanwhile gets one more dial, which replays its
+                        // stored journal or lands on the device-offline line.
+                        setPhase(AgentPhase.Starting, "no feed")
                         delayOrWake(timings.startingRetryMs)
                         if (connectJob !== me) return@launch
-                        if (sessionIsOver()) {
-                            setPhase(AgentPhase.Ended(), "row ended")
-                            return@launch
-                        }
                     }
-                    // The relay dropped a viewer that fell behind its send
-                    // buffer (4008). The room is untouched, so redial straight
-                    // away: no delay, no attempt counted, and the phase is left
-                    // exactly as it was — a busy agent must not flap the
-                    // "Connection lost" banner every few seconds (EXP-621).
-                    DialOutcome.RedialNow -> quiet = true
                     is DialOutcome.Ended -> {
                         setPhase(AgentPhase.Ended(outcome.detail), "ended")
                         return@launch
@@ -482,7 +466,7 @@ class SteerConnection internal constructor(
         _connected.value = false
         discardStaging()
         // A page asked for on that socket is not coming either (EXP-795):
-        // the relay drops the ask with the viewer, so a new one may go out.
+        // the device drops the ask with the viewer, so a new one may go out.
         historyRequest = null
         setPhase(AgentPhase.Idle, "park")
     }
@@ -504,7 +488,7 @@ class SteerConnection internal constructor(
         _connected.value = false
         discardStaging()
         // A page asked for on that socket is not coming either (EXP-795):
-        // the relay drops the ask with the viewer, so a new one may go out.
+        // the device drops the ask with the viewer, so a new one may go out.
         historyRequest = null
         // The phase is state a ViewModel still holding this connection reads;
         // leaving it on Connecting behind a cancelled scope stranded the
@@ -582,11 +566,9 @@ class SteerConnection internal constructor(
     }
 
     private sealed interface DialOutcome {
-        /** no_such_session while the synced row says running — auto-retry. */
+        /** No feed (VAPP-43) or no_such_session while the synced row says
+         *  running — auto-retry. */
         data object RetryStarting : DialOutcome
-
-        /** Slow-consumer eviction (4008) — redial at once, invisibly. */
-        data object RedialNow : DialOutcome
         data class Ended(val detail: String? = null) : DialOutcome
         data class Closed(val detail: String? = null, val retryable: Boolean = true) : DialOutcome
     }
@@ -597,7 +579,7 @@ class SteerConnection internal constructor(
         // auto-retry redials — flipping to Connecting per attempt made the
         // header flicker every ~3s while the desktop was still dialing its
         // publisher (and would flicker the reconnect banner the same way). A
-        // silent (4008 or liveness) redial holds whatever phase it had, Live
+        // silent (liveness) redial holds whatever phase it had, Live
         // included.
         val held = _phase.value
         if (!silent && held != AgentPhase.Starting && !(held is AgentPhase.Closed && held.reconnecting)) {
@@ -607,41 +589,16 @@ class SteerConnection internal constructor(
         // `bye` / no_such_session must win over the generic close handler.
         var sawEnd = false
         var retryStarting = false
-        // EXP-773: the journal fetch got a final "no" — stop dialing.
-        var historyTerminal = false
         var detail: String? = null
-        // A server "no" that can never turn into a yes — wins over everything.
-        var terminal: DialOutcome? = null
-        // The relay's close code, once the socket closed on its own.
-        var closeCode: Int? = null
 
         var opened: SteerSocket? = null
         try {
             val startedAt = nowMs()
-            // VAPP-33: the install running the session, joined over eNet
-            // (bounded by its own join timeout); null = the relay as before.
-            val socket = transport.openEnet(codingSessionId)?.also {
-                Log.i(TAG, "[$sid] dial#$dial over eNet")
-            } ?: run {
-                val minted = transport.mint(codingSessionId)
-                if (!minted.isUsable) {
-                    // Config state, not a transient failure — retrying can't help.
-                    return DialOutcome.Closed("Live sessions are unavailable on this instance.", retryable = false)
-                }
-                Log.i(TAG, "[$sid] dial#$dial mint ok")
-                // The upgrade is BOUNDED (EXP-625): ktor's HttpTimeout skips
-                // websocket upgrades, so a socket that never completes its
-                // handshake would hold the loop here forever. withTimeoutOrNull,
-                // never withTimeout: the latter's throw IS a CancellationException
-                // and would read as "the loop was cancelled".
-                withTimeoutOrNull(timings.upgradeMs) {
-                    // The server-returned url is the full ws(s)://…/ws?ticket=… dial URL.
-                    transport.open(minted.url!!)
-                } ?: run {
-                    Log.w(TAG, "[$sid] dial#$dial upgrade timeout")
-                    return DialOutcome.Closed(NO_ANSWER_DETAIL)
-                }
-            }
+            // VAPP-33: the install running the session (or holding its stored
+            // journal), joined over eNet and bounded by its own join timeout.
+            // VAPP-43: null = NO FEED, and there is no relay to fall back to.
+            val socket = transport.open(codingSessionId) ?: return noFeed(dial)
+            Log.i(TAG, "[$sid] dial#$dial over eNet")
             opened = socket
             if (!currentCoroutineContext().isActive) {
                 // Cancelled while the handshake was in flight: the socket we
@@ -650,8 +607,8 @@ class SteerConnection internal constructor(
                 throw CancellationException()
             }
             ws = socket
-            Log.i(TAG, "[$sid] dial#$dial upgrade ok in ${nowMs() - startedAt}ms")
-            // The feed is NOT wiped here (EXP-249): the relay sends an explicit
+            Log.i(TAG, "[$sid] dial#$dial joined in ${nowMs() - startedAt}ms")
+            // The feed is NOT wiped here (EXP-249): the device sends an explicit
             // {t:'activity_reset'} immediately before replaying the room's log,
             // so a dial that never reaches a replay leaves the visible history
             // alone. After a reconnect the replayed transcript event is the
@@ -663,18 +620,16 @@ class SteerConnection internal constructor(
             // socket's last frame, so a silent redial does not read stale
             // the instant it opens.
             lastFrameAtMs = nowMs()
-            // NOT Live yet — the relay may answer the join with no_such_session
-            // (desktop still starting). The phase flips to Live on the first
-            // confirming server frame instead (the relay sends activity_reset
-            // immediately on a successful join), so the Starting retry loop
-            // never flashes the Live header/composer/empty state.
+            // NOT Live yet: the phase flips to Live on the first confirming
+            // frame (the joined feed opens with activity_reset), so the
+            // Starting retry loop never flashes the Live header/composer/empty
+            // state.
 
             var awaitingJoinAck = true
             while (true) {
                 val received = if (awaitingJoinAck) {
-                    // The relay ALWAYS answers a join (activity_reset plus a
-                    // replay, or an error frame), so silence here is a dead
-                    // socket (EXP-625). select, not withTimeoutOrNull around a
+                    // A joined feed opens with its held replay, so silence
+                    // here is a dead feed (EXP-625). select, not withTimeoutOrNull around a
                     // receive: the latter can lose a frame it raced.
                     select<ChannelResult<String>?> {
                         socket.incoming.onReceiveCatching { it }
@@ -697,16 +652,14 @@ class SteerConnection internal constructor(
                 // `turn` event (replayed or fresh) says `started`, so nothing
                 // pulses just because the socket came up.
                 if (result.live) {
-                    // EXP-773: a room answered, so the journal fetch (if
-                    // there was one) is over — what arrives next IS the
-                    // transcript.
+                    // A feed answered, so any earlier no-feed line is over:
+                    // what arrives next IS the transcript.
                     _history.value = null
                     if (sessionIsOver()) {
-                        // EXP-796: the relay keeps a history room open for
-                        // minutes after the device's replay so pages can
-                        // still be asked for — an open socket on an ENDED
-                        // row is not a live run. The synced row decides;
-                        // the socket just stays up for paging.
+                        // VAPP-43: the device replays an ENDED row's stored
+                        // journal and then says `bye {outcome:"history"}`;
+                        // an open feed on an ended row is not a live run.
+                        // The synced row decides.
                         if (_phase.value !is AgentPhase.Ended) setPhase(AgentPhase.Ended(), "row ended")
                         reconnectAttempts = 0
                     } else if (_phase.value != AgentPhase.Live) {
@@ -716,58 +669,31 @@ class SteerConnection internal constructor(
                 }
                 sawEnd = sawEnd || result.sawEnd
                 result.detail?.let { detail = it }
-                if (result.historyTerminal) {
-                    historyTerminal = true
-                    break
-                }
                 if (result.retryStarting) {
                     retryStarting = true
                     break
                 }
             }
-            // The incoming channel drained: the relay closed us and its close
-            // code says why (EXP-621). A `break` above left the socket open —
-            // there is no reason to wait on it.
-            if (!retryStarting && !historyTerminal) {
-                closeCode = opened.closeCode()
-                // EXP-656: the reason names WHO hung up on a close code that
-                // otherwise reads as a generic drop.
-                Log.i(
-                    TAG,
-                    "[$sid] dial#$dial closed code=$closeCode reason=${opened.closeReason()}",
-                )
+            // The incoming channel drained: the feed ended. A `break` above
+            // left it open, so there is no reason to ask it why.
+            if (!retryStarting) {
+                // EXP-656: the reason names WHO hung up.
+                Log.i(TAG, "[$sid] dial#$dial closed reason=${opened.closeReason()}")
             } else {
-                Log.i(TAG, "[$sid] dial#$dial relay: no_such_session")
+                Log.i(TAG, "[$sid] dial#$dial device: no_such_session")
             }
         } catch (t: Throwable) {
-            // Only OUR cancellation ends the loop (EXP-625). ktor's OkHttp
-            // engine closes `outgoing` with a java.util.concurrent
-            // CancellationException when the relay hangs up first, and an
-            // awaited close reason on a cancelled call job does the same.
-            // Those are ordinary drops, and treating them as cancellation is
-            // what killed the dial coroutine silently, with the phase left
-            // wherever it stood.
+            // Only OUR cancellation ends the loop (EXP-625). A transport can
+            // surface a foreign CancellationException when the peer goes away
+            // first; that is an ordinary drop, and treating it as
+            // cancellation is what killed the dial coroutine silently, with
+            // the phase left wherever it stood.
             if (t is CancellationException && !currentCoroutineContext().isActive) throw t
             if (t is CancellationException) {
                 Log.w(TAG, "[$sid] dial#$dial foreign cancellation: ${t.message}")
                 if (detail == null) detail = "The live connection dropped."
             }
-            if (detail == null) {
-                detail = trpcErrorMessage(t, t.message ?: "Connection failed")
-            }
-            // Only the mint throws TrpcException here, and two of its codes are
-            // permanent: NOT_FOUND (404) means the coding_sessions row is gone
-            // — the mint will refuse forever and the deleted row can never
-            // report `ended`, the loop's only other exit — and FORBIDDEN (403)
-            // means access to the session was revoked. Retrying either parks
-            // the screen at the 30s backoff cap behind a raw error string for
-            // as long as it stays open.
-            terminal = when {
-                t !is TrpcException -> null
-                t.status == HttpStatusCode.NotFound -> DialOutcome.Ended(SESSION_GONE_DETAIL)
-                t.status == HttpStatusCode.Forbidden -> DialOutcome.Closed(detail, retryable = false)
-                else -> null
-            }
+            if (detail == null) detail = t.message ?: "Connection failed"
         } finally {
             // Only the CURRENT socket's owner may clear the shared fields: a
             // superseded dial unwinding late used to null out the socket its
@@ -781,31 +707,45 @@ class SteerConnection internal constructor(
                 // the fields above — a superseded dial unwinding late must not
                 // discard its replacement's staging.
                 discardStaging()
-                // A page asked for on that socket is not coming either (EXP-795):
-                // the relay drops the ask with the viewer, so a new one may go out.
+                // A page asked for on that feed is not coming either (EXP-795):
+                // the device drops the ask with the viewer, so a new one may go out.
                 historyRequest = null
             }
             runCatching { opened?.cancel() }
         }
 
-        terminal?.let { return it }
         return when {
             sawEnd -> DialOutcome.Ended(detail)
-            // EXP-773: the machine holding the journal answered for good. The
-            // synced row may still read running (a run whose device dropped),
-            // so this wins over the liveness retry below.
-            historyTerminal -> DialOutcome.Ended(null)
             // Heartbeat-stale rows don't warrant a redial (EXP-153) — the row
             // is a phantom, not a session that's still starting.
             retryStarting && session.value?.let { !it.isEnded } == true ->
                 DialOutcome.RetryStarting
-            // The close code decides the rest (EXP-621).
-            else -> when (steerCloseAction(closeCode, sessionIsOver())) {
-                SteerCloseAction.RedialNow -> DialOutcome.RedialNow
-                SteerCloseAction.Ended -> DialOutcome.Ended(detail)
-                SteerCloseAction.Terminal -> DialOutcome.Closed(detail, retryable = false)
-                SteerCloseAction.Backoff -> DialOutcome.Closed(detail)
+            // A feed that ended under an ended (or vanished) row has nothing
+            // left to redial (the plain ended caption, never a drop's
+            // detail); anything else is an ordinary drop on backoff.
+            sessionIsOver() -> DialOutcome.Ended()
+            else -> DialOutcome.Closed(detail)
+        }
+    }
+
+    /**
+     * VAPP-43: no eNet feed (no node, no endpoint, every endpoint refused, or
+     * no `activity_synced` in time) and no relay behind it — the viewer shows
+     * its EXISTING states (fixtures/steer-enet.json "NO FEED"). A row still
+     * alive = Starting, redialed on its cadence; an ended row = Ended with
+     * the device-offline line ([HistoryState.DeviceOffline]); a row that
+     * vanished = gone.
+     */
+    private fun noFeed(dial: Int): DialOutcome {
+        val row = session.value
+        Log.i(TAG, "[$sid] dial#$dial no eNet feed (row=${row?.status})")
+        return when {
+            row == null && sessionIsOver() -> DialOutcome.Ended(SESSION_GONE_DETAIL)
+            row?.isEnded == true -> {
+                _history.value = HistoryState.DeviceOffline
+                DialOutcome.Ended(null)
             }
+            else -> DialOutcome.RetryStarting
         }
     }
 
@@ -813,11 +753,8 @@ class SteerConnection internal constructor(
         val sawEnd: Boolean = false,
         val detail: String? = null,
         val retryStarting: Boolean = false,
-        /** The frame proves the join succeeded — the room is live on the relay. */
+        /** The frame proves the join succeeded — the feed is up. */
         val live: Boolean = false,
-        /** EXP-773: the device that holds the journal said no, or is away.
-         *  Final on its own terms — a redial only re-asks. */
-        val historyTerminal: Boolean = false,
     )
 
     private fun handleControlFrame(raw: String): FrameResult? {
@@ -826,13 +763,13 @@ class SteerConnection internal constructor(
             "activity" -> {
                 val event = obj["event"] as? JsonObject
                 // EXP-783: the publisher's monotonic index, echoed by the
-                // relay — on every activity frame the protocol carries.
+                // device — on every activity frame the protocol carries.
                 val seq = (obj["seq"] as? JsonPrimitive)?.longOrNull
                 if (stagedFrames != null) stageFrame(event, seq)
                 else handleActivityEvent(event, seq)
                 FrameResult(live = true)
             }
-            // The relay's uniform "clear your feed now" signal (EXP-249) — sent
+            // The uniform "clear your feed now" signal (EXP-249) — sent
             // to every activity viewer right before its join replay, and fanned
             // out whenever the publisher resets the log. Since EXP-656 it opens
             // a STAGING buffer instead of wiping: the visible feed only changes
@@ -841,8 +778,8 @@ class SteerConnection internal constructor(
                 beginStaging()
                 FrameResult(live = true)
             }
-            // EXP-656: the relay's end-of-replay marker, sent right after the
-            // join replay. A publisher-driven republish gets none (the relay
+            // EXP-656: the end-of-replay marker, sent right after the
+            // join replay. A publisher-driven republish gets none (the device
             // has no end-of-burst signal for it) and commits on the quiet
             // timer instead.
             // EXP-783: it also names the SPAN it replayed, so the commit
@@ -870,7 +807,7 @@ class SteerConnection internal constructor(
                 prependPage(events, seqs)
                 null
             }
-            // The relay's liveness beat to joined viewers (EXP-648). Already
+            // The device's liveness beat to joined viewers (EXP-648). Already
             // counted: the receive loop stamped lastFrameAtMs before handing
             // the frame here. Never a phase change, never a feed change — but
             // its 15s cadence does prove a staged replay burst is over.
@@ -878,46 +815,22 @@ class SteerConnection internal constructor(
                 if (stagedFrames != null) commitStaging("keepalive")
                 null
             }
-            // EXP-773: the relay has no live room for this session and is
-            // asking the device that ran it to republish its journal.
-            // Deliberately NOT `live = true` — nothing has joined a room yet,
-            // and flashing the live header over a finished run would be a lie.
-            "history_pending" -> {
-                _history.value = HistoryState.Pending
-                FrameResult()
-            }
+            // The run ended (or, VAPP-43, an ENDED row's stored journal was
+            // delivered: `history`) and the device dropped the viewer.
             "bye" -> {
                 val outcome = (obj["outcome"] as? JsonPrimitive)?.contentOrNull
-                if (outcome == "publisher_lost") {
-                    // The desktop's relay socket dropped but the session may
-                    // still be running — the synced row is the truth. Stay
-                    // retryable (Closed, auto-reconnecting).
-                    FrameResult(
-                        detail = "The desktop's connection to the relay dropped. Waiting for it to come back.",
-                    )
-                } else {
-                    FrameResult(sawEnd = true, detail = steerEndDetail(outcome))
-                }
+                FrameResult(sawEnd = true, detail = steerEndDetail(outcome))
             }
             "error" -> {
                 val code = (obj["code"] as? JsonPrimitive)?.contentOrNull
                 if (code == "no_such_session") {
-                    // Not live on the relay (yet). With the synced row still
-                    // running this flips into the auto-retrying Starting phase.
+                    // The device no longer runs it nor holds its journal. With
+                    // the synced row still running this flips into the
+                    // auto-retrying Starting phase.
                     FrameResult(
                         detail = "The live stream isn't up yet. The desktop may still be connecting.",
                         retryStarting = true,
                     )
-                } else if (code == "device_offline" || code == "history_unavailable") {
-                    // EXP-773: the transcript lives on the machine that ran
-                    // the session, and it either can't be reached or has
-                    // nothing. Both are final.
-                    _history.value = if (code == "device_offline") {
-                        HistoryState.DeviceOffline
-                    } else {
-                        HistoryState.Unavailable
-                    }
-                    FrameResult(historyTerminal = true)
                 } else {
                     FrameResult(
                         detail = (obj["message"] as? JsonPrimitive)?.contentOrNull
@@ -947,7 +860,7 @@ class SteerConnection internal constructor(
 
     // ── Staged replay (EXP-656) ──────────────────────────────────────────────
     //
-    // The relay answers EVERY viewer join with `activity_reset` + a full replay
+    // The device answers EVERY viewer join with `activity_reset` + a full replay
     // of the room log, and a publisher reconnect fans out the same thing. Doing
     // what the frame literally says — empty the feed, then re-append N events —
     // collapsed the LazyColumn to nothing for the length of the burst, which
@@ -1012,7 +925,7 @@ class SteerConnection internal constructor(
         //
         // The join marker names that span. A commit that fires WITHOUT one
         // (the quiet/cap/keepalive timers, and every publisher-driven
-        // republish, which the relay never marks) reads it off the burst
+        // republish, which is never marked) reads it off the burst
         // itself: `seq` rides every activity frame. Only an EMPTY burst has no
         // span to splice onto, and that swap is total, as it always was. A row
         // with no `seq` cannot be proved older than the replay — that is a
@@ -1342,7 +1255,7 @@ class SteerConnection internal constructor(
      *
      * EXP-772 retired the option chips that drove this: model and effort are
      * launch decisions now and the engine publishes an empty
-     * `config_state.options`. The sender stays because the relay still accepts
+     * `config_state.options`. The sender stays because the device still accepts
      * the frame from older publishers.
      */
     fun setConfig(id: String, value: String) {
@@ -1399,7 +1312,7 @@ class SteerConnection internal constructor(
      * (web `noteStopped`, iOS `restoreQueueToDraft`).
      *
      * Needs no socket: EVERY Stop takes the queue back — [interrupt] over the
-     * relay, and the `sessions.stop` paths (the thread header's Stop, the
+     * feed, and the `sessions.stop` paths (the thread header's Stop, the
      * composer's Stop while disconnected) that never send a frame.
      * Returns whether anything was handed back, so a failed stop can put the
      * draft back the way it was.
@@ -1451,14 +1364,14 @@ class SteerConnection internal constructor(
      *  that this client can still ask the device for. Drives the transcript's
      *  "Load earlier" affordance together with the rendered window.
      *
-     *  EXP-796: it also takes an OPEN viewer socket. The relay keeps a history
-     *  room open after the device's replay, so pages keep flowing until the
-     *  socket really closes — and once it has, there is nothing to ask. */
+     *  EXP-796: it also takes an OPEN viewer feed: pages flow until the feed
+     *  really closes (an ENDED row's stored replay signs off with `bye`), and
+     *  once it has, there is nothing to ask. */
     fun canLoadEarlier(): Boolean = historyTruncated && !historyExhausted && ws != null
 
     /** EXP-783 — one `history_page` ask, at most one in flight.
      *
-     *  A viewer that joined a long-running session holds only the relay's
+     *  A viewer that joined a long-running session holds only the device's
      *  replay TAIL (`truncated` on `activity_synced` is how it knows), and the
      *  pages below it exist only in the device's journal. */
     fun loadEarlier(): Boolean {

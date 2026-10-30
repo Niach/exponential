@@ -2,7 +2,8 @@
 //! per signed-in account, on the steer tokio runtime: started with the
 //! account's control channel, its allowlist re-read whenever the synced
 //! `teams` collection changes, stopped on sign-out (and revoked when the
-//! sign-out is explicit).
+//! sign-out is explicit). VAPP-43: it serves this machine's stored journals
+//! (STORED REPLAY) under the synced `sessions` rows' access rule.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -67,6 +68,7 @@ pub fn start(account: &api::Account, cx: &mut App) {
         return;
     };
     let auth = AuthContext::global(cx).clone();
+    let rows = Store::global(cx).manager();
     let state = installs(cx);
     if let Some(node) = state.by_account.get(&account.id) {
         node.refresh();
@@ -96,7 +98,30 @@ pub fn start(account: &api::Account, cx: &mut App) {
         trpc,
         Arc::new(move || team_ids.lock().unwrap_or_else(|p| p.into_inner()).clone()),
     );
+    // VAPP-43 STORED REPLAY: this machine's journals, read under the access
+    // rule of the account's synced `sessions` rows.
+    node.serve_stored(steer::StoredJournals {
+        data_dir: auth.data_dir.clone(),
+        session: stored_session_lookup(rows, account.id.clone()),
+    });
     state.by_account.insert(account.id.clone(), node);
+}
+
+/// A synced `sessions` row → its stored-replay audience, read off the
+/// account's sync store (any thread).
+fn stored_session_lookup(
+    manager: Arc<sync::SyncManager>,
+    account_id: String,
+) -> Arc<dyn Fn(&str) -> Option<steer::StoredSession> + Send + Sync> {
+    Arc::new(move |session_id| {
+        let store = manager.store(&account_id)?;
+        let spec = sync::shapes::shape_by_name("sessions")?;
+        let row = store
+            .read_by_key(spec, &sync::protocol::RowKey::Single(session_id.to_string()))
+            .ok()??;
+        let row: domain::rows::SessionRow = serde_json::from_value(serde_json::Value::Object(row)).ok()?;
+        steer::StoredSession::of(&row)
+    })
 }
 
 /// Stops `account_id`'s node; the install stays registered. Returns it so

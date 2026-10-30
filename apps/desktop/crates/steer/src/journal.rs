@@ -1108,9 +1108,9 @@ mod exp850_tests {
     }
 }
 
-/// VAPP-33: `fixtures/steer-replay.json`, the join replay the relay's
-/// `replay-fixture.test.ts` replays too — the device's rules equal the
-/// relay's case for case.
+/// VAPP-33: `fixtures/steer-replay.json`, the join replay. VAPP-43: the
+/// device is its only holder; these cases lock the rules the relay used to
+/// share.
 #[cfg(test)]
 mod replay_fixture_tests {
     use super::*;

@@ -10,7 +10,7 @@ TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 17 via Drizzle
 
 ```
 apps/web          TanStack Start app (src/lib/trpc = one file per router; routes/api/shapes = one proxy per synced table; lib/sessions = the session tree; lib/mcp = the MCP server)
-apps/push-relay   Hono/Bun            apps/steer-relay  steer WS hub (Bun)
+apps/push-relay   Hono/Bun            apps/steer-relay  presence + control + eTalk calls WS hub (Bun; no session content since VAPP-43: viewers reach the device over eNet)
 apps/marketing    exponential.at (Vite + React; ui/ = the Exponential UI section at /ui/, ui.exponential.at 301s there)   apps/styleguide   shot gallery + islands
 apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
 apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/exponential-agent-runtime = the server-free agent core (EXP-1426, never an app-crate dep); crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/eui-* + exponential-ui-ffi = the eUI SDK
@@ -65,7 +65,7 @@ Coolify (home-LAN-only): `coolify deploy uuid <uuid>` after a green Actions run 
 
 ## Environment variables
 
-Root `.env.example` = CANONICAL, `selfhost/.env.example` its subset, relays own `apps/*/.env.example`. `CLOUD_INSTANCE=true` turns on billing, plan limits, the in-app widget and conversion tracking (unset = self-hosted, no feature limits). Auth posture is BUILD-derived (`lib/production-build.ts`). GitHub = ONE flow on the App's OAuth client (`GITHUB_APP_CLIENT_ID/SECRET`). `STEER_RELAY_URL` unset = remote start/steer off. `CLIENT_MIN_VERSION_*` gate with HTTP 426.
+Root `.env.example` = CANONICAL, `selfhost/.env.example` its subset, relays own `apps/*/.env.example`. `CLOUD_INSTANCE=true` turns on billing, plan limits, the in-app widget and conversion tracking (unset = self-hosted, no feature limits). Auth posture is BUILD-derived (`lib/production-build.ts`). GitHub = ONE flow on the App's OAuth client (`GITHUB_APP_CLIENT_ID/SECRET`). `STEER_RELAY_URL` unset = device presence, nudges, kill/Stop/compact and calls off. `CLIENT_MIN_VERSION_*` gate with HTTP 426.
 
 ## Dead, never reintroduce
 

@@ -503,7 +503,7 @@ export function AgentSessionView({
   })
   const isMobile = useIsMobile()
   const deviceName = device.label || `Desktop`
-  // EXP-773: the history phases name the machine the transcript lives on.
+  // EXP-773: the device-offline copy names the machine the transcript lives on.
   useEffect(
     () => store.noteDeviceLabel(device.label),
     [store, device.label]
@@ -758,7 +758,7 @@ export function AgentSessionView({
     feedPlaceholder &&
     !session.busy &&
     session.status !== `ended` &&
-    (phase.kind === `connecting` || phase.kind === `starting` || phase.kind === `history_pending`)
+    (phase.kind === `connecting` || phase.kind === `starting`)
   const [stalled, setStalled] = useState(false)
   useEffect(() => {
     if (!waitingForRoom) {
@@ -834,9 +834,7 @@ export function AgentSessionView({
                 />
               </CenteredState>
             ) : feedPlaceholder &&
-              (phase.kind === `connecting` ||
-                phase.kind === `starting` ||
-                phase.kind === `history_pending`) ? (
+              (phase.kind === `connecting` || phase.kind === `starting`) ? (
               /* EXP-1259 D8.3: placeholder rows in the column, the phase as
                  a muted caption. */
               <div
@@ -845,11 +843,9 @@ export function AgentSessionView({
               >
                 <SkeletonRows rowHeight={36} className="-mx-3" />
                 <span className="text-xs text-muted-foreground">
-                  {phase.kind === `history_pending`
-                    ? (phase.detail ?? `Fetching the transcript…`)
-                    : phase.kind === `starting`
-                      ? `The agent is starting. Waiting for the live stream…`
-                      : `Connecting…`}
+                  {phase.kind === `starting`
+                    ? `The agent is starting. Waiting for the live stream…`
+                    : `Connecting…`}
                 </span>
               </div>
             ) : feedPlaceholder && live ? (

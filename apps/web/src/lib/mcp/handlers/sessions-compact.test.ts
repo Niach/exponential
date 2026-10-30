@@ -21,6 +21,7 @@ const ROW: SessionsCompactRow = {
   id: `sess-1`,
   userId: `owner`,
   hostUserId: null,
+  deviceId: `dev-1`,
   status: `running`,
   agent: `claude`,
 }
@@ -60,7 +61,12 @@ describe(`requestSessionCompaction (EXP-936)`, () => {
         d
       )
     ).resolves.toEqual({ accepted: true })
-    expect(d.relay).toHaveBeenCalledWith(`sess-1`, `open threads`)
+    // VAPP-43: the ask goes down the session's device, under its account.
+    expect(d.relay).toHaveBeenCalledWith(
+      `sess-1`,
+      { userId: `owner`, deviceId: `dev-1` },
+      `open threads`
+    )
     // The reason is logged on the server; the feed shows it as the tool
     // card's subject.
     expect(d.log).toHaveBeenCalledWith(expect.stringContaining(`long`))
@@ -74,6 +80,12 @@ describe(`requestSessionCompaction (EXP-936)`, () => {
         shared
       )
     ).resolves.toEqual({ accepted: true })
+    // A hosted run's device is registered under its HOST.
+    expect(shared.relay).toHaveBeenCalledWith(
+      `sess-1`,
+      { userId: `host`, deviceId: `dev-1` },
+      undefined
+    )
 
     const stranger = deps()
     await expect(
@@ -132,11 +144,18 @@ describe(`requestSessionCompaction (EXP-936)`, () => {
     await expect(
       requestSessionCompaction(ask, deps({ outcome: null }))
     ).rejects.toThrow(`STEER_RELAY_URL`)
-    for (const reason of [`no_publisher`, `no_verdict`, `busy`, `relay_error`] as const) {
+    for (const reason of [`device_offline`, `no_verdict`, `busy`, `relay_error`] as const) {
       await expect(
         requestSessionCompaction(ask, deps({ outcome: { delivered: false, reason } }))
       ).rejects.toThrow(describeCompactDeliveryFailure(reason))
     }
+    // A row naming no device is offline without a relay hop.
+    const noDevice = deps({ row: { ...ROW, deviceId: `` } })
+    await expect(requestSessionCompaction(ask, noDevice)).rejects.toThrow(
+      describeCompactDeliveryFailure(`device_offline`)
+    )
+    expect(noDevice.relay).not.toHaveBeenCalled()
+    expect(describeCompactDeliveryFailure(`device_offline`)).toContain(`device is not connected`)
     // The no-verdict text points at the fix: the host predates the frame.
     expect(describeCompactDeliveryFailure(`no_verdict`)).toContain(`Update`)
   })

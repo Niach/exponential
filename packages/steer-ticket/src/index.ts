@@ -1,8 +1,8 @@
 // Steer relay tickets — the ONLY credential the relay ever sees.
 //
-// The web app mints a short-lived ticket (steer.mintTicket — session tickets
-// are owner-only since EXP-312); the relay verifies signature + expiry and
-// trusts the claims. Compact HS256 format (NOT a full JWT — no header, no alg
+// The web app mints a short-lived ticket (`steer.mintTicket` for a device's
+// control socket, `voice.*` for a call); the relay verifies signature +
+// expiry and trusts the claims. Compact HS256 format (NOT a full JWT — no header, no alg
 // negotiation): `base64url(JSON claims) + "." + base64url(HMAC-SHA256)`.
 // Shared by apps/web (sign) and apps/steer-relay (verify) so the format can't
 // drift.
@@ -16,17 +16,13 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 // NEW-55: `caller` (a phone/web client streaming a voice call's audio) and
 // `call_host` (the voice device answering it) open CALL rooms keyed by the
 // `callId` claim — binary Opus frames between exactly two sockets.
-export type SteerRole =
-  | `control`
-  | `publisher`
-  | `viewer`
-  | `caller`
-  | `call_host`
+// VAPP-43: `publisher` and `viewer` are gone with the relay's session rooms
+// (session content travels over eNet); the relay 401s them like any unknown
+// role.
+export type SteerRole = `control` | `caller` | `call_host`
 
-// EXP-312: the old `perm` (view|steer) and `name` claims are GONE — a live
-// session is visible and steerable only by its owner, enforced at mint time,
-// so a ticket in hand IS full access to its session. Clean wire cut: bump
-// CLIENT_MIN_VERSION_* past pre-EXP-312 builds when deploying.
+// EXP-312 / VAPP-43: the old `perm`, `name`, `sessionId` and `live` claims
+// are GONE with the session tickets.
 // EXP-710: the control ticket's `deviceLabel` claim is GONE too — presence is
 // the deviceId → socket map and nothing more since EXP-672, so no reader was
 // left. Verification stays TOLERANT of it (and of any other legacy claim): the
@@ -37,32 +33,15 @@ export interface SteerTicketClaims {
   sub: string
   /** teamId the ticket is scoped to (empty string for control tickets). */
   team: string
-  /** coding_sessions.id (publisher/viewer tickets). */
-  sessionId?: string
-  /** EXP-773: the steer deviceId of the machine that RAN the session
-   * (`coding_sessions.device_id`), on VIEWER tickets only. It is what lets
-   * the relay ask that device for a stored transcript when the room is not
-   * up; absent (an older session row, an older web build) keeps the old
-   * `no_such_session` answer. Never a grant of anything: the device is looked
-   * up under `deviceOwnerId` (`sub` when absent), an id the MINT decides, so a
-   * ticket can only ever reach the machine that ran its own session. */
+  /** NEW-55: on a CALLER ticket, the steer deviceId of the voice device to
+   * ring; on a CALL_HOST ticket, the device answering. */
   deviceId?: string
-  /** EXP-432 + EXP-773: the account the `deviceId` above is registered under —
-   * the run's HOST (`coding_sessions.host_user_id`) for a shared-device run,
-   * the session owner otherwise. Presence is indexed by device OWNER, so a
-   * requester steering a run on someone else's machine would otherwise look
-   * the device up under themselves and never find it. Absent = `sub`. */
+  /** NEW-55: on a CALLER ticket, the account the `deviceId` above is
+   * registered under (presence is indexed by device OWNER). Absent = `sub`. */
   deviceOwnerId?: string
-  /** #EXP-1405: on a VIEWER ticket naming `deviceId`: the server still calls
-   * the session ALIVE (an idle row whose run went away), so its replayed
-   * transcript is no ending. The relay keeps that history room up while it
-   * is watched and answers every failure `no_such_session` (retryable)
-   * instead of `device_offline` / `history_unavailable` + `bye`. */
-  live?: boolean
   /** NEW-55: the call room this ticket opens (`caller`) or answers
-   * (`call_host`). Minted by `voice.call` / `voice.callHostTicket`; on a
-   * caller ticket `deviceId` + `deviceOwnerId` name the voice device to ring,
-   * and the relay admits a host only when its `sub` IS that owner. */
+   * (`call_host`). Minted by `voice.call` / `voice.callHostTicket`; the relay
+   * admits a host only when its `sub` IS the rung device's owner. */
   callId?: string
   /** NEW-55: the agent the call talks to (caller tickets): forwarded in the
    * `call_ring` so the voice device knows whose conversation to open. */

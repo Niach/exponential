@@ -1,22 +1,24 @@
-// Steer relay — the live-terminal-steer hub
-// (masterplan §3). Modeled on apps/push-relay (Hono HTTP, per-IP rate
-// limiting, /healthz) with one structural difference: this is a stateful
-// Bun-native WebSocket hub, so the default export carries a `websocket`
-// handler beside `fetch`.
+// Steer relay — device presence, control and eTalk calls (masterplan §3).
+// Modeled on apps/push-relay (Hono HTTP, per-IP rate limiting, /healthz) with
+// one structural difference: this is a stateful Bun-native WebSocket hub, so
+// the default export carries a `websocket` handler beside `fetch`.
 //
-// The relay is a dumb pipe with auth + ephemeral presence: it verifies
-// short-lived HS256 tickets (minted by the web app's `steer` tRPC router with
-// the shared STEER_RELAY_SECRET), holds device presence + session rooms (and,
-// NEW-55, voice call rooms whose binary Opus frames it forwards undecoded) in
-// memory, and never persists a byte. `STEER_RELAY_SECRET` unset ⇒ the relay
-// refuses connections (503) — the web app equally treats the subsystem as off
-// when STEER_RELAY_URL is unset.
+// It verifies short-lived HS256 tickets (minted by the web app with the
+// shared STEER_RELAY_SECRET) and holds, in memory only, device presence (one
+// CONTROL socket per device: `check_in` nudges, `kill` / `interrupt` /
+// `compact_request` routed from the web server's admin calls) and NEW-55
+// voice call rooms, whose binary Opus frames it forwards undecoded. VAPP-43:
+// it carries NO session content: no session rooms, no activity, no history;
+// viewers read sessions over eNet from the device (fixtures/steer-enet.json)
+// and every content frame is refused. It never persists a byte.
+// `STEER_RELAY_SECRET` unset ⇒ the relay refuses connections (503) — the web
+// app equally treats the subsystem as off when STEER_RELAY_URL is unset.
 
 import { timingSafeEqual } from "node:crypto"
 import { Hono } from "hono"
 import type { ServerWebSocket } from "bun"
 import { verifySteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
-import { Hub, type RelaySocket } from "./hub"
+import { Hub, type DeviceRef, type RelaySocket } from "./hub"
 import { CLOSE_UNAUTHORIZED } from "./protocol"
 
 const RELAY_SECRET = process.env.STEER_RELAY_SECRET
@@ -33,7 +35,7 @@ export const hub = new Hub()
 // Two buckets per IP, mirroring push-relay's failed-auth-only philosophy:
 // failed auth (missing/invalid ticket, unknown role, wrong admin secret) gets a
 // small brute-force budget, while ticket-VALID upgrades count against a
-// separate, much larger one — so a garbage flood can never starve viewers,
+// separate, much larger one — so a garbage flood can never starve devices,
 // and several teammates behind one NAT egress can't 429 each other, but a
 // leaked-ticket replay flood still hits a ceiling. Without TRUST_PROXY every
 // request keys to the shared `unknown` fallback, which makes the split
@@ -145,9 +147,6 @@ app.get(`/stats`, (c) =>
   })
 )
 
-// Liveness for a session room (the "is the desktop still publishing?" check).
-app.get(`/sessions/:id`, (c) => c.json(hub.sessionInfo(c.req.param(`id`))))
-
 // EXP-481: fire-and-forget check-in nudge — the web server persisted new
 // work for the device (a queued command, edited launch defaults); an online
 // device heartbeats immediately instead of waiting its cadence. Secret-gated
@@ -160,57 +159,76 @@ app.post(`/devices/:userId/:deviceId/nudge`, (c) =>
   })
 )
 
-// Server-side kill-switch fallback (steer.killSession also flips the DB row).
-app.post(`/sessions/:id/kill`, (c) => {
-  const delivered = hub.killSession(c.req.param(`id`))
+// VAPP-43: the session control routes name the DEVICE running the session in
+// their JSON body — `{ userId, deviceId }`, userId being the account the
+// device is registered under (the session's host) — and the relay sends the
+// frame down that device's CONTROL socket. A body without both ids is a 400.
+const ID_MAX_CHARS = 128
+
+async function readDeviceBody(c: {
+  req: { json(): Promise<unknown> }
+}): Promise<{ device: DeviceRef; body: Record<string, unknown> } | null> {
+  const body = (await c.req.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null
+  if (!body || typeof body !== `object`) return null
+  const { userId, deviceId } = body
+  if (
+    typeof userId !== `string` ||
+    typeof deviceId !== `string` ||
+    userId.length === 0 ||
+    deviceId.length === 0 ||
+    userId.length > ID_MAX_CHARS ||
+    deviceId.length > ID_MAX_CHARS
+  ) {
+    return null
+  }
+  return { device: { userId, deviceId }, body }
+}
+
+// Server-side kill (every end the server makes; the DB row flip is the
+// durable path). 200 with delivered=false when the device is not connected.
+app.post(`/sessions/:id/kill`, async (c) => {
+  const parsed = await readDeviceBody(c)
+  if (!parsed) return c.json({ error: `Bad request` }, 400)
+  const delivered = hub.killSession(c.req.param(`id`), parsed.device)
   return c.json({ ok: true, delivered })
 })
 
 // EXP-1291: `sessions.stop` — interrupt the running turn. Same delivery
-// contract as kill (200 with delivered=false without a live publisher).
-app.post(`/sessions/:id/interrupt`, (c) => {
-  const delivered = hub.interruptSession(c.req.param(`id`))
+// contract as kill.
+app.post(`/sessions/:id/interrupt`, async (c) => {
+  const parsed = await readDeviceBody(c)
+  if (!parsed) return c.json({ error: `Bad request` }, 400)
+  const delivered = hub.interruptSession(c.req.param(`id`), parsed.device)
   return c.json({ ok: true, delivered })
 })
 
-// EXP-700: inject text as the session owner's input (parent↔child messages —
-// a child's question/report into its parent, a parent's answer into its
-// child). Mirrors the kill contract: 200 with delivered=false when no live
-// publisher holds the room.
-const INPUT_TEXT_MAX_CHARS = 16 * 1024
-
-app.post(`/sessions/:id/input`, async (c) => {
-  const body = (await c.req.json().catch(() => null)) as Record<
-    string,
-    unknown
-  > | null
-  const text = typeof body?.text === `string` ? body.text : ``
-  if (text.length === 0 || text.length > INPUT_TEXT_MAX_CHARS) {
-    return c.json({ error: `Bad request` }, 400)
-  }
-  const delivered = hub.injectInput(c.req.param(`id`), text)
-  return c.json({ ok: true, delivered })
-})
-
-// EXP-936: the run's own `exponential_sessions_compact`, relayed to its
-// publisher as a `compact_request` and AWAITED: the host answers with its
-// verdict (`compact_verdict`) and that answer is this response. `keep`
-// mirrors the tool's argument (what the summary must preserve). Same
-// delivery contract as kill/input — 200 with delivered=false when no live
-// publisher holds the room or the host never answered — so an old relay's
-// 404 and a missing host read alike on the web side.
+// EXP-936: the run's own `exponential_sessions_compact`, relayed down its
+// device's control socket as a `compact_request` and AWAITED: the host
+// answers with its verdict (`compact_verdict`) and that answer is this
+// response. `keep` mirrors the tool's argument (what the summary must
+// preserve). 200 with delivered=false when the device is not connected
+// (`device_offline`), the host never answered (`no_verdict`) or another ask
+// for the session waits (`busy`).
 const COMPACT_KEEP_MAX_CHARS = 2_000
 
 app.post(`/sessions/:id/compact`, async (c) => {
-  const body = (await c.req.json().catch(() => null)) as Record<
-    string,
-    unknown
-  > | null
-  const keep = typeof body?.keep === `string` ? body.keep : undefined
-  if (keep !== undefined && (keep.length === 0 || keep.length > COMPACT_KEEP_MAX_CHARS)) {
+  const parsed = await readDeviceBody(c)
+  if (!parsed) return c.json({ error: `Bad request` }, 400)
+  const keep = parsed.body.keep
+  if (
+    keep !== undefined &&
+    (typeof keep !== `string` || keep.length === 0 || keep.length > COMPACT_KEEP_MAX_CHARS)
+  ) {
     return c.json({ error: `Bad request` }, 400)
   }
-  const outcome = await hub.requestCompaction(c.req.param(`id`), keep)
+  const outcome = await hub.requestCompaction(
+    c.req.param(`id`),
+    parsed.device,
+    keep
+  )
   return c.json({ ok: true, ...outcome })
 })
 
@@ -237,6 +255,10 @@ function adapt(ws: ServerWebSocket<WsData>): RelaySocket {
   }
   return adapter
 }
+
+/** The ticket roles the relay opens a socket for: the device's presence and
+ *  control socket, and NEW-55's voice call pair. */
+export const ACCEPTED_ROLES = [`control`, `caller`, `call_host`] as const
 
 const port = parseInt(process.env.PORT ?? `4002`, 10)
 console.log(`[steer-relay] listening on :${port}`)
@@ -266,14 +288,10 @@ export default {
       }
       // Role allowlist: signature-valid tickets can still carry roles this
       // relay no longer serves (EXP-90 removed the anonymous `public_viewer`
-      // audience) — a stale instance that still mints one gets 401, never a
-      // socket. Counts as failed auth: it never gets a socket either.
-      // NEW-55 adds the voice call pair, `caller` and `call_host`.
-      if (
-        ![`control`, `publisher`, `viewer`, `caller`, `call_host`].includes(
-          verdict.claims.role
-        )
-      ) {
+      // audience; VAPP-43 removed `publisher` and `viewer`: session content
+      // goes over eNet) — a stale instance or old build that still mints one
+      // gets 401, never a socket. Counts as failed auth.
+      if (!(ACCEPTED_ROLES as readonly string[]).includes(verdict.claims.role)) {
         if (!rateLimitHit(`failed:${clientIp(req.headers)}`, RATE_LIMIT_FAILED_MAX)) {
           rateLimitedRejections += 1
           return new Response(`Rate limit exceeded`, { status: 429 })
@@ -292,9 +310,10 @@ export default {
     return app.fetch(req)
   },
   websocket: {
-    // Keystrokes are tiny; the biggest legitimate frame is an activity event
-    // carrying a worktree diff (schema-capped at 512KB). Anything bigger than
-    // this is abuse.
+    // The biggest legitimate text frame is a `call_event` (8 KiB), but an
+    // old build's control socket may still send a large content frame: it
+    // must be answered `content_refused`, not have its socket closed by a
+    // payload cap, so the cap stays where the content protocol had it.
     maxPayloadLength: 1024 * 1024,
     open(ws: ServerWebSocket<WsData>) {
       hub.onOpen(adapt(ws), ws.data.claims)
@@ -309,14 +328,6 @@ export default {
         return
       }
       hub.onBinary(adapt(ws), message)
-    },
-    // REV2-X: Bun routes protocol-level ping frames HERE, not to `message`.
-    // The desktop publisher pings every 30s during idle/plan-mode; without
-    // this the idle detector would never see them and would detach a
-    // live-but-quiet publisher after 90s (a churny reconnect — EXP-283 made
-    // the idle close non-terminal).
-    ping(ws: ServerWebSocket<WsData>) {
-      hub.onPing(adapt(ws))
     },
     close(ws: ServerWebSocket<WsData>) {
       hub.onClose(adapt(ws))
