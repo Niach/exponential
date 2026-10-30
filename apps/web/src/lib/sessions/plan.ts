@@ -29,7 +29,7 @@ import { askText, busAsk, closeAskMirrors, type ListenerCopy } from "@/lib/sessi
 import { isSealedBody, isSealedCard, validSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import { isSessionPrincipal, loadSessionForUser } from "@/lib/sessions/access"
 import { isAssistantConversation, statusCardTarget } from "@/lib/agents/assistant-chat"
-import { notifyAssistantDecision } from "@/lib/integrations/notifications"
+import { notifySessionAsk } from "@/lib/integrations/notifications"
 import { insertMessage, postOwnAskCard, inSession, messageSessionId } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
@@ -563,7 +563,7 @@ export async function postShowCard(args: {
   if (!sealedCard && args.sealed) throw bad(`askText and listenerCopies go with a sealed card`)
   // #EXP-1439: in a member's Assistant conversation a surface is THE live
   // status card (`statusCardTarget`, edited in place across turns until the
-  // member writes) and an ask notifies its owner.
+  // member writes).
   const [owner] = await db
     .select({ id: sessions.id, rootId: sessions.rootId, agentId: sessions.agentId })
     .from(sessions)
@@ -651,17 +651,6 @@ export async function postShowCard(args: {
       card: args.card as Extract<MessageCard, { kind: `plan` | `question` }>,
       ...(args.sealed ? { sealed: args.sealed } : {}),
     })
-    if (assistant) {
-      // EXP-1458: a sealed ask notifies with the title alone.
-      void notifyAssistantDecision(
-        args.sessionId,
-        sealedCard
-          ? ``
-          : args.card.kind === `question`
-            ? args.card.question
-            : (args.card as Extract<MessageCard, { kind: `plan` }>).plan
-      )
-    }
     return { ...posted, replaced: false }
   }
   const posted = await postSurfaceCard({
@@ -829,6 +818,8 @@ export async function postAskCard(args: {
     )
     return messageId
   })
+  // #VAPP-45: a root's ask pushes its owner (the question text sealed).
+  void notifySessionAsk({ sessionId: args.sessionId, card: args.card, sealedAskText: args.sealed?.askText })
   return {
     messageId,
     // EXP-1458: a sealed card's clear `{label}` entries still to upload.

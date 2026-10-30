@@ -24,6 +24,7 @@ const relay = vi.hoisted(() => ({
 }))
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
+  notifySessionAsk: async () => {},
   fireAndForgetSessionMessageNotify: () => {},
   notifySessionBlocked: async () => {},
 }))

@@ -3,15 +3,16 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { probeRealDb } from "@/test/real-db"
+import { generateTreeKey, sealBody, sealCard } from "@exp/domain-contract/sealed-content"
 
 // EXP-1458 against the real migrated Postgres: a SEALED conversation
 // message notifies the members its `mention_user_ids` lists with generic
 // copy (never a preview, never the envelope); a plaintext one parses its
 // `@email`s and honours `mention_user_ids` beside them.
 
-const pushes = vi.hoisted(() => [] as { title: string; body?: string }[])
+const pushes = vi.hoisted(() => [] as { title: string; body?: string; data: Record<string, string> }[])
 vi.mock(`@/lib/integrations/fcm`, () => ({
-  sendToUsers: async (_targets: unknown, payload: { title: string; body?: string }) => {
+  sendToUsers: async (_targets: unknown, payload: { title: string; body?: string; data: Record<string, string> }) => {
     pushes.push(payload)
   },
 }))
@@ -21,7 +22,7 @@ const ready = await probeRealDb(`
 `)
 if (!ready.ok) console.info(`[notifications-sealed.real-db] skipped: ${ready.reason}`)
 
-const { notifySessionMessage, SEALED_MESSAGE_NOTIFY_BODY, addsMentionUserIds } = await import(
+const { notifySessionAsk, notifySessionMessage, SEALED_MESSAGE_NOTIFY_BODY, addsMentionUserIds } = await import(
   `@/lib/integrations/notifications`
 )
 
@@ -70,7 +71,7 @@ async function sharedThread() {
       await db.execute<{ body: string | null }>(sql`
         SELECT body FROM notifications WHERE user_id = ${userId} AND session_id = ${sessionId}`)
     ).rows.map((r) => r.body)
-  return { starter, ada, bob, post, inbox }
+  return { sessionId, starter, ada, bob, post, inbox }
 }
 
 describe.skipIf(!ready.ok)(`EXP-1458: session message notifications`, () => {
@@ -96,6 +97,32 @@ describe.skipIf(!ready.ok)(`EXP-1458: session message notifications`, () => {
     await notifySessionMessage(await t.post(body, [t.bob.id]))
     expect(await t.inbox(t.ada.id)).toEqual([body])
     expect(await t.inbox(t.bob.id)).toEqual([body])
+  })
+})
+
+// #VAPP-45 (question-push.json): a sealed root ask pushes its OWNER only,
+// and its question exists only as the device's ciphertext.
+describe.skipIf(!ready.ok)(`VAPP-45: a sealed question push`, () => {
+  it(`the owner's row holds generic copy, the push carries the envelope, teammates get nothing`, async () => {
+    const SECRET = `Rotate the prod database password tonight?`
+    const tree = generateTreeKey()
+    const sealedAskText = sealBody(tree.publicKey, 1, `Asks: ${SECRET}`)
+    const t = await sharedThread()
+    pushes.length = 0
+    await notifySessionAsk({
+      sessionId: t.sessionId,
+      card: sealCard(tree.publicKey, 1, { kind: `question`, question: SECRET }) as never,
+      sealedAskText,
+    })
+    expect(await t.inbox(t.starter.id)).toEqual([SEALED_MESSAGE_NOTIFY_BODY])
+    expect(await t.inbox(t.ada.id)).toEqual([])
+    const rows = await db.execute(sql`SELECT * FROM notifications WHERE session_id = ${t.sessionId}`)
+    expect(JSON.stringify(rows.rows)).not.toContain(SECRET)
+    expect(JSON.stringify(rows.rows)).not.toContain(`exp-sealed:`)
+    expect(pushes).toHaveLength(1)
+    expect(pushes[0]!.title).toBe(`Fix the login needs you`)
+    expect(pushes[0]!.data).toMatchObject({ sessionId: t.sessionId, rootId: t.sessionId, sealedText: sealedAskText })
+    expect(JSON.stringify(pushes)).not.toContain(SECRET)
   })
 })
 

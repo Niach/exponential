@@ -81,6 +81,7 @@ import {
 } from "@/lib/sessions/send"
 import {
   fireAndForgetSessionMessageNotify,
+  notifySessionAsk,
   notifySessionBlocked,
 } from "@/lib/integrations/notifications"
 
@@ -1001,6 +1002,14 @@ export const sessionsRouter = router({
           addsMentionId(result.before === null ? null : result.mentionsBefore, input.mentionUserIds ?? [])
       if (mentions) {
         fireAndForgetSessionMessageNotify({ messageId: result.messageId })
+      }
+      // #VAPP-45: a root's ask pushes its owner (the question text sealed).
+      if (asks) {
+        void notifySessionAsk({
+          sessionId: session.id,
+          card: card as Extract<MessageCard, { kind: `question` | `plan` }>,
+          sealedAskText: input.askText,
+        })
       }
       return {
         messageId: result.messageId,
