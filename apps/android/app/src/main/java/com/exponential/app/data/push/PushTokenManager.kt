@@ -3,6 +3,8 @@ package com.exponential.app.data.push
 import android.util.Log
 import com.exponential.app.data.api.PushTokensApi
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.auth.SecureStore
+import io.ktor.client.HttpClient
 import com.google.firebase.messaging.FirebaseMessaging
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,6 +17,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.min
@@ -85,13 +89,15 @@ internal class PushRegistrationState {
      * may have lost the race to the row this call just (re)created, and once
      * the credentials are gone nothing else can delete it.
      */
-    fun completeRegister(accountId: String, forToken: String): Boolean = synchronized(lock) {
+    fun completeRegister(accountId: String, forToken: String, acknowledge: Boolean = true): Boolean = synchronized(lock) {
         inFlight.remove(accountId)
         if (accountId in suppressed) return true
         // Only acknowledge when the token did not rotate mid-flight: this call
         // posted the OLD token, and marking the account registered would skip
         // posting the new one — FCM kills the old token and pushes just stop.
-        if (token == forToken) registered.add(accountId)
+        // A degraded register (EXP-1435: the bare token posted because the
+        // relay was unusable) is not acknowledged either, so the loop retries.
+        if (acknowledge && token == forToken) registered.add(accountId)
         false
     }
 
@@ -116,7 +122,8 @@ internal class PushRegistrationReconciler(
     private val state: PushRegistrationState,
     private val signedInAccounts: () -> Set<String>,
     private val deviceToken: suspend () -> String?,
-    private val register: suspend (accountId: String, token: String) -> Unit,
+    /** Throws on failure; returns false when it posted but is incomplete (retry later, EXP-1435). */
+    private val register: suspend (accountId: String, token: String) -> Boolean,
     private val unregister: suspend (accountId: String, token: String) -> Unit,
     // One slow/stuck register must not stall the pass and starve the other
     // accounts. Registration is idempotent, so aborting and retrying is safe.
@@ -135,18 +142,19 @@ internal class PushRegistrationReconciler(
         var retry = false
         for (accountId in state.pending(signedIn)) {
             if (!state.beginRegister(accountId, token)) continue
-            val posted = try {
-                withTimeoutOrNull(registerTimeoutMs) { register(accountId, token) } != null
+            val complete = try {
+                withTimeoutOrNull(registerTimeoutMs) { register(accountId, token) }
             } catch (err: Throwable) {
                 Log.w(TAG, "Failed to register FCM token: ${err.message}")
-                false
+                null
             }
-            if (!posted) {
+            if (complete == null) {
                 state.failRegister(accountId)
                 retry = true
                 continue
             }
-            if (state.completeRegister(accountId, token)) {
+            if (!complete) retry = true
+            if (state.completeRegister(accountId, token, acknowledge = complete)) {
                 // Signed out mid-flight: compensate, or the departed account
                 // keeps receiving this device's pushes until the 30-day sweep.
                 try {
@@ -164,7 +172,9 @@ internal class PushRegistrationReconciler(
 
     companion object {
         private const val TAG = "PushTokenMgr"
-        private const val REGISTER_TIMEOUT_MS = 10_000L
+        // A sealed registration is up to five round trips (relay lookup, the
+        // relay's install check / rotation / capability, then the register).
+        private const val REGISTER_TIMEOUT_MS = 20_000L
     }
 }
 
@@ -172,6 +182,10 @@ internal class PushRegistrationReconciler(
 class PushTokenManager @Inject constructor(
     private val auth: AuthRepository,
     private val api: PushTokensApi,
+    private val keyStore: PushKeyStore,
+    httpClient: HttpClient,
+    json: Json,
+    secureStore: SecureStore,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val state = PushRegistrationState()
@@ -180,12 +194,35 @@ class PushTokenManager @Inject constructor(
     // reconcile is over the whole account set anyway.
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
+    // EXP-1435: sealed pushes through the push relay's accountless API.
+    private val relay = PushRelayRegistrar(
+        ops = HttpPushRelayOps(httpClient, json),
+        store = SecureRelayInstallStore(secureStore, json),
+    )
+
+    private val accountRegistrar = PushAccountRegistrar(
+        relayUrl = { accountId -> api.relayUrl(accountId) },
+        publicKey = { keyStore.keypair()?.publicBase64Url },
+        capabilityFor = { relayUrl, accountId, token ->
+            relay.capabilityFor(relayUrl, accountId, token, label = capabilityLabel(accountId))
+        },
+        register = { accountId, token, sealed ->
+            api.register(accountId, token, sealed?.capability, sealed?.pushPublicKey)
+        },
+    )
+
     private val reconciler = PushRegistrationReconciler(
         state = state,
         signedInAccounts = { signedInAccountIds() },
         deviceToken = { currentFcmToken() },
-        register = { accountId, token -> api.register(accountId, token) },
-        unregister = { accountId, token -> api.unregister(accountId, token) },
+        register = { accountId, token -> accountRegistrar.register(accountId, token) },
+        unregister = { accountId, token ->
+            try {
+                api.unregister(accountId, token)
+            } finally {
+                revokeCapability(accountId)
+            }
+        },
     )
 
     fun start() {
@@ -232,7 +269,25 @@ class PushTokenManager @Inject constructor(
                 Log.w(TAG, "Failed to unregister FCM token: ${err.message}")
             }
         }
+        // The relay needs no account credentials, only the install secret, so
+        // this runs after the server row is gone, within its own bound.
+        revokeCapability(accountId)
     }
+
+    /** Best effort: the server already lost the row; this stops the capability itself working. */
+    private suspend fun revokeCapability(accountId: String) {
+        try {
+            withTimeoutOrNull(UNREGISTER_TIMEOUT_MS) { relay.revoke(accountId) }
+        } catch (err: CancellationException) {
+            throw err
+        } catch (err: Throwable) {
+            Log.w(TAG, "Failed to revoke push capability: ${err.javaClass.simpleName}")
+        }
+    }
+
+    /** The capability's relay-side label: the server's host (what a device list would show). */
+    private fun capabilityLabel(accountId: String): String =
+        auth.accounts.value.firstOrNull { it.id == accountId }?.displayHost ?: "exponential"
 
     private fun signedInAccountIds(): Set<String> =
         auth.accounts.value.filter { it.token != null }.map { it.id }.toSet()

@@ -73,6 +73,18 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
           SKIP_BINDINGS: '1'
         run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
+      # EXP-1435: the app opens sealed pushes with the eNet push-only facade
+      # (RustCrypto only): its `.so` for every shipped ABI, and the host build
+      # PushSealFixtureTest loads through JNA in the unit tests below.
+      - name: Build the eNet push-only facade for Android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          ENET_PUSH_ONLY: '1'
+          SKIP_BINDINGS: '1'
+        run: bash apps/desktop/crates/exponential-net-ffi/build-android.sh
+      - name: Build the eNet push-only facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p exponential-net-ffi --release --no-default-features --features cli
 
       - name: Cache Gradle packages
         if: runner.environment == 'github-hosted'
