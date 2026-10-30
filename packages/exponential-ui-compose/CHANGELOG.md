@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.2.1 (2026-10-30)
+
+- YO-30: the tests replay `fixtures/text-clusters.json` (ICU grapheme clusters). No painter change.
+
 ## 0.2.0 (2026-10-30)
 
 - Renamed (EXP-1438): the Maven artifacts `at.exponential:ui-compose` / `ui-compose-primitives` are now `at.exponential:eui-compose` / `eui-compose-primitives` (Kotlin packages unchanged).

@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.2.1 (2026-10-30)
+
+- YO-30: the tests replay `fixtures/text-clusters.json`. No painter change.
+
 ## 0.2.0 (2026-10-30)
 
 - VAPP-162 (round 5): `QrCode` paints the core's matrix (`qrMatrixJson`, the `QrMatrix` model; a Canvas with module edges on device pixels, the lighter recipe colour on the plate) and `QrScanner` the viewfinder chrome around the HOST camera (`View.exponentialQrScanner(_:)`, `ExponentialQrScanner`, `QrScannerFeed`; no camera = the placeholder); `VoiceWave` `variant: bars` (`voiceWaveBarsJson`, the `VoiceWaveBarsView` primitive); the vertical Segmented and THE rail with count badges; Button `hold` (gesture, keys, focus loss and VoiceOver through `Surface.hold`); `ui-serif` = the system serif; `QrCodeView`, `QrViewfinderCorners`, `QrScanLine` in `ExponentialUIPrimitives`.
