@@ -1,0 +1,4 @@
+- Session messages are sealed on your devices, so the server can no longer read them
+- Tapping a decision in your inbox opens the chat that's waiting for you
+- Stories show the last 24 hours, and a chat's Stories tab shows them in place
+- Calls keep working when you switch between speaker, headphones and Bluetooth

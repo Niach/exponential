@@ -1,2 +1,4 @@
-- Un botón de llamada atenuado ahora indica qué falta y dónde arreglarlo
-- Las tarjetas que actualiza un agente se editan en su sitio y pasan al final del chat
+- Los mensajes de las sesiones se sellan en tus dispositivos, así que el servidor ya no puede leerlos
+- Al tocar una decisión en tu bandeja de entrada se abre el chat que te está esperando
+- Las historias muestran las últimas 24 horas y la pestaña Historias de un chat las muestra en su sitio
+- Las llamadas siguen funcionando al cambiar entre altavoz, auriculares y Bluetooth

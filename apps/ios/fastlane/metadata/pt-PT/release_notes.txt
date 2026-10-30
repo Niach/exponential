@@ -1,2 +1,4 @@
-- Um botão de chamada desativado diz agora o que falta e onde corrigir
-- Os cartões que um agente atualiza são editados no lugar e passam para o fim do chat
+- As mensagens das sessões são seladas nos teus dispositivos, por isso o servidor já não as consegue ler
+- Tocar numa decisão na caixa de entrada abre o chat que está à tua espera
+- As histórias mostram as últimas 24 horas e o separador Histórias de um chat mostra-as no lugar
+- As chamadas continuam quando mudas entre altifalante, auscultadores e Bluetooth

@@ -1,2 +1,4 @@
-- Sivé tlačidlo hovoru teraz povie, čo chýba a kde to opraviť
-- Karty, ktoré agent aktualizuje, sa upravia na mieste a presunú sa na koniec chatu
+- Správy v reláciách sa pečatia na tvojich zariadeniach, takže ich server už neprečíta
+- Ťuknutím na rozhodnutie v doručenej pošte otvoríš chat, ktorý na teba čaká
+- Príbehy ukazujú posledných 24 hodín a karta Príbehy v chate ich zobrazí priamo na mieste
+- Hovory fungujú ďalej, keď prepneš medzi reproduktorom, slúchadlami a Bluetooth

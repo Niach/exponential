@@ -1,2 +1,4 @@
-- Een grijze belknop vertelt nu wat er ontbreekt en waar je het oplost
-- Kaarten die een agent bijwerkt, worden ter plekke aangepast en verschuiven naar onderaan de chat
+- Berichten in sessies worden op je apparaten verzegeld, zodat de server ze niet meer kan lezen
+- Tik op een beslissing in je inbox om de chat te openen die op je wacht
+- Stories tonen de laatste 24 uur, en het tabblad Stories van een chat toont ze ter plekke
+- Gesprekken blijven werken als je wisselt tussen speaker, koptelefoon en Bluetooth

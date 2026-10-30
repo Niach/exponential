@@ -1,2 +1,4 @@
-- Ein ausgegrauter Anruf-Button sagt jetzt, was fehlt und wo du es behebst
-- Karten, die ein Agent aktualisiert, werden direkt bearbeitet und rücken ans Ende des Chats
+- Session-Nachrichten werden auf deinen Geräten versiegelt, der Server kann sie nicht mehr lesen
+- Ein Tipp auf eine Entscheidung im Posteingang öffnet den Chat, der auf dich wartet
+- Stories zeigen die letzten 24 Stunden, und der Stories-Tab eines Chats zeigt sie direkt an
+- Anrufe laufen weiter, wenn du zwischen Lautsprecher, Kopfhörern und Bluetooth wechselst

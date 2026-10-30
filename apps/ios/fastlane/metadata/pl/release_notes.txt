@@ -1,2 +1,4 @@
-- Wyszarzony przycisk połączenia mówi teraz, czego brakuje i gdzie to naprawić
-- Karty aktualizowane przez agenta są edytowane na miejscu i przenoszone na dół czatu
+- Wiadomości w sesjach są pieczętowane na twoich urządzeniach, więc serwer nie może ich już czytać
+- Dotknięcie decyzji w skrzynce odbiorczej otwiera czat, który na ciebie czeka
+- Relacje pokazują ostatnie 24 godziny, a karta Relacje w czacie pokazuje je na miejscu
+- Połączenia działają dalej, gdy przełączasz między głośnikiem, słuchawkami i Bluetooth
