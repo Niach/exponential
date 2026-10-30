@@ -441,7 +441,7 @@ struct ChatTranscriptSpecimens: View {
                 Text(Chats.Copy.superseded).font(.footnote)
             }
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            agent("Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:", "21:09")
+            agent("Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:", "21:14")
             if let surface = Self.launchSurface {
                 SurfaceCardRow(surface: surface, title: "Launch path", animate: replay > 0) { text in
                     replied = text
@@ -781,7 +781,7 @@ struct SealedLockedSpecimens: View {
                     caption: "21:02"
                 )
                 pill(.noKey)
-                AgentChatBubble(time: "21:09") {
+                AgentChatBubble(time: "21:14") {
                     AgentMarkdownText(text: "Deferred the shape subscribe until after the first frame.", context: context, options: [.hardLineBreaks])
                 }
                 pill(.unreadable)
@@ -793,7 +793,7 @@ struct SealedLockedSpecimens: View {
                 ) { ChatLeadMark(lead: .working) }
                 ChatRowView(
                     title: "Needs you one", time: "09:10",
-                    preview: "Snapshot?", previewLabel: "Question:", needsYou: true
+                    preview: "Question: Snapshot?", previewLabel: "Question:", needsYou: true
                 ) { ChatLeadMark(lead: .needsYou) }
                 ChatRowView(
                     title: "Open PR", time: "08:30",

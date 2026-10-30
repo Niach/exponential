@@ -48,7 +48,7 @@ pub(crate) fn launch_surface() -> CardSurface {
     }
 }
 
-fn message(id: &str, author: &str, body: &str) -> SessionThreadRow {
+pub(crate) fn message(id: &str, author: &str, body: &str) -> SessionThreadRow {
     SessionThreadRow::Message {
         id: id.into(),
         author: author.into(),
@@ -98,7 +98,7 @@ pub(crate) fn rows() -> Vec<(SessionThreadRow, &'static str)> {
     ]
 }
 
-fn paint(row: &SessionThreadRow, time: &str, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> AnyElement {
+pub(crate) fn paint(row: &SessionThreadRow, time: &str, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> AnyElement {
     let text = ThreadText::default().answering(true);
     match row {
         SessionThreadRow::Message { id, author, body, queued, .. } => {

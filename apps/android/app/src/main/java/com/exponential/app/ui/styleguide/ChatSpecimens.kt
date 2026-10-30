@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.TeamEntity
@@ -574,7 +575,9 @@ private val LOCKED_LIST_ROWS: List<Chats.ChatRow> get() = LIST.rows.take(3).mapI
     }
 }
 
-/** The locked state: a transcript with both pills over three chat rows with locked previews (shot `sg_sealed-locked`). */
+/** The locked state: a transcript with both pills, the three chat rows with
+ *  locked previews right under it (iOS / web order, #EXP-1469: the rows ride
+ *  the conversation's tail, never pinned to the bottom; shot `sg_sealed-locked`). */
 @Composable
 fun SealedLockedSpecimenScreen() {
     AppBackground {
@@ -597,12 +600,24 @@ fun SealedLockedSpecimenScreen() {
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 onSurfaceReply = {},
+                tail = {
+                    // The rows span the screen: undo the transcript's 16dp gutters.
+                    Column(
+                        Modifier
+                            .padding(top = 8.dp)
+                            .layout { measurable, constraints ->
+                                val gutters = (32.dp).roundToPx()
+                                val width = constraints.maxWidth + gutters
+                                val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+                                layout(constraints.maxWidth, placeable.height) { placeable.place(-gutters / 2, 0) }
+                            },
+                    ) {
+                        LOCKED_LIST_ROWS.forEach { row ->
+                            ChatRow(row = row, agent = "claude", onClick = {}, onLongClick = null)
+                        }
+                    }
+                },
             )
-            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-                LOCKED_LIST_ROWS.forEach { row ->
-                    ChatRow(row = row, agent = "claude", onClick = {}, onLongClick = null)
-                }
-            }
         }
     }
 }
