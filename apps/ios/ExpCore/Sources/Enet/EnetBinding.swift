@@ -56,6 +56,19 @@ public final class EnetInstallNode: InstallNodeDriver {
     public func allow(peer: String) throws { try node.allowPeer(peer: peer) }
     public func revoke(peer: String) throws { try node.revokePeer(peer: peer) }
     public func shutdown() async { try? await node.shutdown() }
+
+    public func sendChat(peer: String, body: Data) async throws {
+        _ = try await node.sendChat(peer: peer, body: body)
+    }
+
+    public func nextEvent() async -> InstallNodeEvent? {
+        switch await node.nextEvent() {
+        case nil: return nil
+        case let .chat(from, message)?: return .chat(from: from, body: message.body)
+        case let .peerRefused(peer, _)?: return .peerRefused(peer: peer)
+        case _?: return .other
+        }
+    }
 }
 #endif
 
@@ -81,7 +94,10 @@ extension InstallNodeCoordinator {
             onIdentityRotated: onIdentityRotated,
             startNode: { try await EnetInstallNode.start(identity: $0) }
         )
-        return InstallNodeCoordinator(service: service, auth: auth, db: db)
+        return InstallNodeCoordinator(
+            service: service, auth: auth, db: db,
+            steer: InstallSteerCarrier(service: service, lookup: InstallsApi(trpc: trpc))
+        )
         #else
         return nil
         #endif

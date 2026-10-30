@@ -71,8 +71,9 @@ public protocol InstallsRegistry: Sendable {
 
 private struct InstallsTeamInput: Encodable { let teamId: String }
 private struct InstallIdInput: Encodable { let installId: String }
+private struct InstallsSessionInput: Encodable { let sessionId: String }
 
-public final class InstallsApi: InstallsRegistry {
+public final class InstallsApi: InstallsRegistry, SteerEndpointLookup {
     private let trpc: TrpcClient
 
     public init(trpc: TrpcClient) {
@@ -85,6 +86,11 @@ public final class InstallsApi: InstallsRegistry {
 
     public func list(accountId: String, teamId: String) async throws -> [InstallEntry] {
         try await trpc.query(accountId: accountId, path: "installs.list", input: InstallsTeamInput(teamId: teamId))
+    }
+
+    /// VAPP-33: the installs of the machine running `sessionId`, newest first.
+    public func forSession(accountId: String, sessionId: String) async throws -> [SteerEndpoint] {
+        try await trpc.query(accountId: accountId, path: "installs.forSession", input: InstallsSessionInput(sessionId: sessionId))
     }
 
     public func mine(accountId: String) async throws -> [InstallEntry] {

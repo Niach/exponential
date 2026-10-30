@@ -40,13 +40,14 @@ final class EnetInstallNodesTests: XCTestCase {
 
         // Same team: B pings A, A acks (sendChat returns once acknowledged).
         _ = try nodeB.node.addTicket(ticket: nodeA.node.ticket())
-        let sent = try await nodeB.node.sendChat(peer: nodeA.endpointId, body: Data("ping".utf8))
-        guard case let .chat(from, message)? = await nodeA.node.nextEvent() else {
+        // A's service pump owns nextEvent (VAPP-33): non-steer chat reaches its tap.
+        var eventsA = serviceA.otherEvents.makeAsyncIterator()
+        _ = try await nodeB.node.sendChat(peer: nodeA.endpointId, body: Data("ping".utf8))
+        guard case let .chat(from, body)? = await eventsA.next() else {
             return XCTFail("A got no chat event")
         }
         XCTAssertEqual(from, nodeB.endpointId)
-        XCTAssertEqual(message.body, Data("ping".utf8))
-        XCTAssertEqual(message.id, sent.id)
+        XCTAssertEqual(body, Data("ping".utf8))
 
         // Another team's install: A refuses it.
         let outsider = try await EnetInstallNode.start(config: EnetInstallNode.localOnlyConfig(), identity: foreign)
@@ -60,7 +61,7 @@ final class EnetInstallNodesTests: XCTestCase {
             default: XCTFail("unexpected error \(error)")
             }
         }
-        guard case let .peerRefused(peer, _)? = await nodeA.node.nextEvent() else {
+        guard case let .peerRefused(peer)? = await eventsA.next() else {
             return XCTFail("A did not report the refused peer")
         }
         XCTAssertEqual(peer, outsider.endpointId)
@@ -68,6 +69,78 @@ final class EnetInstallNodesTests: XCTestCase {
         await outsider.shutdown()
         await serviceA.stop()
         await serviceB.stop()
+    }
+
+    /// VAPP-33 on REAL nodes: the viewer (an InstallNodeService + its steer
+    /// carrier) joins a device over the chat channel, gets the replay, a live
+    /// frame, and steers an answer back; a stranger's envelope for the same
+    /// session is ignored.
+    func testViewerJoinsTheDeviceOverTheChatChannel() async throws {
+        let crypto = EnetInstallCrypto()
+        let viewerSeed = generateIdentity(), deviceSeed = generateIdentity(), strangerSeed = generateIdentity()
+        let registry = MemoryRegistry(teams: [
+            "team": [try install(viewerSeed, crypto), try install(deviceSeed, crypto), try install(strangerSeed, crypto)],
+        ])
+        let started = StartedNodes()
+        let viewer = InstallNodeService(
+            registry: registry, crypto: crypto,
+            identity: InstallIdentitySource(loadOrCreate: { viewerSeed }, rotate: {}),
+            label: "test", platform: "iOS",
+            startNode: { seed in
+                let node = try await EnetInstallNode.start(config: EnetInstallNode.localOnlyConfig(), identity: seed)
+                started.add(node)
+                return node
+            }
+        )
+        await viewer.sync([InstallAccount(accountId: "acc", userId: "u", teamIds: ["team"])])
+        let viewerNode = try XCTUnwrap(started.node(try crypto.endpointId(identity: viewerSeed)))
+        let device = try await EnetInstallNode.start(config: EnetInstallNode.localOnlyConfig(), identity: deviceSeed)
+        let stranger = try await EnetInstallNode.start(config: EnetInstallNode.localOnlyConfig(), identity: strangerSeed)
+        for node in [device, stranger] {
+            try node.allow(peer: viewerNode.endpointId)
+            _ = try node.node.addTicket(ticket: viewerNode.node.ticket())
+        }
+        _ = try viewerNode.node.addTicket(ticket: device.node.ticket())
+
+        // The device: answers `join` with the replay, then records what it is sent.
+        let received = Received()
+        let deviceTask = Task.detached {
+            while let event = await device.nextEvent() {
+                guard case let .chat(from, body) = event, let envelope = SteerEnet.parse(body) else { continue }
+                received.add(envelope.types)
+                if envelope.types.contains("join") {
+                    _ = try? await device.sendChat(peer: from, body: SteerEnet.encode(sessionId: envelope.sessionId, frames: [
+                        #"{"t":"activity_reset"}"#,
+                        #"{"t":"activity","seq":0,"event":{"kind":"narration","text":"hi"}}"#,
+                        #"{"t":"activity_synced","firstSeq":0,"lastSeq":0}"#,
+                    ]))
+                }
+            }
+        }
+
+        let carrier = InstallSteerCarrier(service: viewer, lookup: FixedLookup(endpoints: [device.endpointId]))
+        let outcome = await SteerEnetJoiner.join(carrier: carrier, accountId: "acc", sessionId: "s1", timeout: .seconds(10))
+        guard case let .joined(link, replay) = outcome else { return XCTFail("not joined: \(outcome)") }
+        XCTAssertEqual(replay.compactMap(SteerEnet.frameType), ["activity_reset", "activity", "activity_synced"])
+        var frames = link.stream(onSendFailure: {}).makeAsyncIterator()
+
+        // A stranger in the team sends for the same session: not applied.
+        _ = try await stranger.sendChat(peer: viewerNode.endpointId, body: SteerEnet.encode(sessionId: "s1", frames: [#"{"t":"bye","outcome":"killed"}"#]))
+        _ = try await device.sendChat(peer: viewerNode.endpointId, body: SteerEnet.encode(sessionId: "s1", frames: [#"{"t":"keepalive"}"#]))
+        let live = await frames.next()
+        XCTAssertEqual(live?.compactMap(SteerEnet.frameType), ["keepalive"])
+
+        link.send([#"{"t":"answer","questionId":"q1","keys":["yes"]}"#])
+        for _ in 0..<300 where !received.all.contains(["answer"]) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(received.all, [["join"], ["answer"]])
+
+        link.close()
+        deviceTask.cancel()
+        await device.shutdown()
+        await stranger.shutdown()
+        await viewer.stop()
     }
 
     /// The signature the registry checks: ed25519 by the endpoint id's key over
@@ -177,3 +250,17 @@ private final class MemoryRegistry: InstallsRegistry, @unchecked Sendable {
     func revoke(accountId: String, installId: String) async throws {}
 }
 #endif
+
+private struct FixedLookup: SteerEndpointLookup {
+    let endpoints: [String]
+    func forSession(accountId: String, sessionId: String) async throws -> [SteerEndpoint] {
+        endpoints.map { SteerEndpoint(endpointId: $0, kind: "desktop") }
+    }
+}
+
+private final class Received: @unchecked Sendable {
+    private let lock = NSLock()
+    private var types: [[String]] = []
+    func add(_ value: [String]) { lock.withLock { types.append(value) } }
+    var all: [[String]] { lock.withLock { types } }
+}
