@@ -223,7 +223,9 @@ final class AgentSettingsTests: XCTestCase {
 
     func testAssistantCopySectionsSchedulesAndBriefMatchTheFixture() throws {
         let block = try assistantBlock()
-        let copy = try XCTUnwrap(block["copy"] as? [String: String])
+        var copy = try XCTUnwrap(block["copy"] as? [String: String])
+        // #EXP-1439: the decision push's title is the server's (notifications.ts), no client draws it.
+        XCTAssertNotNil(copy.removeValue(forKey: "decisionPush"))
         XCTAssertEqual(copy, [
             "title": AgentSettings.AssistantCopy.title,
             "name": AgentSettings.AssistantCopy.name,

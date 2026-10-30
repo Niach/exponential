@@ -42,5 +42,5 @@ libc = { workspace = true }
 # (crates/etalk-wakeword/tests/common).
 sha2 = { workspace = true }
 # NEW-55: the `call_latency` example times the call's Opus frames (NEW-88:
-# through `call-codec`, so `--features etalk-codec/libopus` times libopus).
+# through `etalk-codec`, so `--features etalk-codec/libopus` times libopus).
 etalk-codec = { path = "../etalk-codec" }

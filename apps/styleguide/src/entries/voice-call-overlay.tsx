@@ -77,7 +77,7 @@ export const entry: StyleguideEntry = {
     desktop: {
       state: `ok`,
       symbol: `voice_overlay::capsule`,
-      file: `apps/desktop/crates/ui/src/voice_overlay.rs`,
+      file: `apps/desktop/crates/etalk-gpui/src/voice_overlay.rs`,
     },
     ios: { state: `n/a`, note: `Phones draw a call in the voice-call entry (V5); no push to talk.` },
     android: { state: `n/a`, note: `Phones draw a call in the voice-call entry (V5); no push to talk.` },

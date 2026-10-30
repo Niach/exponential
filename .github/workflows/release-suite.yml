@@ -368,8 +368,8 @@ jobs:
         run: apps/desktop/fuzz/run.sh 180
       - name: The libopus fallback's tests
         working-directory: apps/desktop/fuzz
-        # Through the fuzz workspace (call-codec's own would load the desktop one).
-        run: cargo test -p desktop-fuzz -p call-codec --features desktop-fuzz/libopus
+        # Through the fuzz workspace (etalk-codec's own would load the desktop one).
+        run: cargo test -p desktop-fuzz -p etalk-codec --features desktop-fuzz/libopus
       - name: Keep the crashes
         if: failure()
         uses: actions/upload-artifact@v4
