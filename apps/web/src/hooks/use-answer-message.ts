@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react"
+import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { useNow } from "@/hooks/use-now"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { messageCollection } from "@/lib/collections"
@@ -99,6 +100,8 @@ export function useConversationRows({
     return teamSessions.some((row) => targets.has(row.id) && row.status !== `ended`)
   }, [messages, teamSessions])
   const now = useNow(liveCard ? 1_000 : 3_600_000)
+  // EXP-1459: sealed rows re-open when a key arrives.
+  const keyVersion = useKeyVersion()
   const view = useMemo(
     () =>
       conversation
@@ -112,7 +115,8 @@ export function useConversationRows({
             now: now.toISOString(),
           })
         : null,
-    [conversation, teamSessions, messages, now]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conversation, teamSessions, messages, now, keyVersion]
   )
   return useMemo(() => ({ rows: view?.rows ?? [], tabs: view?.tabs ?? [] }), [view])
 }

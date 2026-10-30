@@ -8,6 +8,7 @@
 import { useEffect, useSyncExternalStore } from "react"
 import { b64urlEncode, pushPublicKey, type TreeKeys } from "@exp/domain-contract/sealed-content"
 import { trpc } from "@/lib/trpc-client"
+import { currentKeyHolder, emitKeyChange, setCurrentKeyHolder, subscribeKeyChange } from "./current-key-holder"
 import { loadIdentity } from "./identity-store"
 import { deriveInstallSecret } from "./install-key"
 import { KeyHolder, PENDING_INTERVAL_MS, type SessionKeysApi } from "./key-holder"
@@ -26,27 +27,19 @@ const api: SessionKeysApi = {
   create: (input) => trpc.sessionKeys.create.mutate(input, quiet),
 }
 
-let holder: KeyHolder | undefined
 let leader = false
 let leaderTimer: ReturnType<typeof setInterval> | undefined
-const listeners = new Set<() => void>()
-const emit = () => {
-  for (const listener of listeners) listener()
-}
 
-/** This tab's key holder, once the install is known (else undefined). */
-export function currentKeyHolder(): KeyHolder | undefined {
-  return holder
-}
+export { currentKeyHolder }
 
 function answerPending() {
-  void holder?.answerPending().catch(() => {})
+  void currentKeyHolder()?.answerPending().catch(() => {})
 }
 
 function syncLeaderLoop() {
   clearInterval(leaderTimer)
   leaderTimer = undefined
-  if (!leader || !holder) return
+  if (!leader || !currentKeyHolder()) return
   answerPending()
   leaderTimer = setInterval(answerPending, PENDING_INTERVAL_MS)
 }
@@ -86,9 +79,8 @@ export function useKeyHolder(userId: string | undefined) {
         return
       }
       own = new KeyHolder(userId, found.installId, found.secret, { api, store: indexedDbTreeKeyStore })
-      holder = own
-      own.subscribe(emit)
-      emit()
+      own.subscribe(emitKeyChange)
+      setCurrentKeyHolder(own)
       await own.start().catch(() => {})
       if (!stopped) syncLeaderLoop()
     }
@@ -96,19 +88,13 @@ export function useKeyHolder(userId: string | undefined) {
     return () => {
       stopped = true
       clearTimeout(retry)
-      if (holder === own) {
-        holder = undefined
+      if (own && currentKeyHolder() === own) {
+        setCurrentKeyHolder(undefined)
         syncLeaderLoop()
       }
       own?.stop()
-      emit()
     }
   }, [userId])
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
 }
 
 const EMPTY: TreeKeys = new Map()
@@ -116,8 +102,8 @@ const EMPTY: TreeKeys = new Map()
 /** The tree keys this install holds for `rootId` (re-renders when one arrives). */
 export function useTreeKeys(rootId: string | null | undefined): TreeKeys {
   return useSyncExternalStore(
-    subscribe,
-    () => (rootId && holder ? holder.keysFor(rootId) : EMPTY),
+    subscribeKeyChange,
+    () => (rootId ? (currentKeyHolder()?.keysFor(rootId) ?? EMPTY) : EMPTY),
     () => EMPTY
   )
 }
@@ -125,8 +111,8 @@ export function useTreeKeys(rootId: string | null | undefined): TreeKeys {
 /** Bumps whenever any key arrives (lists spanning many roots). */
 export function useKeyVersion(): number {
   return useSyncExternalStore(
-    subscribe,
-    () => holder?.version ?? -1,
+    subscribeKeyChange,
+    () => currentKeyHolder()?.version ?? -1,
     () => -1
   )
 }

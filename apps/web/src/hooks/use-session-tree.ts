@@ -1,4 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react"
+import { openDigestMessages } from "@/lib/enet/sealed-open"
+import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   conversationCollection,
@@ -65,11 +67,13 @@ export function useTeamSessions(teamId: string | readonly string[] | null | unde
         : undefined,
     [key]
   )
+  // EXP-1459: titles re-open when a tree key arrives.
+  const keyVersion = useKeyVersion()
   return useMemo(() => {
     const rows = (data ?? []) as SessionRow[]
     return { rows, tree: rows.map(toTreeSession), isReady: teamIds.length > 0 && isReady }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, isReady, key])
+  }, [data, isReady, key, keyVersion])
 }
 
 /** EXP-1316: a thread title may fall back past its issues (to the stored
@@ -146,14 +150,29 @@ export function useDigestMessages(scope: {
           : undefined,
     [key]
   )
+  // EXP-1459: digest bodies/cards are sealed like their messages: open them
+  // with the session's ROOT keys (re-run when a key arrives).
+  const keyVersion = useKeyVersion()
   const messages = useMemo(
     () =>
       ((data ?? []) as { sessionId: string | null; digest: unknown }[]).flatMap((row) =>
-        row.sessionId ? digestMessages(row.sessionId, row.digest as ConversationDigest | null) : []
+        row.sessionId
+          ? openDigestMessages(
+              row.sessionId,
+              digestMessages(row.sessionId, row.digest as ConversationDigest | null),
+              rootOfSession
+            )
+          : []
       ),
-    [data]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, keyVersion]
   )
   return { messages, isReady }
+}
+
+/** EXP-1459: a synced session's root (a row not synced yet = itself). */
+function rootOfSession(sessionId: string): string {
+  return (sessionCollection.get(sessionId) as SessionRow | undefined)?.rootId ?? sessionId
 }
 
 /** NEW-8: the sessions among `sessionIds` whose own conversation has not
@@ -407,13 +426,14 @@ export function useTreeSessions(rootId: string | null | undefined) {
         : undefined,
     [rootId]
   )
+  const keyVersion = useKeyVersion()
   return useMemo(() => {
     const byId = new Map<string, SessionRow>()
     for (const row of [...((self ?? []) as SessionRow[]), ...((data ?? []) as SessionRow[])])
       byId.set(row.id, row)
     const rows = [...byId.values()]
     return { rows, tree: treeOrder(rows.map(toTreeSession)), isReady: Boolean(rootId) && isReady }
-  }, [data, self, isReady, rootId])
+  }, [data, self, isReady, rootId, keyVersion])
 }
 
 /** The PRs a thread opened (`root_session_id`). */
@@ -727,6 +747,7 @@ export function useSessionThread(
     for (const [id, title] of titles) merged.set(id, title)
     return merged
   }, [titles, linked])
+  const keyVersion = useKeyVersion()
   const view = useMemo(() => {
     if (!root) return null
     return buildSessionThread({
@@ -738,7 +759,8 @@ export function useSessionThread(
       pullRequests: pullRequests.map(toTreePullRequest),
       now: now.toISOString(),
     }, { focus, titles: xrefTitles })
-  }, [root, tree, linked, links, foldedIssues, messages, pullRequests, now, focus, xrefTitles])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root, tree, linked, links, foldedIssues, messages, pullRequests, now, focus, xrefTitles, keyVersion])
   return {
     view,
     root,
@@ -825,7 +847,9 @@ export function useLinkedSessions(
   }, [authors, roots, starters, root?.userId, treeIds.join(`,`)])
   const ids = useMemo(() => rows.map((row) => row.id).sort(), [rows])
   const { messages: digests } = useDigestMessages({ sessionIds: ids })
-  return useMemo(() => ({ tree: rows.map(toTreeSession), digests }), [rows, digests])
+  const keyVersion = useKeyVersion()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => ({ tree: rows.map(toTreeSession), digests }), [rows, digests, keyVersion])
 }
 
 /** The linked issues with their fold parents (`linkedIssueParents`), the
@@ -856,7 +880,10 @@ export function useSessionMessages(sessionId: string | null | undefined): Messag
   const conversationIds = sessionId ? sessionConversationIds(conversations, [sessionId]) : []
   const sessionIds = useMemo(() => (sessionId ? [sessionId] : []), [sessionId])
   const { rows } = useNewestMessages({ key: sessionId, conversationIds, sessionIds })
-  return useMemo(() => keyMessageRows(rows, conversations), [rows, conversations])
+  // EXP-1459: a new array when a tree key arrives, so readers re-open.
+  const keyVersion = useKeyVersion()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => keyMessageRows(rows, conversations), [rows, conversations, keyVersion])
 }
 
 /** Every message of ONE tree (`root_id`): an agent's conversation shows
@@ -874,6 +901,7 @@ export function useTreeMessages(rootId: string | null | undefined): MessageRow[]
   const newest = useNewestMessages({ key: rootId, rootId, sessionIds })
   const origins = useMirrorOrigins(newest.rows)
   const { conversations } = useConversationSessions()
+  const keyVersion = useKeyVersion()
   return useMemo(
     () =>
       Object.assign(keyMessageRows([...newest.rows, ...origins], conversations), {
@@ -886,7 +914,8 @@ export function useTreeMessages(rootId: string | null | undefined): MessageRow[]
           },
         } satisfies MessagePage,
       }),
-    [newest.rows, origins, newest.more, newest.isReady, conversations, rootId]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [newest.rows, origins, newest.more, newest.isReady, conversations, rootId, keyVersion]
   )
 }
 
@@ -965,6 +994,7 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
   // A row whose conversation has not synced yet waits on it instead of
   // reading "Untitled".
   const awaitingKey = [...sessionsAwaitingConversation(conversations, ids)].join(`,`)
+  const keyVersion = useKeyVersion()
   return useMemo(() => {
     const sessions = rows.map(toTreeSession)
     const sessionIssues = ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue)
@@ -984,7 +1014,7 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
     )
     return { titles, held, ready: held.size === 0 }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, links, issues, messages, linksReady, issuesReady, messagesReady, awaitingKey])
+  }, [rows, links, issues, messages, linksReady, issuesReady, messagesReady, awaitingKey, keyVersion])
 }
 
 /** THE session card for any session row (`sessionCard` over its
