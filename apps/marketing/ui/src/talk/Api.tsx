@@ -1,6 +1,6 @@
 /* NEW-15: /talk/api/, the speech worker's wire (crates/etalk/src/lib.rs),
-   CrispASR's types (crates/etalk-crispasr) and the Settings → Voice fields
-   (fixtures/voice.json, user_voice_settings). */
+   CrispASR's types (crates/etalk-crispasr) and the Settings → Assistant → Voice fields
+   (packages/etalk/fixtures/voice.json, user_voice_settings). */
 import { DocsCallout, DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
 import type { PageProps } from "../lib/routes"
@@ -34,14 +34,19 @@ export default function Api({ path }: PageProps) {
           <DocsTable
             head={[`Crate`, `What`]}
             rows={[
-              [crate(`talk`), `The host side: SpeechClient and the wire types.`],
-              [crate(`voice`), `The worker: microphone, VAD, transcriber, speaker.`],
-              [crate(`crispasr`), `The CrispASR runtime and the pinned models.`],
+              [crate(`etalk`), `The host side: SpeechClient, the wire types and the voice, call and meeting state machines.`],
+              [crate(`etalk-engine`), `The worker: microphone, VAD, transcriber, speaker, wake word.`],
+              [crate(`etalk-crispasr`), `The CrispASR runtime and the pinned models.`],
+              [crate(`etalk-codec`), `The call's Opus codec.`],
+              [crate(`etalk-wakeword`), `The wake word with a model of its own (openWakeWord on tract).`],
+              [crate(`etalk-gpui`), `The tray, the push-to-talk overlay, the call UI and meeting mode, for gpui apps.`],
             ]}
           />
           <DocsCallout kind="note">
             <p>
-              The crates live in the Exponential repo and are <code>publish = false</code>. There is no crate on a registry yet.
+              The crates live in the Exponential repo and are <code>publish = false</code>: an app takes them as a git dependency
+              on an <code>etalk-v&lt;version&gt;</code> tag, because the fixtures in <code>packages/etalk</code> are compiled in. No
+              tag is cut yet.
             </p>
           </DocsCallout>
         </DocsSection>
@@ -169,8 +174,8 @@ export default function Api({ path }: PageProps) {
         <DocsSection id="examples" num="08" label="Try it">
           <h2>Try it</h2>
           <p>From <code>apps/desktop</code> in the repo. Both download what they need on first run.</p>
-          <DocsCode>{`cargo run -p voice --example speak -- <data-dir> <en|de> "Text to say." [voice.wav "its transcript"]
-cargo run -p voice --example listen -- <data-dir> <en|de> [--cpu] <clip.wav>...`}</DocsCode>
+          <DocsCode>{`cargo run -p etalk-engine --example speak -- <data-dir> <en|de> "Text to say." [voice.wav "its transcript"]
+cargo run -p etalk-engine --example listen -- <data-dir> <en|de> [--cpu] <clip.wav>...`}</DocsCode>
           <p>
             <code>speak</code> runs the worker the way the app does and prints every event. <code>listen</code> runs WAV files
             through the same pipeline as the microphone and prints one JSON line per clip. They run on Linux and Windows: on macOS

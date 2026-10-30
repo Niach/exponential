@@ -17,12 +17,13 @@ Exponential links it from the IDE and the `exponential` daemon (through
 
 `publish = false`: consume it as a git dependency on a release tag. Tags are
 `epilot-v<version>`, `<version>` being the crate's `version` (today the desktop
-workspace's). `epilot-screen` ships under the same tag.
+workspace's). `epilot-screen` ships under the same tag. No `epilot-v*` tag has
+been cut yet; until the first one, pin a `rev` instead.
 
 ```toml
 [dependencies]
-epilot = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.14.83" }
-epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.14.83" }
+epilot = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.14.84" }
+epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.14.84" }
 ```
 
 The rules are compiled in from `packages/domain-contract/fixtures/` with

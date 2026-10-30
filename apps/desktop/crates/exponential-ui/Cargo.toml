@@ -1,6 +1,6 @@
 [package]
 name = "exponential-ui"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Exponential UI core: the A2UI reducer (core + basic catalog, macros, extensions), runtime themes with recipe resolution, taffy layout with batched measurement, overlay layers and windowed lists — the engine behind the SwiftUI, Compose and gpui painters."

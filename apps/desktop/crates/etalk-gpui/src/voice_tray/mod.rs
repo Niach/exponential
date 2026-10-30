@@ -26,7 +26,7 @@
 //! clicked through [`click`] = the tray's own handlers.
 //! NEW-58: the Screen memory switch (`fixtures/screen-memory.json`): device-
 //! local and kept like Mute, default off; while on and this IDE is the voice
-//! device the `screen` crate captures ([`epilot_screen::start`]); a sign-out,
+//! device the `epilot-screen` crate captures ([`epilot_screen::start`]); a sign-out,
 //! another account or another voice device turns it off and deletes the
 //! buffer; a failed start toasts and flips it back off.
 //! NEW-57 (`fixtures/meeting.json` TRAY): Meeting mode after Wake word
@@ -278,7 +278,7 @@ fn save_state(data_dir: &std::path::Path, state: &TrayState) {
     }
 }
 
-/// NEW-58: what the tray asks of the `screen` crate. They join threads and
+/// NEW-58: what the tray asks of the `epilot-screen` crate. They join threads and
 /// touch the disk, so ONE background task runs them, in the order asked: a
 /// start never overtakes the stop before it. #FEED-162: a start runs on its
 /// own thread (the Linux portal's dialog may hold it), so a later stop or

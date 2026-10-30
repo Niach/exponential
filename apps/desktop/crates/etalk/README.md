@@ -12,6 +12,7 @@ Exponential and spezl.
 | `etalk-engine` | The engines, run ONLY inside the speech worker: Silero VAD, Parakeet, Qwen3-TTS (through CrispASR), echo cancelling, playback, the wake word. | `etalk`, `etalk-crispasr` |
 | `etalk-crispasr` | The pinned CrispASR runtime + models: sha256-verified downloads, loaded at run time with `libloading`, nothing linked. | |
 | `etalk-codec` | The call's Opus (pure-Rust `opus-rs` by default, `libopus` behind a feature). | |
+| `etalk-wakeword` | The wake word with a model: an openWakeWord-compatible detector on tract behind `WakeDetector` (see its README). | |
 | `etalk-gpui` | The UI: tray voice, push-to-talk overlay, call panel, reply speaker, meeting mode, behind the `TalkHost` sink (see its README). | gpui |
 
 ## The contract
@@ -51,10 +52,11 @@ Windows download the pinned runtime on first use.
 
 The crates are consumed as a git dependency on a tag, `etalk-v<version>`
 (the desktop workspace version), because the fixtures are compiled in from
-`packages/etalk/fixtures` and only a checkout of this repo carries them:
+`packages/etalk/fixtures` and only a checkout of this repo carries them. No `etalk-v*` tag has been cut yet; until the first one, pin a
+`rev` instead:
 
 ```toml
-etalk = { git = "https://github.com/Niach/exponential", tag = "etalk-v0.14.83" }
+etalk = { git = "https://github.com/Niach/exponential", tag = "etalk-v0.14.84" }
 ```
 
 `etalk-gpui` also needs the same gpui and gpui-component revisions as this

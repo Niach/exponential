@@ -309,7 +309,9 @@ export default function ConceptsPage({ path }: PageProps) {
             An <strong>app</strong> is built on all of the above and shipped as data: a declarative package
             of templates (components, initial data, bindings), the functions it may call and its theme. Any host
             runs it with <code>createAppHost</code>, and its <code>functions</code> list becomes the policy for its
-            surfaces: listed names are allowed, everything else is denied.
+            surfaces: listed names are allowed, everything else is denied. A package may also declare records, tools
+            (shown for consent first) and versioned extensions, and its file can be signed: see{` `}
+            <a href="/apps/">eApps</a>.
           </p>
           <DocsCode language="json">{PACKAGE}</DocsCode>
           <p>

@@ -1,4 +1,4 @@
-/* NEW-15: /talk/install/, turning Talk on (Settings → Voice, fixtures/voice.json). */
+/* NEW-15: /talk/install/, turning Talk on (Settings → Assistant → Voice, packages/etalk/fixtures/voice.json). */
 import { DocsCallout, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocShot } from "../../../src/components/DocShot"
 import { DocsTable } from "../components/Content"
@@ -6,7 +6,7 @@ import type { PageProps } from "../lib/routes"
 import { TALK_DOCS_NAV, talkGuidePath } from "./nav"
 
 const SECTIONS: DocsSectionType[] = [
-  { id: `settings`, num: `01`, label: `Settings → Voice` },
+  { id: `settings`, num: `01`, label: `Settings → Assistant` },
   { id: `download`, num: `02`, label: `The download` },
   { id: `gpu`, num: `03`, label: `GPU` },
   { id: `microphone`, num: `04`, label: `Microphone` },
@@ -23,10 +23,10 @@ export default function Install({ path }: PageProps) {
         </div>
       </section>
       <DocsLayout nav={TALK_DOCS_NAV} title="eTalk" sections={SECTIONS} currentPath={path}>
-        <DocsSection id="settings" num="01" label="Settings → Voice">
-          <h2>Settings → Voice</h2>
+        <DocsSection id="settings" num="01" label="Settings → Assistant">
+          <h2>Settings → Assistant → Voice</h2>
           <p>
-            eTalk is part of the Exponential desktop app. There is nothing else to install. Open Settings → Voice on the web, the
+            eTalk is part of the Exponential desktop app. There is nothing else to install. Open Settings → Assistant → Voice on the web, the
             desktop app or your phone. The settings are yours, not your team&apos;s.
           </p>
           <DocShot view="settings-assistant" platform="desktop" caption="Settings → Assistant in the desktop app: its Voice block on your desktop." />
@@ -113,10 +113,10 @@ export default function Install({ path }: PageProps) {
             head={[`Item`, `Does`]}
             rows={[
               [<strong key="i">Open Exponential</strong>, `Brings a window up, a new one when none is open.`],
-              [<strong key="i">Push to talk · Ctrl + Space</strong>, `Shown while a key is bound; opens Settings → Voice. Reads {shortcut} unavailable when the desktop won't let the app grab it.`],
+              [<strong key="i">Push to talk · Ctrl + Space</strong>, `Shown while a key is bound; opens Settings → Assistant → Voice. Reads {shortcut} unavailable when the desktop won't let the app grab it.`],
               [<strong key="i">Wake word · Hey Triage</strong>, `The switch, with the wake phrase. Nothing listens for it yet.`],
               [<strong key="i">Mute microphone</strong>, `Shown while push to talk listens on this desktop. Keeps the microphone closed.`],
-              [<strong key="i">Voice settings…</strong>, `Opens Settings → Voice.`],
+              [<strong key="i">Voice settings…</strong>, `Opens Settings → Assistant → Voice.`],
               [<strong key="i">Quit</strong>, `Quits the app.`],
             ]}
           />

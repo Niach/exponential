@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
+description = "eTalk's engines, run only inside the speech worker: Silero VAD, Parakeet and Qwen3-TTS through CrispASR, echo cancelling, playback, the wake word."
+repository = "https://github.com/Niach/exponential"
+readme = "../etalk/README.md"
 
 [dependencies]
 # NEW-53: exponentialTalk's engines, run ONLY inside the speech worker

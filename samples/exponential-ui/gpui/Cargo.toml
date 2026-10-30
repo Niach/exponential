@@ -12,7 +12,7 @@ description = "VAPP-91 sample: a plain gpui window hosting an Exponential UI sur
 
 [dependencies]
 # The SDK, as an external app takes it. The path dependencies stand in for
-# crates.io (`exponential-ui = "0.1"`, `exponential-ui-gpui = "0.1"`), which
+# crates.io (`exponential-ui = "0.2"`, `exponential-ui-gpui = "0.2"`), which
 # waits for crates.io releases of gpui + gpui-component.
 exponential-ui = { path = "../../../apps/desktop/crates/exponential-ui" }
 exponential-ui-gpui = { path = "../../../apps/desktop/crates/exponential-ui-gpui" }

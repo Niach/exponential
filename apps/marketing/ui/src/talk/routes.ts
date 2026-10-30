@@ -55,7 +55,7 @@ export const TALK_ROUTES: readonly Route[] = [
     `/talk/install/`,
     () => import("./Install"),
     `Install · ${NAME}`,
-    `Turn on eTalk: pick your voice device and agent in Settings → Voice, let the models download, allow the microphone, and pick a shortcut.`,
+    `Turn on eTalk: pick your voice device and agent in Settings → Assistant → Voice, let the models download, allow the microphone, and pick a shortcut.`,
     [`ui/src/talk/Install.tsx`],
     crumbs({ name: `Install`, path: `/talk/install/` })
   ),
@@ -83,7 +83,7 @@ export const TALK_ROUTES: readonly Route[] = [
     `/talk/api/`,
     () => import("./Api"),
     `API · ${NAME}`,
-    `The speech worker's wire (requests, events, level frames), the CrispASR runtime's sessions and the Settings → Voice fields, as they ship today.`,
+    `The speech worker's wire (requests, events, level frames), the CrispASR runtime's sessions and the Settings → Assistant → Voice fields, as they ship today.`,
     [`ui/src/talk/Api.tsx`, `../desktop/crates/etalk/src/lib.rs`, `../desktop/crates/etalk-crispasr/src`],
     crumbs({ name: `API`, path: `/talk/api/` })
   ),

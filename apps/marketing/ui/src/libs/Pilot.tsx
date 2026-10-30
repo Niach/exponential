@@ -1,8 +1,10 @@
 /* EXP-1421: exponential.at/pilot/, ePilot's one docs page. Facts:
-   apps/desktop/crates/computer (EXP-1273, the tools and the lock) and
-   apps/desktop/crates/screen (screen memory, fixtures/screen-memory.json);
-   the package names are docs/libraries.md's. Nothing is published yet. */
-import { DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
+   apps/desktop/crates/epilot (EXP-1273, the tools and the lock) and
+   apps/desktop/crates/epilot-screen (screen memory,
+   fixtures/screen-memory.json), both renamed and made consumable as a git
+   dependency by EXP-1425; the names are docs/libraries.md's. No release tag
+   is cut yet. */
+import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { StatusChip } from "../../../src/components/blog/StatusChip"
 import { DocsTable, IcArrow, PageHero } from "../components/Content"
 import { LIBRARIES_NAV } from "../lib/libraries"
@@ -40,7 +42,7 @@ export default function Pilot({ path }: PageProps) {
         eyebrow="Library"
         title="ePilot"
         cta={
-          <a className="btn btn-ghost" href={LINKS.source(`apps/desktop/crates/computer`)}>
+          <a className="btn btn-ghost" href={LINKS.source(`apps/desktop/crates/epilot`)}>
             Source <IcArrow />
           </a>
         }
@@ -52,14 +54,15 @@ export default function Pilot({ path }: PageProps) {
           <h2>Status</h2>
           <p>
             ePilot runs today inside the Exponential desktop app and the <code>exponential</code> CLI daemon, where coding
-            sessions use it. As a library of its own it is not published yet.
+            sessions use it. The library is its own pair of crates, consumed as a git dependency; no release tag is cut
+            yet.
           </p>
           <DocsTable
             head={[`Part`, `Where`, ``]}
             rows={[
               [<strong key="p">Computer use</strong>, `Coding sessions on the desktop app and the CLI daemon`, <StatusChip key="s" status="in-progress">in the app</StatusChip>],
               [<strong key="p">Screen memory</strong>, `The voice device, for your Assistant`, <StatusChip key="s" status="in-progress">in the app</StatusChip>],
-              [<strong key="p">The library</strong>, <span key="w"><code>exponential-pilot</code> on crates.io</span>, <StatusChip key="s" status="planned">planned</StatusChip>],
+              [<strong key="p">The library</strong>, <span key="w"><code>epilot</code> and <code>epilot-screen</code>, a git dependency</span>, <StatusChip key="s" status="planned">no release yet</StatusChip>],
             ]}
           />
         </DocsSection>
@@ -126,16 +129,20 @@ export default function Pilot({ path }: PageProps) {
         <DocsSection id="packages" num="07" label="Packages">
           <h2>Packages</h2>
           <p>
-            Planned names; today the code lives in the crates <code>computer</code> and <code>screen</code> of the Exponential
-            repo. Desktop only, so there are no Swift, Kotlin or npm packages.
+            Two crates in the Exponential repo, taken as a git dependency on an <code>epilot-v&lt;version&gt;</code> tag, never
+            from crates.io: the rules are compiled in from the repo&apos;s fixtures, which only a checkout carries. Desktop
+            only, so there are no Swift, Kotlin or npm packages.
           </p>
           <DocsTable
-            head={[`Package`, `Registry`, `What`]}
+            head={[`Crate`, `What`]}
             rows={[
-              [<code key="n">exponential-pilot</code>, `crates.io`, `The tools, the input lock and the MCP endpoint`],
-              [<code key="n">exponential-pilot-screen</code>, `crates.io`, `Screen memory and get_screenshots`],
+              [<code key="n">epilot</code>, `The tools, the input lock and the MCP endpoint`],
+              [<code key="n">epilot-screen</code>, `Screen memory and get_screenshots`],
             ]}
           />
+          <DocsCode language="toml">{`[dependencies]
+epilot = { git = "https://github.com/Niach/exponential", tag = "epilot-v<version>" }
+epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v<version>" }`}</DocsCode>
         </DocsSection>
       </DocsLayout>
     </>

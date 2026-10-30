@@ -13,7 +13,7 @@ public API only.
 | `web-solid/` | the same app on Vite + Solid (`@exponential_app/ui-solid`'s `<HostSurface>`, port 4192) | the same tarballs |
 | `web-element/` | the same page with no framework: `<exponential-surface>` with `src` + `post` (`@exponential_app/ui-element`, port 4193) | the same tarballs |
 | `ios/` | a blank Xcode app | the Swift package by path (the SwiftPM URL once published) |
-| `android/` | a blank Android Studio project | `at.exponential:ui-compose:0.1.1` from `mavenLocal()` (Maven Central once published) |
+| `android/` | a blank Android Studio project | `at.exponential:ui-compose:0.2.0` from `mavenLocal()` (Maven Central once published) |
 | `gpui/` | a plain gpui window, its own Cargo workspace | path dependencies standing in for crates.io |
 
 ```bash

@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
+description = "eTalk: speech in and out for agents, the host side. SpeechClient and the speech worker's wire, the microphone doctor, per-app desktop audio, and the voice, call and meeting state machines. gpui-free, engine-free."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
 
 [dependencies]
 # NEW-53: exponentialTalk's public API and the speech worker's wire. The host

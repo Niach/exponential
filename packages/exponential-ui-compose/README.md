@@ -36,7 +36,7 @@ cd packages/exponential-ui-compose
 ### In a blank project
 
 A blank Android Studio project (Compose template, AGP 8.10, Kotlin 2.4, minSdk 26) needs only
-`mavenCentral()` in its repositories and `implementation("at.exponential:ui-compose:0.1.1")`;
+`mavenCentral()` in its repositories and `implementation("at.exponential:ui-compose:0.2.0")`;
 the POM brings the primitives, Compose,
 coroutines and JNA (`@aar`). Ten lines of `MainActivity` (a `SurfaceModel`, `setNested` with the
 kitchen sink from `assets/`, `ExponentialSurface` in a `verticalScroll`) render the kitchen sink
@@ -60,7 +60,8 @@ Column(Modifier.verticalScroll(rememberScrollState())) {
   - `onInput` receives host-owned text edits: `Change` is debounced 150 ms and carries a revision; `Commit` fires on blur or IME Done.
   - The rest: `urlPolicy` + `mediaOptions` (null = the contract defaults), `openUrl` (gets only hrefs the URL policy allowed; default: `ACTION_VIEW` through `ExponentialUi.appContext`), `resolveUrl` (a src rewrite BEFORE the media policy), `onPaintError` (a painter failed; once per component until its props change, or an `updateComponents` names it again), `onUnknown`, `fontFamily`, `markdown`, `copy` (default: the clipboard), `pickFiles` (a FileUpload asks; answer `request.done(files)`).
 - **Camera (VAPP-162).** A `QrScanner` is chrome only; the camera is the host's. Provide a `QrScannerHost` through `LocalQrScanner` around the surface: `Feed(formats, report, modifier)` paints the live feed (CameraX stays in your app) and calls `report(value)` on the main thread per decoded string; the renderer fires `scanned {value}` once per distinct value. No host (or `available = false`) = the scan icon and `Camera unavailable`.
-- **Fonts.** `ExponentialUi.registerFont(family, FontFamily)` registers a family a theme names. Text without a family uses the theme's `sans`; a family that is not registered falls back to the platform default.
+- **Fonts.** `ExponentialUi.registerFont(family, FontFamily)` registers a family a theme names. Text without a family uses the theme's `sans`; a family that is not registered falls back to the platform default. `ui-serif` (`type.family.serif`, VAPP-162) is `FontFamily.Serif`.
+- **Button hold (VAPP-162).** A `hold: true` Button hands its pointer to the core (`Surface.hold`: the slop, `pressed` and `holdingLabel` are the core's) and emits holdStart / holdEnd / holdCancel.
 - **Themes.** Load one with `ThemeHandle.builtin(id)` or `ThemeHandle.load(json, parents)`; switch with `model.setTheme` / `setMode`.
   - Painters never read recipes: the core hands them resolved visuals.
   - Sub-parts the core does not synthesize (a Checkbox `check`, a Switch `thumb`, a Select `trigger`…) resolve through the facade's `Theme` object (`model.part(component, part, props)`), cached per query.
@@ -284,12 +285,12 @@ HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
 
 Both modules publish as `at.exponential:ui-compose` and `at.exponential:ui-compose-primitives`.
 - Each artifact has the AAR, a full POM (Apache-2.0; developer `Exponential` <hello@exponential.at>; scm `github.com/Niach/exponential`), and sources and javadoc jars.
-- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-ui.yml passes the tag's version, the `0.1.1` default lives in each module's `build.gradle.kts`).
+- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-ui.yml passes the tag's version, the `0.2.0` default lives in each module's `build.gradle.kts`).
 - Signing is applied ONLY when `ORG_GRADLE_PROJECT_signingInMemoryKey` (+ `…Password`) is set. The root `build.gradle.kts` holds the shared POM, signing and repository setup.
 
 ```bash
 bash apps/desktop/crates/exponential-ui-ffi/build-android.sh       # the .so files the AAR bundles
-bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.1.1
+bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.2.0
 ```
 
 `central-bundle.sh` publishes into the local `centralBundle` repository (`build/central-bundle`). It drops `maven-metadata.xml`, adds any missing `.md5`/`.sha1`, and zips the Maven layout into `build/central-bundle.zip`, the Central Portal upload format. The upload is a CI `curl`; an unsigned bundle builds but the Portal rejects it.

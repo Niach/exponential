@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 publish = false
 description = "eTalk's gpui side: the voice tray, push to talk, the overlay, the call UI, spoken replies and meeting mode, behind a host trait"
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
 
 [dependencies]
 # #EXP-1422: the surfaces Exponential and spezl share. The host (the IDE, or a

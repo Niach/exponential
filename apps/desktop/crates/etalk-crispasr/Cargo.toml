@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
+description = "eTalk's pinned CrispASR runtime and models: sha256-verified downloads, loaded at run time with libloading, nothing linked."
+repository = "https://github.com/Niach/exponential"
+readme = "../etalk/README.md"
 
 [dependencies]
 # NEW-74: CrispASR (MIT, ggml) for exponentialTalk's speech engines, run ONLY
