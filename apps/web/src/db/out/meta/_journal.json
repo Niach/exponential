@@ -1520,6 +1520,27 @@
       "when": 1793340810062,
       "tag": "0216_exp1439_assistant_builtin_prompt",
       "breakpoints": true
+    },
+    {
+      "idx": 217,
+      "version": "7",
+      "when": 1793364618104,
+      "tag": "0217_vapp159_app_records_trashed_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 218,
+      "version": "7",
+      "when": 1793365332047,
+      "tag": "0218_exp1457_installs",
+      "breakpoints": true
+    },
+    {
+      "idx": 219,
+      "version": "7",
+      "when": 1793366353322,
+      "tag": "0219_new8_drop_legacy_session_columns_actions",
+      "breakpoints": true
     }
   ]
 }

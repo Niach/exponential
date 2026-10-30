@@ -471,12 +471,11 @@
         {
           "id": "cs-1",
           "issueIdentifier": "EXP-5",
-          "issueTitle": "Five",
-          "actionName": null
+          "issueTitle": "Five"
         },
         {
           "id": "cs-2",
-          "actionName": "Release all"
+          "title": "Release all"
         }
       ],
       "refs": [

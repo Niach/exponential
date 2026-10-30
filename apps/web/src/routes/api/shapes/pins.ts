@@ -3,14 +3,14 @@ import { sqlStringLiteral } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // EXP-778: the caller's personal pins — the sidebar's "Pinned" group on every
-// client (issues, sessions, actions). Streams only the requesting
+// client (issues, sessions). Streams only the requesting
 // user's rows; never anonymous. The where clause is fully STATIC per user
 // (`user_id = me`, no membership id lists), so the shape identity never
 // rotates — not even on team join/leave.
 //
 // Deliberately NOT team- or trash-scoped: the row is a pointer, and clients
 // render only the pins of the active team whose TARGET they can resolve from
-// the other shapes (issues / sessions / actions), which carry the
+// the other shapes (issues / sessions), which carry the
 // membership and trash predicates already. A pin on a trashed board's issue
 // simply has no target until the board restores, and the purge cascade
 // removes it. Every column is synced — nothing here is server-only.
@@ -27,7 +27,6 @@ export const Route = createFileRoute(`/api/shapes/pins`)({
           `kind`,
           `issue_id`,
           `session_id`,
-          `action_id`,
           `sort_order`,
           `created_at`,
           `updated_at`,

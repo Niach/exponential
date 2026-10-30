@@ -286,7 +286,8 @@ impl AppDetailPane {
     }
 
     /// VAPP-120: one switch of the Tools group: `apps.update` with the whole
-    /// new `granted_tools` list (owners only, never a destructive action); a
+    /// new `granted_tools` list (owners only, never a destructive action) and
+    /// the head version on screen (VAPP-156: a newer head = CONFLICT); a
     /// refusal toasts.
     fn toggle_tool(&mut self, name: String, on: bool, cx: &mut gpui::Context<Self>) {
         let Some(row) = self.loaded_row(cx) else { return };
@@ -304,6 +305,7 @@ impl AppDetailPane {
             color: row.color.clone().unwrap_or_else(|| DEFAULT_COLOR.to_string()),
             description: row.description.clone(),
             granted_tools: Some(toggled_grants(&row.granted_tools, &name, on)),
+            head_version: Some(row.head_version.unwrap_or(0)),
             ..Default::default()
         };
         self.tool_busy = Some(name);

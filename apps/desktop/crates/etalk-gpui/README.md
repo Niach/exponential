@@ -17,7 +17,9 @@ from the app goes through two traits in `src/host.rs`, with plain data types.
 etalk_gpui::init(cx, Box::new(MyHost::new()));
 ```
 
-once, before the first window. It installs the host as a gpui Global and
+once, before the first window, after the host set up gpui-component's
+`Theme` (eTalk paints with `cx.theme()` and eUI's default theme; it links no
+app theme crate, `tests/dependency_gate.rs`). It installs the host as a gpui Global and
 starts the speaker, push to talk, the call, the meeting host and the tray, in
 that order. Then the host tells eTalk what changed:
 

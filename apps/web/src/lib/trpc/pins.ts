@@ -2,7 +2,7 @@ import { z } from "zod"
 import { and, eq, or, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { actions, boards, issues, pins, sessions } from "@/db/schema"
+import { boards, issues, pins, sessions } from "@/db/schema"
 import { pinKindSchema, type PinKind } from "@exp/db-schema/domain"
 import { assertTeamMember } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
@@ -11,7 +11,7 @@ import { boardVisible } from "@/lib/board-visibility"
 // endpoint: a pin exists or it doesn't, and every client renders the row from
 // the synced `pins` shape, so the mutation only needs to flip the row and
 // hand back the txId. The target must live in `teamId` (an issue on a visible
-// board of the team, a session the caller sees, an action of the team) and
+// board of the team, a session the caller sees) and
 // the caller must be a member; ownership of the pin row itself is the
 // caller's user id, never the input.
 
@@ -25,8 +25,6 @@ function targetColumn(kind: PinKind) {
       return pins.issueId
     case `session`:
       return pins.sessionId
-    case `action`:
-      return pins.actionId
   }
 }
 
@@ -48,7 +46,7 @@ async function assertTargetInTeam(
       )
       .limit(1)
     found = !!row
-  } else if (kind === `session`) {
+  } else {
     // EXP-1291: a session the caller can see (shared, or their own).
     const [row] = await db
       .select({ id: sessions.id })
@@ -60,13 +58,6 @@ async function assertTargetInTeam(
           or(eq(sessions.shared, true), eq(sessions.userId, userId))
         )
       )
-      .limit(1)
-    found = !!row
-  } else {
-    const [row] = await db
-      .select({ id: actions.id })
-      .from(actions)
-      .where(and(eq(actions.id, targetId), eq(actions.teamId, teamId)))
       .limit(1)
     found = !!row
   }
@@ -115,12 +106,11 @@ export const pinsRouter = router({
             kind: input.kind,
             issueId: input.kind === `issue` ? input.targetId : null,
             sessionId: input.kind === `session` ? input.targetId : null,
-            actionId: input.kind === `action` ? input.targetId : null,
             sortOrder: Number(tail?.max ?? 0) + 1,
           })
           // A double tap races two toggles: both find no row, both insert,
           // and the loser would trip the partial unique index
-          // (uniq_pins_user_{issue,session,action}) as a 500. A bare
+          // (uniq_pins_user_{issue,session}) as a 500. A bare
           // ON CONFLICT DO NOTHING covers partial indexes too; either way
           // the target ends up pinned, which is what the caller asked for.
           .onConflictDoNothing()

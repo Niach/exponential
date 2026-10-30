@@ -22,8 +22,6 @@ import { sql, type InferSelectModel } from "drizzle-orm"
 import { createSchemaFactory } from "drizzle-zod"
 import { z } from "zod"
 import {
-  type ActionInputDef,
-  actionInputsSchema,
   type CodingSessionBlocked,
   type AgentTrigger,
   type AgentTriggerState,
@@ -40,8 +38,6 @@ import {
   type ConversationKind,
   sessionIssueSourceSchema,
   sessionIssueSourceValues,
-  sessionKindSchema,
-  sessionKindValues,
   sessionStatusSchema,
   sessionStatusValues,
   commentBodyWithAttachmentsSchema,
@@ -146,7 +142,6 @@ export const issueRelationSourceEnum = pgEnum(
 
 
 // EXP-1291 Threads v2: the session tree's vocabulary.
-export const sessionKindEnum = pgEnum(`session_kind`, sessionKindValues)
 export const sessionStatusEnum = pgEnum(`session_status`, sessionStatusValues)
 export const sessionIssueSourceEnum = pgEnum(
   `session_issue_source`,
@@ -238,7 +233,7 @@ export const teams = pgTable(`teams`, {
   // EXP-1025 — the TEAM PROMPT: owner-authored markdown every coding run of
   // the team gets appended to its system prompt, after the run playbook and
   // before the repo's CLAUDE.md (rebuilt on every start AND resume). Capped
-  // at contract `team.agentPromptMaxBytes`. SERVER-ONLY like `actions.body`:
+  // at contract `team.agentPromptMaxBytes`. SERVER-ONLY like `prompts.body`:
   // behind the teams shape allowlist, read through `teams.getAgentPrompt`
   // (members) and written through `teams.update` (owners); the launcher
   // fetches it at prepare time. `agent_prompt_updated_at` = the last write
@@ -1522,6 +1517,44 @@ export const devices = pgTable(
   ]
 )
 
+// EXP-1457 / VAPP-37: the eNet install registry. One row per app install
+// (desktop, daemon, iOS, Android, web) that holds its own ed25519 identity:
+// `endpoint_id` = the lowercase hex of the 32-byte public key, which IS the
+// install's iroh endpoint id, and `x25519_public` (base64url, 32 bytes) the
+// key peers seal to. `installs.register` accepts a row only with a fresh
+// signature by that identity over the caller's user id (proof of
+// possession), so an endpoint id belongs to exactly one account. Teammates
+// discover each other's installs through `installs.list` (computed from
+// team membership, so leaving a team needs no cleanup). `revoked_at` is
+// final: a revoked endpoint never registers again. desktop/daemon installs
+// point at their `devices` row. Server-only: no Electric shape syncs it.
+export const installs = pgTable(
+  `installs`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // `desktop` | `daemon` | `ios` | `android` | `web` (router-validated).
+    kind: varchar({ length: 16 }).notNull(),
+    deviceId: uuid(`device_id`).references(() => devices.id, {
+      onDelete: `set null`,
+    }),
+    label: varchar({ length: 64 }),
+    platform: varchar({ length: 32 }),
+    endpointId: varchar(`endpoint_id`, { length: 64 }).notNull().unique(),
+    x25519Public: varchar(`x25519_public`, { length: 43 }).notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp(`revoked_at`, { withTimezone: true }),
+  },
+  (table) => [index(`idx_installs_user`).on(table.userId)]
+)
+
 // FEED-154: the key PINNED for a machine id, trust-on-first-use: the first
 // proven register of the id pins its key, and only the pinning account may
 // rotate it (a fresh data dir). It outlives the devices rows on purpose: the
@@ -1847,7 +1880,7 @@ export const issueSubscribers = pgTable(
 
 // EXP-778: personal pins — the sidebar's "Pinned" group on every client. One
 // row per (user, target); `kind` names the target column that is set
-// (issue_id / session_id / action_id), each an FK cascade so a pin dies with
+// (issue_id / session_id), each an FK cascade so a pin dies with
 // its target. Team-scoped only for grouping: the shape is per USER (static
 // `user_id = me`, never rotating), clients render the rows of the active team
 // whose target they can resolve from the other shapes — a pin whose issue sits
@@ -1871,16 +1904,13 @@ export const pins = pgTable(
     sessionId: uuid(`session_id`).references(() => sessions.id, {
       onDelete: `cascade`,
     }),
-    actionId: uuid(`action_id`).references(() => actions.id, {
-      onDelete: `cascade`,
-    }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
   (table) => [
     check(
       `pins_kind_target_check`,
-      sql`(kind = 'issue' AND issue_id IS NOT NULL AND session_id IS NULL AND action_id IS NULL) OR (kind = 'session' AND session_id IS NOT NULL AND issue_id IS NULL AND action_id IS NULL) OR (kind = 'action' AND action_id IS NOT NULL AND issue_id IS NULL AND session_id IS NULL)`
+      sql`(kind = 'issue' AND issue_id IS NOT NULL AND session_id IS NULL) OR (kind = 'session' AND session_id IS NOT NULL AND issue_id IS NULL)`
     ),
     uniqueIndex(`uniq_pins_user_issue`)
       .on(table.userId, table.issueId)
@@ -1888,16 +1918,12 @@ export const pins = pgTable(
     uniqueIndex(`uniq_pins_user_session`)
       .on(table.userId, table.sessionId)
       .where(sql`session_id IS NOT NULL`),
-    uniqueIndex(`uniq_pins_user_action`)
-      .on(table.userId, table.actionId)
-      .where(sql`action_id IS NOT NULL`),
     // Plain indexes on every FK: the RI cascades' unconditional deletes can't
     // use the partial uniques above.
     index(`idx_pins_user`).on(table.userId),
     index(`idx_pins_team`).on(table.teamId),
     index(`idx_pins_issue`).on(table.issueId),
     index(`idx_pins_session`).on(table.sessionId),
-    index(`idx_pins_action`).on(table.actionId),
   ]
 )
 
@@ -1923,12 +1949,8 @@ export const pins = pgTable(
 // NEW-2: a team AGENT is a definition row (`agents`, below) and RUNS as
 // conversation sessions: one root per (agent, member) = that member's
 // private DM with it (`agent_id` set, `user_id` = the member, the agent's
-// device and login), never ending. The former agent facets (`kind`, `name`,
-// `icon`, `color`, `triggers`, `sort_order`) and the action facets
-// (`action_*`) are LEGACY columns no shape syncs any more (every client at
-// the floor reads the agent definition); a conversation session still
-// mirrors `kind = agent` + the agent's name/icon/color for the server's own
-// readers. NEW-8 drops them.
+// device and login), never ending. Its name, icon and color live on the
+// agent definition only (NEW-8 dropped the session mirrors).
 //
 // Visibility (ONE rule ×4): `shared` is stamped at creation = the device is
 // shared with the team (a child inherits its root's). Shared rows sync to
@@ -1955,9 +1977,6 @@ export const sessions = pgTable(
       .notNull()
       .references((): AnyPgColumn => sessions.id, { onDelete: `cascade` }),
     depth: integer().notNull().default(0),
-    // LEGACY read shim (NEW-2): `agent` on a conversation session (derived
-    // from `agent_id`, for the ≤0.14.74 devices' persistence), else `thread`.
-    kind: sessionKindEnum().notNull().default(`thread`),
     // NEW-2: the agent this is a conversation session OF (a root; one per
     // (agent, user_id)); its children carry nothing (they resolve through
     // the root). NULL = a thread.
@@ -1998,9 +2017,6 @@ export const sessions = pgTable(
     planMode: boolean(`plan_mode`).notNull().default(false),
     computerUse: boolean(`computer_use`).notNull().default(false),
     ultracode: boolean().notNull().default(false),
-    // LEGACY (NEW-1): the dispatcher flag. Never true any more and synced by
-    // no shape. NEW-8 drops it.
-    dispatch: boolean().notNull().default(false),
     // SERVER-ONLY (EXP-1140): the team MCP servers this session picked —
     // the only ids `mcpServers.resolveForLaunch` hands credentials for.
     mcpServerIds: jsonb(`mcp_server_ids`).$type<string[]>(),
@@ -2014,11 +2030,6 @@ export const sessions = pgTable(
     }),
     // The session's working branch (device-written at claim).
     branch: varchar({ length: 255 }),
-    // LEGACY read shims (NEW-1): the EXP-1252 move. A move is now an end
-    // here and a continuation on the target; nothing writes these. NEW-8
-    // drops them.
-    moveToDeviceId: varchar(`move_to_device_id`, { length: 128 }),
-    handoffRestoredAt: timestamp(`handoff_restored_at`, { withTimezone: true }),
     // ── state ──
     status: sessionStatusEnum().notNull().default(`queued`),
     // Device-written turn state (EXP-848): the ONLY list-spinner input ×4.
@@ -2052,37 +2063,8 @@ export const sessions = pgTable(
     // Set by a person or the agent; NULL = derived for display
     // (session-title.json). On a child: the CLI's auto-name (EXP-905).
     title: varchar({ length: 255 }),
-    // LEGACY read shims (NEW-1): the EXP-1323 live status line and the
-    // `/btw` aside flag. Never written; NEW-8 drops them.
-    caption: varchar({ length: 80 }),
-    aside: boolean().notNull().default(false),
     // The thread's ONE Guide = every PR body (`guide_write`, FOR UPDATE).
     guide: jsonb().$type<GuideEntry[]>(),
-    // LEGACY read shims (NEW-2): the action a thread ran. A prompt run
-    // (`sessions.send({promptId})`) composes the body into the first message
-    // and names the session after the prompt instead; never written. NEW-8
-    // drops them.
-    actionId: uuid(`action_id`).references(() => actions.id, {
-      onDelete: `set null`,
-    }),
-    actionName: varchar(`action_name`, { length: 255 }),
-    actionInputs: jsonb(`action_inputs`).$type<Record<string, string>>(),
-    // LEGACY read shim (NEW-1): the session that spawned this root. The
-    // bus routes a spawned root to its spawner through `wake_on` instead;
-    // never written (the ≤0.14.74 desktop names it in its shape request).
-    // NEW-8 drops it.
-    spawnedBySessionId: uuid(`spawned_by_session_id`),
-    // LEGACY read shims (NEW-2): the agent facets, now on `agents`. A
-    // conversation session mirrors its agent's name/icon/color (stamped at
-    // creation, re-stamped by `agents.update`); `triggers` stays `[]`.
-    name: varchar({ length: 64 }),
-    icon: varchar({ length: 64 }),
-    color: varchar({ length: 7 }),
-    triggers: jsonb()
-      .$type<AgentTrigger[]>()
-      .notNull()
-      .default(sql`'[]'::jsonb`),
-    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     // #EXP-1383: when this session's device last fetched its brief
     // (`sessions.brief` stamps it): the agent instructions it runs on are
     // the ones of that moment. SYNCED (chats.json `agentHint`).
@@ -2110,7 +2092,6 @@ export const sessions = pgTable(
     index(`idx_sessions_parent`).on(table.parentId),
     index(`idx_sessions_root`).on(table.rootId),
     index(`idx_sessions_user`).on(table.userId),
-    index(`idx_sessions_action`).on(table.actionId),
     // The bus's reverse lookup: who watches a session.
     index(`idx_sessions_wake_on`).using(`gin`, table.wakeOn),
     // The device pickup + the watchdog.
@@ -2348,6 +2329,10 @@ export const appRecords = pgTable(
   (table) => [
     index(`idx_app_records_app_kind`).on(table.appId, table.kind),
     index(`idx_app_records_team`).on(table.teamId),
+    // VAPP-159: the purge's walk (trashed rows only, oldest first).
+    index(`idx_app_records_trashed`)
+      .on(sql`least(${table.deletedAt}, ${table.appDeletedAt})`)
+      .where(sql`least(${table.deletedAt}, ${table.appDeletedAt}) IS NOT NULL`),
   ]
 )
 
@@ -2386,12 +2371,6 @@ export const sessionIssues = pgTable(
     }),
     // Provenance: the session whose agent linked it (never its location).
     addedBySessionId: uuid(`added_by_session_id`).references(
-      (): AnyPgColumn => sessions.id,
-      { onDelete: `set null` }
-    ),
-    // LEGACY (NEW-1): the EXP-1341 assignment. Migrated into `session_id`;
-    // never written, synced by no shape. NEW-8 drops it.
-    assignedSessionId: uuid(`assigned_session_id`).references(
       (): AnyPgColumn => sessions.id,
       { onDelete: `set null` }
     ),
@@ -3016,45 +2995,6 @@ export const mcpOauthFlows = pgTable(
   (table) => [index(`idx_mcp_oauth_flows_user`).on(table.userId)]
 )
 
-// LEGACY (NEW-2): actions became `prompts` (migration 0182 copied name, icon
-// and body over and emptied this table). The table stays EMPTY and never
-// written; its shape is gone (no client at the floor requests it). NEW-8
-// drops the table.
-export const actions = pgTable(
-  `actions`,
-  {
-    id: uuidPk(),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    name: varchar({ length: 255 }).notNull(),
-    // EXP-273: the action's display glyph — a curated icon name from the
-    // shared registry (same set as boards.icon). NULL = clients fall back to
-    // the generic action glyph. Varchar rather than the pg enum so growing the
-    // registry never needs a migration; the router validates against the
-    // contract.
-    icon: varchar({ length: 64 }),
-    // The markdown prompt; ≤64KB enforced by the router zod.
-    body: text().notNull(),
-    // EXP-257: typed input schema — members fill the values in the run dialog
-    // and the launcher injects them into the prompt. '[]' = no inputs.
-    inputs: jsonb()
-      .$type<ActionInputDef[]>()
-      .notNull()
-      .default(sql`'[]'::jsonb`),
-    // EXP-825: the hint the composer's text field shows while this action is
-    // picked — what the requester should type now that free-text inputs are
-    // gone (their placeholder/label seeded it). NULL = the generic hint.
-    promptPlaceholder: varchar(`prompt_placeholder`, { length: 200 }),
-    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
-    ...timestamps,
-  },
-  (table) => [
-    unique().on(table.teamId, table.name),
-    index(`idx_actions_team`).on(table.teamId),
-  ]
-)
-
 // Per-user notification delivery prefs (SERVER-ONLY). Missing row = all
 // defaults (email on, daily digest). Email is a free delivery channel, never a
 // notification type and never plan-gated.
@@ -3605,11 +3545,8 @@ export const selectRepositorySchema = createSelectSchema(repositories)
 // EXP-1291: the synced projections of the session tree. Tolerant jsonb reads
 // (a future card kind or trigger must never brick a collection).
 export const selectSessionSchema = createSelectSchema(sessions, {
-  kind: sessionKindSchema,
   status: sessionStatusSchema,
   guide: z.custom<GuideEntry[]>((value) => value === null || Array.isArray(value)),
-  triggers: z.custom<AgentTrigger[]>((value) => Array.isArray(value)),
-  actionInputs: z.record(z.string(), z.string()).nullable(),
   mcpServerIds: z.array(z.string()).nullable(),
 })
 export const selectSyncedSessionSchema = selectSessionSchema.omit({
@@ -3700,10 +3637,6 @@ export const selectMcpServerSchema = createSelectSchema(mcpServers, {
   scopes: z.array(z.string()),
 })
 
-export const selectActionSchema = createSelectSchema(actions, {
-  inputs: actionInputsSchema,
-})
-
 export const selectWidgetConfigSchema = createSelectSchema(widgetConfigs, {
   allowedDomains: z.array(z.string()),
   formConfig: z.record(z.string(), z.unknown()).nullable(),
@@ -3788,8 +3721,6 @@ export type McpCredential = InferSelectModel<typeof mcpCredentials>
 export type McpOauthClient = InferSelectModel<typeof mcpOauthClients>
 export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>
 export type DeviceAgentProfile = z.infer<typeof deviceAgentProfileSchema>
-export type Action = InferSelectModel<typeof actions>
-export type SyncedAction = Omit<Action, `body`>
 export type Agent = InferSelectModel<typeof agents>
 export type SyncedAgent = Omit<Agent, `instructions` | `triggerState`>
 export type Event = InferSelectModel<typeof events>
@@ -3811,6 +3742,7 @@ export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>
 export type McpGrant = InferSelectModel<typeof mcpGrants>
 export type Device = InferSelectModel<typeof devices>
+export type Install = InferSelectModel<typeof installs>
 export type DeviceWorktree = InferSelectModel<typeof deviceWorktrees>
 export type SyncedDeviceWorktree = Omit<
   DeviceWorktree,

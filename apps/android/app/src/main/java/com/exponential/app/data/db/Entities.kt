@@ -558,8 +558,8 @@ data class PinEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
-    // Contract `pinKind`: issue | session (a legacy `action` pin is never
-    // stored, [isKept]; NEW-8 drops `pins.action_id`, the decoder skips it).
+    // Contract `pinKind`: issue | session; any other kind is never stored
+    // ([isKept]).
     val kind: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
     @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
@@ -568,8 +568,8 @@ data class PinEntity(
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 ) {
-    /** NEW-8: actions are gone, so an `action` pin is ignored. */
-    val isKept: Boolean get() = kind != com.exponential.app.domain.DomainContract.pinKindAction
+    /** A kind outside the contract (the dropped `action`) is ignored. */
+    val isKept: Boolean get() = kind in com.exponential.app.domain.DomainContract.pinKindValues
 }
 
 // One unsent issue draft (EXP-878, the 22nd Electric shape): the create

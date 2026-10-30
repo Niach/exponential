@@ -20,9 +20,14 @@ import Foundation
 // forget).
 //
 // #NEW-89: a route change (AirPods connect or disconnect mid-call) rebuilds
-// the tap and the resampler from the route's new input format; a call's end
+// the tap and the resampler for the route's new input format; a call's end
 // puts the session's category back (no voice-chat routing for later media);
 // a late `wasSuspended` interruption never drops the call.
+//
+// #NEW-94: the tap is installed with `format: nil` (the node's live format):
+// a stale `outputFormat` after a route change with voice processing on makes
+// `installTap` raise an ObjC exception Swift can't catch. The resampler is
+// built from the first buffer's format and rebuilt when a buffer's differs.
 //
 // S-3: the session opens at the call's START (`CallAudioSession.enter`), so
 // the caller's ring tone (`CallRingTone`) plays on the call's route; the
@@ -64,9 +69,13 @@ final class VoiceCallAudio: @unchecked Sendable {
     private let upOpus = VoiceCallAudio.opusFormat(rate: VoiceCall.Constants.upRate)
     private let downOpus = VoiceCallAudio.opusFormat(rate: VoiceCall.Constants.downRate)
 
+    /// Built from the first buffer of the current tap (`capture`).
     private var resampler: AVAudioConverter?
-    /// The input format the tap and `resampler` were built for.
+    /// The route's input format the tap was installed for.
     private var captureFormat: VoiceCall.AudioSessionRules.InputFormat?
+    /// Bumped on every tap (re)install and stop: a buffer still queued from
+    /// an older tap is dropped.
+    private var tapGeneration = 0
     private var encoder: AVAudioConverter?
     private var decoder: AVAudioConverter?
 
@@ -183,8 +192,9 @@ final class VoiceCallAudio: @unchecked Sendable {
         observe()
     }
 
-    /// (Re)builds the tap and its resampler for the input route's format,
-    /// unless they already match it. `.drop` = the route has no input.
+    /// (Re)installs the tap for the input route's format, unless it already
+    /// matches it. `.drop` = the route has no input. The format read here
+    /// only decides; the tap itself takes the node's live format (`nil`).
     @discardableResult
     private func installCapture() -> VoiceCall.AudioSessionRules.CaptureChange {
         let input = engine.inputNode
@@ -194,20 +204,21 @@ final class VoiceCallAudio: @unchecked Sendable {
         )
         let change = VoiceCall.AudioSessionRules.captureChange(built: captureFormat, route: route)
         guard change == .rebuild else { return change }
-        guard let resampler = AVAudioConverter(from: inFormat, to: upPcm) else { return .drop }
         input.removeTap(onBus: 0)
-        self.resampler = resampler
+        resampler = nil
         captureFormat = route
+        tapGeneration += 1
+        let generation = tapGeneration
         // A partial frame from the old route never joins the new one.
         uplink.reset()
         let tapFrames = AVAudioFrameCount(VoiceCall.AudioSessionRules.tapFrames(sampleRate: inFormat.sampleRate))
-        input.installTap(onBus: 0, bufferSize: tapFrames, format: inFormat) { [weak self] buffer, _ in
+        input.installTap(onBus: 0, bufferSize: tapFrames, format: nil) { [weak self] buffer, _ in
             // Copied off the tap thread, never waited on: `stop` removes the
             // tap from the queue, which must not wait for a tap that waits
             // for the queue.
             guard let self, let copy = Self.copy(buffer) else { return }
             let box = Boxed(copy)
-            self.queue.async { self.capture(box.value) }
+            self.queue.async { self.capture(box.value, generation: generation) }
         }
         return change
     }
@@ -223,6 +234,7 @@ final class VoiceCallAudio: @unchecked Sendable {
         try? engine.inputNode.setVoiceProcessingEnabled(false)
         resampler = nil
         captureFormat = nil
+        tapGeneration += 1
         encoder = nil
         decoder = nil
         uplink.reset()
@@ -296,11 +308,10 @@ final class VoiceCallAudio: @unchecked Sendable {
         }
     }
 
-    private func capture(_ buffer: AVAudioPCMBuffer) {
-        // A buffer still queued from the previous route is dropped.
-        guard running, let resampler, buffer.frameLength > 0,
-              buffer.format.sampleRate == resampler.inputFormat.sampleRate,
-              buffer.format.channelCount == resampler.inputFormat.channelCount
+    private func capture(_ buffer: AVAudioPCMBuffer, generation: Int) {
+        // A buffer still queued from the previous tap is dropped.
+        guard running, generation == tapGeneration, buffer.frameLength > 0,
+              let resampler = resampler(for: buffer.format)
         else { return }
         let ratio = upPcm.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
@@ -322,6 +333,16 @@ final class VoiceCallAudio: @unchecked Sendable {
         for frame in uplink.push(UnsafeBufferPointer(start: samples, count: count)) {
             encode(frame)
         }
+    }
+
+    /// The resampler for `format`: the current one, or a new one when this
+    /// is the tap's first buffer or the node's format changed under it.
+    private func resampler(for format: AVAudioFormat) -> AVAudioConverter? {
+        if let resampler, resampler.inputFormat == format { return resampler }
+        // A partial frame at the old format never joins the new one.
+        if resampler != nil { uplink.reset() }
+        resampler = AVAudioConverter(from: format, to: upPcm)
+        return resampler
     }
 
     private func encode(_ frame: [Int16]) {

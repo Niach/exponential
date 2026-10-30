@@ -408,3 +408,41 @@ fn a_call_buttons_icon_sits_centred(cx: &mut TestAppContext) {
         assert_eq!((i.x - b.x, i.y - b.y), (16.0, 16.0), "{icon} centred");
     }
 }
+
+/// N-12: the `DockCard` macro on the gpui painter (Swift
+/// `testDockCardExpandsToTriggerOverABottomDrawerWithItsFooter`, Compose
+/// `DockCardTest`): the core expands it to a pressable trigger row over a
+/// bottom `Drawer`; the specimen (open, with a footer slot) paints the
+/// collapsed card and the sheet's body with its footer under it.
+#[gpui::test]
+fn the_dock_card_specimen_paints_its_trigger_and_the_open_bottom_drawer_with_its_footer(cx: &mut TestAppContext) {
+    let (view, _log, cx) = surface(cx, specimen("exponential-ui-dock-card"));
+    view.update(cx, |v, cx| v.advance_clock(std::time::Duration::from_secs(1), cx));
+    draw(cx);
+    let unknown = view.read_with(cx, |v, _| v.placed_nodes().iter().filter(|n| !n.removed && n.component == "Unknown").count());
+    assert_eq!(unknown, 0, "no Unknown placeholder");
+    for part in ["trigger", "trigger.icon", "trigger.body.header.label", "trigger.body.header.caption", "trigger.body.header.meta", "trigger.body.row.title", "trigger.body.row.chevron"] {
+        painted(&view, cx, &format!("c0-dock-card.{part}"));
+    }
+    let trigger_layer = view.read_with(cx, |v, _| v.placed_nodes().iter().find(|n| n.id == "c0-dock-card.trigger").map(|n| n.layer));
+    assert_eq!(trigger_layer, Some(0), "the collapsed card sits in the base layer");
+    let drawer = view.read_with(cx, |v, _| v.layers().iter().find(|l| l.kind == "Drawer").cloned()).expect("the open card's sheet is a Drawer layer");
+    assert_eq!(drawer.owner, "c0-dock-card.sheet");
+    assert_eq!(drawer.position, "bottom");
+    assert!(drawer.modal);
+    let (footer_part, footer_parent) = view.read_with(cx, |v, _| {
+        let nodes = v.placed_nodes();
+        let part = nodes.iter().find(|n| n.id == "c0-dock-card.sheet.footer").map(|n| (n.index, n.part.clone()));
+        (part, nodes.iter().find(|n| n.id == "c0-footer").and_then(|n| n.parent))
+    });
+    let (footer_index, part) = footer_part.expect("the Drawer's footer part");
+    assert_eq!(part.as_deref(), Some("footer"));
+    assert_eq!(footer_parent, Some(footer_index), "the `footer` slot lands in the Drawer's own footer part");
+    for id in ["c0-p", "c0-footer", "c0-no", "c0-yes"] {
+        let layer = view.read_with(cx, |v, _| v.placed_nodes().iter().find(|n| n.id == id).map(|n| n.layer));
+        assert_eq!(layer, Some(drawer.layer), "{id} rides the sheet");
+        painted(&view, cx, id);
+    }
+    let (body, yes) = (painted(&view, cx, "c0-p"), painted(&view, cx, "c0-yes"));
+    assert!(yes.origin.y >= body.origin.y + body.size.height, "the footer sits under the body: {yes:?} vs {body:?}");
+}

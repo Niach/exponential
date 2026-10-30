@@ -70,7 +70,7 @@ describe(`RunView`, () => {
   it(`resumes an ended run and switches to the new one`, async () => {
     const { actions, calls } = harness({
       exponential_sessions_start: { sessionId: `run-2` },
-      exponential_sessions_get: { id: `run-2`, status: `running`, actionName: `Resumed` },
+      exponential_sessions_get: { id: `run-2`, status: `running`, title: `Resumed` },
     })
     render(
       <McpActionsProvider value={actions}>

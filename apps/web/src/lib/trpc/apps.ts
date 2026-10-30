@@ -161,7 +161,10 @@ export const appUpdateInputSchema = z.object({
     )
     .max(200)
     .optional(),
-})
+  // VAPP-156: the head version the owner was looking at when they flipped a
+  // switch; a grant must name it, and a newer head refuses with CONFLICT.
+  headVersion: z.number().int().min(0).optional(),
+}).refine((v) => !v.grantedTools || v.headVersion !== undefined, { message: `a grant names the version it was made on (headVersion)`, path: [`headVersion`] })
 
 /** VAPP-121: an import's text, checked end to end (the structure, then the
  *  package's rules, then every record against its kind's schema and the
@@ -377,17 +380,24 @@ export const appsRouter = router({
       // VAPP-120: a grant names only what the HEAD package declares (review
       // of #1222: nothing is granted ahead of a version that would use it),
       // and only an OWNER grants (the ruling: the creator gets no grant power).
-      if (input.grantedTools) {
-        await assertCanGrant(userId, app)
-        const declared = packageActions(app.package)
-        const undeclared = input.grantedTools.filter((name) => !declared.includes(name))
-        if (undeclared.length > 0) {
-          throw new TRPCError({ code: `BAD_REQUEST`, message: `The app's package does not declare ${undeclared.join(`, `)}: a grant names only what the head version calls` })
-        }
-      }
+      if (input.grantedTools) await assertCanGrant(userId, app)
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        const { id, ...patch } = input
+        const { id, headVersion, ...patch } = input
+        if (patch.grantedTools) {
+          // VAPP-156: the head is re-read under the row lock (a version write
+          // takes the same lock), so a grant lands only on the version the
+          // owner saw; a newer head = CONFLICT and the owner grants again.
+          const [head] = await tx.select({ headVersion: apps.headVersion, package: apps.package }).from(apps).where(eq(apps.id, id)).for(`update`)
+          if (!head || head.headVersion !== headVersion) {
+            throw new TRPCError({ code: `CONFLICT`, message: `A new version of the app was published; review its tools and grant again` })
+          }
+          const declared = packageActions(head.package)
+          const undeclared = patch.grantedTools.filter((name) => !declared.includes(name))
+          if (undeclared.length > 0) {
+            throw new TRPCError({ code: `BAD_REQUEST`, message: `The app's package does not declare ${undeclared.join(`, `)}: a grant names only what the head version calls` })
+          }
+        }
         const [updated] = await tx
           .update(apps)
           .set({ ...patch, updatedAt: new Date() })

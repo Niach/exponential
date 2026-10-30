@@ -567,7 +567,7 @@ mod tests {
         // em, so this checks the box arithmetic, not real font metrics.
         cx.update(|cx| {
             gpui_component::init(cx);
-            theme::init(cx);
+            gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
         });
         for c in capsules() {
             let drawn = Rc::new(Cell::new((0., 0.)));
@@ -587,7 +587,7 @@ mod tests {
     async fn a_longer_line_widens_the_capsule_up_to_the_cap(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| {
             gpui_component::init(cx);
-            theme::init(cx);
+            gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
         });
         let rows = capsules();
         let (short, long) = (&rows[0], &rows[4]);

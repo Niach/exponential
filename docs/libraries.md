@@ -30,15 +30,52 @@ consumes them as dependencies.
 | product | Rust crates (`apps/desktop/crates/<name>`) | npm (`@exponential_app/…`) | Maven (`at.exponential:…`) | SwiftPM product (repo) | release tag | docs |
 |---|---|---|---|---|---|---|
 | **eUI** | `eui-core` (crates.io), `eui-gpui` (git dependency on the tag, #EXP-1429), `exponential-ui-ffi` (not published, ships inside Swift/Kotlin) | `eui`, `eui-react`, `eui-solid`, `eui-element` | `eui-compose`, `eui-compose-primitives` | `ExponentialUI`, `ExponentialUIPrimitives` (`Niach/exponential-ui-swift`) | `eui-v*` → `release-eui.yml` | exponential.at/ui/ |
-| **eTalk** | `etalk`, `etalk-engine`, `etalk-crispasr`, `etalk-codec`, `etalk-wakeword`, `etalk-gpui` (git dependencies on the tag), `etalk-ffi` (not published, ships inside Swift/Kotlin) | not yet | `etalk` (planned) | `ExponentialTalk` (planned) | `etalk-v*` → `release-etalk.yml` | exponential.at/talk/ |
+| **eTalk** | `etalk`, `etalk-engine`, `etalk-crispasr`, `etalk-codec`, `etalk-wakeword`, `etalk-gpui` (git dependencies on the tag), `etalk-ffi` (not published, ships inside Swift/Kotlin) | `etalk` (the contract + fixtures, `packages/etalk`) | `etalk` (planned) | `ExponentialTalk` (planned) | `etalk-v*` → `release-etalk.yml` | exponential.at/talk/ |
 | **ePilot** | `epilot`, `epilot-screen` (git dependencies on the tag) | none (desktop only) | none | none (desktop only) | `epilot-v*` → `release-epilot.yml` | exponential.at/pilot/ |
 | **eNet** | `enet-core` (crates.io), `exponential-net-ffi`, `exponential-net-wasm` (not published yet) | `enet` (the wasm build, planned) | `enet` (planned) | `ExponentialNet` (planned) | `enet-v*` → `release-enet.yml` | exponential.at/net/ |
 | **eApps** | inside `eui-core` for now | inside `@exponential_app/eui/host` | | | rides `eui-v*` | exponential.at/apps/ |
-| agent-runtime | `exponential-agent-runtime` (from `coding` + `engine`, #EXP-1426) | none | none | none | `agent-runtime-v*` | in the repo README only |
+| agent-runtime | `exponential-agent-runtime` (from `coding` + `engine`, #EXP-1426; git dependency on the tag) | none | none | none | `agent-runtime-v*` → `release-agent-runtime.yml` | in the repo README only |
 
-eTalk and ePilot are git dependencies (`publish = false`: the fixtures are
-compiled in with `include_str!` from outside the crate), so their release is the
-tag plus a GitHub release; no registry name is spent.
+eTalk, ePilot and agent-runtime are git dependencies (`publish = false`: the
+fixtures are compiled in with `include_str!` from outside the crate), so their
+release is the tag plus a GitHub release; no crates.io name is spent.
+
+## Consuming from another repo (the git-tag policy, #EXP-1420)
+
+How spezl (or anyone) depends on the `publish = false` crates:
+
+1. **Pin a release tag, nothing else.** `etalk = { git = "https://github.com/Niach/exponential", tag = "etalk-v0.2.0" }`.
+   Never `branch`, never master; a `rev` only to try an unreleased fix, and
+   only until the next tag. Every crate of one lib uses the SAME tag.
+2. **One tag = one version of every crate of the lib.** The release workflow
+   refuses a tag that disagrees with any of the crates' `version`; tags are
+   cut from master after the bump PR merged, and a tag is never moved or
+   deleted (consumers' `Cargo.lock` pins its commit).
+3. **Semver, 0.x style.** A breaking API change bumps the minor (`0.2` →
+   `0.3`), anything else the patch; the lib's CHANGELOG / GitHub release says
+   what broke. A gpui revision change is breaking for the gpui crates
+   (`etalk-gpui`, like `eui-gpui`).
+4. **No path escapes the checkout.** A consumable crate's path dependencies
+   are other shared libs only, never an app crate (`ui`, `theme`, `domain`,
+   `sync`, `api`, `app`, …): gated per crate (`tests/dependency_gate.rs` in
+   `exponential-agent-runtime` and `etalk-gpui`). Fixtures come in with
+   `include_str!` from `packages/`, which a git checkout carries.
+5. **gpui consumers copy two things** (a dependency's `[patch]` and lock never
+   reach its consumers): the ztracing patch and the zed pin, exactly as
+   `apps/desktop/crates/eui-gpui/README.md` "gpui revisions" says. The
+   non-gpui crates (`etalk`, `etalk-codec`, `etalk-engine`, `epilot`,
+   `epilot-screen`, `exponential-agent-runtime`) need neither.
+6. **Proven per release.** Each lib's release workflow runs
+   `scripts/libs/git-consumer-smoke.sh <lib> <commit>`: a scratch crate outside
+   this workspace depends on every crate of the lib through `git` + the commit,
+   with the patch and the lock copied, and must build. Run it locally before
+   tagging.
+
+| lib | tag | crates under it | workflow |
+|---|---|---|---|
+| eTalk | `etalk-v*` | `etalk`, `etalk-codec`, `etalk-engine`, `etalk-crispasr`, `etalk-wakeword`, `etalk-gpui` (+ npm `@exponential_app/etalk`) | `release-etalk.yml` |
+| ePilot | `epilot-v*` | `epilot`, `epilot-screen` | `release-epilot.yml` |
+| agent-runtime | `agent-runtime-v*` | `exponential-agent-runtime` | `release-agent-runtime.yml` |
 
 Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 `enet-core`, `etalk`, `epilot`, and npm `@exponential_app/eui*`, `@exponential_app/enet`,
@@ -67,8 +104,8 @@ Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 | product | version | registry | tag |
 |---|---|---|---|
 | eUI | 0.2.0 | npm `@exponential_app/eui{,-react,-solid,-element}`, crates.io `eui-core`, Maven Central `at.exponential:eui-compose{,-primitives}`, SwiftPM `Niach/exponential-ui-swift`; `eui-gpui` = git dependency on the tag | `eui-v0.2.0` |
-| eTalk | 0.1.0 | GitHub release (git dependencies on the tag) | `etalk-v0.1.0` |
+| eTalk | 0.1.0 | GitHub release (git dependencies on the tag); npm `@exponential_app/etalk` from the next tag | `etalk-v0.1.0` |
 | ePilot | 0.1.0 | GitHub release (git dependencies on the tag) | `epilot-v0.1.0` |
 | eNet | 0.1.0 | crates.io `enet-core` (the bindings are not published yet) | `enet-v0.1.0` |
 | eUI (old name) | 0.1.1 | npm `@exponential_app/ui*` (deprecated), crates.io `exponential-ui`, Maven `at.exponential:ui-compose*` | `ui-v0.1.1` |
-| agent-runtime | never | `exponential-agent-runtime` 0.1.0, `publish = false` | |
+| agent-runtime | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |

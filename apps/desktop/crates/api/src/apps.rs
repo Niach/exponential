@@ -79,6 +79,10 @@ pub struct AppInput {
     /// or an owner). `None` leaves the grants as they are.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub granted_tools: Option<Vec<String>>,
+    /// VAPP-156: the head version the owner saw (`headVersion`), sent with
+    /// every grant; a newer head refuses with CONFLICT.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub head_version: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -239,11 +243,12 @@ mod tests {
             icon: "puzzle".into(),
             color: "#6366f1".into(),
             granted_tools: Some(vec!["exponential.issues.update".into()]),
+            head_version: Some(3),
             ..AppInput::default()
         };
         assert_eq!(
             serde_json::to_value(&grant).unwrap(),
-            serde_json::json!({"id": "a", "name": "Dash", "icon": "puzzle", "color": "#6366f1", "grantedTools": ["exponential.issues.update"]})
+            serde_json::json!({"id": "a", "name": "Dash", "icon": "puzzle", "color": "#6366f1", "grantedTools": ["exponential.issues.update"], "headVersion": 3})
         );
         assert_eq!(
             serde_json::to_value(ImportInput { team_id: "t", text: "{}" }).unwrap(),

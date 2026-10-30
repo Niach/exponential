@@ -162,7 +162,6 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     expect(sent.status).toBe(`queued`)
     const root = await row(sent.sessionId)
     expect(root).toMatchObject({
-      kind: `thread`,
       status: `queued`,
       rootId: root.id,
       depth: 0,
@@ -300,7 +299,7 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
       userId: w.owner,
       input: { teamId: w.teamId, deviceId: w.deviceId, promptId: prompt!.id, text: `Web board only.` },
     })
-    expect(await row(sent.sessionId)).toMatchObject({ title: `Triage`, actionId: null, actionName: null })
+    expect(await row(sent.sessionId)).toMatchObject({ title: `Triage` })
     const [first] = await db.select({ body: messages.body }).from(messages).where(eq(messages.sessionId, sent.sessionId))
     expect(first!.body).toBe(`Triage the backlog.\n\nWeb board only.`)
     const brief = await composeSessionBrief(sent.sessionId)
@@ -345,11 +344,10 @@ describe.skipIf(!ready.ok)(`sessions.send — a root works on its own picks`, ()
       ultracode: true,
       computerUse: true,
     }
-    // The legacy shims stay unwritten.
-    expect(await row(root.sessionId)).toMatchObject({ ...picks, dispatch: false, spawnedBySessionId: null })
+    expect(await row(root.sessionId)).toMatchObject(picks)
 
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part 1` } })
-    expect(await row(child.sessionId)).toMatchObject({ ...picks, dispatch: false })
+    expect(await row(child.sessionId)).toMatchObject(picks)
     // The child's own picks win over the inherited ones.
     const picked = await sendSession({
       userId: w.owner,
@@ -467,15 +465,11 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     const holders = async (issueId: string) =>
       (
         await db
-          .select({ sessionId: sessionIssues.sessionId, assigned: sessionIssues.assignedSessionId })
+          .select({ sessionId: sessionIssues.sessionId })
           .from(sessionIssues)
           .where(eq(sessionIssues.issueId, issueId))
       )
-        .map((link) => {
-          // The legacy shim is never written.
-          expect(link.assigned).toBeNull()
-          return link.sessionId
-        })
+        .map((link) => link.sessionId)
         .sort()
     // The row sits on the session that holds the issue: each start its own.
     expect(await holders(a)).toEqual([root.sessionId, grouped.sessionId].sort())
@@ -832,8 +826,6 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     const agent = await sendSession({ userId: w.owner, input: { agentId: ada!.id, text: `hello` } })
     expect(await row(agent.sessionId)).toMatchObject({
       agentId: ada!.id,
-      kind: `agent`,
-      name: `Ada`,
       title: `Ada`,
       userId: w.owner,
       deviceId: w.deviceId,
@@ -863,7 +855,6 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       deviceId: w.deviceId,
       parentId: null,
       agentId: null,
-      spawnedBySessionId: null,
     })
     // NEW-1: the agent WATCHES its spawn (the bus reports back to it).
     expect((await row(agent.sessionId)).wakeOn).toEqual([spawned.sessionId])
@@ -929,7 +920,7 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
       expect(second.linked).toEqual([])
     })
     const links = await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, a))
-    expect(links).toMatchObject([{ sessionId: child.sessionId, source: `agent`, assignedSessionId: null }])
+    expect(links).toMatchObject([{ sessionId: child.sessionId, source: `agent` }])
     // The root's "−" reaches the row wherever its tree holds it.
     const out = await db.transaction((tx) => unlinkIssue(tx, { sessionId: root.sessionId, issueId: a }))
     expect(out).toEqual({ unlinked: true })
@@ -1489,7 +1480,6 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
       deviceId: sharedDevice,
       shared: true,
       status: `queued`,
-      name: `Ada 2`,
       title: `Ada 2`,
       account: `acc1`,
     })
@@ -1500,7 +1490,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     // A member's own rename of the chat survives the agent's next rename.
     await db.update(sessions).set({ title: `My Ada` }).where(eq(sessions.id, conversation.sessionId))
     await agentsOf(w.owner).update({ id: agent.id, name: `Ada 3` })
-    expect(await row(conversation.sessionId)).toMatchObject({ name: `Ada 3`, title: `My Ada` })
+    expect(await row(conversation.sessionId)).toMatchObject({ title: `My Ada` })
     // Now the teammate may talk to it too: their OWN conversation.
     const mates = await sendSession({ userId: w.mate, input: { agentId: agent.id, text: `hey` } })
     expect(mates.sessionId).not.toBe(conversation.sessionId)
@@ -1576,7 +1566,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
 
     // NEW-1: a root runs on its own picks: configure moves them like a child's.
     await owner.configure({ sessionId: root.sessionId, model: `opus`, planMode: true, effort: `low` })
-    expect(await row(root.sessionId)).toMatchObject({ dispatch: false, model: `opus`, planMode: false, effort: `low` })
+    expect(await row(root.sessionId)).toMatchObject({ model: `opus`, planMode: false, effort: `low` })
 
     // The steer rule: a private session refuses a teammate; the device-only
     // read refuses anyone but the host.
@@ -1950,7 +1940,6 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       deviceId: w.target,
       status: `queued`,
       account: `pb`,
-      moveToDeviceId: null,
     })
     const [moved] = await db
       .select()
@@ -2125,7 +2114,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     })
     // NEW-1: the continuation TAKES OVER the ended child's rows.
     const links = await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, issueId))
-    expect(links).toMatchObject([{ sessionId: cont.sessionId, assignedSessionId: null }])
+    expect(links).toMatchObject([{ sessionId: cont.sessionId }])
     // FEED-134: an ended ROOT never continues as a child: it revives.
     await endSession({ userId: w.owner, sessionId: root.sessionId })
     const rootCont = await sendSession({ userId: w.owner, input: { sessionId: root.sessionId, text: `again` } })

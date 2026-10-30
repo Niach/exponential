@@ -99,7 +99,7 @@ describe(`pins.toggle`, () => {
     expect(state.inserted).toEqual([])
   })
 
-  it.each([`issue`, `session`, `action`] as const)(
+  it.each([`issue`, `session`] as const)(
     `pins a %s of the team, appending past the caller's tail`,
     async (kind) => {
       state.tail = 3
@@ -117,7 +117,6 @@ describe(`pins.toggle`, () => {
           kind,
           issueId: kind === `issue` ? TARGET_ID : null,
           sessionId: kind === `session` ? TARGET_ID : null,
-          actionId: kind === `action` ? TARGET_ID : null,
           sortOrder: 4,
         },
       ])
@@ -141,7 +140,7 @@ describe(`pins.toggle`, () => {
   it(`refuses a target that is not in the team`, async () => {
     state.targetFound = false
     await expect(
-      caller.toggle({ teamId: TEAM_ID, kind: `action`, targetId: TARGET_ID })
+      caller.toggle({ teamId: TEAM_ID, kind: `session`, targetId: TARGET_ID })
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
     expect(state.inserted).toEqual([])
   })

@@ -52,6 +52,8 @@ jobs:
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Linux system deps
         if: runner.environment == 'github-hosted'
         run: |
@@ -68,6 +70,8 @@ jobs:
       - name: Cargo tests (ePilot)
         working-directory: apps/desktop
         run: cargo test --no-fail-fast --locked -p epilot -p epilot-screen
+      - name: A git consumer builds (docs/libraries.md, the git-tag policy)
+        run: scripts/libs/git-consumer-smoke.sh epilot "$GITHUB_SHA"
 
   release:
     needs: [version, test]

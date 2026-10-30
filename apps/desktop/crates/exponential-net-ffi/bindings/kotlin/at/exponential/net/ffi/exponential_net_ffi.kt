@@ -700,6 +700,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_generate_identity(
     ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_identity_sign(
+    ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_parse_ticket(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow(
@@ -871,6 +873,8 @@ external fun uniffi_exponential_net_ffi_fn_func_default_config(uniffi_out_err: U
 external fun uniffi_exponential_net_ffi_fn_func_endpoint_id_of(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_generate_identity(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_identity_sign(`identity`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_parse_ticket(`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -3990,6 +3994,21 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     UniffiLib.uniffi_exponential_net_ffi_fn_func_generate_identity(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * The identity's 64-byte ed25519 signature over `message` (verifiable
+         * against its endpoint id), e.g. the `exp-install-v1` registration string.
+         */
+    @Throws(EnetException::class) fun `identitySign`(`identity`: kotlin.ByteArray, `message`: kotlin.ByteArray): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_identity_sign(
+    
+        FfiConverterByteArray.lower(`identity`),FfiConverterByteArray.lower(`message`),_status)
 }
     )
     }

@@ -107,15 +107,15 @@ fn templated(icon: TrayIcon) -> bool {
 /// The dark that cuts the dots (and the Windows ring) out of the disc.
 const CUT: &str = "#27272a";
 
-/// A design token as an SVG colour.
-fn svg_color(color: theme::Srgb8) -> String {
-    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+/// eUI's dark `destructive` red (the default theme), as `#rrggbb`.
+fn destructive() -> String {
+    eui_core::themes::default_theme().modes.dark.color.get("destructive").cloned().expect("the default theme has a destructive colour")
 }
 
 /// The icon with the microphone dot in its lower right corner: the
 /// design tokens' `destructive` red, cut out of the disc by a dark ring.
 fn dotted(svg: &[u8]) -> Vec<u8> {
-    let red = svg_color(theme::tokens::DESTRUCTIVE);
+    let red = destructive();
     String::from_utf8_lossy(svg)
         .replace(
             "</svg>",
@@ -128,7 +128,7 @@ fn dotted(svg: &[u8]) -> Vec<u8> {
 /// from the microphone dot: a red ring around a red core (⏺), on a larger
 /// dark cut-out.
 fn recording(svg: &[u8]) -> Vec<u8> {
-    let red = svg_color(theme::tokens::DESTRUCTIVE);
+    let red = destructive();
     String::from_utf8_lossy(svg)
         .replace(
             "</svg>",
@@ -1172,8 +1172,9 @@ mod tests {
             let i = ((px * frame.width + px) * 4) as usize;
             [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
         };
-        let red = theme::tokens::DESTRUCTIVE;
-        assert_eq!(at(&recording, 84.0), [red.r, red.g, red.b], "the core");
+        let red = destructive();
+        let byte = |ix: usize| u8::from_str_radix(&red[ix..ix + 2], 16).unwrap();
+        assert_eq!(at(&recording, 84.0), [byte(1), byte(3), byte(5)], "the core");
         // 15 units out along the diagonal: between the core (12) and the ring (18..24).
         assert!(at(&recording, 84.0 + 10.6)[0] < 80, "the gap");
         assert!(templated(TrayIcon::App) && templated(TrayIcon::Listening) && !templated(TrayIcon::Recording));

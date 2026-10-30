@@ -44,13 +44,11 @@ pub const ENTITY_REF_KINDS: &[&str] = &[
 ];
 
 /// The display string an entity row carries, in the order a row is known
-/// by: a title, a name, an action's snapshot name (a session), a repo's full
-/// name, a file's name, an invite's email, a device's label, a session's
-/// issue title, a comment's body (cut).
-const TITLE_KEYS: [&str; 9] = [
+/// by: a title, a name, a repo's full name, a file's name, an invite's
+/// email, a device's label, a session's issue title, a comment's body (cut).
+const TITLE_KEYS: [&str; 8] = [
     "title",
     "name",
-    "actionName",
     "issueTitle",
     "fullName",
     "filename",

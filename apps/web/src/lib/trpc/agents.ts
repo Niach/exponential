@@ -23,7 +23,7 @@ import {
   type DeviceAgentAccounts,
 } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/auth/membership"
-import { agentMirror, loadAgentForUser } from "@/lib/agents/conversation"
+import { loadAgentForUser } from "@/lib/agents/conversation"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import { assertRunnerVocabulary, resolveSessionDevice, resolveSessionDeviceInTx } from "@/lib/sessions/send"
@@ -266,12 +266,11 @@ export const agentsRouter = router({
           .returning()
         const ids = await conversationIds(tx, agent.id)
         if (ids.length > 0) {
-          // The conversations follow the definition: the legacy mirrors, the
-          // login + model they resume on, and (on a move) the device.
+          // The conversations follow the definition: the login + model they
+          // resume on and (on a move) the device.
           await tx
             .update(sessions)
             .set({
-              ...agentMirror(updated!),
               ...(input.cli !== undefined ? { cli: input.cli } : {}),
               ...accountWrite,
               ...(model !== undefined ? { model } : {}),
