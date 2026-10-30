@@ -3244,7 +3244,14 @@ impl ThreadScreenView {
             crate::story_viewer::open_tab(&team_id, &root_id, &story.id, picture, window, cx);
         });
         let images = self.images.clone();
-        let body = crate::story_tab::story_tab_body(ring.as_ref().as_ref(), lead, Some(&images), Some(on_open), cx);
+        let text = ThreadText::team(model.root.team_id.as_deref()).answering(true);
+        let tab_body = crate::story_tab::TabBody {
+            images: &images,
+            load_pictures: true,
+            text: &text,
+            card_for: &crate::story_tab::store_story_card,
+        };
+        let body = crate::story_tab::story_tab_body(ring.as_ref().as_ref(), lead, &tab_body, Some(on_open), window, cx);
         div()
             .id(SharedString::from(STORIES.tab.test_ids.list.clone()))
             .flex_1()

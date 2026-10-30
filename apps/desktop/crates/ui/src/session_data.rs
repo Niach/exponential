@@ -1260,14 +1260,11 @@ pub(crate) fn own_live_roots_by_team(cx: &App) -> BTreeMap<String, TeamLiveRuns>
 
 /// One row of the rail's Active band (EXP-1318): a thread the shapes make
 /// visible that needs you, runs, or still asks for a merge — the mark and
-/// the title, no identifier, no caption. EXP-1323: a live tree's children
-/// follow their root as nested rows (`depth` > 0, `session_id` = the child).
+/// the title, no identifier, no caption. #EXP-1461: a ROOT only (its
+/// tree's state rolled up; no nested children, no fold row).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LiveRootRow {
     pub(crate) root_id: String,
-    /// The row's own session (= `root_id` on the thread row).
-    pub(crate) session_id: String,
-    pub(crate) depth: usize,
     /// EXP-1323: a bold title.
     pub(crate) unread: bool,
     pub(crate) team_id: String,
@@ -1276,12 +1273,8 @@ pub(crate) struct LiveRootRow {
     pub(crate) needs_you: bool,
     /// EXP-1318: the root session's device (the trailing device icon).
     pub(crate) device_id: Option<String>,
-    /// Every session of the tree — the row stays lit while one is on screen
-    /// (a child row: itself only).
+    /// Every session of the tree — the row stays lit while one is on screen.
     pub(crate) session_ids: Vec<String>,
-    /// S-3: the tree's fold row (`<root>:earlier`) = how many sub-sessions
-    /// it hides; it opens the thread.
-    pub(crate) earlier: Option<usize>,
 }
 
 /// Pure core of [`live_roots_for_rail`]: the contract's `railThreads` over
@@ -1297,30 +1290,20 @@ pub(crate) fn live_roots_from(
     })
     .into_iter()
     .map(|row| {
-        let session_ids = if row.earlier.is_some() {
-            Vec::new()
-        } else if row.depth > 0 {
-            vec![row.session_id.clone()]
-        } else {
-            let tree: Vec<&SessionRow> = sessions
-                .iter()
-                .copied()
-                .filter(|session| session.id == row.session_id || session.root_id_or_self() == row.session_id)
-                .collect();
-            tree_order(&tree).iter().map(|session| session.id.clone()).collect()
-        };
+        let tree: Vec<&SessionRow> = sessions
+            .iter()
+            .copied()
+            .filter(|session| session.id == row.session_id || session.root_id_or_self() == row.session_id)
+            .collect();
         LiveRootRow {
-            session_ids,
-            root_id: if row.root_id.is_empty() { row.session_id.clone() } else { row.root_id },
-            session_id: row.session_id,
-            depth: row.depth,
+            session_ids: tree_order(&tree).iter().map(|session| session.id.clone()).collect(),
+            root_id: row.session_id,
             unread: row.unread,
             team_id: row.team_id,
             title: row.title,
             busy: row.busy,
             needs_you: row.needs_you,
             device_id: row.device_id,
-            earlier: row.earlier,
         }
     })
     .collect()
@@ -1480,7 +1463,6 @@ mod tests {
                     needs_you: false,
                     unread: false,
                     activity_at: String::new(),
-                    earlier: None,
                 })
                 .collect(),
         };
@@ -1519,7 +1501,6 @@ mod tests {
                 needs_you: false,
                 unread: false,
                 activity_at: String::new(),
-                earlier: None,
             }],
         };
         assert_eq!(threads_badge_of(&[]), (false, false));

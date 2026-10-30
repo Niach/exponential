@@ -6,11 +6,16 @@
 //!
 //! - [`story_tab_body`]: the PR block slot (`lead`), `tile.leadGap` under
 //!   it the tiles in fold order `tile.listGap` apart, else THE EmptyState.
-//! - [`story_tile`]: line 1 = the title (one line; none = the kind word)
-//!   with `meta` muted at the end (a waiting tile leads with the
-//!   plan/question tint dot and tints its meta), then ONE row of picture
-//!   thumbnails (`tile.thumbHeight.wide` tall, width by aspect capped at
-//!   `tile.thumbMaxWidth.wide`), a muted caption-or-label under each.
+//! - [`story_tile`]: #EXP-1462 one story's section, drawn INLINE (the
+//!   Guide's way, never a list of title rows): line 1 = the title (one
+//!   line; none = the kind word) with `meta` muted at the end (a waiting one
+//!   leads with the plan/question tint dot and tints its meta), the
+//!   description (muted, wrapping) `tile.textGap` under it, then its body in
+//!   place `tile.gap` under that: ONE row of pictures (`tile.thumbHeight.wide`
+//!   tall, width by aspect capped at `tile.thumbMaxWidth.wide`, a muted
+//!   caption-or-label under each), else THE surface card (no title; a reply
+//!   press goes to the story's session as in the chat), else the plan
+//!   markdown.
 //! - [`changes_row`]: the PR block's ONE `Changes` row (the diff glyph,
 //!   `n files +a −d`, a chevron) opening THE review pane; [`review_header`]
 //!   = that pane's `‹ Stories` back row.
@@ -29,6 +34,25 @@ use domain::stories::{Story, StoryKind, StoryPicture, StoryRing, STORIES};
 
 use crate::icons::registry;
 use crate::markdown::{ImageCache, ImageSlot};
+use crate::thread_screen::ThreadText;
+
+/// How the tab draws a story's body in place (#EXP-1462).
+pub(crate) struct TabBody<'a> {
+    /// The pictures' (and the plan markdown's) cache.
+    pub images: &'a Entity<ImageCache>,
+    /// `false` = the thumbnails' muted fill alone (the styleguide).
+    pub load_pictures: bool,
+    /// The plan markdown's mention/link context.
+    pub text: &'a ThreadText,
+    /// The story's raw show card (its message's `card`), `None` = unknown.
+    pub card_for: &'a dyn Fn(&Story, &App) -> Option<serde_json::Value>,
+}
+
+/// The live tab's [`TabBody::card_for`]: the synced message's card.
+pub(crate) fn store_story_card(story: &Story, cx: &App) -> Option<serde_json::Value> {
+    let store = sync::Store::try_global(cx)?;
+    store.collections().messages.read(cx).get(&story.id)?.card.clone()
+}
 
 /// A tile or a thumbnail was clicked: the story, the picture's index.
 pub(crate) type OnOpenStory = Rc<dyn Fn(&Story, usize, &mut Window, &mut App)>;
@@ -53,14 +77,15 @@ pub(crate) fn story_thumb_width(picture: &StoryPicture) -> f32 {
     tile.thumb_max_width.wide.min((tile.thumb_height.wide * aspect).round())
 }
 
-/// THE tile. `images` = `None` paints the thumbnails' muted fill alone
-/// (the styleguide's placeholders).
+/// THE story section (#EXP-1462: inline).
 pub(crate) fn story_tile(
     story: &Story,
-    images: Option<&Entity<ImageCache>>,
+    body: &TabBody<'_>,
     on_open: Option<OnOpenStory>,
+    window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
+    let images = body.load_pictures.then_some(body.images);
     let tile = &STORIES.tab.tile;
     let theme = cx.theme();
     let muted = theme.muted_foreground;
@@ -69,18 +94,10 @@ pub(crate) fn story_tile(
     let title = story.title.clone().unwrap_or_else(|| story.kind.label().to_string());
     let line_open = on_open.clone();
     let line_story = story.clone();
-    let line = h_flex()
-        .id(SharedString::from(format!("story-tile-line-{}", story.id)))
+    let head = h_flex()
         .min_w_0()
         .items_center()
         .gap_2()
-        .rounded_md()
-        .when(on_open.is_some(), |line| line.cursor_pointer())
-        .on_click(move |_, window, cx| {
-            if let Some(open) = &line_open {
-                open(&line_story, 0, window, cx);
-            }
-        })
         .when_some(tint, |line, tint| line.child(div().flex_shrink_0().size(px(6.)).rounded_full().bg(tint)))
         .child(
             div()
@@ -99,7 +116,58 @@ pub(crate) fn story_tile(
                 .text_color(tint.unwrap_or(muted))
                 .child(SharedString::from(story.meta.clone())),
         );
-    let thumbs: Vec<AnyElement> = story
+    // Line 1 + the description: a tap opens THE viewer at the story.
+    let line = v_flex()
+        .id(SharedString::from(format!("story-tile-line-{}", story.id)))
+        .min_w_0()
+        .gap(px(tile.text_gap))
+        .rounded_md()
+        .when(on_open.is_some(), |line| line.cursor_pointer())
+        .on_click(move |_, window, cx| {
+            if let Some(open) = &line_open {
+                open(&line_story, 0, window, cx);
+            }
+        })
+        .child(head)
+        .when_some(story.description.clone().filter(|text| !text.trim().is_empty()), |line, description| {
+            line.child(
+                div()
+                    .id(SharedString::from(format!("story-tile-description-{}", story.id)))
+                    .min_w_0()
+                    .text_sm()
+                    .text_color(muted)
+                    .child(SharedString::from(description)),
+            )
+        });
+    // The frame rule: pictures win, else the surface, else the plan text.
+    let surface = (story.pictures.is_empty() && story.surface)
+        .then(|| (body.card_for)(story, cx))
+        .flatten()
+        .and_then(|card| domain::session_tree::card_surface(card.get("surface")));
+    let inline: Option<AnyElement> = match (&surface, story.text.as_deref()) {
+        _ if !story.pictures.is_empty() => None,
+        (Some(surface), _) => Some(
+            div()
+                .id(SharedString::from(format!("story-tile-surface-{}", story.id)))
+                .w_full()
+                .min_w_0()
+                .child(crate::surface_card::surface_row(&story.id, &story.session_id, None, surface, window, cx))
+                .into_any_element(),
+        ),
+        (None, Some(markdown)) => Some(
+            crate::steer_viewer::ask_body_text(cx)
+                .id(SharedString::from(format!("story-tile-text-{}", story.id)))
+                .text_sm()
+                .child(crate::thread_screen::message_markdown(
+                    SharedString::from(format!("story-tab-text-{}", story.id)),
+                    &crate::plan_card::strip_pending_uploads(markdown),
+                    body.text,
+                    body.images,
+                ))
+                .into_any_element(),
+        ),
+        _ => None,
+    };    let thumbs: Vec<AnyElement> = story
         .pictures
         .iter()
         .enumerate()
@@ -160,6 +228,7 @@ pub(crate) fn story_tile(
                     .children(thumbs),
             )
         })
+        .children(inline)
         .into_any_element()
 }
 
@@ -167,8 +236,9 @@ pub(crate) fn story_tile(
 pub(crate) fn story_tab_body(
     ring: Option<&StoryRing>,
     lead: Option<AnyElement>,
-    images: Option<&Entity<ImageCache>>,
+    body: &TabBody<'_>,
     on_open: Option<OnOpenStory>,
+    window: &mut Window,
     cx: &mut App,
 ) -> Div {
     let tile = &STORIES.tab.tile;
@@ -180,7 +250,7 @@ pub(crate) fn story_tab_body(
         v_flex()
             .min_w_0()
             .gap(px(tile.list_gap))
-            .children(stories.iter().map(|story| story_tile(story, images, on_open.clone(), cx)))
+            .children(stories.iter().map(|story| story_tile(story, body, on_open.clone(), window, cx)))
             .into_any_element()
     };
     v_flex().min_w_0().w_full().gap(px(tile.lead_gap)).children(lead).child(list)
@@ -288,7 +358,7 @@ pub(crate) fn review_header(
 mod tests {
     use super::*;
 
-    /// web `storyThumbWidth`: by aspect at 260 tall, capped at 560; 4:3
+    /// web `storyThumbWidth`: by aspect at 400 tall, capped at 720; 4:3
     /// without a size.
     #[test]
     fn thumbs_size_by_aspect_capped() {
@@ -299,9 +369,9 @@ mod tests {
             height,
             caption: None,
         };
-        assert_eq!(story_thumb_width(&picture(Some(1600), Some(1000))), 416.);
-        assert_eq!(story_thumb_width(&picture(Some(1179), Some(2556))), 120.);
-        assert_eq!(story_thumb_width(&picture(Some(4000), Some(1000))), 560.);
-        assert_eq!(story_thumb_width(&picture(None, None)), 347.);
+        assert_eq!(story_thumb_width(&picture(Some(1600), Some(1000))), 640.);
+        assert_eq!(story_thumb_width(&picture(Some(1179), Some(2556))), 185.);
+        assert_eq!(story_thumb_width(&picture(Some(4000), Some(1000))), 720.);
+        assert_eq!(story_thumb_width(&picture(None, None)), 533.);
     }
 }

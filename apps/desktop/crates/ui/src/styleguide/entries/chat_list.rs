@@ -110,8 +110,9 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .rounded_xl()
         .bg(cx.theme().background)
         .child(header(cx))
-        // S-3 (stories.json specimen): Triage + Designer wear their rings,
-        // the two chat rings follow.
+        // #EXP-1461 THE STORY ROW (stories.json specimen): only Triage +
+        // Designer (the bubbles with a ring) wear their rings, the two chat
+        // rings follow; the Assistant and Release have none and are not drawn.
         .children(agent_bubbles_row(
             &bubbles,
             &specimen_rings(),
@@ -152,16 +153,14 @@ mod tests {
         assert!(agent_rows[0].assistant, "the Assistant leads the pinned agent rows");
     }
 
-    /// S-3: the story-ring specimen's Triage + Designer rings ride their
-    /// bubbles, the two chat rings follow.
+    /// #EXP-1461: the story-ring specimen's Triage + Designer rings ride
+    /// their bubbles (the ringless bubbles drop), the two chat rings follow.
     #[test]
     fn the_bubbles_wear_the_specimen_rings() {
         let (_, bubbles, _) = model();
         let ids: Vec<&str> = bubbles.iter().map(|bubble| bubble.agent.agent_id.as_str()).collect();
-        let split = domain::stories::bubble_rings(&ids, &specimen_rings());
-        let mut worn: Vec<&str> = split.by_agent.keys().map(String::as_str).collect();
-        worn.sort();
-        assert_eq!(worn, ["ag1", "ag2"]);
+        let split = domain::stories::story_row(&ids, &specimen_rings());
+        assert_eq!(split.bubbles, ["ag1", "ag2"]);
         let rest: Vec<&str> = split.rest.iter().map(|ring| ring.title.as_str()).collect();
         assert_eq!(rest, ["Board header polish", "Ship the launch checklist"]);
     }

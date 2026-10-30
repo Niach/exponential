@@ -17,12 +17,11 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::chats::{chat_filter_label, chat_selection_count, ChatSelectionAction, AgentBubble, AgentRing, ChatCounts, ChatFilter, ChatLead, ChatPreviewKind, ChatRow, CHATS};
+use domain::chats::{chat_filter_label, chat_selection_count, ChatSelectionAction, AgentBubble, ChatCounts, ChatFilter, ChatLead, ChatPreviewKind, ChatRow, CHATS};
 use domain::session_tree::ThreadRowWord;
-use domain::stories::{bubble_rings, BubbleRings, StoryRing};
+use domain::stories::{story_row, StoryRing, STORIES};
 
 use crate::icons::registry;
-use crate::story_ring::{story_ring, story_ring_button, RingArc};
 use crate::issue_list::{select_cell, selectable_row_fill, ROW_GROUP, ROW_PAD, SELECT_CELL_GAP, SELECT_CELL_W};
 use crate::surface::{glass_pill, PillMode, PillSize};
 
@@ -433,55 +432,26 @@ pub(crate) fn agent_circle(size: f32, ring_width: f32, ring_gap: f32, ring: Opti
         )
 }
 
-/// One agent bubble: the 66 circle (a 3px ring around a 3px background gap
-/// around the agent's icon on bg muted; the working mark while busy; S-3:
-/// the brand mark for the viewer's Assistant) with the name under it. S-3
-/// (stories.json STORY RING): a bubble with a `story` ring wears THE story
-/// ring instead (same 66, the 54 muted disc), its name medium while the ring
-/// is unseen. The caller hangs the click and the agent menu.
-pub(crate) fn agent_bubble(bubble: &AgentBubble, story: Option<&StoryRing>, cx: &App) -> Div {
+/// One agent bubble of THE STORY ROW (#EXP-1461, stories.json THE STORY
+/// ROW): the agent's icon in its colour (the working mark while busy, the
+/// brand mark for the viewer's Assistant) inside its agent's story ring
+/// (the bubble size, the muted disc), the name `row.labelGap` under it,
+/// medium while the ring is unseen. A bubble without a ring is never drawn.
+/// The caller hangs the click and the agent menu.
+pub(crate) fn agent_bubble(bubble: &AgentBubble, story: &StoryRing, cx: &App) -> Div {
     let theme = cx.theme();
-    let shell = &CHATS.shell;
-    let ring = match bubble.ring {
-        Some(AgentRing::NeedsYou) => Some(theme::tokens::YELLOW.to_hsla()),
-        Some(AgentRing::Unread) => Some(theme.foreground),
-        None => None,
-    };
     let agent = &bubble.agent;
     let glyph = agent_avatar_glyph(&agent.icon, &agent.color, agent.assistant, agent.busy, GLYPH_PX, cx);
-    let circle = match story {
-        Some(story) => {
-            let arcs: Vec<RingArc> = story.stories.iter().map(RingArc::from).collect();
-            let disc = div()
-                .size_full()
-                .rounded_full()
-                .bg(theme.muted)
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(glyph)
-                .into_any_element();
-            story_ring(&arcs, shell.bubble, disc, cx)
-        }
-        None => agent_circle(shell.bubble, shell.bubble_ring, shell.bubble_ring, ring, glyph, cx),
-    };
-    let strong = bubble.ring.is_some() || story.is_some_and(|story| story.unseen);
-    v_flex()
-        .w(px(shell.bubble + 6.))
-        .flex_shrink_0()
+    let disc = div()
+        .size_full()
+        .rounded_full()
+        .bg(theme.muted)
+        .flex()
         .items_center()
-        .gap_1p5()
-        .child(circle)
-        .child(
-            div()
-                .w_full()
-                .truncate()
-                .text_center()
-                .text_xs()
-                .when(strong, |this| this.font_weight(FontWeight::MEDIUM))
-                .text_color(if strong { theme.foreground } else { theme.muted_foreground })
-                .child(SharedString::from(agent.name.clone())),
-        )
+        .justify_center()
+        .child(glyph)
+        .into_any_element();
+    crate::story_ring::story_row_item(&story.stories, disc, &agent.name, story.unseen, cx)
 }
 
 /// S-3 — one AGENT row pinned on top of the Chats list (chats.json
@@ -632,43 +602,63 @@ pub(crate) fn composer_agent_row(
         .into_any_element()
 }
 
-/// The Chats header's agents row: the bubbles in `list_agents` order,
-/// scrolling sideways. S-3: each bubble wears its agent's story ring, the
-/// rings no bubble wears follow in the same row (`bubble_rings`, painted by
-/// `ring_avatar`). `wrap` hangs each bubble's click + menu (its index, agent
-/// and worn ring), `wrap_ring` each trailing ring's (its index and key) —
-/// the styleguide passes none.
+/// THE STORY ROW of the Chats header (#EXP-1461, stories.json `row` +
+/// `rowCases`): ONLY rings. The agent bubbles whose agent has a ring
+/// (`story_row`, list_agents order), each wearing it, then the rings no
+/// bubble wears (painted by `ring_avatar`); nothing = `None` (no row, no
+/// reserved height). One line scrolling sideways, every item EXACTLY
+/// `row.itemWidth` wide and never shrunk (`flex_none` on the caller's wrapper
+/// too), `row.gap` apart, `row.padBottom` under the names. `wrap` hangs each
+/// bubble's click + menu (its index, agent and ring), `wrap_ring` each
+/// trailing ring's — the styleguide passes plain wrappers.
 pub(crate) fn agent_bubbles_row(
     bubbles: &[AgentBubble],
     rings: &[StoryRing],
     ring_avatar: impl Fn(&StoryRing) -> AnyElement,
-    wrap: impl Fn(usize, &AgentBubble, Option<&StoryRing>, Div) -> AnyElement,
+    wrap: impl Fn(usize, &AgentBubble, &StoryRing, Div) -> AnyElement,
     wrap_ring: impl Fn(usize, &StoryRing, Div) -> AnyElement,
     cx: &App,
 ) -> Option<AnyElement> {
     let ids: Vec<&str> = bubbles.iter().map(|bubble| bubble.agent.agent_id.as_str()).collect();
-    let BubbleRings { by_agent, rest } = bubble_rings(&ids, rings);
-    if bubbles.is_empty() && rest.is_empty() {
+    let row = story_row(&ids, rings);
+    if row.is_empty() {
         return None;
     }
+    let spec = STORIES.row;
+    let drawn: Vec<(usize, &AgentBubble, &StoryRing)> = row
+        .bubbles
+        .iter()
+        .filter_map(|id| {
+            let bubble = bubbles.iter().find(|bubble| bubble.agent.agent_id == *id)?;
+            Some((bubble, row.by_agent.get(id)?))
+        })
+        .enumerate()
+        .map(|(index, (bubble, ring))| (index, bubble, ring))
+        .collect();
     Some(
         h_flex()
             .id("chat-agent-bubbles")
             .w_full()
-            .gap_3()
-            .pb_1()
+            .min_w_0()
+            .flex_none()
+            .items_start()
+            .gap(px(spec.gap))
+            .pb(px(spec.pad_bottom))
             .overflow_x_scroll()
-            .children(bubbles.iter().enumerate().map(|(index, bubble)| {
-                let story = by_agent.get(&bubble.agent.agent_id);
-                wrap(index, bubble, story, agent_bubble(bubble, story, cx))
+            .children(drawn.into_iter().map(|(index, bubble, ring)| {
+                story_row_slot(wrap(index, bubble, ring, agent_bubble(bubble, ring, cx)))
             }))
-            .children(
-                rest.iter()
-                    .enumerate()
-                    .map(|(index, ring)| wrap_ring(index, ring, story_ring_button(ring, ring_avatar(ring), cx))),
-            )
+            .children(row.rest.iter().enumerate().map(|(index, ring)| {
+                story_row_slot(wrap_ring(index, ring, crate::story_ring::story_ring_button(ring, ring_avatar(ring), cx)))
+            }))
             .into_any_element(),
     )
+}
+
+/// One item's slot in THE STORY ROW: exactly `row.itemWidth`, never shrunk
+/// (gpui flex children shrink by default, the wrapper too).
+fn story_row_slot(item: AnyElement) -> AnyElement {
+    div().w(px(STORIES.row.item_width)).flex_none().child(item).into_any_element()
 }
 
 /// The filter chips over the list: select Pills labelled by

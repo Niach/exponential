@@ -943,37 +943,18 @@ impl RailView {
             return None;
         }
         let screen = resolved_screen(&self.nav, cx);
-        // EXP-1323: a live tree's children nest under their root
-        // (TreeGuides off the band's depth sequence); a child that has its
-        // own row lights that row, not its root's.
-        let guides = domain::tree_guides::guides_for(&running.iter().map(|row| row.depth).collect::<Vec<_>>());
-        let child_rows: std::collections::HashSet<String> = running
-            .iter()
-            .filter(|row| row.depth > 0 && row.earlier.is_none())
-            .map(|row| row.session_id.clone())
-            .collect();
+        // #EXP-1461: ROOT rows only (the tree's state rolled up into it); a
+        // row stays lit while any session of its tree is on screen.
         let elements: Vec<gpui::AnyElement> = running
             .into_iter()
             .enumerate()
             .map(|(index, row)| {
-                // S-3: the fold row (`<root>:earlier`) never lights.
-                let fold = row.earlier.is_some();
                 let active = match &screen {
-                    _ if fold => false,
-                    Some(Screen::Thread { session_id }) => row.depth == 0 && *session_id == row.root_id,
-                    Some(Screen::Session { session_id }) if row.depth > 0 => *session_id == row.session_id,
-                    Some(Screen::Session { session_id }) => {
-                        row.session_ids.contains(session_id) && !child_rows.contains(session_id)
-                    }
+                    Some(Screen::Thread { session_id }) => *session_id == row.root_id,
+                    Some(Screen::Session { session_id }) => row.session_ids.contains(session_id),
                     _ => false,
                 };
-                // S-3: the fold row = the muted list-item row with the done
-                // mark (web `sidebar-running`'s `ended` mark).
-                let state = if fold {
-                    domain::session_tree::SessionState::Done
-                } else {
-                    running_row_state(row.busy, row.needs_you)
-                };
+                let state = running_row_state(row.busy, row.needs_you);
                 // The mark is the agent of the newest session working in the
                 // tree, else the root's.
                 let agent = row
@@ -982,20 +963,12 @@ impl RailView {
                     .rev()
                     .filter_map(|id| crate::session_data::session(id, cx))
                     .find(crate::session_data::session_is_working)
-                    .or_else(|| crate::session_data::session(if fold { &row.root_id } else { &row.session_id }, cx))
+                    .or_else(|| crate::session_data::session(&row.root_id, cx))
                     .and_then(|session| crate::run_rows::run_agent(session.cli.as_deref()));
-                // A thread row (and the fold row) opens the thread, a child
-                // row that session.
-                let target = if row.depth == 0 || fold {
-                    Screen::Thread {
-                        session_id: row.root_id.clone(),
-                    }
-                } else {
-                    Screen::Session {
-                        session_id: row.session_id.clone(),
-                    }
+                let target = Screen::Thread {
+                    session_id: row.root_id.clone(),
                 };
-                let menu_root = (row.depth == 0).then(|| row.root_id.clone());
+                let menu_root = row.root_id.clone();
                 let element = crate::run_rows::run_row(
                     crate::run_rows::RunRowSpec {
                         id_prefix: "rail-running",
@@ -1006,7 +979,7 @@ impl RailView {
                         // EXP-1318: the root session's device icon trails.
                         trailing: crate::threads_view::thread_device_icon(
                             row.device_id.as_deref(),
-                            &format!("rail-{}", row.session_id),
+                            &format!("rail-{}", row.root_id),
                             cx,
                         ),
                         title: SharedString::from(row.title),
@@ -1014,17 +987,13 @@ impl RailView {
                         on_open: Box::new(move |_, window, cx| {
                             crate::navigation::navigate_from_live_rail(window, cx, target.clone());
                         }),
-                        guides: guides.get(index).cloned().unwrap_or_default(),
+                        guides: Default::default(),
                         unread: row.unread,
-                        muted: fold,
                     },
                     cx,
                 );
                 // Thread 58cb32df: a chat row's right-click = THE chat menu.
-                match menu_root {
-                    Some(root_id) => crate::threads_view::chat_row_menu(&root_id, element.into_any_element(), cx),
-                    None => element.into_any_element(),
-                }
+                crate::threads_view::chat_row_menu(&menu_root, element.into_any_element(), cx)
             })
             .collect();
         let rule = self.section_rule(cx);
