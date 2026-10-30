@@ -82,6 +82,8 @@ pub(crate) mod chat_transcript;
 pub(crate) mod chat_menus;
 // #EXP-1388: the Chats multi-selection.
 pub(crate) mod chat_selection;
+// EXP-1459: sealed content this install cannot open (yet).
+pub(crate) mod sealed_locked;
 // Thread e4a04d22: mention pills in chats.
 pub(crate) mod mention_pill;
 // S-3: stories.
@@ -185,6 +187,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: chat_transcript::ID, owner: chat_transcript::OWNER, render: chat_transcript::render },
     Entry { id: chat_menus::ID, owner: chat_menus::OWNER, render: chat_menus::render },
     Entry { id: chat_selection::ID, owner: chat_selection::OWNER, render: chat_selection::render },
+    Entry { id: sealed_locked::ID, owner: sealed_locked::OWNER, render: sealed_locked::render },
     Entry { id: story_ring::ID, owner: story_ring::OWNER, render: story_ring::render },
     Entry { id: story_viewer::ID, owner: story_viewer::OWNER, render: story_viewer::render },
     Entry { id: story_tab::ID, owner: story_tab::OWNER, render: story_tab::render },

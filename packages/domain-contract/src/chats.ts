@@ -15,6 +15,7 @@ import {
   type TreeSession,
   type TreeSessionRead,
 } from "./session-tree"
+import { SEALED_PLACEHOLDER, type LockedReason } from "./sealed-content"
 
 export const CHATS_COPY = fixture.copy
 export const CHATS_TEST_IDS = fixture.testIds
@@ -68,6 +69,8 @@ export type ChatPreviewKind =
   | `new`
   | `compact`
   | `empty`
+  /** EXP-1459: the previewed message is sealed and does not open here. */
+  | `locked`
 
 export interface ChatPreview {
   kind: ChatPreviewKind
@@ -188,6 +191,11 @@ export const PRIVATE_REPLY_LEAD = fixture.copy.preview.privateReplyLead
 export const PRIVATE_REPORT_LEAD = fixture.copy.preview.privateReportLead
 export const PRIVATE_PR_LEAD = fixture.copy.preview.privatePrLead
 
+/** EXP-1459: a sealed message that does not open here (sealed-content.json `placeholder`). */
+function lockedPreview(reason: LockedReason): ChatPreview {
+  return { kind: `locked`, text: SEALED_PLACEHOLDER.copy[reason] }
+}
+
 /** The root conversation's preview line (`previewCases`). */
 export function chatPreview(input: {
   rootId: string
@@ -201,17 +209,18 @@ export function chatPreview(input: {
   const visible = input.visibleSessionIds ? new Set(input.visibleSessionIds) : null
   const own = input.messages
     .filter((m) => m.sessionId === input.rootId && (m.authorKind === `user` || m.authorKind === `agent`))
-    .filter((m) => (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : m.body.trim() !== ``))
+    .filter((m) => m.locked || (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : m.body.trim() !== ``))
     .sort((a, b) => (ms(b.createdAt) ?? 0) - (ms(a.createdAt) ?? 0) || (a.id < b.id ? 1 : -1))
   if (input.needsYou) {
     const waiting = own.find(
       (m) => m.answeredAt === null && (m.card?.kind === `question` || m.card?.kind === `plan` || m.card?.kind === `ask`)
     )
-    if (waiting) return askPreview(waiting, visible)
+    if (waiting) return waiting.locked ? lockedPreview(waiting.locked) : askPreview(waiting, visible)
   }
   if (input.busy) return { kind: `working`, text: copy.working }
   const newest = own[0]
   if (!newest) return { kind: `empty`, text: copy.empty }
+  if (newest.locked) return lockedPreview(newest.locked)
   if (newest.authorKind === `user`) {
     const divider = commandDivider(newest.body)
     if (divider) return { kind: divider, text: fixture.copy.dividers[divider] }

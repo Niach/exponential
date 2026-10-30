@@ -13,6 +13,7 @@ import listFixture from "../fixtures/threads-list.json" with { type: "json" }
 import { sessionTitle, sessionTitles } from "./session-title"
 import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
 import { commandDivider } from "./chats"
+import type { LockedReason } from "./sealed-content"
 
 export interface TreeSession {
   id: string
@@ -89,6 +90,9 @@ export interface TreeMessage {
   createdAt: string
   /** EXP-1323: the session that posted it (absent = null). */
   authorSessionId?: string | null
+  /** EXP-1459: sealed content this install cannot open (yet); `body` is
+   *  empty and `card` its clear part (sealed-content.json `placeholder`). */
+  locked?: LockedReason | null
 }
 
 export interface TreePullRequest {
@@ -546,6 +550,9 @@ export type ThreadRow =
   | { type: `event`; id: string; event: string; text: string }
   /** Thread 58cb32df (chats.json): a person's `/new` or `/compact` line. */
   | { type: `divider`; id: string; kind: `new` | `compact`; at: string }
+  /** EXP-1459 (sealed-content.json `placeholder`): content this install
+   *  cannot open (yet), whatever its kind: THE transcript pill. */
+  | { type: `locked`; id: string; reason: LockedReason; author: `user` | `agent` | `system` }
   /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
   | { type: `surface`; id: string; sessionId: string; title: string | null; surface: CardSurface }
 
@@ -951,6 +958,12 @@ export function buildSessionThread(input: {
   const escalated = new Set<string>()
   for (const message of conversation) {
     const card = message.card
+    if (message.locked) {
+      const author =
+        message.authorKind === `user` || message.authorKind === `agent` ? message.authorKind : `system`
+      rows.push({ type: `locked`, id: message.id, reason: message.locked, author })
+      continue
+    }
     if (!card) {
       const author =
         message.authorKind === `user` || message.authorKind === `agent`
