@@ -181,6 +181,20 @@ describe.skipIf(!ready.ok)(`agents.update / delete on an Assistant (S-3)`, () =>
     expect((await asMate.update({ id: assistant.id, triggers: [] })).agent.triggers).toEqual([])
   })
 
+  it(`#EXP-1439: runs on the built-in prompt; an edit of its instructions is refused`, async () => {
+    const w = await world()
+    await w.device(w.mate, `desktop`, 1)
+    const assistant = (await ensureAssistant(w.mate, w.teamId))!
+    const asMate = agentsRouter.createCaller(person(w.mate) as never)
+    await expect(asMate.update({ id: assistant.id, instructions: `Be loud.` })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: ASSISTANT_COPY.promptFixed,
+    })
+    // An old client resending the stored text unchanged still saves.
+    const { agent } = await asMate.update({ id: assistant.id, name: `Jarvis`, instructions: assistant.instructions })
+    expect(agent.name).toBe(`Jarvis`)
+  })
+
   it(`is never deleted, not even by its owner`, async () => {
     const w = await world()
     await w.device(w.owner, `desktop`, 1)

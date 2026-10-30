@@ -11,8 +11,9 @@ import SwiftUI
 // mirrors it), Check in (THE Picker over `assistantSchedules`, written at
 // once as `assistantScheduleTriggers`), Voice (the Voice settings block
 // moved here whole, minus its Voice device + Agent pickers: the server
-// derives both from this Assistant) and Instructions. No Delete: nobody
-// deletes an Assistant. Only its member ever reaches it (`visibleAgent`).
+// derives both from this Assistant). No Instructions (#EXP-1439: the
+// prompt is built in; the instructions are never loaded, so Save never
+// sends them) and no Delete: nobody deletes an Assistant. Only its member ever reaches it (`visibleAgent`).
 
 /// The viewer's Assistant avatar: the Exponential brand mark in the
 /// foreground colour on bg muted, never a stored icon or colour.
@@ -117,10 +118,6 @@ private struct AssistantSettingsContent: View {
                         draft: draft,
                         voice: voice,
                         devices: devices,
-                        baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-                        accountId: accountId,
-                        httpClient: deps.httpClient,
-                        onRetryInstructions: { Task { await loadInstructions(retried: true) } },
                         onCheckIn: { setCheckIn($0) }
                     )
                     GlassSubmitButton("Save changes", enabled: canSubmit, loading: draft.saving) {
@@ -155,7 +152,6 @@ private struct AssistantSettingsContent: View {
         )
         guard let agentId else { return }
         observe(agentId: agentId)
-        await loadInstructions(retried: false)
     }
 
     private func observe(agentId: String) {
@@ -176,23 +172,6 @@ private struct AssistantSettingsContent: View {
                     }
                 }
             } catch {}
-        }
-    }
-
-    private func loadInstructions(retried: Bool) async {
-        guard let agentId else { return }
-        draft.instructionsFailed = false
-        do {
-            let details = try await deps.agentsApi.get(accountId: accountId, id: agentId)
-            draft.loadInstructions(details.instructions)
-        } catch {
-            draft.instructionsFailed = true
-            if retried {
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: "load", thing: "the instructions"),
-                    description: error.trpcUserMessage
-                )
-            }
         }
     }
 
@@ -230,7 +209,7 @@ private struct AssistantSettingsContent: View {
         }
     }
 
-    /// Name, Runs on and Instructions ride `agents.update` on Save (the
+    /// Name and Runs on ride `agents.update` on Save (the
     /// device change = `{id, deviceId}`, the server moves the voice device).
     private func save() async {
         guard let agentId else { return }
@@ -261,10 +240,6 @@ struct AssistantSettingsForm: View {
     @Bindable var draft: AgentSettingsDraft
     @Bindable var voice: VoiceSettingsModel
     let devices: [SteerDevice]
-    var baseURL: URL? = nil
-    var accountId: String = ""
-    var httpClient: HTTPClient? = nil
-    var onRetryInstructions: () -> Void = {}
     var onCheckIn: (AgentSettings.AssistantScheduleId) -> Void = { _ in }
 
     private var device: SteerDevice? {
@@ -305,22 +280,6 @@ struct AssistantSettingsForm: View {
 
             // voice: THE block, without its Voice device + Agent pickers.
             VoiceSettingsBlock(model: voice, pickers: false, header: AgentSettings.AssistantCopy.voice)
-
-            // instructions
-            Section {
-                AgentInstructionsEditor(
-                    draft: draft,
-                    canEdit: true,
-                    baseURL: baseURL,
-                    accountId: accountId,
-                    httpClient: httpClient,
-                    onRetry: onRetryInstructions
-                )
-                errorLine("instructions")
-            } header: {
-                GlassSectionHeader(label("instructions"))
-            }
-            .listRowBackground(glassFormRowFill)
         }
         .scrollContentBackground(.hidden)
         .listSectionSpacing(8)

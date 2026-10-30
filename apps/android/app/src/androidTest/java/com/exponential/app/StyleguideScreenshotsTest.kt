@@ -12,7 +12,6 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
@@ -999,8 +998,8 @@ class StyleguideScreenshotsTest {
         // --- sg_settings-assistant (S-3, agent-settings.json `assistant`):
         // the Team page's Agents row → the Assistant (the agents list's first
         // row, the brand mark) = the viewer's OWN Assistant (seeded):
-        // identity, Runs on, Check in, the Voice block, the instructions
-        // (fetched: the gate). A detour: nothing is edited.
+        // identity, Runs on, Check in (the gate), the Voice block; no
+        // instructions (#EXP-1439). A detour: nothing is edited.
         if (ScreenshotFlow.anyRequested("sg_settings-assistant")) {
             tapClearOfBar(teamSettingsRow("Agents"))
             val assistantRow = hasTestTag(SessionTree.ListCopy.TEST_ID_AGENT_ROW) and
@@ -1009,7 +1008,6 @@ class StyleguideScreenshotsTest {
             tapClearOfBar(assistantRow)
             flow.waitFor(hasTestTag(AgentSettings.TEST_ID_PAGE), NAV_TIMEOUT)
             flow.waitFor(hasTestTag("assistant-check-in"), SYNC_TIMEOUT)
-            flow.waitFor(hasTestTag("agent-settings-instructions") and isEnabled(), NETWORK_TIMEOUT)
             flow.settle(longer = true)
             flow.screenshot("sg_settings-assistant")
             Espresso.closeSoftKeyboard()

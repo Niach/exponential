@@ -248,7 +248,8 @@ export function AgentSettingsPage({
   // S-3 (agent-settings.json `assistant`): the member's Assistant renders
   // `assistant.sections`: identity (name only, the brand mark), Runs on
   // (device, account, model), Check in (THE Picker over the presets), Voice
-  // (the voice settings block), Instructions; no Delete. Only its owner
+  // (the voice settings block); no Instructions (#EXP-1439: its prompt is
+  // built in), no Delete. Only its owner
   // reaches it (the server answers NOT_FOUND to anyone else), so it is never
   // read-only.
   const assistant = agent?.role === `assistant`
@@ -510,7 +511,7 @@ export function AgentSettingsPage({
   const loadSeq = useRef(0)
   const loadInstructions = useCallback(
     (retried = false) => {
-      if (!agentId) return
+      if (!agentId || assistant) return
       const seq = ++loadSeq.current
       setInstructionsLoading(true)
       trpc.agents.get
@@ -534,7 +535,7 @@ export function AgentSettingsPage({
           }
         })
     },
-    [agentId]
+    [agentId, assistant]
   )
   useEffect(() => {
     setInstructions(``)
@@ -772,41 +773,43 @@ export function AgentSettingsPage({
         </GlassGroup>
       )}
 
-      <div className="space-y-1">
-        <GlassGroup>
-          {instructionsLoading ? (
-            <SkeletonRows dot={false} className="min-h-40 py-1" />
-          ) : instructionsFailed ? (
-            <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-              Instructions unavailable
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => loadInstructions(true)}
-              >
-                {FEEDBACK_ERRORS.retry}
-              </Button>
-            </div>
-          ) : (
-            <Textarea
-              id="agent-instructions"
-              aria-label="Instructions"
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              onBlur={saveInstructions}
-              placeholder={COPY.instructionsPlaceholder}
-              readOnly={readOnly}
-              rows={6}
-              aria-invalid={Boolean(instructionsError) || undefined}
-              className={`${GROUPED_FIELD_ROW} min-h-40 resize-y`}
-              data-testid="agent-instructions"
-            />
-          )}
-        </GlassGroup>
-        <p className="px-1.5 text-xs text-muted-foreground">Instructions</p>
-        <FieldError className="px-1">{instructionsError}</FieldError>
-      </div>
+      {!assistant && (
+        <div className="space-y-1">
+          <GlassGroup>
+            {instructionsLoading ? (
+              <SkeletonRows dot={false} className="min-h-40 py-1" />
+            ) : instructionsFailed ? (
+              <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+                Instructions unavailable
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadInstructions(true)}
+                >
+                  {FEEDBACK_ERRORS.retry}
+                </Button>
+              </div>
+            ) : (
+              <Textarea
+                id="agent-instructions"
+                aria-label="Instructions"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                onBlur={saveInstructions}
+                placeholder={COPY.instructionsPlaceholder}
+                readOnly={readOnly}
+                rows={6}
+                aria-invalid={Boolean(instructionsError) || undefined}
+                className={`${GROUPED_FIELD_ROW} min-h-40 resize-y`}
+                data-testid="agent-instructions"
+              />
+            )}
+          </GlassGroup>
+          <p className="px-1.5 text-xs text-muted-foreground">Instructions</p>
+          <FieldError className="px-1">{instructionsError}</FieldError>
+        </div>
+      )}
 
       {creating
         ? isOwner && (

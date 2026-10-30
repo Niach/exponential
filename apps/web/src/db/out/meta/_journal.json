@@ -1513,6 +1513,13 @@
       "when": 1793321929412,
       "tag": "0215_fcm_tokens_relay_capability",
       "breakpoints": true
+    },
+    {
+      "idx": 216,
+      "version": "7",
+      "when": 1793340810062,
+      "tag": "0216_exp1439_assistant_builtin_prompt",
+      "breakpoints": true
     }
   ]
 }

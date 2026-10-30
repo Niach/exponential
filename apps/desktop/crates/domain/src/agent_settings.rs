@@ -285,6 +285,16 @@ pub struct AssistantCopy {
     pub no_device: String,
     pub delete_refused: String,
     pub schedule_refused: String,
+    /// #EXP-1439: `agents.update` refuses instructions for an Assistant.
+    pub prompt_fixed: String,
+    pub legacy_instructions: String,
+}
+
+/// #EXP-1439: the Assistant's built-in, versioned prompt (server-side; read-only here).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AssistantPrompt {
+    pub version: u32,
+    pub text: String,
 }
 
 /// One Check in preset (`off` = no trigger, `cron` None).
@@ -304,7 +314,7 @@ pub struct AssistantSpec {
     pub sections: Vec<String>,
     pub schedules: Vec<AssistantSchedule>,
     pub default_schedule: String,
-    pub brief: String,
+    pub prompt: AssistantPrompt,
 }
 
 /// The Assistant page's copy, sections and Check in presets.
@@ -571,7 +581,10 @@ mod tests {
         }
         assert_eq!(ASSISTANT.default_schedule, "1h");
         assert_eq!(ASSISTANT.copy.check_in, "Check in");
-        assert_eq!(ASSISTANT.sections, ["identity", "runs-on", "check-in", "voice", "instructions"]);
+        assert_eq!(ASSISTANT.sections, ["identity", "runs-on", "check-in", "voice"]);
+        assert_eq!(ASSISTANT.prompt.version, 2);
+        assert!(!ASSISTANT.prompt.text.is_empty());
+        assert_eq!(ASSISTANT.copy.prompt_fixed, "The Assistant's prompt is built in");
     }
 
     #[test]

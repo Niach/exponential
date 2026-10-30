@@ -267,8 +267,12 @@ object AgentSettings {
         const val NO_DEVICE = "Connect a desktop to set up your Assistant"
         const val DELETE_REFUSED = "The Assistant can't be deleted"
         const val SCHEDULE_REFUSED = "The Assistant checks in on a schedule only"
+        /** #EXP-1439: `agents.update` refuses an Assistant's instructions. */
+        const val PROMPT_FIXED = "The Assistant's prompt is built in"
+        const val LEGACY_INSTRUCTIONS = "Your Assistant now runs on Exponential's built-in prompt, so its instructions field is gone. Your old instructions, to move into a team agent if you still need them:"
         const val DEFAULT_SCHEDULE = "1h"
-        val SECTIONS = listOf("identity", "runs-on", "check-in", "voice", "instructions")
+        /** No Instructions (#EXP-1439: the prompt is built in), no Delete. */
+        val SECTIONS = listOf("identity", "runs-on", "check-in", "voice")
 
         data class Schedule(val id: String, val label: String, val cron: String?)
 

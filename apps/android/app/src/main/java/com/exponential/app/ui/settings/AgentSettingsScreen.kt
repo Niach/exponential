@@ -447,7 +447,8 @@ fun AgentSettingsScreen(
             instructionsLoading = !isNew && loadedInstructions == null,
             onInstructionsChange = { instructions = it },
             onInstructionsCommit = {
-                if (!isNew && instructionsSeeded && instructions != loadedInstructions &&
+                // #EXP-1439: an Assistant runs on the built-in prompt; never send its instructions.
+                if (!isNew && !assistant && instructionsSeeded && instructions != loadedInstructions &&
                     errors.none { it.field == AgentSettings.FIELD_INSTRUCTIONS }
                 ) {
                     patch(UpdateAgentPatch(instructions = instructions))
@@ -591,7 +592,8 @@ internal fun AgentSettingsContent(
     /** S-3 (agent-settings.json `assistant`): THE ASSISTANT page = the brand
      *  mark instead of the icon picker, Runs on (Device, Account, Model),
      *  Check in (the Picker over the schedules) instead of Triggers, the
-     *  moved Voice block, Instructions; no Delete. */
+     *  moved Voice block; no Instructions (#EXP-1439: the prompt is built
+     *  in), no Delete. */
     assistant: Boolean = false,
     checkIn: String? = null,
     onCheckIn: (String) -> Unit = {},
@@ -809,29 +811,31 @@ internal fun AgentSettingsContent(
         }
         Spacer(Modifier.height(12.dp))
 
-        // ── Instructions (markdown, server-only) ─────────────────────────
-        OptionGroup {
-            GlassTextField(
-                value = instructions,
-                onValueChange = onInstructionsChange,
-                placeholder = if (instructionsLoading) null else AgentSettings.Copy.INSTRUCTIONS_PLACEHOLDER,
-                minLines = 5,
-                enabled = editable && !instructionsLoading,
-                bordered = false,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("agent-settings-instructions")
-                    .commitOnBlur(onInstructionsCommit),
+        // ── Instructions (markdown, server-only; never an Assistant's) ───
+        if (!assistant) {
+            OptionGroup {
+                GlassTextField(
+                    value = instructions,
+                    onValueChange = onInstructionsChange,
+                    placeholder = if (instructionsLoading) null else AgentSettings.Copy.INSTRUCTIONS_PLACEHOLDER,
+                    minLines = 5,
+                    enabled = editable && !instructionsLoading,
+                    bordered = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("agent-settings-instructions")
+                        .commitOnBlur(onInstructionsCommit),
+                )
+            }
+            Text(
+                label(AgentSettings.FIELD_INSTRUCTIONS),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier.padding(start = 20.dp, top = 6.dp),
             )
+            FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_INSTRUCTIONS)))
+            Spacer(Modifier.height(20.dp))
         }
-        Text(
-            label(AgentSettings.FIELD_INSTRUCTIONS),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            modifier = Modifier.padding(start = 20.dp, top = 6.dp),
-        )
-        FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_INSTRUCTIONS)))
-        Spacer(Modifier.height(20.dp))
 
         if (onCreate != null) {
             GlassSubmitButton(

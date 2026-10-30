@@ -503,6 +503,11 @@ impl AgentDetailPane {
         let Some(agent) = crate::session_data::agent_def(&agent_id, cx) else {
             return;
         };
+        // #EXP-1439: an Assistant runs on the built-in prompt; `agents.update`
+        // refuses its instructions (`copy.promptFixed`), so never send them.
+        if agent.is_assistant() {
+            return;
+        }
         let agent = Some(agent);
         if let Some(message) = self.field_error("instructions", agent.as_ref(), cx) {
             self.error = Some(message.into());
@@ -831,7 +836,8 @@ impl AgentDetailPane {
     /// identity (the name, the brand mark instead of the icon picker), Runs
     /// on (THE device / account / model rows), Check in (THE Picker over
     /// `schedules`), Voice (the Voice settings block moved as one, minus
-    /// its Voice device and Agent pickers), Instructions. No Delete.
+    /// its Voice device and Agent pickers). No Instructions (#EXP-1439: the
+    /// prompt is built in), no Delete.
     fn render_assistant(&mut self, agent: &AgentDefRow, window: &mut Window, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         use domain::agent_settings::{assistant_schedule_of, assistant_schedule_triggers, ASSISTANT};
         let team_id = agent
@@ -929,8 +935,7 @@ impl AgentDetailPane {
             .child(crate::surface::glass_group_rows(vec![identity_row]))
             .child(v_flex().w_full().gap_1().child(caption(&copy.runs_on, cx)).child(runs_on))
             .child(v_flex().w_full().gap_1().child(caption(&copy.check_in, cx)).child(check_in))
-            .child(v_flex().w_full().gap_1().child(caption(&copy.voice, cx)).child(voice))
-            .child(self.instructions_card(cx));
+            .child(v_flex().w_full().gap_1().child(caption(&copy.voice, cx)).child(voice));
         if let Some(message) = self.error.clone() {
             body = body.child(crate::action_error::field_error(message, cx).px_1());
         }

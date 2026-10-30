@@ -233,6 +233,8 @@ final class AgentSettingsTests: XCTestCase {
             "noDevice": AgentSettings.AssistantCopy.noDevice,
             "deleteRefused": AgentSettings.AssistantCopy.deleteRefused,
             "scheduleRefused": AgentSettings.AssistantCopy.scheduleRefused,
+            "promptFixed": AgentSettings.AssistantCopy.promptFixed,
+            "legacyInstructions": AgentSettings.AssistantCopy.legacyInstructions,
         ])
         XCTAssertEqual(block["sections"] as? [String], AgentSettings.assistantSections)
         let schedules = try XCTUnwrap(block["schedules"] as? [[String: Any]])
@@ -243,7 +245,9 @@ final class AgentSettingsTests: XCTestCase {
             XCTAssertEqual(want["cron"] as? String, schedule.cron)
         }
         XCTAssertEqual(block["defaultSchedule"] as? String, AgentSettings.assistantDefaultSchedule.rawValue)
-        XCTAssertEqual(block["brief"] as? String, AgentSettings.assistantBrief)
+        let prompt = try XCTUnwrap(block["prompt"] as? [String: Any])
+        XCTAssertEqual(prompt["version"] as? Int, AgentSettings.assistantPromptVersion)
+        XCTAssertEqual(prompt["text"] as? String, AgentSettings.assistantPrompt)
         XCTAssertEqual(DomainContract.agentRoleValues, ["assistant", "agent"])
     }
 
