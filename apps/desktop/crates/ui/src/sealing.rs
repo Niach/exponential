@@ -13,86 +13,54 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use api::sessions::{AnswerInput, SealWrap, SendInput, SendOutput, SendSeal};
+use coding::sealing::{self, NewRootSeal};
 use domain::plan_card::{CardAnswerInput, CardAnswers};
 use domain::rows::SessionRow;
 use gpui::App;
 use serde_json::Value;
+use steer::enet::InstallNode;
 use sync::sealed::{OpenedBody, OpenedCard, Opener, Opens};
 use sync::Store;
 
-pub use self::service::{service, NewRootSeal, SealService};
+/// `sync::sealed::Opens` over the installed keyring (`coding::sealing`).
+/// Cached secrets only: the ingest path never blocks (the key holder pulls
+/// `sessionKeys.mine` on start and every minute; a new wrap moves
+/// [`sealing::changed`] and the locked rows re-open).
+struct KeyringOpens;
 
-/// The device sibling's `coding::sealing` surface (#EXP-1458 slice "device +
-/// agent-to-agent"), mirrored until it lands on master: `service()` is
-/// `None` until then (plaintext sends, locked rows).
-mod service {
-    use super::*;
-
-    /// A new tree's key, wrapped for the readers the writer resolved.
-    pub struct NewRootSeal {
-        pub install_id: String,
-        pub public_key: String,
-        pub epoch: u32,
-        pub wraps: Vec<SealWrap>,
-        pub secret: [u8; 32],
-    }
-
-    pub trait SealService: Send + Sync {
-        fn open_body(&self, root_id: &str, body: &str) -> OpenedBody;
-        fn open_card(&self, root_id: &str, card: &Value) -> OpenedCard;
-        /// BLOCKING (creates the tree key when the root has none).
-        fn seal_body(&self, root_id: &str, text: &str) -> Result<String, String>;
-        /// BLOCKING.
-        fn seal_card(&self, root_id: &str, card: &Value) -> Result<Value, String>;
-        fn open_session_title(&self, row: &SessionRow) -> Option<String>;
-        /// Moves whenever new secrets land.
-        fn changed(&self) -> u64;
-        /// BLOCKING: a fresh tree key for a root `sessions.send` creates.
-        fn seal_new_root(&self, team_id: &str, device_install_ids: &[String], shared: bool) -> Result<NewRootSeal, String>;
-        /// The new root's id is known: cache its secret.
-        fn adopt(&self, root_id: &str, secret: [u8; 32]);
-    }
-
-    pub fn service() -> Option<Arc<dyn SealService>> {
-        None
-    }
+fn cached(root_id: &str) -> impl Fn(u32) -> Option<[u8; 32]> + '_ {
+    move |epoch| sealing::service().and_then(|service| service.keyring().secret(root_id, epoch))
 }
 
-/// `sync::sealed::Opens` over the seal service.
-struct ServiceOpens(Arc<dyn SealService>);
-
-impl Opens for ServiceOpens {
+impl Opens for KeyringOpens {
     fn open_body(&self, root_id: &str, body: &str) -> OpenedBody {
-        self.0.open_body(root_id, body)
+        enet_core::sealed::open_body(body, &cached(root_id))
     }
     fn open_card(&self, root_id: &str, card: &Value) -> OpenedCard {
-        self.0.open_card(root_id, card)
+        enet_core::sealed::open_card(card, &cached(root_id))
     }
     fn open_title(&self, row: &SessionRow) -> Option<String> {
-        self.0.open_session_title(row)
+        // The keyring learns session → root and each root's current key
+        // (what `ensure_key` writes with) from the synced rows.
+        sealing::note_sessions(std::slice::from_ref(row));
+        let sealed = row.sealed_title.as_deref().filter(|title| !title.is_empty())?;
+        let opened = enet_core::sealed::open_body(sealed, &cached(row.root_id_or_self()));
+        opened.text.filter(|_| matches!(opened.status, sync::sealed::OpenStatus::Opened | sync::sealed::OpenStatus::Plain))
     }
 }
 
-/// How often the change counter is read (a cheap atomic in the service).
+/// How often the keyring's change counter is read (an atomic).
 const KEYS_POLL: Duration = Duration::from_secs(2);
 
-/// Bootstrap (after `Store::open`): hands the service to the opener once it
-/// exists and re-opens the closed rows whenever it reports new keys.
+/// Bootstrap (before the first account connects): the opener reads the
+/// keyring, and the closed rows re-open whenever new keys land.
 pub fn init(cx: &mut App) {
+    Opener::global().set_keys(Arc::new(KeyringOpens));
     cx.spawn(async move |cx| {
-        let mut attached = false;
-        let mut seen = 0;
+        let mut seen = sealing::changed();
         loop {
             cx.background_executor().timer(KEYS_POLL).await;
-            let Some(service) = service() else {
-                continue;
-            };
-            if !attached {
-                Opener::global().set_keys(Arc::new(ServiceOpens(Arc::clone(&service))));
-                attached = true;
-                seen = u64::MAX;
-            }
-            let changed = service.changed();
+            let changed = sealing::changed();
             if changed != seen {
                 seen = changed;
                 cx.update(|cx| Store::global(cx).clone().reopen_sealed(cx));
@@ -102,6 +70,38 @@ pub fn init(cx: &mut App) {
     .detach();
 }
 
+/// The writer's key operations (BLOCKING). [`Live`] = the installed seal
+/// service + this account's eNet install; tests fake it.
+trait Writer {
+    /// `text` sealed for an existing tree (its key is created if missing).
+    fn seal_body(&self, root_id: &str, text: &str) -> Result<String, String>;
+    fn seal_card(&self, root_id: &str, card: &Value) -> Result<Value, String>;
+    /// A fresh tree key for a root `sessions.send` creates, wrapped for
+    /// `target_device`'s install too.
+    fn new_root(&self, target_device: Option<&str>) -> Result<NewRootSeal, String>;
+    fn adopt(&self, root_id: &str, seal: &NewRootSeal);
+}
+
+struct Live(Option<InstallNode>);
+
+impl Writer for Live {
+    fn seal_body(&self, root_id: &str, text: &str) -> Result<String, String> {
+        sealing::seal_body(root_id, text).map_err(|err| err.to_string())
+    }
+    fn seal_card(&self, root_id: &str, card: &Value) -> Result<Value, String> {
+        sealing::seal_card(root_id, card).map_err(|err| err.to_string())
+    }
+    fn new_root(&self, target_device: Option<&str>) -> Result<NewRootSeal, String> {
+        self.0.as_ref().ok_or("eNet is not running")?.new_root_seal(target_device)
+    }
+    fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
+        match sealing::service() {
+            Some(service) => service.adopt(root_id, seal),
+            None => sealing::adopt_new_root(root_id, seal),
+        }
+    }
+}
+
 /// Where a send's text goes, decided on the foreground ([`plan_send`]).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum SealTarget {
@@ -109,16 +109,18 @@ pub enum SealTarget {
     Root(String),
     /// `sessions.send` creates the root: its key rides inline (`seal`),
     /// wrapped for the executing device's install too (`device_id`).
-    NewRoot { team_id: String, device_id: Option<String>, shared: bool },
+    NewRoot { device_id: Option<String> },
     /// Nothing to seal (no text, no name).
     #[default]
     None,
 }
 
 /// A send's sealing facts, read on the foreground before the blocking call.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default)]
 pub struct SendPlan {
     pub target: SealTarget,
+    /// This account's eNet install (a new root's key comes from it).
+    node: Option<InstallNode>,
     pub mention_user_ids: Vec<String>,
     /// `refIssueIds`: the `#IDENT` refs the text makes, resolved here.
     pub ref_issue_ids: Vec<String>,
@@ -164,12 +166,13 @@ pub fn plan_send(input: &SendInput, cx: &App) -> SendPlan {
         root_of(parent_id).map_or(SealTarget::None, SealTarget::Root)
     } else if let Some(existing) = existing_conversation(input, &sessions.iter().collect::<Vec<_>>(), cx) {
         SealTarget::Root(existing)
-    } else if let Some(team_id) = &input.team_id {
-        SealTarget::NewRoot { team_id: team_id.clone(), device_id: input.device_id.clone(), shared: false }
+    } else if input.team_id.is_some() {
+        SealTarget::NewRoot { device_id: input.device_id.clone() }
     } else {
         SealTarget::None
     };
-    SendPlan { target, mention_user_ids, ref_issue_ids }
+    let node = crate::enet_wiring::active_node(cx);
+    SendPlan { target, node, mention_user_ids, ref_issue_ids }
 }
 
 /// An agent / app send without a session id lands in the member's existing
@@ -187,20 +190,15 @@ fn existing_conversation(input: &SendInput, sessions: &[&SessionRow], cx: &App) 
 }
 
 /// Seals `input` per `plan` (BLOCKING): the text and name become body
-/// envelopes, a new root's key rides inline. Returns the new root's secret
+/// envelopes, a new root's key rides inline. Returns the new root's seal
 /// to adopt once the server names the root. Any failure leaves the content
 /// plaintext.
-fn seal_send(
-    service: &dyn SealService,
-    input: &mut SendInput,
-    plan: &SendPlan,
-    device_installs: impl FnOnce(&str, &str) -> Vec<String>,
-) -> Option<[u8; 32]> {
+fn seal_send(writer: &dyn Writer, input: &mut SendInput, plan: &SendPlan) -> Option<NewRootSeal> {
     match &plan.target {
         SealTarget::None => None,
         SealTarget::Root(root_id) => {
             let sealed_text = match input.text.as_deref() {
-                Some(text) => match service.seal_body(root_id, text) {
+                Some(text) => match writer.seal_body(root_id, text) {
                     Ok(sealed) => Some(sealed),
                     Err(err) => {
                         log::warn!("[sealing] sending plaintext, no key for {root_id}: {err}");
@@ -209,7 +207,7 @@ fn seal_send(
                 },
                 None => None,
             };
-            let sealed_name = input.name.as_deref().and_then(|name| service.seal_body(root_id, name).ok());
+            let sealed_name = input.name.as_deref().and_then(|name| writer.seal_body(root_id, name).ok());
             if sealed_text.is_some() {
                 input.text = sealed_text;
             }
@@ -219,11 +217,10 @@ fn seal_send(
             }
             None
         }
-        SealTarget::NewRoot { team_id, device_id, shared } => {
-            // The executing device's installs read the tree from its first
-            // message on; a gap is filled by any holder (`pending`).
-            let devices = device_id.as_deref().map(|device| device_installs(team_id, device)).unwrap_or_default();
-            let seal = match service.seal_new_root(team_id, &devices, *shared) {
+        SealTarget::NewRoot { device_id } => {
+            // The executing device reads the tree from its first message
+            // on; any gap is filled by a holder (`pending`).
+            let seal = match writer.new_root(device_id.as_deref()) {
                 Ok(seal) => seal,
                 Err(err) => {
                     log::warn!("[sealing] sending plaintext, no new tree key: {err}");
@@ -244,12 +241,16 @@ fn seal_send(
                 input.text = sealed_text;
             }
             input.seal = Some(SendSeal {
-                install_id: seal.install_id,
-                public_key: seal.public_key,
+                install_id: seal.install_id.clone(),
+                public_key: seal.public_key.clone(),
                 epoch: seal.epoch,
-                wraps: seal.wraps,
+                wraps: seal
+                    .wraps
+                    .iter()
+                    .map(|wrap| SealWrap { install_id: wrap.install_id.clone(), wrapped: wrap.wrapped.clone() })
+                    .collect(),
             });
-            Some(seal.secret)
+            Some(seal)
         }
     }
 }
@@ -263,22 +264,11 @@ pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan)
     if !plan.ref_issue_ids.is_empty() {
         input.ref_issue_ids = Some(plan.ref_issue_ids.clone());
     }
-    let device_installs = |team_id: &str, device_id: &str| match api::installs::list(trpc, team_id) {
-        Ok(rows) => rows
-            .into_iter()
-            .filter(|row| row.device_id.as_deref() == Some(device_id))
-            .map(|row| row.install_id)
-            .collect(),
-        Err(err) => {
-            log::warn!("[sealing] installs.list {team_id} failed: {err}");
-            Vec::new()
-        }
-    };
-    let service = service();
-    let secret = service.as_deref().and_then(|service| seal_send(service, &mut input, plan, device_installs));
+    let writer = Live(plan.node.clone());
+    let seal = sealing::service().and_then(|_| seal_send(&writer, &mut input, plan));
     let out = api::sessions::send(trpc, &input)?;
-    if let (Some(service), Some(secret)) = (service, secret) {
-        service.adopt(&out.session_id, secret);
+    if let Some(seal) = seal {
+        writer.adopt(&out.session_id, &seal);
     }
     Ok(out)
 }
@@ -300,7 +290,7 @@ pub fn plan_answer(message_id: &str, cx: &App) -> AnswerPlan {
 
 /// `input` as a sealed answer: the FULL card re-sealed with the answer, the
 /// clear `decision` / `fresh` beside it, no plaintext answer fields.
-pub fn seal_answer(service: &dyn SealService, input: &AnswerInput, plan: &AnswerPlan) -> Option<AnswerInput> {
+fn seal_answer(writer: &dyn Writer, input: &AnswerInput, plan: &AnswerPlan) -> Option<AnswerInput> {
     let (root_id, card) = (plan.root_id.as_deref()?, plan.card.as_ref()?);
     let answers = input.answers.as_ref().and_then(|answers| match answers {
         Value::Array(labels) => Some(CardAnswers::Labels(labels.iter().filter_map(|l| l.as_str().map(str::to_owned)).collect())),
@@ -318,7 +308,7 @@ pub fn seal_answer(service: &dyn SealService, input: &AnswerInput, plan: &Answer
             surface_data: input.surface_data.clone(),
         },
     )?;
-    let sealed = service.seal_card(root_id, &answered).map_err(|err| log::warn!("[sealing] answer stays plaintext: {err}")).ok()?;
+    let sealed = writer.seal_card(root_id, &answered).map_err(|err| log::warn!("[sealing] answer stays plaintext: {err}")).ok()?;
     Some(AnswerInput {
         message_id: input.message_id.clone(),
         decision: input.decision.clone(),
@@ -330,7 +320,7 @@ pub fn seal_answer(service: &dyn SealService, input: &AnswerInput, plan: &Answer
 
 /// THE sealed `sessions.answer` (BLOCKING, off the UI thread).
 pub fn answer_blocking(trpc: &api::TrpcClient, input: &AnswerInput, plan: &AnswerPlan) -> Result<api::sessions::TxOutput, api::ApiError> {
-    let sealed = service().and_then(|service| seal_answer(service.as_ref(), input, plan));
+    let sealed = sealing::service().and_then(|_| seal_answer(&Live(None), input, plan));
     api::sessions::answer(trpc, sealed.as_ref().unwrap_or(input))
 }
 
@@ -340,92 +330,78 @@ mod tests {
     use enet_core::sealed as contract;
     use std::sync::Mutex;
 
-    /// A one-tree service on a fixed key.
+    /// A one-tree writer on a fixed key.
     struct OneTree {
         key: contract::TreeKey,
-        adopted: Mutex<Vec<String>>,
-        devices: Mutex<Vec<String>>,
+        devices: Mutex<Vec<Option<String>>>,
     }
 
-    impl SealService for OneTree {
-        fn open_body(&self, _root_id: &str, body: &str) -> OpenedBody {
+    impl OneTree {
+        fn open_body(&self, body: &str) -> OpenedBody {
             contract::open_body(body, &|epoch| (epoch == 1).then_some(self.key.secret))
         }
-        fn open_card(&self, _root_id: &str, card: &Value) -> OpenedCard {
+        fn open_card(&self, card: &Value) -> OpenedCard {
             contract::open_card(card, &|epoch| (epoch == 1).then_some(self.key.secret))
         }
+    }
+
+    impl Writer for OneTree {
         fn seal_body(&self, _root_id: &str, text: &str) -> Result<String, String> {
             contract::seal_body(&self.key.public, 1, text).map_err(|e| e.to_string())
         }
         fn seal_card(&self, _root_id: &str, card: &Value) -> Result<Value, String> {
             contract::seal_card(&self.key.public, 1, card).map_err(|e| e.to_string())
         }
-        fn open_session_title(&self, _row: &SessionRow) -> Option<String> {
-            None
-        }
-        fn changed(&self) -> u64 {
-            0
-        }
-        fn seal_new_root(&self, _team_id: &str, devices: &[String], _shared: bool) -> Result<NewRootSeal, String> {
-            *self.devices.lock().unwrap() = devices.to_vec();
+        fn new_root(&self, target_device: Option<&str>) -> Result<NewRootSeal, String> {
+            self.devices.lock().unwrap().push(target_device.map(str::to_string));
             Ok(NewRootSeal {
                 install_id: "me".into(),
                 public_key: self.key.public_key(),
                 epoch: 1,
-                wraps: vec![SealWrap { install_id: "me".into(), wrapped: "w".into() }],
+                wraps: vec![api::session_keys::InstallWrap { install_id: "me".into(), wrapped: "w".into() }],
                 secret: self.key.secret,
             })
         }
-        fn adopt(&self, root_id: &str, _secret: [u8; 32]) {
-            self.adopted.lock().unwrap().push(root_id.into());
-        }
+        fn adopt(&self, _root_id: &str, _seal: &NewRootSeal) {}
     }
 
     fn tree() -> OneTree {
-        OneTree { key: contract::generate_tree_key(), adopted: Mutex::new(Vec::new()), devices: Mutex::new(Vec::new()) }
+        OneTree { key: contract::generate_tree_key(), devices: Mutex::new(Vec::new()) }
     }
 
     #[test]
     fn a_message_to_an_existing_tree_seals_text_and_name() {
-        let service = tree();
+        let writer = tree();
         let mut input = SendInput::message("s1", "hello @a@b.co", Vec::new());
         input.name = Some("Title".into());
         let plan = SendPlan { target: SealTarget::Root("r1".into()), ..SendPlan::default() };
-        assert_eq!(seal_send(&service, &mut input, &plan, |_, _| unreachable!()), None);
+        assert!(seal_send(&writer, &mut input, &plan).is_none());
         let text = input.text.as_deref().unwrap();
         assert!(text.starts_with("exp-sealed:v1:1:"));
-        assert_eq!(service.open_body("r1", text).text.as_deref(), Some("hello @a@b.co"));
+        assert_eq!(writer.open_body(text).text.as_deref(), Some("hello @a@b.co"));
         assert_eq!(input.name, None);
-        assert_eq!(service.open_body("r1", input.sealed_name.as_deref().unwrap()).text.as_deref(), Some("Title"));
+        assert_eq!(writer.open_body(input.sealed_name.as_deref().unwrap()).text.as_deref(), Some("Title"));
         assert!(input.seal.is_none());
     }
 
     #[test]
     fn a_new_root_carries_its_key_inline() {
-        let service = tree();
+        let writer = tree();
         let mut input = SendInput { team_id: Some("t".into()), device_id: Some("d".into()), text: Some("go".into()), ..SendInput::default() };
-        let plan = SendPlan {
-            target: SealTarget::NewRoot { team_id: "t".into(), device_id: Some("d".into()), shared: false },
-            ..SendPlan::default()
-        };
-        let mut asked = None;
-        let installs = |team: &str, device: &str| {
-            asked = Some((team.to_string(), device.to_string()));
-            vec!["host-install".to_string()]
-        };
-        assert_eq!(seal_send(&service, &mut input, &plan, installs), Some(service.key.secret));
-        assert_eq!(asked, Some(("t".into(), "d".into())));
-        assert_eq!(service.devices.lock().unwrap().clone(), vec!["host-install".to_string()]);
-        let seal = input.seal.clone().unwrap();
-        assert_eq!((seal.install_id.as_str(), seal.epoch, seal.public_key), ("me", 1, service.key.public_key()));
-        assert_eq!(service.open_body("new", input.text.as_deref().unwrap()).text.as_deref(), Some("go"));
-        let wire = serde_json::to_value(&input).unwrap();
-        assert_eq!(wire["seal"]["wraps"][0], serde_json::json!({"installId": "me", "wrapped": "w"}));
+        let plan = SendPlan { target: SealTarget::NewRoot { device_id: Some("d".into()) }, ..SendPlan::default() };
+        let seal = seal_send(&writer, &mut input, &plan).unwrap();
+        assert_eq!(seal.secret, writer.key.secret);
+        assert_eq!(writer.devices.lock().unwrap().clone(), vec![Some("d".to_string())]);
+        let wire = input.seal.clone().unwrap();
+        assert_eq!((wire.install_id.as_str(), wire.epoch, wire.public_key), ("me", 1, writer.key.public_key()));
+        assert_eq!(writer.open_body(input.text.as_deref().unwrap()).text.as_deref(), Some("go"));
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(json["seal"]["wraps"][0], serde_json::json!({"installId": "me", "wrapped": "w"}));
     }
 
     #[test]
     fn an_answer_reseals_the_full_card_and_drops_plaintext_fields() {
-        let service = tree();
+        let writer = tree();
         let card = serde_json::json!({"kind": "question", "question": "Which?", "options": ["A", "B"]});
         let input = AnswerInput {
             message_id: "m1".into(),
@@ -434,23 +410,23 @@ mod tests {
             ..AnswerInput::default()
         };
         let plan = AnswerPlan { root_id: Some("r1".into()), card: Some(card) };
-        let sealed = seal_answer(&service, &input, &plan).unwrap();
+        let sealed = seal_answer(&writer, &input, &plan).unwrap();
         assert_eq!((sealed.answer.clone(), sealed.answers.clone(), sealed.feedback.clone()), (None, None, None));
         let wire = serde_json::to_value(&sealed).unwrap();
         assert_eq!(wire["sealedCard"]["kind"], "question");
         assert_eq!(wire["sealedCard"]["answered"], true);
-        let opened = service.open_card("r1", &wire["sealedCard"]).card;
+        let opened = writer.open_card(&wire["sealedCard"]).card;
         assert_eq!(opened["answers"], serde_json::json!(["A"]));
         assert_eq!(opened["question"], "Which?");
 
         let plan_card = AnswerPlan { root_id: Some("r1".into()), card: Some(serde_json::json!({"kind": "plan", "plan": "p"})) };
         let decide = AnswerInput { message_id: "m2".into(), decision: Some("rejected".into()), feedback: Some("no".into()), ..AnswerInput::default() };
-        let sealed = seal_answer(&service, &decide, &plan_card).unwrap();
+        let sealed = seal_answer(&writer, &decide, &plan_card).unwrap();
         assert_eq!((sealed.decision.as_deref(), sealed.feedback.as_deref()), (Some("rejected"), None));
         let wire = serde_json::to_value(&sealed).unwrap();
         assert_eq!(wire["sealedCard"]["decision"], "rejected");
-        assert_eq!(service.open_card("r1", &wire["sealedCard"]).card["feedback"], "no");
+        assert_eq!(writer.open_card(&wire["sealedCard"]).card["feedback"], "no");
         // An unknown card (not synced, or closed here) never seals.
-        assert!(seal_answer(&service, &decide, &AnswerPlan::default()).is_none());
+        assert!(seal_answer(&writer, &decide, &AnswerPlan::default()).is_none());
     }
 }

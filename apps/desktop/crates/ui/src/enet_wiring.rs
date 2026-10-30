@@ -109,3 +109,10 @@ pub fn stop(account_id: &str, cx: &mut App) -> Option<InstallNode> {
     node.stop();
     Some(node)
 }
+
+/// EXP-1459: the running node of the account the store syncs (the writer
+/// wraps a new root's key through it).
+pub fn active_node(cx: &App) -> Option<InstallNode> {
+    let account = crate::queries::active_account(cx)?;
+    cx.try_global::<EnetInstalls>()?.by_account.get(&account.id).cloned()
+}
