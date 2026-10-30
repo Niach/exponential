@@ -210,6 +210,10 @@ fn run_pass(cx: &mut App) {
         .cloned()
         .collect();
     let hosted: HashSet<&str> = sessions.iter().map(|row| row.id.as_str()).collect();
+    // EXP-1458: who an engine reply's `@email` names (`mentionUserIds`).
+    coding::sealing::note_users(
+        collections.users.read(cx).iter().filter_map(|user| Some((user.id.clone(), user.email.clone()?))),
+    );
     // NEW-8: keyed through their conversation (`session_id` = resolved).
     let mut messages: Vec<MessageRow> =
         crate::session_data::keyed_messages(cx, |owner, _| hosted.contains(owner));

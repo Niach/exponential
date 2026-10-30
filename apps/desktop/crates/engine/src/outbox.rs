@@ -32,7 +32,9 @@
 //! listener's agent reads, sealed to the own tree), and a sealed line its
 //! `listenerCopies`: the text re-sealed for every listening tree outside
 //! the own one (`sessions.listeners` once, then each sealed reply's
-//! `listeners`).
+//! `listeners`). Every reply names the members its text mentions
+//! (`mentionUserIds`, `@email` resolved against the host's synced users,
+//! `sealing::note_users`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -178,6 +180,21 @@ fn reply_extras(
     }
 }
 
+/// The members a reply's text and its card's ask mention (`@email`,
+/// resolved against the host's synced users): a sealed body's are
+/// unreadable to the server, so every reply names them.
+fn reply_mentions(session_id: &str, reply: &Reply, plain_card: Option<&Value>) -> Option<Vec<String>> {
+    let asks = plain_card.filter(|card| matches!(card.get("kind").and_then(Value::as_str), Some("question" | "plan")));
+    let ask = asks.and_then(|card| ask_text(session_id, card));
+    let mut ids: Vec<String> = Vec::new();
+    for id in [Some(reply.body.as_str()), ask.as_deref()].into_iter().flatten().flat_map(sealing::mention_user_ids) {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    (!ids.is_empty()).then_some(ids)
+}
+
 /// `line` sealed to one listening tree's current key (`None` = a keyless
 /// tree: its listeners get the neutral line).
 fn listener_copy(tree: &ListenerTree, line: &str) -> Option<ListenerCopy> {
@@ -306,11 +323,12 @@ impl Outbox {
                     let (body, card, plain_card) = sealed_reply(&session_id, &reply);
                     let sealed = body.starts_with(sealing::SEALED_BODY_PREFIX)
                         || card.as_ref().is_some_and(|card| card.get("sealed").is_some());
-                    let extras = if sealed {
+                    let mut extras = if sealed {
                         reply_extras(api.as_ref(), &session_id, &reply, plain_card.as_ref(), &mut listeners)
                     } else {
                         ReplyExtras::default()
                     };
+                    extras.mention_user_ids = reply_mentions(&session_id, &reply, plain_card.as_ref());
                     let posted = with_retry(&shared.closing, "sessions.reply", false, || {
                         api.reply(&session_id, &body, card.as_ref(), &extras)
                     })
@@ -842,6 +860,28 @@ mod tests {
         assert_eq!(opened_body.as_deref(), Some("the secret answer"));
         assert_eq!(opened_card["questionId"], "q-7");
         assert_eq!(opened_card["question"], "Which?");
+    }
+
+    /// EXP-1458: a reply names the members its text and its ask mention,
+    /// resolved against the host's synced users; sealed or not.
+    #[test]
+    fn replies_name_the_members_they_mention() {
+        let _serial = fake_seal::serial();
+        sealing::note_users([
+            ("u-ada".to_string(), "ada@team.test".to_string()),
+            ("u-bob".to_string(), "Bob@Team.test".to_string()),
+        ]);
+        let api = Arc::new(Fake::default());
+        let outbox = Outbox::spawn(api.clone(), "plain-child");
+        outbox.post(vec![
+            Reply { body: "ping @bob@team.test and @ada@team.test (again @ada@team.test), not @eve@team.test".into(), card: None },
+            Reply { body: "no one".into(), card: None },
+        ]);
+        outbox.close(Duration::from_secs(5));
+        sealing::note_users([]);
+        let extras = api.extras.lock().unwrap().clone();
+        assert_eq!(extras[0].mention_user_ids, Some(vec!["u-bob".to_string(), "u-ada".to_string()]));
+        assert_eq!(extras[1].mention_user_ids, None);
     }
 
     #[test]

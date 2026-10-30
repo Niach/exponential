@@ -271,8 +271,10 @@ export function openBody(body: string, keys: TreeKeys): OpenedBody {
 /** The fields of `messages.card` that stay in clear (routing, wake rules,
  *  answered state, the attachments a card shows); everything else exists
  *  only inside `sealed`. `pictures` stays in clear PROJECTED: each entry's
- *  `label` and `attachmentId` only (captions and sizes stay sealed), and it
- *  is never laid over the opened card (the sealed pictures are whole). */
+ *  `label` and `attachmentId` only (captions and sizes stay sealed; a
+ *  label without an id = a picture still to upload). Opening fills a sealed
+ *  picture's missing `attachmentId` from the clear entry of its label
+ *  (`resolveClearPictures`); the clear part never replaces it. */
 export const CARD_CLEAR_FIELDS = [
   `kind`,
   `messageId`,
@@ -289,17 +291,51 @@ export const CARD_CLEAR_FIELDS = [
 ] as const
 
 /** The clear projection of a card's `pictures`: `{label, attachmentId}`
- *  per entry that names an attachment; null when none does. */
-export function clearPictures(pictures: unknown): Array<{ label?: string; attachmentId: string }> | null {
+ *  per entry that names an attachment, `{label}` per entry still to upload
+ *  (the server mints its upload and files it by label); null when none
+ *  names either. */
+export function clearPictures(pictures: unknown): Array<{ label?: string; attachmentId?: string }> | null {
   if (!Array.isArray(pictures)) return null
-  const out: Array<{ label?: string; attachmentId: string }> = []
+  const out: Array<{ label?: string; attachmentId?: string }> = []
   for (const picture of pictures) {
     if (!picture || typeof picture !== `object`) continue
     const { label, attachmentId } = picture as Record<string, unknown>
-    if (typeof attachmentId !== `string`) continue
-    out.push(typeof label === `string` ? { label, attachmentId } : { attachmentId })
+    const entry: { label?: string; attachmentId?: string } = {}
+    if (typeof label === `string`) entry.label = label
+    if (typeof attachmentId === `string`) entry.attachmentId = attachmentId
+    if (entry.label !== undefined || entry.attachmentId !== undefined) out.push(entry)
   }
   return out.length > 0 ? out : null
+}
+
+/** A sealed card's pictures uploaded AFTER it was sealed: the server filed
+ *  them on the clear `pictures` entry of their label. Each sealed picture
+ *  without an `attachmentId` takes its label's clear id and, on a plan,
+ *  every `](upload:<label>)` embed points at the attachment (plan-card.ts
+ *  `resolveUpload`). A sealed id is never replaced. */
+export function resolveClearPictures(card: Card, clear: unknown): Card {
+  if (!Array.isArray(clear) || !Array.isArray(card.pictures)) return card
+  const uploaded = new Map<string, string>()
+  for (const entry of clear) {
+    const { label, attachmentId } = (entry ?? {}) as Record<string, unknown>
+    if (typeof label === `string` && typeof attachmentId === `string` && !uploaded.has(label)) uploaded.set(label, attachmentId)
+  }
+  if (uploaded.size === 0) return card
+  const resolved: Array<[string, string]> = []
+  const pictures = card.pictures.map((picture: unknown) => {
+    if (!picture || typeof picture !== `object`) return picture
+    const { label, attachmentId } = picture as Record<string, unknown>
+    const id = typeof label === `string` && typeof attachmentId !== `string` ? uploaded.get(label) : undefined
+    if (id === undefined) return picture
+    resolved.push([label as string, id])
+    return { ...(picture as Card), attachmentId: id }
+  })
+  if (resolved.length === 0) return card
+  const next: Card = { ...card, pictures }
+  if (card.kind === `plan` && typeof card.plan === `string`) {
+    next.plan = resolved.reduce((plan, [label, id]) => plan.split(`](upload:${label})`).join(`](/api/attachments/${id})`), card.plan)
+  }
+  return next
 }
 
 type Card = Record<string, unknown>
@@ -367,9 +403,10 @@ export function openCard(card: Card, keys: TreeKeys): OpenedCard {
   if (!inner || typeof inner !== `object` || Array.isArray(inner) || (inner as Card).kind !== clear.kind) {
     return { status: `refused`, epoch: opened.epoch, card: clear }
   }
-  // The clear `pictures` is a projection: the sealed ones stay whole.
-  const { pictures: _projected, ...over } = clear
-  return { status: `opened`, epoch: opened.epoch, card: { ...(inner as Card), ...over } }
+  // The clear `pictures` is a projection: the sealed ones stay whole, and
+  // only take the ids of pictures uploaded after sealing.
+  const { pictures: projected, ...over } = clear
+  return { status: `opened`, epoch: opened.epoch, card: resolveClearPictures({ ...(inner as Card), ...over }, projected) }
 }
 
 // ── the locked state (fixtures/sealed-content.json `placeholder`) ───────────

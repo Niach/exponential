@@ -349,6 +349,28 @@ pub fn note_sessions(rows: &[SessionRow]) {
     with_keyring(|keyring| keyring.note_sessions(rows));
 }
 
+/// EXP-1458: the users the host's synced `users` rows name, `(id, email)`:
+/// whom an `@email` in an engine reply mentions (the server cannot read a
+/// sealed body, so the writer sends `mentionUserIds`). Independent of the
+/// key service: plaintext replies name their mentions too.
+static USERS: RwLock<Vec<(String, String)>> = RwLock::new(Vec::new());
+
+/// Feeds the synced `users` rows (each pickup pass; replaces the set).
+pub fn note_users(users: impl IntoIterator<Item = (String, String)>) {
+    let users: Vec<(String, String)> = users.into_iter().collect();
+    let mut known = USERS.write().unwrap_or_else(|p| p.into_inner());
+    if *known != users {
+        *known = users;
+    }
+}
+
+/// The user ids `text` mentions (`@email`, resolved against [`note_users`];
+/// unknown emails dropped, each user once).
+pub fn mention_user_ids(text: &str) -> Vec<String> {
+    let users = read(&USERS);
+    domain::sealed::mention_user_ids(text, users.iter().map(|(id, email)| (id.as_str(), email.as_str())))
+}
+
 /// The root of `session_id`: a synced row, else the service's lookup.
 pub fn root_of(session_id: &str) -> Option<String> {
     if let Some(root) = with_keyring(|k| k.root_of(session_id)) {

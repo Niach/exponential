@@ -17,9 +17,13 @@
 //! - `exponential_sessions {op: "escalate"}` → `+ sealedCard` for the target.
 //! - `exponential_session_self {op: "suggest"}` → `{sealed}`.
 //!
+//! - `exponential_sessions_send {agentId|appId}`: sealed to the caller's
+//!   conversation with it (`sessions.sendTarget`: its root's key, else a
+//!   fresh key as `seal`; an app's brief composed in).
+//!
 //! A tree that cannot be sealed (no key holder, no key yet for another
-//! tree, an agent conversation whose root is unknown) gets the plaintext:
-//! legal, logged.
+//! tree, no answer from `sessions.sendTarget`) gets the plaintext: legal,
+//! logged.
 //!
 //! OPEN (every result): body envelopes, card envelopes and sealed titles
 //! anywhere in the result's JSON are opened; what this install cannot open
@@ -77,19 +81,16 @@ impl SealingTransform {
         }
     }
 
-    /// A card for `root` (`{...clear, sealed}`) whose clear `pictures` is
-    /// the contract's PROJECTION (`{label, attachmentId}` per uploaded
-    /// picture, omitted when none is): the server claims those attachments.
+    /// A card for `root` (`{...clear, sealed}`); its clear `pictures` is
+    /// the contract's PROJECTION: `{label, attachmentId}` per uploaded
+    /// picture (the server claims it), `{label}` per picture still to
+    /// upload (the server mints its upload and files it there).
     fn seal_card(&self, root: &str, card: &Value) -> Result<Value, SealError> {
-        let mut sealed =
-            if root == self.root_id { sealing::seal_card(root, card) } else { sealing::seal_card_for_tree(root, card) }?;
-        if let Some(obj) = sealed.as_object_mut() {
-            match clear_pictures(card) {
-                Some(pictures) => obj.insert("pictures".into(), pictures),
-                None => obj.remove("pictures"),
-            };
+        if root == self.root_id {
+            sealing::seal_card(root, card)
+        } else {
+            sealing::seal_card_for_tree(root, card)
         }
-        Ok(sealed)
     }
 
     /// A body envelope sealed with each listener tree's current key
@@ -145,10 +146,41 @@ impl SealingTransform {
                 }
             }
             (None, true) => {
-                // The caller's conversation with an agent / app: its root
-                // is the server's to resolve. Plaintext stays legal.
-                log::info!("gateway: sessions_send to an agent/app conversation goes out plaintext");
-                return Ok(args);
+                // The caller's conversation with an agent / editor session
+                // with an app (`sessions.sendTarget`): sealed to its key, or
+                // with a fresh key riding as `seal` (none yet / keyless).
+                let Some(target) = self.send_target(obj) else { return Ok(args) };
+                // A sealed text is the writer's whole message: an app's
+                // brief is composed in here (`briefedText`).
+                let text = match (target.brief.as_deref().map(str::trim).filter(|b| !b.is_empty()), text) {
+                    (Some(brief), Some(text)) => Some([brief, text.trim()].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n\n")),
+                    (_, text) => text,
+                };
+                let Some(text) = text else { return Ok(args) };
+                let keyed = target.root_id.as_deref().zip(target.epoch).zip(target.public_key.as_deref());
+                match keyed {
+                    Some(((root, epoch), key)) => {
+                        let Ok(public) = sealing::public_key_from_b64(key) else { return Ok(args) };
+                        if let Some(service) = sealing::service() {
+                            service.keyring().set_current(root, epoch, public);
+                        }
+                        match enet_core::sealed::seal_body(&public, epoch, &text) {
+                            Ok(body) => (Some(body), None, None),
+                            Err(err) => {
+                                log::warn!("gateway: sessions_send to an agent/app goes out plaintext: {err}");
+                                return Ok(args);
+                            }
+                        }
+                    }
+                    None => {
+                        let Some(seal) = self.new_root_seal() else { return Ok(args) };
+                        let Ok(public) = sealing::public_key_from_b64(&seal.public_key) else { return Ok(args) };
+                        match enet_core::sealed::seal_body(&public, seal.epoch, &text) {
+                            Ok(body) => (Some(body), None, Some(seal)),
+                            Err(_) => return Ok(args),
+                        }
+                    }
+                }
             }
             (None, false) => match self.new_root_seal() {
                 None => return Ok(args),
@@ -180,6 +212,30 @@ impl SealingTransform {
             self.new_roots.lock().unwrap_or_else(|p| p.into_inner()).insert(seal.public_key.clone(), seal);
         }
         Ok(args)
+    }
+
+    /// tRPC `sessions.sendTarget {agentId|appId}`: the conversation root a
+    /// send to an agent / app lands in, its key and an app's brief. `None`
+    /// (logged) = the send goes out plaintext.
+    fn send_target(&self, args: &Map<String, Value>) -> Option<SendTarget> {
+        sealing::service()?;
+        let Some(trpc) = &self.trpc else {
+            log::info!("gateway: sessions_send to an agent/app goes out plaintext: no tRPC client");
+            return None;
+        };
+        let mut query = Map::new();
+        for key in ["agentId", "appId"] {
+            if let Some(id) = args.get(key).filter(|v| v.is_string()) {
+                query.insert(key.into(), id.clone());
+            }
+        }
+        match trpc.query_with_input::<_, SendTarget>("sessions.sendTarget", &Value::Object(query)) {
+            Ok(target) => Some(target),
+            Err(err) => {
+                log::warn!("gateway: sessions.sendTarget failed, the send goes out plaintext: {err}");
+                None
+            }
+        }
     }
 
     /// A fresh tree key for a new thread, wrapped for this install (its
@@ -280,13 +336,8 @@ impl SealingTransform {
     fn seal_show(&self, args: Value) -> Result<Value, String> {
         let input = ShowInput::parse(&args)?;
         let card = build_show_card(&input)?;
-        // A sealed card's pictures must arrive uploaded (clear attachmentId):
-        // the server mints no upload for them. Labels still to upload keep
-        // the plaintext path, whose uploads the agent then runs.
-        if input.pictures.iter().flatten().any(|p| p.attachment_id.is_none()) {
-            log::info!("gateway: exponential_show with pictures still to upload goes out plaintext");
-            return Ok(strip_picture_ids(args));
-        }
+        // Pictures still to upload ride the clear part as `{label}`: the
+        // result's upload curls file each on that clear entry (addendum 4).
         let sealed = match self.seal_card(&self.root_id, &card) {
             Ok(sealed) => sealed,
             Err(err) => {
@@ -634,6 +685,16 @@ struct Listener {
     public_key: Option<String>,
 }
 
+/// `sessions.sendTarget`: null root = the send creates it; null key = keyless.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SendTarget {
+    root_id: Option<String>,
+    epoch: Option<u32>,
+    public_key: Option<String>,
+    brief: Option<String>,
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EscalateTarget {
@@ -661,66 +722,11 @@ fn result_json(result: &Value) -> Option<Value> {
     serde_json::from_str(text).ok()
 }
 
-/// The clear `pictures` projection of a card: `{label, attachmentId}` per
-/// picture naming a string attachmentId; captions and sizes stay sealed.
-/// `None` when no picture names one.
-fn clear_pictures(card: &Value) -> Option<Value> {
-    let projected: Vec<Value> = card
-        .get("pictures")?
-        .as_array()?
-        .iter()
-        .filter_map(|picture| {
-            let id = picture.get("attachmentId")?.as_str()?;
-            let mut clear = Map::new();
-            if let Some(label) = picture.get("label").filter(|l| l.is_string()) {
-                clear.insert("label".into(), label.clone());
-            }
-            clear.insert("attachmentId".into(), json!(id));
-            Some(Value::Object(clear))
-        })
-        .collect();
-    (!projected.is_empty()).then_some(Value::Array(projected))
-}
-
-/// Opens a card envelope. The clear `pictures` (what the server filed)
-/// are MERGED into the sealed ones by label instead of replacing them, so
-/// captions survive.
+/// Opens a card envelope (`sealing::open_card`: a sealed picture uploaded
+/// after sealing takes its clear entry's attachmentId, addendum 4).
 fn open_card_value(root: &str, card: &Value) -> (OpenStatus, Value) {
-    let clear_pictures = card.get("pictures").and_then(Value::as_array).cloned();
-    let mut without = card.clone();
-    if let Some(obj) = without.as_object_mut() {
-        obj.remove("pictures");
-    }
-    let opened = sealing::open_card(root, &without);
-    let mut out = opened.card;
-    if let Some(clear) = clear_pictures {
-        let merged: Vec<Value> = match out.get("pictures").and_then(Value::as_array) {
-            Some(sealed) if opened.status == OpenStatus::Opened => {
-                let mut merged: Vec<Value> = sealed
-                    .iter()
-                    .map(|picture| {
-                        let mut picture = picture.clone();
-                        let label = picture.get("label").cloned();
-                        if let Some(from) = clear.iter().find(|c| c.get("label") == label.as_ref()).and_then(Value::as_object) {
-                            for (key, value) in from {
-                                picture[key.as_str()] = value.clone();
-                            }
-                        }
-                        picture
-                    })
-                    .collect();
-                for extra in &clear {
-                    if !merged.iter().any(|p| p.get("label") == extra.get("label")) {
-                        merged.push(extra.clone());
-                    }
-                }
-                merged
-            }
-            _ => clear,
-        };
-        out["pictures"] = Value::Array(merged);
-    }
-    (opened.status, out)
+    let opened = sealing::open_card(root, card);
+    (opened.status, opened.card)
 }
 
 /// The agent-facing card: opened, or its clear part with the placeholder.
@@ -1742,9 +1748,21 @@ mod tests {
         assert_eq!(sent["listenerCopies"][0]["rootId"], "root-9");
         let copy = enet_core::sealed::open_body(sent["listenerCopies"][0]["body"].as_str().unwrap(), &|_| Some(listener_tree.secret));
         assert_eq!(copy.text.as_deref(), Some(ask.as_str()));
-        // Pictures still to upload: the plaintext path (its uploads work).
-        call(&grant, SHOW_TOOL, json!({ "pictures": [{ "label": "web-a" }], "title": "Shots" }));
-        assert_eq!(calls_of(&server, SHOW_TOOL).pop().unwrap(), json!({ "pictures": [{ "label": "web-a" }], "title": "Shots" }));
+        // Pictures still to upload: sealed too, their labels clear so the
+        // result's upload curls file each on its clear entry.
+        call(&grant, SHOW_TOOL, json!({ "pictures": [{ "label": "web-a", "caption": "the dock" }], "title": "Shots" }));
+        let sent = calls_of(&server, SHOW_TOOL).pop().unwrap();
+        assert_eq!(sent["kind"], "surface");
+        assert_eq!(sent["sealedCard"]["pictures"], json!([{ "label": "web-a" }]));
+        assert!(sent.get("pictures").is_none() && sent.get("title").is_none(), "{sent}");
+        let raw = sent.to_string();
+        assert!(!raw.contains("Shots") && !raw.contains("the dock"), "{raw}");
+        // The server filed the upload on the clear entry: opening fills it.
+        let mut filed = sent["sealedCard"].clone();
+        filed["pictures"] = json!([{ "label": "web-a", "attachmentId": attachment }]);
+        let opened = sealing::open_card("root-1", &filed).card;
+        assert_eq!(opened["pictures"][0]["attachmentId"], attachment);
+        assert_eq!(opened["pictures"][0]["caption"], "the dock");
         // A refused card never reaches the upstream.
         let before = calls_of(&server, SHOW_TOOL).len();
         let refused = call(&grant, SHOW_TOOL, json!({ "surface": { "root": { "id": "c", "component": "Card" } } }));
@@ -1818,9 +1836,57 @@ mod tests {
         assert_eq!(opened.text.as_deref(), Some("hello neighbour"));
         assert!(fake.created.lock().unwrap().is_empty());
 
-        // An agent conversation: plaintext (its root is the server's).
+        // An agent conversation the server cannot resolve: plaintext (legal).
         call(&grant, SEND_TOOL, json!({ "agentId": "a1", "text": "plain is legal" }));
         assert_eq!(calls_of(&server, SEND_TOOL).pop().unwrap()["text"], "plain is legal");
+        assert!(server.calls.lock().unwrap().iter().any(|(t, url)| t == "trpc:sessions.sendTarget" && url.as_str().unwrap_or_default().contains("a1")));
+        codemode::revoke("s-own");
+        sealing::uninstall();
+    }
+
+    #[test]
+    fn a_send_to_an_agent_or_app_seals_to_its_conversation() {
+        let _serial = serial();
+        let install = enet_core::PushKeypair::generate();
+        let fake = Arc::new(crate::sealing::test_support::FakeService { install_public: Some(install.public()), ..Default::default() });
+        sealing::install(fake.clone());
+        let answer: Answer = Arc::new(|_, _| json!({ "sessionId": "conv-1", "messageId": "m", "status": "idle", "deliverTo": null }));
+
+        // A keyed agent conversation: sealed to ITS current key, no new key.
+        let conversation = enet_core::sealed::generate_tree_key();
+        let server = fake_server(
+            answer.clone(),
+            json!({ "sessions.sendTarget": { "rootId": "conv-1", "epoch": 2, "publicKey": conversation.public_key(), "brief": null } }),
+        );
+        let grant = gateway(&server, "s-own", "root-own");
+        call(&grant, SEND_TOOL, json!({ "agentId": "a1", "text": "review #EXP-1" }));
+        let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
+        assert!(sent.get("seal").is_none(), "{sent}");
+        let text = sent["text"].as_str().unwrap();
+        assert!(text.starts_with("exp-sealed:v1:2:"), "{text}");
+        let opened = enet_core::sealed::open_body(text, &|epoch| (epoch == 2).then_some(conversation.secret));
+        assert_eq!(opened.text.as_deref(), Some("review #EXP-1"));
+        assert_eq!(sent["agentId"], "a1");
+        assert!(fake.created.lock().unwrap().is_empty());
+        codemode::revoke("s-own");
+
+        // A new app editor session: a fresh key rides as `seal`, the brief
+        // is composed in, and the key is adopted under the new root.
+        let server = fake_server(
+            answer,
+            json!({ "sessions.sendTarget": { "rootId": null, "epoch": null, "publicKey": null, "brief": "You edit the app Notes." } }),
+        );
+        let grant = gateway(&server, "s-own", "root-own");
+        call(&grant, SEND_TOOL, json!({ "appId": "app-1", "text": " make it blue " }));
+        let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
+        assert_eq!(sent["seal"]["installId"], "install-1");
+        let secret = sealing::unwrap_tree_key(&install.secret(), sent["seal"]["wraps"][0]["wrapped"].as_str().unwrap()).unwrap();
+        assert_eq!(fake.keyring.secret("conv-1", 1), Some(secret));
+        assert_eq!(
+            sealing::open_body_text("conv-1", sent["text"].as_str().unwrap()).as_deref(),
+            Some("You edit the app Notes.\n\nmake it blue")
+        );
+        assert!(!sent.to_string().contains("blue"));
         codemode::revoke("s-own");
         sealing::uninstall();
     }
@@ -1880,12 +1946,24 @@ mod tests {
         ] });
         let transform = SealingTransform::new("s", "r", None);
         let sealed = transform.seal_card("r", &card).unwrap();
-        assert_eq!(sealed["pictures"], json!([{ "label": "web-b", "attachmentId": "att-b" }]), "the projection only");
-        let none = transform.seal_card("r", &json!({ "kind": "plan", "plan": "p", "pictures": [{ "label": "x", "attachmentId": null }] })).unwrap();
+        assert_eq!(
+            sealed["pictures"],
+            json!([{ "label": "web-a" }, { "label": "web-b", "attachmentId": "att-b" }]),
+            "the projection only: a picture still to upload by its label"
+        );
+        let none = transform.seal_card("r", &json!({ "kind": "plan", "plan": "p", "pictures": [{ "caption": "x", "attachmentId": null }] })).unwrap();
         assert!(none.get("pictures").is_none());
         let (status, opened) = open_card_value("r", &sealed);
         assert_eq!(status, OpenStatus::Opened);
         assert_eq!(opened["pictures"], card["pictures"], "the sealed pictures stay whole");
+        // web-a uploaded later (the server filed it on its clear entry; a
+        // clear id never replaces a sealed one).
+        let mut filed = sealed.clone();
+        filed["pictures"] = json!([{ "label": "web-a", "attachmentId": "att-a" }, { "label": "web-b", "attachmentId": "att-x" }]);
+        let (_, opened) = open_card_value("r", &filed);
+        assert_eq!(opened["pictures"][0]["attachmentId"], "att-a");
+        assert_eq!(opened["pictures"][0]["caption"], "Before");
+        assert_eq!(opened["pictures"][1]["attachmentId"], "att-b");
         // Another tree's content: locked, the clear part kept.
         let other = enet_core::sealed::generate_tree_key();
         let foreign = enet_core::sealed::seal_card(&other.public, 1, &json!({ "kind": "report", "summary": "x" })).unwrap();
