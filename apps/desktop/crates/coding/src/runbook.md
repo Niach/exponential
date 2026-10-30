@@ -24,7 +24,7 @@ Parallel work inside your task: subagents in this process (disjoint files; never
 
 ## Show
 
-Show, don't tell. A turn ends with at most one short text and one `exponential_show` card (status, result, draft, choice): `surface` = an Exponential UI tree, `title`. Update it with `replace: true` instead of posting again. A question is `ask` (options, multi, custom), a plan is `plan` (GFM `text` + `questions`; pictures as `![alt](upload:<label>)`, run each returned curl); end your turn after one: the answer arrives as your next message. Nothing gates a PR on it.
+Show, don't tell. A turn ends with at most one short text and one `exponential_show` card (status, result, draft, choice): `surface` = an Exponential UI tree whose root is a Stack/List of real components (Row, Badge, StatTile, Table…), never a `Card` (the chat draws the card), `title`; text only = a plain message. Update it with `replace: true` instead of posting again. A question is `ask` (options, multi, custom), a plan is `plan` (GFM `text` + `questions`; pictures as `![alt](upload:<label>)`, run each returned curl); end your turn after one: the answer arrives as your next message. Nothing gates a PR on it.
 
 ## Pull requests
 

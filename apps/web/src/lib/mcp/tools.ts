@@ -163,6 +163,7 @@ import { buildPlanCard, buildQuestionCard, buildSurfaceCard, postShowCard, SURFA
 import { loadAgentForUser } from "@/lib/agents/conversation"
 import { loadAppForUser } from "@/lib/apps/editor-session"
 import { appCatalogText, componentCatalogText } from "@/lib/apps/package"
+import coreCatalog from "@exponential_app/eui/catalog/core.catalog.json"
 import { emitEventInTx } from "@/lib/events"
 import {
   closePullRequestTx,
@@ -390,7 +391,49 @@ const cardSurfaceInput = z
 // S-3: the show tool's description (always-loaded bytes; its own per-tool
 // cap in context-budget.test.ts): the nested node syntax, one example, the
 // reply rule and the component names; props come from the apps catalog.
-const SHOW_TOOL_DESCRIPTION = `ONE card in your chat a turn (result, status, draft, choice); replace: true edits it. surface = nested nodes {id, component, props?, children?, on?} + data. E.g. {root:{id:"c",component:"Card",children:[{id:"h",component:"Heading",props:{text:"Green"}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event = the person's answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[…]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Ask/plan/pictures are stories (PR pictures; +description); story: false = chat only. After ask/plan end your turn; the answer comes next.`
+const SHOW_TOOL_DESCRIPTION = `ONE card in your chat a turn (result, status, draft, choice); replace: true edits it. surface = nested nodes {id, component, props?, children?, slots?, on?} + data. The chat draws the card: never a Card root; a Stack/List of real components (Row, Badge, StatTile, Table…); text only = a plain message. E.g. {root:{id:"s",component:"Stack",children:[{id:"r",component:"Row",props:{title:"Tests"},slots:{trailing:{id:"g",component:"Badge",props:{text:"Green"}}}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event = the answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[…]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Ask/plan/pictures are stories (PR pictures; +description); story: false = chat only. After ask/plan end your turn; the answer comes next.`
+
+// EXP-1445: the chat already draws every surface in a card, so a Card root
+// is a card in a card; a surface of text alone adds nothing over a plain
+// message. Both are refused at the source (one check for every client, no
+// renderer drift). The sets come from the core catalog's groups: `text`
+// leaves and `layout`/`list` containers that only arrange them.
+const SHOW_TEXT_COMPONENTS = new Set(
+  Object.entries(coreCatalog.components)
+    .filter(([, def]) => def.group === `text`)
+    .map(([name]) => name)
+)
+const SHOW_CONTAINER_COMPONENTS = new Set([
+  ...Object.entries(coreCatalog.components)
+    .filter(([, def]) => def.group === `layout`)
+    .map(([name]) => name),
+  `Section`,
+  `Group`,
+])
+export const SHOW_CARD_ROOT_ERROR = `surface root must not be a Card: the chat already draws each surface in a card. Use a Stack/List root with real components (Row, Badge, StatTile, Table, Button…).`
+export const SHOW_TEXT_ONLY_ERROR = `this surface is text only. Send it as a plain message instead.`
+
+type ShowNode = { component?: unknown; children?: unknown; slots?: unknown; template?: unknown }
+
+/** True when the subtree holds nothing but text and the containers that
+ *  arrange it (a data template repeats a component: not text only). */
+function textOnlyNode(node: unknown): boolean {
+  if (!node || typeof node !== `object`) return true
+  const { component, children, slots, template } = node as ShowNode
+  if (template !== undefined || typeof component !== `string`) return false
+  if (SHOW_TEXT_COMPONENTS.has(component)) return true
+  if (!SHOW_CONTAINER_COMPONENTS.has(component)) return false
+  const kids = [...(Array.isArray(children) ? children : []), ...(slots && typeof slots === `object` ? Object.values(slots) : [])]
+  return kids.every(textOnlyNode)
+}
+
+/** EXP-1445: an agent's `exponential_show` surface, refused when its root is
+ *  a Card or (as the whole card) it is text only; null = fine. */
+export function showSurfaceProblem(surface: { root: Record<string, unknown> }, alone: boolean): string | null {
+  if (surface.root.component === `Card`) return SHOW_CARD_ROOT_ERROR
+  if (alone && textOnlyNode(surface.root)) return SHOW_TEXT_ONLY_ERROR
+  return null
+}
 
 /** F38: `exponential_show {pictures}` with no surface: a Card holding the
  *  title (else the picture labels) above the pictures. */
@@ -2729,6 +2772,10 @@ export function registerExponentialTools(
                   ...(description ? { description } : {}),
                   ...(story !== undefined ? { story } : {}),
                 })
+          // EXP-1445: a valid surface still refuses a Card root and, as the
+          // whole card, text alone.
+          const problem = surface ? showSurfaceProblem(surface, !ask && !plan && !pictures?.length) : null
+          if (problem) throw new Error(problem)
           // S-3 stories.json: an explicit flag rides every kind.
           if (story !== undefined) card.story = story
           return ok(await postShowCard({ userId: user.id, sessionId: own.id, card, replace: replace === true }))

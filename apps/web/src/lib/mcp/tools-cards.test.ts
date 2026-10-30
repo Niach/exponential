@@ -59,7 +59,13 @@ vi.mock(`@/lib/widget/agent-report`, () => ({
   createAgentBugReport: vi.fn(),
 }))
 
-import { picturesOnlySurface, registerExponentialTools } from "@/lib/mcp/tools"
+import {
+  picturesOnlySurface,
+  registerExponentialTools,
+  SHOW_CARD_ROOT_ERROR,
+  SHOW_TEXT_ONLY_ERROR,
+  showSurfaceProblem,
+} from "@/lib/mcp/tools"
 import { buildSurfaceCard } from "@/lib/sessions/plan"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
@@ -112,5 +118,37 @@ describe(`exponential_show with pictures only (F38)`, () => {
     expect(JSON.stringify(card.surface)).toContain(`"Chats"`)
     expect(card.pictures?.map((picture) => picture.label)).toEqual([`web chats`])
     expect(JSON.stringify(picturesOnlySurface(undefined, [{ label: `web a` }, { label: `ios a` }]))).toContain(`web a, ios a`)
+  })
+})
+
+// EXP-1445: the chat draws the card, so a Card root double-cards; text alone
+// belongs in a plain message (the handler's refusal: tools.test.ts).
+const node = (id: string, component: string, children?: unknown[]) => ({ id, component, ...(children ? { children } : {}) })
+
+describe(`exponential_show refuses a Card root and text-only surfaces (EXP-1445)`, () => {
+  it(`refuses a Card root, even with real components inside`, () => {
+    const surface = { root: node(`c`, `Card`, [node(`b`, `Badge`), node(`x`, `Button`)]) }
+    expect(showSurfaceProblem(surface, true)).toBe(SHOW_CARD_ROOT_ERROR)
+  })
+
+  it(`refuses a tree of only text and the containers arranging it`, () => {
+    const surface = {
+      root: node(`s`, `Stack`, [node(`h`, `Heading`), node(`sec`, `Section`, [node(`t`, `Text`), node(`sep`, `Separator`)]), node(`m`, `Markdown`), node(`l`, `Label`)]),
+    }
+    expect(showSurfaceProblem(surface, true)).toBe(SHOW_TEXT_ONLY_ERROR)
+    expect(showSurfaceProblem({ root: node(`t`, `Text`) }, true)).toBe(SHOW_TEXT_ONLY_ERROR)
+  })
+
+  it(`passes once any real component appears, at any depth`, () => {
+    for (const leaf of [`Badge`, `Row`, `StatTile`, `Table`, `Chart`, `Button`, `Progress`, `Image`]) {
+      const surface = { root: node(`s`, `Stack`, [node(`h`, `Heading`), node(`b`, `Box`, [node(`x`, leaf)])]) }
+      expect(showSurfaceProblem(surface, true), leaf).toBeNull()
+    }
+    expect(showSurfaceProblem({ root: { id: `l`, component: `List`, template: { component: `Row`, path: `/rows` } } }, true)).toBeNull()
+  })
+
+  it(`lets text ride beside ask, plan or pictures (the card is not text alone)`, () => {
+    expect(showSurfaceProblem({ root: node(`t`, `Text`) }, false)).toBeNull()
+    expect(showSurfaceProblem({ root: node(`c`, `Card`) }, false)).toBe(SHOW_CARD_ROOT_ERROR)
   })
 })

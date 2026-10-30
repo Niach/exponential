@@ -77,7 +77,7 @@ export function mcpServerInstructions(gates: {
 }
 
 /** S-3: the one sentence every launched session gets about showing. */
-export const SHOW_SENTENCE = `Show, don't tell: results, questions (ask) and plans (plan) go in ONE exponential_show card per turn; replace: true updates it.`
+export const SHOW_SENTENCE = `Show, don't tell: results, questions (ask) and plans (plan) go in ONE exponential_show card per turn; replace: true updates it. Never a Card root (the chat draws the card); text only = a plain message.`
 
 /** The full variant — what the context budget measures. */
 export const MCP_SERVER_INSTRUCTIONS = mcpServerInstructions({
