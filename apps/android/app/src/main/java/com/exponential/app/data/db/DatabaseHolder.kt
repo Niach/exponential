@@ -32,14 +32,11 @@ class DatabaseHolder @Inject constructor(
                 ExponentialDatabase::class.java,
                 "exponential-$accountId-v2.db",
             )
-                // SLOP-3: 78 → 79 and SLOP-4: 79 → 80 migrate in place (rows
-                // and every shape's offset survive), as do EXP-1196's 80 → 81
-                // (one added column), EXP-1284's 84 → 85 (two new tables),
-                // EXP-1291's 86 → 87 (the session tree), EXP-1321's 87 → 88
-                // (sessions.dispatch) and EXP-1323's 88 → 89 (sessions.caption
-                // + aside, messages.author_session_id, the session_reads table).
-                // Any OLDER schema still wipes and lets Electric resync.
-                .addMigrations(MIGRATION_78_79, MIGRATION_79_80, MIGRATION_80_81, MIGRATION_81_82, MIGRATION_82_83, MIGRATION_83_84, MIGRATION_84_85, MIGRATION_85_86, MIGRATION_86_87, MIGRATION_87_88, MIGRATION_88_89, MIGRATION_89_90, MIGRATION_90_91, MIGRATION_91_92, MIGRATION_92_93, MIGRATION_93_94, MIGRATION_94_95, MIGRATION_95_96, MIGRATION_96_97, MIGRATION_97_98, MIGRATION_98_99, MIGRATION_99_100, MIGRATION_100_101, MIGRATION_101_102, MIGRATION_102_103, MIGRATION_103_104, MIGRATION_104_105)
+                // 104 → 105 (EXP-1459) migrates in place (rows and every
+                // shape's offset survive). Any OLDER schema wipes and lets
+                // Electric resync: every table but electric_offsets is a synced
+                // shape, so nothing local is lost.
+                .addMigrations(MIGRATION_104_105)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
             instances[accountId] = db
