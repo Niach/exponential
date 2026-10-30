@@ -2,7 +2,9 @@
 //! (`sidebar::rail_row_lead`, `rail_section_label`, the trailing-column
 //! helpers): nav rows with a dot and a count, an "Agents" header with its
 //! `+`, agent rows with a needs-you dot and the hover gear — every trailing
-//! indicator in ONE 20px column 4px in from the row's right edge.
+//! indicator in ONE 20px column 4px in from the row's right edge. #EXP-1480:
+//! the dot is `rail_dot` (`sidebar.trailingDot`, web `SidebarMenuDot`), the
+//! count the eUI `count_badge` (web `Badge`).
 
 use gpui::{
     div, px, App, Div, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _,

@@ -3,7 +3,7 @@ name: test
 # The ONE pull-request gate (2026-10-26: speed first, target < 5 min wall).
 # Only the cheap checks that catch real breakage run here: the typecheck, the
 # web unit tests (four shards), the migration chain against a real Postgres
-# (order, drift, custom triggers), and `cargo check` of the desktop workspace
+# (order, drift, custom triggers), the styleguide suite, and `cargo check` of the desktop workspace
 # when the PR touches it, plus the eUI conformance pass (`eui`, below) when
 # it touches eUI. Everything heavy (the rest of the eUI suite: unit suites,
 # parity, guides, benches, Simulator + emulator; iOS, Android, the full desktop cargo test, marketing,
@@ -154,11 +154,24 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun packages/exponential-ui/release/check-gpui-revs.ts
 
+  # The styleguide's own suite (~2 s): every entry's status table names a
+  # REAL declaration in its file on each platform, and the sections/page
+  # bands agree. It drifted red unnoticed outside the gate (sealed-locked).
+  styleguide:
+    needs: pick
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test
+        working-directory: apps/styleguide
+
   # EXP-1364: the ONE required status check on master (the "master: test
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, migrations, desktop, eui, gpui-revs]
+    needs: [pick, changes, web, migrations, desktop, eui, gpui-revs, styleguide]
     if: always()
     runs-on: ubuntu-latest
     steps:

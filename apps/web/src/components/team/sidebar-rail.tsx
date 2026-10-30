@@ -13,7 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Separator,
+  SidebarMenuDot,
   SidebarMenuTrailing,
+  type SidebarDotTone,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -65,19 +67,16 @@ export type BadgePlacement = `row` | `icon`
 // bars. A row carries it in its trailing column (EXP-1477), an icon at its
 // top-right corner.
 function NavDot({
-  className,
+  tone,
   placement,
 }: {
-  className: string
+  tone: SidebarDotTone
   placement: BadgePlacement
 }) {
   const dot = (
-    <span
-      className={cn(
-        `pointer-events-none size-2 rounded-full`,
-        placement === `icon` && `absolute right-1 top-1`,
-        className
-      )}
+    <SidebarMenuDot
+      tone={tone}
+      className={cn(`pointer-events-none`, placement === `icon` && `absolute right-1 top-1`)}
     />
   )
   if (placement === `icon`) return dot
@@ -86,7 +85,7 @@ function NavDot({
 
 /** EXP-1075: live sessions of MINE in ANOTHER team — the team picker's dot
  * (`lib/sessions/team-live-runs.ts` decides where it hangs). Same tones as
- * the mobile tab bar's chat badge: amber while one of them waits on the
+ * the mobile tab bar's chat badge: yellow while one of them waits on the
  * person, green otherwise. A dot, never a count — the picker only says
  * "look over there"; the team you are in lists its threads in the Running
  * section.
@@ -104,13 +103,12 @@ export function TeamLiveDot({
 } & React.ComponentProps<`span`>) {
   if (!live) return null
   return (
-    <span
+    <SidebarMenuDot
+      tone={live.needsInput ? `needsYou` : `live`}
       className={cn(
         // Hit-testable on purpose (unlike `NavDot`): the `title` is the only
         // thing that says WHY the dot is there, and a click still bubbles to
         // the row or trigger underneath.
-        `size-2 shrink-0 rounded-full`,
-        live.needsInput ? `bg-yellow-400` : `bg-green-500`,
         placement === `corner`
           ? `absolute -right-0.5 -top-0.5 ring-2 ring-sidebar`
           : `ml-auto`,
@@ -125,11 +123,11 @@ export function TeamLiveDot({
 export function InboxUnreadBadge({ placement }: { placement: BadgePlacement }) {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
-  return <NavDot className="bg-primary" placement={placement} />
+  return <NavDot tone="unread" placement={placement} />
 }
 
 /** EXP-1293: the Threads entry's dot — green while a thread of the team
- *  runs, amber while one needs you (`threadsNavState`); EXP-1323: else the
+ *  runs, yellow while one needs you (`threadsNavState`); EXP-1323: else the
  *  unread dot (the Inbox's) while a thread holds an unread reply. */
 export function ThreadsLiveBadge({
   state,
@@ -141,9 +139,7 @@ export function ThreadsLiveBadge({
   if (!state.live && !state.unread) return null
   return (
     <NavDot
-      className={
-        state.needsYou ? `bg-yellow-400` : state.live ? `bg-green-500` : `bg-primary`
-      }
+      tone={state.needsYou ? `needsYou` : state.live ? `live` : `unread`}
       placement={placement}
     />
   )
@@ -365,7 +361,7 @@ export function TeamSidebarRail({
         )}
 
         {/* EXP-923 / EXP-1293: the running threads, under the boards —
-            the agent mark plus the amber badge, the expanded row's whole
+            the agent mark plus the yellow badge, the expanded row's whole
             label in the tooltip. */}
         <SidebarRunningIcons
           teamSlug={teamSlug}

@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-31-sidebar-dots`,
+    date: `2026-10-31`,
+    title: `Sidebar dots, the same everywhere`,
+    summary: `The sidebar's dots and Drafts count now look the same on web and desktop.`,
+    body: `- **Same dots**: the sidebar's status dots are one size on web and desktop, and an agent that needs you shows the same yellow on both.\n- **Drafts count**: the Drafts count is the small count badge on web too.`,
+  },
+  {
     id: `2026-10-30-sidebar-trailing-column`,
     date: `2026-10-30`,
     title: `Sidebar indicators, lined up`,

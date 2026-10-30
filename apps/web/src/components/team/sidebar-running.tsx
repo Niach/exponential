@@ -34,7 +34,7 @@ import { useEnteringRows } from "@/hooks/use-entering-rows"
 // (fixture-locked `partitionThreads`, `threads-list.json` `railCases`):
 // every Needs you row, every Running row, then the Recent rows whose word
 // still asks for a merge (`readyToMerge`, `stack`); hidden entirely when
-// empty. A row = the agent mark (the working spark, the amber badge while it
+// empty. A row = the agent mark (the working spark, the yellow badge while it
 // needs you) + the title (it names the issue), NO captions. A click opens
 // the thread with the `running` origin, which creates NO work tab
 // (`lib/work-tabs.ts` `TABLESS_ORIGIN`). #EXP-1461: ROOTS only (a child
@@ -78,7 +78,7 @@ export interface SidebarThreads {
 }
 
 /** The nav's live state for the Threads entry: green while anything runs,
- *  amber while something needs you; EXP-1323: else the unread dot while a
+ *  yellow while something needs you; EXP-1323: else the unread dot while a
  *  thread holds a reply the viewer has not read; #EXP-1388: an archived
  *  chat never lights it (`chatsUnread(groups, reads)`). */
 export function threadsNavState(

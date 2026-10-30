@@ -641,6 +641,37 @@ function SidebarMenuTrailing({
   )
 }
 
+/** #EXP-1480 — THE status dot of the rail (a nav row's dot, an agent's
+ *  needs-you dot, a team's live dot): `size-2` = the `sidebar.trailingDot`
+ *  token (8 design units; the IDE's `rail_badge_element` draws the same
+ *  number), in one of the rail's tones. Inside `SidebarMenuTrailing` on a
+ *  row; positioned by the caller on an icon's corner. */
+const SIDEBAR_DOT_TONES = {
+  /** Unread (the Inbox's, a thread's unread reply). */
+  unread: `bg-primary`,
+  /** Waits on you: `semantic.yellow` (#FACC15). */
+  needsYou: `bg-yellow-400`,
+  /** Something of yours runs. */
+  live: `bg-green-500`,
+} as const
+
+type SidebarDotTone = keyof typeof SIDEBAR_DOT_TONES
+
+function SidebarMenuDot({
+  tone,
+  className,
+  ...props
+}: React.ComponentProps<`span`> & { tone: SidebarDotTone }) {
+  return (
+    <span
+      data-slot="sidebar-menu-dot"
+      data-tone={tone}
+      className={cn(`size-2 shrink-0 rounded-full`, SIDEBAR_DOT_TONES[tone], className)}
+      {...props}
+    />
+  )
+}
+
 function SidebarMenuSkeleton({
   className,
   showIcon = false,
@@ -755,6 +786,9 @@ export {
   SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuTrailing,
+  SidebarMenuDot,
+  SIDEBAR_DOT_TONES,
+  type SidebarDotTone,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSkeleton,

@@ -646,16 +646,21 @@ pub(crate) enum RailBadge {
     Count(usize, crate::surface::BadgeTone),
 }
 
-/// One badge element at `glyph_px` (dots keep their fixed 6px regardless;
-/// a count is the 16px capsule).
+/// #EXP-1480 — THE rail status dot (a nav row's, an agent's needs-you, a
+/// team's live dot): the `sidebar.trailingDot` disc, web `SidebarMenuDot`.
+pub(crate) fn rail_dot(color: Hsla) -> gpui::Div {
+    div()
+        .size(px(theme::tokens::sidebar::TRAILING_DOT))
+        .flex_shrink_0()
+        .rounded_full()
+        .bg(color)
+}
+
+/// One badge element at `glyph_px` (dots keep their fixed [`rail_dot`] size
+/// regardless; a count is the 16px capsule).
 pub(crate) fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyElement {
     match badge {
-        RailBadge::Dot(color) => div()
-            .size_1p5()
-            .flex_shrink_0()
-            .rounded_full()
-            .bg(color)
-            .into_any_element(),
+        RailBadge::Dot(color) => rail_dot(color).into_any_element(),
         RailBadge::Count(count, tone) => div()
             .flex_shrink_0()
             .children(crate::surface::count_badge(count, tone, cx))
@@ -1865,13 +1870,10 @@ pub(crate) fn render_left_column_header(
                         )
                         .when_some(elsewhere_tone, |this, tone| {
                             this.child(
-                                div()
+                                rail_dot(tone)
                                     .absolute()
                                     .top(px(-2.))
                                     .right(px(-2.))
-                                    .size(px(6.))
-                                    .rounded_full()
-                                    .bg(tone)
                                     // The hairline keeps the dot readable
                                     // over the glyph it overlaps.
                                     .border_1()
@@ -1892,7 +1894,7 @@ pub(crate) fn render_left_column_header(
                 });
                 // EXP-1075: the ACTIVE team never wears a dot — its runs are
                 // the rail's Running section, right there. Every other team
-                // with live runs of mine gets the trailing 6px disc.
+                // with live runs of mine gets the trailing [`rail_dot`].
                 match (*active, *dot) {
                     (false, Some(tone)) => {
                         menu = menu.menu_element_with_check(false, switch, move |_window, _cx| {
@@ -1903,13 +1905,7 @@ pub(crate) fn render_left_column_header(
                                 .justify_between()
                                 .gap_2()
                                 .child(div().truncate().child(label.clone()))
-                                .child(
-                                    div()
-                                        .size(px(6.))
-                                        .rounded_full()
-                                        .flex_shrink_0()
-                                        .bg(tone),
-                                )
+                                .child(rail_dot(tone))
                         });
                     }
                     _ => menu = menu.menu_with_check(label, *active, switch),

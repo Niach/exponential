@@ -23,7 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Pill,
+  Badge,
   ResizeHandle,
   Separator,
   Sidebar,
@@ -413,7 +413,7 @@ export function TeamSidebar({
                           </SidebarMenuItem>
                           {/* EXP-1293: Threads replaced Reviews and the
                               Agent page's history — green while a thread of the
-                              team runs, amber while one needs you. */}
+                              team runs, yellow while one needs you. */}
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
                               <Link
@@ -451,7 +451,7 @@ export function TeamSidebar({
                                 </Link>
                               </SidebarMenuButton>
                               <SidebarMenuTrailing className="pointer-events-none">
-                                <Pill size="sm" className="tabular-nums" data-testid="drafts-count-badge">{draftCount}</Pill>
+                                <Badge count={draftCount} data-testid="drafts-count-badge" />
                               </SidebarMenuTrailing>
                             </SidebarMenuItem>
                           )}
