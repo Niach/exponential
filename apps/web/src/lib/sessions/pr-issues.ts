@@ -3,6 +3,7 @@ import type { db } from "@/db/connection"
 import { issues, messages, pullRequestIssues, pullRequests, sessionIssues, sessions } from "@/db/schema"
 import { extractIssueRefs } from "@/lib/issue-refs"
 import { inSession } from "@/lib/sessions/messages"
+import { isSealedBody } from "@/lib/sessions/sealed"
 
 // EXP-1334/NEW-1: the issues a PR closes when `pr_open` names none. A
 // session's issues are the rows it HOLDS; the PR belongs to ONE session of
@@ -12,6 +13,9 @@ import { inSession } from "@/lib/sessions/messages"
 // held outside every OTHER live subtree (the root's own rows), so the one
 // session doing the work keeps them when a review or fix-up child sits
 // beside it. Done work (an issue a merged PR closed) is never re-linked.
+// EXP-1458: a SEALED start message is never parsed; its clear
+// `ref_issue_ids` (the writer's `refIssueIds`) names the issues instead, and
+// a plaintext one honours them beside its `#IDENT`s.
 
 type Reader = Pick<typeof db, `select`>
 
@@ -41,6 +45,8 @@ export function pickPrIssues(opts: {
   links: ReadonlyArray<{ issueId: string; identifier: string; sessionId: string }>
   tree: ReadonlyArray<{ id: string; parentId: string | null; status?: string }>
   startText: string | null
+  /** EXP-1458: the start message's `ref_issue_ids`. */
+  startRefIssueIds?: readonly string[] | null
 }): string[] {
   const unique = (ids: string[]) => [...new Set(ids)]
   if (!opts.sessionId || opts.sessionId === opts.rootId) {
@@ -48,8 +54,11 @@ export function pickPrIssues(opts: {
   }
   const subtree = subtreeOf(opts.tree, opts.sessionId)
   const named = new Set(extractIssueRefs(opts.startText ?? ``))
+  const refs = new Set(opts.startRefIssueIds ?? [])
   const share = opts.links
-    .filter((link) => subtree.has(link.sessionId) || named.has(link.identifier.toUpperCase()))
+    .filter(
+      (link) => subtree.has(link.sessionId) || named.has(link.identifier.toUpperCase()) || refs.has(link.issueId)
+    )
     .map((link) => link.issueId)
   if (share.length > 0) return unique(share)
   // Nothing of its own: the rows no OTHER live subtree holds (the root's).
@@ -85,15 +94,18 @@ export async function prDefaultIssueIds(
   if (links.length === 0) return []
 
   let startText: string | null = null
+  let startRefIssueIds: string[] | null = null
   if (opts.sessionId && opts.sessionId !== opts.rootId) {
     // The session's start message: the first plain (non-card) row on it.
     const [start] = await database
-      .select({ body: messages.body })
+      .select({ body: messages.body, refIssueIds: messages.refIssueIds })
       .from(messages)
       .where(and(inSession(opts.sessionId), isNull(messages.card)))
       .orderBy(asc(messages.createdAt))
       .limit(1)
-    startText = start?.body ?? null
+    // EXP-1458: a sealed body is never parsed (its refs are the column).
+    startText = start && !isSealedBody(start.body) ? start.body : null
+    startRefIssueIds = start?.refIssueIds ?? null
   }
   const picked = pickPrIssues({
     rootId: opts.rootId,
@@ -101,6 +113,7 @@ export async function prDefaultIssueIds(
     links,
     tree,
     startText,
+    startRefIssueIds,
   })
   if (picked.length === 0) return []
 

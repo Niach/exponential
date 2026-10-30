@@ -20,6 +20,8 @@ export const MESSAGE_COLUMNS = [
   `author_session_id`,
   `body`,
   `card`,
+  // EXP-1458: the attachments a (possibly sealed) message carries.
+  `attachment_ids`,
   `answered_at`,
   `consumed_at`,
   `created_at`,

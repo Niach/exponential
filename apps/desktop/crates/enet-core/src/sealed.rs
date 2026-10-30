@@ -30,7 +30,9 @@ pub const SEAL_EPOCH_MAX: u32 = i32::MAX as u32;
 /// A wrapped tree secret: `push_seal(install_public, secret[32])`.
 pub const WRAPPED_TREE_KEY_BYTES: usize = PUSH_OVERHEAD + 32;
 /// The `messages.card` fields that stay in clear; everything else is sealed.
-pub const CARD_CLEAR_FIELDS: [&str; 11] = [
+/// `pictures` stays in clear PROJECTED (each entry's `label` and
+/// `attachmentId` only) and is never laid over the opened card.
+pub const CARD_CLEAR_FIELDS: [&str; 12] = [
     "kind",
     "messageId",
     "sessionId",
@@ -42,7 +44,28 @@ pub const CARD_CLEAR_FIELDS: [&str; 11] = [
     "decision",
     "fresh",
     "answered",
+    "pictures",
 ];
+
+/// The clear projection of a card's `pictures`: `{label, attachmentId}` per
+/// entry that names an attachment; `None` when none does.
+pub fn clear_pictures(pictures: Option<&Value>) -> Option<Value> {
+    let out: Vec<Value> = pictures?
+        .as_array()?
+        .iter()
+        .filter_map(|p| {
+            let p = p.as_object()?;
+            let id = p.get("attachmentId")?.as_str()?;
+            let mut m = Map::new();
+            if let Some(label) = p.get("label").and_then(Value::as_str) {
+                m.insert("label".into(), Value::String(label.into()));
+            }
+            m.insert("attachmentId".into(), Value::String(id.into()));
+            Some(Value::Object(m))
+        })
+        .collect();
+    (!out.is_empty()).then_some(Value::Array(out))
+}
 
 /// A tree keypair (`sessions.seal_public_key` = base64url of `public`).
 #[derive(Clone)]
@@ -271,6 +294,10 @@ pub fn split_card(card: &Value) -> Result<(Map<String, Value>, String)> {
             if answered(&full) {
                 clear.insert(field.into(), Value::Bool(true));
             }
+        } else if field == "pictures" {
+            if let Some(pictures) = clear_pictures(full.get("pictures")) {
+                clear.insert(field.into(), pictures);
+            }
         } else if let Some(v) = full.get(field).filter(|v| !v.is_null()) {
             clear.insert(field.into(), v.clone());
         }
@@ -319,7 +346,8 @@ pub fn open_card(card: &Value, keys: &dyn Fn(u32) -> Option<[u8; 32]>) -> Opened
             if inner.get("kind") != clear.get("kind") {
                 return refused(epoch, clear);
             }
-            for (k, v) in clear {
+            // The clear `pictures` is a projection: the sealed ones stay whole.
+            for (k, v) in clear.into_iter().filter(|(k, _)| k != "pictures") {
                 inner.insert(k, v);
             }
             OpenedCard { status: OpenStatus::Opened, epoch, card: Value::Object(inner) }
@@ -423,7 +451,7 @@ mod tests {
             let opened = open_card(&split["envelope"], &keys);
             assert_eq!(opened.status, OpenStatus::Opened, "{name}");
             let mut want = split["card"].as_object().unwrap().clone();
-            for (k, v) in clear {
+            for (k, v) in clear.into_iter().filter(|(k, _)| k != "pictures") {
                 want.insert(k, v);
             }
             assert_eq!(opened.card, Value::Object(want), "{name}");

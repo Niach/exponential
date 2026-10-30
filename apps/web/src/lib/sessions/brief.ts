@@ -8,6 +8,7 @@ import { voiceAgentIsPrivate } from "@/lib/sessions/meeting-access"
 import { deriveSessionTitle } from "@/lib/sessions/title"
 import type { Db } from "@/lib/sessions/tx"
 import { inSession } from "@/lib/sessions/messages"
+import { isSealedBody } from "@/lib/sessions/sealed"
 
 export { deriveSessionTitle }
 
@@ -52,6 +53,11 @@ export async function composeSessionBrief(sessionId: string): Promise<{
    *  session (the voice tool policy is retired); the device reads it only
    *  as `screenMemory`'s precondition. */
   voicePolicy: boolean
+  /** EXP-1458: the first person message when it is SEALED (its body
+   *  envelope, untouched): `brief` was then composed with no text and the
+   *  device opens this itself and composes the brief with it. Null =
+   *  plaintext (or no message): `brief` is complete. */
+  sealedText: string | null
   /** NEW-58 (screen-memory.json TOOL): `voicePolicy` AND the conversation is
    *  private to its member (the agent on their own device shared with no
    *  team, the conversation not `shared`): only then may the device attach
@@ -66,7 +72,10 @@ export async function composeSessionBrief(sessionId: string): Promise<{
       : await db.select().from(sessions).where(eq(sessions.id, session.rootId)).limit(1)
   if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
 
-  const input: BriefInput = { text: await firstPersonMessage(session.id) }
+  // EXP-1458: the server never reads a sealed first message.
+  const first = await firstPersonMessage(session.id)
+  const sealedText = isSealedBody(first) ? first : null
+  const input: BriefInput = { text: sealedText ? null : first }
 
   input.issues = await sessionIssueRows(session)
 
@@ -103,6 +112,7 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   const voicePolicy = await isVoiceConversation(session)
   return {
     brief: composeBrief(input),
+    sealedText,
     voicePolicy,
     screenMemory: voicePolicy && !session.shared && (await voiceAgentIsPrivate(db, session.userId, session.agentId!)),
     teamPrompt: team?.agentPrompt?.trim() || null,

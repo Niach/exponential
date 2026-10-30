@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { pickPrIssues, subtreeOf } from "@/lib/sessions/pr-issues"
+import { pickPrIssues, prDefaultIssueIds, subtreeOf } from "@/lib/sessions/pr-issues"
 
 // EXP-1334/NEW-1: a PR closes its SESSION's share of the thread: the rows
 // its subtree HOLDS (a row sits on the session holding the issue) plus the
@@ -69,6 +69,52 @@ describe(`pickPrIssues`, () => {
     expect(pickPrIssues({ rootId: `root`, sessionId: `a1`, links: grouped, tree, startText: `` })).toEqual(
       []
     )
+  })
+})
+
+describe(`EXP-1458: the start message's ref_issue_ids`, () => {
+  it(`names issues beside (or instead of) the parsed #IDENTs`, () => {
+    expect(
+      pickPrIssues({ rootId: `root`, sessionId: `b`, links, tree, startText: `go`, startRefIssueIds: [`i-4`] })
+    ).toEqual([`i-3`, `i-4`])
+    expect(
+      pickPrIssues({ rootId: `root`, sessionId: `a`, links, tree, startText: `Fix #EXP-1`, startRefIssueIds: [`i-4`] })
+    ).toEqual([`i-1`, `i-2`, `i-4`])
+  })
+
+  // A fake reader: each select() answers the next queued rows (tree, links,
+  // start message, merged links), whatever the chain.
+  const reader = (answers: unknown[][]) => {
+    const queue = [...answers]
+    return {
+      select: () => {
+        const rows = queue.shift() ?? []
+        const chain: Record<string, unknown> = {
+          then: (ok: (value: unknown) => unknown, fail?: (err: unknown) => unknown) => Promise.resolve(rows).then(ok, fail),
+        }
+        for (const method of [`from`, `where`, `innerJoin`, `orderBy`, `limit`]) chain[method] = () => chain
+        return chain
+      },
+    } as never
+  }
+  const sealed = `exp-sealed:v1:1:${`A`.repeat(80)}`
+
+  it(`a sealed start message is never parsed: only its ref_issue_ids count`, async () => {
+    // `#EXP-1` inside the envelope does not count: the body is opaque.
+    const ids = await prDefaultIssueIds(
+      reader([tree, links, [{ body: `${sealed} #EXP-1`, refIssueIds: [`i-4`] }], []]),
+      { rootId: `root`, sessionId: `b` }
+    )
+    expect(ids).toEqual([`i-3`, `i-4`])
+  })
+
+  it(`a plaintext start message parses its #IDENTs and honours ref_issue_ids`, async () => {
+    const ids = await prDefaultIssueIds(
+      reader([tree, links, [{ body: `Fix #EXP-1`, refIssueIds: [`i-4`] }], [{ issueId: `i-4` }]]),
+      { rootId: `root`, sessionId: `b` }
+    )
+    // i-4 was closed by a merged PR: done work is never re-linked.
+    expect(ids).toEqual([`i-1`, `i-3`])
   })
 })
 

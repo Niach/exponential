@@ -2566,6 +2566,16 @@ export const messages = pgTable(
     // tRPC only): a retried send naming it again returns this row instead
     // of posting twice. SERVER-ONLY: never in the shape's columns.
     clientMessageId: varchar(`client_message_id`, { length: 64 }),
+    // ── EXP-1458: clear metadata of a (possibly sealed) message ──
+    // The attachments it carries (claimed at send): clients render them
+    // beside the body, which the server never edits when sealed. SYNCED.
+    attachmentIds: uuid(`attachment_ids`).array(),
+    // The people it mentions (the writer names them; plaintext = parsed
+    // from `@email`): who a notification reaches. SERVER-ONLY.
+    mentionUserIds: text(`mention_user_ids`).array(),
+    // The issues it references (`#IDENT`; the writer names them when the
+    // body is sealed): a PR's share (lib/sessions/pr-issues.ts). SERVER-ONLY.
+    refIssueIds: uuid(`ref_issue_ids`).array(),
     ...timestamps,
   },
   (table) => [

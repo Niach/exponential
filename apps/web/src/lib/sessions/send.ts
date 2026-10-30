@@ -16,6 +16,7 @@ import {
   attachments,
   boards,
   devices,
+  installs,
   issues,
   mcpServers,
   messages,
@@ -69,12 +70,15 @@ import {
   resolveMoveTarget,
   type MoveTarget,
 } from "@/lib/sessions/move"
-import { SHARING_ORDER } from "@/lib/sessions/host"
+import { resolveSessionHost, SHARING_ORDER } from "@/lib/sessions/host"
 import { DEVICE_OTHER_TEAM_MESSAGE, deviceUsableInTeam } from "@/lib/session-device-move"
 import { agentReuseRefusal } from "@/lib/sessions/agent-reuse"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED } from "@/lib/sessions/meeting-access"
 import type { Db, Tx } from "@/lib/sessions/tx"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
+import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
+import { isSealedBody, validSealedBody } from "@/lib/sessions/sealed"
+import { createTreeKeyInTx } from "@/lib/sessions/tree-keys"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
 
@@ -263,9 +267,11 @@ async function assertMcpServersInTeam(tx: Tx, teamId: string, ids: string[] | un
 
 /**
  * Claims eager uploads (team-scoped `attachments` rows with no owner yet,
- * uploaded by the sender) onto the message, and appends an embed line for
- * every one the text does not already reference: attachments never sync, so
- * the body is how clients and the device find them.
+ * uploaded by the sender) onto the message and names them in clear
+ * (`messages.attachment_ids`, EXP-1458). A PLAINTEXT body also gets an
+ * embed line for every one it does not already reference (attachments
+ * never sync, so the body is how older clients and the device find them);
+ * a SEALED body is never touched: the writer put its embeds inside.
  */
 async function claimAttachments(
   tx: Tx,
@@ -303,6 +309,8 @@ async function claimAttachments(
       message: `Attach files you uploaded to this team (each file once)`,
     })
   }
+  await tx.update(messages).set({ attachmentIds: ids }).where(eq(messages.id, args.messageId))
+  if (isSealedBody(args.body)) return
   const byId = new Map(claimed.map((row) => [row.id, row]))
   const lines = ids
     .filter((id) => !args.body.includes(buildAttachmentUrl(id)))
@@ -317,6 +325,21 @@ async function claimAttachments(
   await tx.execute(sql`UPDATE messages SET body = ${body} WHERE id = ${args.messageId}`)
 }
 
+export const SEALED_NO_KEY_MESSAGE = `This chat has no key for sealed messages yet: pass seal with the first one`
+
+/** EXP-1458: a sealed text names an epoch its tree has (a keyless tree, or
+ *  a future epoch, could never be opened by anyone). */
+async function assertSealedForTree(tx: Tx, rootId: string, text: string): Promise<void> {
+  if (!validSealedBody(text)) throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid sealed text` })
+  const envelope = parseBodyEnvelope(text)
+  if (envelope.kind !== `sealed`) return
+  const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
+  if (root?.sealEpoch == null) throw new TRPCError({ code: `BAD_REQUEST`, message: SEALED_NO_KEY_MESSAGE })
+  if (envelope.epoch > root.sealEpoch) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `The chat's key is at epoch ${root.sealEpoch}` })
+  }
+}
+
 /** The person message of a send (text and/or attachments), or null.
  *  EXP-1323: `from` = the calling session (its MCP key): stamped as
  *  `author_session_id`; `asSession` = the message is that SESSION's input
@@ -329,11 +352,28 @@ async function postSendMessage(
   uploaderIds: string[],
   from?: { sessionId: string; asSession: boolean } | null
 ): Promise<string | null> {
+  // EXP-1458: the install named by `seal` is the CALLER's (a hosted run's
+  // agent acts with its host's key, so the caller is the uploader set's
+  // first entry, never the effective starter).
+  const sealUserId = uploaderIds[0]!
   const text = input.text ?? ``
+  // EXP-1458: the tree's key arrives with its first sealed message.
+  if (input.seal) await createTreeKeyInTx(tx, sealUserId, { ...input.seal, rootId: session.rootId })
   if (!text.trim() && !input.attachmentIds?.length) return null
+  if (isSealedBody(text)) await assertSealedForTree(tx, session.rootId, text)
+  if (input.refIssueIds?.length) await assertIssuesInTeam(tx, session.teamId, input.refIssueIds)
   const messageId = from?.asSession
     ? await postSessionInput(tx, session, from.sessionId, text)
     : await postPersonMessage(tx, session, authorId, text, from?.sessionId ?? null)
+  if (input.mentionUserIds?.length || input.refIssueIds?.length) {
+    await tx
+      .update(messages)
+      .set({
+        ...(input.mentionUserIds?.length ? { mentionUserIds: [...new Set(input.mentionUserIds)] } : {}),
+        ...(input.refIssueIds?.length ? { refIssueIds: [...new Set(input.refIssueIds)] } : {}),
+      })
+      .where(eq(messages.id, messageId))
+  }
   await claimAttachments(tx, {
     ids: input.attachmentIds ?? [],
     messageId,
@@ -506,6 +546,8 @@ async function assertSessionAccount(target: Session, account: string, cli: strin
  *  `/model` stays a message (their CLI's own menu); an agent's is refused. */
 const MODEL_COMMAND = /^\/model(?:\s+(\S+))?\s*$/
 
+// EXP-1458: a sealed text never matches (its prefix): a sealed composer
+// sends the pick as the clear `model` param instead.
 export function modelCommand(input: SessionsSendInput, viaMcp: boolean): SessionsSendInput {
   const match = input.attachmentIds?.length ? null : MODEL_COMMAND.exec(input.text?.trim() ?? ``)
   if (!match) return input
@@ -652,7 +694,29 @@ export async function sendSession(args: {
     status: outcome.status,
     txid: outcome.txid,
     ...(warning ? { warning } : {}),
+    deliverTo: await deliverTo(outcome.sessionId),
   }
+}
+
+/** EXP-1458: the live install of the device executing `sessionId` (the
+ *  host's devices row for its machine), most recently seen first. */
+export async function deliverTo(sessionId: string): Promise<{ installId: string; endpointId: string } | null> {
+  const [session] = await db
+    .select({ deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1)
+  if (!session?.deviceId) return null
+  const host = await resolveSessionHost({ deviceId: session.deviceId, userId: session.userId, teamId: session.teamId })
+  if (!host) return null
+  const [install] = await db
+    .select({ installId: installs.id, endpointId: installs.endpointId })
+    .from(installs)
+    .innerJoin(devices, eq(devices.id, installs.deviceId))
+    .where(and(eq(devices.userId, host), eq(devices.deviceId, session.deviceId), isNull(installs.revokedAt)))
+    .orderBy(sql`${installs.lastSeenAt} DESC NULLS LAST`)
+    .limit(1)
+  return install ?? null
 }
 
 export const MEETING_SEND_REFUSED = `A meeting transcript goes to your voice agent's conversation only`
@@ -828,6 +892,8 @@ async function agentFreshThread(
   if (!caller || caller.rootId === target.rootId) return null
   if (target.parentId !== null || target.agentId || target.appId || isPersistent(target)) return null
   if (input.answer || !(input.text?.trim() || input.attachmentIds?.length)) return null
+  // EXP-1458: a text sealed to THIS tree could not move to a fresh one.
+  if (isSealedBody(input.text)) return null
   // A thread waiting on an answer: the reply answers it, never forks.
   if (target.needsInput) return null
   if (!(await callerTreeAgentId(caller))) return null
@@ -1135,7 +1201,9 @@ async function messageApp(
   const existing = await findEditorSession(db, app.id, userId)
   if (existing) {
     const { appId: _appId, ...rest } = input
-    const text = existing.status === `ended` ? briefedText(app, input.text) : input.text
+    // EXP-1458: a sealed text is the writer's whole message (it composed
+    // the brief in).
+    const text = existing.status === `ended` && !isSealedBody(input.text) ? briefedText(app, input.text) : input.text
     return messageSession(userId, uploaderIds, { ...rest, sessionId: existing.id, text }, caller, extras, viaMcp)
   }
   const deviceId = input.deviceId ?? (await defaultDeviceFor(userId))
@@ -1146,7 +1214,8 @@ async function messageApp(
     const txid = await generateTxId(tx)
     const { session, created } = await createEditorSessionInTx(tx, app, userId, deviceId, runnerFields(input))
     const from = caller ? { sessionId: caller.id, asSession: viaMcp && caller.id !== session.id } : null
-    const messageId = await postSendMessage(tx, session, { ...input, text: briefedText(app, input.text) }, userId, uploaderIds, from)
+    const text = isSealedBody(input.text) ? input.text : briefedText(app, input.text)
+    const messageId = await postSendMessage(tx, session, { ...input, text }, userId, uploaderIds, from)
     await extras.within?.(tx, { sessionId: session.id, messageId, rootId: session.id })
     return { sessionId: session.id, messageId, status: session.status, txid, queued: created }
   })
@@ -1271,6 +1340,7 @@ async function continueSession(
     depth,
     branch: ended.branch,
     title: ended.title,
+    sealedTitle: ended.sealedTitle,
     userId,
     deviceId: args.device.deviceId,
     // EXP-1376: the message's pickers win over the ended row's (its agent
@@ -1365,6 +1435,7 @@ async function startChild(
       ...((input.name ?? extras.title)?.trim()
         ? { title: (input.name ?? extras.title)!.trim().slice(0, 255) }
         : {}),
+      ...(input.sealedName ? { sealedTitle: input.sealedName } : {}),
       mcpServerIds,
       repositoryId: parent.repositoryId ?? root.repositoryId,
       status: `queued`,
@@ -1464,9 +1535,12 @@ async function startRoot(
       if (!row) throw new TRPCError({ code: `NOT_FOUND`, message: `Prompt not found` })
       prompt = row
     }
-    const text = prompt
-      ? [prompt.body.trim(), input.text?.trim() ?? ``].filter(Boolean).join(`\n\n`)
-      : input.text
+    // EXP-1458: a sealed text is the writer's whole first message (it
+    // composed the prompt's body in); the prompt still names the session.
+    const text =
+      prompt && !isSealedBody(input.text)
+        ? [prompt.body.trim(), input.text?.trim() ?? ``].filter(Boolean).join(`\n\n`)
+        : input.text
     const title = input.name ?? prompt?.name
 
     const repositoryId = input.repositoryId ?? (await defaultRepository(tx, input))
@@ -1488,6 +1562,7 @@ async function startRoot(
       status: `queued`,
       shared: device.shared,
       ...(title ? { title: title.slice(0, 255) } : {}),
+      ...(input.sealedName ? { sealedTitle: input.sealedName } : {}),
     })
 
     if (input.issueIds?.length) {
