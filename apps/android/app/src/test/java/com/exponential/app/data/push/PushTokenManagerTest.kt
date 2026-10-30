@@ -22,7 +22,6 @@ class PushTokenManagerTest {
     private val registerCalls = mutableListOf<Pair<String, String>>()
     private val unregisterCalls = mutableListOf<Pair<String, String>>()
     private var onRegister: suspend (String) -> Unit = {}
-    private var registerComplete = true
 
     private fun reconciler(registerTimeoutMs: Long = 10_000L) = PushRegistrationReconciler(
         state = state,
@@ -31,7 +30,6 @@ class PushTokenManagerTest {
         register = { accountId, token ->
             registerCalls += accountId to token
             onRegister(accountId)
-            registerComplete
         },
         unregister = { accountId, token -> unregisterCalls += accountId to token },
         registerTimeoutMs = registerTimeoutMs,
@@ -174,30 +172,5 @@ class PushTokenManagerTest {
         assertEquals(PUSH_MAX_RETRY_MS, nextPushRetryMs(PUSH_MAX_RETRY_MS, failed = true))
         assertEquals(PUSH_MAX_RETRY_MS, nextPushRetryMs(PUSH_MAX_RETRY_MS / 2 + 1, failed = true))
         assertEquals(PUSH_BASE_RETRY_MS, nextPushRetryMs(PUSH_MAX_RETRY_MS, failed = false))
-    }
-
-    @Test
-    fun aDegradedRegisterPostsButIsRetriedUntilComplete() = runBlocking {
-        // EXP-1435: the relay was unusable, so the bare token went out — pushes
-        // keep flowing via /send, but the account is not acknowledged.
-        registerComplete = false
-        val reconciler = reconciler()
-        assertTrue(reconciler.reconcile())
-        assertEquals(listOf("a" to "tok-1"), registerCalls)
-        assertEquals(listOf("a"), state.pending(setOf("a")))
-
-        registerComplete = true
-        assertFalse(reconciler.reconcile())
-        assertEquals(2, registerCalls.size)
-        assertFalse(reconciler.reconcile())
-        assertEquals(2, registerCalls.size)
-    }
-
-    @Test
-    fun aDegradedRegisterMidSignOutStillCompensates() = runBlocking {
-        registerComplete = false
-        onRegister = { accountId -> state.suppress(accountId) }
-        assertTrue(reconciler().reconcile())
-        assertEquals(listOf("a" to "tok-1"), unregisterCalls)
     }
 }

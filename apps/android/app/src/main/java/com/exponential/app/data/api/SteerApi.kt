@@ -10,18 +10,19 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 
 // Mirrors apps/web/src/lib/trpc/steer.ts (the ticket-minting router) + the
-// relay wire contract in apps/steer-relay/src/protocol.ts. Android is a pure
-// relay *client* (masterplan §5b/§5c): it remote-starts a coding session on
-// one of the user's own online machines — or, since EXP-432, on a teammate's
-// server shared with the team, where the run is still attributed to the
-// requester — and watches/steers the live PTY over the relay socket. No local
-// terminal, no CLI, no agent runtime.
+// relay wire contract in apps/steer-relay/src/protocol.ts. Android remote-starts
+// a coding session on one of the user's own online machines — or, since
+// EXP-432, on a teammate's machine shared with the team, where the session is
+// still attributed to the requester. The relay carries presence and control
+// only; the session content reaches this client from the device over eNet
+// (VAPP-43). No local terminal, no CLI, no agent runtime.
 
-/** Whether remote start + live steering is available on this instance. */
+/** Whether remote start + live steering is available on this instance. The
+ *  server still sends `relayUrl`; nothing reads it and the injected Json is
+ *  `ignoreUnknownKeys`. */
 @Serializable
 data class SteerConfigResult(
     val enabled: Boolean = false,
-    @SerialName("relayUrl") val relayUrl: String? = null,
 )
 
 /**

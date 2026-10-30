@@ -89,15 +89,13 @@ internal class PushRegistrationState {
      * may have lost the race to the row this call just (re)created, and once
      * the credentials are gone nothing else can delete it.
      */
-    fun completeRegister(accountId: String, forToken: String, acknowledge: Boolean = true): Boolean = synchronized(lock) {
+    fun completeRegister(accountId: String, forToken: String): Boolean = synchronized(lock) {
         inFlight.remove(accountId)
         if (accountId in suppressed) return true
         // Only acknowledge when the token did not rotate mid-flight: this call
         // posted the OLD token, and marking the account registered would skip
         // posting the new one — FCM kills the old token and pushes just stop.
-        // A degraded register (EXP-1435: the bare token posted because the
-        // relay was unusable) is not acknowledged either, so the loop retries.
-        if (acknowledge && token == forToken) registered.add(accountId)
+        if (token == forToken) registered.add(accountId)
         false
     }
 
@@ -122,8 +120,8 @@ internal class PushRegistrationReconciler(
     private val state: PushRegistrationState,
     private val signedInAccounts: () -> Set<String>,
     private val deviceToken: suspend () -> String?,
-    /** Throws on failure; returns false when it posted but is incomplete (retry later, EXP-1435). */
-    private val register: suspend (accountId: String, token: String) -> Boolean,
+    /** Throws on failure, an unusable push relay included (NEW-14): the pass retries it. */
+    private val register: suspend (accountId: String, token: String) -> Unit,
     private val unregister: suspend (accountId: String, token: String) -> Unit,
     // One slow/stuck register must not stall the pass and starve the other
     // accounts. Registration is idempotent, so aborting and retrying is safe.
@@ -142,19 +140,18 @@ internal class PushRegistrationReconciler(
         var retry = false
         for (accountId in state.pending(signedIn)) {
             if (!state.beginRegister(accountId, token)) continue
-            val complete = try {
+            val done = try {
                 withTimeoutOrNull(registerTimeoutMs) { register(accountId, token) }
             } catch (err: Throwable) {
                 Log.w(TAG, "Failed to register FCM token: ${err.message}")
                 null
             }
-            if (complete == null) {
+            if (done == null) {
                 state.failRegister(accountId)
                 retry = true
                 continue
             }
-            if (!complete) retry = true
-            if (state.completeRegister(accountId, token, acknowledge = complete)) {
+            if (state.completeRegister(accountId, token)) {
                 // Signed out mid-flight: compensate, or the departed account
                 // keeps receiving this device's pushes until the 30-day sweep.
                 try {
@@ -207,7 +204,7 @@ class PushTokenManager @Inject constructor(
             relay.capabilityFor(relayUrl, accountId, token, label = capabilityLabel(accountId))
         },
         register = { accountId, token, sealed ->
-            api.register(accountId, token, sealed?.capability, sealed?.pushPublicKey)
+            api.register(accountId, token, sealed.capability, sealed.pushPublicKey)
         },
     )
 

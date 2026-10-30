@@ -2,16 +2,19 @@ package com.exponential.app.data.push
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
-/** EXP-1435: which registration an account posts, and whether the pass may stop retrying it. */
+/**
+ * EXP-1435 / NEW-14: which registration an account posts. Only sealed ones:
+ * an unusable relay posts nothing and throws, so the reconcile loop retries.
+ */
 class PushAccountRegistrarTest {
     private var relayUrl: suspend () -> String? = { "https://push.example" }
     private var publicKey: String? = "PUB"
     private var capability: String? = "cap_x"
-    private val posted = mutableListOf<SealedRegistration?>()
+    private val posted = mutableListOf<SealedRegistration>()
     private val capabilityCalls = mutableListOf<String>()
 
     private fun registrar() = PushAccountRegistrar(
@@ -24,49 +27,57 @@ class PushAccountRegistrarTest {
         register = { _, _, sealed -> posted += sealed },
     )
 
+    private fun assertUnavailable() = runBlocking {
+        try {
+            registrar().register("a", "tok")
+            fail("expected PushRelayUnavailable")
+        } catch (_: PushRelayUnavailable) {
+        }
+        // No bare-token fallback: nothing reaches the server.
+        assertTrue(posted.isEmpty())
+    }
+
     @Test
     fun aRelayAndACapabilityPostTheSealedRegistration() = runBlocking {
-        assertTrue(registrar().register("a", "tok"))
+        registrar().register("a", "tok")
         assertEquals(listOf(SealedRegistration("cap_x", "PUB")), posted)
         assertEquals(listOf("https://push.example a tok"), capabilityCalls)
     }
 
     @Test
-    fun noRelayIsTheBareTokenAndComplete() = runBlocking {
+    fun noRelayPostsNothingAndIsDone() = runBlocking {
+        // The server cannot push without a relay: nothing to register.
         relayUrl = { null }
-        assertTrue(registrar().register("a", "tok"))
-        assertEquals(listOf<SealedRegistration?>(null), posted)
+        registrar().register("a", "tok")
+        assertTrue(posted.isEmpty())
         assertTrue(capabilityCalls.isEmpty())
     }
 
     @Test
-    fun noNativeFacadeIsTheBareTokenAndComplete() = runBlocking {
+    fun noKeypairPostsNothingAndRetries() {
         publicKey = null
-        assertTrue(registrar().register("a", "tok"))
-        assertEquals(listOf<SealedRegistration?>(null), posted)
+        assertUnavailable()
         assertTrue(capabilityCalls.isEmpty())
     }
 
     @Test
-    fun aRelayFailureIsTheBareTokenButIncomplete() = runBlocking {
+    fun aRelayFailurePostsNothingAndRetries() {
         capability = null
-        assertFalse(registrar().register("a", "tok"))
-        assertEquals(listOf<SealedRegistration?>(null), posted)
+        assertUnavailable()
     }
 
     @Test
-    fun aRelayLookupFailureIsTheBareTokenButIncomplete() = runBlocking {
+    fun aRelayLookupFailurePostsNothingAndRetries() {
         relayUrl = { throw java.io.IOException("offline") }
-        assertFalse(registrar().register("a", "tok"))
-        assertEquals(listOf<SealedRegistration?>(null), posted)
+        assertUnavailable()
     }
 
     @Test(expected = IllegalStateException::class)
     fun aRegisterFailureThrows(): Unit = runBlocking {
         PushAccountRegistrar(
-            relayUrl = { null },
-            publicKey = { null },
-            capabilityFor = { _, _, _ -> null },
+            relayUrl = { "https://push.example" },
+            publicKey = { "PUB" },
+            capabilityFor = { _, _, _ -> "cap_x" },
             register = { _, _, _ -> throw IllegalStateException("server blip") },
         ).register("a", "tok")
     }

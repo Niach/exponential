@@ -2,7 +2,7 @@ import Foundation
 
 /// EXP-621: steer sessions outlive the screen showing them. The socket owner
 /// (AgentSessionModel) used to be view `@State` torn down by `onDisappear`, so
-/// every visit paid a ticket mint + dial + full activity replay behind
+/// every visit paid a dial + full activity replay behind
 /// "Connecting…", and anything typed into the composer was gone. The models now
 /// live here — app-scoped, keyed by account + session — so popping back to a
 /// session shows its feed instantly and its draft is still in the composer.

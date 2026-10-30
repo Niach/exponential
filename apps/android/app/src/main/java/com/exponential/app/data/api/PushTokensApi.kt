@@ -6,18 +6,16 @@ import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 
 /**
- * `capability` + `pushPublicKey` (EXP-1435): both or neither. Null fields are
- * omitted on the wire (the client Json sets `explicitNulls = false`), so a
- * legacy registration posts exactly `{token, platform}` as before — and a
- * re-register without them clears a capability the server held (the row falls
- * back to the relay's /send shim).
+ * A sealed registration (EXP-1435): the token, the push relay capability this
+ * install minted for the server, and the X25519 key the server seals for. The
+ * client never posts a bare token (NEW-14).
  */
 @Serializable
 data class RegisterPushTokenInput(
     val token: String,
     val platform: String,
-    val capability: String? = null,
-    val pushPublicKey: String? = null,
+    val capability: String,
+    val pushPublicKey: String,
 )
 
 @Serializable
@@ -38,8 +36,8 @@ class PushTokensApi @Inject constructor(private val trpc: TrpcClient) {
     suspend fun register(
         accountId: String,
         token: String,
-        capability: String? = null,
-        pushPublicKey: String? = null,
+        capability: String,
+        pushPublicKey: String,
     ) {
         trpc.mutation(
             accountId,
@@ -67,8 +65,8 @@ class PushTokensApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
      * The relay this account's server pushes through (EXP-1435). A server
-     * older than the procedure answers tRPC 404: that is "no relay" too, so the
-     * device keeps registering its bare token. Any other failure throws.
+     * older than the procedure answers tRPC 404: that is "no relay" too, and
+     * without one the device registers nothing. Any other failure throws.
      */
     suspend fun relayUrl(accountId: String): String? = try {
         trpc.query(

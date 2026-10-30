@@ -16,8 +16,8 @@ public struct DeviceOwner: Decodable, Sendable {
     }
 }
 
-/// EXP-437: one agent's saved launch options on a machine, as advertised on
-/// the relay presence row. `model`/`effort` are always sent — `""` means "CLI
+/// EXP-437: one agent's saved launch options on a machine, as reported in
+/// the device row's `launch_defaults`. `model`/`effort` are always sent — `""` means "CLI
 /// default / omit the flag", which is a real choice, not an absence — while
 /// `ultracode`/`planMode` are serialized only when true (absent = false).
 /// Everything is optional here anyway: the sender is a desktop of unknown
@@ -355,17 +355,13 @@ public struct AgentUsage: Decodable, Equatable, Sendable {
 }
 
 /// One machine: a registry row (EXP-403 — desktops and headless
-/// `exponential` daemon servers, online or not, synced through the devices
-/// shape) or a bare relay-presence row. ONE shape for both, mirroring
-/// apps/web/src/lib/steer-devices.ts: the registry fields are optional and an
-/// absent `online` reads as online, because a presence row is alive by
-/// construction. Usually the caller's own — but teammates' shared
-/// servers (EXP-432) ride along too, told apart by `owner`.
-public struct SteerDevice: Decodable, Sendable, Identifiable {
+/// `exponential` daemon servers, online or not), built from the synced
+/// devices shape by `SteerDevice(entity:)` (DeviceRows). Usually the caller's
+/// own — but teammates' shared servers (EXP-432) ride along too, told apart
+/// by `owner`.
+public struct SteerDevice: Sendable, Identifiable {
     public let deviceId: String
     public let deviceLabel: String
-    /// Relay presence timestamp — absent on registry rows.
-    public let connectedAt: Double?
     /// Coding agents this desktop can RUN — installed AND signed in since
     /// EXP-409 (contract `codingAgentValues`). Absent = an older desktop that
     /// only runs claude; explicitly EMPTY = nothing runnable right now.
@@ -382,22 +378,22 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// start at all. Never a filter: read it through `agentNotReady(_:)`.
     public let acpAgents: [String]
     /// Feature capabilities the desktop advertised (EXP-253: `actions`).
-    /// Absent (old desktop/relay) = none — action starts are strictly gated
+    /// Absent = none — action starts are strictly gated
     /// on this, unlike the lenient agents fallback.
     public let caps: [String]?
     /// EXP-403 registry fields (registry rows only).
-    /// `desktop` | `server`; absent on relay-only rows (always a desktop).
+    /// `desktop` | `server`.
     public let kind: String?
-    /// EXP-924: the owner-picked display icon (contract `deviceIcon`); nil on
-    /// relay-only rows and until somebody picks one. Never drawn raw — the
+    /// EXP-924: the owner-picked display icon (contract `deviceIcon`); nil
+    /// until somebody picks one. Never drawn raw — the
     /// glyph comes from `DeviceIconDisplay`, which falls back to the kind.
     public let icon: String?
     public let platform: String?
     public let online: Bool?
-    /// ISO timestamp of the last register/heartbeat; nil for relay-only rows.
+    /// ISO timestamp of the last register/heartbeat.
     public let lastSeenAt: String?
-    /// Whether a durable registry row backs this machine — an old desktop
-    /// build shows up from relay presence alone and can't be renamed/removed.
+    /// Whether a durable registry row backs this machine — true on every
+    /// synced row; a bare test/placeholder value can't be renamed/removed.
     public let registered: Bool?
     /// Marketing version as of the last register; nil for old builds.
     public let version: String?
@@ -435,11 +431,11 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public let launchDefaults: DeviceLaunchDefaults?
     /// EXP-1196: the machine's readiness report (the synced `doctor` column),
     /// rendered through `DeviceReadiness`. Nil = no report yet (no readiness
-    /// block), and on tRPC/relay rows.
+    /// block).
     public let doctor: DeviceDoctor?
     /// EXP-481: the synced devices ROW id — joins `device_worktrees` for the
     /// resume probe. Set only when the value came off the devices shape
-    /// (DeviceRows mapping); nil on tRPC/relay rows, which never resume.
+    /// (DeviceRows mapping); nil on a bare placeholder, which never resumes.
     public let rowId: String?
 
     public var id: String { deviceId }
@@ -447,7 +443,6 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public init(
         deviceId: String,
         deviceLabel: String,
-        connectedAt: Double? = nil,
         agents: [String]? = nil,
         unauthedAgents: [String]? = nil,
         acpAgents: [String] = [],
@@ -473,7 +468,6 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     ) {
         self.deviceId = deviceId
         self.deviceLabel = deviceLabel
-        self.connectedAt = connectedAt
         self.agents = agents
         self.unauthedAgents = unauthedAgents
         self.acpAgents = acpAgents
@@ -498,56 +492,14 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.rowId = rowId
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case deviceId, deviceLabel, connectedAt, agents, unauthedAgents, acpAgents, caps
-        case kind, icon, platform, online, lastSeenAt, registered, version, updateRequested
-        case updateBlocked, sharedTeamIds, owner, isDefault, agentAccounts, agentUsage
-        case agentUsageAt, launchDefaults, doctor, rowId
-    }
-
-    // Hand-written only because `sharedTeamIds` and `acpAgents` are
-    // non-optional: a relay presence row and a pre-FEED-33 server omit the
-    // former, and a device row written before EXP-749 carries a NULL
-    // `acp_agents`. Both must default, never drop the row. Everything else is
-    // decodeIfPresent exactly as the synthesized decoder did it.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        deviceId = try c.decode(String.self, forKey: .deviceId)
-        deviceLabel = try c.decode(String.self, forKey: .deviceLabel)
-        connectedAt = try c.decodeIfPresent(Double.self, forKey: .connectedAt)
-        agents = try c.decodeIfPresent([String].self, forKey: .agents)
-        unauthedAgents = try c.decodeIfPresent([String].self, forKey: .unauthedAgents)
-        acpAgents = try c.decodeIfPresent([String].self, forKey: .acpAgents) ?? []
-        caps = try c.decodeIfPresent([String].self, forKey: .caps)
-        kind = try c.decodeIfPresent(String.self, forKey: .kind)
-        icon = try c.decodeIfPresent(String.self, forKey: .icon)
-        platform = try c.decodeIfPresent(String.self, forKey: .platform)
-        online = try c.decodeIfPresent(Bool.self, forKey: .online)
-        lastSeenAt = try c.decodeIfPresent(String.self, forKey: .lastSeenAt)
-        registered = try c.decodeIfPresent(Bool.self, forKey: .registered)
-        version = try c.decodeIfPresent(String.self, forKey: .version)
-        updateRequested = try c.decodeIfPresent(Bool.self, forKey: .updateRequested)
-        updateBlocked = try c.decodeIfPresent(Bool.self, forKey: .updateBlocked)
-        sharedTeamIds = c.decodeWireStringList(forKey: .sharedTeamIds)
-        owner = try c.decodeIfPresent(DeviceOwner.self, forKey: .owner)
-        isDefault = try c.decodeIfPresent(Bool.self, forKey: .isDefault)
-        agentAccounts = try c.decodeIfPresent([String: AgentAccount].self, forKey: .agentAccounts)
-        agentUsage = try c.decodeIfPresent([String: AgentUsage].self, forKey: .agentUsage)
-        agentUsageAt = try c.decodeIfPresent(String.self, forKey: .agentUsageAt)
-        launchDefaults = try c.decodeIfPresent(DeviceLaunchDefaults.self, forKey: .launchDefaults)
-        // EXP-1196: lenient — a malformed report drops alone, never the row.
-        doctor = (try? c.decodeIfPresent(DeviceDoctor.self, forKey: .doctor)) ?? nil
-        rowId = try c.decodeIfPresent(String.self, forKey: .rowId)
-    }
-
     /// EXP-432: whether this is one of the caller's OWN machines. A teammate's
     /// shared row carries `owner`; own rows never do (mirrors web's
     /// `deviceIsMine`). The rename/remove/update actions gate on this — a
     /// shared machine is startable but never manageable from here.
     public var isMine: Bool { owner == nil }
 
-    /// Whether the machine is startable right now. Rows straight off the relay
-    /// carry no `online` field and are online by construction.
+    /// Whether the machine is startable right now. A bare value with no
+    /// `online` (tests, placeholders) reads as online.
     public var isOnline: Bool { online != false }
 
     /// EXP-622: whether this is the caller's default machine.

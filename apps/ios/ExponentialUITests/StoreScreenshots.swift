@@ -20,7 +20,9 @@ import XCTest
 ///      "Mobile App", showcase issue APP-5, open PRs, actions)
 ///   2. a steer relay, with STEER_RELAY_URL + STEER_RELAY_SECRET exported for
 ///      the web server (`docker compose --profile steer up -d`)
-///   3. `bun run screenshots:desktop` left running for the whole capture
+///   3. `bun run screenshots:desktop` left running for the whole capture: the
+///      relay only holds its presence, the steering feed itself is served
+///      over eNet by its feed stub (VAPP-168)
 /// Without 2+3 the instance reports steering disabled: the Start-coding and
 /// steering shots are unreachable and the issue detail renders "Live steering
 /// is unavailable on this instance." — which is what EXP-393 set out to fix.
@@ -52,11 +54,11 @@ final class StoreScreenshots: XCTestCase {
     /// the bottom-bar circle into the session link instead of the start action.
     private static let startCodingTitle = "Dark mode contrast pass across settings"
     /// A fragment of the question screenshot-desktop.ts ends its transcript on
-    /// (DEMO_FEED_QUESTION) — proof that relay frames actually arrived. It has
+    /// (DEMO_FEED_QUESTION) — proof that the eNet feed actually arrived. It has
     /// to be the LAST event: the feed is bottom-anchored and lazy, so anything
     /// above the fold is never rendered and no query can find it.
     private static let feedQuestionFragment = "Lazy-load the markdown editor too"
-    /// The thread's child session the stand-in desktop publishes to the relay
+    /// The thread's child session the stand-in desktop serves over eNet
     /// (DEMO_SESSION_ID); the thread root's own card comes first and has no
     /// feed of its own.
     private static let steeredSessionTitle = "Profile the launch path"
@@ -150,9 +152,9 @@ final class StoreScreenshots: XCTestCase {
         expect(
             app.descendants(matching: .any).matching(identifier: "agent-feed").firstMatch,
             within: Wait.nav,
-            "The session view never appeared — is screenshots:desktop publishing to the relay?"
+            "The session view never appeared — is screenshots:desktop running?"
         )
-        // An EMPTY feed still renders the container (a dropped relay socket
+        // An EMPTY feed still renders the container (a dropped eNet link
         // leaves the view "Reconnecting…" with nothing in it), so the tag alone
         // would happily photograph a blank screen. Gate on real content —
         // matched across every element type, since markdown-rendered feed rows
@@ -163,7 +165,7 @@ final class StoreScreenshots: XCTestCase {
         expect(
             feedQuestion,
             within: Wait.network,
-            "The relay never replayed the transcript — is STEER_RELAY_URL reachable from the simulator?"
+            "The eNet feed stub never replayed the transcript — is screenshots:desktop's feed stub up?"
         )
         snapshot("04_steering", settle: 3, popRects: app)
 
@@ -189,7 +191,7 @@ final class StoreScreenshots: XCTestCase {
         expect(
             composer,
             within: Wait.nav,
-            "The Agent page did not open — is a desktop online on the relay?"
+            "The Agent page did not open — is the demo desktop online?"
         )
         snapshot("03_start-coding", settle: 2, popRects: app)
         // Agent page → issue → board.

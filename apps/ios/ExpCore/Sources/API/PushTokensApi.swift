@@ -4,12 +4,12 @@ public struct RegisterTokenInput: Encodable, Sendable {
     public let token: String
     public let platform: String
     // EXP-1435: the relay capability this device minted for the server and
-    // its X25519 push public key (base64url, no padding). Both or neither;
-    // nil keys are omitted from the JSON (legacy register).
-    public let capability: String?
-    public let pushPublicKey: String?
+    // its X25519 push public key (base64url, no padding). NEW-14: always
+    // both, the server only pushes sealed.
+    public let capability: String
+    public let pushPublicKey: String
 
-    public init(token: String, platform: String, capability: String? = nil, pushPublicKey: String? = nil) {
+    public init(token: String, platform: String, capability: String, pushPublicKey: String) {
         self.token = token
         self.platform = platform
         self.capability = capability
@@ -36,10 +36,6 @@ public final class PushTokensApi: Sendable {
 
     public init(trpc: TrpcClient) {
         self.trpc = trpc
-    }
-
-    public func register(accountId: String, token: String) async throws {
-        try await trpc.mutationVoid(accountId: accountId, path: "pushTokens.register", input: RegisterTokenInput(token: token, platform: "ios"))
     }
 
     /// Registers with the relay capability + push public key: the server then

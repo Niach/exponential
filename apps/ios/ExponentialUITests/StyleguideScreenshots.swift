@@ -96,7 +96,7 @@ import XCTest
 /// relay stub: `bun run screenshots:desktop` (apps/web) registers the demo
 /// user's OWN device row, which is what `sg_machine-settings` (gated `isMine
 /// && registered`) and the `sg_chat*` shots photograph, and (EXP-1309)
-/// publishes the scripted feed `sg_session` watches over the steer relay.
+/// serves the scripted feed `sg_session` watches over eNet (VAPP-168).
 ///
 /// Every shot is gated on real seeded content, never on a container element —
 /// an empty list still renders its container and would silently ship a blank
