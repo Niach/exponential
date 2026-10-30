@@ -38,6 +38,8 @@ import { IssueContextMenuProvider } from "@/components/issue-context-menu/provid
 import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
+import { useKeyHolder } from "@/lib/enet/use-key-holder"
+import { useWebInstall } from "@/lib/enet/use-web-install"
 import { useStoryBackgroundSync } from "@/hooks/use-stories"
 import {
   useTeamBySlug,
@@ -126,6 +128,10 @@ function TeamLayout() {
   // work-tab surface is mounted on phones, so none of them can own the
   // sockets.
   useSteerSessionReaper(team?.id, user?.id)
+  // EXP-1457/1459: this browser install's eNet node and its tree keys run
+  // under the team app too (`_authenticated` does not wrap /t/$teamSlug).
+  useWebInstall(user?.id)
+  useKeyHolder(user?.id)
   // S-3 stories: the agent conversations' and recent roots' messages sync
   // in the background (`useStoryBackgroundSync`), every breakpoint.
   useStoryBackgroundSync(team?.id)

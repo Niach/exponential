@@ -44,7 +44,11 @@ const answerMutate = vi.fn(async (_input: unknown, _opts?: unknown) => ({ txid: 
 vi.mock(`@/hooks/use-session-tree`, () => ({ useSessionMessages: () => messages }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: { sessions: { answer: { mutate: answerMutate } } } }))
 vi.mock(`@/lib/collections`, () => ({
-  messageCollection: { utils: { awaitTxId: async () => undefined } },
+  messageCollection: { utils: { awaitTxId: async () => undefined }, get: () => undefined },
+  // EXP-1459: the sealing path's lookups (no key holder here: nothing seals).
+  sessionCollection: { get: () => undefined, values: () => [] },
+  deviceCollection: { values: () => [] },
+  userCollection: { values: () => [] },
 }))
 vi.mock(`@/components/thread/thread-markdown`, () => ({
   renderThreadText: (text: string) => <p>{text}</p>,

@@ -50,7 +50,8 @@ import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection } from "@/lib/collections"
 import { resolveLaunchDeviceId } from "@/lib/launch-device"
-import type { SessionRow } from "@/lib/session-tree"
+import { toTreeMessage, type SessionRow } from "@/lib/session-tree"
+import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 
@@ -379,10 +380,13 @@ export function AppEditor({
     </div>
   )
 
+  const keyVersion = useKeyVersion()
   // VAPP-129: the floating chat's ONE DockCard.
   const chatRow = useMemo(
-    () => chatCard(messages.map((message) => message.body ?? ``), root?.busy === true),
-    [messages, root?.busy]
+    // EXP-1459: opened bodies (a locked one reads as none).
+    () => chatCard(messages.map((message) => toTreeMessage(message).body), root?.busy === true),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messages, root?.busy, keyVersion]
   )
   const dockToSide = useCallback(() => {
     setChatOpen(false)

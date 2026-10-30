@@ -5964,6 +5964,26 @@
       }
     },
     {
+      "id": "sealed-locked",
+      "group": "coding",
+      "title": "Locked content",
+      "blurb": "Sealed session content this install cannot open yet (EXP-1459, sealed-content.json `placeholder`): in a transcript THE glass pill with the lock (\"Waiting for the key\" until a holder wraps the tree key, \"Can't be opened here\" when it never opens), in the chats list the preview italic muted.",
+      "order": 53,
+      "ios": {
+        "shot": "sg_sealed-locked",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_sealed-locked",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide entry sealed-locked (SealedLockedSpecimen) is the web picture; a live locked row needs a second browser install without the key.",
+        "web-mobile": "See web.",
+        "desktop": "The IDE styleguide twin (styleguide/entries/sealed_locked.rs) paints the pills; the desktop UI slice wires them into its rows."
+      }
+    },
+    {
       "id": "schedule-picker",
       "group": "coding",
       "title": "Schedule picker",

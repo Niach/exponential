@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import {
@@ -395,7 +396,7 @@ export function SessionComposer({
         const uploaded = await uploadTeamSessionImageFile(teamId, entry.file)
         attachmentIds.push(uploaded.id)
       }
-      const result = await trpc.sessions.send.mutate({
+      const result = await sendSessionMessage({
         teamId,
         ...(sessionId ? { sessionId } : appId ? { appId, deviceId } : { agentId }),
         text: text.trim() || undefined,

@@ -6,6 +6,7 @@ import {
   hasFirstTouchParams,
 } from "@/lib/conversion/first-touch"
 import { trpc } from "@/lib/trpc-client"
+import { useKeyHolder } from "@/lib/enet/use-key-holder"
 import { useWebInstall } from "@/lib/enet/use-web-install"
 
 export const Route = createFileRoute(`/_authenticated`)({
@@ -37,7 +38,10 @@ let timezoneClaimed = false
 
 function AuthenticatedLayout() {
   // EXP-1457: this browser install's eNet node (lazy wasm, relay-only).
-  useWebInstall(Route.useRouteContext().user.id)
+  const userId = Route.useRouteContext().user.id
+  useWebInstall(userId)
+  // EXP-1459: its tree keys (opens sealed session content in every tab).
+  useKeyHolder(userId)
 
   // Cookieless signup attribution (EXP-362): ref/utm params ride URLs from
   // the marketing site through the auth flow; the first authenticated load

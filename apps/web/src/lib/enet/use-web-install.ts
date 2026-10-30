@@ -9,6 +9,7 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { teamMemberCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { loadEnet } from "./enet-loader"
+import { setKeyLeader } from "./use-key-holder"
 import { WebInstall, type InstallsApi } from "./web-install"
 
 const LOCK = `exp-enet-node`
@@ -55,9 +56,15 @@ export function useWebInstall(userId: string | undefined) {
     navigator.locks
       .request(LOCK, { signal: abort.signal }, async () => {
         current = install
-        await install.start()
-        // Hold the lock until this effect ends.
-        await new Promise<void>((resolve) => abort.signal.addEventListener(`abort`, () => resolve()))
+        // EXP-1459: this tab also answers pending tree-key wraps.
+        setKeyLeader(true)
+        try {
+          await install.start()
+          // Hold the lock until this effect ends.
+          await new Promise<void>((resolve) => abort.signal.addEventListener(`abort`, () => resolve()))
+        } finally {
+          setKeyLeader(false)
+        }
       })
       .catch((err: unknown) => {
         if (abort.signal.aborted) return

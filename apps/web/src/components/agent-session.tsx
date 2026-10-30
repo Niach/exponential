@@ -1,4 +1,5 @@
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
+import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import {
   AGENT_HINT_BANNER,
   AGENT_MENU_SENDS,
@@ -144,7 +145,6 @@ import {
 } from "@/lib/agent-feed"
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { trpc } from "@/lib/trpc-client"
 import { useSessionMessages } from "@/hooks/use-session-tree"
 import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { renderThreadText } from "@/components/thread/thread-markdown"
@@ -397,8 +397,7 @@ export function AgentSessionView({
   )
   const surfaceArrived = useLiveArrivals(surfaceCards.map((row) => row.id))
   const replyFromSurface = (text: string) => {
-    trpc.sessions.send
-      .mutate({ teamId: session.teamId, sessionId: session.id, text }, SKIP_ERROR_TOAST)
+    sendSessionMessage({ teamId: session.teamId, sessionId: session.id, text }, SKIP_ERROR_TOAST)
       .catch((error) => failedAction(`send`, `the message`, error))
   }
   // FEED-140: a waiting tool-posted card STAYS inline (the dock holds it too).

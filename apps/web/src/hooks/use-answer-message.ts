@@ -1,10 +1,12 @@
 import { useCallback, useMemo, useState } from "react"
+import { answerSessionCard } from "@/lib/enet/send-sealed"
+import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { useNow } from "@/hooks/use-now"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { messageCollection } from "@/lib/collections"
 import {
   buildSessionThread,
-  toTreeMessage,
+  toTreeMessages,
   toTreeSession,
   type MessageRow,
   type SessionRow,
@@ -43,7 +45,7 @@ export function useAnswerMessage(): {
     async (messageId: string, input: CardAnswer) => {
       setPending((current) => new Set([...current, messageId]))
       try {
-        const result = await trpc.sessions.answer.mutate({ messageId, ...input }, SKIP_ERROR_TOAST)
+        const result = await answerSessionCard(messageId, input, SKIP_ERROR_TOAST)
         await messageCollection.utils.awaitTxId(result.txid).catch(() => undefined)
       } catch (error) {
         failedAction(`answer`, input.decision ? `the plan` : `the question`, error)
@@ -99,6 +101,8 @@ export function useConversationRows({
     return teamSessions.some((row) => targets.has(row.id) && row.status !== `ended`)
   }, [messages, teamSessions])
   const now = useNow(liveCard ? 1_000 : 3_600_000)
+  // EXP-1459: sealed rows re-open when a key arrives.
+  const keyVersion = useKeyVersion()
   const view = useMemo(
     () =>
       conversation
@@ -107,12 +111,13 @@ export function useConversationRows({
             sessions: teamSessions.map(toTreeSession),
             sessionIssues: [],
             issues: [],
-            messages: messages.map(toTreeMessage),
+            messages: toTreeMessages(messages),
             pullRequests: [],
             now: now.toISOString(),
           })
         : null,
-    [conversation, teamSessions, messages, now]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conversation, teamSessions, messages, now, keyVersion]
   )
   return useMemo(() => ({ rows: view?.rows ?? [], tabs: view?.tabs ?? [] }), [view])
 }

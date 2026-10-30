@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import { actionErrorTitle, toast } from "@exp/ui"
@@ -45,7 +46,6 @@ import {
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
-import { trpc } from "@/lib/trpc-client"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
   useLaunchOptions,
@@ -594,7 +594,7 @@ export function useLaunchComposer({
       })
       let result: { sessionId: string; txid: number }
       try {
-        result = await trpc.sessions.send.mutate(input, SKIP_ERROR_TOAST)
+        result = await sendSessionMessage(input, SKIP_ERROR_TOAST)
       } catch (error) {
         if (toAgent) failedAction(`send`, `the message`, error, { retry })
         else startFailureToast(error, device!, options.agent, retry)

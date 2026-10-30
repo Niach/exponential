@@ -1,4 +1,7 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react"
+import { currentKeyHolder } from "@/lib/enet/current-key-holder"
+import { openMessageWith } from "@/lib/enet/sealed-open"
+import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { and, eq, gt, inArray, isNull, not, useLiveQuery } from "@tanstack/react-db"
 import {
   STORIES_CONSTANTS,
@@ -124,11 +127,19 @@ export interface StoriesState {
 
 type LoadedCardRow = {
   id: string
+  rootId: string
   conversationId: string
   authorSessionId: string | null
   createdAt: unknown
   answeredAt: unknown
   card: unknown
+}
+
+function openStoryRow(row: LoadedCardRow): LoadedCardRow {
+  const card = row.card as Record<string, unknown> | null
+  if (!card || !(`sealed` in card)) return row
+  const opened = openMessageWith({ body: ``, card }, row.rootId, currentKeyHolder())
+  return { ...row, card: opened.locked ? null : opened.card }
 }
 
 /** Synced card rows (keyed through `conversations`) as the fold's input. */
@@ -137,7 +148,9 @@ function storyMessagesOf(
   conversations: ReadonlyMap<string, string>,
   into = new Map<string, StoryMessageInput & { card: unknown }>()
 ): Map<string, StoryMessageInput & { card: unknown }> {
-  for (const raw of rows) {
+  for (const synced of rows) {
+    // EXP-1459: a sealed card opens first (a locked one is never a story).
+    const raw = openStoryRow(synced)
     if (!isStoryCard(raw.card)) continue
     const sessionId = conversations.get(raw.conversationId)
     if (!sessionId) continue
@@ -281,6 +294,7 @@ export function useStories(teamId: string | null | undefined): StoriesState {
   const { conversations } = useConversationSessions()
   const teamIds = useMemo(() => (teamId ? [teamId] : []), [teamId])
   const { messages: digest } = useDigestMessages({ teamIds })
+  const keyVersion = useKeyVersion()
 
   // ── background sync ──
   const loaded = useStoryBackgroundSync(teamId)
@@ -299,7 +313,8 @@ export function useStories(teamId: string | null | undefined): StoriesState {
       })
     }
     return [...storyMessagesOf((loaded ?? []) as LoadedCardRow[], conversations, byId).values()]
-  }, [digest, loaded, conversations])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [digest, loaded, conversations, keyVersion])
 
   const { input, now, ...parts } = useStoryParts(teamId, messages)
   const rings = useMemo(() => foldStories({ now, ...input }), [now, input])
@@ -328,9 +343,11 @@ export function useStoryTab(teamId: string | null | undefined, rootId: string | 
         : undefined,
     [rootId]
   )
+  const keyVersion = useKeyVersion()
   const messages = useMemo(
     () => [...storyMessagesOf((data ?? []) as LoadedCardRow[], conversations).values()],
-    [data, conversations]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, conversations, keyVersion]
   )
   const { input, now, ...parts } = useStoryParts(teamId, messages)
   const ring = useMemo(() => (rootId ? storyTab({ now, ...input, rootId }) : null), [now, input, rootId])

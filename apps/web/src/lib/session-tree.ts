@@ -10,6 +10,8 @@ import type {
   selectSyncedSessionSchema,
 } from "@exp/db-schema/schema"
 import { keyMessagesBySession } from "@exp/domain-contract/message-conversation"
+import { currentKeyHolder } from "@/lib/enet/current-key-holder"
+import { openMessageWith, openTitleWith, resolveSealedMirrors } from "@/lib/enet/sealed-open"
 import type {
   TreeIssue,
   TreeMessage,
@@ -72,7 +74,8 @@ export function toTreeSession(row: SessionRow): TreeSession {
     needsInput: row.needsInput,
     blocked: row.blocked ?? null,
     shared: row.shared,
-    title: row.title,
+    // EXP-1459: a sealed title this install opens wins; else the neutral one.
+    title: openTitleWith(row.sealedTitle, row.rootId ?? row.id, currentKeyHolder()) ?? row.title,
     guide: row.guide ?? null,
     startedAt: iso(row.startedAt),
     endedAt: iso(row.endedAt),
@@ -94,6 +97,18 @@ export function toTreeIssue(row: { id: string; identifier: string; title: string
 }
 
 export function toTreeMessage(row: MessageRow): TreeMessage {
+  // EXP-1459: sealed bodies and cards open here (or stay `locked`).
+  return openMessageWith(plainTreeMessage(row), row.rootId, currentKeyHolder())
+}
+
+/** `toTreeMessage` over a list, with escalated origins this install cannot
+ *  open stood in for by their mirror's sealed copy (`resolveSealedMirrors`). */
+export function toTreeMessages(rows: readonly MessageRow[]): TreeMessage[] {
+  const roots = new Map(rows.map((row) => [row.id, row.rootId]))
+  return resolveSealedMirrors(rows.map(toTreeMessage), (message) => roots.get(message.id) ?? message.sessionId, currentKeyHolder())
+}
+
+function plainTreeMessage(row: MessageRow): TreeMessage {
   return {
     id: row.id,
     sessionId: row.sessionId,
