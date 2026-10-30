@@ -76,6 +76,9 @@ pub struct PublishSpec {
     /// those paths must restore to tokens exactly like a steered image's.
     /// `Default` = a fresh map (tests, the PTY-less examples).
     pub embeds: ImageEmbeds,
+    /// VAPP-33: who may steer the run over eNet (`enet_steer.rs`); `None` =
+    /// no eNet room (tests, the examples).
+    pub audience: Option<coding::SteerAudience>,
 }
 
 /// Publisher-ticket source, injectable for tests. Blocking (reqwest) — the loop
@@ -544,6 +547,14 @@ pub(crate) enum PublisherCmd {
     /// Clean end: send `bye {outcome}` and close (child exit, local stop,
     /// kill-watch).
     Shutdown { outcome: Option<String> },
+    /// VAPP-33: an eNet viewer sent `join` (an allowed one: `enet_steer`
+    /// checked the access rule): reset + replay + synced, then the live feed.
+    EnetJoin(crate::enet_steer::EnetPeer),
+    /// VAPP-33: an eNet viewer sent `leave`.
+    EnetLeave(enet_core::EndpointId),
+    /// VAPP-33: one client frame from an eNet viewer (JSON text, the relay's
+    /// shape), dispatched exactly like the relay's.
+    EnetFrame { from: enet_core::EndpointId, frame: String },
 }
 
 /// The coding-flow's handle onto a running publisher task.
@@ -632,8 +643,9 @@ pub fn publish(
         running: running.clone(),
     };
     let live = LivePublisher::claim(&spec.session_id);
+    let weak_tx = handle.cmd_tx.downgrade();
     runtime.handle().spawn(async move {
-        run_publisher_loop(spec, tickets, hooks, cmd_rx, running).await;
+        run_publisher_loop(spec, tickets, hooks, cmd_rx, weak_tx, running).await;
         drop(live);
     });
     handle
@@ -754,9 +766,18 @@ async fn run_publisher_loop(
     tickets: Arc<dyn PublisherTickets>,
     hooks: PublisherHooks,
     cmd_rx: flume::Receiver<PublisherCmd>,
+    cmd_tx: flume::WeakSender<PublisherCmd>,
     running: Arc<AtomicBool>,
 ) {
     let hooks = Arc::new(hooks);
+    // VAPP-33: the run's eNet room, for its whole lifetime (relay or not).
+    // Dropping `feeds` (every exit below) says `bye` to its viewers.
+    let room = spec
+        .audience
+        .clone()
+        .map(|audience| crate::enet_steer::register_room(&spec.session_id, audience, cmd_tx));
+    let serve_enet = room.is_some();
+    let mut feeds = crate::enet_steer::Feeds::new(&spec.session_id, room);
     // EXP-511: the session's localized image embeds — filled by the input
     // path, read by the activity path, and shared across reconnects.
     // EXP-825: the spec's handle, so the engine's own localizations (the
@@ -783,6 +804,16 @@ async fn run_publisher_loop(
         next_seq,
         notice: None,
     };
+    let mut lp = Loop {
+        spec: &spec,
+        hooks: &hooks,
+        input_tx: &input_tx,
+        cmd_rx: &cmd_rx,
+        recorder: &mut recorder,
+        embeds: &embeds,
+        running: &running,
+        feeds: &mut feeds,
+    };
     let mut backoff = Backoff::publisher();
     // §8.7: one immediate re-mint is allowed after a fresh-ticket 401; a
     // second consecutive 401 surfaces the clock-skew error and stops.
@@ -803,12 +834,19 @@ async fn run_publisher_loop(
             Ok(Some(ticket)) => ticket.url,
             Ok(None) => {
                 // Relay disabled: a normal state — no remote mirror (§8.4).
+                // VAPP-33: eNet viewers are still served until the run ends.
                 log::info!("steer publisher: relay disabled; not publishing");
+                if serve_enet {
+                    serve_enet_only(&mut lp).await;
+                }
                 running.store(false, Ordering::SeqCst);
                 return;
             }
             Err(ApiError::Unauthorized) => {
                 log::info!("steer publisher: session token dead; not publishing");
+                if serve_enet {
+                    serve_enet_only(&mut lp).await;
+                }
                 running.store(false, Ordering::SeqCst);
                 return;
             }
@@ -820,7 +858,7 @@ async fn run_publisher_loop(
             }
             Err(err) => {
                 log::debug!("steer publisher: mint failed: {err}");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
+                if sleep_or_shutdown(backoff.next_delay(), &mut lp)
                     .await
                     .is_break()
                 {
@@ -845,7 +883,7 @@ async fn run_publisher_loop(
             }
             Err(DialError::Other(reason)) => {
                 log::debug!("steer publisher: connect failed: {reason}");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
+                if sleep_or_shutdown(backoff.next_delay(), &mut lp)
                     .await
                     .is_break()
                 {
@@ -871,7 +909,7 @@ async fn run_publisher_loop(
         .to_json();
         if let Err(err) = ws.send(Message::Text(hello)).await {
             log::debug!("steer publisher: hello failed: {err}");
-            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
+            if sleep_or_shutdown(backoff.next_delay(), &mut lp)
                 .await
                 .is_break()
             {
@@ -886,9 +924,9 @@ async fn run_publisher_loop(
         // viewers) still hold, then replay the journal in order. A resumed
         // `--continue` transcript seeds the journal from byte 0, so this is
         // the ONE deliberate place a feed is rebuilt.
-        if !republish_history(&mut ws, &recorder.journal).await {
+        if !republish_history(&mut ws, &lp.recorder.journal).await {
             log::debug!("steer publisher: history replay failed; reconnecting");
-            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
+            if sleep_or_shutdown(backoff.next_delay(), &mut lp)
                 .await
                 .is_break()
             {
@@ -897,11 +935,7 @@ async fn run_publisher_loop(
             continue 'reconnect;
         }
 
-        let end =
-            pump_connection(
-                &mut ws, &spec, &hooks, &input_tx, &cmd_rx, &mut recorder, &embeds, &running,
-            )
-                .await;
+        let end = pump_connection(&mut ws, &mut lp).await;
 
         match end {
             LoopEnd::Clean => {
@@ -942,7 +976,7 @@ async fn run_publisher_loop(
                     return;
                 }
                 log::debug!("steer publisher: dropped; reconnecting");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut recorder, &embeds, &running)
+                if sleep_or_shutdown(backoff.next_delay(), &mut lp)
                     .await
                     .is_break()
                 {
@@ -1083,21 +1117,181 @@ async fn handle_input(
     (hooks.write_input)(data.as_bytes())
 }
 
+/// The state one publisher loop threads through its connections and
+/// backoff sleeps (VAPP-33: the eNet feeds ride both).
+struct Loop<'a> {
+    spec: &'a PublishSpec,
+    hooks: &'a PublisherHooks,
+    input_tx: &'a flume::Sender<String>,
+    cmd_rx: &'a flume::Receiver<PublisherCmd>,
+    recorder: &'a mut Recorder,
+    embeds: &'a ImageEmbedMap,
+    running: &'a Arc<AtomicBool>,
+    feeds: &'a mut crate::enet_steer::Feeds,
+}
+
+impl Loop<'_> {
+    /// Record one event (stamped, embeds restored) and fan it out live to
+    /// the eNet viewers. Returns what the relay socket should carry: the
+    /// event, then (EXP-906) the cap notice it may have minted.
+    fn record(&mut self, mut event: ActivityEvent) -> Vec<(u64, ActivityEvent)> {
+        prepare_for_journal(&mut event, self.embeds);
+        let seq = self.recorder.push(event.clone());
+        self.feeds.activity(seq, &event);
+        let mut out = vec![(seq, event)];
+        if let Some((seq, notice)) = self.recorder.take_notice() {
+            self.feeds.activity(seq, &notice);
+            out.push((seq, notice));
+        }
+        out
+    }
+
+    /// The eNet commands, wherever the loop is. `Some(Steered::Kill)` when a
+    /// viewer killed the run.
+    fn enet(&mut self, cmd: PublisherCmd) -> Option<Steered> {
+        match cmd {
+            PublisherCmd::EnetJoin(peer) => self.feeds.join(peer, &self.recorder.journal),
+            PublisherCmd::EnetLeave(id) => self.feeds.leave(&id),
+            PublisherCmd::EnetFrame { from, frame } => {
+                let Some(frame) = ServerFrame::parse(&frame) else {
+                    log::debug!("steer publisher: unparseable eNet frame ignored");
+                    return None;
+                };
+                match steer_frame(frame, self.spec, self.hooks, self.input_tx) {
+                    Ok(Steered::Reply(reply)) => self.feeds.send_to(&from, reply),
+                    Ok(Steered::Kill) => return Some(Steered::Kill),
+                    Ok(Steered::Done) => {}
+                    // Relay-only frames (compact, check-in, …) never come
+                    // from a viewer.
+                    Err(_) => {}
+                }
+            }
+            PublisherCmd::Activity(_) | PublisherCmd::Shutdown { .. } => {}
+        }
+        None
+    }
+
+    /// A kill (relay or eNet): the hook ends the child; the viewers hear
+    /// `bye killed`.
+    fn kill(&mut self) {
+        log::info!("steer publisher: kill received");
+        self.running.store(false, Ordering::SeqCst);
+        self.feeds.set_outcome(Some("killed".to_string()));
+        (self.hooks.kill)(KillSignal::RemoteKill);
+    }
+}
+
+/// What one steer client frame asks of the loop beyond its hooks.
+enum Steered {
+    Done,
+    /// End the run (`kill`).
+    Kill,
+    /// A frame for the asker only (a `history_chunk`).
+    Reply(String),
+}
+
+/// The client frames every carrier delivers (relay socket and eNet): input
+/// → the input task, answer, set_config, set_mode, interrupt, unqueue, kill,
+/// history_page from the disk journal. `Err` = a relay-only frame the
+/// caller handles itself.
+fn steer_frame(
+    frame: ServerFrame,
+    spec: &PublishSpec,
+    hooks: &PublisherHooks,
+    input_tx: &flume::Sender<String>,
+) -> Result<Steered, ServerFrame> {
+    match frame {
+        ServerFrame::Input { data } => {
+            // EXP-514: input choreography sleeps (Enter separation, picker
+            // revalidation) and downloads (EXP-511 embed localization — up
+            // to 60s per blob) — inline it starved the ping tick and the
+            // relay's 90s idle detector closed the room. The input task
+            // processes frames strictly in order; a send after teardown is a
+            // harmless no-op.
+            let _ = input_tx.send(data);
+        }
+        // EXP-249: the semantic answer path — the emitter owns question
+        // identity + the TUI key choreography, so the publisher only routes.
+        ServerFrame::Answer { question_id, ask_id, keys, text } => {
+            let answer = RemoteAnswer { question_id, ask_id, keys, text };
+            // EXP-1316/EXP-1317: the synced card this question was posted as
+            // closes too — but NOT from here: the engine's `answer_ask` is
+            // the choke point every answer path shares (this frame, the
+            // IDE's local card, the CLI's TUI) and fires the `answer_tap`
+            // for all of them. A tap here would double the write-back.
+            if let Some(answers) = &hooks.answers {
+                answers.submit(answer);
+            }
+        }
+        // EXP-746: live config. Like `answer`, never through `input_tx` — a
+        // model switch has no keystroke form, and only the engine holds the
+        // ACP session that can apply it. `None` (the PTY path) is a
+        // documented no-op: such a run advertises no chips to change.
+        ServerFrame::SetConfig { id, value } => {
+            if let Some(config) = &hooks.config {
+                config.submit(ConfigChange::Option { id, value });
+            }
+        }
+        ServerFrame::SetMode { id } => {
+            if let Some(config) = &hooks.config {
+                config.submit(ConfigChange::Mode { id });
+            }
+        }
+        // EXP-790/EXP-861: a viewer's Stop. Never through `input_tx` — the
+        // ESC keystroke path is the TUI's, and this frame is what every
+        // client sends.
+        ServerFrame::Interrupt => {
+            if let Some(interrupt) = &hooks.interrupt {
+                interrupt();
+            }
+        }
+        ServerFrame::Unqueue { id } => {
+            if let Some(unqueue) = &hooks.unqueue {
+                unqueue(id);
+            }
+        }
+        // §8.4: kill → end the session. The kill hook kills the child (whose
+        // exit hook ends the synced row); the caller closes cleanly.
+        ServerFrame::Kill => return Ok(Steered::Kill),
+        // EXP-783: a viewer scrolled past the top of what it holds. The page
+        // comes off the DISK journal, not the in-memory one — the memory
+        // journal is bounded and the file is the whole run. Answered inline:
+        // one page is a bounded read and a bounded frame.
+        ServerFrame::HistoryPage { request_id, before_seq, limit, .. } => {
+            let page = spec
+                .journal_dir
+                .as_deref()
+                .and_then(|dir| {
+                    crate::history::read_journal_page(
+                        dir,
+                        &spec.session_id,
+                        before_seq,
+                        limit.min(HISTORY_PAGE_MAX) as usize,
+                    )
+                })
+                .unwrap_or_default();
+            // EXP-796: the page frame is built by `history` so the
+            // control-socket route answers with the SAME shape; a publisher
+            // names no session.
+            return Ok(Steered::Reply(crate::history::history_chunk_frame(None, &request_id, page)));
+        }
+        other => return Err(other),
+    }
+    Ok(Steered::Done)
+}
+
+/// VAPP-33: the relay is off (disabled, or the token is dead) but eNet
+/// viewers still steer: serve them until the run ends.
+async fn serve_enet_only(lp: &mut Loop<'_>) {
+    log::info!("steer publisher: serving {} over eNet only", lp.spec.session_id);
+    while sleep_or_shutdown(Duration::from_secs(3600), lp).await.is_continue() {}
+}
+
 /// One connection's select loop (§8.4's pseudocode, made real). Remote
 /// `input` frames are FORWARDED to the session's input task (EXP-514), never
 /// handled here — their choreography sleeps and downloads, and this loop owns
 /// the ping tick the relay's idle detector watches.
-#[allow(clippy::too_many_arguments)]
-async fn pump_connection(
-    ws: &mut WsStream,
-    spec: &PublishSpec,
-    hooks: &PublisherHooks,
-    input_tx: &flume::Sender<String>,
-    cmd_rx: &flume::Receiver<PublisherCmd>,
-    recorder: &mut Recorder,
-    embeds: &ImageEmbedMap,
-    running: &Arc<AtomicBool>,
-) -> LoopEnd {
+async fn pump_connection(ws: &mut WsStream, lp: &mut Loop<'_>) -> LoopEnd {
     // REV2-X: Send periodic pings so the relay can detect dead publishers.
     // During plan mode (or any idle period), the desktop sends no activity,
     // and without pings, a dropped connection can sit undetected while UIs retry
@@ -1121,33 +1315,38 @@ async fn pump_connection(
     loop {
         tokio::select! {
             // 1) local control commands (unbounded — never dropped).
-            cmd = cmd_rx.recv_async() => {
+            cmd = lp.cmd_rx.recv_async() => {
                 let Ok(cmd) = cmd else { return LoopEnd::Dropped };
                 match cmd {
-                    PublisherCmd::Activity(mut event) => {
+                    PublisherCmd::Activity(event) => {
                         // §P7: publish one already-redacted activity event.
                         // The relay fans it to the member activity audience.
-                        // Stamp it first (the journal replays the ORIGINAL
-                        // timeline after a reconnect) and put any localized
-                        // image path back to the token the steerer sent.
-                        prepare_for_journal(&mut event, embeds);
-                        let seq = recorder.push(event.clone());
-                        if !send_activity(ws, seq, event).await {
-                            return LoopEnd::Dropped;
-                        }
-                        // EXP-906: the "history stopped recording" row rides
+                        // Stamped first (the journal replays the ORIGINAL
+                        // timeline after a reconnect), any localized image
+                        // path put back to the token the steerer sent, and
+                        // (EXP-906) the "history stopped recording" row rides
                         // right behind the event that hit the cap.
-                        if let Some((seq, notice)) = recorder.take_notice() {
-                            if !send_activity(ws, seq, notice).await {
+                        for (seq, event) in lp.record(event) {
+                            if !send_activity(ws, seq, event).await {
                                 return LoopEnd::Dropped;
                             }
                         }
                     }
                     PublisherCmd::Shutdown { outcome } => {
+                        lp.feeds.set_outcome(outcome.clone());
                         let bye = ClientFrame::Bye { outcome: outcome.as_deref() }.to_json();
                         let _ = ws.send(Message::Text(bye)).await;
                         let _ = ws.close(None).await; // 1000 normal closure
                         return LoopEnd::Clean;
+                    }
+                    enet => {
+                        if let Some(Steered::Kill) = lp.enet(enet) {
+                            lp.kill();
+                            let bye = ClientFrame::Bye { outcome: Some("killed") }.to_json();
+                            let _ = ws.send(Message::Text(bye)).await;
+                            let _ = ws.close(None).await;
+                            return LoopEnd::Clean;
+                        }
                     }
                 }
             }
@@ -1157,135 +1356,60 @@ async fn pump_connection(
                     last_rx = Instant::now();
                 }
                 match msg {
-                    Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
-                        Some(ServerFrame::Input { data }) => {
-                            // EXP-514: input choreography sleeps (Enter
-                            // separation, picker revalidation) and downloads
-                            // (EXP-511 embed localization — up to 60s per
-                            // blob) — inline it starved the ping tick and the
-                            // relay's 90s idle detector closed the room. The
-                            // input task processes frames strictly in order;
-                            // a send after teardown is a harmless no-op.
-                            let _ = input_tx.send(data);
-                        }
-                        // EXP-249: the semantic answer path — the emitter owns
-                        // question identity + the TUI key choreography, so the
-                        // publisher only routes.
-                        Some(ServerFrame::Answer { question_id, ask_id, keys, text }) => {
-                            let answer = RemoteAnswer { question_id, ask_id, keys, text };
-                            // EXP-1316/EXP-1317: the synced card this question
-                            // was posted as closes too — but NOT from here:
-                            // the engine's `answer_ask` is the choke point
-                            // every answer path shares (this frame, the IDE's
-                            // local card, the CLI's TUI) and fires the
-                            // `answer_tap` for all of them. A tap here would
-                            // double the write-back for the relay path alone.
-                            if let Some(answers) = &hooks.answers {
-                                answers.submit(answer);
+                    Some(Ok(Message::Text(text))) => {
+                        let Some(frame) = ServerFrame::parse(&text) else {
+                            log::debug!("steer publisher: unparseable frame ignored");
+                            continue;
+                        };
+                        match steer_frame(frame, lp.spec, lp.hooks, lp.input_tx) {
+                            Ok(Steered::Done) => {}
+                            Ok(Steered::Kill) => {
+                                lp.kill();
+                                let bye = ClientFrame::Bye { outcome: Some("killed") }.to_json();
+                                let _ = ws.send(Message::Text(bye)).await;
+                                let _ = ws.close(None).await;
+                                return LoopEnd::Clean;
                             }
-                        }
-                        // EXP-746: live config. Like `answer`, never through
-                        // `input_tx` — a model switch has no keystroke form,
-                        // and only the engine holds the ACP session that can
-                        // apply it. `None` (the PTY path) is a documented
-                        // no-op: such a run advertises no chips to change.
-                        Some(ServerFrame::SetConfig { id, value }) => {
-                            if let Some(config) = &hooks.config {
-                                config.submit(ConfigChange::Option { id, value });
+                            Ok(Steered::Reply(frame)) => {
+                                if ws.send(Message::Text(frame)).await.is_err() {
+                                    return LoopEnd::Dropped;
+                                }
                             }
-                        }
-                        Some(ServerFrame::SetMode { id }) => {
-                            if let Some(config) = &hooks.config {
-                                config.submit(ConfigChange::Mode { id });
-                            }
-                        }
-                        // EXP-790/EXP-861: a viewer's Stop. Never through
-                        // `input_tx` — the ESC keystroke path is the TUI's,
-                        // and this frame is what every client sends.
-                        Some(ServerFrame::Interrupt) => {
-                            if let Some(interrupt) = &hooks.interrupt {
-                                interrupt();
-                            }
-                        }
-                        Some(ServerFrame::Unqueue { id }) => {
-                            if let Some(unqueue) = &hooks.unqueue {
-                                unqueue(id);
-                            }
-                        }
-                        Some(ServerFrame::Kill) => {
-                            // §8.4: relay kill → end the session. The kill hook
-                            // kills the child (whose exit hook ends the synced
-                            // row); we close the room cleanly right away.
-                            log::info!("steer publisher: kill received");
-                            running.store(false, Ordering::SeqCst);
-                            (hooks.kill)(KillSignal::RemoteKill);
-                            let bye = ClientFrame::Bye { outcome: Some("killed") }.to_json();
-                            let _ = ws.send(Message::Text(bye)).await;
-                            let _ = ws.close(None).await;
-                            return LoopEnd::Clean;
-                        }
-                        Some(ServerFrame::Bye { outcome }) => {
-                            log::debug!("steer publisher: relay bye ({outcome:?})");
-                            return LoopEnd::Dropped;
-                        }
-                        Some(ServerFrame::Error { code, message }) => {
-                            log::debug!("steer publisher: relay error {code} ({message:?})");
-                            return LoopEnd::Dropped;
-                        }
-                        // EXP-783: a viewer scrolled past the top of what
-                        // it holds. The page comes off the DISK journal, not
-                        // the in-memory one — the memory journal is bounded
-                        // and the file is the whole run. Answered inline:
-                        // one page is a bounded read and a bounded frame,
-                        // and the ping tick shares this loop.
-                        Some(ServerFrame::HistoryPage {
-                            request_id, before_seq, limit, ..
-                        }) => {
-                            let page = spec
-                                .journal_dir
-                                .as_deref()
-                                .and_then(|dir| {
-                                    crate::history::read_journal_page(
-                                        dir,
-                                        &spec.session_id,
-                                        before_seq,
-                                        limit.min(HISTORY_PAGE_MAX) as usize,
-                                    )
-                                })
-                                .unwrap_or_default();
-                            if !send_history_page(ws, &request_id, page).await {
+                            Err(ServerFrame::Bye { outcome }) => {
+                                log::debug!("steer publisher: relay bye ({outcome:?})");
                                 return LoopEnd::Dropped;
                             }
-                        }
-                        // EXP-936: the run asked its host to compact. The
-                        // hook decides off in-memory state; the verdict goes
-                        // straight back down THIS socket (the relay holds the
-                        // web server's HTTP call on it) — never through
-                        // `input_tx`, whose choreography sleeps. A frame that
-                        // names another room is answered for ITS room so the
-                        // relay's ask never dangles (the relay drops a verdict
-                        // whose id does not match anyway).
-                        Some(ServerFrame::CompactRequest { session_id, keep }) => {
-                            let verdict = match &hooks.compact {
-                                Some(compact) if session_id == spec.session_id => compact(keep),
-                                Some(_) => CompactVerdict::Refused(CompactRefusal::NotOwnSession),
-                                None => CompactVerdict::Refused(CompactRefusal::UnsupportedAgent),
-                            };
-                            log::info!(
-                                "steer publisher: compact_request for {session_id} → {verdict:?}"
-                            );
-                            let frame = verdict.frame(&session_id).to_json();
-                            if ws.send(Message::Text(frame)).await.is_err() {
+                            Err(ServerFrame::Error { code, message }) => {
+                                log::debug!("steer publisher: relay error {code} ({message:?})");
                                 return LoopEnd::Dropped;
                             }
-                        }
-                        Some(ServerFrame::CheckIn)
-                        | Some(ServerFrame::HistoryRequest { .. })
-                        | Some(ServerFrame::CallRing { .. }) => {
+                            // EXP-936: the run asked its host to compact. The
+                            // hook decides off in-memory state; the verdict
+                            // goes straight back down THIS socket (the relay
+                            // holds the web server's HTTP call on it) — never
+                            // through `input_tx`, whose choreography sleeps. A
+                            // frame that names another room is answered for
+                            // ITS room so the relay's ask never dangles (the
+                            // relay drops a verdict whose id does not match
+                            // anyway).
+                            Err(ServerFrame::CompactRequest { session_id, keep }) => {
+                                let verdict = match &lp.hooks.compact {
+                                    Some(compact) if session_id == lp.spec.session_id => compact(keep),
+                                    Some(_) => CompactVerdict::Refused(CompactRefusal::NotOwnSession),
+                                    None => CompactVerdict::Refused(CompactRefusal::UnsupportedAgent),
+                                };
+                                log::info!(
+                                    "steer publisher: compact_request for {session_id} → {verdict:?}"
+                                );
+                                let frame = verdict.frame(&session_id).to_json();
+                                if ws.send(Message::Text(frame)).await.is_err() {
+                                    return LoopEnd::Dropped;
+                                }
+                            }
                             // Control-socket frames; never valid here. Ignore.
+                            Err(_) => {}
                         }
-                        None => log::debug!("steer publisher: unparseable frame ignored"),
-                    },
+                    }
                     Some(Ok(Message::Close(frame))) => {
                         return LoopEnd::Closed(close_code(&frame));
                     }
@@ -1348,22 +1472,6 @@ async fn republish_history(ws: &mut WsStream, journal: &ActivityJournal) -> bool
 /// contract's `steerFeed.historyPageMax`, which the relay's zod enforces.
 const HISTORY_PAGE_MAX: u32 = domain::contract::STEER_FEED_HISTORY_PAGE_MAX;
 
-/// Answer one [`ServerFrame::HistoryPage`] as a single `history_chunk`. The
-/// page is already bounded to [`HISTORY_PAGE_MAX`] events, so it is one frame
-/// with `done: true`; an oversize frame is dropped down to an EMPTY done
-/// chunk rather than severing the socket, which leaves the asking viewer with
-/// "nothing older" instead of a dead connection.
-async fn send_history_page(
-    ws: &mut WsStream,
-    request_id: &str,
-    page: Vec<(u64, ActivityEvent)>,
-) -> bool {
-    // EXP-796: the page frame is built by `history` so the control-socket
-    // route answers with the SAME shape; a publisher names no session.
-    let frame = crate::history::history_chunk_frame(None, request_id, page);
-    ws.send(Message::Text(frame)).await.is_ok()
-}
-
 async fn send_activity(ws: &mut WsStream, seq: u64, event: ActivityEvent) -> bool {
     let frame = ClientFrame::Activity { event, seq }.to_json();
     if frame.len() >= RELAY_MAX_PAYLOAD_BYTES {
@@ -1400,32 +1508,35 @@ fn close_code(frame: &Option<CloseFrame<'_>>) -> Option<u16> {
 /// nothing to `bye`) or when `running` flipped. Activity published while the
 /// socket is down still goes into the journal, so the reconnect's re-publish
 /// carries it; a take-over is momentary UI state, safely superseded by the
-/// re-`hello`.
-async fn sleep_or_shutdown(
-    delay: Duration,
-    cmd_rx: &flume::Receiver<PublisherCmd>,
-    recorder: &mut Recorder,
-    embeds: &ImageEmbedMap,
-    running: &Arc<AtomicBool>,
-) -> std::ops::ControlFlow<()> {
+/// re-`hello`. VAPP-33: eNet viewers keep being served (and fed live) here.
+async fn sleep_or_shutdown(delay: Duration, lp: &mut Loop<'_>) -> std::ops::ControlFlow<()> {
     let deadline = tokio::time::Instant::now() + delay;
     loop {
-        if !running.load(Ordering::SeqCst) {
+        if !lp.running.load(Ordering::SeqCst) {
             return std::ops::ControlFlow::Break(());
         }
         tokio::select! {
             _ = tokio::time::sleep_until(deadline) => return std::ops::ControlFlow::Continue(()),
-            cmd = cmd_rx.recv_async() => match cmd {
-                Ok(PublisherCmd::Shutdown { .. }) | Err(_) => {
-                    running.store(false, Ordering::SeqCst);
+            cmd = lp.cmd_rx.recv_async() => match cmd {
+                Ok(PublisherCmd::Shutdown { outcome }) => {
+                    lp.feeds.set_outcome(outcome);
+                    lp.running.store(false, Ordering::SeqCst);
                     return std::ops::ControlFlow::Break(());
                 }
-                Ok(PublisherCmd::Activity(mut event)) => {
-                    prepare_for_journal(&mut event, embeds);
-                    recorder.push(event);
-                    // Offline: the memory journal holds the notice and the
-                    // reconnect's replay carries it.
-                    let _ = recorder.take_notice();
+                Err(_) => {
+                    lp.running.store(false, Ordering::SeqCst);
+                    return std::ops::ControlFlow::Break(());
+                }
+                Ok(PublisherCmd::Activity(event)) => {
+                    // Offline: the memory journal holds the event (and any
+                    // cap notice) and the reconnect's replay carries it.
+                    let _ = lp.record(event);
+                }
+                Ok(enet) => {
+                    if let Some(Steered::Kill) = lp.enet(enet) {
+                        lp.kill();
+                        return std::ops::ControlFlow::Break(());
+                    }
                 }
             }
         }
@@ -1659,6 +1770,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: Some(data_dir.clone()),
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1699,6 +1811,7 @@ mod tests {
                 issue_id: Some("issue-t".to_string()),
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1789,6 +1902,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1840,6 +1954,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1912,6 +2027,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1985,6 +2101,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2029,6 +2146,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2108,6 +2226,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2221,6 +2340,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2279,6 +2399,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2332,6 +2453,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2397,6 +2519,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2710,6 +2833,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2772,6 +2896,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -2811,6 +2936,7 @@ mod tests {
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
+                audience: None,
             },
             Arc::new(DisabledTickets),
             recording_hooks(recorded.clone()),
