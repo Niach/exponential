@@ -69,6 +69,11 @@ pub enum AgentMcp {
         /// session (agent shells) keeps the pre-EXP-637 argv byte-identical.
         session_id: Option<String>,
     },
+    /// EXP-1426 part 5: a server-free run (`crate::local`) — NO `exponential`
+    /// entry, only the launch's own [`McpServerWire`] servers, and never
+    /// strict: the CLI keeps the servers the user configured for it.
+    /// Exponential never builds it.
+    ServersOnly,
 }
 
 /// EXP-792: ONE team MCP server resolved for a launch — the config
@@ -194,6 +199,14 @@ pub fn codex_mcp_entries(
             ..Default::default()
         },
     )];
+    entries.extend(codex_server_entries(servers));
+    entries
+}
+
+/// [`codex_mcp_entries`] without the `exponential` entry: the launch's own
+/// servers under their config keys, in order.
+pub fn codex_server_entries(servers: &[McpServerWire]) -> Vec<(String, CodexMcpEntry)> {
+    let mut entries = Vec::new();
     for server in servers {
         let mut entry = CodexMcpEntry::default();
         match &server.transport {
