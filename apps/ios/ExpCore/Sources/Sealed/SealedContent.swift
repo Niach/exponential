@@ -8,6 +8,38 @@ import Foundation
 // install key and keeps them in the shared keychain). A body without the
 // `exp-sealed:` prefix is plaintext and stays legal.
 
+/// Why a message is locked (sealed-content.json `placeholder.reasons`).
+public enum LockedReason: String, Sendable, Equatable {
+    /// No wrap for this install yet: opens by itself once a holder wraps it.
+    case noKey
+    /// A newer version, malformed or refused: never opens here.
+    case unreadable
+}
+
+/// THE locked state ×4 (sealed-content.json `placeholder`).
+public enum SealedPlaceholder {
+    /// The lock concept the transcript pill shows.
+    public static let icon = "ui-private"
+    /// The locked pill's test id (web `SEALED_LOCKED_TEST_ID`).
+    public static let testId = "sealed-locked"
+
+    public static func copy(_ reason: LockedReason) -> String {
+        switch reason {
+        case .noKey: "Waiting for the key"
+        case .unreadable: "Can't be opened here"
+        }
+    }
+
+    /// `placeholder.reasons`: plain/opened = not locked.
+    public static func reason(_ status: SealStatus) -> LockedReason? {
+        switch status {
+        case .plain, .opened: nil
+        case .noKey: .noKey
+        case .unsupported, .malformed, .refused: .unreadable
+        }
+    }
+}
+
 /// What opening sealed content gave (the fixture's spelling).
 public enum SealStatus: String, Sendable, Equatable {
     case plain, opened, noKey, unsupported, malformed, refused

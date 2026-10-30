@@ -133,6 +133,35 @@ final class SealedContentFixtureTests: XCTestCase {
         }
     }
 
+    /// `placeholder.messageCases`: openMessage = the opened body/card, or
+    /// the locked reason with an empty body and the card's clear part.
+    func testPlaceholderMessageCases() throws {
+        let crypto = try crypto()
+        let f = try Self.fixture()
+        let placeholder = try XCTUnwrap(f["placeholder"] as? [String: Any])
+        for c in try XCTUnwrap(placeholder["messageCases"] as? [[String: Any]]) {
+            let name = c["name"] as? String ?? "?"
+            let ring = SealedKeyRing(persistence: .memory)
+            var keys: [(rootId: String, epoch: UInt32, secret: Data)] = []
+            for (epoch, secret) in try XCTUnwrap(c["keys"] as? [String: String]) {
+                keys.append(("r", try XCTUnwrap(UInt32(epoch)), try Self.hex(secret)))
+            }
+            ring.add(keys)
+            let opener = SealedOpener(crypto: crypto, ring: ring)
+            let message = try XCTUnwrap(c["message"] as? [String: Any])
+            let card = message["card"] is NSNull ? nil : try (message["card"]).map(Self.json)
+            let opened = SealedMessage.open(body: try XCTUnwrap(message["body"] as? String), card: card, rootId: "r", opener: opener)
+            let expected = try XCTUnwrap(c["expected"] as? [String: Any])
+            XCTAssertEqual(SealedPlaceholder.reason(opened.status)?.rawValue, expected["locked"] as? String, name)
+            XCTAssertEqual(opened.body, expected["body"] as? String, name)
+            if let want = expected["card"] as? NSDictionary {
+                XCTAssertEqual(try Self.object(try XCTUnwrap(opened.card)), want, name)
+            } else {
+                XCTAssertNil(opened.card, name)
+            }
+        }
+    }
+
     /// The opener (what every view reads through) gives the same answers,
     /// keyed by root, and asks for a missing root's key.
     func testOpenerOpensByRootAndReportsMissingKeys() throws {

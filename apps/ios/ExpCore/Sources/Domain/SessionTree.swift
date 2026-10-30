@@ -550,6 +550,8 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
 
     /// The content is sealed and this install can't open it (yet).
     public var isLocked: Bool { !sealStatus.isReadable }
+    /// Why (sealed-content.json `placeholder`); nil = readable.
+    public var locked: LockedReason? { SealedPlaceholder.reason(sealStatus) }
 
     public init(
         id: String,
@@ -814,6 +816,9 @@ public enum ThreadRow: Equatable, Sendable {
     /// Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
     /// the centred divider pill; `at` = the message's createdAt (wire text).
     case divider(id: String, kind: Chats.DividerKind, at: String)
+    /// EXP-1459 (sealed-content.json `placeholder`): content this install
+    /// cannot open (yet), whatever its kind: THE transcript pill, no time.
+    case locked(id: String, reason: LockedReason, author: String)
     /// Thread 58cb32df (chats.json): an agent's inline Exponential UI
     /// preview (`surface` card); `title` trimmed, nil = none.
     case surface(id: String, sessionId: String, title: String?, surface: CardSurface)
@@ -874,6 +879,7 @@ public enum ThreadRow: Equatable, Sendable {
              let .picture(id, _, _, _, _),
              let .event(id, _, _),
              let .divider(id, _, _),
+             let .locked(id, _, _),
              let .surface(id, _, _, _):
             id
         }
@@ -1685,6 +1691,11 @@ public enum SessionTree {
         for message in messages { messagesById[message.id] = message }
         var escalated = Set<String>()
         for message in conversation {
+            if let reason = message.locked {
+                let author = message.authorKind == "user" || message.authorKind == "agent" ? message.authorKind : "system"
+                rows.append(.locked(id: message.id, reason: reason, author: author))
+                continue
+            }
             guard let card = message.card else {
                 let author = message.authorKind == "user" || message.authorKind == "agent"
                     ? message.authorKind

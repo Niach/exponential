@@ -23,7 +23,7 @@ export const entry: StyleguideEntry = {
       note: `rows from buildSessionThread (type locked) and chatPreview (kind locked)`,
     },
     desktop: { state: `leftover`, symbol: `divider_pill`, file: `apps/desktop/crates/ui/src/surface_card.rs`, note: `the desktop UI slice of EXP-1459 ports it` },
-    ios: { state: `leftover`, symbol: `TranscriptDividerPill`, file: `apps/ios/ExpUI/Sources/ChatTranscript.swift`, note: `the iOS slice of EXP-1459 ports it` },
+    ios: { state: `ok`, symbol: `TranscriptDividerPill (.locked row) / ChatRowView previewItalic`, file: `apps/ios/Exponential/UI/Thread/ThreadConversation.swift`, note: `ThreadRow.locked + ChatPreviewKind.locked; specimen SealedLockedSpecimens (-uiTestingStyleguide sealed-locked)` },
     android: { state: `leftover`, symbol: `TranscriptDivider`, file: `apps/android/app/src/main/java/com/exponential/app/ui/components/ChatComponents.kt`, note: `the Android slice of EXP-1459 ports it` },
   },
   island: () => <SealedLockedSpecimen />,

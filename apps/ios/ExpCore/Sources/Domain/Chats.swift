@@ -369,6 +369,8 @@ public enum Chats {
 
     public enum ChatPreviewKind: String, Equatable, Sendable {
         case working, question, plan, you, agent, picture, surface, new, compact, empty
+        /// EXP-1459: the previewed message is sealed and does not open here.
+        case locked
     }
 
     public struct ChatPreview: Equatable, Sendable {
@@ -661,6 +663,11 @@ public enum Chats {
         return ChatPreview(kind: .question, text: fill(Copy.Preview.question, plainLine(question)))
     }
 
+    /// EXP-1459: a sealed message that does not open here.
+    static func lockedPreview(_ reason: LockedReason) -> ChatPreview {
+        ChatPreview(kind: .locked, text: SealedPlaceholder.copy(reason))
+    }
+
     /// The root conversation's preview line (`previewCases`).
     /// `visible` = the viewer's synced session ids (nil = no check,
     /// #EXP-1399 review).
@@ -674,6 +681,7 @@ public enum Chats {
         let own = messages
             .filter { $0.sessionId == rootId && ($0.authorKind == "user" || $0.authorKind == "agent") }
             .filter { m in
+                if m.isLocked { return true }
                 if let card = m.card { return previewCards.contains(card.kind ?? "") }
                 return !m.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
@@ -686,10 +694,12 @@ public enum Chats {
            let waiting = own.first(where: { m in
                m.answeredAt == nil && ["question", "plan", "ask"].contains(m.card?.kind ?? "")
            }) {
+            if let reason = waiting.locked { return lockedPreview(reason) }
             return askPreview(waiting, visible: visible)
         }
         if busy { return ChatPreview(kind: .working, text: Copy.Preview.working) }
         guard let newest = own.first else { return ChatPreview(kind: .empty, text: Copy.Preview.empty) }
+        if let reason = newest.locked { return lockedPreview(reason) }
         if newest.authorKind == "user" {
             if let divider = commandDivider(newest.body) {
                 return ChatPreview(kind: divider == .new ? .new : .compact, text: divider.label)
