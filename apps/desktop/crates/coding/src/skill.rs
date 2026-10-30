@@ -444,7 +444,7 @@ run `bun test`.\n"
         for dispatch in [false, true] {
             let book = playbook(dispatch);
             let section = book.split("## Show\n").nth(1).unwrap().split("\n## ").next().unwrap();
-            for words in ["Show, don't tell", "`exponential_show`", "`replace: true`", "`ask`", "`plan`", "upload:<label>", "end your turn after one"] {
+            for words in ["Show, don't tell", "`exponential_show`", "`replace: true`", "`ask`", "`plan`", "upload:<label>", "end your turn after one", "never a `Card`", "text only = a plain message"] {
                 assert!(section.contains(words), "the Show section never says {words}");
             }
         }

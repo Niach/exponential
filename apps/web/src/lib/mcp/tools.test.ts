@@ -314,7 +314,7 @@ vi.mock(`@/lib/sessions/plan`, async (importOriginal) => ({
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { getSteerRelayConfig, relayPostCompact } from "@/lib/steer"
-import { registerExponentialTools } from "@/lib/mcp/tools"
+import { registerExponentialTools, SHOW_CARD_ROOT_ERROR, SHOW_TEXT_ONLY_ERROR } from "@/lib/mcp/tools"
 import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import { displayRowNames, legacyNameOfRow } from "@/lib/mcp/nouns"
@@ -3014,7 +3014,7 @@ describe(`exponential_show {plan | ask} (S-3, the EXP-1280 cards)`, () => {
 // card's surface (the builder runs for real; the DB write is stubbed).
 describe(`exponential_show {surface} (Chats)`, () => {
   const surface = {
-    root: { id: `r`, component: `Stack`, children: [{ id: `t`, component: `Text`, props: { text: `Hi` } }] },
+    root: { id: `r`, component: `Stack`, children: [{ id: `t`, component: `Badge`, props: { text: `Hi` } }] },
   }
   const show = (args: Record<string, unknown>) => collectTools(USER, SESSION).get(`exponential_show`)!(args)
 
@@ -3057,6 +3057,20 @@ describe(`exponential_show {surface} (Chats)`, () => {
     const result = await collectTools(USER, null).get(`exponential_show`)!({ surface })
     expect(result.isError).toBe(true)
     expect(result.content[0]!.text).toContain(`No session`)
+  })
+  // EXP-1445: the chat draws the card; text alone belongs in a message.
+  it.each([
+    [`a Card root`, { root: { id: `c`, component: `Card`, children: [{ id: `b`, component: `Badge`, props: { text: `Hi` } }] } }, SHOW_CARD_ROOT_ERROR],
+    [
+      `a text-only surface`,
+      { root: { id: `s`, component: `Stack`, children: [{ id: `h`, component: `Heading`, props: { text: `Hi` } }, { id: `t`, component: `Text`, props: { text: `Yo` } }] } },
+      SHOW_TEXT_ONLY_ERROR,
+    ],
+  ])(`refuses %s (EXP-1445)`, async (_name, bad, message) => {
+    const result = await show({ surface: bad })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]!.text).toBe(message)
+    expect(postShowCard).not.toHaveBeenCalled()
   })
 })
 
