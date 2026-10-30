@@ -242,6 +242,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             // loop's next 1s tick beats immediately.
             let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
                 check_in.store(true, std::sync::atomic::Ordering::SeqCst);
+                // EXP-1472: a new install may be waiting for its tree keys.
+                coding::sealing::wake_holder();
             });
             // NEW-55: the relay rings this device for a streamed call; the
             // socket loop only hands it over, the IDE answers on its thread

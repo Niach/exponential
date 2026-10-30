@@ -312,6 +312,8 @@ pub trait SealService: Send + Sync {
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
         adopt_into(self.keyring(), root_id, seal);
     }
+    /// EXP-1472: run a holder pass soon (a reader may be waiting for a wrap).
+    fn wake(&self) {}
 }
 
 static SERVICE: RwLock<Option<Arc<dyn SealService>>> = RwLock::new(None);
@@ -329,6 +331,14 @@ pub fn uninstall() {
 
 pub fn service() -> Option<Arc<dyn SealService>> {
     read(&SERVICE).clone()
+}
+
+/// EXP-1472: the server's `check_in` nudge (a new install may wait for its
+/// wraps): the key holder's next pass runs now instead of on its cadence.
+pub fn wake_holder() {
+    if let Some(service) = service() {
+        service.wake();
+    }
 }
 
 /// The installed keyring (an empty in-memory one when there is no service).
@@ -414,15 +424,45 @@ fn key_for_writing(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
     service.ensure_key(root_id).map_err(SealError::NoKey)
 }
 
+/// EXP-1472: how long a send into ANOTHER tree waits for that tree's first
+/// key (its device creates it when it claims the root) before it fails.
+pub const SEND_KEY_WAIT: Duration = Duration::from_secs(20);
+const SEND_KEY_POLL: Duration = Duration::from_secs(1);
+/// [`SEND_KEY_WAIT`] in ms (tests shorten it).
+static SEND_KEY_WAIT_MS: AtomicU64 = AtomicU64::new(SEND_KEY_WAIT.as_millis() as u64);
+
+#[doc(hidden)]
+pub fn set_send_key_wait(wait: Duration) {
+    SEND_KEY_WAIT_MS.store(wait.as_millis() as u64, Ordering::SeqCst);
+}
+
 fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
     let service = service().ok_or(SealError::NoService)?;
     if let Some(current) = service.keyring().current(root_id) {
         return Ok(current);
     }
-    match service.public_key(root_id).map_err(SealError::NoKey)? {
-        Some(key) => Ok(key),
-        // A tree nobody keyed yet: plaintext stays legal there.
-        None => Err(SealError::NoKey("the target tree has no key".into())),
+    // A tree nobody keyed yet: its executing device keys it at its claim.
+    // Wait for that rather than send in clear (EXP-1472).
+    let deadline = Instant::now() + Duration::from_millis(SEND_KEY_WAIT_MS.load(Ordering::SeqCst));
+    loop {
+        if let Some(key) = service.public_key(root_id).map_err(SealError::NoKey)? {
+            return Ok(key);
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(SealError::NoKey("the target chat has no key yet (its device has not picked it up)".into()));
+        }
+        std::thread::sleep(left.min(SEND_KEY_POLL));
+    }
+}
+
+/// EXP-1472: keys a root at its claim (the device about to run it), so
+/// content sent into the tree from elsewhere finds a key to seal with.
+/// BLOCKING; a no-op without a key holder or when the root is keyed.
+pub fn ensure_tree_key(root_id: &str) {
+    match key_for_writing(root_id) {
+        Ok(_) | Err(SealError::NoService) => {}
+        Err(err) => log::warn!("sealing: the tree key of {root_id} was not created at its claim: {err}"),
     }
 }
 
