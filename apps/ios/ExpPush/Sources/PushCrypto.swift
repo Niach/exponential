@@ -42,6 +42,18 @@ public enum PushCrypto {
         #endif
     }
 
+    /// The keypair derived from 32 install identity bytes (eNet's
+    /// `PushKeypair::derive`), or nil when the binding is absent or the bytes
+    /// are malformed.
+    public static func deriveKeypair(identity: Data) -> PushKeypair? {
+        #if ENET_PUSH
+        guard let pair = try? pushKeypairDerive(identity: identity) else { return nil }
+        return PushKeypair(secret: pair.secret, publicKey: pair.public)
+        #else
+        return nil
+        #endif
+    }
+
     /// Opens a sealed payload; nil on ANY failure (bad version, tampering,
     /// wrong key, no binding): a receiver drops such a push silently.
     public static func open(secret: Data, sealed: Data) -> Data? {

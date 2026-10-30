@@ -24,8 +24,11 @@ final class NotificationService: UNNotificationServiceExtension {
             return
         }
         bestAttempt = content
-        if let secret = PushKeyStore().load()?.secret,
-           let opened = SealedPush.open(userInfo: content.userInfo, secret: secret) {
+        // The current key first, then the one it replaced (EXP-1457: the key
+        // moved to the identity-derived one; pushes sealed before the server
+        // learned it still open).
+        if let opened = PushKeyStore().loadAll().lazy
+            .compactMap({ SealedPush.open(userInfo: content.userInfo, secret: $0.secret) }).first {
             // A degraded over-budget payload may carry an empty title: keep
             // the placeholder rather than show a blank one.
             if !opened.title.isEmpty { content.title = opened.title }

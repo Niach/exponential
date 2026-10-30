@@ -124,6 +124,8 @@ struct UpdateRequiredView: View {
         guard let account else { return }
         Task {
             await deps.pushTokenManager.unregister(accountId: account.id)
+            // EXP-1457: revoke this install in the registry, still authed.
+            await deps.installNode?.signOut(accountId: account.id)
             if let token = account.token {
                 await deps.authApi.signOut(instanceUrl: account.instanceUrl, token: token)
             }
