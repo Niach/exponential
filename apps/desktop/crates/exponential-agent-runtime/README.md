@@ -20,8 +20,9 @@ Server coupling becomes traits the hosts implement. Each lands with the first mo
 
 | Trait | What it answers | Exponential (`coding` + `engine`) | spezl / local |
 | --- | --- | --- | --- |
+| `LaunchSpec` | what to spawn and how (program, env, cwd, agent, picks, resume, MCP servers, context layers, confine root) | `engine::adapters::AdapterSpec` → `LaunchSpec` | built directly |
 | `EventSink` | where mapped events go | the steer publisher | the voice loop / UI |
-| `RunBackend` | report state, reply cards, consume queued messages, answers | `api::session_device` over tRPC | in memory |
+| `RunBackend` (4d) | report state, reply cards, consume queued messages, answers | `api::session_device` over tRPC | in memory |
 | `AccountEnv` | config dir + env for the spawn | multi-account rotation | the CLI's default home |
 | `McpProvider` | the MCP servers a run gets | team + device servers | the user's own list |
 | `HostTools` | the host's OWN tools: display row, subject key, preview spec, code-mode script log | `engine::ExpHostTools` (contract `expToolDisplay` / `expToolPreview`, `codemode` reports) | `NoHostTools` |
@@ -85,18 +86,44 @@ caller changes until a later cleanup.
      `iso_from_unix_millis` / `now_iso` (chrono-free, pinned to `coding`'s formatter in steer)
      and `JOURNAL_WORKFLOW_CAP`. The contract values the mapper and refs inline are pinned in
      `engine::mapper` / `engine::exp_tool_refs` tests.
-   - **4c, next.** `host`, `session` and `adapters/{mod,claude,claude_wire,codex,codex_wire}`.
-     What they still pull from Exponential, i.e. the seams 4c defines: `RunBackend`
-     (`api::session_device` report / reply / consume, `LostReason` / `SessionReport`,
-     `AnswerInput`, `McpActor`, `TrpcClient`, `ApiError`, `api::sessions`); a core launch spec
-     filled from `coding::PreparedLaunch` / `AcpLaunch` (program, args, env, cwd, agent, resume
-     seed, MCP servers as `McpServerWire`, confine root, `ContextLayers`); `coding::agent_usage`
-     (live rate limits), the claude transcript locator, `mcp_json` / `argv` / `skill` / launcher
-     flags, `run_registry`, `end_session`, `aside`; from `steer` `TurnSignal` / `CaptionSignal` /
-     `AgentTitleSignal` / links, `answer_tap`, the publisher's image localizer / attachment hook,
-     `workflow_caption`, `blocked_wall_expired` (chrono) and `SteerRuntime`; and
-     `domain::plan_card` / `session_kind`. `lifecycle`, `outbox`, `stop_save` and `aside` stay in
-     `engine`.
+   - **4c, done (the adapters).** `engine::adapters` (`mod`, `claude`, `claude_wire`, `codex`,
+     `codex_wire`, moved whole): a host starts the user's own `claude` / `codex` ACP adapter
+     with `Adapter::new(impl Into<LaunchSpec>)` and drives it as a `ConnectTo<Client>`.
+     `LaunchSpec` is the core launch spec (program / args / env / cwd as `SpawnSpec`,
+     `CodingAgent`, `RunOptions`, resume handle, `AgentMcp` + `McpServerWire` servers, system
+     append, `ContextLayers`, confine root, `ChildExitLink`); Exponential's
+     `engine::adapters::AdapterSpec` (the launcher's `coding::LaunchOptions`) converts into it,
+     the account slot becoming the profile id. Moved with them, re-exported under the old paths:
+     `mcp` (`AgentMcp`, `McpServerWire`, `McpWireTransport`, `McpActor`, `MCP_TOKEN_ENV`,
+     `MCP_JSON_FILE`, the codex entry / TOML renderings, out of `coding::argv`, `coding::mcp_json`,
+     `api::mcp_servers`), `usage` (`UsageWindow`, the claude / codex live-limit parsers,
+     `merge_live_windows` and the process-global `live` registry, out of
+     `coding::agent_usage`; the OAuth fetch and the collector stay), `claude_transcript`
+     (`locate_claude_transcript`), `engine::launch` (`RunOptions`, `ResumeHandle`, `EngineError`
+     whose `Api` arm boxes the backend error, the ACP `_meta` keys, the aside tool posture) and
+     `child_exit::until_either_closes`. `coding` converts `ResumeSeed`, `api` its `ApiError`.
+   - **4d, next: `host` and `session`.** They cannot move on their own: they and `lifecycle` /
+     `outbox` / `aside` (which stay in `engine`) use each other. `session::start` builds
+     `RunLifecycle`; `host` calls `lifecycle::{record_session_ids, lost_reason,
+     record_context_base}`, holds the `Outbox` and `AsideState` / `AsideEnd` on `SessionCtx`;
+     `lifecycle` reads `host::{SessionCtx, EngineCommand, EngineExit, EngineHost, KillFeed,
+     KillReason, SessionIds}`. So 4d first puts the lifecycle behind a trait on `SessionCtx`
+     (the outbox's `ConversationApi` reply / consume plus the `record_*` reports become
+     `RunBackend`, plain core types, `NoBackend` in the core, the tRPC impl in `engine`), then
+     moves `host` + `session`. What they still pull, i.e. the seams 4d defines: `RunBackend`
+     (`api::TrpcClient` on `SessionCtx` / `EngineStart` / `OpenTranscript`, `api::sessions::
+     AnswerInput` (the fresh-context downgrade), `api::session_device::LostReason`,
+     `ApiError` in `EngineExit::end`); a start from `LaunchSpec` instead of
+     `coding::PreparedLaunch` (`prepare_with_hooks`, `ResumeSeed`, `skill::system_append`,
+     `coding::aside`, `run_registry::{get, RunRecord}` in `HistoryHandle`, `pickup::LiveEngine`
+     / `write_back_card`, `end_session`, `computer::turn_started`, `launcher::STEER_IMAGES_DIR`);
+     from `steer` the relay behaviour behind a trait (`SteerRuntime` as a tokio handle the host
+     passes in, `TurnSignal` / `CaptionSignal` / `AgentTitleSignal`, `answer_tap::{notify,
+     card_resolution}`, `image_localizer` / `localize_message` / `ImageEmbeds` /
+     `AttachmentHook` / `has_attachment_embed` / `PublishSpec::embeds`, `CompactVerdict`) and
+     the pure parts into `wire` (`workflow_caption`, `RESUMED_IDLE_CAPTION`, `QUEUE_MAX`,
+     `CONFIG_ID_MAX`, `STOP_GRACE`, `blocked_wall_expired` (chrono)); `domain::plan_card::copy`
+     and `domain::session_kind` as core types pinned in `engine` tests (like 4b).
 5. A local backend and a runnable example: one turn plus the session history with your own login,
    no server.
 

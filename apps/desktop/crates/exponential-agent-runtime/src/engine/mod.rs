@@ -7,15 +7,19 @@
 //! compaction ask), and (part 4b) the ONE `SessionUpdate` → wire mapper with
 //! its reply cards and the [`host_tools::HostTools`] seam, the
 //! `context_layout` arithmetic, the result refs and the ACP `terminal/*`
-//! capability. The ACP host, the session and the adapters follow behind
-//! `RunBackend` (see the README).
+//! capability, and (part 4c) the ACP adapters themselves: a host starts the
+//! user's own `claude` / `codex` from a core [`LaunchSpec`] ([`adapters`],
+//! [`launch`]). The ACP host and the session follow (part 4d) behind `RunBackend`
+//! (see the README).
 
+pub mod adapters;
 pub mod api_retry;
 pub mod child_exit;
 pub mod compaction;
 pub mod context_layout;
 pub mod exp_tool_refs;
 pub mod host_tools;
+pub mod launch;
 pub mod local;
 pub mod mapper;
 pub mod reply;
@@ -24,7 +28,9 @@ pub mod stall;
 pub mod terminals;
 pub mod transport;
 
+pub use adapters::{Adapter, AdapterKind, LaunchSpec};
 pub use child_exit::ChildExitLink;
+pub use launch::{EngineError, ResumeHandle, RunOptions};
 pub use host_tools::{HostTools, NoHostTools, ScriptCall, ScriptReport};
 pub use mapper::{Mapper, MapperConfig};
 pub use reply::{ReplyCard, ReplyOption};

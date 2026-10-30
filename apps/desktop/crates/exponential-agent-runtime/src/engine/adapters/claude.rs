@@ -2,7 +2,7 @@
 //! presented to the engine as an ACP agent. Owned by lane E2.
 //!
 //! One child process per session, spawned with the SDK argv
-//! ([`claude_wire::claude_argv`]) over [`crate::transport::spawn_lines`], and
+//! ([`claude_wire::claude_argv`]) over [`crate::engine::transport::spawn_lines`], and
 //! ONE pump task that owns every frame: stdout frames become `session/update`
 //! notifications, `control_request`s become `session/request_permission` /
 //! `elicitation/create`, and the ACP requests coming the other way become
@@ -65,11 +65,11 @@ use agent_client_protocol::{
 use serde_json::{json, Map, Value};
 
 use super::claude_wire::{self as wire, ClaudeArgs, ClaudeOut, McpConfig, SystemSubtype, TurnOutcome};
-use super::{confine, AdapterSpec};
-use crate::host::{CANCEL_QUEUED_META_KEY, FRESH_CONTEXT_META_KEY, NATIVE_SESSION_META_KEY};
-use crate::mapper::{API_ERROR_META_KEY, RATE_LIMIT_META_KEY};
-use crate::session::{EngineError, ResumeHandle};
-use crate::transport::{spawn_lines, ChildLines, StderrPolicy};
+use super::{confine, LaunchSpec};
+use crate::engine::launch::{CANCEL_QUEUED_META_KEY, FRESH_CONTEXT_META_KEY, NATIVE_SESSION_META_KEY};
+use crate::engine::mapper::{API_ERROR_META_KEY, RATE_LIMIT_META_KEY};
+use crate::engine::launch::{EngineError, ResumeHandle};
+use crate::engine::transport::{spawn_lines, ChildLines, StderrPolicy};
 
 /// `_meta` key carrying a subagent edge — the engine's own
 /// [`crate::SUBAGENT_META_KEY`]. ACP v1 has no subagent update, and the
@@ -80,18 +80,18 @@ use crate::transport::{spawn_lines, ChildLines, StderrPolicy};
 /// The id is the SPAWNING TOOL CALL (falling back to claude's task id) so it
 /// matches the `subagentId` its nested tool calls carry — the PTY path's
 /// `attribute_to_card` remap, done at the source.
-pub use crate::local::SUBAGENT_META_KEY;
+pub use crate::engine::local::SUBAGENT_META_KEY;
 
 /// `_meta` key naming the subagent a message or tool call belongs to
 /// (claude's `parent_tool_use_id`) — the engine's `subagentId`.
-pub use crate::local::SUBAGENT_ID_META_KEY as PARENT_TOOL_CALL_META_KEY;
+pub use crate::engine::local::SUBAGENT_ID_META_KEY as PARENT_TOOL_CALL_META_KEY;
 
 /// `_meta` key marking a prompt this adapter injected (EXP-772).
-pub use crate::local::INJECTED_PROMPT_META_KEY;
+pub use crate::engine::local::INJECTED_PROMPT_META_KEY;
 
 /// EXP-850: the three `_meta` keys this adapter's new state rides on, plus
 /// the two a WAIT tool row carries (ACP v1 has no `wait` kind).
-pub use crate::local::{
+pub use crate::engine::local::{
     BACKGROUND_TASKS_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_META_KEY,
     TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
 };
@@ -147,11 +147,12 @@ const ANTICIPATED_CONTINUATION_GRACE: Duration = Duration::from_secs(30);
 const TITLE_EARLY_POLLS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(30)];
 
 pub struct ClaudeAgent {
-    spec: AdapterSpec,
+    spec: LaunchSpec,
 }
 
 impl ClaudeAgent {
-    pub fn new(spec: AdapterSpec) -> Result<ClaudeAgent, EngineError> {
+    pub fn new(spec: impl Into<LaunchSpec>) -> Result<ClaudeAgent, EngineError> {
+        let spec = spec.into();
         Ok(ClaudeAgent { spec })
     }
 }
@@ -376,7 +377,7 @@ impl ConnectTo<Client> for ClaudeAgent {
                 // EOF closes the connection here.
                 .connect_with(client, async move |cx: ConnectionTo<Client>| {
                     let session = main_session;
-                    crate::host::until_either_closes(
+                    crate::engine::child_exit::until_either_closes(
                         &cx,
                         &session.spec.exit,
                         session.child_gone(),
@@ -395,7 +396,7 @@ impl ConnectTo<Client> for ClaudeAgent {
 // ---------------------------------------------------------------------------
 
 struct ClaudeSession {
-    spec: AdapterSpec,
+    spec: LaunchSpec,
     /// The ACP session id: the host's STABLE handle for this run. EXP-784
     /// decoupled it from claude's own session uuid (`State::native_session_id`,
     /// the `--session-id` pin / `--resume` target): a `/clear` gives the CLI a
@@ -421,12 +422,12 @@ struct ClaudeSession {
     /// on one account never moves another's numbers.
     account_profile: String,
     /// EXP-819: this session's slot in the machine's live usage registry
-    /// (`coding::agent_usage::live`), held for the run like codex's. Released
+    /// (`crate::usage::live`), held for the run like codex's. Released
     /// by [`ClaudeSession::detach_live_usage`] when the connection ends; its
     /// `Drop` is the backstop for every path that never gets there.
     /// EXP-909: `None` for a transcript REPLAY — reading history spends no
     /// tokens, and a viewer left open used to hold a phantom live session.
-    live_usage: Mutex<Option<coding::agent_usage::live::Attached>>,
+    live_usage: Mutex<Option<crate::usage::live::Attached>>,
     state: Mutex<State>,
     /// EXP-905: the incremental reader of the conversation's name out of
     /// claude's own transcript. Its OWN lock: a poll does file I/O and must
@@ -608,7 +609,7 @@ struct State {
     /// EXP-1051: the base a PREVIOUS run of this conversation measured,
     /// carried over `runs.json` by a native resume. Used only while the model
     /// is unchanged, and dropped by a `/clear`.
-    carried_base: Option<coding::CarriedBase>,
+    carried_base: Option<crate::engine::context_layout::CarriedBase>,
     /// EXP-1051: this conversation was RELOADED by a native resume, so its
     /// first request carries the whole transcript, not a fresh prefix —
     /// nothing is measured until a `/clear` starts a new one; the bar draws
@@ -623,7 +624,7 @@ struct State {
     /// EXP-850 §2: the CLI's FULL current background-task list, as the last
     /// `background_tasks_changed` named it. Read by a `TaskOutput` row to
     /// label itself and published as the `background_tasks` slot.
-    background_tasks: Vec<steer::BackgroundTask>,
+    background_tasks: Vec<crate::wire::BackgroundTask>,
     /// EXP-850 §3: one entry per `Workflow` run, in start order, keyed by the
     /// `Workflow` call's `tool_use_id` (= the card's wire id).
     workflows: Vec<WorkflowRun>,
@@ -701,7 +702,7 @@ struct RateLimitState {
     /// so far, latest per key — a frame that carries only the limiting
     /// window must not un-publish the other one. Outlives the slot: a
     /// cleared notice keeps them.
-    windows: Vec<coding::agent_usage::UsageWindow>,
+    windows: Vec<crate::usage::UsageWindow>,
 }
 
 /// One `result`'s settlement, kept whole so a deferral (a live subagent)
@@ -758,13 +759,13 @@ fn retire_continuation_tasks(state: &mut State) {
     }
 }
 
-/// EXP-850 §3 review: keep at most [`steer::journal::JOURNAL_WORKFLOW_CAP`]
+/// EXP-850 §3 review: keep at most [`crate::wire::frames::JOURNAL_WORKFLOW_CAP`]
 /// cards, oldest first, exactly like the journal and the relay room — a run
 /// that starts workflows all day otherwise grows three maps for the life of
 /// the process. Dropping a card drops its id maps with it: the `task_id`
 /// mappings that pointed at it and the launching tool ids they named.
 fn evict_workflows(state: &mut State) {
-    while state.workflows.len() > steer::journal::JOURNAL_WORKFLOW_CAP {
+    while state.workflows.len() > crate::wire::frames::JOURNAL_WORKFLOW_CAP {
         let dropped = state.workflows.remove(0);
         let orphans: Vec<String> = state
             .workflow_of_task
@@ -873,9 +874,9 @@ struct WorkflowRun {
     id: String,
     name: String,
     description: Option<String>,
-    status: steer::WorkflowStatus,
-    phases: BTreeMap<u32, steer::WorkflowPhase>,
-    agents: BTreeMap<u32, steer::WorkflowAgent>,
+    status: crate::wire::WorkflowStatus,
+    phases: BTreeMap<u32, crate::wire::WorkflowPhase>,
+    agents: BTreeMap<u32, crate::wire::WorkflowAgent>,
     summary: Option<String>,
     /// When the card was last published — the §3 throttle's clock.
     published_at: Option<Instant>,
@@ -931,12 +932,12 @@ enum LaneStep {
 /// check matches); a queued agent has none yet.
 fn lane_steps(
     workflow_id: &str,
-    agent: &steer::WorkflowAgent,
+    agent: &crate::wire::WorkflowAgent,
     lane: &mut AgentLane,
 ) -> Vec<LaneStep> {
     let mut steps = Vec::new();
     let Some(id) = agent.agent_id.clone() else { return steps };
-    if agent.state == steer::WorkflowAgentState::Queued || lane.finished {
+    if agent.state == crate::wire::WorkflowAgentState::Queued || lane.finished {
         return steps;
     }
     let title = if agent.label.trim().is_empty() { id.clone() } else { agent.label.clone() };
@@ -965,8 +966,8 @@ fn lane_steps(
         }
     }
     let (status, text) = match agent.state {
-        steer::WorkflowAgentState::Done => ("completed", agent.result_preview.clone()),
-        steer::WorkflowAgentState::Error => ("failed", agent.error.clone()),
+        crate::wire::WorkflowAgentState::Done => ("completed", agent.result_preview.clone()),
+        crate::wire::WorkflowAgentState::Error => ("failed", agent.error.clone()),
         _ => return steps,
     };
     lane.finished = true;
@@ -988,7 +989,7 @@ fn lane_steps(
 /// or every client keeps that agent's tab spinning for the rest of the run.
 fn close_lanes(run: &mut WorkflowRun) -> Vec<LaneStep> {
     let status = match run.status {
-        steer::WorkflowStatus::Completed => "completed",
+        crate::wire::WorkflowStatus::Completed => "completed",
         _ => "failed",
     };
     let mut steps = Vec::new();
@@ -1033,7 +1034,7 @@ impl WorkflowRun {
     /// re-queued slot) opens a new lane instead of inheriting the old one's
     /// flags. A queued agent has no id yet, so no lane. Returns whether the
     /// agent's state moved (§3: such a change publishes at once).
-    fn fold_agent(&mut self, agent: steer::WorkflowAgent, steps: &mut Vec<LaneStep>) -> bool {
+    fn fold_agent(&mut self, agent: crate::wire::WorkflowAgent, steps: &mut Vec<LaneStep>) -> bool {
         let moved = self
             .agents
             .get(&agent.index)
@@ -1047,8 +1048,8 @@ impl WorkflowRun {
     }
 
     /// The wire payload: the WHOLE state, every time (§3 is latest-wins).
-    fn state(&self) -> steer::WorkflowState {
-        steer::WorkflowState {
+    fn state(&self) -> crate::wire::WorkflowState {
+        crate::wire::WorkflowState {
             id: self.id.clone(),
             name: self.name.clone(),
             description: self.description.clone(),
@@ -1062,7 +1063,7 @@ impl WorkflowRun {
 
     /// The agent with this `agentId`, if the card holds one (EXP-856: a
     /// `task_started` whose `task_id` matches names a copy of it).
-    fn agent_by_id(&self, agent_id: &str) -> Option<&steer::WorkflowAgent> {
+    fn agent_by_id(&self, agent_id: &str) -> Option<&crate::wire::WorkflowAgent> {
         self.agents
             .values()
             .find(|agent| agent.agent_id.as_deref() == Some(agent_id))
@@ -1096,7 +1097,7 @@ struct PlanTask {
 }
 
 impl ClaudeSession {
-    fn new(spec: AdapterSpec) -> ClaudeSession {
+    fn new(spec: LaunchSpec) -> ClaudeSession {
         // EXP-784: TWO uuids. The ACP session id is the host's handle (a
         // recorded one on `session/load`, else fresh); claude's own is the
         // `--session-id` pin, a uuid the CLI has never seen, or the recorded
@@ -1122,11 +1123,11 @@ impl ClaudeSession {
             title_requested: spec.resume.is_some() || !spec.name_conversation,
             ..State::default()
         };
-        let account_profile = coding::profile_id(options.account.as_deref());
+        let account_profile = options.account_profile.clone();
         // EXP-909: a replay is a READ of a transcript — it spends nothing, so
         // it attaches nothing.
         let live_usage = (!spec.replay)
-            .then(|| coding::agent_usage::live::attach(coding::CodingAgent::Claude, &account_profile));
+            .then(|| crate::usage::live::attach(crate::agent::CodingAgent::Claude, &account_profile));
         let (gone_gate, gone) = flume::bounded(0);
         ClaudeSession {
             spec,
@@ -1321,20 +1322,20 @@ impl ClaudeSession {
         // the team's — only the read-only built-in tools; strict, so the
         // user's own config stays out as well ([`crate::aside`]).
         let mcp = if self.spec.aside {
-            Some(McpConfig::Inline(crate::aside::ASIDE_MCP_CONFIG))
+            Some(McpConfig::Inline(crate::engine::launch::ASIDE_MCP_CONFIG))
         } else {
             match &self.spec.mcp {
-                coding::AgentMcp::ClaudeInline { url, session_id } => {
+                crate::mcp::AgentMcp::ClaudeInline { url, session_id } => {
                     inline_mcp =
                         wire::inline_mcp_config(url, session_id.as_deref(), &self.spec.servers);
                     Some(McpConfig::Inline(&inline_mcp))
                 }
                 // The PTY path's `.exp-mcp.json`, kept as the zero-risk fallback.
-                coding::AgentMcp::ClaudeFile => {
+                crate::mcp::AgentMcp::ClaudeFile => {
                     inline_mcp = self
                         .spec
                         .cwd
-                        .join(coding::mcp_json::MCP_JSON_FILE)
+                        .join(crate::mcp::MCP_JSON_FILE)
                         .display()
                         .to_string();
                     Some(McpConfig::File(Path::new(&inline_mcp)))
@@ -1707,7 +1708,7 @@ impl ClaudeSession {
             && !state.continuation_running
             && !state.continuation_end_pending
         {
-            self.publish_turn(cx, steer::TurnState::Ended);
+            self.publish_turn(cx, crate::wire::TurnState::Ended);
         }
     }
 
@@ -1747,7 +1748,7 @@ impl ClaudeSession {
             state.turn_thinking_tokens = 0;
             state.turn_message_tokens.clear();
         }
-        self.publish_turn(cx, steer::TurnState::Started);
+        self.publish_turn(cx, crate::wire::TurnState::Started);
         if anticipated {
             self.arm_continuation_backstop(cx, state);
         }
@@ -1781,11 +1782,11 @@ impl ClaudeSession {
         state.continuation_anticipated = false;
         state.notification_pending = false;
         retire_continuation_tasks(state);
-        self.publish_turn(cx, steer::TurnState::Ended);
+        self.publish_turn(cx, crate::wire::TurnState::Ended);
     }
 
     /// EXP-1224: the agent's own turn edge, on the token count's carrier.
-    fn publish_turn(&self, cx: &ConnectionTo<Client>, turn: steer::TurnState) {
+    fn publish_turn(&self, cx: &ConnectionTo<Client>, turn: crate::wire::TurnState) {
         let mut meta = Map::new();
         meta.insert(TURN_META_KEY.to_string(), json!({ "state": turn.id() }));
         self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
@@ -1890,13 +1891,13 @@ impl ClaudeSession {
     /// here only because the CLI's own `/model` moves it mid-run and a viewer
     /// otherwise never learns which model it is talking to.
     ///
-    /// The value is the ALIAS the composer offers ([`coding::claude_model_alias`]),
+    /// The value is the ALIAS the composer offers ([`crate::agent::claude_model_alias`]),
     /// falling back to the raw resolved id when the CLI reports a tier this
     /// build does not know. `set_config` still ACCEPTS the ids an older
     /// publisher may send.
     fn config_options(&self) -> Vec<SessionConfigOption> {
         let model = self.lock().model.clone();
-        let current = coding::claude_model_alias(&model)
+        let current = crate::agent::claude_model_alias(&model)
             .map(str::to_string)
             .unwrap_or(model);
         vec![SessionConfigOption::select(
@@ -2217,7 +2218,7 @@ impl ClaudeSession {
             let before = state.background_tasks.len();
             state.background_tasks.retain(|listed| match task_id {
                 Some(task_id) => listed.id != task_id,
-                None => listed.kind != steer::BackgroundTaskKind::Agent,
+                None => listed.kind != crate::wire::BackgroundTaskKind::Agent,
             });
             state.background_tasks.len() != before
         };
@@ -2344,14 +2345,14 @@ impl ClaudeSession {
                 return;
             }
             let base = match prefix {
-                Some(prefix) => Some(crate::context_layout::BasePrefix::Measured(prefix)),
+                Some(prefix) => Some(crate::engine::context_layout::BasePrefix::Measured(prefix)),
                 None => state
                     .carried_base
                     .as_ref()
                     .filter(|carried| carried.model == state.model)
-                    .map(|carried| crate::context_layout::BasePrefix::Carried(carried.tokens)),
+                    .map(|carried| crate::engine::context_layout::BasePrefix::Carried(carried.tokens)),
             };
-            let segments = crate::context_layout::layout(&self.spec.context_layers, base);
+            let segments = crate::engine::context_layout::layout(&self.spec.context_layers, base);
             if segments.is_empty() {
                 return;
             }
@@ -2361,7 +2362,7 @@ impl ClaudeSession {
         self.notify_meta(
             cx,
             SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()),
-            crate::context_layout::meta(&segments, Some(&model)),
+            crate::engine::context_layout::meta(&segments, Some(&model)),
         );
     }
 
@@ -2495,11 +2496,11 @@ impl ClaudeSession {
         let windows = {
             let mut state = self.lock();
             state.rate_limit.windows =
-                coding::agent_usage::merge_live_windows(&state.rate_limit.windows, &fresh);
+                crate::usage::merge_live_windows(&state.rate_limit.windows, &fresh);
             state.rate_limit.windows.clone()
         };
-        coding::agent_usage::live::publish(
-            coding::CodingAgent::Claude,
+        crate::usage::live::publish(
+            crate::agent::CodingAgent::Claude,
             &self.account_profile,
             windows,
         );
@@ -2738,7 +2739,7 @@ impl ClaudeSession {
                     if let Some(id) = closed {
                         let mut meta = Map::new();
                         meta.insert(
-                            crate::local::COMPACTION_TRIGGER_META_KEY.to_string(),
+                            crate::engine::local::COMPACTION_TRIGGER_META_KEY.to_string(),
                             json!("manual"),
                         );
                         self.notify_meta(
@@ -2776,7 +2777,7 @@ impl ClaudeSession {
                 state.usage = wire::TokenSnapshot { input: post_tokens, ..Default::default() };
                 drop(state);
                 let mut meta = Map::new();
-                meta.insert(crate::local::COMPACTION_TRIGGER_META_KEY.to_string(), json!(trigger));
+                meta.insert(crate::engine::local::COMPACTION_TRIGGER_META_KEY.to_string(), json!(trigger));
                 self.notify_meta(
                     cx,
                     SessionUpdate::CompactionUpdate(CompactionUpdate::new(
@@ -2801,7 +2802,7 @@ impl ClaudeSession {
                         // A turn the mapper re-opened off output alone
                         // (EXP-1224 C) is over too; an `ended` with nothing
                         // open is a no-op there.
-                        self.publish_turn(cx, steer::TurnState::Ended);
+                        self.publish_turn(cx, crate::wire::TurnState::Ended);
                     }
                     self.settle_deferred(cx, &mut state);
                 }
@@ -2870,7 +2871,7 @@ impl ClaudeSession {
                                 description.as_deref(),
                             ),
                             description: description.clone(),
-                            status: steer::WorkflowStatus::Running,
+                            status: crate::wire::WorkflowStatus::Running,
                             phases: BTreeMap::new(),
                             agents: BTreeMap::new(),
                             summary: None,
@@ -2913,7 +2914,7 @@ impl ClaudeSession {
                     // without this a legitimate later resume of that id would
                     // publish a false `duplicate` warning.
                     Some((_, _, agent_state, status)) => {
-                        *status == steer::WorkflowStatus::Running && !agent_state.is_finished()
+                        *status == crate::wire::WorkflowStatus::Running && !agent_state.is_finished()
                     }
                     // An ordinary subagent that never finished: the CLI reuses
                     // its id for the resumed copy.
@@ -2992,7 +2993,7 @@ impl ClaudeSession {
             }
             // EXP-850 §2: the CLI's FULL current list — the strip's one input.
             SystemSubtype::BackgroundTasksChanged => {
-                let tasks: Vec<steer::BackgroundTask> = system
+                let tasks: Vec<crate::wire::BackgroundTask> = system
                     .extra
                     .get("tasks")
                     .and_then(Value::as_array)
@@ -3001,9 +3002,9 @@ impl ClaudeSession {
                             .iter()
                             .filter_map(|task| {
                                 let id = task.get("task_id").and_then(Value::as_str)?;
-                                Some(steer::BackgroundTask {
+                                Some(crate::wire::BackgroundTask {
                                     id: id.to_string(),
-                                    kind: steer::BackgroundTaskKind::from_task_type(
+                                    kind: crate::wire::BackgroundTaskKind::from_task_type(
                                         task.get("task_type")
                                             .and_then(Value::as_str)
                                             .unwrap_or_default(),
@@ -3088,7 +3089,7 @@ impl ClaudeSession {
                                 let Some(index) = progress_index(entry) else { continue };
                                 run.phases.insert(
                                     index,
-                                    steer::WorkflowPhase {
+                                    crate::wire::WorkflowPhase {
                                         index,
                                         title: entry
                                             .get("title")
@@ -3174,7 +3175,7 @@ impl ClaudeSession {
                         let mut state = self.lock();
                         if let Some(run) = state.workflows.iter_mut().find(|run| run.id == *id) {
                             if terminal {
-                                run.status = steer::WorkflowStatus::from_task_status(&status);
+                                run.status = crate::wire::WorkflowStatus::from_task_status(&status);
                                 closed = close_lanes(run);
                             }
                             if let Some(summary) = summary {
@@ -4310,7 +4311,7 @@ impl ClaudeSession {
     /// by itself, so a FRESH bare thread asks for its name once, off its
     /// first real prompt (a slash command names nothing). A session listed
     /// under an issue, a title or an agent's name never asks
-    /// ([`AdapterSpec::name_conversation`]); a resume keeps the name the
+    /// ([`LaunchSpec::name_conversation`]); a resume keeps the name the
     /// transcript already carries. Never awaited: the answer (a small model
     /// call) lands while the turn runs.
     fn request_title(self: &Arc<Self>, cx: &ConnectionTo<Client>, text: &str) {
@@ -4478,7 +4479,7 @@ fn progress_index(entry: &Value) -> Option<u32> {
 /// EXP-850 §3: one `workflow_agent` progress entry, folded onto the wire
 /// shape. `state` is the CLI's own word plus whether it named a `startedAt` —
 /// a `start` without one is still QUEUED.
-fn workflow_agent(index: u32, entry: &Value) -> steer::WorkflowAgent {
+fn workflow_agent(index: u32, entry: &Value) -> crate::wire::WorkflowAgent {
     let string = |key: &str| {
         entry
             .get(key)
@@ -4487,7 +4488,7 @@ fn workflow_agent(index: u32, entry: &Value) -> steer::WorkflowAgent {
             .filter(|value| !value.is_empty())
     };
     let number = |key: &str| entry.get(key).and_then(Value::as_u64);
-    steer::WorkflowAgent {
+    crate::wire::WorkflowAgent {
         index,
         label: string("label").unwrap_or_default(),
         phase_index: entry
@@ -4496,7 +4497,7 @@ fn workflow_agent(index: u32, entry: &Value) -> steer::WorkflowAgent {
             .and_then(|index| u32::try_from(index).ok()),
         agent_id: string("agentId"),
         model: string("model"),
-        state: steer::WorkflowAgentState::from_cli(
+        state: crate::wire::WorkflowAgentState::from_cli(
             entry.get("state").and_then(Value::as_str).unwrap_or_default(),
             entry.get("startedAt").and_then(Value::as_u64).is_some(),
         ),
@@ -5342,11 +5343,11 @@ fn claude_config_dir(env: &[(String, String)]) -> Option<PathBuf> {
     }
 }
 
-/// EXP-761: `coding::locate_claude_transcript`, the ONE locator (by session
+/// EXP-761: `crate::claude_transcript::locate_claude_transcript`, the ONE locator (by session
 /// id under every project dir — claude hash-suffixes long cwd names).
 fn transcript_path(env: &[(String, String)], session_id: &str) -> Option<PathBuf> {
     let root = claude_projects_root(env)?;
-    coding::locate_claude_transcript(&root, session_id)
+    crate::claude_transcript::locate_claude_transcript(&root, session_id)
 }
 
 /// Past conversations for `session/list`, newest first. `cwd` filters to the
@@ -5490,7 +5491,7 @@ impl TitleTail {
         if let Some(title) = value
             .get(key)
             .and_then(Value::as_str)
-            .and_then(steer::normalize_agent_title)
+            .and_then(crate::wire::normalize_agent_title)
         {
             *slot = Some(title);
         }
@@ -5541,7 +5542,7 @@ fn disallowed_tools(disallow_ask: bool, aside: bool) -> Vec<&'static str> {
         tools.push("AskUserQuestion");
     }
     if aside {
-        tools.extend_from_slice(crate::aside::ASIDE_DISALLOWED_TOOLS);
+        tools.extend_from_slice(crate::engine::launch::ASIDE_DISALLOWED_TOOLS);
     }
     tools
 }
@@ -5782,7 +5783,7 @@ mod tests {
     #[test]
     fn the_workflow_map_is_capped_and_evicts_its_id_maps() {
         let mut state = State::default();
-        let total = steer::journal::JOURNAL_WORKFLOW_CAP + 4;
+        let total = crate::wire::frames::JOURNAL_WORKFLOW_CAP + 4;
         for index in 0..total {
             let id = format!("toolu_{index}");
             let task_id = format!("task-{index}");
@@ -5790,7 +5791,7 @@ mod tests {
                 id: id.clone(),
                 name: "wire-probe".to_string(),
                 description: None,
-                status: steer::WorkflowStatus::Running,
+                status: crate::wire::WorkflowStatus::Running,
                 phases: BTreeMap::new(),
                 agents: BTreeMap::new(),
                 summary: None,
@@ -5802,7 +5803,7 @@ mod tests {
             evict_workflows(&mut state);
         }
 
-        assert_eq!(state.workflows.len(), steer::journal::JOURNAL_WORKFLOW_CAP);
+        assert_eq!(state.workflows.len(), crate::wire::frames::JOURNAL_WORKFLOW_CAP);
         // The NEWEST cards survive, in first-appearance order.
         assert_eq!(state.workflows.first().map(|run| run.id.as_str()), Some("toolu_4"));
         assert_eq!(
@@ -5810,20 +5811,20 @@ mod tests {
             Some(format!("toolu_{}", total - 1).as_str())
         );
         // …and the dropped cards left no id mappings behind.
-        assert_eq!(state.workflow_of_task.len(), steer::journal::JOURNAL_WORKFLOW_CAP);
-        assert_eq!(state.task_tool_ids.len(), steer::journal::JOURNAL_WORKFLOW_CAP);
+        assert_eq!(state.workflow_of_task.len(), crate::wire::frames::JOURNAL_WORKFLOW_CAP);
+        assert_eq!(state.task_tool_ids.len(), crate::wire::frames::JOURNAL_WORKFLOW_CAP);
         assert!(!state.workflow_of_task.contains_key("task-0"));
         assert!(!state.task_tool_ids.contains_key("task-0"));
         assert_eq!(state.workflow_of_task.get("task-4").map(String::as_str), Some("toolu_4"));
     }
 
-    fn lane_agent(state: steer::WorkflowAgentState) -> steer::WorkflowAgent {
-        steer::WorkflowAgent {
+    fn lane_agent(state: crate::wire::WorkflowAgentState) -> crate::wire::WorkflowAgent {
+        crate::wire::WorkflowAgent {
             index: 1,
             label: "alpha:one".to_string(),
             agent_id: Some("a37045b3fb76c076a".to_string()),
             state,
-            ..steer::WorkflowAgent::default()
+            ..crate::wire::WorkflowAgent::default()
         }
     }
 
@@ -5846,11 +5847,11 @@ mod tests {
     #[test]
     fn a_workflow_agents_lane_follows_its_progress_entries() {
         let mut lane = AgentLane::default();
-        let mut queued = lane_agent(steer::WorkflowAgentState::Queued);
+        let mut queued = lane_agent(crate::wire::WorkflowAgentState::Queued);
         queued.agent_id = None;
         assert!(lane_steps("wf", &queued, &mut lane).is_empty());
 
-        let running = lane_agent(steer::WorkflowAgentState::Running);
+        let running = lane_agent(crate::wire::WorkflowAgentState::Running);
         assert_eq!(step_names(&lane_steps("wf", &running, &mut lane)), vec!["started"]);
         // The same entry again says nothing.
         assert!(lane_steps("wf", &running, &mut lane).is_empty());
@@ -5865,7 +5866,7 @@ mod tests {
         assert!(lane_steps("wf", &on_bash, &mut lane).is_empty(), "one row per distinct call");
 
         let mut done = on_bash.clone();
-        done.state = steer::WorkflowAgentState::Done;
+        done.state = crate::wire::WorkflowAgentState::Done;
         done.result_preview = Some("ok".to_string());
         done.tool_calls = Some(1);
         let steps = lane_steps("wf", &done, &mut lane);
@@ -5879,7 +5880,7 @@ mod tests {
 
         // Straight from queued to error, in one frame: the whole life.
         let mut lane = AgentLane::default();
-        let mut failed = lane_agent(steer::WorkflowAgentState::Error);
+        let mut failed = lane_agent(crate::wire::WorkflowAgentState::Error);
         failed.error = Some("panicked".to_string());
         assert_eq!(
             step_names(&lane_steps("wf", &failed, &mut lane)),
@@ -5910,14 +5911,14 @@ mod tests {
             id: "wf".to_string(),
             name: "wire-probe".to_string(),
             description: None,
-            status: steer::WorkflowStatus::Stopped,
+            status: crate::wire::WorkflowStatus::Stopped,
             phases: BTreeMap::new(),
             agents: BTreeMap::new(),
             summary: None,
             published_at: None,
             lanes: BTreeMap::new(),
         };
-        let running = lane_agent(steer::WorkflowAgentState::Running);
+        let running = lane_agent(crate::wire::WorkflowAgentState::Running);
         let mut lane = AgentLane::default();
         lane_steps("wf", &running, &mut lane);
         run.agents.insert(1, running);
@@ -5932,7 +5933,7 @@ mod tests {
             id: id.to_string(),
             name: "wire-probe".to_string(),
             description: None,
-            status: steer::WorkflowStatus::Running,
+            status: crate::wire::WorkflowStatus::Running,
             phases: BTreeMap::new(),
             agents: BTreeMap::new(),
             summary: None,
@@ -5949,14 +5950,14 @@ mod tests {
     fn a_reused_index_opens_a_lane_for_the_new_agent() {
         let mut run = empty_run("wf");
         let mut steps = Vec::new();
-        let mut first = lane_agent(steer::WorkflowAgentState::Error);
+        let mut first = lane_agent(crate::wire::WorkflowAgentState::Error);
         first.error = Some("panicked".to_string());
         run.fold_agent(first, &mut steps);
         assert_eq!(step_names(&steps), vec!["started", "say:panicked", "end:failed"]);
 
         // The retry, same index, another agent.
         let mut steps = Vec::new();
-        let mut retry = lane_agent(steer::WorkflowAgentState::Running);
+        let mut retry = lane_agent(crate::wire::WorkflowAgentState::Running);
         retry.agent_id = Some("b11111111111111111".to_string());
         retry.last_tool = Some("Bash".to_string());
         retry.last_tool_summary = Some("echo again".to_string());
@@ -5969,7 +5970,7 @@ mod tests {
         assert_eq!(run.agents.len(), 1, "the card keeps one agent per index");
 
         // The workflow ending closes the retry's lane, not the finished one.
-        run.status = steer::WorkflowStatus::Completed;
+        run.status = crate::wire::WorkflowStatus::Completed;
         let closed = close_lanes(&mut run);
         assert_eq!(step_names(&closed), vec!["end:completed"]);
         assert!(matches!(
@@ -5984,11 +5985,11 @@ mod tests {
     #[test]
     fn a_replaced_running_lane_still_closes_with_its_workflow() {
         let mut run = empty_run("wf");
-        run.fold_agent(lane_agent(steer::WorkflowAgentState::Running), &mut Vec::new());
-        let mut other = lane_agent(steer::WorkflowAgentState::Running);
+        run.fold_agent(lane_agent(crate::wire::WorkflowAgentState::Running), &mut Vec::new());
+        let mut other = lane_agent(crate::wire::WorkflowAgentState::Running);
         other.agent_id = Some("b11111111111111111".to_string());
         run.fold_agent(other, &mut Vec::new());
-        run.status = steer::WorkflowStatus::Stopped;
+        run.status = crate::wire::WorkflowStatus::Stopped;
         let mut closed: Vec<String> = close_lanes(&mut run)
             .into_iter()
             .filter_map(|step| match step {
@@ -6040,9 +6041,9 @@ mod tests {
         state.tasks.insert("lane".to_string(), task(4, true, overdue));
         state.tasks.insert("lost".to_string(), task(4, true, overdue));
         state.tasks.insert("young".to_string(), task(4, true, Duration::ZERO));
-        state.background_tasks = vec![steer::BackgroundTask {
+        state.background_tasks = vec![crate::wire::BackgroundTask {
             id: "lane".to_string(),
-            kind: steer::BackgroundTaskKind::Agent,
+            kind: crate::wire::BackgroundTaskKind::Agent,
             description: "web lane".to_string(),
             tool_id: None,
             started_at: None,
@@ -6344,7 +6345,7 @@ mod tests {
             Some(json!({ "content": [{ "type": "text", "text": answer }] }))
         );
         assert_eq!(first_text(&fields), answer);
-        let payload = crate::exp_tool_refs::tool_result_payload(
+        let payload = crate::engine::exp_tool_refs::tool_result_payload(
             fields.raw_output.as_ref().expect("an answer"),
         );
         assert_eq!(

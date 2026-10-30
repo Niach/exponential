@@ -70,27 +70,11 @@ use crate::terminals::{TerminalSink, Terminals};
 /// a view that attaches late).
 pub type LocalSink = Arc<dyn Fn(LocalFeedEvent) + Send + Sync>;
 
-/// The `_meta` key an adapter stamps its own session identity under, on the
-/// `session/new` (or `session/load`) RESPONSE: claude's stream-json
-/// `session_id`, codex's `thread.id`. It lands on the
-/// run record as `agent_native_session_id` (D8) and is what a PTY resume of
-/// the same conversation would need.
-pub const NATIVE_SESSION_META_KEY: &str = "exponentialNativeSessionId";
-
-/// EXP-784: the `_meta` key on a `session/cancel` saying whether the agent
-/// should ALSO drop the user messages it holds queued behind the running
-/// turn. Absent = `true` (a Stop is a stop); the stall watchdog's interrupt
-/// sends `false` so the steers that piled up behind a wedged turn flow the
-/// moment it unwinds. Claude maps it onto `interrupt.cancel_queued`; the
-/// other adapters have no such knob and ignore it.
-pub const CANCEL_QUEUED_META_KEY: &str = "exponentialCancelQueued";
-
-/// EXP-1280: the `_meta` key on a `session/prompt` asking the agent to take
-/// it in a FRESH context (a plan approved "in a fresh context"): claude
-/// injects `/clear` first, between turns only; an adapter with no such reset
-/// (codex) takes the prompt in the running conversation (the prompt carries
-/// the whole plan either way).
-pub const FRESH_CONTEXT_META_KEY: &str = "exponentialFreshContext";
+// EXP-1426 part 4c: the `_meta` keys the adapters read and stamp are the
+// agent runtime's.
+pub use exponential_agent_runtime::engine::launch::{
+    CANCEL_QUEUED_META_KEY, FRESH_CONTEXT_META_KEY, NATIVE_SESSION_META_KEY,
+};
 
 /// EXP-1280 (S-3: plan mode is gone server-side; a legacy mode switch still
 /// steers this line): the one line a person's switch INTO plan mode steers to the
@@ -390,9 +374,7 @@ pub(crate) fn terminal_is_activity(event: &LocalFeedEvent) -> bool {
 // EXP-1426 part 4: `ChildExitLink` (with its grace and banner note) moved to
 // the agent runtime alongside the transport that records into it.
 pub use exponential_agent_runtime::engine::child_exit::ChildExitLink;
-pub(crate) use exponential_agent_runtime::engine::child_exit::{
-    dropped_lines_note, CHILD_EXIT_GRACE,
-};
+pub(crate) use exponential_agent_runtime::engine::child_exit::dropped_lines_note;
 
 /// EXP-784: the agent-native session handle recorded for THIS run, for the
 /// `session/load` hint. The launcher's resume record carries the previous
@@ -408,28 +390,8 @@ fn recorded_native_session_id(ctx: &SessionCtx) -> Option<String> {
     record.agent_native_session_id.or(record.claude_session_id)
 }
 
-/// The `main_fn` every stdio adapter runs: hold the connection open until
-/// EITHER half goes away, then return so the connection shuts down.
-///
-/// The child half is the load-bearing one. The SDK's own `connect_to` waits
-/// only on `incoming_closed`, and the host's loop waits only on the adapter,
-/// so an agent CLI that crashed (OOM, `kill -9`, the reaper) would leave the
-/// two halves waiting on each other forever: no `on_exit`, no `exit:<code>`,
-/// a row still reading `running` and a desktop tab still Live
-/// (EXP-746 review E1). On the child's edge the exit code gets
-/// [`CHILD_EXIT_GRACE`] to land so the run ends as `exit:<code>`.
-pub(crate) async fn until_either_closes(
-    cx: &agent_client_protocol::ConnectionTo<Client>,
-    exit: &ChildExitLink,
-    child_gone: impl std::future::Future<Output = ()>,
-) {
-    tokio::select! {
-        () = cx.incoming_closed() => {}
-        () = child_gone => {
-            let _ = tokio::time::timeout(CHILD_EXIT_GRACE, exit.reaped()).await;
-        }
-    }
-}
+// EXP-1426 part 4c: `until_either_closes` (every stdio adapter's `main_fn`)
+// moved into the agent runtime's `child_exit` with the adapters.
 
 // ---------------------------------------------------------------------------
 // Parked asks
