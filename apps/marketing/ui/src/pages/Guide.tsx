@@ -310,11 +310,11 @@ el.plugin = { icons: iconsFromSvg((name) => svgFor(name)), openUrl: (url) => win
           <p>
             The Swift package <code>ExponentialUI</code> (iOS 17, macOS 14) carries the painter and the Rust core as
             an xcframework, so your app never builds Rust. It is a SwiftPM dependency on{` `}
-            <code>github.com/Niach/exponential-ui-swift</code>, whose tag <code>0.2.0</code> pins the xcframework of
+            <code>github.com/Niach/exponential-ui-swift</code>, whose tag <code>0.1.1</code> pins the xcframework of
             that release by checksum:
           </p>
           <DocsCode language="swift">{`dependencies: [
-    .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.2.0"),
+    .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.1.1"),
 ],
 targets: [
     .executableTarget(name: "App", dependencies: [.product(name: "ExponentialUI", package: "exponential-ui-swift")]),
@@ -384,7 +384,7 @@ targets: [
             needs no extra rules.
           </p>
           <DocsCode language="kotlin">{`dependencies {
-    implementation("at.exponential:ui-compose:0.2.0")
+    implementation("at.exponential:ui-compose:0.1.1")
 }`}</DocsCode>
           <p>
             It resolves from <code>mavenCentral()</code>; the whole dependency block of the guide's app:
@@ -441,14 +441,14 @@ targets: [
             needs Rust 1.96: pin it in <code>rust-toolchain.toml</code>.
           </p>
           <DocsCode language="toml">{`[dependencies]
-exponential-ui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.2.0" }
-exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.2.0" }
+exponential-ui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
+exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
 gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
 
 [patch."https://github.com/zed-industries/zed"]
-ztracing = { git = "https://github.com/Niach/exponential", tag = "ui-v0.2.0" }
-ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "ui-v0.2.0" }`}</DocsCode>
+ztracing = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
+ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }`}</DocsCode>
           <DocsCode language="sh">{`cargo update gpui --precise cc053a4a6fa2fd0e8793201ed9099466af1be0b1`}</DocsCode>
           <GuideFile path="gpui/Cargo.toml" caption="path dependencies standing in for the git ones" />
         </>

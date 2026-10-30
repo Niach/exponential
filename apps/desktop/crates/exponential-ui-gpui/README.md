@@ -32,8 +32,8 @@ below) and copy three things from the table, all from the SAME tag:
 
 ```toml
 [dependencies]
-exponential-ui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.2.0" }
-exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.2.0" }
+exponential-ui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
+exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
 # zed floats in the manifest: the Cargo.lock is the pin (a rev here would
 # not match gpui-component's floating zed deps and split gpui in two).
 gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
@@ -42,8 +42,8 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
 # zed's ztracing is GPL-3.0-or-later; the SDK's no-op shims replace it.
 # A dependency's [patch] never applies to its consumers: copy these.
 [patch."https://github.com/zed-industries/zed"]
-ztracing = { git = "https://github.com/Niach/exponential", tag = "ui-v0.2.0" }
-ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "ui-v0.2.0" }
+ztracing = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
+ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
 ```
 
 then lock zed at the pin (a fresh lock floats it to zed main HEAD) and pin
