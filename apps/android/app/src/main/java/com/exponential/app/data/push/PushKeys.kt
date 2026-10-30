@@ -1,19 +1,12 @@
 package com.exponential.app.data.push
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 import android.util.Base64 as AndroidBase64
 import android.util.Log
 import at.exponential.net.ffi.pushKeypairGenerate
 import at.exponential.net.ffi.pushOpen
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.security.KeyStore
 import java.util.Base64
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -74,6 +67,7 @@ internal object PushCrypto {
 @Singleton
 class PushKeyStore @Inject constructor(@ApplicationContext context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+    private val sealer = KeystoreSealer(KEY_ALIAS)
     private val lock = Any()
     private var cached: PushKeys? = null
 
@@ -89,57 +83,24 @@ class PushKeyStore @Inject constructor(@ApplicationContext context: Context) {
         cached?.let { return it }
         val public = prefs.getString(KEY_PUBLIC, null) ?: return null
         val sealed = prefs.getString(KEY_SECRET, null) ?: return null
-        return try {
-            val blob = AndroidBase64.decode(sealed, AndroidBase64.NO_WRAP)
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(
-                Cipher.DECRYPT_MODE,
-                existingKey() ?: return null,
-                GCMParameterSpec(128, blob, 0, IV_BYTES),
-            )
-            val secret = cipher.doFinal(blob, IV_BYTES, blob.size - IV_BYTES)
-            PushKeys(secret, AndroidBase64.decode(public, AndroidBase64.NO_WRAP)).also { cached = it }
-        } catch (err: Exception) {
-            Log.w(TAG, "push key unreadable: ${err.javaClass.simpleName}")
-            null
+        val blob = runCatching { AndroidBase64.decode(sealed, AndroidBase64.NO_WRAP) }.getOrNull()
+        val secret = blob?.let(sealer::open) ?: run {
+            Log.w(TAG, "push key unreadable")
+            return null
         }
+        return PushKeys(secret, AndroidBase64.decode(public, AndroidBase64.NO_WRAP)).also { cached = it }
     }
 
-    private fun store(keys: PushKeys): Boolean =
-        try {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, existingKey() ?: createKey())
-            val iv = cipher.iv
-            check(iv.size == IV_BYTES)
-            val blob = iv + cipher.doFinal(keys.secret)
-            prefs.edit()
-                .putString(KEY_PUBLIC, AndroidBase64.encodeToString(keys.public, AndroidBase64.NO_WRAP))
-                .putString(KEY_SECRET, AndroidBase64.encodeToString(blob, AndroidBase64.NO_WRAP))
-                .commit()
-            cached = keys
-            true
-        } catch (err: Exception) {
-            // Not persisted = not usable: handing a server a public key whose
-            // secret is gone after a restart would make every push unopenable.
-            Log.w(TAG, "push key not stored: ${err.javaClass.simpleName}")
-            false
-        }
-
-    private fun existingKey(): SecretKey? {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        return (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
-    }
-
-    private fun createKey(): SecretKey {
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-        generator.init(
-            KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .build(),
-        )
-        return generator.generateKey()
+    private fun store(keys: PushKeys): Boolean {
+        // Not persisted = not usable: handing a server a public key whose
+        // secret is gone after a restart would make every push unopenable.
+        val blob = sealer.seal(keys.secret) ?: return false
+        val ok = prefs.edit()
+            .putString(KEY_PUBLIC, AndroidBase64.encodeToString(keys.public, AndroidBase64.NO_WRAP))
+            .putString(KEY_SECRET, AndroidBase64.encodeToString(blob, AndroidBase64.NO_WRAP))
+            .commit()
+        if (ok) cached = keys
+        return ok
     }
 
     companion object {
@@ -148,8 +109,5 @@ class PushKeyStore @Inject constructor(@ApplicationContext context: Context) {
         private const val KEY_PUBLIC = "x25519_public"
         private const val KEY_SECRET = "x25519_secret_sealed"
         const val KEY_ALIAS = "exp_push_x25519"
-        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        private const val TRANSFORMATION = "AES/GCM/NoPadding"
-        private const val IV_BYTES = 12
     }
 }

@@ -53,16 +53,44 @@ val releaseStorePassword = releaseProp("RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = releaseProp("RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseProp("RELEASE_KEY_PASSWORD")
 
-// EXP-1435: sealed pushes are opened by the eNet push-only UniFFI facade
-// (`exponential-net-ffi --no-default-features`: RustCrypto only, no iroh, no
-// tokio). The Kotlin binding is a COMMITTED source; the `.so` per ABI is built
-// by `ENET_PUSH_ONLY=1 SKIP_BINDINGS=1 bash apps/desktop/crates/exponential-net-ffi/build-android.sh`
-// into out/push/jniLibs (gitignored). A build without it still runs: the app
-// guards every facade call and registers its bare FCM token instead.
+// VAPP-40 / EXP-1457: ONE eNet library, the FULL `exponential-net-ffi` node
+// (iroh + chat + the push functions): the app's per-account nodes and the FCM
+// service's `pushOpen` (EXP-1435) load the same `libexponential_net_ffi.so`.
+// The push-only build is not linked any more: same library and package names,
+// so the two could never ship side by side anyway, and an FCM service runs in
+// the app process (no NSE-style memory cap as on iOS). The Kotlin binding is a
+// COMMITTED source; the `.so` per ABI is built by `buildEnetFfi` (cargo-ndk,
+// below) into out/jniLibs (gitignored). A build without it still runs: every
+// facade call is guarded (the FCM service registers its bare token, the
+// nodes stay off).
 val repoRoot: File = rootDir.parentFile.parentFile
 val enetFfiCrate = File(repoRoot, "apps/desktop/crates/exponential-net-ffi")
-/** The host library the JVM unit tests load through JNA (`cargo build -p exponential-net-ffi --release --no-default-features --features cli`). */
+/** The host library the JVM unit tests load through JNA (`cargo build -p exponential-net-ffi --release --features cli`). */
 val cargoTarget = System.getenv("CARGO_TARGET_DIR")?.let(::File) ?: File(repoRoot, "apps/desktop/target")
+val cargoNdk: File? = (System.getenv("PATH").orEmpty().split(File.pathSeparator).map { File(it, "cargo-ndk") } +
+    File(System.getProperty("user.home"), ".cargo/bin/cargo-ndk")).firstOrNull { it.canExecute() }
+
+// cargo-ndk before merge*JniLibFolders: arm64-v8a, armeabi-v7a, x86_64 with the
+// `mobile` profile (LTO, stripped, 16 KB-aligned LOAD segments). Up to date while
+// the eNet sources and Cargo.lock are unchanged. ENET_SKIP_NATIVE=1 (or no
+// cargo-ndk on this machine) skips it and keeps whatever out/jniLibs holds.
+val buildEnetFfi = tasks.register<Exec>("buildEnetFfi") {
+    description = "Builds the eNet node .so per ABI (apps/desktop/crates/exponential-net-ffi/build-android.sh)."
+    val desktop = File(repoRoot, "apps/desktop")
+    inputs.dir(File(enetFfiCrate, "src"))
+    inputs.dir(File(desktop, "crates/enet-core/src"))
+    inputs.files(File(enetFfiCrate, "build-android.sh"), File(enetFfiCrate, "Cargo.toml"), File(desktop, "crates/enet-core/Cargo.toml"), File(desktop, "Cargo.lock"))
+    outputs.dir(File(enetFfiCrate, "out/jniLibs"))
+    onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
+        // CI never ships an app without its eNet node.
+        if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the eNet .so")
+        System.getenv("ENET_SKIP_NATIVE") != "1" && cargoNdk != null
+    }
+    environment("SKIP_BINDINGS", "1")
+    environment("PATH", listOfNotNull(cargoNdk?.parent, System.getenv("PATH")).joinToString(File.pathSeparator))
+    commandLine("bash", File(enetFfiCrate, "build-android.sh").absolutePath)
+}
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach { dependsOn(buildEnetFfi) }
 
 // VAPP-110: the app host's assets = the shared package's `extension.json`
 // alone (its `templates/` are SDK samples, not built-in apps).
@@ -83,16 +111,18 @@ android {
         // "not mocked".
         unitTests.isReturnDefaultValues = true
         unitTests.all {
-            // PushSealFixtureTest (EXP-1435): the push-only facade's host build + the shared vectors.
+            // PushSealFixtureTest (EXP-1435) + the eNet install tests (EXP-1457): the
+            // facade's host build + the shared vectors.
             it.systemProperty("jna.library.path", File(cargoTarget, "release").absolutePath)
             it.systemProperty("exponential.push.sealFixture", File(repoRoot, "packages/domain-contract/fixtures/push-seal.json").absolutePath)
+            it.systemProperty("exponential.enet.installFixture", File(repoRoot, "packages/domain-contract/fixtures/install-register.json").absolutePath)
         }
     }
 
     sourceSets {
         getByName("main") {
-            kotlin.srcDir(File(enetFfiCrate, "bindings/push/kotlin"))
-            jniLibs.srcDir(File(enetFfiCrate, "out/push/jniLibs"))
+            kotlin.srcDir(File(enetFfiCrate, "bindings/kotlin"))
+            jniLibs.srcDir(File(enetFfiCrate, "out/jniLibs"))
         }
     }
 
@@ -265,7 +295,7 @@ dependencies {
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
-    // EXP-1435: the eNet push-only facade is reached over JNA (as :ui-compose's is).
+    // EXP-1435 / VAPP-40: the eNet facade is reached over JNA (as :ui-compose's is).
     implementation("${libs.jna.aar.get()}@aar")
 
     // Play in-app updates — drives the immediate update flow from the EXP-104

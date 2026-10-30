@@ -101,6 +101,23 @@ async fn unknown_peer_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn revoking_a_peer_ends_its_live_link() {
+    let (a, _ea) = node().await;
+    let (b, _eb) = node().await;
+    pair(&a, &b);
+    a.send_chat(b.endpoint_id(), b"hi".to_vec()).await.expect("allowed");
+    // a's chat link to b is cached; revoking a on b must end it, not just new dials.
+    b.access().revoke(&a.endpoint_id());
+    let err = a.send_chat(b.endpoint_id(), b"again".to_vec()).await.unwrap_err();
+    assert!(matches!(err, NetError::Refused(_)), "{err:?}");
+    // allowed again = welcome again
+    b.access().allow(a.endpoint_id());
+    a.send_chat(b.endpoint_id(), b"back".to_vec()).await.expect("re-allowed");
+    a.shutdown().await.unwrap();
+    b.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn blob_add_and_fetch() {
     let (a, _ea) = node().await;
     let (b, _eb) = node().await;
