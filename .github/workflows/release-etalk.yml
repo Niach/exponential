@@ -249,7 +249,7 @@ jobs:
   swift-dist:
     # After the release: the package's binaryTarget url points at the zip
     # this release just uploaded. A dry run does everything but the push
-    # (`git push --dry-run`, which still needs the token's write access).
+    # (a `git push --dry-run`, which still needs the token's write access).
     needs: [version, release]
     runs-on: ubuntu-latest
     steps:
@@ -274,15 +274,17 @@ jobs:
           git add -A
           git status --short
           if git diff --cached --quiet; then echo "::notice::main already holds the $V package"; else git commit -q -m "ExponentialTalk $V"; fi
+          if [ "$DRY_RUN" = "true" ]; then
+            # A dry run's rebuilt zip has a new checksum, so it never tags:
+            # it proves the token can write with a scratch ref, pushed nowhere.
+            git push --dry-run origin HEAD:refs/heads/release-dry-run
+            echo "::notice::dry run: the $V package was not pushed (the token can write)"
+            exit 0
+          fi
           # Idempotent re-runs: an existing tag must already be this commit.
           if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
             [ "$(git rev-parse "$V^{commit}")" = "$(git rev-parse HEAD)" ] || { echo "::error::tag $V already exists on another commit"; exit 1; }
           else
             git tag "$V"
           fi
-          if [ "$DRY_RUN" = "true" ]; then
-            git push --dry-run origin HEAD "$V"
-            echo "::notice::dry run: the $V package was not pushed (the token can write)"
-          else
-            git push origin HEAD "$V"
-          fi
+          git push origin HEAD "$V"
