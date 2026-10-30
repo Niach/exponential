@@ -62,6 +62,7 @@ import {
   postSessionInput,
   postSystemCard,
 } from "@/lib/sessions/messages"
+import { markTreesReadBy } from "@/lib/sessions/reads"
 import {
   assertMovable,
   deviceName,
@@ -349,7 +350,8 @@ export async function assertNotPlainInSealedTree(tx: Pick<Db, `select`>, rootId:
 /** The person message of a send (text and/or attachments), or null.
  *  EXP-1323: `from` = the calling session (its MCP key): stamped as
  *  `author_session_id`; `asSession` = the message is that SESSION's input
- *  into another live one (a child asking its parent), agent-authored. */
+ *  into another one (a child asking its parent, #EXP-1452 an agent starting
+ *  a session), agent-authored. */
 async function postSendMessage(
   tx: Tx,
   session: Pick<Session, `id` | `rootId` | `teamId` | `shared` | `userId`>,
@@ -380,6 +382,18 @@ async function postSendMessage(
         ...(input.refIssueIds?.length ? { refIssueIds: [...new Set(input.refIssueIds)] } : {}),
       })
       .where(eq(messages.id, messageId))
+  }
+  // #EXP-1452: what the member's agent wrote into a chat, the member read.
+  if (from?.asSession) {
+    const [sent] = await tx
+      .select({ rootId: sessions.rootId, at: messages.createdAt })
+      .from(messages)
+      .innerJoin(sessions, eq(sessions.id, messages.authorSessionId))
+      .where(eq(messages.id, messageId))
+      .limit(1)
+    if (sent && sent.rootId !== session.rootId) {
+      await markTreesReadBy(tx, authorId, session.teamId, [session.rootId], sent.at)
+    }
   }
   await claimAttachments(tx, {
     ids: input.attachmentIds ?? [],
@@ -671,9 +685,9 @@ export async function sendSession(args: {
     } else if (input.appId) {
       outcome = await messageApp(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
     } else if (input.parentId) {
-      outcome = await startChild(starter, uploaderIds, input, caller, extras)
+      outcome = await startChild(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
     } else {
-      outcome = await startRoot(starter, uploaderIds, input, caller)
+      outcome = await startRoot(starter, uploaderIds, input, caller, args.viaMcp === true)
     }
   } catch (err) {
     // A concurrent retry committed the same key first: its result.
@@ -894,7 +908,8 @@ async function agentFreshThread(
   uploaderIds: string[],
   input: SessionsSendInput,
   caller: Session | null,
-  target: Session
+  target: Session,
+  viaMcp: boolean
 ): Promise<SendOutcome | null> {
   if (!caller || caller.rootId === target.rootId) return null
   if (target.parentId !== null || target.agentId || target.appId || isPersistent(target)) return null
@@ -924,7 +939,7 @@ async function agentFreshThread(
   // The send skipped the check (it named a session): the merged runner is
   // a new start's, so it is checked like one.
   assertRunnerVocabulary(fresh)
-  const outcome = await startRoot(userId, uploaderIds, fresh, caller)
+  const outcome = await startRoot(userId, uploaderIds, fresh, caller, viaMcp)
   return {
     ...outcome,
     warning: `Started a fresh thread instead of reusing ${target.id}: ${reason}. You watch the new one.`,
@@ -946,7 +961,7 @@ async function messageSession(
   }
   const input = modelCommand(sent, viaMcp)
   if (viaMcp) {
-    const fresh = await agentFreshThread(userId, uploaderIds, input, caller, target)
+    const fresh = await agentFreshThread(userId, uploaderIds, input, caller, target, viaMcp)
     if (fresh) return fresh
   }
   // EXP-1376: the runner picks apply to the session (never dropped), in the
@@ -1134,7 +1149,7 @@ async function messageSession(
       uploaderIds,
       input,
       caller,
-      from: caller ? { sessionId: caller.id, asSession: false } : null,
+      from,
       extras,
       device: { deviceId, ownerId: device.ownerId },
       adopt: false,
@@ -1404,7 +1419,8 @@ async function startChild(
   uploaderIds: string[],
   input: SessionsSendInput,
   caller: Session | null,
-  extras: SendExtras
+  extras: SendExtras,
+  viaMcp: boolean
 ): Promise<SendOutcome> {
   const parent = await loadSessionForUser(userId, input.parentId!)
   await assertCanSteer(userId, parent)
@@ -1465,7 +1481,8 @@ async function startChild(
       input,
       userId,
       uploaderIds,
-      caller ? { sessionId: caller.id, asSession: false } : null
+      // #EXP-1452: an agent's start is ITS message (its avatar on the brief).
+      caller ? { sessionId: caller.id, asSession: viaMcp } : null
     )
     await postSystemCard(tx, parent, { kind: `session`, sessionId: child.id })
     await applyWakeOn(tx, caller, input)
@@ -1500,7 +1517,8 @@ async function startRoot(
   userId: string,
   uploaderIds: string[],
   input: SessionsSendInput,
-  caller: Session | null
+  caller: Session | null,
+  viaMcp: boolean
 ): Promise<SendOutcome> {
   const teamId = input.teamId ?? caller?.teamId
   if (!teamId) {
@@ -1582,7 +1600,15 @@ async function startRoot(
         quiet: true,
       })
     }
-    const messageId = await postSendMessage(tx, root, { ...input, text }, userId, uploaderIds)
+    // #EXP-1452: a root an agent starts opens with ITS message.
+    const messageId = await postSendMessage(
+      tx,
+      root,
+      { ...input, text },
+      userId,
+      uploaderIds,
+      caller && caller.teamId === teamId ? { sessionId: caller.id, asSession: viaMcp } : null
+    )
     if (caller && caller.teamId === teamId) {
       // NEW-1: a root started from inside a session is WATCHED by its
       // starter: the bus delivers its transitions there (an agent's spawned
