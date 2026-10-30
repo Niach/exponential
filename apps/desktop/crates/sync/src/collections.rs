@@ -161,6 +161,13 @@ pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
     /// The row's primary key, matching the Electric wire key (§5.2).
     fn key(&self) -> RowKey;
+    /// EXP-1459: opens the row's sealed content in place ([`crate::sealed`]).
+    fn open_sealed(&mut self) {}
+    /// EXP-1459: sealed content this install could not open (yet): re-read
+    /// and re-opened when keys arrive ([`Store::reopen_sealed`]).
+    fn seal_closed(&self) -> bool {
+        false
+    }
 }
 
 macro_rules! id_shape_row {
@@ -188,10 +195,7 @@ id_shape_row!(Attachment, "attachments");
 id_shape_row!(Notification, "notifications");
 id_shape_row!(IssueEvent, "issue_events");
 id_shape_row!(IssueSubscriber, "issue_subscribers");
-id_shape_row!(SessionRow, "sessions");
 id_shape_row!(SessionIssueRow, "session_issues");
-id_shape_row!(MessageRow, "messages");
-id_shape_row!(ConversationRow, "conversations");
 id_shape_row!(PullRequestRow, "pull_requests");
 id_shape_row!(PullRequestIssueRow, "pull_request_issues");
 id_shape_row!(IssueStatusRow, "issue_statuses");
@@ -207,6 +211,40 @@ id_shape_row!(PromptRow, "prompts");
 id_shape_row!(AppRow, "apps");
 id_shape_row!(AppVersionRow, "app_versions");
 id_shape_row!(AppRecordRow, "app_records");
+
+/// EXP-1459: the three shapes that carry sealed content.
+macro_rules! sealed_shape_row {
+    ($ty:ty, $name:literal, $open:ident, $closed:expr) => {
+        impl ShapeRow for $ty {
+            fn spec() -> &'static ShapeSpec {
+                shape_by_name($name).expect("shape registered")
+            }
+            fn key(&self) -> RowKey {
+                RowKey::Single(self.id.clone())
+            }
+            fn open_sealed(&mut self) {
+                let _ = crate::sealed::Opener::global().$open(self);
+            }
+            fn seal_closed(&self) -> bool {
+                let closed: fn(&$ty) -> bool = $closed;
+                closed(self)
+            }
+        }
+    };
+}
+
+// A title opens through the key cache, which tells no closed state: every
+// session re-opens (one cheap pass over the trees).
+sealed_shape_row!(SessionRow, "sessions", open_session, |_| true);
+sealed_shape_row!(MessageRow, "messages", open_message, |row| domain::sealed::is_closed(row.seal));
+sealed_shape_row!(ConversationRow, "conversations", open_conversation, |row| {
+    domain::chats::ConversationDigest::decode(row.digest.as_ref()).is_some_and(|digest| {
+        [&digest.first, &digest.preview, &digest.waiting]
+            .into_iter()
+            .flatten()
+            .any(|message| domain::sealed::is_closed(message.seal))
+    })
+});
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -357,7 +395,10 @@ pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T
     maps.into_iter()
         .filter_map(
             |map| match serde_json::from_value::<T>(Value::Object(map)) {
-                Ok(row) => Some((row.key(), row)),
+                Ok(mut row) => {
+                    row.open_sealed();
+                    Some((row.key(), row))
+                }
                 Err(err) => {
                     log::warn!("[sync {}] dropping unhydratable row: {err}", T::spec().name);
                     None
@@ -568,7 +609,14 @@ impl Collections {
             "issue_subscribers" => {
                 apply_to(&self.issue_subscribers, keys, full_replace, up_to_date, sqlite, cx)
             }
-            "sessions" => apply_to(&self.sessions, keys, full_replace, up_to_date, sqlite, cx),
+            "sessions" => {
+                apply_to(&self.sessions, keys, full_replace, up_to_date, sqlite, cx);
+                // EXP-1459: a digest opened before its session's row arrived
+                // learns its root now.
+                if crate::sealed::Opener::global().take_unresolved() {
+                    reopen_closed(&self.conversations, sqlite, cx);
+                }
+            }
             "session_issues" => apply_to(&self.session_issues, keys, full_replace, up_to_date, sqlite, cx),
             "messages" => apply_to(&self.messages, keys, full_replace, up_to_date, sqlite, cx),
             "conversations" => apply_to(&self.conversations, keys, full_replace, up_to_date, sqlite, cx),
@@ -882,7 +930,10 @@ fn apply_to<T: ShapeRow>(
             match sqlite.read_by_key(spec, key) {
                 // Present in SQLite → it was an upsert.
                 Ok(Some(map)) => match serde_json::from_value::<T>(Value::Object(map)) {
-                    Ok(row) => collection.upsert(key.clone(), row),
+                    Ok(mut row) => {
+                        row.open_sealed();
+                        collection.upsert(key.clone(), row)
+                    }
                     Err(err) => {
                         log::warn!("[sync {}] dropping unhydratable row: {err}", spec.name)
                     }
@@ -894,6 +945,29 @@ fn apply_to<T: ShapeRow>(
         }
         collection.set_phase(phase);
         collection.caught_up |= up_to_date;
+        cx.notify();
+    });
+}
+
+/// EXP-1459: re-reads and re-opens the rows whose sealed content stayed
+/// closed (keys arrived, or a digest's root became known).
+fn reopen_closed<T: ShapeRow, C: gpui::AppContext>(entity: &Entity<Collection<T>>, sqlite: &Arc<ShapeStore>, cx: &mut C) {
+    let spec = T::spec();
+    let keys: Vec<RowKey> = entity.read_with(cx, |collection, _| {
+        collection.rows.iter().filter(|(_, row)| row.seal_closed()).map(|(key, _)| key.clone()).collect()
+    });
+    if keys.is_empty() {
+        return;
+    }
+    entity.update(cx, |collection, cx| {
+        for key in &keys {
+            if let Ok(Some(map)) = sqlite.read_by_key(spec, key) {
+                if let Ok(mut row) = serde_json::from_value::<T>(Value::Object(map)) {
+                    row.open_sealed();
+                    collection.upsert(key.clone(), row);
+                }
+            }
+        }
         cx.notify();
     });
 }
@@ -1056,6 +1130,20 @@ impl Store {
         });
         self.set_session(SessionPhase::Synced { account_id }, cx);
         Ok(())
+    }
+
+    /// EXP-1459: tree keys arrived (the key cache's change counter moved):
+    /// re-open every row whose sealed content stayed closed.
+    pub fn reopen_sealed(&self, cx: &mut App) {
+        let Some(account_id) = self.session(cx).account_id().map(str::to_string) else {
+            return;
+        };
+        let Some(sqlite) = self.manager.store(&account_id) else {
+            return;
+        };
+        reopen_closed(&self.collections.sessions, &sqlite, cx);
+        reopen_closed(&self.collections.messages, &sqlite, cx);
+        reopen_closed(&self.collections.conversations, &sqlite, cx);
     }
 
     /// Restart the active account's shape pipeline (EXP-470): after a team

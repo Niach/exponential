@@ -260,8 +260,12 @@ pub(crate) fn answer_card(input: api::sessions::AnswerInput, cx: &mut App) {
         crate::action_error::failed_action("answer", "the question", None, cx);
         return;
     };
+    let plan = crate::sealing::plan_answer(&message_id, cx);
     cx.spawn(async move |cx| {
-        let result = cx.background_executor().spawn(async move { api::sessions::answer(&trpc, &input) }).await;
+        let result = cx
+            .background_executor()
+            .spawn(async move { crate::sealing::answer_blocking(&trpc, &input, &plan) })
+            .await;
         match result {
             // The draft goes only now: a refusal (409, 400, the network)
             // re-opens the card with its picks and text intact.
@@ -1311,6 +1315,8 @@ pub(crate) fn card_row(
         // Thread 58cb32df (chats.json): `/new` / `/compact` = the divider
         // pill; an agent's preview = THE surface card.
         SessionThreadRow::Divider { id, kind, at } => crate::surface_card::divider_row(id, *kind, at, cx),
+        // EXP-1459: sealed content this install cannot open (yet).
+        SessionThreadRow::Locked { id, reason, .. } => crate::surface_card::locked_pill(id, *reason, cx),
         SessionThreadRow::Surface { id, session_id, title, surface } => {
             crate::surface_card::surface_row(id, session_id, title.as_deref(), surface, window, cx)
         }

@@ -316,6 +316,53 @@ fn trimmed_picks(labels: &[String]) -> Vec<String> {
     labels.iter().map(|label| label.trim().to_owned()).filter(|label| !label.is_empty()).collect()
 }
 
+/// EXP-1458: the card with its answer in it: the twin of the server's
+/// `answeredCard` (apps/web `lib/sessions/card-answer.ts`). A sealed card's
+/// answer is re-sealed whole by the writer, so the writer builds it: a
+/// question gets `answer` + `answers` (+ `surfaceData`), a plan `decision`,
+/// `fresh`, `feedback` (+ `answers`, `surfaceData`). `None` = not a
+/// question/plan card.
+pub fn answered_card(card: &Value, input: &CardAnswerInput) -> Option<Value> {
+    let kind = str_field(card, "kind")?;
+    if kind != "question" && kind != "plan" {
+        return None;
+    }
+    let mut out = card.as_object()?.clone();
+    if let Some(data) = &input.surface_data {
+        out.insert("surfaceData".into(), data.clone());
+    }
+    if kind == "question" {
+        let labels = match &input.answers {
+            Some(CardAnswers::Labels(labels)) => trimmed_picks(labels),
+            _ => Vec::new(),
+        };
+        let (answer, answers) = if labels.is_empty() {
+            let answer = input.answer.as_deref().unwrap_or_default().trim().to_owned();
+            (answer.clone(), vec![answer])
+        } else {
+            (labels.join(&PLAN_CARD.answer_text.joiner), labels)
+        };
+        out.insert("answer".into(), Value::String(answer));
+        out.insert("answers".into(), Value::from(answers));
+        return Some(Value::Object(out));
+    }
+    let decision = input.decision.clone().unwrap_or_default();
+    out.insert("fresh".into(), Value::Bool(decision == "approved" && input.fresh == Some(true)));
+    out.insert("decision".into(), Value::String(decision));
+    let feedback = input.feedback.as_deref().map(str::trim).filter(|f| !f.is_empty());
+    out.insert("feedback".into(), feedback.map_or(Value::Null, |f| Value::String(f.to_owned())));
+    if let Some(CardAnswers::ByQuestion(by_question)) = &input.answers {
+        let picked: serde_json::Map<String, Value> = by_question
+            .iter()
+            .map(|(id, labels)| (id.clone(), trimmed_picks(labels)))
+            .filter(|(_, labels)| !labels.is_empty())
+            .map(|(id, labels)| (id, Value::from(labels)))
+            .collect();
+        out.insert("answers".into(), Value::Object(picked));
+    }
+    Some(Value::Object(out))
+}
+
 /// Why an answer cannot be sent (`None` = fine). A plan needs a decision;
 /// approving needs every question answered; a single-choice question takes
 /// one answer; without `custom` every answer must be an option's label. A
@@ -565,6 +612,41 @@ pub fn option_rows(attachment_ids: &[Option<String>]) -> OptionRows {
 
 #[cfg(test)]
 mod tests {
+
+    /// EXP-1458: the writer's answered card = the server's `answeredCard`.
+    #[test]
+    fn answered_cards_match_the_server_shape() {
+        let question = serde_json::json!({"kind": "question", "question": "Which?", "options": ["A", "B"], "multi": true});
+        let input = CardAnswerInput {
+            answer: Some("A, B".into()),
+            answers: Some(CardAnswers::Labels(vec![" A ".into(), "B".into(), " ".into()])),
+            ..Default::default()
+        };
+        let answered = answered_card(&question, &input).unwrap();
+        assert_eq!(answered["answers"], serde_json::json!(["A", "B"]));
+        assert_eq!(answered["answer"], serde_json::json!(["A", "B"].join(&PLAN_CARD.answer_text.joiner)));
+        let free = CardAnswerInput { answer: Some("  my words ".into()), ..Default::default() };
+        let answered = answered_card(&question, &free).unwrap();
+        assert_eq!((answered["answer"].as_str(), answered["answers"].clone()), (Some("my words"), serde_json::json!(["my words"])));
+
+        let plan = serde_json::json!({"kind": "plan", "plan": "Do it"});
+        let mut picks = BTreeMap::new();
+        picks.insert("q1".to_string(), vec!["Yes".to_string()]);
+        picks.insert("q2".to_string(), vec![" ".to_string()]);
+        let input = CardAnswerInput {
+            decision: Some("approved".into()),
+            fresh: Some(true),
+            feedback: Some("  ".into()),
+            answers: Some(CardAnswers::ByQuestion(picks)),
+            ..Default::default()
+        };
+        let answered = answered_card(&plan, &input).unwrap();
+        assert_eq!(
+            answered,
+            serde_json::json!({"kind": "plan", "plan": "Do it", "decision": "approved", "fresh": true, "feedback": null, "answers": {"q1": ["Yes"]}})
+        );
+        assert!(answered_card(&serde_json::json!({"kind": "report"}), &input).is_none());
+    }
     use super::*;
 
     fn fixture() -> Value {

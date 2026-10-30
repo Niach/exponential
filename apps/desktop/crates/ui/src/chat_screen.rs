@@ -1692,11 +1692,12 @@ impl ChatScreenView {
             &text,
             attachment_ids,
         );
+        let plan = crate::sealing::plan_send(&input, cx);
         let generation = self.begin_starting(window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .spawn(async move { crate::sealing::send_blocking(&trpc, &input, &plan) })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| match result {
                 Ok(output) => {
@@ -1759,11 +1760,12 @@ impl ChatScreenView {
         };
         let mut input = chat_launch::agent_send_input(&team_id, &agent_id, &text, attachment_ids);
         input.issue_ids = Some(issue_ids).filter(|ids| !ids.is_empty());
+        let plan = crate::sealing::plan_send(&input, cx);
         let generation = self.begin_starting(window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .spawn(async move { crate::sealing::send_blocking(&trpc, &input, &plan) })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| match result {
                 Ok(output) => {

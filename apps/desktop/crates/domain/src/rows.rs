@@ -26,6 +26,7 @@
 use serde::Deserialize;
 
 use crate::enums::{IssuePriority, IssueStatus};
+pub use crate::sealed::SealState;
 use crate::hydrate::{
     tolerant_bool_or_false, tolerant_i64, tolerant_id_list, tolerant_opt_bool, tolerant_opt_f64,
     tolerant_opt_i64, tolerant_opt_json,
@@ -941,6 +942,11 @@ pub struct MessageRow {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+    /// EXP-1459: the sealed body/card's state after `sync::sealed` opened
+    /// it (`None` = plaintext row). Not `Opened` = body empty, card = its
+    /// clear part: render the locked row.
+    #[serde(skip_deserializing)]
+    pub seal: Option<SealState>,
 }
 
 /// NEW-8 `conversations` shape row: the chat primitive a message lives in.
@@ -992,6 +998,11 @@ pub struct SessionReadRow {
 }
 
 impl MessageRow {
+    /// EXP-1459: why this row's sealed content stays locked here.
+    pub fn locked(&self) -> Option<crate::sealed::LockedReason> {
+        crate::sealed::locked_reason(self.seal)
+    }
+
     /// The card's `kind` (`question`, `plan`, `session`, …); `None` for a
     /// plain message (or a card without a string kind).
     pub fn card_kind(&self) -> Option<&str> {
