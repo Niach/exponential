@@ -32,6 +32,9 @@ pub use enet_core::NetConfig as EnetConfig;
 /// How often the allowlist is reloaded besides start and team changes.
 pub const ALLOWLIST_REFRESH: Duration = Duration::from_secs(10 * 60);
 
+/// The fastest a refused unknown peer re-reads the allowlist.
+pub const REFUSED_REFRESH: Duration = Duration::from_secs(60);
+
 /// How soon a failed `installs.register` is retried.
 pub const REGISTER_RETRY: Duration = Duration::from_secs(30);
 
@@ -454,7 +457,7 @@ async fn run(inner: Arc<Inner>) {
         }
     };
     if let Some(events) = node.events() {
-        tokio::spawn(log_events(events));
+        tokio::spawn(log_events(Arc::clone(&inner), events));
     }
     *lock(&inner.node) = Some(Arc::clone(&node));
     let relay = relay_url(&inner.spec.net);
@@ -524,13 +527,22 @@ async fn ping_peers(node: &Arc<Node>) {
     }
 }
 
-async fn log_events(mut events: tokio::sync::mpsc::UnboundedReceiver<Event>) {
+async fn log_events(inner: Arc<Inner>, mut events: tokio::sync::mpsc::UnboundedReceiver<Event>) {
+    let mut last_refused_refresh: Option<std::time::Instant> = None;
     while let Some(event) = events.recv().await {
         match event {
             Event::Chat { from, message } => {
                 log::info!("enet: chat from {} ({} bytes, acked)", endpoint_hex(&from), message.body.len())
             }
-            Event::PeerRefused { peer, .. } => log::info!("enet: refused {}", endpoint_hex(&peer)),
+            Event::PeerRefused { peer, .. } => {
+                log::info!("enet: refused {}", endpoint_hex(&peer));
+                // Maybe a teammate's install registered after our last
+                // list: re-read it (at most once per REFUSED_REFRESH).
+                if last_refused_refresh.is_none_or(|at| at.elapsed() >= REFUSED_REFRESH) {
+                    last_refused_refresh = Some(std::time::Instant::now());
+                    inner.wake.notify_one();
+                }
+            }
             _ => {}
         }
     }

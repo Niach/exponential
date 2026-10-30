@@ -280,3 +280,65 @@ fn registration_signature_verifies_and_is_bound_to_the_user() {
     assert!(verify(&input, "user-1"));
     assert!(!verify(&input, "user-2"), "a proof never registers under another account");
 }
+
+/// The shared vector (`packages/domain-contract/fixtures/install-register.json`)
+/// the server and every other platform replay: this host's registration
+/// produces exactly its bytes.
+#[test]
+fn registration_replays_the_install_register_fixture() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/domain-contract/fixtures/install-register.json");
+    let fixture: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let field = |key: &str| fixture[key].as_str().unwrap().to_string();
+    let secret: [u8; 32] = data_encoding::HEXLOWER.decode(field("identity").as_bytes()).unwrap().try_into().unwrap();
+    let identity = enet_core::Identity::from_bytes(secret);
+    let user_id = field("userId");
+    let input = enet::Registration {
+        kind: InstallKind::Daemon,
+        user_id: &user_id,
+        device_id: None,
+        label: None,
+        platform: None,
+    }
+    .sign(&identity, &field("signedAt"));
+    assert_eq!(input.endpoint_id, field("endpointId"));
+    assert_eq!(input.x25519_public, field("x25519Public"));
+    assert_eq!(
+        enet::install_message(&user_id, &input.endpoint_id, &input.x25519_public, &input.signed_at),
+        field("message")
+    );
+    assert_eq!(input.signature, field("signature"));
+    assert_eq!(
+        data_encoding::HEXLOWER.encode(&data_encoding::BASE64URL_NOPAD.decode(input.signature.as_bytes()).unwrap()),
+        field("signatureHex")
+    );
+    assert!(verify(&input, &user_id));
+}
+
+/// An install that registers AFTER a teammate's last list pass is refused
+/// once, and the refusal makes the teammate re-read the list: the retry gets
+/// in without waiting out the ten-minute refresh.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_late_teammate_gets_in_after_one_refusal() {
+    let dir = temp_dir("late");
+    let registry = Arc::new(FakeRegistry {
+        teams: BTreeMap::from([("team-1".to_string(), vec!["alice".to_string(), "bob".to_string()])]),
+        ..Default::default()
+    });
+    let early = start(&registry, &dir, "alice", "team-1", InstallKind::Daemon);
+    up(&early, 1).await;
+    let late = start(&registry, &dir, "bob", "team-1", InstallKind::Desktop);
+    up(&late, 1).await;
+    let a = early.node().unwrap();
+    let b = late.node().unwrap();
+    a.add_ticket(&b.ticket());
+    b.add_ticket(&a.ticket());
+    assert!(a.access().allowed_peers().is_empty(), "alice listed before bob registered");
+
+    let first = b.send_chat(a.endpoint_id(), enet::PING_BODY.to_vec()).await;
+    assert!(matches!(first, Err(NetError::Refused(_))), "got {first:?}");
+    up(&early, 2).await;
+    b.send_chat(a.endpoint_id(), enet::PING_BODY.to_vec()).await.expect("let in after the refresh");
+    early.stop();
+    late.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
