@@ -66,3 +66,13 @@ export function pickForSubject(
 ): string | null {
   return subject === `issues` || subject === `prompt` ? TEMPORARY_PICK : current
 }
+
+/** What a pick does to the subject (`agentRow.pickCases`, #EXP-1450): an
+ *  `agent` tap, `temporary` (the dotted circle) or any other `option` (a
+ *  device, an account, a model…). Picks never drop an ISSUE subject; an
+ *  agent tap drops only a prompt (a message to an agent takes none). */
+export type ComposerPick = `agent` | `temporary` | `option`
+
+export function subjectAfterPick<K extends string>(subject: K | null, pick: ComposerPick): K | null {
+  return pick === `agent` && subject === `prompt` ? null : subject
+}

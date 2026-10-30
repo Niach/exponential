@@ -138,6 +138,10 @@ function LaunchDialogBody({
     seed: seededRef.current,
     onSeedConsumed,
     onStarted: closeLaunchDialog,
+    // #EXP-1451: the dialog is the SAME composer as the home, agent row and
+    // all; the seeded issue starts it on Temporary session.
+    agentRow: true,
+    me: currentUserId ?? null,
   })
   const sent = model.busy
   useEffect(() => {
