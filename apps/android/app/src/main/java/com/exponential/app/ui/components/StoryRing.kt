@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,9 +29,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.Chats
 import com.exponential.app.domain.Dock
 import com.exponential.app.domain.Stories
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 
 // S-3 STORIES ×4 (fixtures/stories.json `ring` + `progress`, styleguide
@@ -155,9 +156,9 @@ fun StoryProgress(
 
 /** A ring's avatar (stories.json AVATARS ×4): an agent ring = its mark
  *  ([AgentAvatar]: its glyph in its colour on the muted disc, the bubble's
- *  look); a root chat ring ([color] null) = the chat row's BARE brand mark
- *  ([ChatLeadDisc] `Waiting`: no badge, no PR glyph; [cli] = the root's CLI)
- *  on the same disc. Fills the ring's inner circle. */
+ *  look); a root chat ring ([color] null) = the BARE brand mark of [cli]
+ *  (the root's CLI; claude when unknown) on the same disc, no badge, no PR
+ *  glyph, as web, iOS and the IDE draw it. Fills the ring's inner circle. */
 @Composable
 fun StoryAvatarMark(icon: String?, color: String?, modifier: Modifier = Modifier, cli: String? = null) {
     BoxWithConstraints(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -165,7 +166,13 @@ fun StoryAvatarMark(icon: String?, color: String?, modifier: Modifier = Modifier
         if (color != null) {
             AgentAvatar(icon = icon, color = color, size = side)
         } else {
-            ChatLeadDisc(lead = Chats.ChatLead.Waiting, agent = cli, size = side)
+            val id = cli?.trim()?.lowercase()?.ifEmpty { null } ?: "claude"
+            Box(
+                Modifier.size(side).clip(CircleShape).background(DesignTokens.Palette.Muted, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(agentIconPainter(id), contentDescription = null, tint = agentIconTint(id), modifier = Modifier.size(side * 0.5f))
+            }
         }
     }
 }

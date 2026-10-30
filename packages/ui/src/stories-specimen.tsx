@@ -283,7 +283,7 @@ export function StoryViewerSpecimen({ frame = true }: { frame?: boolean }) {
   return (
     <div
       data-testid="story-viewer-specimen"
-      className={frame ? `overflow-hidden border border-glass-stroke-card shadow-2xl shadow-black/40` : `h-dvh w-full`}
+      className={frame ? `overflow-hidden border border-glass-stroke-card shadow-2xl shadow-black/40` : `fixed inset-0 z-50`}
       style={
         frame
           ? {
