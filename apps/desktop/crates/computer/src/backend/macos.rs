@@ -565,9 +565,22 @@ fn frontmost_pid() -> Option<u32> {
     })
 }
 
+/// Whether Accessibility may address `pid` from this (non-main) thread.
+/// Never our own process (EXP-1436): an AX call into ourselves skips the
+/// IPC and runs AppKit right here, so `AXMain` on our own window ordered it
+/// off the main thread and AppKit trapped ("Must only be used from the main
+/// thread"), killing the app while an agent activated the Exponential window.
+fn ax_reachable(pid: Pid) -> bool {
+    u32::try_from(pid).ok() != Some(std::process::id())
+}
+
 /// The Accessibility window of `pid` whose frame matches the window
-/// server's `window`; each miss logged.
+/// server's `window`; each miss logged. `None` for our own process.
 fn ax_window(pid: Pid, window: &WindowInfo) -> Option<CFType> {
+    if !ax_reachable(pid) {
+        log::debug!("[computer] window {} is ours: no Accessibility off the main thread", window.id);
+        return None;
+    }
     // SAFETY: returns a new AXUIElement (create rule) for any pid.
     let app = unsafe { AXUIElementCreateApplication(pid) };
     if app.is_null() {
@@ -956,6 +969,26 @@ unsafe extern "C" fn tap_callback(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accessibility_never_addresses_our_own_process() {
+        let ours = Pid::try_from(std::process::id()).unwrap();
+        assert!(!ax_reachable(ours));
+        let window = WindowInfo {
+            id: 1,
+            title: String::new(),
+            app: String::new(),
+            pid: Some(std::process::id()),
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            active: true,
+            fullscreen: false,
+        };
+        assert!(ax_window(ours, &window).is_none());
+        assert!(ax_reachable(1));
+    }
 
     #[test]
     fn keys_map_to_mac_virtual_keycodes() {
