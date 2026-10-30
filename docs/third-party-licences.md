@@ -293,6 +293,19 @@ package with `vendor/`), and a `VENDORED` row in
 `packages/licenses/curated/supplement.ts` reproduces it in the NOTICES of
 every client the catalog reaches (`web`, `desktop`, `ios`, `android`).
 
+### eNet push-only facade in the mobile apps (EXP-1435)
+
+The iOS app + its Notification Service Extension (`ExpPush`) and the Android
+app link the PUSH-ONLY build of `exponential-net-ffi` (MIT OR Apache-2.0, ours):
+`exponential-net` without its `node` feature, so the third-party Rust set is
+the RustCrypto crates `chacha20poly1305` / `chacha20` / `poly1305` / `aead` /
+`cipher` / `universal-hash`, `hkdf`, `hmac`, `sha2`, `digest` (all MIT OR
+Apache-2.0), `curve25519-dalek` 5 (BSD-3-Clause), `getrandom` (MIT OR
+Apache-2.0), `data-encoding` (MIT), `thiserror` (MIT OR Apache-2.0) and
+`uniffi` 0.31 (MPL-2.0, unmodified). No iroh, no tokio. Android loads it
+through JNA (already inventoried above). Native NOTICES inventories pick these
+up at the next release regeneration.
+
 ### Exponential UI: the conformance fonts (round 2, 2026-10-08)
 
 `packages/exponential-ui/conformance/fonts/` holds the fonts the conformance
