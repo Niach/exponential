@@ -1,6 +1,7 @@
 package com.exponential.app.data.steer
 
 import android.util.Log
+import com.exponential.app.data.api.InstallsApi
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.STEER_CLIENT
 import com.exponential.app.data.api.SteerApi
@@ -10,6 +11,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncManager
+import com.exponential.app.data.enet.EnetNodeManager
 import io.ktor.client.HttpClient
 import javax.inject.Inject
 import javax.inject.Named
@@ -45,6 +47,8 @@ class SteerConnectionStore @Inject constructor(
     @Named(STEER_CLIENT) private val client: HttpClient,
     private val json: Json,
     private val syncManager: SyncManager,
+    private val enetNodes: EnetNodeManager,
+    private val installsApi: InstallsApi,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val lock = Any()
@@ -85,7 +89,7 @@ class SteerConnectionStore @Inject constructor(
             val connection = connections.getOrPut(codingSessionId) {
                 SteerConnection(
                     codingSessionId = codingSessionId,
-                    transport = KtorSteerTransport(auth, steerApi, client),
+                    transport = KtorSteerTransport(auth, steerApi, client, enetDialer()),
                     sessionFlow = accountDatabaseFlow(auth, holder)
                         .scopedQuery<SessionEntity?>(null) {
                             it.sessionDao().observeById(codingSessionId)
@@ -99,6 +103,16 @@ class SteerConnectionStore @Inject constructor(
             return connection
         }
     }
+
+    /// VAPP-33: steer over the active account's eNet node first; the relay
+    /// stays the fallback (until VAPP-43).
+    private fun enetDialer() = EnetSteerDialer(
+        node = { auth.activeAccountId.value?.let(enetNodes::peer) },
+        discover = { sessionId ->
+            val accountId = auth.activeAccountId.value ?: error("No active account")
+            installsApi.forSession(accountId, sessionId).map { it.endpointId }
+        },
+    )
 
     /// Detach one screen. The connection itself keeps running — that IS the
     /// point — unless it has nothing left to do, which is the moment its feed

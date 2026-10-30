@@ -118,6 +118,8 @@ android {
             it.systemProperty("exponential.enet.installFixture", File(repoRoot, "packages/domain-contract/fixtures/install-register.json").absolutePath)
             // EXP-1459: the sealed-content vectors (SealedContentFixtureTest).
             it.systemProperty("exponential.enet.sealedFixture", File(repoRoot, "packages/domain-contract/fixtures/sealed-content.json").absolutePath)
+            // VAPP-33: the steer-over-eNet envelope rules (SteerEnetTest).
+            it.systemProperty("exponential.steer.enetFixture", File(repoRoot, "packages/domain-contract/fixtures/steer-enet.json").absolutePath)
         }
     }
 

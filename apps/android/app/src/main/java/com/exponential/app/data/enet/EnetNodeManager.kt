@@ -60,7 +60,7 @@ class EnetNodeManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
     private val wake = Channel<Unit>(Channel.CONFLATED)
-    private val nodes = mutableMapOf<String, InstallNode>()
+    private val nodes = ConcurrentHashMap<String, InstallNode>()
     private val holders = ConcurrentHashMap<String, TreeKeyHolder>()
     private val installIds = ConcurrentHashMap<String, String>()
     private val holderWake = Channel<Unit>(Channel.CONFLATED)
@@ -95,6 +95,9 @@ class EnetNodeManager @Inject constructor(
 
     /** This install's registry id for [accountId] once its node registered (the sealed writers' `installId`). */
     fun installId(accountId: String): String? = installIds[accountId]
+
+    /** [accountId]'s running eNet node, once it started (VAPP-33: the steer viewer's carrier). */
+    fun peer(accountId: String): PeerNode? = nodes[accountId]?.node
 
     /** Runs a holder pass now (a key was just created, or a screen lacks one). */
     fun wakeHolders() {

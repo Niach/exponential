@@ -48,13 +48,19 @@ internal interface SteerTransport {
 
     /** Dial the full `ws(s)://…/ws?ticket=…` URL the mint returned. */
     suspend fun open(url: String): SteerSocket
+
+    /** VAPP-33: a feed joined over eNet, tried before every relay dial; null = the relay. */
+    suspend fun openEnet(codingSessionId: String): SteerSocket? = null
 }
 
 internal class KtorSteerTransport(
     private val auth: AuthRepository,
     private val steerApi: SteerApi,
     private val client: HttpClient,
+    private val enet: EnetSteerDialer? = null,
 ) : SteerTransport {
+
+    override suspend fun openEnet(codingSessionId: String): SteerSocket? = enet?.open(codingSessionId)
 
     override suspend fun mint(codingSessionId: String): SteerTicketResult {
         val accountId = auth.activeAccountId.value
