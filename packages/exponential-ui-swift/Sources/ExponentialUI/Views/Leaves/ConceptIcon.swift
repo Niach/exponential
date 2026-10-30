@@ -1,4 +1,5 @@
 import SwiftUI
+import ExponentialUIPrimitives
 
 /// The glyphs the natives draw for their OWN parts (contract §3 "Built-in
 /// glyphs"): the core names a part's glyph from `core.catalog.json`
@@ -92,7 +93,7 @@ enum BuiltinIcons {
         case "call-unmute", "mic-off": "mic.slash"
         case "call-speaker", "volume-2": "speaker.wave.2"
         case "call-speaker-off", "ear": "ear"
-        case "call-end", "phone-off": "phone.down"
+        case "call-end", "phone-off": "phone"
         case "call-incoming", "phone-incoming": "phone.arrow.down.left"
         case "ui-qr-code", "qr-code": "qrcode"
         case "ui-scan", "scan-line": "qrcode.viewfinder"
@@ -103,6 +104,10 @@ enum BuiltinIcons {
         default: nil
         }
     }
+
+    /// `call-end` / `phone-off` draw `PhoneOffMark` (SF Symbols has no
+    /// slashed phone); `symbol` keeps the receiver for callers that need a name.
+    static func isPhoneOff(_ name: String) -> Bool { name == "call-end" || name == "phone-off" }
 
     /// Does a name resolve to a real glyph (not the placeholder)?
     static func isKnown(_ name: String) -> Bool { symbol(name) != nil }
@@ -127,6 +132,9 @@ struct ConceptIcon: View {
         Group {
             if let view = model.host.icon(name, size: size) {
                 view.frame(width: size, height: size).foregroundStyle(color)
+            } else if BuiltinIcons.isPhoneOff(name) {
+                PhoneOffMark(size: size, weight: weight)
+                    .foregroundStyle(color)
             } else if let symbol = BuiltinIcons.symbol(name) {
                 Image(systemName: symbol)
                     .font(.system(size: size * 0.8, weight: weight))

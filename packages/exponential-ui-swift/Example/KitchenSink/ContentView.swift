@@ -56,7 +56,7 @@ let symbolIcons: [String: String] = [
     // VAPP-162: the call, pairing and push-to-talk pieces (concepts + their Lucide names).
     "call-mute": "mic", "mic": "mic", "call-unmute": "mic.slash", "mic-off": "mic.slash",
     "call-speaker": "speaker.wave.2", "volume-2": "speaker.wave.2", "call-speaker-off": "ear", "ear": "ear",
-    "call-end": "phone.down.fill", "phone-off": "phone.down.fill", "call-incoming": "phone.arrow.down.left", "phone-incoming": "phone.arrow.down.left",
+    "call-incoming": "phone.arrow.down.left", "phone-incoming": "phone.arrow.down.left",
     "ui-qr-code": "qrcode", "qr-code": "qrcode", "ui-scan": "qrcode.viewfinder", "scan-line": "qrcode.viewfinder",
     "ui-hold": "hand.raised", "hand": "hand.raised", "voice-level": "waveform", "audio-lines": "waveform",
     "ui-clock": "clock", "ui-stop": "stop.circle", "circle-stop": "stop.circle", "ui-back": "chevron.left",
@@ -196,6 +196,7 @@ final class SinkState: ObservableObject {
                 if name == "ui-read" || name == "check-check" {
                     return AnyView(DoubleCheckMark(size: size))
                 }
+                // `call-end` / `phone-off`: no entry, the painter's own slashed receiver draws.
                 if name == "progress-2-4" {
                     return AnyView(ProgressMark(size: size * 0.8).frame(width: size, height: size))
                 }
