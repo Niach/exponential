@@ -23,6 +23,8 @@ export interface ThreadRowActionInput {
   state: SessionState | null
   /** A watchdog or usage flag stands behind its `needs_you` (no card). */
   blocked: boolean
+  /** Its waiting card already is a row of this conversation. */
+  inline: boolean
   /** The viewer answered the card this row expanded (client-held). */
   answered: boolean
 }
@@ -38,6 +40,18 @@ export interface ThreadRowAction {
   tone: string | null
 }
 
+/** Whether `sessionId`'s waiting card already is a row of `rows`. */
+export function waitingCardInline(
+  rows: readonly ({ type: string; sessionId?: string; answered?: boolean; decision?: string | null } | object)[],
+  sessionId: string
+): boolean {
+  return rows.some((row) => {
+    const r = row as { type: string; sessionId?: string; answered?: boolean; decision?: string | null }
+    if (r.sessionId !== sessionId) return false
+    return (r.type === `question` && r.answered === false) || (r.type === `plan` && (r.decision === null || r.decision === undefined))
+  })
+}
+
 const OPENING_TYPES = new Set([`session`, `report`, `event`])
 
 const NONE: ThreadRowAction = { action: `none`, sessionId: null, chevron: false, kindWord: null, tone: null }
@@ -45,7 +59,7 @@ const NONE: ThreadRowAction = { action: `none`, sessionId: null, chevron: false,
 export function threadRowAction(input: ThreadRowActionInput): ThreadRowAction {
   const { type, sessionId } = input
   if (!sessionId || sessionId === input.rootId || !OPENING_TYPES.has(type)) return NONE
-  if (type === `session` && input.state === `needs_you` && !input.blocked) {
+  if (type === `session` && input.state === `needs_you` && !input.blocked && !input.inline) {
     return { action: `expand`, sessionId, chevron: true, kindWord: null, tone: null }
   }
   const answered =
