@@ -52,6 +52,17 @@ public enum SessionDeviceMove {
         device.sharedTeamIds.contains(teamId)
     }
 
+    /// #EXP-1440: the refusal for an own machine shared only with OTHER
+    /// teams (the server's FORBIDDEN, the picker's hidden row).
+    public static let deviceOtherTeamMessage = "This device belongs to another team"
+
+    /// #EXP-1440: one of the caller's OWN machines may run a team's sessions
+    /// when it is personal (shared with no team) or shared with that team; a
+    /// machine shared only with other teams is theirs (web `deviceUsableInTeam`).
+    public static func deviceUsableInTeam(_ device: SteerDevice, teamId: String) -> Bool {
+        device.sharedTeamIds.isEmpty || sharedWithTeam(device, teamId: teamId)
+    }
+
     /// One target's refusal, or nil = movable. Order ×4 (web
     /// `deviceMoveTargetReason`): offline, visibility, no-login. `agent` =
     /// the session's agent (nil skips the login check). Old builds are the

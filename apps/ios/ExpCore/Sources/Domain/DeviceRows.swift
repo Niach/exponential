@@ -288,6 +288,12 @@ public enum DeviceQueries {
                     && row.sharedTeamIds.contains(where: teamIds.contains)
             }
             .sorted(by: stableOrder)
-        return own.map(mapped) + shared.map(mapped)
+        // #EXP-1440: scoped to teams, an own machine shared only with OTHER
+        // teams is theirs and never listed (`deviceUsableInTeam`).
+        let usableOwn = own.map(mapped).filter { device in
+            teamIds.isEmpty
+                || teamIds.contains { SessionDeviceMove.deviceUsableInTeam(device, teamId: $0) }
+        }
+        return usableOwn + shared.map(mapped)
     }
 }

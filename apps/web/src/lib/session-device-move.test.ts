@@ -15,6 +15,7 @@ import {
   deviceMovePick,
   deviceMoveTargetReason,
   deviceMoveVisible,
+  deviceUsableInTeam,
   MOVE_FAILED_TOAST,
   NOTE,
   PICKER_TITLE,
@@ -107,6 +108,17 @@ describe(`the pin's visibility and refusals (EXP-1252)`, () => {
   it(`reuses the account switch's steer rule`, () => {
     expect(canSteerSession({ shared: false, userId: `u1` }, `u2`)).toBe(false)
     expect(canSteerSession({ shared: true, userId: `u1` }, `u2`)).toBe(true)
+  })
+})
+
+describe(`deviceUsableInTeam (#EXP-1440)`, () => {
+  it(`a personal machine runs every team; a shared one only the teams it is shared with`, () => {
+    expect(deviceUsableInTeam({ sharedTeamIds: [] }, `team-a`)).toBe(true)
+    expect(deviceUsableInTeam({ sharedTeamIds: null }, `team-a`)).toBe(true)
+    expect(deviceUsableInTeam({}, `team-a`)).toBe(true)
+    expect(deviceUsableInTeam({ sharedTeamIds: [`team-a`] }, `team-a`)).toBe(true)
+    expect(deviceUsableInTeam({ sharedTeamIds: [`team-b`, `team-a`] }, `team-a`)).toBe(true)
+    expect(deviceUsableInTeam({ sharedTeamIds: [`team-b`] }, `team-a`)).toBe(false)
   })
 })
 

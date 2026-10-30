@@ -102,6 +102,24 @@ class ComposeDeviceListTest {
     }
 
     @Test
+    fun `a team-scoped list drops own machines another team owns (EXP-1440)`() {
+        val rows = listOf(
+            device("personal", "me", iso(0)),
+            device("here", "me", iso(0), sharedTeamIds = listOf("team-1")),
+            device("theirs", "me", iso(0), sharedTeamIds = listOf("team-2")),
+        )
+        assertEquals(
+            listOf("steer-here", "steer-personal"),
+            composeDeviceList(rows, users, "team-1", "me", nowMs).map { it.deviceId },
+        )
+        // Not team-scoped (the Devices page): every own machine stays.
+        assertEquals(
+            listOf("steer-here", "steer-personal", "steer-theirs"),
+            composeDeviceList(rows, users, null, "me", nowMs, allTeams = true).map { it.deviceId },
+        )
+    }
+
+    @Test
     fun `no selected team lists only own rows and signed out lists nothing`() {
         val rows = listOf(
             device("mine", "me", "2026-08-11T10:00:00Z"),

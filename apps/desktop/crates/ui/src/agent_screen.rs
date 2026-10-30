@@ -357,7 +357,12 @@ impl AgentScreenView {
                 self.app = Store::try_global(cx)
                     .and_then(|store| store.collections().apps.read(cx).get(&app_id).cloned());
                 self.conversation = crate::session_data::my_editor_session(&app_id, cx);
-                self.device_id = crate::queries::settled_device(&crate::queries::launch_devices(cx), None, None);
+                let team_id = self.app.as_ref().and_then(|app| app.team_id.clone());
+                self.device_id = crate::queries::settled_device(
+                    &crate::queries::launch_devices(team_id.as_deref(), cx),
+                    None,
+                    None,
+                );
             }
         }
         let name = self.subject_name();

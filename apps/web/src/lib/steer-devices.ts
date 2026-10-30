@@ -9,6 +9,7 @@ import type {
   SyncedDeviceWorktree,
   User,
 } from "@/db/schema"
+import { deviceUsableInTeam } from "./session-device-move"
 import { parseVersionTuple } from "./client-version"
 import {
   parseAgentUsage,
@@ -446,8 +447,14 @@ export function composeDeviceList(
     if (byLabel !== 0) return byLabel
     return a.deviceId.localeCompare(b.deviceId)
   }
+  // #EXP-1440: scoped to teams, an own machine shared only with OTHER
+  // teams is theirs and never listed (`deviceUsableInTeam`).
   const own = rows
-    .filter((row) => row.userId === currentUserId)
+    .filter(
+      (row) =>
+        row.userId === currentUserId &&
+        (teams.size === 0 || [...teams].some((id) => deviceUsableInTeam(row, id)))
+    )
     .sort(stableOrder)
   const shared = teams.size > 0
     ? rows

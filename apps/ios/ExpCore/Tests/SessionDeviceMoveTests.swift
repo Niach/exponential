@@ -42,6 +42,15 @@ final class SessionDeviceMoveTests: XCTestCase {
         XCTAssertEqual(SessionDeviceMove.failureToast, "Couldn't move the session")
     }
 
+    /// #EXP-1440: personal → usable, shared with the team → usable, shared
+    /// only with another team → not usable.
+    func testDeviceUsableInTeamUnlessAnotherTeamOwnsIt() {
+        XCTAssertTrue(SessionDeviceMove.deviceUsableInTeam(device("a"), teamId: "team-1"))
+        XCTAssertTrue(SessionDeviceMove.deviceUsableInTeam(device("b", shared: ["team-1"]), teamId: "team-1"))
+        XCTAssertFalse(SessionDeviceMove.deviceUsableInTeam(device("c", shared: ["team-2"]), teamId: "team-1"))
+        XCTAssertEqual(SessionDeviceMove.deviceOtherTeamMessage, "This device belongs to another team")
+    }
+
     func testPinHiddenForAgents() {
         XCTAssertTrue(SessionDeviceMove.pinVisible(kind: "thread"))
         XCTAssertFalse(SessionDeviceMove.pinVisible(kind: "agent"))

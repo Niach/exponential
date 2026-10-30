@@ -26,6 +26,7 @@ import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.SessionDeviceMove
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.stableDeviceOrder
@@ -462,10 +463,13 @@ fun composeDeviceList(
 ): List<SteerDevice> {
     if (currentUserId == null) return emptyList()
     val usersById = users.associateBy { it.id }
+    // #EXP-1440: scoped to a team, an own machine shared only with OTHER
+    // teams is theirs and never listed (`deviceUsableInTeam`).
     val own = rows
         .filter { it.userId == currentUserId }
         .sortedWith(stableDeviceOrder(nowMs))
         .map { it.toSteerDevice(nowMs, currentUserId) }
+        .filter { allTeams || teamId == null || SessionDeviceMove.deviceUsableInTeam(it, teamId) }
     val shared = rows
         .filter {
             it.userId != currentUserId &&
