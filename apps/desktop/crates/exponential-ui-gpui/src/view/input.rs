@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use exponential_ui::surface::PlacedNode;
-use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, FocusHandle, Focusable as _, Subscription, Task, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, FocusHandle, Focusable as _, MouseButton, Subscription, Task, Window};
 use gpui_component::input::{Input, InputEvent, InputState, TextareaState};
 use serde_json::{json, Value};
 
@@ -330,7 +330,14 @@ impl SurfaceView {
             FieldInput::Line(s) => Input::new(s).appearance(false).disabled(disabled).font(font).text_size(px(size)).text_color(ink).px_0().py_0().w(px(field_w)).h(px(h)).into_any_element(),
             FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).disabled(disabled).font(font).text_size(px(size)).text_color(ink).w(px(field_w)).h(px(h)).into_any_element(),
         };
-        let mut row = lcx.row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))).items_center().gap(px(if icon.is_some() { 8.0 } else { 0.0 }));
+        // A press in the field is the field's (caret, selection): it never
+        // bubbles to a host's own press handling (the story viewer's tap
+        // thirds), like the pressable leaves claim theirs.
+        let mut row = lcx
+            .row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)))
+            .items_center()
+            .gap(px(if icon.is_some() { 8.0 } else { 0.0 }))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
         if let Some(name) = icon {
             row = row.child(div().flex_none().opacity(0.6).child(icons::concept(lcx.host, &name, 16.0, ink)));
         }
