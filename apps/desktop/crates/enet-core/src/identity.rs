@@ -46,7 +46,8 @@ impl Identity {
         &self.secret
     }
 
-    pub(crate) fn sign(&self, msg: &[u8]) -> [u8; 64] {
+    /// An ed25519 signature over `msg` (e.g. the install registration string).
+    pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
         self.secret.sign(msg).to_bytes()
     }
 }

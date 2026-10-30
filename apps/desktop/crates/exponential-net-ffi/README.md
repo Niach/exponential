@@ -33,7 +33,9 @@ bindings. License: MIT OR Apache-2.0.
 - Calls: `startCall(peer)` → call id, `acceptCall`, `sendFrame(call, opus)` →
   seq, `hangUp`.
 - `shutdown()`.
-- Free functions: `generateIdentity`, `endpointIdOf`, `parseTicket`,
+- Free functions: `generateIdentity`, `endpointIdOf`, `identitySign(identity,
+  message)` (64-byte ed25519; the install registration signature, vector in
+  `packages/domain-contract/fixtures/install-register.json`), `parseTicket`,
   `pushKeypairDerive(identity)` / `pushKeypairGenerate` (`{secret, public}`),
   `pushSeal(recipientPublic, plaintext)`, and **`pushOpen(recipientSecret,
   sealed)`** for the iOS Notification Service Extension / the Android FCM

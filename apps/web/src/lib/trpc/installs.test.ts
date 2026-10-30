@@ -25,6 +25,7 @@ vi.mock(`@/lib/auth/access`, () => ({
 
 import { installMessage, installsRouter, MAX_INSTALLS_PER_USER } from "@/lib/trpc/installs"
 import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
+import registerFixture from "@exp/domain-contract/fixtures/install-register.json"
 
 const TEAM_A = `00000000-0000-4000-8000-00000000000a`
 const TEAM_B = `00000000-0000-4000-8000-00000000000b`
@@ -85,6 +86,26 @@ beforeEach(() => {
 })
 
 describe(`installs.register`, () => {
+  it(`accepts the shared fixture vector every install signs byte-exact`, async () => {
+    const fx = registerFixture
+    expect(installMessage(fx.userId, fx.endpointId, fx.x25519Public, fx.signedAt)).toBe(fx.message)
+    expect(Buffer.from(fx.signature, `base64url`).toString(`hex`)).toBe(fx.signatureHex)
+    vi.useFakeTimers({ toFake: [`Date`] })
+    vi.setSystemTime(new Date(fx.signedAt))
+    try {
+      const { installId } = await caller(fx.userId).register({
+        kind: `android`,
+        endpointId: fx.endpointId,
+        x25519Public: fx.x25519Public,
+        signedAt: fx.signedAt,
+        signature: fx.signature,
+      })
+      expect(installId).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it(`stores a correctly signed install`, async () => {
     const id = identity()
     const input = registration(`u1`, id, { label: `Danny's phone` })

@@ -1,0 +1,11 @@
+{
+  "$comment": "EXP-1457 / VAPP-37: the install registration signature (tRPC `installs.register`), ONE vector every install replays: the Rust facade (exponential-net-ffi tests/install_register_fixture.rs, `identitySign`), the server (apps/web/src/lib/trpc/installs.test.ts, `installMessage` + node:crypto verify), and the natives through the UniFFI binding. `identity` = the install's 32 eNet identity bytes (ed25519 secret, lowercase hex). `endpointId` = lowercase hex of its ed25519 public key (the iroh endpoint id). `x25519Public` = base64url without padding of `pushKeypairDerive(identity).public`. `message` = UTF-8 `exp-install-v1\\n<userId>\\n<endpointId>\\n<x25519Public>\\n<signedAt>`. `signature` = the identity's ed25519 signature over `message` (deterministic, RFC 8032): `signatureHex` lowercase hex, `signature` base64url without padding (the wire field).",
+  "identity": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "userId": "fixture-user-1",
+  "endpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+  "x25519Public": "0GFGtMQ5M8g9OX5JBpfpIb2GUw5oSurOVfe9Z_kW9nM",
+  "signedAt": "2026-10-30T12:00:00.000Z",
+  "message": "exp-install-v1\nfixture-user-1\n03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8\n0GFGtMQ5M8g9OX5JBpfpIb2GUw5oSurOVfe9Z_kW9nM\n2026-10-30T12:00:00.000Z",
+  "signatureHex": "b291201c0844edb673b0cc15cffccda4c52f76ec0930d92a7c732d8c772d973f750693f506a32fa93fc965a1ef19c1e65b1efee592b5f56834b89e3a5de8a506",
+  "signature": "spEgHAhE7bZzsMwVz_zNpMUvduwJMNkqfHMtjHctlz91BpP1BqMvqT_JZaHvGcHmWx7-5ZK19Wg0uJ46XeilBg"
+}
