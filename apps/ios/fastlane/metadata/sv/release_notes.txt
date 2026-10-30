@@ -1,2 +1,5 @@
-- En grå samtalsknapp säger nu vad som saknas och var du fixar det
-- Kort som en agent uppdaterar redigeras på plats och flyttas längst ner i chatten
+- Meddelanden i sessioner förseglas på dina enheter, så servern inte längre kan läsa dem
+- En fråga från en chatt du har startat kommer som notis till telefonen och visar själva frågan
+- Ett tryck på ett beslut i inkorgen öppnar chatten som väntar på dig
+- Stories visar de senaste 24 timmarna, och en chatts Stories-flik visar dem på plats
+- Samtal fortsätter när du byter mellan högtalare, hörlurar och Bluetooth

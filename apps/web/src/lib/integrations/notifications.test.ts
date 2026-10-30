@@ -60,10 +60,12 @@ vi.mock(`@/lib/metrics/registry`, () => ({
 }))
 
 import { sendToUsers } from "@/lib/integrations/fcm"
+import { generateTreeKey, sealBody, sealCard } from "@exp/domain-contract/sealed-content"
+import { questionPushBody } from "@exp/domain-contract/question-push"
 import {
   deliverableRecipients,
   notifyDeviceShareRemoved,
-  notifyAssistantDecision,
+  notifySessionAsk,
   notifySessionBlocked,
   sendAgentMessage,
 } from "./notifications"
@@ -202,23 +204,107 @@ describe(`notifyDeviceShareRemoved — an admin key reset names no one`, () => {
   })
 })
 
-// #EXP-1456 (inbox-route.json): an Assistant's decision is an issue-less row
-// that NAMES its conversation, so the inbox row and the push open it ×4.
-describe(`notifyAssistantDecision — the row and the push carry the conversation`, () => {
-  it(`writes the session id on the row and in the push`, async () => {
-    selectResults.push([{ userId: `owner`, teamId: `team-1`, teamSlug: `acme` }])
+// #VAPP-45 (question-push.json): a ROOT's ask pushes its owner; #EXP-1456
+// (inbox-route.json): the issue-less row and the push NAME the session.
+describe(`notifySessionAsk — a root's question pushes its owner`, () => {
+  const root = {
+    id: `conv-1`,
+    parentId: null,
+    rootId: `conv-1`,
+    title: `Fix the login`,
+    userId: `owner`,
+    teamId: `team-1`,
+    teamSlug: `acme`,
+    agentRole: null as string | null,
+  }
+  const question = { kind: `question`, question: `Ship it today?\nMore detail`, options: [`yes`, `no`] } as const
+
+  function delivered() {
     selectResults.push([{ id: `owner` }]) // membership guard
     executeState.rows = [{ id: `n-1`, user_id: `owner` }]
     selectResults.push([]) // push prefs: not muted
+  }
 
-    await notifyAssistantDecision(`conv-1`, `Ship it today?\nMore detail`)
+  it(`an Assistant's plaintext question: its decision title, the question as the body, the session in row + push`, async () => {
+    selectResults.push([{ ...root, agentRole: `assistant` }])
+    delivered()
+
+    await notifySessionAsk({ sessionId: `conv-1`, card: question as never })
 
     expect(executeState.calls).toBe(1)
     expect(executeState.params).toContain(`conv-1`)
     expect(executeState.params).toContain(`agent_message`)
-    expect(executeState.params).toContain(`Ship it today?`)
+    expect(executeState.params).toContain(`Your Assistant needs a decision`)
+    expect(executeState.params).toContain(`Question: Ship it today?`)
+    const [recipients, payload] = vi.mocked(sendToUsers).mock.calls[0]!
+    expect(recipients.map((r) => r.userId)).toEqual([`owner`])
+    expect(payload.data).toEqual({ type: `agent_message`, sessionId: `conv-1`, teamId: `team-1`, teamSlug: `acme`, rootId: `conv-1` })
+  })
+
+  it(`a thread root's plan: the session's title + needs you, the plan's first block`, async () => {
+    selectResults.push([root])
+    delivered()
+
+    await notifySessionAsk({ sessionId: `conv-1`, card: { kind: `plan`, plan: `## Migrate\n1. Add\n\nLater` } as never })
+
     const [, payload] = vi.mocked(sendToUsers).mock.calls[0]!
-    expect(payload.data).toEqual({ type: `agent_message`, sessionId: `conv-1`, teamId: `team-1`, teamSlug: `acme` })
+    expect(payload.title).toBe(`Fix the login needs you`)
+    expect(payload.body).toBe(`Plan: Migrate Add`)
+  })
+
+  it(`a child's ask routes to its parent agent: no row, no push`, async () => {
+    selectResults.push([{ ...root, id: `child`, parentId: `conv-1` }])
+
+    await notifySessionAsk({ sessionId: `child`, card: question as never })
+
+    expect(executeState.calls).toBe(0)
+    expect(sendToUsers).not.toHaveBeenCalled()
+  })
+
+  it(`a SEALED question: only ciphertext reaches Postgres, logs and the push; the phone opens it`, async () => {
+    const SECRET = `Should we rotate the prod database password tonight?`
+    const tree = generateTreeKey()
+    const sealedAskText = sealBody(tree.publicKey, 1, `Asks: ${SECRET}\nAnswer with …`)
+    const card = sealCard(tree.publicKey, 1, { kind: `question`, question: SECRET })
+    const logged: string[] = []
+    const spies = ([`log`, `info`, `warn`, `error`, `debug`] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        logged.push(args.map(String).join(` `))
+      })
+    )
+    try {
+      selectResults.push([root])
+      delivered()
+
+      await notifySessionAsk({ sessionId: `conv-1`, card: card as never, sealedAskText })
+
+      expect(JSON.stringify(executeState.params)).not.toContain(SECRET)
+      expect(executeState.params).toContain(`New message in a session`)
+      const [, payload] = vi.mocked(sendToUsers).mock.calls[0]!
+      expect(JSON.stringify(payload)).not.toContain(SECRET)
+      expect(payload.body).toBe(`New message in a session`)
+      expect(payload.data.sealedText).toBe(sealedAskText)
+      expect(payload.data.rootId).toBe(`conv-1`)
+      expect(logged.join(`\n`)).not.toContain(SECRET)
+      // The phone holding the tree key shows the question; without it, the push body.
+      const keys = new Map([[1, tree.secret]])
+      expect(questionPushBody(payload.data, () => keys, payload.body!)).toBe(`Question: ${SECRET}`)
+      expect(questionPushBody(payload.data, () => null, payload.body!)).toBe(`New message in a session`)
+    } finally {
+      for (const spy of spies) spy.mockRestore()
+    }
+  })
+
+  it(`a sealed card without a sealed ask text: the generic copy, no sealedText`, async () => {
+    const tree = generateTreeKey()
+    selectResults.push([root])
+    delivered()
+
+    await notifySessionAsk({ sessionId: `conv-1`, card: sealCard(tree.publicKey, 1, question) as never, sealedAskText: `plaintext!` })
+
+    const [, payload] = vi.mocked(sendToUsers).mock.calls[0]!
+    expect(payload.body).toBe(`New message in a session`)
+    expect(payload.data.sealedText).toBeUndefined()
   })
 })
 

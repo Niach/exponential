@@ -1,2 +1,5 @@
-- Un buton de apel gri spune acum ce lipsește și unde poți rezolva
-- Cardurile pe care un agent le actualizează sunt editate pe loc și se mută la finalul chatului
+- Mesajele din sesiuni sunt sigilate pe dispozitivele tale, așa că serverul nu le mai poate citi
+- O întrebare dintr-un chat pe care l-ai început vine ca notificare pe telefon și arată întrebarea în sine
+- O atingere pe o decizie din inbox deschide chatul care te așteaptă
+- Poveștile arată ultimele 24 de ore, iar fila Povești a unui chat le afișează pe loc
+- Apelurile continuă când treci între difuzor, căști și Bluetooth

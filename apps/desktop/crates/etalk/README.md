@@ -60,7 +60,7 @@ eTalk crate uses the same tag; the rules are the git-tag policy in
 `docs/libraries.md` ("Consuming from another repo"):
 
 ```toml
-etalk = { git = "https://github.com/Niach/exponential", tag = "etalk-v0.2.2" }
+etalk = { git = "https://github.com/Niach/exponential", tag = "etalk-v0.2.3" }
 ```
 
 The contract (the fixtures and their TypeScript references) is also on npm

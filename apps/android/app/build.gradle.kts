@@ -117,6 +117,8 @@ android {
             it.systemProperty("exponential.push.sealFixture", File(repoRoot, "packages/domain-contract/fixtures/push-seal.json").absolutePath)
             it.systemProperty("exponential.enet.installFixture", File(repoRoot, "packages/domain-contract/fixtures/install-register.json").absolutePath)
             // EXP-1459: the sealed-content vectors (SealedContentFixtureTest).
+            // #VAPP-45: the question-push vectors (QuestionPushFixtureTest).
+            it.systemProperty("exponential.push.questionFixture", File(repoRoot, "packages/domain-contract/fixtures/question-push.json").absolutePath)
             it.systemProperty("exponential.enet.sealedFixture", File(repoRoot, "packages/domain-contract/fixtures/sealed-content.json").absolutePath)
             // VAPP-33: the steer-over-eNet envelope rules (SteerEnetTest).
             it.systemProperty("exponential.steer.enetFixture", File(repoRoot, "packages/domain-contract/fixtures/steer-enet.json").absolutePath)
@@ -134,8 +136,8 @@ android {
         applicationId = "at.exponential"
         minSdk = 26
         targetSdk = 36
-        versionCode = 160
-        versionName = "0.14.77"
+        versionCode = 161
+        versionName = "0.14.78"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

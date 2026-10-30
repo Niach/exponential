@@ -11,7 +11,7 @@ publish = false
 [dependencies]
 # The SDK. The painter is not on crates.io (gpui + gpui-component are git
 # dependencies) and wants the core at its own revision, so an app takes both
-# from the release tag on github.com/Niach/exponential (`tag = "eui-v0.2.0"`).
+# from the release tag on github.com/Niach/exponential (`tag = "eui-v0.2.1"`).
 # Path dependencies stand in for it here. The gpui pins below follow the
 # painter README's "gpui revisions" (gated by check-gpui-revs.ts).
 eui-core = { path = "../../../../../apps/desktop/crates/eui-core" }

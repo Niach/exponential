@@ -21,14 +21,14 @@ vi.mock(`@/lib/steer`, async (importOriginal) => {
     relayPostInterrupt: async () => ({ delivered: true }),
   }
 })
-const pushes = vi.hoisted(() => [] as Array<{ sessionId: string; text: string }>)
+const pushes = vi.hoisted(() => [] as Array<{ sessionId: string; kind: string }>)
 vi.mock(`@/lib/integrations/notifications`, async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/integrations/notifications")>()
   return {
     ...real,
     fireAndForgetSessionMessageNotify: () => {},
-    notifyAssistantDecision: async (sessionId: string, text: string) => {
-      pushes.push({ sessionId, text })
+    notifySessionAsk: async (args: { sessionId: string; card: { kind: string } }) => {
+      pushes.push({ sessionId: args.sessionId, kind: args.card.kind })
     },
   }
 })
@@ -141,7 +141,7 @@ describe.skipIf(!ready.ok)(`the Assistant's quiet chat (#EXP-1439)`, () => {
       card: { kind: `question`, question: `Merge PR #12?`, options: [`Merge`, `Wait`] },
       replace: false,
     })
-    expect(pushes).toEqual([{ sessionId: w.conversation.id, text: `Merge PR #12?` }])
+    expect(pushes).toEqual([{ sessionId: w.conversation.id, kind: `question` }])
   })
 
   it(`never receives a routine bus line; a team agent's conversation still does`, async () => {

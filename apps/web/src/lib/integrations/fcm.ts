@@ -3,6 +3,7 @@ import { db } from "@/db/connection"
 import { fcmTokens } from "@/db/schema"
 import { recordPushBatch } from "@/lib/metrics/registry"
 import { PUSH_OVERHEAD, pushSeal } from "@/lib/push-seal"
+import { QUESTION_PUSH_DATA_KEYS } from "@exp/domain-contract/question-push"
 
 // ── Relay config (lazy singleton) ─────────────────────────────────────────────
 
@@ -49,6 +50,9 @@ const MAX_SEALED_PLAINTEXT = MAX_SEALED_BYTES - PUSH_OVERHEAD
 // The keys a tap cannot route without: the account, the inbox row to mark
 // read, and the notification kind. Everything else is dropped before these.
 const ESSENTIAL_DATA_KEYS = new Set([`userId`, `notificationId`, `type`])
+// #VAPP-45 (question-push.json): a question's tree-sealed text, the first
+// thing dropped over budget (the phone then shows the push body).
+const SEALED_TEXT_KEY = QUESTION_PUSH_DATA_KEYS.sealedText
 
 const utf8 = new TextEncoder()
 
@@ -81,7 +85,8 @@ function fitBody(
 /**
  * The plaintext sealed for one device: JSON `{title, body, data}` with the
  * same merged data the /send shim carries. Over budget (sealed > 3072 bytes)
- * it degrades in order: (1) the body is truncated, (2) data keys other than
+ * it degrades in order: (0) a question's `sealedText` is dropped (#VAPP-45),
+ * (1) the body is truncated, (2) data keys other than
  * userId / notificationId / type are dropped (body re-fitted from the
  * original), (3) the title is cut too. The routing keys always survive.
  */
@@ -90,6 +95,12 @@ export function sealedPlaintext(
   body: string | undefined,
   data: Record<string, string>
 ): Uint8Array {
+  if (SEALED_TEXT_KEY in data) {
+    const whole = utf8.encode(JSON.stringify({ title, body, data }))
+    if (whole.length <= MAX_SEALED_PLAINTEXT) return whole
+    const { [SEALED_TEXT_KEY]: _dropped, ...rest } = data
+    return sealedPlaintext(title, body, rest)
+  }
   const fitted = fitBody(title, body, data)
   if (fitted) return fitted
   const essential = Object.fromEntries(
@@ -103,6 +114,11 @@ export function sealedPlaintext(
     if (cut) return cut
   }
   return utf8.encode(JSON.stringify({ title: ``, data: essential }))
+}
+
+function withoutSealedText(data: Record<string, string>): Record<string, string> {
+  const { [SEALED_TEXT_KEY]: _dropped, ...rest } = data
+  return rest
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -221,7 +237,8 @@ export async function sendToUsers(
       body: JSON.stringify({
         tokens: req.tokens,
         notification: { title: payload.title, body: payload.body },
-        data: dataFor(req.userId),
+        // Released builds never open `sealedText`; FCM's 4 KB data cap.
+        data: withoutSealedText(dataFor(req.userId)),
       }),
     })
     if (!res.ok) {

@@ -31,7 +31,26 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Watching and steering a session now goes directly between your app and the device that runs it; the steer relay no longer carries session content.`,
     body: `- **Device to device**: a session's activity, your messages, answers and Stop travel over eNet between your app and the machine running the session, on web, desktop, iOS and Android. The steer relay only keeps device presence, the server's kill, Stop and compact commands, and voice calls.
 - **Earlier sessions**: an idle or ended session's transcript comes straight from the device that ran it. When that device is offline the session says so.
-- **Self-hosting**: this release removes server support for iOS below <ios>, Android below <android>, desktop below <desktop> and the CLI below <cli>. Set \`CLIENT_MIN_VERSION_*\` to those versions before upgrading (see \`selfhost/.env.example\`).`,
+- **Self-hosting**: this release removes server support for iOS below 0.14.76, Android below 0.14.78, desktop below 0.14.87 and the CLI below 0.14.87. Set \`CLIENT_MIN_VERSION_*\` to those versions before upgrading (see \`selfhost/.env.example\`).`,
+  },
+  {
+    id: `2026-10-30-sealed-content`,
+    date: `2026-10-30`,
+    title: `Sealed session content`,
+    summary: `Messages, cards and titles in your sessions are sealed on your devices, so the server stores them without being able to read them.`,
+    body: `- **Sealed on your devices**: what you, your agents and your Assistant write in a session (messages, cards, answers and titles) is sealed with that session's key before it leaves the device, on web, desktop, iOS and Android. The server stores and syncs it but can't read it.
+- **Keys arrive by themselves**: a new browser, phone or teammate on a shared session gets the key from one of your devices that's online, with no approval step. Until then the row shows "Waiting for the key" and opens on its own.
+- **Agents talk device to device**: a message from one agent to another goes straight to the target device over eNet; the server keeps only a sealed copy. Watching a running session from your phone or browser also connects straight to the device running it.
+- **Update required**: older apps can't open sealed content, so this release raises the minimum version on every platform.
+- **Also**: calls keep working when you switch between speaker, headphones and Bluetooth on your phone, and web apps load their records only when you open them.`,
+  },
+  {
+    id: `2026-10-30-question-pushes`,
+    date: `2026-10-30`,
+    title: `Questions push to your phone`,
+    summary: `When a chat you started asks you a question or proposes a plan, your phone gets a push, with the question itself even in sealed chats.`,
+    body: `- **Every chat you start**: a question or plan from one of your chats now sends you a push, not only your Assistant. Teammates are not pinged; they still see that it needs input.
+- **The question, kept private**: in a sealed chat the push carries the question encrypted, and your phone opens it with the chat's key to show it. Without the key you see "New message in a session".`,
   },
   {
     id: `2026-10-30-conversation-session-rows`,

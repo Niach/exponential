@@ -1,0 +1,230 @@
+{
+  "$comment": "#VAPP-45 (rescoped after #EXP-1458/#EXP-1459): THE PUSH OF A QUESTION CARRIES THE QUESTION TEXT, end to end, sealed. WHICH ASKS PUSH: a question or plan card a ROOT session posts on itself (MCP `exponential_show` ask/plan, a device's `sessions.reply` with a question/plan card), i.e. the session now waits on a person (`needs_input`): a thread root and an agent conversation root (the Assistant's included, #EXP-1439). A CHILD's ask routes to its parent agent (the bus `ask` mirror) and never pushes. A card REPLACED in place (`replace`) does not push again. TO WHOM (`questionPushRecipients`, `routingCases`): the session's OWNER (`sessions.user_id`) alone, never a teammate or a watcher (they see only the needs-you state). TYPE: the issue-less `agent_message` row routed to the session (inbox-route.json), so the existing type prefs (mute) and the 30 s title+body dedupe apply. TITLE (`questionPushTitle`, `titleCases`): an Assistant conversation = `copy.assistantTitle` (agent-settings.json `copy.decisionPush`), anything else = `copy.title` with the session's title. BODY on the row and the push: a PLAINTEXT card = `questionPushText(askText)` of the server's own bus `askText` (lib/sessions/bus.ts); a SEALED card = `copy.genericBody` (the server never opens it; the inbox row keeps the generic copy). DATA: the usual `{type, sessionId, teamId, teamSlug, notificationId, userId}` plus `dataKeys.rootId` (the tree whose key opens it; = sessionId for a root) and, for a sealed card whose device sealed an `askText` to its own tree, `dataKeys.sealedText` = that envelope VERBATIM (`exp-sealed:v1:<epoch>:…`, sealed-content.json BODY ENVELOPE; the epoch rides inside). Only ciphertext ever leaves the server: Postgres (the notifications row), logs and the push payload never hold the plaintext question of a sealed card. SIZE: the push is push-sealed per phone (`{title, body, data}`, 3072 bytes sealed, push-seal.json); over the cap `sealedText` is dropped FIRST (the phone then shows the push body), then the usual degrade steps (body cut, non-routing keys dropped, title cut). The legacy plaintext /send shim never carries `sealedText`. ON THE PHONE (`questionPushBody(data, keysFor, fallback)`, `bodyCases`; iOS = the Notification Service Extension with the shared-keychain TreeKeyStore, Android = FcmService with its key holder): `sealedText` and `rootId` present, the tree's keys held, `openBody` = `opened` → the shown body = `questionPushText(text)`; anything else (no sealedText, no rootId, no keys for that tree or epoch, refused, malformed, unsupported) → `fallback` = the push's own body, unchanged. The title is never replaced. `questionPushText(askText)` (`textCases`) = THE chat ask preview of an `ask` mirror whose body is that text (chats.json `askPreview`: a plan lead = `Plan: ` + the plan's first block, else `Question: ` + the first line with text minus `Asks: `, plainLine), then cut to `bodyMax` code points (`bodyMax - 1` kept + `…`). Secrets in `keys` are lowercase hex, by epoch; `keys` null = this phone holds no key for the tree. Mirrors: TS src/question-push.ts (the reference), iOS ExpPush QuestionPush.swift, Android push/QuestionPush.kt replay `textCases` and `bodyCases`; the server replays `routingCases` and `titleCases`.",
+  "copy": {
+    "title": "{title} needs you",
+    "assistantTitle": "Your Assistant needs a decision",
+    "genericBody": "New message in a session"
+  },
+  "bodyMax": 200,
+  "dataKeys": {
+    "sealedText": "sealedText",
+    "rootId": "rootId"
+  },
+  "routingCases": [
+    {
+      "name": "a thread root asks: its owner",
+      "session": {
+        "parentId": null,
+        "userId": "owner"
+      },
+      "recipients": [
+        "owner"
+      ]
+    },
+    {
+      "name": "an agent conversation root asks: its owner",
+      "session": {
+        "parentId": null,
+        "userId": "member"
+      },
+      "recipients": [
+        "member"
+      ]
+    },
+    {
+      "name": "a child asks: its parent agent answers, no push",
+      "session": {
+        "parentId": "11111111-1111-4111-8111-111111111111",
+        "userId": "owner"
+      },
+      "recipients": []
+    }
+  ],
+  "titleCases": [
+    {
+      "assistant": true,
+      "sessionTitle": "Assistant",
+      "title": "Your Assistant needs a decision"
+    },
+    {
+      "assistant": false,
+      "sessionTitle": "Fix the login bug",
+      "title": "Fix the login bug needs you"
+    }
+  ],
+  "textCases": [
+    {
+      "name": "question: the first line minus the lead, plain",
+      "askText": "Asks: Which database should we use for the **grüße** cache?\nOptions: Postgres | SQLite (free text allowed)\nAnswer with exponential_sessions_send({sessionId: \"11111111-1111-4111-8111-111111111111\", answer: {…}}) where answer = {answers: [\"<option>\"]} or {answer: \"<text>\"} if you know it; otherwise end your turn, a person answers in the card.",
+      "shown": "Question: Which database should we use for the grüße cache?"
+    },
+    {
+      "name": "plan: the first block",
+      "askText": "Proposes a plan:\n\n## Migrate the auth tables\n1. Add the column\n2. Backfill\n\nDecide with exponential_sessions_send({sessionId: \"11111111-1111-4111-8111-111111111111\", answer: {…}}) where answer = {decision: \"approved\" | \"rejected\"} if it is yours to decide; otherwise end your turn, a person decides in the card.",
+      "shown": "Plan: Migrate the auth tables Add the column Backfill"
+    },
+    {
+      "name": "over bodyMax code points: cut, … last",
+      "askText": "Asks: Should the release ship tonight or wait for the review? Should the release ship tonight or wait for the review? Should the release ship tonight or wait for the review? Should the release ship tonight or wait for the review? Should the release ship tonight or wait for the review?\nAnswer with exponential_sessions_send({sessionId: \"11111111-1111-4111-8111-111111111111\", answer: {…}}).",
+      "shown": "Question: Should the release ship tonight or wait for the review? Should the release ship tonight or wait for the review? Should the release ship tonight or wait for the review? Should the release sh…"
+    }
+  ],
+  "keys": {
+    "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+  },
+  "bodyCases": [
+    {
+      "name": "sealed question opens",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "rootId": "11111111-1111-4111-8111-111111111111",
+        "sealedText": "exp-sealed:v1:1:AWBacl0qSt_usaKeF-3WIcG3WT7ozbxErGxKtuL4BdI8qJwK8MmsQt1OPrJ4TrXv8xOiobBCPqTywh8Q03zl7AmtTfHq51uw9tmpo2klWvqr4kctWe6iozUHH_z1p3_TGb55tD-m8VbcXh2eZOagJFehDZD_o-N_ZQEL_q5hQTCYZZ4OU07-krEz925w2ycwGRuSt-BqGHmobZho1JIlE7kFT3XzGVDc2GdNIyMW3OjmpcXszrEgD9rPTliKUqyRhotrMhzTQ7gjMyWYqUXapXK7yq2YHn-N0iZOl_qGhMXzU_VD-ypHXp8emIMekUm5R6J5L4SE_z7LMhPJZdc86ct4yrbcTZCRUZg1ostXQ_Dtzp6xiZJMKMW3bjTedl9sXLmMJMawcTEBLntQEAFZGDJny3P1l0ABZfO3GyoQ9B9twCpWXAinqwmyScubL7GiUdpTwyvzTZYIf3tr5U8XK0RuJCSHeQ6DzL2ysNDKHENayFAZ6LJQfjpbreYKtbKgKXTu9njEDtirDAQ"
+      },
+      "keys": {
+        "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      },
+      "fallback": "New message in a session",
+      "shown": "Question: Which database should we use for the grüße cache?"
+    },
+    {
+      "name": "sealed plan opens",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "rootId": "11111111-1111-4111-8111-111111111111",
+        "sealedText": "exp-sealed:v1:1:ARNXgwLsuk01d31gTMstEimU8kUHVXMKTQG7CWQZlHxRu0HicmIHdy7RO4s-NdtZFqchISJr22U89rZfp02uFVWX8433Nph2CjJ0sW2tlV-6aSrOfwoBeRBxHBXLBTuNYjXDjGZtnX5QDqinHJUnzeRhR66_50k57mEKQ_5ZzY_8k3nBF92pf9Wba4OhhOrREEM0HtgFficvcJc55_5OXr46JvTjZDdkRagQENvNUwDR5JaeTEJKmrEbH8q67kb4L-CDoxj3Ss7maQXX0t93uF47oVKa3zzO4cM5zAgkvPt6vZYGN5j2UaMPTa4oCAk4bZeplAxfqZYShnGCGmSqhfwdSmqgvTjbIZbU-4rtOGNL-AmdkSL00WFPw7QC63ZjCm1Z5m6YhXvD3AnyxZLkNlUJ6iqgR3LSWZGvUiDPyy9iE1s0kk1PYeNxoJRamNOhZ2Bk3RVe2f8fo-sAKJbPuDCHkKN7upj3DX8"
+      },
+      "keys": {
+        "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      },
+      "fallback": "New message in a session",
+      "shown": "Plan: Migrate the auth tables Add the column Backfill"
+    },
+    {
+      "name": "sealed long question opens, cut",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "rootId": "11111111-1111-4111-8111-111111111111",
+        "sealedText": "exp-sealed:v1:1:AYA4oy7dib2P918iPo6qNDrCYjg2xg8fUbUB_5XqbyE6rXX3E3-PGUwoIOHy7dJvJ-2_rnnrASySSKsrEuTwCzvZ3vRMIio9Z7z3n2gh3nxrKs4dHbcEfEpYjjl-GItB1aR21L4oad1VSqPIP-LdYs93pWpxR2DHhGG9ujb8jqUl2Odzzv-5xO5Zo057UuDIGS_P5oGkMMtgbL8oNF4jtr0PldTNz6Hk-oJYnAAN0Id9ETavelOz7INSTCfFkcJuTM3AeTyeZzcxB5-v7HgS4aeWFTnc4_dUE_q3-_ITKZYPSF23AUy0VnPDOVQOBKEncM4qWL20OpUxr0i-eap_PqX04PML6ZplXCQ-iAcG4hG5l-tcAwybFBX0c8C9HbeotbEzd774KxSyrhS134HDo0-zKOhoy8-2Mlm_rwpe1vuoGxUgBmc0lXLui7tszUGS5VWc6EXU8BovGVlqp1CGjjmEws8BRBwT_2UxCgIa-ANnYxVu-SpzhSZyetIh-otUkD1rH463_JULcICefyGfng7XMMyxfsozGqU1ISbJMSEIMJncKuR1eNPkKRniPAEoQt6V5XPYOGXl"
+      },
+      "keys": {
+        "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      },
+      "fallback": "New message in a session",
+      "shown": "Question: Should the release ship tonight or wait for the review? Should the release ship tonight or wait for the review? Should the release ship tonight or wait for the review? Should the release sh…"
+    },
+    {
+      "name": "no key for its epoch: generic",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "rootId": "11111111-1111-4111-8111-111111111111",
+        "sealedText": "exp-sealed:v1:1:AWBacl0qSt_usaKeF-3WIcG3WT7ozbxErGxKtuL4BdI8qJwK8MmsQt1OPrJ4TrXv8xOiobBCPqTywh8Q03zl7AmtTfHq51uw9tmpo2klWvqr4kctWe6iozUHH_z1p3_TGb55tD-m8VbcXh2eZOagJFehDZD_o-N_ZQEL_q5hQTCYZZ4OU07-krEz925w2ycwGRuSt-BqGHmobZho1JIlE7kFT3XzGVDc2GdNIyMW3OjmpcXszrEgD9rPTliKUqyRhotrMhzTQ7gjMyWYqUXapXK7yq2YHn-N0iZOl_qGhMXzU_VD-ypHXp8emIMekUm5R6J5L4SE_z7LMhPJZdc86ct4yrbcTZCRUZg1ostXQ_Dtzp6xiZJMKMW3bjTedl9sXLmMJMawcTEBLntQEAFZGDJny3P1l0ABZfO3GyoQ9B9twCpWXAinqwmyScubL7GiUdpTwyvzTZYIf3tr5U8XK0RuJCSHeQ6DzL2ysNDKHENayFAZ6LJQfjpbreYKtbKgKXTu9njEDtirDAQ"
+      },
+      "keys": {
+        "2": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      },
+      "fallback": "New message in a session",
+      "shown": "New message in a session"
+    },
+    {
+      "name": "no key for its tree: generic",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "rootId": "11111111-1111-4111-8111-111111111111",
+        "sealedText": "exp-sealed:v1:1:AWBacl0qSt_usaKeF-3WIcG3WT7ozbxErGxKtuL4BdI8qJwK8MmsQt1OPrJ4TrXv8xOiobBCPqTywh8Q03zl7AmtTfHq51uw9tmpo2klWvqr4kctWe6iozUHH_z1p3_TGb55tD-m8VbcXh2eZOagJFehDZD_o-N_ZQEL_q5hQTCYZZ4OU07-krEz925w2ycwGRuSt-BqGHmobZho1JIlE7kFT3XzGVDc2GdNIyMW3OjmpcXszrEgD9rPTliKUqyRhotrMhzTQ7gjMyWYqUXapXK7yq2YHn-N0iZOl_qGhMXzU_VD-ypHXp8emIMekUm5R6J5L4SE_z7LMhPJZdc86ct4yrbcTZCRUZg1ostXQ_Dtzp6xiZJMKMW3bjTedl9sXLmMJMawcTEBLntQEAFZGDJny3P1l0ABZfO3GyoQ9B9twCpWXAinqwmyScubL7GiUdpTwyvzTZYIf3tr5U8XK0RuJCSHeQ6DzL2ysNDKHENayFAZ6LJQfjpbreYKtbKgKXTu9njEDtirDAQ"
+      },
+      "keys": null,
+      "fallback": "New message in a session",
+      "shown": "New message in a session"
+    },
+    {
+      "name": "a wrong key refuses: generic",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "rootId": "11111111-1111-4111-8111-111111111111",
+        "sealedText": "exp-sealed:v1:1:AWBacl0qSt_usaKeF-3WIcG3WT7ozbxErGxKtuL4BdI8qJwK8MmsQt1OPrJ4TrXv8xOiobBCPqTywh8Q03zl7AmtTfHq51uw9tmpo2klWvqr4kctWe6iozUHH_z1p3_TGb55tD-m8VbcXh2eZOagJFehDZD_o-N_ZQEL_q5hQTCYZZ4OU07-krEz925w2ycwGRuSt-BqGHmobZho1JIlE7kFT3XzGVDc2GdNIyMW3OjmpcXszrEgD9rPTliKUqyRhotrMhzTQ7gjMyWYqUXapXK7yq2YHn-N0iZOl_qGhMXzU_VD-ypHXp8emIMekUm5R6J5L4SE_z7LMhPJZdc86ct4yrbcTZCRUZg1ostXQ_Dtzp6xiZJMKMW3bjTedl9sXLmMJMawcTEBLntQEAFZGDJny3P1l0ABZfO3GyoQ9B9twCpWXAinqwmyScubL7GiUdpTwyvzTZYIf3tr5U8XK0RuJCSHeQ6DzL2ysNDKHENayFAZ6LJQfjpbreYKtbKgKXTu9njEDtirDAQ"
+      },
+      "keys": {
+        "1": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f"
+      },
+      "fallback": "New message in a session",
+      "shown": "New message in a session"
+    },
+    {
+      "name": "no sealedText (dropped over the cap, or none sent): the push body",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "rootId": "11111111-1111-4111-8111-111111111111"
+      },
+      "keys": {
+        "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      },
+      "fallback": "New message in a session",
+      "shown": "New message in a session"
+    },
+    {
+      "name": "a plaintext card: the server's body as is",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "rootId": "11111111-1111-4111-8111-111111111111"
+      },
+      "keys": null,
+      "fallback": "Question: Ship it today?",
+      "shown": "Question: Ship it today?"
+    },
+    {
+      "name": "no rootId: the push body",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "sealedText": "exp-sealed:v1:1:AWBacl0qSt_usaKeF-3WIcG3WT7ozbxErGxKtuL4BdI8qJwK8MmsQt1OPrJ4TrXv8xOiobBCPqTywh8Q03zl7AmtTfHq51uw9tmpo2klWvqr4kctWe6iozUHH_z1p3_TGb55tD-m8VbcXh2eZOagJFehDZD_o-N_ZQEL_q5hQTCYZZ4OU07-krEz925w2ycwGRuSt-BqGHmobZho1JIlE7kFT3XzGVDc2GdNIyMW3OjmpcXszrEgD9rPTliKUqyRhotrMhzTQ7gjMyWYqUXapXK7yq2YHn-N0iZOl_qGhMXzU_VD-ypHXp8emIMekUm5R6J5L4SE_z7LMhPJZdc86ct4yrbcTZCRUZg1ostXQ_Dtzp6xiZJMKMW3bjTedl9sXLmMJMawcTEBLntQEAFZGDJny3P1l0ABZfO3GyoQ9B9twCpWXAinqwmyScubL7GiUdpTwyvzTZYIf3tr5U8XK0RuJCSHeQ6DzL2ysNDKHENayFAZ6LJQfjpbreYKtbKgKXTu9njEDtirDAQ"
+      },
+      "keys": {
+        "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      },
+      "fallback": "New message in a session",
+      "shown": "New message in a session"
+    },
+    {
+      "name": "a malformed sealedText: the push body",
+      "data": {
+        "type": "agent_message",
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "teamId": "22222222-2222-4222-8222-222222222222",
+        "teamSlug": "acme",
+        "rootId": "11111111-1111-4111-8111-111111111111",
+        "sealedText": "exp-sealed:v1:1:AAAA"
+      },
+      "keys": {
+        "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      },
+      "fallback": "New message in a session",
+      "shown": "New message in a session"
+    }
+  ]
+}

@@ -21,6 +21,7 @@ import {
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
 const notify = vi.hoisted(() => vi.fn((..._args: unknown[]) => {}))
 vi.mock(`@/lib/integrations/notifications`, () => ({
+  notifySessionAsk: async () => {},
   fireAndForgetSessionMessageNotify: notify,
   fireAndForgetPrNotify: () => {},
   notifySessionBlocked: async () => {},

@@ -44,7 +44,7 @@ release is the tag plus a GitHub release; no crates.io name is spent.
 
 How spezl (or anyone) depends on the `publish = false` crates:
 
-1. **Pin a release tag, nothing else.** `etalk = { git = "https://github.com/Niach/exponential", tag = "etalk-v0.2.2" }`.
+1. **Pin a release tag, nothing else.** `etalk = { git = "https://github.com/Niach/exponential", tag = "etalk-v0.2.3" }`.
    Never `branch`, never master; a `rev` only to try an unreleased fix, and
    only until the next tag. Every crate of one lib uses the SAME tag.
 2. **One tag = one version of every crate of the lib.** The release workflow
@@ -115,7 +115,7 @@ Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 | product | version | registry | tag |
 |---|---|---|---|
 | eUI | 0.2.1 | npm `@exponential_app/eui{,-react,-solid,-element}`, crates.io `eui-core`, Maven Central `at.exponential:eui-compose{,-primitives}`, SwiftPM `Niach/exponential-ui-swift`; `eui-gpui` = git dependency on the tag | `eui-v0.2.1` |
-| eTalk | 0.2.2 | GitHub release (git dependencies on the tag), npm `@exponential_app/etalk`, SwiftPM `Niach/exponential-talk-swift` (product `ExponentialTalk`), Maven Central `at.exponential:etalk` (`etalk-ffi` inside both) | `etalk-v0.2.2` |
+| eTalk | 0.2.3 | GitHub release (git dependencies on the tag), npm `@exponential_app/etalk`, SwiftPM `Niach/exponential-talk-swift` (product `ExponentialTalk`), Maven Central `at.exponential:etalk` (`etalk-ffi` inside both) | `etalk-v0.2.3` |
 | ePilot | 0.1.0 | GitHub release (git dependencies on the tag) | `epilot-v0.1.0` |
 | eNet | 0.1.0 | crates.io `enet-core` (the bindings are not published yet) | `enet-v0.1.0` |
 | eUI (old name) | 0.1.1 | npm `@exponential_app/ui*` (deprecated), crates.io `exponential-ui`, Maven `at.exponential:ui-compose*` | `ui-v0.1.1` |
