@@ -139,9 +139,7 @@ final class PushRelayRegistrarTests: XCTestCase {
         XCTAssertEqual(a.capability, "cap_3")
     }
 
-    func testRegisterInputOmitsAbsentRelayFields() throws {
-        let legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(RegisterTokenInput(token: "t", platform: "ios"))) as? [String: String]
-        XCTAssertEqual(legacy, ["token": "t", "platform": "ios"])
+    func testRegisterInputCarriesTheRelayFields() throws {
         let sealed = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
             RegisterTokenInput(token: "t", platform: "ios", capability: "cap_x", pushPublicKey: "k")
         )) as? [String: String]

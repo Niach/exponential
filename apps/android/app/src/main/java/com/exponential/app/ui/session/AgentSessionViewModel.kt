@@ -1272,14 +1272,8 @@ class AgentSessionViewModel @AssistedInject constructor(
         text: String,
     ) = connection.answerThenSend(questionId, askId, keys, labels, text)
 
-    /** EXP-746: switch the run into one of its advertised modes.
-     *  Fire-and-forget — the re-emitted `config_state` IS the confirmation, so
-     *  nothing here waits, locks or times out. EXP-772 retired the option
-     *  pickers beside it: model and effort are launch decisions now. */
-    fun setMode(id: String) = connection.setMode(id)
-
     /** EXP-790: interrupt the turn in flight — the composer's Stop glyph.
-     *  Fire-and-forget like [setMode]; the feed shows the agent stopping. */
+     *  Fire-and-forget; the feed shows the agent stopping. */
     fun interrupt() {
         // EXP-1342: no socket to carry the frame, so `sessions.stop` does it —
         // and [stopSession] hands the queue bar's text back to the composer

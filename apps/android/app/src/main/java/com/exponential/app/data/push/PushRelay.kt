@@ -300,50 +300,39 @@ internal class PushRelayRegistrar(
     }
 }
 
-/** What one account's registration posts: sealed pushes need both, legacy neither. */
+/** What one account's registration posts (EXP-1435): the capability and the key that seals for it. */
 internal data class SealedRegistration(val capability: String, val pushPublicKey: String)
+
+/** The relay could not be used this pass: nothing was posted and the reconcile loop retries. */
+internal class PushRelayUnavailable(reason: String) : Exception(reason)
 
 /**
  * One account's registration decision (EXP-1435), over function seams:
- *  - the server names no relay (or predates `pushTokens.relay`), or this build
- *    cannot open sealed pushes (no native facade) → the bare token, done;
+ *  - the server names no relay (or predates `pushTokens.relay`) → it cannot
+ *    push at all, so nothing is posted, done;
  *  - a relay and a capability → the token + capability + public key, done;
- *  - the relay lookup or the relay itself failed → the bare token so pushes keep
- *    flowing through the /send shim, but NOT done: the loop retries.
- * Returns whether the registration is complete; a register failure throws.
+ *  - the relay lookup, the keypair or the relay itself failed → NOTHING is
+ *    posted (NEW-14: no bare-token fallback) and [PushRelayUnavailable] is
+ *    thrown, so the reconcile loop retries with its backoff.
+ * A register failure throws too.
  */
 internal class PushAccountRegistrar(
     private val relayUrl: suspend (accountId: String) -> String?,
     private val publicKey: () -> String?,
     private val capabilityFor: suspend (relayUrl: String, accountId: String, token: String) -> String?,
-    private val register: suspend (accountId: String, token: String, sealed: SealedRegistration?) -> Unit,
+    private val register: suspend (accountId: String, token: String, sealed: SealedRegistration) -> Unit,
 ) {
-    suspend fun register(accountId: String, token: String): Boolean {
-        var complete = true
+    suspend fun register(accountId: String, token: String) {
         val relay = try {
             relayUrl(accountId)
         } catch (err: CancellationException) {
             throw err
         } catch (err: Exception) {
-            Log.w(TAG, "pushTokens.relay failed: ${err.javaClass.simpleName}")
-            complete = false
-            null
-        }
-        val sealed = relay?.let { url ->
-            val key = publicKey() ?: return@let null
-            val capability = capabilityFor(url, accountId, token)
-            if (capability == null) {
-                complete = false
-                null
-            } else {
-                SealedRegistration(capability, key)
-            }
-        }
-        register(accountId, token, sealed)
-        return complete
-    }
-
-    private companion object {
-        const val TAG = "PushTokenMgr"
+            throw PushRelayUnavailable("pushTokens.relay failed: ${err.javaClass.simpleName}")
+        } ?: return
+        val key = publicKey() ?: throw PushRelayUnavailable("no push keypair")
+        val capability = capabilityFor(relay, accountId, token)
+            ?: throw PushRelayUnavailable("no relay capability")
+        register(accountId, token, SealedRegistration(capability, key))
     }
 }

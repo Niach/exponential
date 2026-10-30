@@ -13,18 +13,18 @@
 #
 # It ALSO requires live steering to be genuinely on — three of the eight shots
 # need it, and without it the issue detail reads "Live steering is unavailable on
-# this instance" (EXP-393), or 04_steering fails with "The relay never replayed
-# the transcript". Bring up the relay (`docker compose --profile steer up -d` at
+# this instance" (EXP-393), or 04_steering fails with "The eNet feed stub never
+# replayed the transcript". Bring up the relay (`docker compose --profile steer up -d` at
 # the repo root), export STEER_RELAY_URL=ws://localhost:4002 plus the matching
 # STEER_RELAY_SECRET for the web server, and leave `cd apps/web && bun run
 # screenshots:desktop` running for the whole capture — it is a live stand-in
-# desktop, not a one-shot seeder.
+# desktop, not a one-shot seeder: the relay holds its presence, its eNet feed
+# stub serves the steering feed (VAPP-168).
 #
 # STEER_RELAY_SECRET has to be in the RELAY's own environment too: a filtered
 # `bun --filter @exp/steer-relay start` does not inject the repo-root .env, and
 # without the secret the relay boots but answers 503 everywhere except /healthz.
-# `curl localhost:4002/healthz` should report one device and one room once the
-# stub is up.
+# `curl localhost:4002/healthz` should report one device once the stub is up.
 #
 # PARALLEL (EXP-1267): this lane, `fastlane styleguide_screenshots` and the
 # Android lanes can run at the same time — each iOS lane on its own simulators,

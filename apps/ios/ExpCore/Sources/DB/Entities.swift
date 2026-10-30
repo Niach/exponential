@@ -358,9 +358,9 @@ extension IssueEntity: Codable {
 // order come from that `agents` definition); children are sub-sessions on
 // any device (`depth` > 0). The root carries the thread facets (title, the
 // ONE Guide); issues and PRs hang off it through `session_issues` /
-// `pull_requests`. NEW-8: the legacy columns (`kind`, `dispatch`, `caption`,
-// `aside`, `move_to_device_id`, the action and agent mirrors) are never read;
-// the decoder ignores them while the server still sends them. Visibility is the shape's
+// `pull_requests`. NEW-8 dropped the legacy columns (`kind`, `dispatch`,
+// `caption`, `aside`, `move_to_device_id`, the action and agent mirrors); the
+// shape no longer sends them. Visibility is the shape's
 // (`shared OR user_id = me`), so every row here may be shown. Mirrors the
 // sessions shape allowlist (`host_user_id`, `mcp_server_ids` and an agent's
 // `instructions` stay server-only).

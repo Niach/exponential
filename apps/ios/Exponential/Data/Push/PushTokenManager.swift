@@ -19,9 +19,11 @@ private let logger = Logger(subsystem: "at.exponential", category: "PushTokenMan
 /// push public key, and that server's pushes then arrive sealed through APNs
 /// (the Notification Service Extension opens them). ONE relay install per
 /// relay URL (the APNs device token), one capability per (relay, account).
-/// No relay, an old server, or ANY relay failure (503 while the relay has no
-/// APNs credentials) registers the bare FCM token as before; a relay failure
-/// retries the upgrade on its own backoff. The FCM token stays the row key.
+/// A server without a relay (self-hosted without push) cannot push at all,
+/// so nothing is registered there. A relay failure (503 while the relay has no APNs credentials)
+/// leaves the account unregistered and retries on its own backoff: NEW-14
+/// dropped the bare-token fallback, the server only pushes sealed. The FCM
+/// token stays the row key.
 final class PushTokenManager: @unchecked Sendable {
     private let pushTokensApi: PushTokensApi
     private let auth: AuthRepository
@@ -33,9 +35,8 @@ final class PushTokenManager: @unchecked Sendable {
     private enum Mode {
         /// Sealed through the relay.
         case relay
-        /// The bare FCM token; `retryRelay` = the server named a relay but it
-        /// failed, so the upgrade is retried after `relayRetryAt`.
-        case legacy(retryRelay: Bool)
+        /// Nothing registered: the server names no relay, so it cannot push.
+        case noRelay
     }
 
     private let lock = NSLock()
@@ -47,6 +48,9 @@ final class PushTokenManager: @unchecked Sendable {
     private var lastApnsToken: Data?
     private var relayRetryAt: ContinuousClock.Instant?
     private var relayBackoff: Duration = PushTokenManager.relayBaseBackoff
+    // Account ids whose relay registration failed: held back until
+    // `relayRetryAt`, never registered without the relay meanwhile.
+    private var awaitingRelay: Set<String> = []
     // Account ids deliberately unregistered (sign-out in progress): the
     // reconcile loop must not re-register them in the moments between the
     // unregister call and the account actually being removed. Pruned once the
@@ -180,14 +184,12 @@ final class PushTokenManager: @unchecked Sendable {
             // sign-out removed their server row while credentials existed.
             registered = registered.filter { signedIn.contains($0.key) }
             suppressed.formIntersection(signedIn)
-            // A legacy registration whose relay failed retries the upgrade
-            // once the relay backoff has passed.
-            let retryRelay = relayRetryAt.map { now >= $0 } ?? true
-            let done = Set(registered.compactMap { id, mode -> String? in
-                if case .legacy(retryRelay: true) = mode, retryRelay { return nil }
-                return id
-            })
-            return signedIn.subtracting(done).subtracting(suppressed).sorted()
+            awaitingRelay.formIntersection(signedIn)
+            // An account whose relay failed retries once the relay backoff
+            // has passed.
+            let relayHeld = relayRetryAt.map { now < $0 } ?? false
+            return signedIn.subtracting(registered.keys).subtracting(suppressed)
+                .subtracting(relayHeld ? awaitingRelay : []).sorted()
         }
         var anyFailed = false
         for accountId in pending {
@@ -200,8 +202,11 @@ final class PushTokenManager: @unchecked Sendable {
             }
             guard proceed else { continue }
             do {
-                let mode = try await registerOne(accountId: accountId, token: token, apns: apns)
+                guard let mode = try await registerOne(accountId: accountId, token: token, apns: apns) else {
+                    continue
+                }
                 let signedOutMidFlight = lock.withLock { () -> Bool in
+                    awaitingRelay.remove(accountId)
                     if suppressed.contains(accountId) { return true }
                     // Only mark done if the token did not rotate mid-flight:
                     // this call posted the OLD token, and marking the account
@@ -230,73 +235,68 @@ final class PushTokenManager: @unchecked Sendable {
         return anyFailed
     }
 
-    /// Registers one account: sealed through its server's relay when it names
-    /// one and every relay step succeeds, else the bare FCM token. Throws
-    /// only when the final register itself fails.
-    private func registerOne(accountId: String, token: String, apns: Data?) async throws -> Mode {
-        var relayFailed = false
-        if let keypair = pushKeys.loadOrCreate() {
-            do {
-                let relay = try await Self.withTimeout(Self.registerTimeout) {
-                    try await self.pushTokensApi.relayUrl(accountId: accountId)
-                }
-                if let relay {
-                    // Firebase hands over the APNs token before the FCM
-                    // token; if it is still missing, retry the upgrade later.
-                    guard let apns else { throw PushRelayError.invalidResponse }
-                    let label = auth.accounts.first(where: { $0.id == accountId })
-                        .flatMap { URL(string: $0.instanceUrl)?.host } ?? "Exponential"
-                    let registrar = relayRegistrar
-                    let hex = apns.map { String(format: "%02x", $0) }.joined()
-                    let result = try await Self.withTimeout(Self.registerTimeout) {
-                        try await registrar.capability(relay: relay, accountId: accountId, label: label, apnsToken: hex)
-                    }
-                    if !result.resetAccounts.isEmpty {
-                        // Their capability died with the old install: their
-                        // rows must register the new one.
-                        lock.withLock {
-                            for id in result.resetAccounts { registered.removeValue(forKey: id) }
-                        }
-                    }
-                    try await Self.withTimeout(Self.registerTimeout) {
-                        try await self.pushTokensApi.register(
-                            accountId: accountId,
-                            token: token,
-                            capability: result.capability,
-                            pushPublicKey: keypair.publicKeyBase64Url
-                        )
-                    }
-                    lock.withLock {
-                        relayRetryAt = nil
-                        relayBackoff = Self.relayBaseBackoff
-                    }
-                    return .relay
-                }
-            } catch {
-                relayFailed = true
-                logger.error("Push relay registration failed, registering legacy: \(error.localizedDescription)")
+    /// Registers one account sealed through its server's relay; a server
+    /// that names none gets nothing (it cannot push). Returns nil when a relay step
+    /// failed: the account stays unregistered until the relay retry window
+    /// passes (NEW-14: no bare-token fallback). Throws when the server
+    /// cannot be asked for its relay.
+    private func registerOne(accountId: String, token: String, apns: Data?) async throws -> Mode? {
+        let relay = try await Self.withTimeout(Self.registerTimeout) {
+            try await self.pushTokensApi.relayUrl(accountId: accountId)
+        }
+        guard let relay else { return .noRelay }
+        do {
+            guard let keypair = pushKeys.loadOrCreate() else { throw PushRelayError.invalidResponse }
+            // Firebase hands over the APNs token before the FCM token; if it
+            // is still missing, retry later.
+            guard let apns else { throw PushRelayError.invalidResponse }
+            let label = auth.accounts.first(where: { $0.id == accountId })
+                .flatMap { URL(string: $0.instanceUrl)?.host } ?? "Exponential"
+            let registrar = relayRegistrar
+            let hex = apns.map { String(format: "%02x", $0) }.joined()
+            let result = try await Self.withTimeout(Self.registerTimeout) {
+                try await registrar.capability(relay: relay, accountId: accountId, label: label, apnsToken: hex)
+            }
+            if !result.resetAccounts.isEmpty {
+                // Their capability died with the old install: their rows must
+                // register the new one.
                 lock.withLock {
-                    // One step of backoff per retry window, however many
-                    // accounts hit the failure in it.
-                    let now = ContinuousClock.now
-                    if relayRetryAt.map({ now >= $0 }) ?? true {
-                        relayRetryAt = now + relayBackoff
-                        relayBackoff = min(relayBackoff * 2, Self.relayMaxBackoff)
-                    }
+                    for id in result.resetAccounts { registered.removeValue(forKey: id) }
                 }
             }
+            try await Self.withTimeout(Self.registerTimeout) {
+                try await self.pushTokensApi.register(
+                    accountId: accountId,
+                    token: token,
+                    capability: result.capability,
+                    pushPublicKey: keypair.publicKeyBase64Url
+                )
+            }
+            lock.withLock {
+                relayRetryAt = nil
+                relayBackoff = Self.relayBaseBackoff
+            }
+            return .relay
+        } catch {
+            logger.error("Push relay registration failed, retrying later: \(error.localizedDescription)")
+            lock.withLock {
+                awaitingRelay.insert(accountId)
+                // One step of backoff per retry window, however many accounts
+                // hit the failure in it.
+                let now = ContinuousClock.now
+                if relayRetryAt.map({ now >= $0 }) ?? true {
+                    relayRetryAt = now + relayBackoff
+                    relayBackoff = min(relayBackoff * 2, Self.relayMaxBackoff)
+                }
+            }
+            return nil
         }
-        try await Self.withTimeout(Self.registerTimeout) {
-            try await self.pushTokensApi.register(accountId: accountId, token: token)
-        }
-        return .legacy(retryRelay: relayFailed)
     }
 
     private static func describe(_ mode: Mode) -> String {
         switch mode {
         case .relay: "sealed via relay"
-        case .legacy(retryRelay: true): "legacy, relay retry pending"
-        case .legacy(retryRelay: false): "legacy"
+        case .noRelay: "skipped, the server has no relay"
         }
     }
 

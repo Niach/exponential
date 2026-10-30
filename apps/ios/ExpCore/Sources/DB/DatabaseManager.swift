@@ -2709,8 +2709,7 @@ public final class DatabaseManager: @unchecked Sendable {
         // aside, the action, the agent mirrors), and `session_issues` drops
         // `assigned_session_id`. Indexes covering a dropped column go first;
         // guarded so fresh installs and re-runs converge. Surviving rows keep
-        // their cursors: the decoders ignore the keys while they still ride
-        // the wire.
+        // their cursors.
         migrator.registerMigration("v78_drop_actions_and_legacy_session_columns") { db in
             try db.execute(sql: "DROP TABLE IF EXISTS \"actions\"")
             if try db.tableExists("electric_offsets") {

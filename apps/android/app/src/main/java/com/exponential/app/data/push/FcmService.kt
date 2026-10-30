@@ -47,29 +47,25 @@ class FcmService : FirebaseMessagingService() {
         // it. Anything unopenable or malformed is dropped silently — and its
         // content never reaches logcat.
         val sealed = data[SEALED_PUSH_DATA_KEY]
-        if (sealed != null) {
-            val secret = pushKeyStore.secret()
-            val payload = secret?.let { openSealedPush(sealed) { bytes -> PushCrypto.open(it, bytes) } }
-            if (payload == null) {
-                Log.w(TAG, "sealed push dropped (${if (secret == null) "no key" else "unopenable"})")
-                return
-            }
-            // #VAPP-45: a question push carries its tree-sealed text; opened
-            // here with the tree keys this install holds, else the push's body.
-            val body = payload.body ?: payload.data["body"]
-            showNotification(
-                title = payload.title ?: payload.data["title"] ?: "Exponential",
-                body = QuestionPush.body(payload.data, ::treeKeys, SealedFfi, body),
-                data = payload.data,
-            )
+        if (sealed == null) {
+            // NEW-14: this build registers sealed only; a plaintext push (the
+            // relay's retired /send shim) shows nothing.
+            Log.w(TAG, "unsealed push dropped")
             return
         }
-
-        // The relay's /send shim (plaintext, kept for released builds).
+        val secret = pushKeyStore.secret()
+        val payload = secret?.let { openSealedPush(sealed) { bytes -> PushCrypto.open(it, bytes) } }
+        if (payload == null) {
+            Log.w(TAG, "sealed push dropped (${if (secret == null) "no key" else "unopenable"})")
+            return
+        }
+        // #VAPP-45: a question push carries its tree-sealed text; opened
+        // here with the tree keys this install holds, else the push's body.
+        val body = payload.body ?: payload.data["body"]
         showNotification(
-            title = message.notification?.title ?: data["title"] ?: "Exponential",
-            body = message.notification?.body ?: data["body"],
-            data = data,
+            title = payload.title ?: payload.data["title"] ?: "Exponential",
+            body = QuestionPush.body(payload.data, ::treeKeys, SealedFfi, body),
+            data = payload.data,
         )
     }
 
@@ -80,7 +76,7 @@ class FcmService : FirebaseMessagingService() {
         return keys
     }
 
-    /** The ONE notification a push shows, plaintext or sealed: same channel, routing and ids. */
+    /** The ONE notification an opened push shows: one channel, routing and ids. */
     private fun showNotification(title: String, body: String?, data: Map<String, String>) {
         // Issue pushes carry an issueId (a reporter's reply too, SLOP-4);
         // issue-less agent_message / session_blocked pushes carrying a

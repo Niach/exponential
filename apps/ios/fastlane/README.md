@@ -39,15 +39,17 @@ the server's BETTER_AUTH_URL: better-auth rejects any other origin and the run
 
 then dies 120s later on the misleading "Issue list never synced".
 
-It ALSO needs live steering: 04_steering fails with "The relay never
+It ALSO needs live steering: 04_steering fails with "The eNet feed stub
 
-replayed the transcript" without `docker compose --profile steer up -d`
+never replayed the transcript" without `docker compose --profile steer up -d`
 
 (repo root) AND `cd apps/web && bun run screenshots:desktop` LEFT RUNNING
 
 for the whole capture — it is a live stand-in desktop, not a one-shot
 
-seeder. Check with `curl localhost:4002/healthz`: one device, one room.
+seeder (its eNet feed stub serves the steering feed, VAPP-168). Check
+
+with `curl localhost:4002/healthz`: one device.
 
 Captures land RAW in fastlane/screenshots-raw/; follow up with
 

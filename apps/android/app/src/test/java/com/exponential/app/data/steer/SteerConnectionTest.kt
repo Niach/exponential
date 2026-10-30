@@ -162,7 +162,7 @@ class SteerConnectionTest {
             connection.connect()
             val socket = transport.awaitOpen()
             assertEquals(listOf(JOIN_FRAME), socket.sent.toList())
-            // The relay answers every join with activity_reset + its replay.
+            // The device answers every join with activity_reset + its replay.
             socket.emit("""{"t":"activity_reset"}""")
             waitUntil("the live phase") { connection.phase.value == AgentPhase.Live }
             assertTrue(connection.connected.value)
@@ -194,7 +194,7 @@ class SteerConnectionTest {
         val transport = FakeTransport()
         transport.prepare = { dial, socket ->
             // ktor's OkHttp engine closes `outgoing` with a
-            // java.util.concurrent.CancellationException when the relay hangs
+            // java.util.concurrent.CancellationException when the device hangs
             // up first, the same class our own cancellation uses. Rethrowing
             // it ended the dial coroutine with no log and no phase write, and
             // nothing could revive the connection afterwards.
@@ -276,7 +276,7 @@ class SteerConnectionTest {
         }
     }
 
-    // EXP-648: the relay ticks a keepalive to every joined viewer, so a quiet
+    // EXP-648: the device ticks a keepalive to every joined viewer, so a quiet
     // agent (parked on a question or a plan approval) no longer reads as a
     // dead socket, and a kick does not throw a healthy socket away for a
     // re-join + activity_reset + full replay.
@@ -332,7 +332,7 @@ class SteerConnectionTest {
 
     // ── Staged replay (EXP-656) ─────────────────────────────────────────────
     //
-    // The relay answers every join with activity_reset + a full replay of the
+    // The device answers every join with activity_reset + a full replay of the
     // room log. Applying that literally emptied the feed for the length of the
     // burst, which disposed the LazyColumn (and with it the reader's scroll
     // position, the follow flag and the focused subagent tab) and dumped
@@ -349,7 +349,7 @@ class SteerConnectionTest {
         """{"t":"activity","seq":$seq,"event":{"kind":"narration","text":"$text"}}"""
 
     /** A live connection with an established feed — the state a reader parked
-     *  mid-plan is in when the relay decides to replay at them. */
+     *  mid-plan is in when the device decides to replay at them. */
     private suspend fun liveWithFeed(
         transport: FakeTransport,
         connection: SteerConnection,
@@ -399,7 +399,7 @@ class SteerConnectionTest {
         try {
             val socket = liveWithFeed(transport, connection)
             // A publisher-driven republish: reset + replay, no
-            // activity_synced (the relay marks only a JOIN replay).
+            // activity_synced (the device marks only a JOIN replay).
             socket.emit("""{"t":"activity_reset"}""")
             socket.emit(narration("replayed one"))
             // The old feed holds until the burst goes quiet.
@@ -484,7 +484,7 @@ class SteerConnectionTest {
             val socket = liveWithFeed(transport, connection)
             socket.emit("""{"t":"activity_reset"}""")
             socket.emit(narration("replayed one"))
-            // The relay's own 15s beat proves the burst is over.
+            // The device's own 15s beat proves the burst is over.
             socket.emit("""{"t":"keepalive"}""")
             waitUntil("the keepalive commit") {
                 connection.activity.value.feed.singleOrNull()?.let {
@@ -630,7 +630,7 @@ class SteerConnectionTest {
         val connection = connection(transport, stagingTimings)
         try {
             val socket = liveWithFeed(transport, connection)
-            // The protocol only ever grows; a frame from a newer relay must
+            // The protocol only ever grows; a frame from a newer device must
             // change nothing at all.
             socket.emit("""{"t":"something_new","payload":{"a":1}}""")
             socket.emit("""not json at all""")
@@ -661,7 +661,7 @@ class SteerConnectionTest {
             assertEquals(1, connection.activity.value.feed.size)
 
             socket.emit("""{"t":"bye","outcome":"ended"}""")
-            // The relay hangs up right behind its bye.
+            // The device hangs up right behind its bye.
             socket.hangUp()
             waitUntil("the ended phase") { connection.phase.value is AgentPhase.Ended }
             assertNull(connection.activity.value.compacting)
@@ -670,70 +670,7 @@ class SteerConnectionTest {
         }
     }
 
-    // ── EXP-746: steering v2 control frames ─────────────────────────────────
-
-    @Test
-    fun setConfigSendsOneSetConfigFrame() = runBlocking {
-        val transport = FakeTransport()
-        val connection = connection(transport, stagingTimings)
-        try {
-            val socket = liveWithFeed(transport, connection)
-            val before = socket.sent.size
-            connection.setConfig("model", "opus")
-            waitUntil("the set_config frame") { socket.sent.size > before }
-            // Fire-and-forget: one frame, no ack, no lock.
-            assertEquals(
-                json.parseToJsonElement("""{"t":"set_config","id":"model","value":"opus"}"""),
-                json.parseToJsonElement(socket.sent.last()),
-            )
-            assertTrue(connection.activity.value.answerLocks.isEmpty())
-            // A blank value is the "CLI default" pick and still goes out.
-            connection.setConfig("effort", "")
-            waitUntil("the blank set_config frame") { socket.sent.size > before + 1 }
-            assertEquals(
-                json.parseToJsonElement("""{"t":"set_config","id":"effort","value":""}"""),
-                json.parseToJsonElement(socket.sent.last()),
-            )
-        } finally {
-            connection.close()
-        }
-    }
-
-    @Test
-    fun setModeSendsOneSetModeFrame() = runBlocking {
-        val transport = FakeTransport()
-        val connection = connection(transport, stagingTimings)
-        try {
-            val socket = liveWithFeed(transport, connection)
-            val before = socket.sent.size
-            connection.setMode("plan")
-            waitUntil("the set_mode frame") { socket.sent.size > before }
-            assertEquals(
-                json.parseToJsonElement("""{"t":"set_mode","id":"plan"}"""),
-                json.parseToJsonElement(socket.sent.last()),
-            )
-        } finally {
-            connection.close()
-        }
-    }
-
-    @Test
-    fun aSetConfigOnADeadSocketSendsNothing() = runBlocking {
-        val transport = FakeTransport()
-        val connection = connection(transport, stagingTimings)
-        try {
-            val socket = liveWithFeed(transport, connection)
-            val before = socket.sent.size
-            connection.park()
-            connection.setConfig("model", "opus")
-            connection.setMode("plan")
-            // Nothing to send on, and nothing thrown either.
-            delay(stagingTimings.replayQuietMs * 3)
-            assertEquals(before, socket.sent.size)
-        } finally {
-            connection.close()
-        }
-    }
+    // ── EXP-746: config_state ───────────────────────────────────────────────
 
     @Test
     fun aStagedReplayReDerivesConfigAndUsageOnCommit() = runBlocking {
@@ -806,7 +743,7 @@ class SteerConnectionTest {
         }
         assertNull(steerEndDetail(null))
         assertNull(steerEndDetail(""))
-        // Anything the relay coins that isn't a known protocol word still shows.
+        // Anything the device coins that isn't a known protocol word still shows.
         assertEquals("publisher_lost", steerEndDetail("publisher_lost"))
         assertEquals("killed", steerEndDetail("killed"))
         // Cross-client contract: iOS `SteerOutcome.silentEndOutcomes`, web
@@ -823,7 +760,7 @@ class SteerConnectionTest {
         val connection = connection(transport, stagingTimings)
         try {
             val socket = liveWithFeed(transport, connection)
-            // The relay's journal republish signs off once the transcript is in.
+            // The device's journal republish signs off once the transcript is in.
             socket.emit("""{"t":"bye","outcome":"history"}""")
             socket.hangUp()
             waitUntil("the ended phase") { connection.phase.value is AgentPhase.Ended }
@@ -992,7 +929,7 @@ class SteerConnectionTest {
     }
 
     // EXP-1342 ("one message on Stop" ×4): a `sessions.stop` that bypasses
-    // the relay (the thread header's Stop, the composer's Stop while
+    // the feed (the thread header's Stop, the composer's Stop while
     // disconnected) hands the queue back to the draft FIRST, exactly as the
     // interrupt frame does — and puts the draft back the way it was when the
     // stop itself is refused (web `stopSessionTurn`). No connection = no
@@ -1136,7 +1073,7 @@ class SteerConnectionTest {
             assertEquals(1, connection.activity.value.queue.size)
             // EXP-861: the run ending drops what it was holding.
             socket.emit("""{"t":"bye","outcome":"ended"}""")
-            // The relay hangs up right behind its bye.
+            // The device hangs up right behind its bye.
             socket.hangUp()
             waitUntil("the ended phase") { connection.phase.value is AgentPhase.Ended }
             assertTrue(connection.activity.value.queue.isEmpty())
@@ -1158,7 +1095,7 @@ class SteerConnectionTest {
             socket.emit("""{"t":"activity","seq":40,"event":{"kind":"narration","text":"tail"}}""")
             socket.emit("""{"t":"activity_synced","truncated":true,"firstSeq":40}""")
             waitUntil("the truncated tail") { connection.activity.value.feed.size == 1 }
-            // The relay keeps the room open after the replay: pages flow.
+            // The device keeps the feed open after the replay: pages flow.
             assertTrue(connection.canLoadEarlier())
             assertTrue(connection.loadEarlier())
             waitUntil("the page ask") { socket.sent.any { it.contains(""""t":"history_page"""") } }

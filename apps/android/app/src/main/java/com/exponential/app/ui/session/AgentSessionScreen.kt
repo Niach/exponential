@@ -459,7 +459,7 @@ fun RunFace(
 
 /**
  * EXP-1291: the RAW SESSION VIEW (`session/{sessionId}`) — ONE session's live
- * transcript off the steer relay (lane SESSION owns it), opened from its card
+ * transcript, streamed from the device over eNet (VAPP-43), opened from its card
  * in the thread. Header ([SessionHeaderBar]): back · a back row named after
  * the THREAD (→ [onOpenThread], its root) over the session's own name with
  * its state mark · Stop while it is live and the viewer may stop it (shared
