@@ -76,6 +76,33 @@ enum AppRoute: Hashable {
     case thirdPartyLicenses
 }
 
+extension AppRoute {
+    /// #EXP-1456 (inbox-route.json `sessionTarget`, S-3): where a session
+    /// opens — the viewer's own agent conversation root = the agent's page,
+    /// a thread root or child = the thread (on the child's page), anything
+    /// else (a teammate's conversation, a child under an agent, an unsynced
+    /// id) = the session on its own screen.
+    static func opening(_ target: InboxRoute.SessionTarget, accountId: String) -> AppRoute {
+        switch target {
+        case let .agent(agentId):
+            .agentChannel(accountId: accountId, agentId: agentId)
+        case let .thread(threadId, sessionId):
+            .thread(accountId: accountId, threadId: threadId, child: sessionId.map { .session($0) })
+        case let .session(id):
+            .agentSession(accountId: accountId, sessionId: id)
+        }
+    }
+
+    /// `opening(_:)` for a session id read from the account's store.
+    @MainActor static func openingSession(_ sessionId: String, accountId: String, deps: AppDependencies) -> AppRoute {
+        let viewerId = deps.auth.accounts.first { $0.id == accountId }?.userId
+        let target = (try? deps.db.pool(forAccountId: accountId).read { db in
+            try InboxRoute.sessionTarget(db: db, sessionId: sessionId, viewerId: viewerId)
+        }) ?? .session(id: sessionId)
+        return opening(target, accountId: accountId)
+    }
+}
+
 /// EXP-1210: the bottom bar's destinations — ROOT siblings on phones. The
 /// selected one IS the navigation stack's root, so switching swaps the root
 /// (no push animation, no back chevron, no swipe-back) and the path holds
@@ -582,15 +609,16 @@ struct MainNavigator: View {
                 navigate({ openInboxFromPush() }, dropped: { _ = deps.deepLinkBus.consumeInbox() })
             }
         }
-        // A session_blocked push tap (EXP-980): open the SESSION that hit
-        // the rate limit, under the recipient's account.
+        // A push tap naming a session (EXP-980 wall, #EXP-1456 an agent's
+        // decision or a mention, whatever its type): open it by the
+        // inbox-route rule, under the recipient's account.
         .onChange(of: deps.deepLinkBus.pendingSessionId) { _, sessionId in
             if let sessionId {
                 let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSessionUserId)
                 _ = deps.deepLinkBus.consumeSession()
                 navigate {
                     activateTeam(forSession: sessionId, accountId: accountId)
-                    path.append(AppRoute.agentSession(accountId: accountId, sessionId: sessionId))
+                    path.append(AppRoute.openingSession(sessionId, accountId: accountId, deps: deps))
                 }
             }
         }
@@ -641,7 +669,7 @@ struct MainNavigator: View {
             if let sessionId = deps.deepLinkBus.consumeSession() {
                 let accountId = issueAccountId(forUserId: sessionUserId)
                 activateTeam(forSession: sessionId, accountId: accountId)
-                path.append(AppRoute.agentSession(accountId: accountId, sessionId: sessionId))
+                path.append(AppRoute.openingSession(sessionId, accountId: accountId, deps: deps))
             }
             if let target = deps.deepLinkBus.consumeThread() {
                 activateTeam(forSession: target.threadId, accountId: target.accountId)

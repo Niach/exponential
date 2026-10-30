@@ -10,7 +10,7 @@ const { selectResults, selectCalls, executeState } = vi.hoisted(() => ({
   selectResults: [] as unknown[][],
   selectCalls: { count: 0 },
   // EXP-801: the insert…returning statement sendAgentMessage runs.
-  executeState: { rows: [] as unknown[], calls: 0 },
+  executeState: { rows: [] as unknown[], calls: 0, params: [] as unknown[] },
 }))
 
 function chain(): Promise<unknown[]> & Record<string, () => unknown> {
@@ -29,8 +29,17 @@ vi.mock(`@/db/connection`, () => ({
       selectCalls.count += 1
       return chain()
     },
-    execute: async () => {
+    execute: async (query: { queryChunks?: unknown[] }) => {
       executeState.calls += 1
+      // #EXP-1456: the bound values of the insert (drizzle Param chunks).
+      // A bare `${value}` stays a primitive chunk, a `sql.param` a Param.
+      executeState.params = (query.queryChunks ?? []).flatMap((chunk) =>
+        typeof chunk === `string`
+          ? [chunk]
+          : chunk && typeof chunk === `object` && `value` in chunk && !Array.isArray((chunk as { value: unknown }).value)
+            ? [(chunk as { value: unknown }).value]
+            : []
+      )
       return { rows: executeState.rows }
     },
   },
@@ -54,6 +63,7 @@ import { sendToUsers } from "@/lib/integrations/fcm"
 import {
   deliverableRecipients,
   notifyDeviceShareRemoved,
+  notifyAssistantDecision,
   notifySessionBlocked,
   sendAgentMessage,
 } from "./notifications"
@@ -189,6 +199,26 @@ describe(`notifyDeviceShareRemoved — an admin key reset names no one`, () => {
     selectResults.push([])
     await notifyDeviceShareRemoved({ ...args, cause: `dropped` })
     expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Ada removed your share of box with Acme`)
+  })
+})
+
+// #EXP-1456 (inbox-route.json): an Assistant's decision is an issue-less row
+// that NAMES its conversation, so the inbox row and the push open it ×4.
+describe(`notifyAssistantDecision — the row and the push carry the conversation`, () => {
+  it(`writes the session id on the row and in the push`, async () => {
+    selectResults.push([{ userId: `owner`, teamId: `team-1`, teamSlug: `acme` }])
+    selectResults.push([{ id: `owner` }]) // membership guard
+    executeState.rows = [{ id: `n-1`, user_id: `owner` }]
+    selectResults.push([]) // push prefs: not muted
+
+    await notifyAssistantDecision(`conv-1`, `Ship it today?\nMore detail`)
+
+    expect(executeState.calls).toBe(1)
+    expect(executeState.params).toContain(`conv-1`)
+    expect(executeState.params).toContain(`agent_message`)
+    expect(executeState.params).toContain(`Ship it today?`)
+    const [, payload] = vi.mocked(sendToUsers).mock.calls[0]!
+    expect(payload.data).toEqual({ type: `agent_message`, sessionId: `conv-1`, teamId: `team-1`, teamSlug: `acme` })
   })
 })
 

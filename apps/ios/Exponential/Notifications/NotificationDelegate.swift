@@ -51,11 +51,12 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
         let userId = userInfo["userId"] as? String
         switch NotificationRouting.pushTarget(userInfo) {
         case let .session(sessionId):
-            // A blocked session (EXP-980): its `sessionId` is the one to open.
+            // A push naming a session (EXP-980 wall, #EXP-1456 an agent's
+            // decision, a mention): the navigator opens it by inbox-route.json.
             deepLinkBus.navigateToSession(sessionId, userId: userId)
         case .inbox:
-            // An issue-less agent message (EXP-801), or a blocked session
-            // whose row was pruned: the row lives in the inbox alone.
+            // An issue-less agent message without a session (EXP-801), or a
+            // blocked session whose row was pruned: the row lives in the inbox alone.
             let teamId = (userInfo["teamId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             deepLinkBus.navigateToInbox(userId: userId, teamId: teamId)
         case let .issue(issueId):

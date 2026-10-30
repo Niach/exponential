@@ -1,6 +1,7 @@
 package com.exponential.app.navigation
 
 import androidx.navigation.NavHostController
+import com.exponential.app.domain.InboxRoute
 
 /**
  * Route plumbing for the deep-link drain in [AppNavHost] (EXP-528).
@@ -105,3 +106,23 @@ const val ISSUE_ROUTE = "issue/{issueId}?comment={comment}"
 /** EXP-1241: the issue route scrolled to [commentId] (null = the plain route). */
 fun issueRoute(issueId: String, commentId: String? = null): String =
     if (commentId == null) "issue/$issueId" else "issue/$issueId?comment=$commentId"
+
+/**
+ * #EXP-1456: the route a session opens on (fixtures/inbox-route.json
+ * `sessionCases`, the S-3 rule) — an inbox row's and a push's session tap.
+ * My own agent conversation root = the agent's channel (the thread screen IS
+ * an agent root's channel, where the waiting question or plan docks); a
+ * thread root = the thread; a thread's child and anything else = the session
+ * view (Android has no in-thread child route, so a child opens on its own
+ * screen). [target] null = not synced: the session route's not-found state.
+ */
+fun sessionTargetRoute(sessionId: String, target: InboxRoute.SessionTarget?): String =
+    when (target) {
+        // The conversation root IS the session (sessionTarget only says
+        // `agent` for a root), and the thread screen is its channel.
+        is InboxRoute.SessionTarget.Agent -> Routes.thread(sessionId)
+        is InboxRoute.SessionTarget.Thread ->
+            target.sessionId?.let(Routes::session) ?: Routes.thread(target.threadId)
+        is InboxRoute.SessionTarget.Session -> Routes.session(target.sessionId)
+        null -> Routes.session(sessionId)
+    }

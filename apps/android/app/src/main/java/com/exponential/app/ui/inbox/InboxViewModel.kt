@@ -11,6 +11,7 @@ import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.InboxRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -56,12 +57,16 @@ sealed interface InboxEntry {
     /**
      * One agent message (EXP-801): an issue-less `agent_message` row is its
      * own entry — never bundled, each is a distinct thing someone's agent
-     * said. Tapping marks it read; there is nowhere to navigate.
+     * said. Tapping marks it read and, #EXP-1456, opens the session it names
+     * (an Assistant's decision, an @mention); without one it only marks read.
      * `teamName` resolves the row's synced team (null when unknown).
      */
     data class Message(val notification: NotificationEntity, val teamName: String?) : InboxEntry {
         override val unread: Int get() = if (notification.readAt == null) 1 else 0
         override val key: String get() = "message:${notification.id}"
+
+        /** The session to open (fixtures/inbox-route.json), or null. */
+        val sessionId: String? get() = notification.sessionTarget()
     }
 
     /**
@@ -75,9 +80,13 @@ sealed interface InboxEntry {
         override val key: String get() = "session:${notification.id}"
 
         /** The run to open, or null once it is gone. */
-        val sessionId: String? get() = notification.sessionId?.takeIf { it.isNotEmpty() }
+        val sessionId: String? get() = notification.sessionTarget()
     }
 }
+
+/** #EXP-1456: the session an issue-less row opens, by the ONE inbox-route rule. */
+private fun NotificationEntity.sessionTarget(): String? =
+    (InboxRoute.inboxRowTarget(type, issueId, sessionId) as? InboxRoute.RowTarget.Session)?.sessionId
 
 data class InboxState(
     val entries: List<InboxEntry> = emptyList(),
@@ -218,8 +227,8 @@ class InboxViewModel @Inject constructor(
 
     /**
      * Tap on an agent message (EXP-801) or a blocked run (EXP-980): mark that
-     * one row read. The blocked-run row's caller ALSO navigates to the run
-     * when it still has one.
+     * one row read. The caller ALSO opens the row's session when it names
+     * one (#EXP-1456).
      */
     fun markMessageRead(notification: NotificationEntity) = markRead(listOf(notification))
 

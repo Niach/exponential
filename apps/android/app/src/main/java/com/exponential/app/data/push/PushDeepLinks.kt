@@ -1,6 +1,7 @@
 package com.exponential.app.data.push
 
 import com.exponential.app.data.auth.ServerAccount
+import com.exponential.app.domain.InboxRoute
 
 /**
  * Pure routing rules for a tapped push, shared by the two delivery paths: the
@@ -43,7 +44,8 @@ object PushDeepLinks {
          *  screen on its Guide face, where the run's report lives. */
         data class IssueGuide(val id: String) : Target
 
-        /** The coding run a `session_blocked` push is about (EXP-980). */
+        /** The session an issue-less push names (a wall, EXP-980; an
+         *  agent's decision or an @mention, #EXP-1456). */
         data class Session(val id: String) : Target
 
         /** The My Work inbox — where an agent's message renders (EXP-801). */
@@ -51,25 +53,24 @@ object PushDeepLinks {
     }
 
     /**
-     * What a tapped push should open, or null when it carries no target. Any
-     * push naming an issue opens it — a `reporter_reply` (SLOP-4) included,
-     * it is issue-scoped like `issue_comment`. An `agent_message` naming an
-     * issue (EXP-933) opens that issue's Results; one without stays in the
-     * inbox. A `session_blocked` push routes to its run; without a run id
-     * (pruned since it was sent) it still lands in the inbox, where its row
+     * What a tapped push should open, or null when it carries no target — the
+     * inbox row's rule (#EXP-1456, fixtures/inbox-route.json). Any push naming
+     * an issue opens it (a `reporter_reply`, SLOP-4, included); an
+     * `agent_message` naming an issue (EXP-933) opens that issue's Results.
+     * An issue-less `agent_message` or `session_blocked` naming a session
+     * opens THAT session (an Assistant's decision, an @mention, a wall); one
+     * without (a broadcast, a pruned run) lands in the inbox, where its row
      * lives.
      */
     fun target(
         type: String?,
         issueId: String?,
         sessionId: String? = null,
-    ): Target? = when {
-        type == TYPE_AGENT_MESSAGE && !issueId.isNullOrEmpty() -> Target.IssueGuide(issueId)
-        !issueId.isNullOrEmpty() -> Target.Issue(issueId)
-        type == TYPE_SESSION_BLOCKED && !sessionId.isNullOrEmpty() -> Target.Session(sessionId)
-        type == TYPE_SESSION_BLOCKED -> Target.Inbox
-        type == TYPE_AGENT_MESSAGE -> Target.Inbox
-        else -> null
+    ): Target? = when (val row = InboxRoute.inboxRowTarget(type, issueId, sessionId)) {
+        is InboxRoute.RowTarget.Issue -> if (row.results) Target.IssueGuide(row.issueId) else Target.Issue(row.issueId)
+        is InboxRoute.RowTarget.Session -> Target.Session(row.sessionId)
+        InboxRoute.RowTarget.None ->
+            if (type == TYPE_AGENT_MESSAGE || type == TYPE_SESSION_BLOCKED) Target.Inbox else null
     }
 
     /**

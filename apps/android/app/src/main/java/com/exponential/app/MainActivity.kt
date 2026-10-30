@@ -179,7 +179,7 @@ class MainActivity : ComponentActivity() {
             "invite" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openInvite(it) }
             // agent_message push taps (EXP-801): the My Work inbox.
             "inbox" -> if (switchToPushAccount(linkUserId)) deepLinkBus.openInbox()
-            // session_blocked push taps (EXP-980): the run that hit the wall.
+            // session push taps (EXP-980 wall, #EXP-1456 decision/mention).
             "session" -> data.pathSegments.firstOrNull()?.let {
                 if (switchToPushAccount(linkUserId)) deepLinkBus.openSession(it)
             }

@@ -102,6 +102,8 @@ import {
   DEMO_AGENT_COMMENT_MINUTES_AGO,
   DEMO_AGENT_CONVERSATION_ID,
   DEMO_AGENT_CONVERSATION_IDS,
+  DEMO_ASSISTANT_CONVERSATION_ID,
+  DEMO_ASSISTANT_QUESTION,
   DEMO_AGENT_EVENT_TRIGGER_ID,
   DEMO_AGENT_ID,
   DEMO_AGENT_IDS,
@@ -715,6 +717,20 @@ async function seedSessionTree(ctx: {
         updatedAt: DEMO_AGENT_CHANNEL_TIMES.reply,
       })
     )
+  )
+  // #EXP-1456: the demo user's Assistant conversation, idle on its question.
+  await db.insert(sessions).values(
+    root(DEMO_ASSISTANT_CONVERSATION_ID, {
+      agentId: DEMO_ASSISTANT_ID,
+      title: ASSISTANT_COPY.name,
+      repositoryId: null,
+      shared: false,
+      status: `idle`,
+      startedAt: daysAgo(20),
+      lastTurnAt: minutesAgo(4),
+      createdAt: daysAgo(20),
+      updatedAt: minutesAgo(4),
+    })
   )
 
   // ── VAPP-110 + VAPP-122: the team's apps (the `apps` / `app` views) ────
@@ -1431,6 +1447,19 @@ async function seedSessionTree(ctx: {
         },
         // Fresh: a result story drops after stories.json `unseenHours`.
         at: minutesAgo(40),
+      },
+      // #EXP-1456: the Assistant's decision (the inbox row's target).
+      {
+        sessionId: DEMO_ASSISTANT_CONVERSATION_ID,
+        author: `agent`,
+        authorSessionId: DEMO_ASSISTANT_CONVERSATION_ID,
+        card: {
+          kind: `question`,
+          question: DEMO_ASSISTANT_QUESTION,
+          options: [`Ship it today`, `Wait for the fix`],
+          answer: null,
+        },
+        at: minutesAgo(4),
       },
       // VAPP-110 + VAPP-122: the demo user's editor session with the Working
       // hours app (the `app` view's chat), one exchange per version.
@@ -2663,6 +2692,18 @@ async function main() {
     return row
   }
   await seedSessionTree({ teamId: ws.id, demoId, jonas, repoId: repo.id, issue })
+  // #EXP-1456: the Assistant's decision push (issue-less, session-routed:
+  // notifyAssistantDecision), the inbox's newest row; after the tree, whose
+  // Assistant conversation it names.
+  await db.insert(notifications).values({
+    userId: demoId,
+    teamId: ws.id,
+    sessionId: DEMO_ASSISTANT_CONVERSATION_ID,
+    type: `agent_message`,
+    title: ASSISTANT_COPY.decisionPush,
+    body: DEMO_ASSISTANT_QUESTION,
+    createdAt: hoursAgo(0.07),
+  })
 
   // NEW-67 / S-3: the voice runs on the demo user's Assistant (seeded by
   // the session tree above) on the demo desktop (the server-kept mirror of
@@ -2913,7 +2954,7 @@ Seeded screenshot demo data:
   starter     ${STARTER_EMAIL} / ${STARTER_PASSWORD} (owns ${STARTER_TEAM_NAME}, no board — the wizard's invite + devices steps)
   invite      /invite/${DEMO_INVITE_TOKEN} (+ 2 more pending invites)
   showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${4} comments incl. @mention + #issue ref)
-  inbox       5 notifications (3 unread)
+  inbox       6 notifications (4 unread)
   threads     6 (${DEMO_THREAD_ID} = cold start, needs input via its child ${DEMO_SESSION_ID}; 3 more running, 1 idle with an open PR + Guide, 1 ended with a merged PR)
   agents      Triage (${DEMO_AGENT_ID}), Designer, Release
   machines    demo desktop (offline until screenshots:desktop beats) + 1 shared team server (offline)
