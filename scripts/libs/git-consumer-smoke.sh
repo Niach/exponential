@@ -35,10 +35,10 @@ manifests="$(for c in $crates; do git -C "$repo" show "$rev:apps/desktop/crates/
 tagged=""
 for p in $peers; do
   plib="${p%%:*}"
-  tag="$(printf '%s\n' "$manifests" | grep -o "tag = \"$plib-v[^\"]*\"" | cut -d'"' -f2 | sort -u)"
+  tag="$(printf '%s\n' "$manifests" | grep -o "tag = \"$plib-v[^\"]*\"" | cut -d'"' -f2 | sort -u || true)"
   [ -n "$tag" ] || tag="$(git -C "$repo" tag -l "$plib-v*" --sort=-v:refname | head -1)"
   [ "$(printf '%s\n' "$tag" | wc -l)" = 1 ] || { echo "$lib names more than one $plib tag: $tag" >&2; exit 1; }
-  for c in ${p#*:}; do
+  for c in $(printf %s "${p#*:}" | tr , " "); do
     tagged+="$c = { git = \"https://github.com/Niach/exponential\", tag = \"$tag\" }"$'\n'
   done
 done
@@ -60,6 +60,17 @@ cp "$repo/apps/desktop/rust-toolchain.toml" "$tmp/" 2>/dev/null || true
 
 echo "--- $lib @ $rev: $crates"
 cat "$tmp/Cargo.toml"
+# One copy of every crate of this repo: two sources of eui-gpui (the etalk
+# tag's checkout + the eui tag) would build, but their types never unify.
+ours="$(cd "$repo/apps/desktop/crates" && ls -d */ | tr -d / | paste -sd'|')"
+cargo tree --manifest-path "$tmp/Cargo.toml" --config 'net.git-fetch-with-cli=true' \
+  -d --depth 0 --target all -e normal,build > "$tmp/dupes.txt"
+dupes="$(grep -E "^($ours) v" "$tmp/dupes.txt" || true)"
+if [ -n "$dupes" ]; then
+  echo "a git consumer gets two copies of this repo's crates:" >&2
+  echo "$dupes" >&2
+  exit 1
+fi
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$repo/apps/desktop/target}/consumer-smoke" \
   cargo check --manifest-path "$tmp/Cargo.toml" --config 'net.git-fetch-with-cli=true'
 
@@ -68,16 +79,6 @@ want="$(grep -o 'zed-industries/zed#[0-9a-f]*' "$repo/apps/desktop/Cargo.lock" |
 got="$(grep -o 'zed-industries/zed#[0-9a-f]*' "$tmp/Cargo.lock" | sort -u || true)"
 if [ -n "$got" ] && [ "$got" != "$want" ]; then
   echo "the consumer's zed pin drifted: $got (workspace: $want)" >&2
-  exit 1
-fi
-# One copy of every crate of this repo: two sources of eui-gpui (the etalk
-# tag's checkout + the eui tag) would build, but their types never unify.
-ours="$(cd "$repo/apps/desktop/crates" && ls -d */ | tr -d / | paste -sd'|')"
-dupes="$(cargo tree --manifest-path "$tmp/Cargo.toml" --offline -d --depth 0 --target all -e normal,build \
-  | grep -E "^($ours) v" || true)"
-if [ -n "$dupes" ]; then
-  echo "a git consumer gets two copies of this repo's crates:" >&2
-  echo "$dupes" >&2
   exit 1
 fi
 echo "--- $lib: a git consumer builds, one copy of each shared crate"
