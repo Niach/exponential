@@ -12,6 +12,12 @@ export default defineConfig({
   use: {
     baseURL: `https://localhost:3000`,
     ignoreHTTPSErrors: true,
+    // EXP-1443: ignoreHTTPSErrors does not cover the service-worker script
+    // fetch, so every page's /sw.js registration fails on Caddy's self-signed
+    // cert, and about every other run the headless browser then dies on a
+    // CHECK (SIGTRAP) a second later, closing the page mid-test. No spec
+    // needs the service worker.
+    serviceWorkers: `block`,
     locale: `en-US`,
     timezoneId: `Europe/Berlin`,
     trace: `retain-on-failure`,
