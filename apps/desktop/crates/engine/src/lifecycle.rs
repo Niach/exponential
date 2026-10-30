@@ -417,6 +417,25 @@ pub fn keeps_workspace(outcome: &str) -> bool {
 /// EXP-1292: the row's last status write at the end of a run. NEW-17: a run
 /// whose process went away unasked, or a host stopping under a live turn,
 /// says so (`lost`) — never a silent end or idle.
+/// EXP-905 / EXP-1458: the agent's conversation name as a report: SEALED
+/// to the session's tree (`sealedTitle`, no plaintext `title`) when it can
+/// be, else the plaintext title as ever. BLOCKING (a first seal may create
+/// the tree key): the ticker thread calls it.
+pub(crate) fn title_report(session_id: &str, title: &str) -> api::session_device::SessionReport {
+    let sealed = coding::sealing::root_of(session_id)
+        .ok_or(coding::sealing::SealError::UnknownRoot)
+        .and_then(|root| coding::sealing::seal_body(&root, title));
+    match sealed {
+        Ok(sealed) => api::session_device::SessionReport { sealed_title: Some(sealed), ..Default::default() },
+        Err(err) => {
+            if err != coding::sealing::SealError::NoService {
+                log::debug!("engine: title of {session_id} goes out plaintext: {err}");
+            }
+            api::session_device::SessionReport { title: Some(title.to_string()), ..Default::default() }
+        }
+    }
+}
+
 fn finish_row(
     ctx: &SessionCtx,
     trpc: &api::TrpcClient,
@@ -916,12 +935,8 @@ fn spawn_tickers(
             };
             let title_hook: Option<steer::AgentTitleHook> = {
                 let report = report.clone();
-                Some(Arc::new(move |title: &str| {
-                    report(api::session_device::SessionReport {
-                        title: Some(title.to_string()),
-                        ..Default::default()
-                    })
-                }))
+                let session_id = ctx.session_id.clone();
+                Some(Arc::new(move |title: &str| report(title_report(&session_id, title))))
             };
             let status_hook: Option<steer::StatusHook> = {
                 let report = report.clone();
@@ -1188,6 +1203,26 @@ fn tick_api_retry(ctx: &SessionCtx, commands: &flume::Sender<EngineCommand>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1458: with the root known and a key holder, the title rides
+    /// `sealedTitle` only; without a holder it stays plaintext.
+    #[test]
+    fn the_title_report_seals_when_it_can() {
+        let _serial = crate::outbox::fake_seal::serial();
+        coding::sealing::uninstall();
+        let plain = serde_json::to_value(title_report("titled-child", "Fix the login")).unwrap();
+        assert_eq!(plain, serde_json::json!({"title": "Fix the login"}));
+        let fake = crate::outbox::fake_seal::install();
+        fake.keyring.note_root("titled-child", "titled-root");
+        let report = title_report("titled-child", "Fix the login");
+        let opened = report.sealed_title.as_deref().and_then(|t| coding::sealing::open_body_text("titled-root", t));
+        coding::sealing::uninstall();
+        assert_eq!(report.title, None);
+        let json = serde_json::to_value(&report).unwrap();
+        assert!(json.get("title").is_none(), "{json}");
+        assert!(json["sealedTitle"].as_str().is_some_and(|t| t.starts_with("exp-sealed:v1:1:")), "{json}");
+        assert_eq!(opened.as_deref(), Some("Fix the login"));
+    }
 
     #[test]
     fn a_buffered_line_becomes_one_steer_message() {

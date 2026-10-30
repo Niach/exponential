@@ -176,6 +176,11 @@ pub struct SendOutput {
     pub message_id: Option<String>,
     #[serde(default, alias = "txid")]
     pub tx_id: Option<i64>,
+    /// EXP-1458 (addendum 3): the install executing the target session
+    /// (`{installId, endpointId}`, `coding::sealing::DeliverTo`); `None` =
+    /// no direct delivery.
+    #[serde(default)]
+    pub deliver_to: Option<serde_json::Value>,
 }
 
 /// THE send ([`SendInput`]).
@@ -803,6 +808,19 @@ mod tests {
         answer(&client(&base), &input).unwrap();
         assert!(request(&captured).ends_with(
             r#"{"messageId":"m-3","decision":"approved","answers":{"layout":["Two columns"]},"surfaceData":{"size":"lg"}}"#
+        ));
+        // EXP-1458: a sealed card's answered form beside the clear decision.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
+        let input = AnswerInput {
+            message_id: "m-4".into(),
+            decision: Some("approved".into()),
+            fresh: Some(false),
+            sealed_card: Some(serde_json::json!({"decision": "approved", "kind": "plan", "sealed": "v1:1:AAAA"})),
+            ..AnswerInput::default()
+        };
+        answer(&client(&base), &input).unwrap();
+        assert!(request(&captured).ends_with(
+            r#"{"messageId":"m-4","decision":"approved","fresh":false,"sealedCard":{"decision":"approved","kind":"plan","sealed":"v1:1:AAAA"}}"#
         ));
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
         unqueue(&client(&base), "m-2").unwrap();

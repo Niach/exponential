@@ -2920,6 +2920,11 @@ fn spawn_daemon_worker(
         nudge: tx.clone(),
         reconciled: false,
     };
+    // EXP-1458: a direct (eNet) message runs a pass at once.
+    let arrival = tx.clone();
+    coding::direct_inbox::on_arrival(Box::new(move || {
+        let _ = arrival.send(DaemonWork::Pickup);
+    }));
     std::thread::Builder::new()
         .name("exp-daemon-worker".to_string())
         .spawn(move || {
@@ -2980,7 +2985,10 @@ impl DaemonHost {
         };
         if self.synced.ready(PICKUP_SHAPES) {
             let rows = read_shape_rows::<SessionRow>(&store, "sessions");
-            let messages = read_keyed_messages(&store);
+            let mut messages = read_keyed_messages(&store);
+            // EXP-1458: agent-to-agent messages that came over eNet ahead
+            // of their synced copy (deduped by id against it).
+            coding::direct_inbox::merge(&mut messages);
             self.pickup_pass(&rows, &messages);
         }
     }

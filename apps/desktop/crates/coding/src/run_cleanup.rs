@@ -457,7 +457,12 @@ pub fn finish_session_worktree(
 /// NEW-5: post [`leftover_note`] into `session_id`'s conversation
 /// (`sessions.reply`) — best-effort, logged on failure.
 pub fn post_leftover_note(trpc: &api::trpc::TrpcClient, session_id: &str, branch: &str) {
-    if let Err(err) = api::session_device::reply(trpc, session_id, &leftover_note(branch), None) {
+    if let Err(err) = api::session_device::reply(
+        trpc,
+        session_id,
+        &crate::sealing::seal_body_or_plain(session_id, &leftover_note(branch)),
+        None,
+    ) {
         log::warn!("run cleanup [{session_id}]: leftover note for {branch} not posted: {err}");
     }
 }

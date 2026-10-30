@@ -135,11 +135,13 @@ impl CallHost for Run {
 pub(crate) struct Hub {
     /// Token → run.
     runs: Mutex<HashMap<String, Arc<Run>>>,
+    /// EXP-1458: the MCP gateway's runs (their own tokens, `/gateway/*`).
+    pub(crate) gateways: crate::gateway::Gateways,
 }
 
 impl Hub {
     pub fn new() -> Self {
-        Self { runs: Mutex::default() }
+        Self { runs: Mutex::default(), gateways: crate::gateway::Gateways::default() }
     }
 
     /// A fresh token for `session_id`; an earlier one of the same run dies.
@@ -158,6 +160,7 @@ impl Hub {
     }
 
     pub fn revoke(&self, session_id: &str) {
+        self.gateways.revoke(session_id);
         self.runs.lock().unwrap().retain(|_, run| {
             let gone = run.session_id == session_id;
             if gone {
@@ -406,6 +409,9 @@ pub(crate) fn serve(hub: Arc<Hub>) -> Result<String, String> {
 }
 
 fn respond(hub: &Hub, mut request: tiny_http::Request) {
+    if request.url().starts_with(crate::gateway::ROUTE) {
+        return respond_gateway(hub, request);
+    }
     let json_header = || tiny_http::Header::from_bytes("Content-Type", "application/json").expect("static header");
     let plain = |status: u16| tiny_http::Response::empty(status).boxed();
     let token = request
@@ -429,6 +435,45 @@ fn respond(hub: &Hub, mut request: tiny_http::Request) {
             },
         },
         (Some(_), _) => plain(405),
+    };
+    let _ = request.respond(response);
+}
+
+/// EXP-1458: `/gateway/*`: the run's gateway token, then forwarded
+/// upstream through its transform ([`crate::gateway::handle`]).
+fn respond_gateway(hub: &Hub, mut request: tiny_http::Request) {
+    let header = |name: &'static str| {
+        request.headers().iter().find(|header| header.field.equiv(name)).map(|header| header.value.as_str().to_string())
+    };
+    let run = header("Authorization")
+        .and_then(|value| value.strip_prefix("Bearer ").map(str::to_string))
+        .and_then(|token| hub.gateways.run(&token));
+    let passed = crate::gateway::Passed {
+        session: header("Mcp-Session-Id"),
+        protocol: header("MCP-Protocol-Version"),
+        accept: header("Accept"),
+    };
+    let mut body = String::new();
+    let read = request.as_reader().take(BODY_MAX_BYTES).read_to_string(&mut body).is_ok();
+    let response = match (run, request.method()) {
+        (None, _) => tiny_http::Response::empty(401).boxed(),
+        (Some(_), tiny_http::Method::Post) if !read => tiny_http::Response::empty(400).boxed(),
+        (Some(run), tiny_http::Method::Post) => {
+            let reply = crate::gateway::handle(&run, &body, &passed);
+            let mut response = tiny_http::Response::from_string(reply.body).with_status_code(reply.status);
+            if let Some(content_type) = reply.content_type {
+                if let Ok(header) = tiny_http::Header::from_bytes("Content-Type", content_type.as_bytes()) {
+                    response = response.with_header(header);
+                }
+            }
+            if let Some(session) = reply.session {
+                if let Ok(header) = tiny_http::Header::from_bytes("Mcp-Session-Id", session.as_bytes()) {
+                    response = response.with_header(header);
+                }
+            }
+            response.boxed()
+        }
+        (Some(_), _) => tiny_http::Response::empty(405).boxed(),
     };
     let _ = request.respond(response);
 }

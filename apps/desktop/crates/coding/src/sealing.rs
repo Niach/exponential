@@ -285,6 +285,13 @@ pub trait SealService: Send + Sync {
     fn keyring(&self) -> &Keyring;
     /// This install's registry id.
     fn install_id(&self) -> Option<String>;
+    /// This install's X25519 public key (`PushKeypair::derive(identity)`),
+    /// for wrapping a NEW root's key to itself ([`seal_new_root`]): the
+    /// device MCP gateway seals an agent's new-thread start with it. `None`
+    /// = new threads go out plaintext.
+    fn install_public(&self) -> Option<[u8; 32]> {
+        None
+    }
     /// `root`'s current (epoch, public key) for WRITING into its own tree:
     /// the cached key, else `publicKeys`, else a fresh tree key this
     /// install creates (`sessionKeys.create`, epoch 1).
@@ -623,6 +630,10 @@ pub(crate) mod test_support {
         pub keyring: Keyring,
         pub created: Mutex<Vec<String>>,
         pub delivered: Mutex<Vec<(String, MessageRow)>>,
+        /// [`SealService::install_public`] (`None` = new roots stay plain).
+        pub install_public: Option<[u8; 32]>,
+        /// [`SealService::resolve_root`] answers.
+        pub roots: Mutex<HashMap<String, String>>,
     }
 
     impl SealService for FakeService {
@@ -631,6 +642,12 @@ pub(crate) mod test_support {
         }
         fn install_id(&self) -> Option<String> {
             Some("install-1".into())
+        }
+        fn install_public(&self) -> Option<[u8; 32]> {
+            self.install_public
+        }
+        fn resolve_root(&self, session_id: &str) -> Option<String> {
+            self.roots.lock().unwrap().get(session_id).cloned()
         }
         fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), String> {
             if let Some(current) = self.keyring.current(root_id) {

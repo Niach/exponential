@@ -210,6 +210,10 @@ impl SealService for KeyHolder {
         Some(self.inner.install_id.clone())
     }
 
+    fn install_public(&self) -> Option<[u8; 32]> {
+        Some(self.inner.install_public)
+    }
+
     fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), String> {
         if let Some(current) = self.inner.keyring.current(root_id) {
             return Ok(current);
