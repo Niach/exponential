@@ -648,7 +648,7 @@ pub(crate) enum RailBadge {
 
 /// One badge element at `glyph_px` (dots keep their fixed 6px regardless;
 /// a count is the 16px capsule).
-fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyElement {
+pub(crate) fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyElement {
     match badge {
         RailBadge::Dot(color) => div()
             .size_1p5()
@@ -698,7 +698,7 @@ fn rail_row(
 /// [`rail_row`] with an arbitrary LEAD element (an issue pin's mono
 /// identifier, a tinted board or agent glyph). EXP-1294: no caption — a rail
 /// row is its lead, its label and at most a badge.
-fn rail_row_lead(
+pub(crate) fn rail_row_lead(
     id: impl Into<gpui::ElementId>,
     lead: gpui::AnyElement,
     label: impl Into<SharedString>,
@@ -726,8 +726,70 @@ fn rail_row_lead(
         .child(lead)
         .child(div().flex_1().min_w_0().truncate().child(label.into()))
         .when_some(badge, |this, badge| {
-            this.child(rail_badge_element(badge, 12., cx))
+            this.child(rail_trailing_slot().child(rail_badge_element(badge, 12., cx)))
         })
+}
+
+/// EXP-1477: THE trailing column of a rail row (web `SidebarMenuTrailing`):
+/// its dot, count or status glyph centred in a 20px column 4px in from the
+/// row's right edge — the column a row's hover gear and a section label's
+/// `+` take too, so every trailing indicator of the rail lines up. The
+/// negative margin eats half of the row's 8px side padding.
+pub(crate) fn rail_trailing_slot() -> gpui::Div {
+    div()
+        .relative()
+        .flex_shrink_0()
+        .min_w(px(20.))
+        .h(px(20.))
+        .mr(px(-4.))
+        .flex()
+        .items_center()
+        .justify_center()
+}
+
+/// A rail section's muted label row ("Agents", "Boards"…); a trailing `+`
+/// child lands in the rows' trailing column.
+pub(crate) fn rail_section_label(text: &'static str, cx: &App) -> gpui::Div {
+    h_flex()
+        .w_full()
+        .h(px(24.))
+        .pl_1p5()
+        // EXP-1477: the `+` sits in the rows' trailing column.
+        .pr_1()
+        .items_center()
+        .child(
+            div()
+                .flex_1()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().sidebar_foreground.opacity(0.5))
+                .child(text),
+        )
+}
+
+/// [`rail_trailing_slot`] holding a row's hover gear over its badge: the
+/// gear shows while `group` is hovered and the badge (if any) yields the
+/// column to it — the web's `yieldsOnHover`.
+pub(crate) fn rail_trailing_hover_action(
+    group: &'static str,
+    badge: Option<gpui::AnyElement>,
+    action: impl IntoElement,
+) -> gpui::Div {
+    rail_trailing_slot()
+        .when_some(badge, |slot, badge| {
+            slot.child(div().group_hover(group, |style| style.invisible()).child(badge))
+        })
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .invisible()
+                .group_hover(group, |style| style.visible())
+                .child(action),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -810,20 +872,7 @@ impl RailView {
     /// EXP-791: a muted section label ("Agents", "Boards", "Pinned",
     /// "Running").
     fn section_label(&self, text: &'static str, cx: &App) -> gpui::Div {
-        h_flex()
-            .w_full()
-            .h(px(24.))
-            .pl_1p5()
-            .pr_0p5()
-            .items_center()
-            .child(
-                div()
-                    .flex_1()
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().sidebar_foreground.opacity(0.5))
-                    .child(text),
-            )
+        rail_section_label(text, cx)
     }
 
     /// EXP-778: the Pinned section's rows — the caller's pins in the ACTIVE
@@ -889,32 +938,31 @@ impl RailView {
                 _ => continue,
             };
             // EXP-863: hover reveals Unpin on the row's right — the board
-            // rows' gear recipe. The click stops at the button, so the row
-            // underneath never navigates.
+            // rows' gear recipe, in the trailing column (EXP-1477). The
+            // click stops at the button, so the row underneath never
+            // navigates.
             let unpin = {
                 let team_id = team_id.clone();
                 let target_id = target_id.to_string();
-                div()
-                    .invisible()
-                    .group_hover(PIN_ROW_GROUP, |style| style.visible())
-                    .flex_shrink_0()
-                    .child(
-                        Button::new(("rail-pin-unpin", index))
-                            .ghost()
-                            .cursor_pointer()
-                            .xsmall()
-                            .icon(Icon::from(registry::UI_UNPIN))
-                            .tooltip("Unpin")
-                            .on_click(move |_: &ClickEvent, _window, cx| {
-                                cx.stop_propagation();
-                                crate::pins::toggle_pin(
-                                    team_id.clone(),
-                                    kind,
-                                    target_id.clone(),
-                                    cx,
-                                );
-                            }),
-                    )
+                rail_trailing_hover_action(
+                    PIN_ROW_GROUP,
+                    None,
+                    Button::new(("rail-pin-unpin", index))
+                        .ghost()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(Icon::from(registry::UI_UNPIN))
+                        .tooltip("Unpin")
+                        .on_click(move |_: &ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            crate::pins::toggle_pin(
+                                team_id.clone(),
+                                kind,
+                                target_id.clone(),
+                                cx,
+                            );
+                        }),
+                )
             };
             out.push(row_el.group(PIN_ROW_GROUP).child(unpin).into_any_element());
         }
@@ -981,7 +1029,8 @@ impl RailView {
                             row.device_id.as_deref(),
                             &format!("rail-{}", row.root_id),
                             cx,
-                        ),
+                        )
+                        .map(|icon| rail_trailing_slot().child(icon).into_any_element()),
                         title: SharedString::from(row.title),
                         active,
                         on_open: Box::new(move |_, window, cx| {
@@ -1369,29 +1418,25 @@ impl RailView {
             navigate(window, cx, Screen::App { app: open.clone() })
         }))
         .when(manage, |row| {
-            row.child(
-                div()
-                    .invisible()
-                    .group_hover(APP_ROW_GROUP, |style| style.visible())
-                    .flex_shrink_0()
-                    .child(
-                        Button::new(("rail-app-settings", index))
-                            .ghost()
-                            .cursor_pointer()
-                            .xsmall()
-                            .icon(Icon::from(registry::NAV_SETTINGS))
-                            .tooltip("App settings")
-                            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                select_settings_section(
-                                    window,
-                                    cx,
-                                    crate::settings::SettingsSection::App(settings_id.clone()),
-                                );
-                                navigate(window, cx, Screen::Settings);
-                            })),
-                    ),
-            )
+            row.child(rail_trailing_hover_action(
+                APP_ROW_GROUP,
+                None,
+                Button::new(("rail-app-settings", index))
+                    .ghost()
+                    .cursor_pointer()
+                    .xsmall()
+                    .icon(Icon::from(registry::NAV_SETTINGS))
+                    .tooltip("App settings")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        select_settings_section(
+                            window,
+                            cx,
+                            crate::settings::SettingsSection::App(settings_id.clone()),
+                        );
+                        navigate(window, cx, Screen::Settings);
+                    })),
+            ))
         })
         .into_any_element()
     }
@@ -1423,7 +1468,7 @@ impl RailView {
             icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
             SharedString::from(agent.name.clone()),
             active,
-            threads_badge(agent.needs_you, agent.busy).map(RailBadge::Dot),
+            None,
             cx,
         )
         .group(AGENT_ROW_GROUP)
@@ -1442,29 +1487,28 @@ impl RailView {
             let agent_id = agent.agent_id.clone();
             move |menu, _, cx| crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &agent_id, cx)
         })
-        .child(
-                div()
-                    .invisible()
-                    .group_hover(AGENT_ROW_GROUP, |style| style.visible())
-                    .flex_shrink_0()
-                    .child(
-                        Button::new(("rail-agent-settings", index))
-                            .ghost()
-                            .cursor_pointer()
-                            .xsmall()
-                            .icon(Icon::from(registry::NAV_SETTINGS))
-                            .tooltip("Agent settings")
-                            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                select_settings_section(
-                                    window,
-                                    cx,
-                                    crate::settings::SettingsSection::Agent(settings_id.clone()),
-                                );
-                                navigate(window, cx, Screen::Settings);
-                            })),
-                    ),
-        )
+        // EXP-1477: the dot and the hover gear share the trailing column
+        // (the gear used to sit beside the dot, pushing it inwards).
+        .child(rail_trailing_hover_action(
+            AGENT_ROW_GROUP,
+            threads_badge(agent.needs_you, agent.busy)
+                .map(|tone| rail_badge_element(RailBadge::Dot(tone), 12., cx)),
+            Button::new(("rail-agent-settings", index))
+                .ghost()
+                .cursor_pointer()
+                .xsmall()
+                .icon(Icon::from(registry::NAV_SETTINGS))
+                .tooltip("Agent settings")
+                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    select_settings_section(
+                        window,
+                        cx,
+                        crate::settings::SettingsSection::Agent(settings_id.clone()),
+                    );
+                    navigate(window, cx, Screen::Settings);
+                })),
+        ))
         .into_any_element()
     }
 
@@ -1641,30 +1685,26 @@ impl RailView {
                 );
             }))
             .when(owner, |row| {
-                row.child(
-                    div()
-                        .invisible()
-                        .group_hover(BOARD_ROW_GROUP, |style| style.visible())
-                        .flex_shrink_0()
-                        .child(
-                            Button::new(("rail-board-settings", index))
-                                .ghost().cursor_pointer()
-                                .xsmall()
-                                .icon(Icon::from(registry::NAV_SETTINGS))
-                                .tooltip("Board settings")
-                                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                                    cx.stop_propagation();
-                                    select_settings_section(
-                                        window,
-                                        cx,
-                                        crate::settings::SettingsSection::Board(
-                                            settings_board_id.clone(),
-                                        ),
-                                    );
-                                    navigate(window, cx, Screen::Settings);
-                                })),
-                        ),
-                )
+                row.child(rail_trailing_hover_action(
+                    BOARD_ROW_GROUP,
+                    None,
+                    Button::new(("rail-board-settings", index))
+                        .ghost().cursor_pointer()
+                        .xsmall()
+                        .icon(Icon::from(registry::NAV_SETTINGS))
+                        .tooltip("Board settings")
+                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            select_settings_section(
+                                window,
+                                cx,
+                                crate::settings::SettingsSection::Board(
+                                    settings_board_id.clone(),
+                                ),
+                            );
+                            navigate(window, cx, Screen::Settings);
+                        })),
+                ))
             })
             .into_any_element()
         }

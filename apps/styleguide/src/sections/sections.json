@@ -13,7 +13,7 @@
       "call-controls",
       "feedback-states",
       "trace", "code-block",
-      "qr-code", "qr-scanner", "nav-rail", "voice-level"
+      "qr-code", "qr-scanner", "nav-rail", "voice-level", "sidebar-rows"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings", "work-screen",
@@ -53,6 +53,7 @@
     "qr-code": "VAPP-162",
     "qr-scanner": "VAPP-162",
     "nav-rail": "VAPP-162",
+    "sidebar-rows": "EXP-1477",
     "voice-level": "VAPP-162",
     "composer-dialog": "EXP-1019",
     "session-row": "EXP-1248",

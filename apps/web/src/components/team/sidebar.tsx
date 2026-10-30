@@ -36,6 +36,7 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuAction,
+  SidebarMenuTrailing,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
@@ -446,10 +447,12 @@ export function TeamSidebar({
                                   data-testid="nav-drafts"
                                 >
                                   <NavDraftsIcon className="h-4 w-4" />
-                                  <span className="flex-1">{DRAFTS_LABEL}</span>
-                                  <Pill size="sm" className="tabular-nums" data-testid="drafts-count-badge">{draftCount}</Pill>
+                                  <span>{DRAFTS_LABEL}</span>
                                 </Link>
                               </SidebarMenuButton>
+                              <SidebarMenuTrailing className="pointer-events-none">
+                                <Pill size="sm" className="tabular-nums" data-testid="drafts-count-badge">{draftCount}</Pill>
+                              </SidebarMenuTrailing>
                             </SidebarMenuItem>
                           )}
                         </SidebarMenu>

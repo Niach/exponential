@@ -74,6 +74,7 @@ import { entry as codeBlock } from "./code-block.tsx"
 import { entry as qrCode } from "./qr-code.tsx"
 import { entry as qrScanner } from "./qr-scanner.tsx"
 import { entry as navRail } from "./nav-rail.tsx"
+import { entry as sidebarRows } from "./sidebar-rows.tsx"
 import { entry as voiceLevel } from "./voice-level.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
@@ -108,6 +109,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   qrScanner,
   navRail,
   voiceLevel,
+  sidebarRows,
   composerDialog,
   issueContextMenu,
   sessionRow,

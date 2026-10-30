@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-sidebar-trailing-column",
+    date: "2026-10-30",
+    title: "Sidebar indicators, lined up",
+    summary: "Every dot, count and + in the sidebar now sits in one column.",
+    body: r#"- **One column**: an agent's dot, the Chats and Inbox dots, the Drafts count, an Active row's device and the sections' + buttons now line up at the sidebar's right edge, on web and desktop."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_127: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-offline-copy",
     date: "2026-10-30",
     title: "The offline copy, everywhere",

@@ -157,7 +157,9 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         .items_center()
         .gap(gpui::px(domain::list_item::GAP))
         .h(gpui::px(domain::list_item::SMALL))
-        .pr_3()
+        // EXP-1477: the rail rows' 8px side, so a trailing slot lands in
+        // the rail's one trailing column.
+        .pr_2()
         .pl(gpui::px(domain::list_item::lead_x(depth)))
         .children(crate::tree_guides::guide_layer(&guides, domain::list_item::BASE, 0.))
         .when(active, |this| this.bg(row_active))

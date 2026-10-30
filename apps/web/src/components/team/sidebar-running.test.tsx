@@ -117,9 +117,13 @@ describe(`SidebarRunningSection`, () => {
       `sidebar-running-t-pr`,
     ])
     expect(rows[0].textContent).toBe(`Reduce cold start`)
-    // EXP-1318: the root's device glyph trails the row (named for AT).
+    // EXP-1318: the root's device glyph trails the row (named for AT),
+    // EXP-1477: in the rail's trailing column beside the button.
     expect(
-      rows[0].querySelector(`[data-slot="session-row-device"]`)?.getAttribute(`aria-label`)
+      rows[0]
+        .closest(`li`)
+        ?.querySelector(`[data-slot="sidebar-menu-trailing"] [data-slot="session-row-device"]`)
+        ?.getAttribute(`aria-label`)
     ).toBe(`Alex's MacBook Pro`)
     expect(rows[1].querySelector(`[data-slot="session-row-device"]`)).toBeNull()
     expect(screen.queryByText(`Fix flaky scroll`)).toBeNull()

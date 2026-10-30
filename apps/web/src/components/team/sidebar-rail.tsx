@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Separator,
+  SidebarMenuTrailing,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -61,7 +62,8 @@ const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 export type BadgePlacement = `row` | `icon`
 
 // EXP-699: nav badges are dots — same colors and logic as the mobile tab
-// bars. A row carries it at the right edge, an icon at its top-right corner.
+// bars. A row carries it in its trailing column (EXP-1477), an icon at its
+// top-right corner.
 function NavDot({
   className,
   placement,
@@ -69,17 +71,17 @@ function NavDot({
   className: string
   placement: BadgePlacement
 }) {
-  return (
+  const dot = (
     <span
       className={cn(
-        `pointer-events-none absolute size-2 rounded-full`,
-        placement === `row`
-          ? `right-2 top-1/2 -translate-y-1/2`
-          : `right-1 top-1`,
+        `pointer-events-none size-2 rounded-full`,
+        placement === `icon` && `absolute right-1 top-1`,
         className
       )}
     />
   )
+  if (placement === `icon`) return dot
+  return <SidebarMenuTrailing className="pointer-events-none">{dot}</SidebarMenuTrailing>
 }
 
 /** EXP-1075: live sessions of MINE in ANOTHER team — the team picker's dot
