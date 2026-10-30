@@ -526,14 +526,14 @@ private struct StoryFooter: View {
             HStack(spacing: PlanCard.Stepper.buttonGap) {
                 Spacer(minLength: 0)
                 if rejecting {
-                    GlassPill(PlanCard.Copy.cancel, size: .md, mode: .action { rejecting = false })
+                    GlassPill(PlanCard.Copy.cancel, size: .md, mode: .action { rejecting = false }, isOpaque: true)
                     GlassPill(
                         Stories.Copy.change, size: .md, mode: .action { decide(AskDock.planRejectKey) },
                         primary: true, enabled: !busy
                     )
                     .accessibilityIdentifier("story-change")
                 } else {
-                    GlassPill(Stories.Copy.change, size: .md, mode: .action { rejecting = true }, enabled: !busy)
+                    GlassPill(Stories.Copy.change, size: .md, mode: .action { rejecting = true }, isOpaque: true, enabled: !busy)
                         .accessibilityIdentifier("story-change")
                     GlassPill(
                         Stories.Copy.approve, size: .md, mode: .action { decide("approve") },

@@ -107,7 +107,8 @@ export function ComposerReplies({
           disabled={pending?.has(item.id)}
           onClick={() => onSend(replies.messageId, item.id, item.text)}
           data-testid="thread-reply"
-          className="max-w-full"
+          // Floats over the transcript: the opaque card under the glass.
+          className="max-w-full bg-glass-card-opaque"
         >
           <span className="truncate">{item.text}</span>
         </Pill>

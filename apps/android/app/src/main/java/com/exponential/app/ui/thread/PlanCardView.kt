@@ -70,6 +70,7 @@ import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.ui.components.DockSheetFooter
 import com.exponential.app.ui.components.DockSheetScope
 import com.exponential.app.ui.components.GlassHostMenu
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassMenuItem
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
@@ -896,9 +897,9 @@ private fun PlanCardTiles(
 /**
  * S-3 STORIES (stories.json `footer`): a story's footer, drawn by THE card's
  * own controls and answered through THE card-answer path ([onAnswer] /
- * [onDecidePlan] = `sessions.answer`, the inline card's call): `plan` = the
- * plan's questions (if any) over THE decision row ([PlanSheetFooter]:
- * Approve, Change = reject + its feedback field); `choices` = THE question
+ * [onDecidePlan] = `sessions.answer`, the inline card's call): `plan` = THE
+ * plan options as pills (Change = reject + its feedback field, Approve), the
+ * iOS / web row; `choices` = THE question
  * block (option rows / tiles + `Other…` when custom) and the Answer button;
  * `reply` = the free-text field ([Stories.Copy.REPLY]) and Answer; `none`
  * (a result) = nothing. Sent = the busy line until the answered story drops
@@ -952,52 +953,69 @@ internal fun StoryAnswerFooter(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (plan != null) {
-                blocks.forEach { block ->
-                    ChoiceBlockView(
-                        block = block,
-                        caption = if (block.multi) PlanCard.Copy.CHOOSE_ANY else PlanCard.Copy.CHOOSE_ONE,
-                        picked = picks[block.id].orEmpty(),
-                        typed = null,
-                        answered = false,
+                // stories.json `footer` `plan` = THE plan options only
+                // (Approve, Change + its feedback field), as iOS and web: the
+                // plan's questions stay on the in-chat card.
+                if (rejecting) {
+                    CardTextField(
+                        value = feedback,
+                        onValueChange = { feedback = it },
+                        placeholder = AskDock.Copy.FEEDBACK_PLACEHOLDER,
                         enabled = !locked,
-                        customText = customText[block.id].orEmpty(),
-                        onToggle = { toggle(block, it) },
-                        onCustomText = { customText[block.id] = it },
-                        topPadding = 0.dp,
+                        singleLine = false,
+                        minHeight = PlanCard.Look.FIELD_MIN_HEIGHT.dp,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.testTag(PlanCard.TestIds.FEEDBACK),
                     )
                 }
-                val answers = blocks.associate { it.id to answerOf(it) }
-                val issue = PlanCard.answerIssue(
-                    PlanCard.Card.Plan(plan.questions),
-                    PlanCard.Input(decision = "approved", planAnswers = answers),
-                )
-                PlanSheetFooter(
-                    onBack = null,
-                    onNext = null,
-                    decide = true,
-                    approveIssue = issue,
-                    rejecting = rejecting,
-                    onRejecting = { rejecting = it },
-                    feedback = feedback,
-                    onFeedback = { feedback = it },
-                    busy = locked,
-                    onDecide = { option ->
-                        val approve = option.decision == "approved"
-                        if (!locked && !(approve && issue != null)) {
-                            state = AnswerState.Sending
-                            onDecidePlan(
-                                plan.id,
-                                PlanAnswer(
-                                    approved = approve,
-                                    fresh = approve && option.fresh,
-                                    feedback = if (approve) null else feedback.trim().takeIf { it.isNotEmpty() },
-                                    answers = answers.filterValues { it.isNotEmpty() }.takeIf { it.isNotEmpty() },
-                                ),
-                                settle,
+                fun decide(key: String) {
+                    val option = AskDock.PLAN_OPTIONS.firstOrNull { it.key == key } ?: return
+                    if (locked) return
+                    val approve = option.decision == "approved"
+                    state = AnswerState.Sending
+                    onDecidePlan(
+                        plan.id,
+                        PlanAnswer(
+                            approved = approve,
+                            fresh = approve && option.fresh,
+                            feedback = if (approve) null else feedback.trim().takeIf { it.isNotEmpty() },
+                            answers = null,
+                        ),
+                        settle,
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PlanCard.Stepper.BUTTON_GAP.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    when {
+                        locked -> AnsweringLine()
+                        rejecting -> {
+                            GlassPill(label = PlanCard.Copy.CANCEL, onClick = { rejecting = false }, opaque = true)
+                            GlassPill(
+                                label = com.exponential.app.domain.Stories.Copy.CHANGE,
+                                onClick = { decide("reject") },
+                                primary = true,
+                                modifier = Modifier.testTag("story-change"),
                             )
                         }
-                    },
-                )
+                        else -> {
+                            GlassPill(
+                                label = com.exponential.app.domain.Stories.Copy.CHANGE,
+                                onClick = { rejecting = true },
+                                opaque = true,
+                                modifier = Modifier.testTag("story-change"),
+                            )
+                            GlassPill(
+                                label = com.exponential.app.domain.Stories.Copy.APPROVE,
+                                onClick = { decide("approve") },
+                                primary = true,
+                                modifier = Modifier.testTag("story-approve"),
+                            )
+                        }
+                    }
+                }
             } else if (question != null) {
                 val block = blocks.first()
                 val reply = footer == com.exponential.app.domain.Stories.Footer.Reply
