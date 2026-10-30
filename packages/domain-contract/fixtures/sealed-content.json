@@ -660,7 +660,7 @@
     }
   ],
   "placeholder": {
-    "$comment": "EXP-1459 (owner: the web slice designs it, iOS/Android/desktop copy it): the ONE locked state x4, for content this install cannot open (yet). A message whose body or card does not open (openBody/openCard status noKey, unsupported, malformed or refused) is LOCKED with a reason: `noKey` = waiting for a holder to wrap the tree key for this install (it opens by itself once `sessionKeys.mine` has the wrap, no reload); `unreadable` = unsupported, malformed or refused (it never opens here). TRANSCRIPT (buildSessionThread, both layouts): a locked message is ONE `locked` row {id, reason, author} at its place, whatever its card kind, painted as THE transcript pill (chats.json TranscriptDivider: centred glass pill, muted xs) with the `icon` concept and `copy[reason]`, never a bubble or a card, no time. A locked waiting question/plan stays out of the dock (it cannot be answered here). CHAT LIST (chatPreview): a locked message counts like any other preview candidate; when it is the one the preview shows (the newest, or the waiting card while needsYou) the preview = {kind: `locked`, text: copy[reason]} painted ITALIC muted like `working`. TITLES: `sessions.sealed_title` that opens = the title; one that does not open falls back to the plaintext `title` (neutral) and the usual derivation (a locked first prompt counts as no prompt). A plaintext body (no envelope) is never locked.",
+    "$comment": "EXP-1459 (owner: the web slice designs it, iOS/Android/desktop copy it): the ONE locked state x4, for content this install cannot open (yet). A message whose body or card does not open (openBody/openCard status noKey, unsupported, malformed or refused) is LOCKED with a reason: `noKey` = waiting for a holder to wrap the tree key for this install (it opens by itself once `sessionKeys.mine` has the wrap, no reload); `unreadable` = unsupported, malformed or refused (it never opens here). TRANSCRIPT (buildSessionThread, both layouts): a locked message is ONE `locked` row {id, reason, author} at its place, whatever its card kind, painted as THE transcript pill (chats.json TranscriptDivider: centred glass pill, muted xs) with the `icon` concept and `copy[reason]`, never a bubble or a card, no time. A locked waiting question/plan stays out of the dock (it cannot be answered here). CHAT LIST (chatPreview): a locked message counts like any other preview candidate; when it is the one the preview shows (the newest, or the waiting card while needsYou) the preview = {kind: `locked`, text: copy[reason]} painted ITALIC muted like `working`. TITLES: `sessions.sealed_title` that opens = the title; one that does not open falls back to the plaintext `title` (neutral) and the usual derivation (a locked first prompt counts as no prompt). A plaintext body (no envelope) is never locked. CASES: `messageCases` = openMessage({body, card}, keys) -> {locked, body, card} (locked = the reason or null; body empty and card = its clear part when locked); `rowCases` = buildSessionThread's row for a locked message of the root (session-thread.json input shape); `previewCases` = chatPreview over messages already opened.",
     "icon": "ui-private",
     "copy": {
       "noKey": "Waiting for the key",
@@ -671,6 +671,240 @@
       "unsupported": "unreadable",
       "malformed": "unreadable",
       "refused": "unreadable"
-    }
+    },
+    "messageCases": [
+      {
+        "name": "plaintext body",
+        "keys": {},
+        "message": {
+          "body": "hello",
+          "card": null
+        },
+        "expected": {
+          "locked": null,
+          "body": "hello",
+          "card": null
+        }
+      },
+      {
+        "name": "sealed body opens",
+        "keys": {
+          "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+        },
+        "message": {
+          "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+          "card": null
+        },
+        "expected": {
+          "locked": null,
+          "body": "Ship it — grüße ✓!",
+          "card": null
+        }
+      },
+      {
+        "name": "sealed body, no key yet",
+        "keys": {},
+        "message": {
+          "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+          "card": null
+        },
+        "expected": {
+          "locked": "noKey",
+          "body": "",
+          "card": null
+        }
+      },
+      {
+        "name": "newer envelope version",
+        "keys": {
+          "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+        },
+        "message": {
+          "body": "exp-sealed:v2:1:AAAA",
+          "card": null
+        },
+        "expected": {
+          "locked": "unreadable",
+          "body": "",
+          "card": null
+        }
+      },
+      {
+        "name": "sealed body, wrong key",
+        "keys": {
+          "1": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f"
+        },
+        "message": {
+          "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+          "card": null
+        },
+        "expected": {
+          "locked": "unreadable",
+          "body": "",
+          "card": null
+        }
+      },
+      {
+        "name": "sealed card opens",
+        "keys": {
+          "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+        },
+        "message": {
+          "body": "",
+          "card": {
+            "kind": "question",
+            "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZM2AJriJcdhMisLfh21tMlDmrEfktdI15eESxl28XTBFJi8zr2Az5YTLu9ab9OZmLqBiyUobS-DSTjJj7AWH3FN2VltYJyOS4mxEiNFaFHY_AWaazy40nl4z45iYm97hQUar85L1HmqyrZR9JdutyuztVoNhxN8Gbu-OyyW8JfIqa5l6nv5JsYtawT7tPrX0kjb6iJZNEHdgJHEIgIvyp_K3Hi"
+          }
+        },
+        "expected": {
+          "locked": null,
+          "body": "",
+          "card": {
+            "custom": true,
+            "kind": "question",
+            "multi": false,
+            "optionDescriptions": [
+              "The server",
+              null
+            ],
+            "options": [
+              "Postgres",
+              "SQLite"
+            ],
+            "question": "Which database?"
+          }
+        }
+      },
+      {
+        "name": "sealed card, no key yet: the clear part",
+        "keys": {},
+        "message": {
+          "body": "",
+          "card": {
+            "kind": "question",
+            "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZM2AJriJcdhMisLfh21tMlDmrEfktdI15eESxl28XTBFJi8zr2Az5YTLu9ab9OZmLqBiyUobS-DSTjJj7AWH3FN2VltYJyOS4mxEiNFaFHY_AWaazy40nl4z45iYm97hQUar85L1HmqyrZR9JdutyuztVoNhxN8Gbu-OyyW8JfIqa5l6nv5JsYtawT7tPrX0kjb6iJZNEHdgJHEIgIvyp_K3Hi"
+          }
+        },
+        "expected": {
+          "locked": "noKey",
+          "body": "",
+          "card": {
+            "kind": "question"
+          }
+        }
+      }
+    ],
+    "rowCases": [
+      {
+        "name": "a locked agent message is the locked row",
+        "message": {
+          "id": "m1",
+          "authorKind": "agent",
+          "locked": "noKey"
+        },
+        "expected": {
+          "type": "locked",
+          "id": "m1",
+          "reason": "noKey",
+          "author": "agent"
+        }
+      },
+      {
+        "name": "a locked question card is the locked row, never a card",
+        "message": {
+          "id": "m2",
+          "authorKind": "agent",
+          "locked": "unreadable",
+          "card": {
+            "kind": "question"
+          }
+        },
+        "expected": {
+          "type": "locked",
+          "id": "m2",
+          "reason": "unreadable",
+          "author": "agent"
+        }
+      },
+      {
+        "name": "a locked person message",
+        "message": {
+          "id": "m3",
+          "authorKind": "user",
+          "locked": "noKey"
+        },
+        "expected": {
+          "type": "locked",
+          "id": "m3",
+          "reason": "noKey",
+          "author": "user"
+        }
+      }
+    ],
+    "previewCases": [
+      {
+        "name": "the newest message is locked",
+        "needsYou": false,
+        "busy": false,
+        "messages": [
+          {
+            "id": "a",
+            "authorKind": "agent",
+            "body": "Done.",
+            "createdAt": "2026-10-30T10:00:00Z"
+          },
+          {
+            "id": "b",
+            "authorKind": "agent",
+            "body": "",
+            "locked": "noKey",
+            "createdAt": "2026-10-30T11:00:00Z"
+          }
+        ],
+        "expected": {
+          "kind": "locked",
+          "text": "Waiting for the key"
+        }
+      },
+      {
+        "name": "the waiting card is locked",
+        "needsYou": true,
+        "busy": false,
+        "messages": [
+          {
+            "id": "q",
+            "authorKind": "agent",
+            "body": "",
+            "card": {
+              "kind": "question"
+            },
+            "locked": "unreadable",
+            "createdAt": "2026-10-30T11:00:00Z"
+          }
+        ],
+        "expected": {
+          "kind": "locked",
+          "text": "Can't be opened here"
+        }
+      },
+      {
+        "name": "busy wins over a locked message",
+        "needsYou": false,
+        "busy": true,
+        "messages": [
+          {
+            "id": "b",
+            "authorKind": "agent",
+            "body": "",
+            "locked": "noKey",
+            "createdAt": "2026-10-30T11:00:00Z"
+          }
+        ],
+        "expected": {
+          "kind": "working",
+          "text": "working…"
+        }
+      }
+    ]
   }
 }
