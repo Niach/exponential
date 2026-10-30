@@ -23,6 +23,7 @@ import {
   teams,
 } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { inSession } from "@/lib/sessions/messages"
 
 const relay = vi.hoisted(() => ({ nudges: [] as string[] }))
 vi.mock(`@/lib/steer`, async (importOriginal) => {
@@ -152,7 +153,7 @@ const nudges = async (sessionId: string) =>
   db
     .select({ body: messages.body, card: messages.card, authorId: messages.authorId })
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), sql`${messages.card}->>'name' = 'issue.assigned'`))
+    .where(and(inSession(sessionId), sql`${messages.card}->>'name' = 'issue.assigned'`))
 const conversationOf = async (agentId: string, userId: string) =>
   (await db.select().from(sessions).where(and(eq(sessions.agentId, agentId), eq(sessions.userId, userId))))[0]
 

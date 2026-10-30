@@ -5,6 +5,7 @@ import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { agents, boards, conversations, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { inRollback, probeRealDb } from "@/test/real-db"
+import { inSession, sessionConversation, messageWithSession } from "@/lib/sessions/messages"
 
 // #EXP-1399: ESCALATED cards against the REAL migrated Postgres (copied
 // harness from bus.real-db.test.ts). NEW-1 recap: THE server bus. Every
@@ -125,9 +126,9 @@ async function managed() {
 
 const asks = (sessionId: string) =>
   db
-    .select()
+    .select(messageWithSession())
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), sql`${messages.card}->>'kind' = 'ask'`))
+    .where(and(inSession(sessionId), sql`${messages.card}->>'kind' = 'ask'`))
     .orderBy(asc(messages.createdAt), asc(messages.id))
 
 describe.skipIf(!ready.ok)(`escalate: a managed thread's card in its agent's conversation`, () => {
@@ -247,7 +248,7 @@ async function privateUnderShared() {
 
 const SECRET = `Rotate the prod key xyz-123?`
 
-const preview = (rootId: string, rows: (typeof messages.$inferSelect)[], visibleSessionIds?: string[]) =>
+const preview = (rootId: string, rows: (typeof messages.$inferSelect & { sessionId: string })[], visibleSessionIds?: string[]) =>
   chatPreview({
     rootId,
     messages: rows.map((m) => ({
@@ -347,7 +348,7 @@ describe.skipIf(!ready.ok)(`escalate review: a private card never reaches reader
     expect(await asks(w.conversation)).toHaveLength(1)
     await expect(
       db.insert(messages).values({
-        sessionId: w.conversation,
+        conversationId: sessionConversation(w.conversation),
         authorKind: `agent`,
         body: `dup`,
         card: { kind: `ask`, sessionId: w.childId, messageId: asked.messageId },
@@ -409,7 +410,7 @@ describe.skipIf(!ready.ok)(`0198 migration: ask mirrors from before the review l
       const after = await tx
         .select()
         .from(messages)
-        .where(and(eq(messages.sessionId, w.thread), sql`${messages.card}->>'kind' = 'ask'`))
+        .where(and(inSession(w.thread), sql`${messages.card}->>'kind' = 'ask'`))
       const byOrigin = new Map(after.map((m) => [(m.card as { messageId: string }).messageId, m.body]))
       expect(byOrigin.get(asked.messageId)).toBe(askHiddenText({ id: w.childId }, question))
       expect(byOrigin.get(planned.messageId)).toBe(askHiddenText({ id: w.childId }, plan))

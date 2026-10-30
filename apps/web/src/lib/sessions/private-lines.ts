@@ -58,15 +58,16 @@ export async function hidePrivateLinesInTx(tx: Tx, rootIds: readonly string[]): 
     SELECT m.id, o.id AS "originId", m.body, m.card,
       (m.card IS NULL AND m.author_kind = 'agent' AND EXISTS (
         SELECT 1 FROM messages r
-        WHERE r.session_id = o.id AND r.author_kind = 'agent' AND r.card IS NULL
+        WHERE r.conversation_id = (SELECT oc.id FROM conversations oc WHERE oc.session_id = o.id) AND r.author_kind = 'agent' AND r.card IS NULL
           AND r.author_session_id IS NULL AND r.created_at = m.created_at
       )) AS relay,
       q.card->>'kind' AS "askKind"
     FROM messages m
-    JOIN sessions l ON l.id = m.session_id
+    JOIN conversations mc ON mc.id = m.conversation_id
+    JOIN sessions l ON l.id = mc.session_id
     JOIN sessions o ON o.id = m.author_session_id
     LEFT JOIN messages q ON m.card->>'kind' = 'ask' AND q.id::text = m.card->>'messageId'
-    WHERE l.root_id IN (${roots}) AND m.session_id <> m.author_session_id
+    WHERE l.root_id IN (${roots}) AND mc.session_id <> m.author_session_id
       AND NOT o.shared AND (l.shared OR l.user_id <> o.user_id)
   `)
   // A `session.ended` firing whose session is private (or gone) and
@@ -74,7 +75,8 @@ export async function hidePrivateLinesInTx(tx: Tx, rootIds: readonly string[]): 
   const firings = await tx.execute<Firing>(sql`
     SELECT m.id, m.body, e.name, e.emitted_by AS "emittedBy", e.payload
     FROM messages m
-    JOIN sessions l ON l.id = m.session_id
+    JOIN conversations mc ON mc.id = m.conversation_id
+    JOIN sessions l ON l.id = mc.session_id
     JOIN events e ON e.id::text = m.card->>'eventId'
     LEFT JOIN sessions o ON o.id::text = e.payload->>'sessionId'
     WHERE l.root_id IN (${roots}) AND m.card->>'event' = 'trigger_fired' AND e.name = 'session.ended'

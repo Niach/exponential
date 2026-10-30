@@ -27,6 +27,7 @@ import {
 import type { db as Database } from "@/db/connection"
 import { closeAskMirrorsOf } from "@/lib/sessions/bus"
 import { hostedByCondition } from "@/lib/sessions/host"
+import { inSessions } from "@/lib/sessions/messages"
 import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
 import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 import {
@@ -205,8 +206,10 @@ export async function guardAndCleanupTeamsForUserDeletion(
     const ids = requested.map((row) => row.id)
     await tx
       .update(messages)
-      .set({ ownerId: sql`(SELECT s.user_id FROM sessions s WHERE s.id = ${messages.sessionId})` })
-      .where(inArray(messages.sessionId, ids))
+      .set({
+        ownerId: sql`(SELECT s.user_id FROM conversations c JOIN sessions s ON s.id = c.session_id WHERE c.id = ${messages.conversationId})`,
+      })
+      .where(inSessions(ids))
     await tx
       .update(sessionIssues)
       .set({ ownerId: sql`(SELECT s.user_id FROM sessions s WHERE s.id = ${sessionIssues.sessionId})` })

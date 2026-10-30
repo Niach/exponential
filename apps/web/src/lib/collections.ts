@@ -398,9 +398,8 @@ export const messageCollection = createCollection(
     id: `messages`,
     syncMode: `on-demand`,
     shapeOptions: shapeOptions(`/api/shapes/messages`),
-    // NEW-8: a message is keyed through its conversation; the legacy
-    // `session_id` the server still serves is optional and never read here.
-    schema: selectSyncedMessageSchema.partial({ sessionId: true }),
+    // NEW-8: a message is keyed through its conversation.
+    schema: selectSyncedMessageSchema,
     getKey: (item) => item.id,
   })
 )

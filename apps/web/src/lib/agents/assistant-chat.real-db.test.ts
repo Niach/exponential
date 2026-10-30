@@ -9,6 +9,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { agents, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { inSession } from "@/lib/sessions/messages"
 
 vi.mock(`@/lib/steer`, async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/steer")>()
@@ -79,14 +80,14 @@ async function world() {
       await tx
         .update(messages)
         .set({ consumedAt: new Date() })
-        .where(and(eq(messages.sessionId, conversation.id), sql`${messages.consumedAt} IS NULL`))
+        .where(and(inSession(conversation.id), sql`${messages.consumedAt} IS NULL`))
     })
   /** The member writes, and the device delivers it. */
   const write = (body: string) =>
     db.transaction((tx) => insertMessage(tx, conversation.id, { authorKind: `user`, authorId: owner, body, consumedAt: new Date() }))
   const surface = (text: string) => ({ kind: `surface` as const, surface: { root: { id: `t`, component: `Text`, props: { text } } } })
   const show = (text: string) => postShowCard({ userId: owner, sessionId: conversation.id, card: surface(text), replace: false })
-  const rows = () => db.select().from(messages).where(eq(messages.sessionId, conversation.id))
+  const rows = () => db.select().from(messages).where(inSession(conversation.id))
   return { owner, teamId, deviceId, assistant, conversation, host, tick, write, show, rows }
 }
 
@@ -163,7 +164,7 @@ describe.skipIf(!ready.ok)(`the Assistant's quiet chat (#EXP-1439)`, () => {
       await db.transaction((tx) => busLine(tx, child, `pr_opened`, `Opened PR #1`, { waking: true }))
     }
     const lines = async (sessionId: string) =>
-      (await db.select().from(messages).where(eq(messages.sessionId, sessionId))).filter(
+      (await db.select().from(messages).where(inSession(sessionId))).filter(
         (row) => row.card?.kind === `event` && (row.card as { event?: string }).event === `pr_opened`
       )
     expect(await lines(w.conversation.id)).toHaveLength(0)

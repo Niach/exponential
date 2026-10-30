@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, eq, sql } from "drizzle-orm"
 import { isStoryCard } from "@exp/domain-contract/stories"
 import type { MessageCard } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
@@ -7,6 +7,7 @@ import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 import { githubApiHeaders } from "@/lib/integrations/github-app"
 import { appBaseUrl, buildSessionDeepLinkPath } from "@/lib/notification-email-policy"
 import { logicalSessionIds } from "@/lib/sessions/guide-entries"
+import { inSessions, messageSessionId } from "@/lib/sessions/messages"
 
 // S-3 (owner 2026-10-28): stories replace the Guide. The I/O half of a PR
 // body (`prBodyFromStories`, lib/pr-body.ts): the opener's story pictures,
@@ -42,8 +43,8 @@ export async function loadStoryPictures(rootId: string, openerSessionId: string 
     .where(
       and(
         eq(messages.rootId, rootId),
-        inArray(messages.sessionId, [...ids]),
-        sql`${messages.authorSessionId} = ${messages.sessionId}`,
+        inSessions([...ids]),
+        sql`${messages.authorSessionId} = ${messageSessionId()}`,
         sql`${messages.card}->>'kind' IN ('surface', 'question', 'plan')`
       )
     )

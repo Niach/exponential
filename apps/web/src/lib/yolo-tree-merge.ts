@@ -22,7 +22,7 @@
 // advisory lock per root.
 import { and, eq, isNotNull, isNull, ne, or } from "drizzle-orm"
 import { db, pool } from "@/db/connection"
-import { messages, sessions, teams } from "@/db/schema"
+import { conversations, messages, sessions, teams } from "@/db/schema"
 import { livePullRequestsOfRoot, type PullRequestRow } from "@/lib/integrations/pr-sync"
 import { answeredOwnCard, pendingInput } from "@/lib/sessions/messages"
 import { postMergeRefusal } from "@/lib/merge-refusal"
@@ -172,7 +172,8 @@ async function treeBusy(rootId: string): Promise<boolean> {
   const [unread] = await db
     .select({ id: messages.id })
     .from(messages)
-    .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .innerJoin(sessions, eq(sessions.id, conversations.sessionId))
     .where(and(eq(messages.rootId, rootId), live, isNull(messages.consumedAt), or(pendingInput(), answeredOwnCard())))
     .limit(1)
   return !!unread

@@ -7,6 +7,7 @@ import { db } from "@/db/connection"
 import { agents, boards, deviceFirstSeen, deviceKeys, deviceRemovals, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { inRollback, probeRealDb } from "@/test/real-db"
 import { deviceKeyMessage } from "@/lib/device-keys"
+import { inSession } from "@/lib/sessions/messages"
 
 // FEED-148: `devices.device_id` is unique per ACCOUNT only, so anyone can
 // register a shared box's machine id. Every path that acts for "the host"
@@ -168,7 +169,7 @@ const lines = async (id: string) =>
     await db
       .select({ body: messages.body })
       .from(messages)
-      .where(and(eq(messages.sessionId, id), eq(messages.authorKind, `system`)))
+      .where(and(inSession(id), eq(messages.authorKind, `system`)))
   ).map((row) => row.body)
 
 const status = async (id: string) =>

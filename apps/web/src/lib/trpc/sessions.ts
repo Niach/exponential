@@ -55,7 +55,7 @@ import {
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import { extractMentionEmails } from "@/lib/mention-refs"
-import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
+import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage, inSession, sessionConversation } from "@/lib/sessions/messages"
 import { clearBlockedInTx, interruption, INTERRUPTIONS } from "@/lib/sessions/watchdog"
 import {
   dismissReplies,
@@ -219,7 +219,7 @@ export const sessionsRouter = router({
               .from(messages)
               .where(
                 and(
-                  eq(messages.sessionId, chat.id),
+                  inSession(chat.id),
                   eq(messages.authorKind, `agent`),
                   sql`(${messages.card} IS NULL OR ${messages.card}->>'kind' <> 'event')`
                 )
@@ -593,7 +593,7 @@ export const sessionsRouter = router({
             UPDATE ${messages} SET consumed_at = ${now}, updated_at = ${now}
             WHERE id = (
               SELECT id FROM ${messages}
-              WHERE session_id = ${session.id} AND author_kind = 'user'
+              WHERE conversation_id = ${sessionConversation(session.id)} AND author_kind = 'user'
               ORDER BY created_at, id LIMIT 1
             ) AND consumed_at IS NULL`)
         }
@@ -934,7 +934,7 @@ export const sessionsRouter = router({
           .set({ consumedAt: now, updatedAt: now })
           .where(
             and(
-              eq(messages.sessionId, session.id),
+              inSession(session.id),
               inArray(messages.id, input.messageIds),
               // EXP-1323: a person's message or another session's input.
               or(pendingInput(), answeredOwnCard()),

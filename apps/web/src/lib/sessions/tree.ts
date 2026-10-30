@@ -14,6 +14,7 @@ import { getUserTeamIds } from "@/lib/auth/membership"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { deriveSessionTitles } from "@/lib/sessions/title"
 import { SHARING_ORDER } from "@/lib/sessions/host"
+import { messageSessionId } from "@/lib/sessions/messages"
 
 // EXP-1291/NEW-1/NEW-2: the session tree as one read (MCP `sessions_get`)
 // and the thread list (MCP `sessions_list`: thread roots; an agent's
@@ -135,7 +136,7 @@ export async function getSessionTree(
       : db
           .select({
             id: messages.id,
-            sessionId: messages.sessionId,
+            sessionId: messageSessionId(),
             authorKind: messages.authorKind,
             authorId: messages.authorId,
             body: messages.body,

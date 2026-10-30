@@ -7,6 +7,7 @@ import { ASSISTANT } from "@exp/domain-contract/agent-settings"
 import { voiceAgentIsPrivate } from "@/lib/sessions/meeting-access"
 import { deriveSessionTitle } from "@/lib/sessions/title"
 import type { Db } from "@/lib/sessions/tx"
+import { inSession } from "@/lib/sessions/messages"
 
 export { deriveSessionTitle }
 
@@ -23,7 +24,7 @@ async function firstPersonMessage(sessionId: string): Promise<string | null> {
   const [row] = await db
     .select({ body: messages.body })
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.authorKind, `user`)))
+    .where(and(inSession(sessionId), eq(messages.authorKind, `user`)))
     .orderBy(asc(messages.createdAt))
     .limit(1)
   return row?.body ?? null

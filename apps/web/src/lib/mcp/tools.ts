@@ -212,6 +212,7 @@ import {
   GRANT_MATCHES_NOTHING,
   type McpAccess,
 } from "./scope"
+import { messageSessionId } from "@/lib/sessions/messages"
 
 // EXP-496: per-user bound on agent bug reports. In-process like the widget
 // buckets (rate-limit.ts documents why that is fine for this deploy).
@@ -1540,7 +1541,7 @@ export function registerExponentialTools(
             const [messageAttachment] = await db
               .select({
                 teamId: attachments.teamId,
-                sessionId: messages.sessionId,
+                sessionId: messageSessionId(),
                 storageKey: attachments.storageKey,
                 contentType: attachments.contentType,
                 filename: attachments.filename,
