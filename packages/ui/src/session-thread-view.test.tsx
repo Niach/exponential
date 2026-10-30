@@ -623,7 +623,7 @@ describe(`session tree`, () => {
     const items = screen.getAllByTestId(`thread-session-tree-row`)
     expect(items.map((item) => item.textContent)).toEqual([`Session 1`, `B`, `ANeeds you`, `A1`])
     const word = items[2]!.querySelector(`[data-slot="thread-session-tree-word"]`)!
-    expect(word.className).toContain(`text-amber-400`)
+    expect(word.className).toContain(`text-yellow-400`)
     expect(items[2]!.className).toContain(`bg-glass-active`)
     expect(items[1]!.className).not.toContain(`bg-glass-active`)
     fireEvent.click(items[3]!)

@@ -180,6 +180,8 @@ pub(crate) struct HeaderRow {
     pub(crate) name: SharedString,
     /// The muted word after the name (`Workflow`, `Working`).
     pub(crate) kind_word: Option<SharedString>,
+    /// The word's tint; `None` = muted (the session card's amber, #EXP-1466).
+    pub(crate) kind_tint: Option<gpui::Hsla>,
     /// A 12px spinner in front of the trailing meta.
     pub(crate) running: bool,
     /// The muted trailing text (`progress · elapsed`, `2m 04s`).
@@ -210,7 +212,7 @@ pub(crate) fn header_row(row: HeaderRow, cx: &App) -> AnyElement {
                 .child(row.name),
         )
         .when_some(row.kind_word, |this, word| {
-            this.child(div().flex_shrink_0().text_color(muted).child(word))
+            this.child(div().flex_shrink_0().text_color(row.kind_tint.unwrap_or(muted)).child(word))
         })
         .child(div().flex_1())
         .when(row.running, |this| this.child(Spinner::new().xsmall()))
@@ -234,6 +236,7 @@ fn header(card: &WorkCard, cx: &App) -> AnyElement {
             icon_tint: None,
             name: SharedString::from(card.name.clone()),
             kind_word: card.kind_word.clone().map(SharedString::from),
+            kind_tint: None,
             running: card.running,
             meta: (!meta.is_empty())
                 .then(|| SharedString::from(meta.join(steer::work_card::WORK_CARD_SEPARATOR))),
@@ -483,6 +486,8 @@ fn session_card_framed(
             icon_tint: Some(session_tone_color(&card.tone, cx)),
             name: SharedString::from(card.name.clone()),
             kind_word: Some(SharedString::from(card.kind_word.clone())),
+            // #EXP-1466 session-card.json: the word stays muted unless amber.
+            kind_tint: (card.tone == "amber").then(|| session_tone_color(&card.tone, cx)),
             running: card.running,
             meta: card.elapsed.clone().map(SharedString::from),
             trailing: chevron.map(|chevron| Icon::new(chevron).xsmall().text_color(muted.opacity(0.7)).into_any_element()),

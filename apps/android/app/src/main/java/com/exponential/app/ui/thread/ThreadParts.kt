@@ -771,7 +771,7 @@ private fun SessionCardHeader(card: SessionTree.SessionCard, chevron: Boolean, e
             sessionCardIcon(card.icon),
             contentDescription = null,
             modifier = Modifier.size(14.dp),
-            tint = if (card.tone == "amber" || card.tone == "rose") toneColor else muted,
+            tint = toneColor,
         )
         LeadText(
             card.name,
@@ -781,9 +781,9 @@ private fun SessionCardHeader(card: SessionTree.SessionCard, chevron: Boolean, e
             Text(
                 card.kindWord,
                 style = style,
-                // session-card.json: the kindWord is ALWAYS muted; the tone
-                // rides on the state icon only.
-                color = muted,
+                // #EXP-1466 session-card.json: the word stays muted unless
+                // the tone is amber.
+                color = if (card.tone == "amber") toneColor else muted,
                 maxLines = 1,
                 modifier = Modifier.testTag("session-card-state"),
             )
