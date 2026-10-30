@@ -88,6 +88,11 @@ impl Reply {
     pub fn new(stream: Arc<dyn Stream>) -> Self {
         Reply { stream, stopped: Mutex::new(false) }
     }
+
+    /// EXP-1423: stopped (a looping ring queues no more).
+    pub fn stopped(&self) -> bool {
+        *self.stopped.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 impl Sink for Reply {

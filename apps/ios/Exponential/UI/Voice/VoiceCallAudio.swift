@@ -535,9 +535,8 @@ enum CallAudioSession {
 }
 
 /// S-3: the caller's ring tone (voice-call.json: plays on the CALLING
-/// client while the call rings): a generated two-tone burst, then silence,
-/// for `ringMs` (two periods), or less when the call is answered or ends
-/// first. The call itself keeps ringing on screen until `rang` + `ready`.
+/// client while the call rings): EXP-1423: the shared cadence, one period
+/// looped until the call leaves ringing (`rang` + `ready`, End or a failure).
 @MainActor
 final class CallRingTone {
     private var player: AVAudioPlayer?
@@ -558,8 +557,8 @@ final class CallRingTone {
                 guard let self, entered, token == self.token, self.player == nil else { return }
                 do {
                     let player = try AVAudioPlayer(data: Self.wav)
-                    // Two periods = `ringMs`.
-                    player.numberOfLoops = 1
+                    // Loops until stopped (the call fails at `maxRingMs`).
+                    player.numberOfLoops = -1
                     player.volume = 0.6
                     player.play()
                     self.player = player
@@ -576,19 +575,20 @@ final class CallRingTone {
         player = nil
     }
 
-    /// One ring period (`ringMs` / 2): 0.4 s on, 0.2 s off, 0.4 s on, the
-    /// rest silent; 440 + 480 Hz, 16-bit mono WAV.
+    /// One ring period (`ringToneMs` on, `ringGapMs` off: `callRingToneOn`);
+    /// `ringLowHz` + `ringHighHz`, 16-bit mono WAV.
     private static let wav: Data = {
         let rate = 16_000
-        let period = rate * VoiceCall.Constants.ringMs / 2 / 1000
+        let k = VoiceCall.Constants.self
+        let period = rate * (k.ringToneMs + k.ringGapMs) / 1000
         var samples = [Int16](repeating: 0, count: period)
-        for (from, to) in [(0.0, 0.4), (0.6, 1.0)] {
-            let start = Int(from * Double(rate)), end = min(period, Int(to * Double(rate)))
+        do {
+            let start = 0, end = rate * k.ringToneMs / 1000
             for i in start..<end {
                 let t = Double(i) / Double(rate)
                 // A 10 ms fade at both ends, no clicks.
                 let edge = min(1, min(Double(i - start), Double(end - i)) / (0.01 * Double(rate)))
-                let value = (sin(2 * .pi * 440 * t) + sin(2 * .pi * 480 * t)) / 2 * edge
+                let value = (sin(2 * .pi * Double(k.ringLowHz) * t) + sin(2 * .pi * Double(k.ringHighHz) * t)) / 2 * edge
                 samples[i] = Int16(value * 0.5 * Double(Int16.max))
             }
         }

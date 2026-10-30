@@ -99,8 +99,16 @@ object VoiceCall {
     }
 
     object Constants {
-        /** S-3: how long a call rings while the voice device warms up. */
-        const val RING_MS = 3_000
+        /** EXP-1423: a ring's earliest answer is at least this long ([callRingMs]). */
+        const val MIN_RING_MS = 3_000
+        /** EXP-1423: up to this much more, drawn once per call by the host. */
+        const val RING_JITTER_MS = 6_000
+        /** EXP-1423: the ring tone's cadence ([callRingToneOn]): on, then off. */
+        const val RING_TONE_MS = 2_000
+        const val RING_GAP_MS = 4_000
+        /** EXP-1423: the ring tone's two frequencies, sounding together. */
+        const val RING_LOW_HZ = 440
+        const val RING_HIGH_HZ = 480
         /** A voice still not ready after this fails the call `unavailable`. */
         const val MAX_RING_MS = 300_000
         /** No microphone frame reached this level during the ring = `noSound`. */
@@ -232,7 +240,7 @@ object VoiceCall {
         val device: String,
         /** The greeting the device says once answered. */
         val greeting: String,
-        /** The ring's `ringMs` ran out. */
+        /** The ring's earliest answer ([callRingMs]) passed. */
         val rang: Boolean,
         /** The worker confirmed it listens (`CallListening`). */
         val ready: Boolean,
@@ -449,6 +457,30 @@ object VoiceCall {
             Phase.Hidden, Phase.Ringing -> null
         }
     }
+
+    /**
+     * EXP-1423: the earliest answer of a ring, ms after it started:
+     * `minRingMs` + floor(clamp(random, 0, 1) × `ringJitterMs`). The HOST
+     * draws [random] once per call; a caller never draws.
+     */
+    fun callRingMs(random: Double): Int {
+        val unit = if (random.isNaN()) 0.0 else random.coerceIn(0.0, 1.0)
+        return Constants.MIN_RING_MS + kotlin.math.floor(unit * Constants.RING_JITTER_MS).toInt()
+    }
+
+    /**
+     * EXP-1423: when the ring ends (answered), ms after it started: the later
+     * of the earliest answer and the warm-up's `ready`; null = never answered
+     * (no ready, or one at or past `maxRingMs`: failed `unavailable`).
+     */
+    fun callAnswerMs(random: Double, readyMs: Int?): Int? {
+        if (readyMs == null || readyMs >= Constants.MAX_RING_MS) return null
+        return maxOf(callRingMs(random), readyMs)
+    }
+
+    /** EXP-1423: whether the ring tone sounds [ms] after the ring started (`ringToneMs` on, `ringGapMs` off, looping). */
+    fun callRingToneOn(ms: Long): Boolean =
+        ms >= 0 && ms % (Constants.RING_TONE_MS + Constants.RING_GAP_MS) < Constants.RING_TONE_MS
 
     /** The call's timer since it was answered: mm:ss, h:mm:ss from an hour. */
     fun callTimer(ms: Long): String {

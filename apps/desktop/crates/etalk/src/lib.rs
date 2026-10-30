@@ -39,8 +39,9 @@
 //! ends it without an answer.
 //!
 //! S-3 (protocol 7) rings: a Call carries `ring_ms`; a LOCAL call opens the
-//! call's one output stream at once and plays a ring tone on it for that
-//! long while the worker warms up (the recognizer and the voice loaded, a
+//! call's one output stream at once and plays a ring tone on it (EXP-1423:
+//! the shared cadence, looped until the first Speak, at most that long)
+//! while the worker warms up (the recognizer and the voice loaded, a
 //! download included, the microphone opened). [`Event::CallListening`]
 //! confirms the call hears (the host's `ready`); nothing of the call is
 //! heard before it. A worker of protocol 6 ignores `ringMs` and never
@@ -132,8 +133,9 @@ pub enum Request {
     /// answering Said per utterance. `remote` = the audio comes ONLY as
     /// CallAudio (a caller streams it; the microphone stays closed) and
     /// replies stream back as SpeechAudio. Replaces a running Listen or Call.
-    /// S-3: `ring_ms` = how long a LOCAL call rings on its output stream
-    /// while the worker warms up (0 = no ring; a remote call never rings
+    /// S-3: `ring_ms` = how long a LOCAL call rings on its output stream at
+    /// most while the worker warms up (EXP-1423: its first Speak, the
+    /// greeting, ends it sooner; 0 = no ring; a remote call never rings
     /// here); [`Event::CallListening`] follows once it hears.
     Call {
         id: String,
@@ -705,7 +707,8 @@ impl SpeechClient {
     /// NEW-55: start call `id` in `language`; `remote` = the audio comes
     /// through [`Self::call_audio`] (a phone or the web streams it) and
     /// replies stream back as [`Event::SpeechAudio`]. S-3: a local call
-    /// rings `ring_ms` on this device while the worker warms up.
+    /// rings on this device (until the greeting, at most `ring_ms`) while
+    /// the worker warms up.
     pub fn call(&self, id: impl Into<String>, language: impl Into<String>, remote: bool, ring_ms: u32) {
         self.send(&Request::Call { id: id.into(), language: language.into(), remote, ring_ms });
     }

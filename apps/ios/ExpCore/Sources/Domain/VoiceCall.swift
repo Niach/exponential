@@ -84,8 +84,16 @@ public enum VoiceCall {
     }
 
     public enum Constants {
-        /// S-3: how long the caller's ring plays before `rang`.
-        public static let ringMs = 3_000
+        /// EXP-1423: a ring's earliest answer is at least this long (`callRingMs`).
+        public static let minRingMs = 3_000
+        /// EXP-1423: up to this much more, drawn once per call by the host.
+        public static let ringJitterMs = 6_000
+        /// EXP-1423: the ring tone's cadence (`callRingToneOn`): on, then off.
+        public static let ringToneMs = 2_000
+        public static let ringGapMs = 4_000
+        /// EXP-1423: the ring tone's two frequencies, sounding together.
+        public static let ringLowHz = 440
+        public static let ringHighHz = 480
         /// A voice still not ready after this fails the call `unavailable`.
         public static let maxRingMs = 300_000
         /// The ring's mic check: a frame at or above this level = sound.
@@ -341,7 +349,7 @@ public enum VoiceCall {
         public var device: String
         /// The greeting the device says once answered.
         public var greeting: String
-        /// The ring's `ringMs` ran out.
+        /// The ring's earliest answer (`callRingMs`) passed.
         public var rang: Bool
         /// The worker confirmed it listens (`CallListening`).
         public var ready: Bool
@@ -594,6 +602,28 @@ public enum VoiceCall {
                 return inCall(.speaking, state.line)
             }
         }
+    }
+
+    /// EXP-1423: the earliest answer of a ring, ms after it started:
+    /// `minRingMs` + floor(clamp(random, 0, 1) × `ringJitterMs`). The HOST
+    /// draws `random` once per call; a caller never draws.
+    public static func callRingMs(random: Double) -> Int {
+        let unit = random.isNaN ? 0 : min(1, max(0, random))
+        return Constants.minRingMs + Int((unit * Double(Constants.ringJitterMs)).rounded(.down))
+    }
+
+    /// EXP-1423: when the ring ends (answered), ms after it started: the
+    /// later of the earliest answer and the warm-up's `ready`; nil = never
+    /// answered (no ready, or one at or past `maxRingMs`: failed `unavailable`).
+    public static func callAnswerMs(random: Double, readyMs: Int?) -> Int? {
+        guard let readyMs, readyMs < Constants.maxRingMs else { return nil }
+        return max(callRingMs(random: random), readyMs)
+    }
+
+    /// EXP-1423: whether the ring tone sounds `ms` after the ring started
+    /// (the shared cadence: `ringToneMs` on, `ringGapMs` off, looping).
+    public static func callRingToneOn(ms: Int) -> Bool {
+        ms >= 0 && ms % (Constants.ringToneMs + Constants.ringGapMs) < Constants.ringToneMs
     }
 
     /// The call's timer since it was answered: mm:ss, h:mm:ss from an hour.

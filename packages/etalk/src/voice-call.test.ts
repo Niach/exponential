@@ -4,7 +4,10 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/voice-call.json" with { type: "json" }
 import {
   CALL_IDLE,
+  callAnswerMs,
   callAvailability,
+  callRingMs,
+  callRingToneOn,
   callStep,
   callTimer,
   callView,
@@ -35,6 +38,24 @@ describe(`callTimer`, () => {
   for (const entry of fixture.timerCases) {
     test(`${entry.ms} ms`, () => {
       expect(callTimer(entry.ms)).toBe(entry.text)
+    })
+  }
+})
+
+describe(`EXP-1423: the ring`, () => {
+  for (const entry of fixture.ringCases) {
+    test(`callRingMs(${entry.random})`, () => {
+      expect(callRingMs(entry.random)).toBe(entry.ringMs)
+    })
+  }
+  for (const entry of fixture.answerCases) {
+    test(entry.name, () => {
+      expect(callAnswerMs(entry.random, entry.readyMs)).toBe(entry.answeredMs)
+    })
+  }
+  for (const entry of fixture.ringToneCases) {
+    test(`tone at ${entry.ms} ms`, () => {
+      expect(callRingToneOn(entry.ms)).toBe(entry.on)
     })
   }
 })
