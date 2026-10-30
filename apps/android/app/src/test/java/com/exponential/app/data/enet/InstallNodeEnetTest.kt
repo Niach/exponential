@@ -1,10 +1,25 @@
 package com.exponential.app.data.enet
 
-import at.exponential.net.ffi.EnetEvent
 import at.exponential.net.ffi.EnetException
 import at.exponential.net.ffi.EnetNode
 import at.exponential.net.ffi.defaultConfig
 import com.exponential.app.data.api.RegisterInstallInput
+import com.exponential.app.data.steer.EnetSteerDialer
+import com.exponential.app.data.steer.SteerEnetTimings
+import com.exponential.app.data.steer.encodeSteerEnvelope
+import com.exponential.app.data.steer.parseSteerEnvelope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -71,17 +86,15 @@ class InstallNodeEnetTest {
             assertEquals(setOf(aId), b.enet.allowedPeers().toSet())
             assertTrue(foreign.enet.allowedPeers().isEmpty())
 
-            // Teammates: an acked ping, delivered as a chat event.
+            // Teammates: an acked ping, delivered on the node's chat stream
+            // (VAPP-33: FfiPeerNode is the one consumer of nextEvent).
+            val inbound = async(start = CoroutineStart.UNDISPATCHED) { a.node!!.chats.first() }
             b.enet.addTicket(a.enet.ticket())
             val ack = withTimeout(20_000) { b.enet.sendChat(aId, "ping".toByteArray()) }
             assertEquals("ping", ack.body.decodeToString())
-            val got = withTimeout(10_000) {
-                var event = a.enet.nextEvent()
-                while (event !is EnetEvent.Chat) event = a.enet.nextEvent()
-                event
-            }
+            val got = withTimeout(10_000) { inbound.await() }
             assertEquals(bId, got.from)
-            assertEquals("ping", got.message.body.decodeToString())
+            assertEquals("ping", got.body.decodeToString())
 
             // A foreign team's install is refused.
             foreign.enet.addTicket(a.enet.ticket())
@@ -95,6 +108,68 @@ class InstallNodeEnetTest {
         } finally {
             a.stop(); b.stop(); foreign.stop()
         }
+    }
+
+    /**
+     * VAPP-33 on real nodes: the viewer joins over eNet, the device dials the
+     * replay back (so the viewer's allowlist holds it), and a steer frame
+     * reaches the device unchanged.
+     */
+    @Test
+    fun aViewerSteersADeviceOverRealENet() = runBlocking {
+        val registry = FakeRegistry()
+        val started = mutableListOf<FfiPeerNode>()
+        val viewer = install(registry, "u1", started)
+        val device = install(registry, "u2", started)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        try {
+            viewer.start(); device.start()
+            assertTrue(viewer.refreshAccess(setOf("team-1")))
+            assertTrue(device.refreshAccess(setOf("team-1")))
+            viewer.enet.addTicket(device.enet.ticket())
+            device.enet.addTicket(viewer.enet.ticket())
+            val viewerId = viewer.enet.endpointId()
+            val deviceNode = device.node!!
+            val received = Channel<String>(Channel.UNLIMITED)
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                deviceNode.chats.collect { chat ->
+                    val envelope = parseSteerEnvelope(chat.body.decodeToString()) ?: return@collect
+                    envelope.types.forEach { received.send(it) }
+                    if (envelope.types.contains("join")) {
+                        val frames = listOf(
+                            """{"t":"activity_reset"}""",
+                            """{"t":"activity_synced","firstSeq":0,"lastSeq":0}""",
+                        ).map { Json.parseToJsonElement(it).jsonObject }
+                        scope.launch { deviceNode.sendChat(viewerId, encodeSteerEnvelope(envelope.sessionId, frames)) }
+                    }
+                }
+            }
+            val dialer = EnetSteerDialer(
+                node = { viewer.node },
+                discover = { listOf(deviceNode.endpointId) },
+                timings = SteerEnetTimings(joinTimeoutMs = 20_000),
+            )
+            val socket = assertNotNull(dialer.open("s1"))
+            try {
+                assertEquals("join", withTimeout(10_000) { received.receive() })
+                assertEquals("activity_reset", tagOf(withTimeout(10_000) { socket.incoming.receive() }))
+                assertEquals("activity_synced", tagOf(withTimeout(10_000) { socket.incoming.receive() }))
+                socket.send("""{"t":"input","data":"hello"}""")
+                assertEquals("input", withTimeout(10_000) { received.receive() })
+            } finally {
+                socket.cancel()
+            }
+        } finally {
+            scope.cancel()
+            viewer.stop(); device.stop()
+        }
+    }
+
+    private fun tagOf(text: String) = Json.parseToJsonElement(text).jsonObject["t"]!!.jsonPrimitive.content
+
+    private fun <T : Any> assertNotNull(value: T?): T {
+        org.junit.Assert.assertNotNull(value)
+        return value!!
     }
 
     @Test

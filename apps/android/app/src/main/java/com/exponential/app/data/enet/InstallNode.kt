@@ -3,8 +3,19 @@ package com.exponential.app.data.enet
 import at.exponential.net.ffi.EnetConfig
 import at.exponential.net.ffi.EnetNode
 import at.exponential.net.ffi.defaultConfig
+import at.exponential.net.ffi.EnetEvent
 import com.exponential.app.data.api.RegisterInstallInput
 import java.time.Instant
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.launch
+
+/** One chat message a peer sent this node: its endpoint id and the body. */
+class PeerChat(val from: String, val body: ByteArray)
 
 /** What an install node needs from a running eNet node (the facade's [EnetNode] in the app). */
 interface PeerNode {
@@ -12,6 +23,12 @@ interface PeerNode {
     fun allowedPeers(): Set<String>
     fun allow(peer: String)
     fun revoke(peer: String)
+
+    /** Sends one acked chat message (throws on a refusal or a failed send). */
+    suspend fun sendChat(peer: String, body: ByteArray)
+
+    /** Every chat message from now on (VAPP-33: consumers filter by the body's tag). */
+    val chats: SharedFlow<PeerChat>
     suspend fun shutdown()
 }
 
@@ -20,7 +37,30 @@ class FfiPeerNode(val node: EnetNode) : PeerNode {
     override fun allowedPeers(): Set<String> = node.allowedPeers().toSet()
     override fun allow(peer: String) = node.allowPeer(peer)
     override fun revoke(peer: String) = node.revokePeer(peer)
-    override suspend fun shutdown() = node.shutdown()
+
+    override suspend fun sendChat(peer: String, body: ByteArray) {
+        node.sendChat(peer, body)
+    }
+
+    private val pump = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _chats = MutableSharedFlow<PeerChat>()
+    override val chats: SharedFlow<PeerChat> = _chats
+
+    init {
+        // The ONE consumer of nextEvent: a chat goes to whoever collects
+        // [chats] now (nobody = dropped); every other event is not ours yet.
+        pump.launch {
+            while (true) {
+                val event = node.nextEvent() ?: break
+                if (event is EnetEvent.Chat) _chats.emit(PeerChat(event.from, event.message.body))
+            }
+        }
+    }
+
+    override suspend fun shutdown() {
+        pump.cancel()
+        node.shutdown()
+    }
 
     companion object {
         /** Our relay (https://relay.exponential.at), n0 relays off, nobody allowed until the registry says so. */
@@ -58,7 +98,7 @@ class InstallNode(
     private val startNode: suspend (identity: ByteArray) -> PeerNode,
     private val now: () -> Instant = Instant::now,
 ) {
-    var node: PeerNode? = null
+    @Volatile var node: PeerNode? = null
         private set
     var installId: String? = null
         private set
