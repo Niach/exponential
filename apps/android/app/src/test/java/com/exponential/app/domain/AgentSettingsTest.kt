@@ -264,6 +264,8 @@ class AgentSettingsTest {
         assertEquals(copy.str("noDevice"), AgentSettings.Assistant.NO_DEVICE)
         assertEquals(copy.str("deleteRefused"), AgentSettings.Assistant.DELETE_REFUSED)
         assertEquals(copy.str("scheduleRefused"), AgentSettings.Assistant.SCHEDULE_REFUSED)
+        assertEquals(copy.str("promptFixed"), AgentSettings.Assistant.PROMPT_FIXED)
+        assertEquals(copy.str("legacyInstructions"), AgentSettings.Assistant.LEGACY_INSTRUCTIONS)
         assertEquals(assistant.str("defaultSchedule"), AgentSettings.Assistant.DEFAULT_SCHEDULE)
         assertEquals(assistant.getValue("sections").jsonArray.map { it.jsonPrimitive.content }, AgentSettings.Assistant.SECTIONS)
         assertEquals(

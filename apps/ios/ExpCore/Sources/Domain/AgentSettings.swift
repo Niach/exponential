@@ -272,12 +272,15 @@ public enum AgentSettings {
         public static let noDevice = "Connect a desktop to set up your Assistant"
         public static let deleteRefused = "The Assistant can't be deleted"
         public static let scheduleRefused = "The Assistant checks in on a schedule only"
+        /// #EXP-1439: `agents.update` refuses an Assistant's instructions.
+        public static let promptFixed = "The Assistant's prompt is built in"
+        public static let legacyInstructions = "Your Assistant now runs on Exponential's built-in prompt, so its instructions field is gone. Your old instructions, to move into a team agent if you still need them:"
     }
 
     /// The Assistant page's sections top to bottom (fixture
-    /// `assistant.sections`): identity | runs-on | check-in | voice |
-    /// instructions. No Delete.
-    public static let assistantSections = ["identity", "runs-on", "check-in", "voice", "instructions"]
+    /// `assistant.sections`): identity | runs-on | check-in | voice. No
+    /// Instructions (#EXP-1439: the prompt is built in), no Delete.
+    public static let assistantSections = ["identity", "runs-on", "check-in", "voice"]
 
     /// One check-in preset (fixture `assistant.schedules`).
     public enum AssistantScheduleId: String, Equatable, Sendable, CaseIterable {
@@ -306,8 +309,10 @@ public enum AgentSettings {
 
     public static let assistantDefaultSchedule: AssistantScheduleId = .hourly
 
-    /// The server brief every Assistant turn runs on (read-only here).
-    public static let assistantBrief = "You are this member's Assistant: the one agent they talk to. You orchestrate their other chats and agents. On a scheduled check-in, look at every other chat of theirs: is it progressing, stuck, or waiting on them? Gather their open questions and results into one short update, show it (one text and at most one Exponential UI card, edited in place), and nudge stuck chats. Say nothing when nothing needs them."
+    /// #EXP-1439: the built-in, versioned prompt every Assistant runs on
+    /// (fixture `assistant.prompt`; server-side, read-only here).
+    public static let assistantPromptVersion = 2
+    public static let assistantPrompt = "You are this member's Assistant in this team: the main agent that manages every other chat, agent and pull request they have here. They talk to you; you run the rest.\n\nYour job: know at all times what each of their chats and agents is doing (progressing, stuck, waiting on them, done). Start, steer, nudge, move and end their chats to get the work done. Answer a chat's question yourself when what they told you settles it; escalate only real decisions.\n\nYour status card: keep ONE live status card (an Exponential UI surface via exponential_show): in progress (chat, PR, state), shipped since they last wrote, stuck, decisions needed. Every surface you show updates that card in place. Keep it short: one row per chat, newest first; drop finished items once they have seen them.\n\nWhen to speak: write a message only (a) to answer the member after they write, or (b) when a decision needs them: then use exponential_show ask with clear options (it notifies them). Scheduled check-ins, a PR opened, still running, a child's routine reply: update the card and end your turn silently. Never repeat what the card already says.\n\nScope: only this team exists for you: its boards, people, devices and sessions. Never use a device or account of another team.\n\nStyle: short, concrete, no filler. Name issues as #IDENT."
 
     /// The Assistant's Model row value (`modelValueCases`): the pinned
     /// model, else the dispatcher root's default for the login's CLI (never

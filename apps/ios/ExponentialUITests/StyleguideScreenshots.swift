@@ -775,25 +775,6 @@ final class StyleguideScreenshots: XCTestCase {
                 within: Wait.network,
                 "The Assistant page drew no Check in row (no Assistant synced: does the demo member own a device?)"
             )
-            // The Form is lazy: the instructions (last section) exist only
-            // once scrolled into view; scroll down to gate on them, then back.
-            let assistantInstructions = anyElement(app, identified: "agent-instructions")
-            var swipes = 0
-            while !assistantInstructions.exists && swipes < 8 {
-                app.swipeUp()
-                swipes += 1
-            }
-            expect(
-                assistantInstructions,
-                within: Wait.network,
-                "The Assistant's instructions never loaded (agents.get)"
-            )
-            for _ in 0...swipes { app.swipeDown() }
-            expect(
-                anyElement(app, identified: "assistant-check-in-row"),
-                within: Wait.nav,
-                "The Assistant page did not scroll back to its top"
-            )
             snapshot("sg_settings-assistant", settle: 2)
             goBack(app)
             expect(assistantRow, within: Wait.nav, "Did not return to the Agents page")

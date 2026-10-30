@@ -105,12 +105,10 @@ export async function composeSessionBrief(sessionId: string): Promise<{
     voicePolicy,
     screenMemory: voicePolicy && !session.shared && (await voiceAgentIsPrivate(db, session.userId, session.agentId!)),
     teamPrompt: team?.agentPrompt?.trim() || null,
-    // S-3: an Assistant's turns run on the server brief first
-    // (agent-settings.json `assistant.brief`), then the member's own text.
+    // #EXP-1439: an Assistant's turns run on the built-in prompt ONLY
+    // (agent-settings.json `assistant.prompt`); a team agent on its own text.
     agentInstructions:
-      [agent?.role === `assistant` ? ASSISTANT.brief : null, agent?.instructions?.trim() || null]
-        .filter(Boolean)
-        .join(`\n\n`) || null,
+      agent?.role === `assistant` ? ASSISTANT.prompt.text : agent?.instructions?.trim() || null,
     parentBranch,
     // #EXP-1383: a conversation's agent, or the agent that started the root.
     rootAgentId: root.agentId ?? root.startedByAgentId ?? null,

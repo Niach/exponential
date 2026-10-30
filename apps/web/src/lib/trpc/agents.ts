@@ -202,6 +202,11 @@ export const agentsRouter = router({
       const userId = ctx.session.user.id
       const agent = await loadOwnedAgent(userId, input.id)
       if (agent.role === `assistant` && input.triggers !== undefined) assertAssistantTriggers(input.triggers)
+      // #EXP-1439: the Assistant's prompt is built in. An old client resends
+      // the stored text unchanged on every save; only an EDIT is refused.
+      if (agent.role === `assistant` && input.instructions !== undefined && input.instructions !== agent.instructions) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: ASSISTANT_COPY.promptFixed })
+      }
       const cli = input.cli ?? agent.cli ?? undefined
       // The model comes from the CLI's vocabulary like a send's; a blank (an
       // old client's "CLI default") = unset, never stored.
