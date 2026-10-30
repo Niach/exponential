@@ -31,7 +31,7 @@ pub mod keys;
 pub mod manager;
 #[cfg(feature = "gpui")]
 pub mod mouse;
-pub mod process;
+pub use exponential_agent_runtime::process;
 pub mod pty;
 pub mod read_loop;
 pub mod session;

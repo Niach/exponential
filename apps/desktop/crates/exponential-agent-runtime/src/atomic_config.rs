@@ -5,14 +5,14 @@
 //! (`~/.claude.json`, codex `config.toml`) hold OAuth state and API keys, so
 //! they must never come out more readable than they went in.
 //!
-//! EXP-766: the writer itself now lives in [`api::atomic_file`] — the crate
-//! below `coding`, so `api::device_identity` and the CLI's prefs share it —
+//! EXP-766: the writer itself now lives in [`crate::atomic_file`] (EXP-1426: moved from `api` into agent-runtime) — the crate
+//! below everything, so `api::device_identity` and the CLI's prefs share it —
 //! and picks its own UNIQUE temp name (a fixed one let two processes collide
 //! on the same temp) plus an fsync before the rename.
 
 use std::path::Path;
 
-pub use api::atomic_file::write_atomic;
+pub use crate::atomic_file::write_atomic;
 
 /// Replace `config`'s contents in one rename, keeping its permission bits.
 pub fn replace_preserving_mode(config: &Path, contents: &str) -> Result<(), String> {

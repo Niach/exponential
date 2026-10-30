@@ -3,7 +3,7 @@
 //!
 //! It lives HERE, at the bottom of the dep graph, because every writer of the
 //! one per-install `{data_dir}/settings.json` has to share it:
-//! [`crate::device_identity`], `coding::Settings::save`,
+//! `api::device_identity`, `coding::Settings::save`,
 //! `coding::launch_defaults_sync` and `cli::prefs`. A plain `fs::write`
 //! truncates in place, so a concurrent reader sees a HALF file — which is how
 //! a torn read used to make `device_identity` re-mint the device id.

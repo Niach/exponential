@@ -286,6 +286,7 @@ version = "0.14.84"
 dependencies = [
  "dirs",
  "domain",
+ "exponential-agent-runtime",
  "flume 0.11.1",
  "libc",
  "log",
@@ -1513,6 +1514,7 @@ dependencies = [
  "computer",
  "dirs",
  "domain",
+ "exponential-agent-runtime",
  "flate2",
  "libc",
  "log",
@@ -2387,6 +2389,7 @@ dependencies = [
  "api",
  "coding",
  "domain",
+ "exponential-agent-runtime",
  "flume 0.11.1",
  "libc",
  "log",
@@ -2566,6 +2569,17 @@ dependencies = [
  "terminal",
  "updater",
  "uuid",
+]
+
+[[package]]
+name = "exponential-agent-runtime"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "libc",
+ "log",
+ "serde_json",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -8557,6 +8571,7 @@ name = "terminal"
 version = "0.14.84"
 dependencies = [
  "anyhow",
+ "exponential-agent-runtime",
  "flume 0.11.1",
  "gpui",
  "gpui_platform",

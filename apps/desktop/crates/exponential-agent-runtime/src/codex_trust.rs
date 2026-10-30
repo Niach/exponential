@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 
 /// An explicit home (EXP-792: a profile's `CODEX_HOME`), else
 /// `$CODEX_HOME|~/.codex` (mirrors `codex_sessions::codex_sessions_root`).
-pub(crate) fn codex_home(home: Option<&Path>) -> Option<PathBuf> {
+pub fn codex_home(home: Option<&Path>) -> Option<PathBuf> {
     if let Some(home) = home {
         return Some(home.to_path_buf());
     }
@@ -137,7 +137,7 @@ fn ensure_trusted_in_config(config: &Path, paths: &[PathBuf]) -> Result<usize, S
 /// EXP-758: drop the `[projects."<path>"]` tables [`ensure_trusted`] appended
 /// for `paths` (the raw and canonical spellings both, like the claude side).
 ///
-/// [`crate::scratch::reclaim`] removes a repo-less run's directory and its
+/// `coding::scratch::reclaim` removes a repo-less run's directory and its
 /// claude trust entries; without this the codex config kept growing a dead
 /// `[projects]` block per reclaimed action dir. Best-effort and never
 /// load-bearing: failures are logged, the config is left as it was, and codex

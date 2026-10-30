@@ -966,7 +966,7 @@ fn is_assignment(word: &ShellWord) -> bool {
 /// shell runs it), whether it is a redirection target, and whether it is a
 /// here-doc body.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct ShellWord {
+pub struct ShellWord {
     pub text: String,
     pub quoted: bool,
     pub redirect: bool,
@@ -977,7 +977,7 @@ pub(crate) struct ShellWord {
 /// One simple command: its words, whether it pipes into the next one, and
 /// whether it ran inside a command substitution.
 #[derive(Debug, Default)]
-pub(crate) struct ShellCommand {
+pub struct ShellCommand {
     pub words: Vec<ShellWord>,
     pub feeds_next: bool,
     pub nested: bool,
@@ -1224,7 +1224,7 @@ fn closing_backtick(chars: &[char], start: usize) -> Option<usize> {
 
 /// The simple commands of a command line (see [`bash_offending`]); `Err`
 /// = it cannot be lexed, which fails closed.
-pub(crate) fn lex(command: &str, depth: usize) -> Result<Vec<ShellCommand>, String> {
+pub fn lex(command: &str, depth: usize) -> Result<Vec<ShellCommand>, String> {
     if depth > 8 {
         return Err("command substitutions nested this deep".to_string());
     }
@@ -1376,7 +1376,7 @@ fn expand_home(raw: &str) -> PathBuf {
     PathBuf::from(raw)
 }
 
-pub(crate) fn home_dir() -> Option<PathBuf> {
+pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .filter(|home| !home.is_empty())
@@ -1434,7 +1434,7 @@ fn in_temp_dir(path: &Path) -> bool {
 
 /// `/a/b/**/*.rs` → `/a/b`: the literal directory a glob pattern starts in
 /// (an expansion the scanner does not know counts as a wildcard).
-pub(crate) fn glob_base(pattern: &str) -> &str {
+pub fn glob_base(pattern: &str) -> &str {
     let Some(cut) = pattern.find(['*', '?', '[', '{', UNKNOWN, OPAQUE]) else { return pattern };
     match pattern[..cut].rfind('/') {
         Some(0) => "/",

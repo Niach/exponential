@@ -62,7 +62,7 @@
 pub mod accounts;
 pub mod agents;
 pub mod apps;
-pub mod atomic_file;
+pub use exponential_agent_runtime::atomic_file;
 pub mod attachments;
 pub mod billing;
 pub mod comments;

@@ -7,7 +7,7 @@
 //! default): every run on the machine died in the same second, and each row
 //! read `endedBy=client`.
 //!
-//! [`spawn_lines`](crate::transport::spawn_lines) therefore launches the
+//! `engine::transport::spawn_lines` therefore launches the
 //! agent through `systemd-run --scope` when this host can: a transient scope
 //! per run, `OOMPolicy=continue` (the kernel kills the offending process —
 //! the test browser — and the run's agent lives on to see its command fail),
@@ -131,7 +131,7 @@ fn is_root() -> bool {
 /// Run a probe argv quietly; exit 0 within a few seconds = true.
 fn run_ok(argv: &[String]) -> bool {
     let Some((program, args)) = argv.split_first() else { return false };
-    let child = terminal::process::background_command(program)
+    let child = crate::process::background_command(program)
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

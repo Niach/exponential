@@ -13,7 +13,7 @@ apps/web          TanStack Start app (src/lib/trpc = one file per router; routes
 apps/push-relay   Hono/Bun            apps/steer-relay  steer WS hub (Bun)
 apps/marketing    exponential.at (Vite + React; ui/ = the Exponential UI section at /ui/, ui.exponential.at 301s there)   apps/styleguide   shot gallery + islands
 apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
-apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/exponential-ui* = the SDK
+apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/exponential-agent-runtime = the server-free agent core (EXP-1426, never an app-crate dep); crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/exponential-ui* = the SDK
 packages/db-schema        Drizzle schema + zod/domain types (authoritative; never mirrored here)
 packages/domain-contract  contract.json → per-language enums + the fixtures (×4 replay) + pure TS references
 packages/ui               @exp/ui: theme, shadcn set, shared primitives, islands
