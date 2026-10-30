@@ -365,7 +365,7 @@ pub(crate) fn send_to_agent(agent_id: &str, text: &str, cx: &mut App) {
         crate::action_error::failed_action("send", "the message", None, cx);
         return;
     };
-    let input = crate::chat_launch::agent_send_input(&team_id, agent_id, text, Vec::new());
+    let input = crate::chat_launch::agent_send_input(&team_id, agent_id, text, Vec::new(), Vec::new());
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()

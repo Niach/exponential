@@ -25,7 +25,10 @@
 //! OR (NEW-3) one agent chip. Picking one kind while another is picked
 //! replaces it. An AGENT subject (Message an agent › in the "+") hides the
 //! options line, the submit reads `Send`, and the send goes into the
-//! caller's DM with the agent, whose conversation then opens. **Free text** is the prompt with no subject and optional additional
+//! caller's DM with the agent, whose conversation then opens. S-3 / #EXP-1451:
+//! the AGENT ROW over the card (Home AND the Start coding dialog) picks the
+//! recipient; #EXP-1450 a pick never drops an issue subject, whose issues
+//! then forward onto the agent's conversation. **Free text** is the prompt with no subject and optional additional
 //! instructions beside one. **Images** ride as attachments, uploaded to the
 //! team route before the session exists.
 //!
@@ -212,6 +215,32 @@ fn agent_pick_after_subject(subject: &Subject, current: Option<&str>) -> Option<
         Subject::None => K::Other,
     };
     pick_for_subject(kind, current)
+}
+
+/// #EXP-1450: an agent-row tap as a [`domain::composer_agent_row::ComposerPick`]
+/// (the dotted circle = Temporary session, any other circle an agent).
+fn pick_kind(pick: &str) -> domain::composer_agent_row::ComposerPick {
+    use domain::composer_agent_row::{ComposerPick, COMPOSER_AGENT_ROW};
+    if pick == COMPOSER_AGENT_ROW.temporary_id {
+        ComposerPick::Temporary
+    } else {
+        ComposerPick::Agent
+    }
+}
+
+/// #EXP-1450 (`agentRow.pickCases`): the subject kind a pick leaves —
+/// `None` = the pick drops the subject (an agent tap over a prompt).
+fn subject_after_pick(
+    subject: &Subject,
+    pick: domain::composer_agent_row::ComposerPick,
+) -> Option<domain::composer_agent_row::ComposerSubjectKind> {
+    use domain::composer_agent_row::ComposerSubjectKind as K;
+    let kind = match subject {
+        Subject::Issues(_) => Some(K::Issues),
+        Subject::Action(_) => Some(K::Prompt),
+        Subject::None => None,
+    };
+    domain::composer_agent_row::subject_after_pick(kind, pick)
 }
 
 /// EXP-696: the machine the run starts on.
@@ -1070,7 +1099,14 @@ impl ChatScreenView {
     }
 
     /// A tap on the agent row (tapping the selected circle keeps it).
+    /// #EXP-1450 (`agentRow.pickCases`): picks never drop the subject — an
+    /// issue subject (the Implement headline and its chips) stays on any
+    /// tap; only an AGENT tap drops a prompt (a message takes none).
     pub(crate) fn pick_agent(&mut self, pick: String, cx: &mut gpui::Context<Self>) {
+        let kind = pick_kind(&pick);
+        if subject_after_pick(&self.subject, kind).is_none() && !matches!(self.subject, Subject::None) {
+            self.clear_subject(cx);
+        }
         self.agent_pick = Some(pick);
         cx.notify();
     }
@@ -1419,10 +1455,11 @@ impl ChatScreenView {
             return Some("Sign in and wait for sync before starting a session.".into());
         }
         // NEW-3: a DM runs on the agent's own device and login: the
-        // composer's machine and its readiness never gate it.
+        // composer's machine and its readiness never gate it. #EXP-1450:
+        // the kept issues alone are something to send.
         if self.to_agent(cx) {
             let text = self.input.read(cx).value().to_string();
-            return chat_launch::text_blocker(&SubjectKind::Agent, &text, self.images.len())
+            return chat_launch::agent_blocker(&text, self.images.len(), self.checked_issue_ids().len())
                 .map(Into::into);
         }
         let Some(launch) = self.launch.as_ref() else {
@@ -1603,25 +1640,20 @@ impl ChatScreenView {
             return;
         };
         // S-3: an agent picked in the row = ONE sessions.send({agentId})
-        // into the viewer's conversation with it; picked issues ride as
-        // `#IDENT` references.
+        // into the viewer's conversation with it. #EXP-1450 (web
+        // `buildSendInput`): the kept issues forward as `issueIds`, in the
+        // picker's order.
         if let Some(agent) = self.selected_agent(cx) {
-            let mut text = text;
-            if let Subject::Issues(issues) = &self.subject {
-                let refs: Vec<String> = issues
+            let issue_ids = match &self.subject {
+                Subject::Issues(issues) => issues
                     .rows
                     .iter()
                     .filter(|row| issues.checked.contains(&row.issue_id))
-                    .map(|row| format!("#{}", row.identifier))
-                    .collect();
-                if !refs.is_empty() {
-                    if !text.trim().is_empty() {
-                        text.push_str("\n\n");
-                    }
-                    text.push_str(&refs.join(" "));
-                }
-            }
-            self.send_to_agent(team_id, agent.id, text, attachment_ids, window, cx);
+                    .map(|row| row.issue_id.clone())
+                    .collect(),
+                _ => Vec::new(),
+            };
+            self.send_to_agent(team_id, agent.id, text, attachment_ids, issue_ids, window, cx);
             return;
         }
         let Some(device_id) = self.selected_device().map(|device| device.device_id.clone()) else {
@@ -1713,7 +1745,7 @@ impl ChatScreenView {
     }
 
     /// NEW-3 — a message to `agent_id`: ONE `sessions.send({teamId, agentId,
-    /// text, attachmentIds})` into the caller's DM with it (created on
+    /// text, attachmentIds, issueIds})` into the caller's DM with it (created on
     /// first use), then the agent's conversation opens (`Screen::Agent`,
     /// what the rail's agent row opens). A failure = `Couldn't send the
     /// message` with Retry.
@@ -1723,6 +1755,7 @@ impl ChatScreenView {
         agent_id: String,
         text: String,
         attachment_ids: Vec<String>,
+        issue_ids: Vec<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -1730,7 +1763,7 @@ impl ChatScreenView {
             self.message_failed(Some("Sign in and wait for sync before sending.".to_string()), cx);
             return;
         };
-        let input = chat_launch::agent_send_input(&team_id, &agent_id, &text, attachment_ids);
+        let input = chat_launch::agent_send_input(&team_id, &agent_id, &text, attachment_ids, issue_ids);
         let generation = self.begin_starting(window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -2311,7 +2344,8 @@ impl ChatScreenView {
         // label the web `submitLabel` mirrors is the TOOLTIP now: the composer
         // card is the page's only control, so a word beside the arrow only
         // repeated what the chips above it already say.
-        let label = chat_launch::submit_label(&self.subject_kind());
+        // #EXP-1450: the recipient changes the label, never the headline.
+        let label = chat_launch::submit_label(&if to_agent { SubjectKind::Agent } else { self.subject_kind() });
         // EXP-1271: the PENDING face — inert from the first moment, the
         // spinner in the icon slot only after `feedback::PENDING_DELAY`.
         let submit = crate::composer::composer_submit(
@@ -2427,9 +2461,11 @@ impl ChatScreenView {
             // verb plus the subject's chips, with the card (and its muted
             // placeholder) reading as the secondary one under it.
             .children(headline)
-            // S-3: the agent row stands directly above the card (the page
-            // only: a play button's dialog always starts a session).
-            .children((!self.in_dialog()).then(|| self.render_agent_row(cx)))
+            // S-3: the agent row stands directly above the card — #EXP-1451
+            // in the Start coding dialog too (the SAME composer as Home): a
+            // seeded dialog starts on Temporary session, a tap may send the
+            // kept issues to an agent instead.
+            .child(self.render_agent_row(cx))
             .child(
                 crate::composer::glass_composer(composer)
                     .capture_action(cx.listener(Self::on_paste)),
@@ -2497,7 +2533,8 @@ impl ChatScreenView {
 
     /// EXP-1037 — the composer in its DIALOG window: the launcher alone, in
     /// the window's own scroll. No page chrome — a dialog always has a
-    /// subject, and the one thing left to decide is whether to send it.
+    /// subject; #EXP-1451 its agent row (Temporary session first) may still
+    /// send that subject to an agent instead of starting a session.
     fn render_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let body = self.render_launcher(window, cx);
         self.fit_dialog(window, cx);
@@ -3590,6 +3627,27 @@ mod tests {
         assert_eq!(agent_pick_after_subject(&prompt, Some("g-b")), temporary);
         assert_eq!(agent_pick_after_subject(&Subject::None, Some("g-me")).as_deref(), Some("g-me"));
         assert_eq!(agent_pick_after_subject(&Subject::None, None), None);
+    }
+
+    /// #EXP-1450 — composer-home.json `agentRow.pickCases`: an agent tap
+    /// keeps an issue subject and drops only a prompt; the dotted circle
+    /// keeps both.
+    #[test]
+    fn picks_never_drop_the_issue_subject() {
+        use domain::composer_agent_row::{ComposerPick, ComposerSubjectKind as K};
+        assert_eq!(pick_kind("temporary"), ComposerPick::Temporary);
+        assert_eq!(pick_kind("g-me"), ComposerPick::Agent);
+        let issues = Subject::Issues(IssueSubject {
+            rows: Rc::default(),
+            checked: HashSet::new(),
+            repos: HashMap::new(),
+        });
+        assert_eq!(subject_after_pick(&issues, pick_kind("g-me")), Some(K::Issues));
+        assert_eq!(subject_after_pick(&issues, pick_kind("temporary")), Some(K::Issues));
+        let prompt = Subject::Action(ActionSubject { action_id: "p-1".into() });
+        assert_eq!(subject_after_pick(&prompt, pick_kind("g-me")), None);
+        assert_eq!(subject_after_pick(&prompt, pick_kind("temporary")), Some(K::Prompt));
+        assert_eq!(subject_after_pick(&Subject::None, pick_kind("g-me")), None);
     }
 
     #[test]

@@ -64,6 +64,15 @@ pub(crate) fn text_blocker(subject: &SubjectKind, text: &str, image_count: usize
     }
 }
 
+/// #EXP-1450: a message to an agent needs something to send — text, an
+/// image, or the kept issue subject (the server takes `issueIds` alone).
+pub(crate) fn agent_blocker(text: &str, image_count: usize, issue_count: usize) -> Option<&'static str> {
+    if issue_count > 0 {
+        return None;
+    }
+    text_blocker(&SubjectKind::Agent, text, image_count)
+}
+
 /// EXP-862 — which blocker earns a NOTE under the composer.
 ///
 /// "Type a message." is the empty composer telling the reader to use the
@@ -144,12 +153,14 @@ pub(crate) fn send_input(
 /// NEW-3 — a message to a team AGENT: one `sessions.send` naming the agent,
 /// which lands in the caller's own conversation with it (created on first
 /// use). The DM runs on the agent's device and login, so no runner pick
-/// rides (web `buildSendInput`'s agent arm).
+/// rides (web `buildSendInput`'s agent arm). #EXP-1450: the composer's kept
+/// issue subject forwards as `issue_ids` onto the agent's conversation.
 pub(crate) fn agent_send_input(
     team_id: &str,
     agent_id: &str,
     text: &str,
     attachment_ids: Vec<String>,
+    issue_ids: Vec<String>,
 ) -> api::sessions::SendInput {
     let text = text.trim();
     api::sessions::SendInput {
@@ -157,6 +168,7 @@ pub(crate) fn agent_send_input(
         agent_id: Some(agent_id.to_string()),
         text: (!text.is_empty()).then(|| text.to_string()),
         attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
+        issue_ids: Some(issue_ids).filter(|ids| !ids.is_empty()),
         ..Default::default()
     }
 }
@@ -371,15 +383,28 @@ mod tests {
     /// the uploads, and NO runner pick (the DM runs on the agent's device).
     #[test]
     fn the_agent_send_input_carries_no_runner_picks() {
-        let input = agent_send_input("team-1", "agent-1", "  hello \n", vec!["att-1".into()]);
+        let input = agent_send_input("team-1", "agent-1", "  hello \n", vec!["att-1".into()], Vec::new());
         assert_eq!(input.team_id.as_deref(), Some("team-1"));
         assert_eq!(input.agent_id.as_deref(), Some("agent-1"));
         assert_eq!(input.text.as_deref(), Some("hello"));
         assert_eq!(input.attachment_ids, Some(vec!["att-1".to_string()]));
         assert!(input.device_id.is_none() && input.cli.is_none() && input.model.is_none());
         assert!(input.plan_mode.is_none() && input.ultracode.is_none());
-        let bare = agent_send_input("team-1", "agent-1", " ", Vec::new());
-        assert!(bare.text.is_none() && bare.attachment_ids.is_none());
+        let bare = agent_send_input("team-1", "agent-1", " ", Vec::new(), Vec::new());
+        assert!(bare.text.is_none() && bare.attachment_ids.is_none() && bare.issue_ids.is_none());
+    }
+
+    /// #EXP-1450: an agent picked over an issue subject forwards the issues
+    /// (web `buildSendInput`), and issues alone are sendable.
+    #[test]
+    fn the_agent_send_forwards_the_kept_issues() {
+        let input = agent_send_input("team-1", "agent-1", "", Vec::new(), vec!["i-1".into(), "i-2".into()]);
+        assert_eq!(input.issue_ids, Some(vec!["i-1".to_string(), "i-2".to_string()]));
+        assert!(input.text.is_none() && input.device_id.is_none());
+        assert_eq!(agent_blocker("", 0, 2), None);
+        assert_eq!(agent_blocker(" ", 0, 0), Some(TYPE_A_MESSAGE));
+        assert_eq!(agent_blocker("", 1, 0), None);
+        assert_eq!(agent_blocker("hi", 0, 0), None);
     }
 
     /// EXP-1294: ONE send per start — the active team, the device, the

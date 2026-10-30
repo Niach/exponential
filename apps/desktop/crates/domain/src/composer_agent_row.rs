@@ -134,6 +134,26 @@ pub fn pick_for_subject(subject: ComposerSubjectKind, current: Option<&str>) -> 
     }
 }
 
+/// What a pick is (TS `ComposerPick`, `agentRow.pickCases`): an agent
+/// circle, the dotted Temporary-session circle, or any other option (a
+/// device, an account, a model, effort, a + row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComposerPick {
+    Agent,
+    Temporary,
+    Option,
+}
+
+/// What a pick does to the subject (TS `subjectAfterPick`, #EXP-1450):
+/// picks never drop an ISSUE subject; an agent tap drops only a prompt
+/// (a message to an agent takes none). None = no subject.
+pub fn subject_after_pick(subject: Option<ComposerSubjectKind>, pick: ComposerPick) -> Option<ComposerSubjectKind> {
+    match (subject, pick) {
+        (Some(ComposerSubjectKind::Prompt), ComposerPick::Agent) => None,
+        (subject, _) => subject,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +220,29 @@ mod tests {
             };
             let pick = pick_for_subject(subject, case["current"].as_str());
             assert_eq!(pick.as_deref(), case["expected"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn agent_row_pick_cases_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(COMPOSER_HOME_JSON).unwrap();
+        let cases = fixture["agentRow"]["pickCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        let kind = |value: &Value| match value.as_str() {
+            Some("issues") => Some(ComposerSubjectKind::Issues),
+            Some("prompt") => Some(ComposerSubjectKind::Prompt),
+            Some(other) => panic!("unknown subject {other}"),
+            None => None,
+        };
+        for case in cases {
+            let pick = match case["pick"].as_str() {
+                Some("agent") => ComposerPick::Agent,
+                Some("temporary") => ComposerPick::Temporary,
+                Some("option") => ComposerPick::Option,
+                other => panic!("unknown pick {other:?}"),
+            };
+            let after = subject_after_pick(kind(&case["subject"]), pick);
+            assert_eq!(after, kind(&case["expected"]), "{}", case["name"]);
         }
     }
 }

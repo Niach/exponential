@@ -106,7 +106,7 @@ fn send_error(err: api::ApiError) -> SendError {
 fn send_input(outgoing: Outgoing) -> api::sessions::SendInput {
     let mut input = match outgoing.target {
         UtteranceTarget::Session { session_id, text } => api::sessions::SendInput::message(&session_id, &text, Vec::new()),
-        UtteranceTarget::Agent { team_id, agent_id, text } => crate::chat_launch::agent_send_input(&team_id, &agent_id, &text, Vec::new()),
+        UtteranceTarget::Agent { team_id, agent_id, text } => crate::chat_launch::agent_send_input(&team_id, &agent_id, &text, Vec::new(), Vec::new()),
     };
     if outgoing.meeting {
         input = input.meeting();

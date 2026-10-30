@@ -11,7 +11,8 @@
 //! specimen ([`ComposerSpecimen`], [`plus_menu_open`]) is shared with the
 //! `session-thread` entry, like the web `composer-specimen.tsx`. The agent
 //! case keeps the home placeholder (the agent row above the card picks the
-//! recipient, styleguide `composer-agent-row`).
+//! recipient, styleguide `composer-agent-row`). #EXP-1451: the launch case
+//! wears that agent row between its headline and the card, like the dialog.
 
 use gpui::{
     div, px, AnyElement, App, Context, Div, Entity, IntoElement, ParentElement as _, Render,
@@ -370,6 +371,12 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                 .child(Icon::new(registry::NAV_ACTIONS).xsmall().text_color(muted))
                 .child(div().text_xs().child("Triage new issues")),
         );
+    // #EXP-1451: the dialog wears the SAME agent row as Home between the
+    // headline and the card; a seeded subject starts it on Temporary session.
+    let (agents, me) = super::composer_agent_row::sample();
+    let temporary = domain::composer_agent_row::COMPOSER_AGENT_ROW.temporary_id.clone();
+    let row_state = domain::composer_agent_row::composer_agent_row(&agents, Some(me.as_str()), Some(temporary.as_str()));
+    let agent_row = crate::chat_list::composer_agent_row(&row_state, std::rc::Rc::new(|_, _, _| {}), cx);
     let placeholder = thread_placeholder();
     let action_start = composer_specimen(
         "sg-composer-dialog-action-start",
@@ -407,6 +414,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                             cx,
                         ))
                         .child(headline)
+                        .child(agent_row)
                         .child(action_start),
                 )
                 .child(

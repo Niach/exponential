@@ -533,7 +533,7 @@ impl AgentScreenView {
                         &parsed.text,
                         attachment_ids,
                     ),
-                    None => crate::chat_launch::agent_send_input(&team_id, &subject_id, &parsed.text, attachment_ids),
+                    None => crate::chat_launch::agent_send_input(&team_id, &subject_id, &parsed.text, attachment_ids, Vec::new()),
                 }
             }) else {
                 return;
