@@ -2518,45 +2518,7 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
     }
 }
 /**
- * The default config: our relay, nobody allowed yet.
- */
-public func defaultConfig() -> EnetConfig  {
-    return try!  FfiConverterTypeEnetConfig_lift(try! rustCall() {
-    uniffi_exponential_net_ffi_fn_func_default_config($0
-    )
-})
-}
-/**
- * The endpoint id an identity has.
- */
-public func endpointIdOf(identity: Data)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
-    uniffi_exponential_net_ffi_fn_func_endpoint_id_of(
-        FfiConverterData.lower(identity),$0
-    )
-})
-}
-/**
- * 32 fresh random identity bytes (store them in the keychain).
- */
-public func generateIdentity() -> Data  {
-    return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_exponential_net_ffi_fn_func_generate_identity($0
-    )
-})
-}
-/**
- * Parses (validates) an `enet1…` ticket.
- */
-public func parseTicket(ticket: String)throws  -> EnetTicket  {
-    return try  FfiConverterTypeEnetTicket_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
-    uniffi_exponential_net_ffi_fn_func_parse_ticket(
-        FfiConverterString.lower(ticket),$0
-    )
-})
-}
-/**
- * The install's push keypair derived from its identity.
+ * The install's push keypair derived from its 32 identity bytes.
  */
 public func pushKeypairDerive(identity: Data)throws  -> EnetPushKeypair  {
     return try  FfiConverterTypeEnetPushKeypair_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
@@ -2594,6 +2556,44 @@ public func pushSeal(recipientPublic: Data, plaintext: Data)throws  -> Data  {
     )
 })
 }
+/**
+ * The default config: our relay, nobody allowed yet.
+ */
+public func defaultConfig() -> EnetConfig  {
+    return try!  FfiConverterTypeEnetConfig_lift(try! rustCall() {
+    uniffi_exponential_net_ffi_fn_func_default_config($0
+    )
+})
+}
+/**
+ * The endpoint id an identity has.
+ */
+public func endpointIdOf(identity: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_func_endpoint_id_of(
+        FfiConverterData.lower(identity),$0
+    )
+})
+}
+/**
+ * 32 fresh random identity bytes (store them in the keychain).
+ */
+public func generateIdentity() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_exponential_net_ffi_fn_func_generate_identity($0
+    )
+})
+}
+/**
+ * Parses (validates) an `enet1…` ticket.
+ */
+public func parseTicket(ticket: String)throws  -> EnetTicket  {
+    return try  FfiConverterTypeEnetTicket_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_func_parse_ticket(
+        FfiConverterString.lower(ticket),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -2610,19 +2610,7 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_default_config() != 13525) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_exponential_net_ffi_checksum_func_endpoint_id_of() != 11803) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_exponential_net_ffi_checksum_func_generate_identity() != 17346) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_exponential_net_ffi_checksum_func_parse_ticket() != 54824) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_derive() != 51330) {
+    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_derive() != 7760) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_func_push_keypair_generate() != 12778) {
@@ -2634,94 +2622,106 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_net_ffi_checksum_func_push_seal() != 37617) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow() != 30300) {
+    if (uniffi_exponential_net_ffi_checksum_func_default_config() != 51486) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetlistener_on_event() != 51457) {
+    if (uniffi_exponential_net_ffi_checksum_func_endpoint_id_of() != 15447) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_accept_call() != 63901) {
+    if (uniffi_exponential_net_ffi_checksum_func_generate_identity() != 54854) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_add_ticket() != 50130) {
+    if (uniffi_exponential_net_ffi_checksum_func_parse_ticket() != 46612) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_allow_peer() != 17058) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow() != 26440) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_allowed_peers() != 47206) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetlistener_on_event() != 1585) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add() != 29845) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_accept_call() != 46486) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add_path() != 29822) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_add_ticket() != 57800) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch() != 29103) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_allow_peer() != 38568) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch_ticket() != 59875) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_allowed_peers() != 4741) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_get() != 48197) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add() != 65383) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_endpoint_id() != 59816) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add_path() != 65013) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_get_record() != 41822) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch() != 56382) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_hang_up() != 32056) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch_ticket() != 52539) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_join_space() != 53192) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_get() != 6810) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_leave_space() != 49704) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_endpoint_id() != 14007) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_next_event() != 13465) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_get_record() != 61330) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_online() != 19308) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_hang_up() != 26095) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_put_record() != 3994) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_join_space() != 41913) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_records() != 63945) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_leave_space() != 39121) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_revoke_peer() != 63924) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_next_event() != 21141) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_send_chat() != 1948) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_online() != 35855) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_send_frame() != 713) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_put_record() != 1575) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_access_policy() != 30461) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_records() != 5117) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_listener() != 45038) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_revoke_peer() != 20184) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_open() != 20084) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_send_chat() != 46844) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_shutdown() != 58265) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_send_frame() != 321) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_start_call() != 51403) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_access_policy() != 23664) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_ticket() != 8986) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_listener() != 60137) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_constructor_enetnode_start() != 50137) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_open() != 46855) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_shutdown() != 35382) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_start_call() != 59379) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_ticket() != 56139) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_constructor_enetnode_start() != 34601) {
         return InitializationResult.apiChecksumMismatch
     }
 

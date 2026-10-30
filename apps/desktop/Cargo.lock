@@ -2951,6 +2951,7 @@ dependencies = [
  "iroh-gossip",
  "iroh-tickets",
  "n0-future",
+ "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "tokio",
@@ -2961,7 +2962,9 @@ dependencies = [
 name = "exponential-net-ffi"
 version = "0.1.0"
 dependencies = [
+ "data-encoding",
  "exponential-net",
+ "serde_json",
  "tokio",
  "uniffi",
 ]

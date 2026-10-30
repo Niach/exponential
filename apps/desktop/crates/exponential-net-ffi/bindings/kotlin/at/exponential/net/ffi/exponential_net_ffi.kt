@@ -686,14 +686,6 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "exponential_net_ffi"))
         uniffiCheckContractApiVersion(this)
     }
-    external fun uniffi_exponential_net_ffi_checksum_func_default_config(
-    ): Short
-    external fun uniffi_exponential_net_ffi_checksum_func_endpoint_id_of(
-    ): Short
-    external fun uniffi_exponential_net_ffi_checksum_func_generate_identity(
-    ): Short
-    external fun uniffi_exponential_net_ffi_checksum_func_parse_ticket(
-    ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_push_keypair_derive(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_push_keypair_generate(
@@ -701,6 +693,14 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_net_ffi_checksum_func_push_open(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_push_seal(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_default_config(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_endpoint_id_of(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_generate_identity(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_parse_ticket(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow(
     ): Short
@@ -858,14 +858,6 @@ external fun uniffi_exponential_net_ffi_fn_method_enetnode_start_call(`ptr`: Lon
 ): Long
 external fun uniffi_exponential_net_ffi_fn_method_enetnode_ticket(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_default_config(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_endpoint_id_of(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_generate_identity(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_parse_ticket(`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_push_keypair_derive(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_push_keypair_generate(uniffi_out_err: UniffiRustCallStatus, 
@@ -873,6 +865,14 @@ external fun uniffi_exponential_net_ffi_fn_func_push_keypair_generate(uniffi_out
 external fun uniffi_exponential_net_ffi_fn_func_push_open(`recipientSecret`: RustBuffer.ByValue,`sealed`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_push_seal(`recipientPublic`: RustBuffer.ByValue,`plaintext`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_default_config(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_endpoint_id_of(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_generate_identity(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_parse_ticket(`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun ffi_exponential_net_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -3903,6 +3903,59 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
 
 
         /**
+         * The install's push keypair derived from its 32 identity bytes.
+         */
+    @Throws(EnetException::class) fun `pushKeypairDerive`(`identity`: kotlin.ByteArray): EnetPushKeypair {
+            return FfiConverterTypeEnetPushKeypair.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_push_keypair_derive(
+    
+        FfiConverterByteArray.lower(`identity`),_status)
+}
+    )
+    }
+    
+ fun `pushKeypairGenerate`(): EnetPushKeypair {
+            return FfiConverterTypeEnetPushKeypair.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_push_keypair_generate(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Opens a sealed push payload: what a Notification Service Extension
+         * (iOS) or the FCM service (Android) calls. Needs no node and no runtime.
+         */
+    @Throws(EnetException::class) fun `pushOpen`(`recipientSecret`: kotlin.ByteArray, `sealed`: kotlin.ByteArray): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_push_open(
+    
+        FfiConverterByteArray.lower(`recipientSecret`),FfiConverterByteArray.lower(`sealed`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Seals a push payload to a recipient's X25519 public key.
+         */
+    @Throws(EnetException::class) fun `pushSeal`(`recipientPublic`: kotlin.ByteArray, `plaintext`: kotlin.ByteArray): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_push_seal(
+    
+        FfiConverterByteArray.lower(`recipientPublic`),FfiConverterByteArray.lower(`plaintext`),_status)
+}
+    )
+    }
+    
+
+        /**
          * The default config: our relay, nobody allowed yet.
          */ fun `defaultConfig`(): EnetConfig {
             return FfiConverterTypeEnetConfig.lift(
@@ -3951,59 +4004,6 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     UniffiLib.uniffi_exponential_net_ffi_fn_func_parse_ticket(
     
         FfiConverterString.lower(`ticket`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * The install's push keypair derived from its identity.
-         */
-    @Throws(EnetException::class) fun `pushKeypairDerive`(`identity`: kotlin.ByteArray): EnetPushKeypair {
-            return FfiConverterTypeEnetPushKeypair.lift(
-    uniffiRustCallWithError(EnetException) { _status ->
-    UniffiLib.uniffi_exponential_net_ffi_fn_func_push_keypair_derive(
-    
-        FfiConverterByteArray.lower(`identity`),_status)
-}
-    )
-    }
-    
- fun `pushKeypairGenerate`(): EnetPushKeypair {
-            return FfiConverterTypeEnetPushKeypair.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_net_ffi_fn_func_push_keypair_generate(
-    
-        _status)
-}
-    )
-    }
-    
-
-        /**
-         * Opens a sealed push payload: what a Notification Service Extension
-         * (iOS) or the FCM service (Android) calls. Needs no node and no runtime.
-         */
-    @Throws(EnetException::class) fun `pushOpen`(`recipientSecret`: kotlin.ByteArray, `sealed`: kotlin.ByteArray): kotlin.ByteArray {
-            return FfiConverterByteArray.lift(
-    uniffiRustCallWithError(EnetException) { _status ->
-    UniffiLib.uniffi_exponential_net_ffi_fn_func_push_open(
-    
-        FfiConverterByteArray.lower(`recipientSecret`),FfiConverterByteArray.lower(`sealed`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * Seals a push payload to a recipient's X25519 public key.
-         */
-    @Throws(EnetException::class) fun `pushSeal`(`recipientPublic`: kotlin.ByteArray, `plaintext`: kotlin.ByteArray): kotlin.ByteArray {
-            return FfiConverterByteArray.lift(
-    uniffiRustCallWithError(EnetException) { _status ->
-    UniffiLib.uniffi_exponential_net_ffi_fn_func_push_seal(
-    
-        FfiConverterByteArray.lower(`recipientPublic`),FfiConverterByteArray.lower(`plaintext`),_status)
 }
     )
     }

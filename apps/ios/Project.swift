@@ -50,6 +50,36 @@ let surfaceSettings: SettingsDictionary = hasExponentialUi
     ? ["SWIFT_INCLUDE_PATHS": "$(inherited) $(BUILT_PRODUCTS_DIR)/ExponentialUIWrapper.framework/Modules"]
     : [:]
 
+// EXP-1435: sealed pushes. `ExpPush` (Foundation + Security) holds the
+// device's X25519 push key in the shared keychain group and opens the relay's
+// sealed payloads through eNet's push-only UniFFI binding: the generated Swift
+// is COMMITTED under apps/desktop/crates/exponential-net-ffi/bindings/push,
+// its static library ships as a gitignored xcframework
+// (`ENET_PUSH_ONLY=1 bash apps/desktop/crates/exponential-net-ffi/build-ios.sh`).
+// Like eUI, the binding compiles and links only when the xcframework exists
+// (`ENET_PUSH`); without it the project still builds, the Notification Service
+// Extension delivers the relay's placeholder unchanged and the app registers
+// its bare FCM token (legacy). tuist caches the evaluated manifest by its
+// content, so after building or deleting the xcframework locally a stale
+// `hasEnetPush` survives until Project.swift changes (CI starts fresh).
+let enetPushFfiPath = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("../desktop/crates/exponential-net-ffi/out/push/ExponentialNetFFI.xcframework")
+    .standardizedFileURL.path
+let hasEnetPush = FileManager.default.fileExists(atPath: enetPushFfiPath)
+let enetPushBinding: [TargetDependency] = hasEnetPush
+    ? [.xcframework(path: "../desktop/crates/exponential-net-ffi/out/push/ExponentialNetFFI.xcframework")]
+    : []
+let expPushSources: SourceFilesList = hasEnetPush
+    ? ["ExpPush/Sources/**", "../desktop/crates/exponential-net-ffi/bindings/push/swift/ExponentialNetFFI.swift"]
+    : ["ExpPush/Sources/**"]
+let enetPushSettings: SettingsDictionary = hasEnetPush
+    ? ["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) ENET_PUSH"]
+    : [:]
+// Every target that links ExpPush (a static framework) links the binding's
+// static library too.
+let expPushDependencies: [TargetDependency] = [.target(name: "ExpPush")] + enetPushBinding
+
 let sharedDependencies: [TargetDependency] = [
     .external(name: "GRDB"),
     .external(name: "FirebaseCore"),
@@ -156,6 +186,18 @@ let shareExtensionInfoPlist: [String: Plist.Value] = [
     ]),
 ]
 
+// The Notification Service Extension (prod + staging): ExpPush only, no
+// Firebase, no GRDB (the extension's memory cap is ~24 MB).
+let notificationServiceInfoPlist: [String: Plist.Value] = [
+    // Lockstep with the parent app, like the Share Extension.
+    "CFBundleShortVersionString": .string(appMarketingVersion),
+    "CFBundleVersion": .string(appBuildVersion),
+    "NSExtension": .dictionary([
+        "NSExtensionPointIdentifier": .string("com.apple.usernotifications.service"),
+        "NSExtensionPrincipalClass": .string("$(PRODUCT_MODULE_NAME).NotificationService"),
+    ]),
+]
+
 let sharedInfoPlist: [String: Plist.Value] = [
     "CFBundleShortVersionString": .string(appMarketingVersion),
     "CFBundleVersion": .string(appBuildVersion),
@@ -242,6 +284,30 @@ let project = Project(
             dependencies: [.target(name: "ExpUI"), .external(name: "ExponentialUIPrimitives")],
             settings: .settings(base: baseSettings)
         ),
+        // EXP-1435: the sealed-push core the app and the Notification Service
+        // Extension share (static: linked into each, no embedded framework).
+        .target(
+            name: "ExpPush",
+            destinations: [.iPhone, .iPad],
+            product: .staticFramework,
+            bundleId: "at.exponential.push",
+            deploymentTargets: .iOS("17.4"),
+            sources: expPushSources,
+            dependencies: enetPushBinding,
+            settings: .settings(base: baseSettings.merging(enetPushSettings) { _, new in new })
+        ),
+        // The push-seal fixture replay (packages/domain-contract/fixtures/
+        // push-seal.json) + the userInfo mapping; runs in the ExpCore scheme.
+        .target(
+            name: "ExpPushTests",
+            destinations: [.iPhone, .iPad],
+            product: .unitTests,
+            bundleId: "at.exponential.push.tests",
+            deploymentTargets: .iOS("17.4"),
+            sources: ["ExpPush/Tests/**"],
+            dependencies: expPushDependencies,
+            settings: .settings(base: baseSettings.merging(enetPushSettings) { _, new in new })
+        ),
         .target(
             name: "Exponential",
             destinations: [.iPhone, .iPad],
@@ -257,7 +323,7 @@ let project = Project(
             // Universal Links, which the ShareExtension (still on
             // Exponential.entitlements) must not inherit.
             entitlements: "ExponentialApp.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension")],
+            dependencies: sharedDependencies + expPushDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension"), .target(name: "NotificationService")],
             settings: .settings(base: baseSettings.merging(surfaceSettings) { _, new in new })
         ),
         .target(
@@ -274,7 +340,7 @@ let project = Project(
             resources: stagingResources,
             // App-only entitlements (EXP-92) — see the production target.
             entitlements: "ExponentialAppStaging.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging")],
+            dependencies: sharedDependencies + expPushDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging"), .target(name: "NotificationService-Staging")],
             settings: .settings(base: baseSettings.merging(surfaceSettings) { _, new in new }.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
@@ -334,12 +400,47 @@ let project = Project(
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
         ),
+        .target(
+            name: "NotificationService",
+            destinations: [.iPhone, .iPad],
+            product: .appExtension,
+            bundleId: "at.exponential.notificationservice",
+            deploymentTargets: .iOS("17.4"),
+            infoPlist: .extendingDefault(with: notificationServiceInfoPlist.merging([
+                "CFBundleDisplayName": "Exponential",
+            ]) { _, new in new }),
+            sources: ["NotificationService/**"],
+            resources: ["NotificationService/PrivacyInfo.xcprivacy"],
+            entitlements: "NotificationService.entitlements",
+            dependencies: expPushDependencies,
+            settings: .settings(base: baseSettings)
+        ),
+        .target(
+            name: "NotificationService-Staging",
+            destinations: [.iPhone, .iPad],
+            product: .appExtension,
+            bundleId: "at.exponential.staging.notificationservice",
+            deploymentTargets: .iOS("17.4"),
+            infoPlist: .extendingDefault(with: notificationServiceInfoPlist.merging([
+                "CFBundleDisplayName": "Exp Staging",
+                "CFBundleVersion": .string(stagingBuildVersion),
+            ]) { _, new in new }),
+            sources: ["NotificationService/**"],
+            resources: ["NotificationService/PrivacyInfo.xcprivacy"],
+            entitlements: "NotificationServiceStaging.entitlements",
+            dependencies: expPushDependencies,
+            settings: .settings(base: baseSettings.merging([
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
+            ]) { _, new in new })
+        ),
     ],
     schemes: [
         .scheme(
             name: "ExpCore",
-            buildAction: .buildAction(targets: ["ExpCore", "ExpCoreTests"]),
-            testAction: .targets(["ExpCoreTests"])
+            // EXP-1435: ExpPushTests ride the ExpCore scheme, so `bun run
+            // ios:test` and test-ios.yml run the push-seal fixture with it.
+            buildAction: .buildAction(targets: ["ExpCore", "ExpCoreTests", "ExpPushTests"]),
+            testAction: .targets(["ExpCoreTests", "ExpPushTests"])
         ),
         .scheme(
             name: "ExpUI",

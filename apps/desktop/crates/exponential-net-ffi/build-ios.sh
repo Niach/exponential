@@ -9,6 +9,9 @@
 # Knob: ENET_APPLE_TARGETS="aarch64-apple-ios" builds only those rust targets.
 # Knob: ENET_FEATURES="" builds with `--no-default-features --features <list>`
 #       (an empty list drops `fs-store`: in-memory blobs only, smaller binary).
+# Knob: ENET_PUSH_ONLY=1 = the push-only facade (no iroh, no tokio: the
+#       Notification Service Extension's memory cap) with bindings/push/swift,
+#       into out/push/ExponentialNetFFI.xcframework (what apps/ios links).
 # Outputs (out/ is gitignored; the Swift binding source is COMMITTED under bindings/swift):
 #   apps/desktop/crates/exponential-net-ffi/out/ExponentialNetFFI.xcframework
 #   apps/desktop/crates/exponential-net-ffi/bindings/swift/ExponentialNetFFI.swift
@@ -18,6 +21,9 @@ DESKTOP="$(cd "$HERE/../.." && pwd)"
 cd "$DESKTOP"
 TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
 export CARGO_TARGET_DIR="$TARGET"
+OUT="$HERE/out"
+BINDINGS="$HERE/bindings"
+if [ "${ENET_PUSH_ONLY:-}" = "1" ]; then OUT="$HERE/out/push"; BINDINGS="$HERE/bindings/push"; ENET_FEATURES=""; fi
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin >/dev/null
 
 echo "== bindings (host build; bindgen reads the dylib's metadata)"
@@ -28,7 +34,7 @@ APPLE_TARGETS=(aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-
 if [ -n "${ENET_APPLE_TARGETS:-}" ]; then read -r -a APPLE_TARGETS <<<"$ENET_APPLE_TARGETS"; fi
 FEATURE_ARGS=()
 if [ -n "${ENET_FEATURES+x}" ]; then FEATURE_ARGS=(--no-default-features --features "$ENET_FEATURES"); fi
-THIN="$HERE/out/thin"
+THIN="$OUT/thin"
 rm -rf "$THIN"
 for t in "${APPLE_TARGETS[@]}"; do
   cargo rustc -p exponential-net-ffi --profile mobile --target "$t" --crate-type staticlib ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"}
@@ -39,11 +45,11 @@ done
 lib() { echo "$THIN/$1/libexponential_net_ffi.a"; }
 
 echo "== xcframework"
-HEADERS="$HERE/out/headers"
+HEADERS="$OUT/headers"
 rm -rf "$HEADERS" && mkdir -p "$HEADERS"
-cp "$HERE/bindings/swift/ExponentialNetFFIFFI.h" "$HEADERS/"
-cp "$HERE/bindings/swift/module.modulemap" "$HEADERS/module.modulemap"
-FAT="$HERE/out/fat"
+cp "$BINDINGS/swift/ExponentialNetFFIFFI.h" "$HEADERS/"
+cp "$BINDINGS/swift/module.modulemap" "$HEADERS/module.modulemap"
+FAT="$OUT/fat"
 rm -rf "$FAT"
 built() { [ -f "$(lib "$1")" ]; }
 slice() {
@@ -60,7 +66,7 @@ XCF_ARGS=()
 slice ios aarch64-apple-ios
 slice ios-simulator aarch64-apple-ios-sim x86_64-apple-ios
 slice macos aarch64-apple-darwin x86_64-apple-darwin
-XCF="$HERE/out/ExponentialNetFFI.xcframework"
+XCF="$OUT/ExponentialNetFFI.xcframework"
 rm -rf "$XCF"
 xcodebuild -create-xcframework "${XCF_ARGS[@]}" -output "$XCF" | tail -2
 rm -rf "$FAT" "$THIN"

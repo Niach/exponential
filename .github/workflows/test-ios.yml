@@ -108,6 +108,20 @@ jobs:
         env:
           EXPONENTIAL_UI_APPLE_TARGETS: aarch64-apple-ios aarch64-apple-ios-sim
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      # EXP-1435: the push-only eNet facade the Notification Service Extension
+      # opens sealed pushes with (Project.swift links it only when it exists,
+      # like eUI); without it ExpPushTests skip the push-seal fixture. The
+      # script regenerates the COMMITTED Swift binding from a host build: any
+      # drift from bindings/push is a red job.
+      - name: Build the push-only eNet xcframework
+        working-directory: ${{ github.workspace }}
+        env:
+          ENET_PUSH_ONLY: "1"
+          ENET_APPLE_TARGETS: aarch64-apple-ios aarch64-apple-ios-sim
+        run: |
+          bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
+          git diff --exit-code -- apps/desktop/crates/exponential-net-ffi/bindings/push/swift \
+            || { echo "::error::bindings/push/swift drifted from the Rust facade: regenerate and commit"; exit 1; }
 
       # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
       # exits 1 without this.
@@ -218,6 +232,8 @@ jobs:
             return 0
           }
 
+          # ExpCore's test action also runs ExpPushTests (EXP-1435: the
+          # push-seal fixture through the binding + the sealed userInfo mapping).
           run_suite ExpCore 800
           run_suite ExpUI 300
           exit "$fail"

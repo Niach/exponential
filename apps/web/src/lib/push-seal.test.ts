@@ -8,26 +8,20 @@ import {
   pushSealWith,
 } from "@/lib/push-seal"
 
+import fixture from "@exp/domain-contract/fixtures/push-seal.json"
+
 // Locks lib/push-seal.ts byte-for-byte to `push_seal` / `push_open` in
-// apps/desktop/crates/exponential-net/src/push.rs (EXP-1428). The vectors
-// below were cross-checked against the Rust crate on 2026-10-30 with a
-// throwaway binary path-depending on exponential-net: Rust's push_open opened
-// TS_SEALED to PLAINTEXT, and RUST_SEALED is a Rust push_seal output that the
-// TS side must open.
+// apps/desktop/crates/exponential-net/src/push.rs (EXP-1428) through the
+// shared vectors every implementation replays (EXP-1435: Rust, web, Swift,
+// Kotlin), packages/domain-contract/fixtures/push-seal.json.
 
 const hex = (s: string) => new Uint8Array(Buffer.from(s, `hex`))
 const toHex = (b: Uint8Array) => Buffer.from(b).toString(`hex`)
-const bytes = (f: (i: number) => number) =>
-  new Uint8Array(Array.from({ length: 32 }, (_, i) => f(i)))
+const utf8 = new TextEncoder()
 
-const RECIPIENT_SECRET = bytes((i) => i + 1) // 01 02 … 20
-const EPH_SECRET = bytes((i) => 0x80 + i) // 80 81 … 9f
-const RECIPIENT_PUBLIC = `07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c`
-const PLAINTEXT = `{"title":"Hello","body":"World","data":{"userId":"u1"}}`
-const TS_SEALED =
-  `01493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d2e644e142a277df71d0d69c6ed885dc581701b86040561c808cccd027100eeedf02ae302fffde8b091315b8377c7cb14645ecf8615fca2de8fd6263ebd9d49726edb0b90ccd2e4`
-const RUST_SEALED =
-  `01b47474edd575050ba7eb926ba31ca5ce7a6a4b3b67b69c804505406ecf1f4a695ce01e126391e8394cac225f83134bda4d04a059e4083d9554`
+const RECIPIENT_SECRET = hex(fixture.recipient.secret)
+const RECIPIENT_PUBLIC = fixture.recipient.public
+const EPH_SECRET = hex(fixture.vector.ephemeralSecret)
 
 describe(`ChaCha20-Poly1305 (RFC 8439)`, () => {
   it(`matches the §2.8.2 AEAD test vector`, () => {
@@ -53,15 +47,21 @@ describe(`pushSeal (byte-exact with exponential-net push.rs)`, () => {
     const sealed = pushSealWith(
       EPH_SECRET,
       hex(RECIPIENT_PUBLIC),
-      new TextEncoder().encode(PLAINTEXT)
+      utf8.encode(fixture.vector.plaintext)
     )
-    expect(toHex(sealed)).toBe(TS_SEALED)
+    expect(toHex(sealed)).toBe(fixture.vector.sealed)
+    const opened = new TextDecoder().decode(pushOpen(RECIPIENT_SECRET, sealed))
+    expect(JSON.parse(opened)).toEqual(fixture.vector.opened)
   })
 
   it(`opens a payload sealed by Rust`, () => {
-    expect(new TextDecoder().decode(pushOpen(RECIPIENT_SECRET, hex(RUST_SEALED)))).toBe(
-      `from rust`
-    )
+    expect(
+      new TextDecoder().decode(pushOpen(RECIPIENT_SECRET, hex(fixture.rustSealed.sealed)))
+    ).toBe(fixture.rustSealed.plaintext)
+  })
+
+  it.each(fixture.refused)(`refuses to open: $name`, ({ secret, sealed }) => {
+    expect(() => pushOpen(hex(secret), hex(sealed))).toThrow()
   })
 
   it(`round-trips with a fresh ephemeral key per seal`, () => {
@@ -87,7 +87,7 @@ describe(`pushSeal (byte-exact with exponential-net push.rs)`, () => {
   })
 
   it(`refuses a low-order recipient key (all-zero shared secret)`, () => {
-    expect(() => pushSeal(new Uint8Array(32), new Uint8Array([1]))).toThrow(
+    expect(() => pushSeal(hex(fixture.lowOrderPublic), new Uint8Array([1]))).toThrow(
       /low-order/
     )
   })

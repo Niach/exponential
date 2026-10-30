@@ -53,6 +53,17 @@ val releaseStorePassword = releaseProp("RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = releaseProp("RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseProp("RELEASE_KEY_PASSWORD")
 
+// EXP-1435: sealed pushes are opened by the eNet push-only UniFFI facade
+// (`exponential-net-ffi --no-default-features`: RustCrypto only, no iroh, no
+// tokio). The Kotlin binding is a COMMITTED source; the `.so` per ABI is built
+// by `ENET_PUSH_ONLY=1 SKIP_BINDINGS=1 bash apps/desktop/crates/exponential-net-ffi/build-android.sh`
+// into out/push/jniLibs (gitignored). A build without it still runs: the app
+// guards every facade call and registers its bare FCM token instead.
+val repoRoot: File = rootDir.parentFile.parentFile
+val enetFfiCrate = File(repoRoot, "apps/desktop/crates/exponential-net-ffi")
+/** The host library the JVM unit tests load through JNA (`cargo build -p exponential-net-ffi --release --no-default-features --features cli`). */
+val cargoTarget = System.getenv("CARGO_TARGET_DIR")?.let(::File) ?: File(repoRoot, "apps/desktop/target")
+
 // VAPP-110: the app host's assets = the shared package's `extension.json`
 // alone (its `templates/` are SDK samples, not built-in apps).
 val appHostAssetsDir = layout.buildDirectory.dir("generated/appHostAssets")
@@ -71,6 +82,18 @@ android {
         // (ShapeClient error paths); return defaults instead of throwing
         // "not mocked".
         unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            // PushSealFixtureTest (EXP-1435): the push-only facade's host build + the shared vectors.
+            it.systemProperty("jna.library.path", File(cargoTarget, "release").absolutePath)
+            it.systemProperty("exponential.push.sealFixture", File(repoRoot, "packages/domain-contract/fixtures/push-seal.json").absolutePath)
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            kotlin.srcDir(File(enetFfiCrate, "bindings/push/kotlin"))
+            jniLibs.srcDir(File(enetFfiCrate, "out/push/jniLibs"))
+        }
     }
 
     defaultConfig {
@@ -242,6 +265,8 @@ dependencies {
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    // EXP-1435: the eNet push-only facade is reached over JNA (as :ui-compose's is).
+    implementation("${libs.jna.aar.get()}@aar")
 
     // Play in-app updates — drives the immediate update flow from the EXP-104
     // "Update required" gate on production builds.
@@ -254,6 +279,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.jna.aar)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.espresso.core)

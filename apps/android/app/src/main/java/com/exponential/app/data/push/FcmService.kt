@@ -22,6 +22,7 @@ class FcmService : FirebaseMessagingService() {
     @Inject lateinit var pushTokenManager: PushTokenManager
     @Inject lateinit var auth: AuthRepository
     @Inject lateinit var syncManager: SyncManager
+    @Inject lateinit var pushKeyStore: PushKeyStore
 
     override fun onNewToken(token: String) {
         Log.i(TAG, "FCM token rotated")
@@ -37,8 +38,36 @@ class FcmService : FirebaseMessagingService() {
         syncManager.kick("push")
 
         val data = message.data
-        val title = message.notification?.title ?: data["title"] ?: "Exponential"
-        val body = message.notification?.body ?: data["body"]
+        // EXP-1435: a sealed push (relay accountless mode) is data-only,
+        // `{s: <base64url sealed>}`; only this install's X25519 secret opens
+        // it. Anything unopenable or malformed is dropped silently — and its
+        // content never reaches logcat.
+        val sealed = data[SEALED_PUSH_DATA_KEY]
+        if (sealed != null) {
+            val secret = pushKeyStore.secret()
+            val payload = secret?.let { openSealedPush(sealed) { bytes -> PushCrypto.open(it, bytes) } }
+            if (payload == null) {
+                Log.w(TAG, "sealed push dropped (${if (secret == null) "no key" else "unopenable"})")
+                return
+            }
+            showNotification(
+                title = payload.title ?: payload.data["title"] ?: "Exponential",
+                body = payload.body ?: payload.data["body"],
+                data = payload.data,
+            )
+            return
+        }
+
+        // The relay's /send shim (plaintext, kept for released builds).
+        showNotification(
+            title = message.notification?.title ?: data["title"] ?: "Exponential",
+            body = message.notification?.body ?: data["body"],
+            data = data,
+        )
+    }
+
+    /** The ONE notification a push shows, plaintext or sealed: same channel, routing and ids. */
+    private fun showNotification(title: String, body: String?, data: Map<String, String>) {
         // Issue pushes carry an issueId (a reporter's reply too, SLOP-4);
         // session_blocked pushes (EXP-980) carry a sessionId and route to
         // the run.
