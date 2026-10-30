@@ -14,7 +14,7 @@
         "cold-start": {
           "coldStartMs": 10228.9,
           "firstPaintMs": 158.8,
-          "nodes": 606,
+          "nodes": 656,
           "memoryMb": 48.9
         },
         "card-grid": {
@@ -42,7 +42,7 @@
         "theme-switch": {
           "themeSwitchMs": 89.3,
           "modeSwitchMs": 35.3,
-          "restyled": 611
+          "restyled": 661
         },
         "resize": {
           "resizeMs": 15.8,
@@ -73,7 +73,7 @@
         "cold-start": {
           "coldStartMs": 1153.5,
           "firstPaintMs": 36.2,
-          "nodes": 606,
+          "nodes": 656,
           "memoryMb": 260
         },
         "card-grid": {
@@ -101,7 +101,7 @@
         "theme-switch": {
           "themeSwitchMs": 20.8,
           "modeSwitchMs": 8.3,
-          "restyled": 611
+          "restyled": 661
         },
         "resize": {
           "resizeMs": 5,
@@ -186,7 +186,7 @@
       "element-chromium": {
         "cold-start": {
           "firstPaintMs": 182.2,
-          "nodes": 614,
+          "nodes": 664,
           "coldStartMs": 226.4,
           "memoryMb": 32.4
         },
@@ -237,7 +237,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 146.7,
-          "nodes": 614,
+          "nodes": 664,
           "coldStartMs": 253.1,
           "memoryMb": 24.5
         },
@@ -288,7 +288,7 @@
       "solid-chromium": {
         "cold-start": {
           "firstPaintMs": 182.3,
-          "nodes": 614,
+          "nodes": 664,
           "coldStartMs": 229.7,
           "memoryMb": 32.6
         },
@@ -460,7 +460,7 @@
         "cold-start": {
           "coldStartMs": 3131.7,
           "firstPaintMs": 492.5,
-          "nodes": 606,
+          "nodes": 656,
           "memoryMb": 347.8
         },
         "card-grid": {
@@ -488,7 +488,7 @@
         "theme-switch": {
           "themeSwitchMs": 196,
           "modeSwitchMs": 25.5,
-          "restyled": 611
+          "restyled": 661
         },
         "resize": {
           "resizeMs": 55.5,
@@ -519,7 +519,7 @@
         "cold-start": {
           "coldStartMs": 3814.1,
           "firstPaintMs": 108.1,
-          "nodes": 606,
+          "nodes": 656,
           "memoryMb": 130.7
         },
         "card-grid": {
@@ -547,7 +547,7 @@
         "theme-switch": {
           "themeSwitchMs": 45.6,
           "modeSwitchMs": 9.6,
-          "restyled": 611
+          "restyled": 661
         },
         "resize": {
           "resizeMs": 18.2,
@@ -577,7 +577,7 @@
       "element-chromium": {
         "cold-start": {
           "firstPaintMs": 512.7,
-          "nodes": 614,
+          "nodes": 664,
           "coldStartMs": 628.2,
           "memoryMb": 32.5
         },
@@ -628,7 +628,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 440.7,
-          "nodes": 614,
+          "nodes": 664,
           "coldStartMs": 749.7,
           "memoryMb": 24.2
         },
@@ -679,7 +679,7 @@
       "solid-chromium": {
         "cold-start": {
           "firstPaintMs": 506.1,
-          "nodes": 614,
+          "nodes": 664,
           "coldStartMs": 641.5,
           "memoryMb": 32.2
         },
@@ -851,7 +851,7 @@
     "mint": {
       "core": {
         "cold-start": {
-          "allocations": 201079,
+          "allocations": 219891,
           "coldStartMs": 21.3,
           "firstPaintMs": 15.1,
           "memoryMb": 30.4,
