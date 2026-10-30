@@ -100,8 +100,9 @@ const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
 
 /** EXP-1458: what a SEALED ask/plan carries beside its envelope: the ask
  *  text the device sealed for its own tree and one copy per listening tree
- *  (bus.ts `busAsk`). Its pictures ride the card's CLEAR `pictures`
- *  [{label, attachmentId}] (uploaded first, claimed here). */
+ *  (bus.ts `busAsk`). Its pictures ride the card's CLEAR `pictures`:
+ *  [{label, attachmentId}] already uploaded (claimed here), [{label}] still
+ *  to upload (minted here, filed by `publishCardPicture`). */
 export interface SealedShowExtras {
   askText?: string | null
   listenerCopies?: ListenerCopy[]
@@ -109,18 +110,32 @@ export interface SealedShowExtras {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** EXP-1458: a sealed card's clear `pictures` → their attachment ids. */
+/** EXP-1458: a sealed card's clear `pictures` → their attachment ids. A
+ *  `{label}` entry without one is a picture still to upload (addendum 4):
+ *  its upload is minted like a plaintext card's and filed on that entry. */
 export function sealedCardAttachmentIds(card: MessageCard): string[] {
   if (!isSealedCard(card)) return []
   const pictures = (card as unknown as { pictures?: unknown }).pictures
   if (pictures === undefined || pictures === null) return []
-  if (!Array.isArray(pictures)) throw bad(`sealedCard.pictures must be [{label, attachmentId}]`)
-  const ids = pictures.map((picture: unknown) => {
-    const id = (picture as { attachmentId?: unknown } | null)?.attachmentId
-    if (typeof id !== `string` || !UUID_RE.test(id)) throw bad(`sealedCard.pictures: every picture needs its uploaded attachmentId`)
-    return id
+  if (!Array.isArray(pictures)) throw bad(`sealedCard.pictures must be [{label, attachmentId?}]`)
+  return pictures.flatMap((picture: unknown) => {
+    const { label, attachmentId } = (picture ?? {}) as { label?: unknown; attachmentId?: unknown }
+    if (attachmentId === undefined && typeof label === `string`) return []
+    if (typeof attachmentId !== `string` || !UUID_RE.test(attachmentId)) {
+      throw bad(`sealedCard.pictures: an uploaded picture names its attachmentId, one still to upload its label`)
+    }
+    return [attachmentId]
   })
-  return ids
+}
+
+/** EXP-1458 (addendum 4): a SEALED card with a late upload filed: the clear
+ *  `pictures` entry of `label` takes the attachment id; `sealed` is never
+ *  touched (readers fill the sealed picture from the clear entry). */
+function fileSealedPicture(card: MessageCard, label: string, attachmentId: string): MessageCard {
+  const pictures = ((card as unknown as { pictures?: Array<{ label?: string; attachmentId?: string }> }).pictures ?? []).map(
+    (picture) => (picture.label === label && !picture.attachmentId ? { label, attachmentId } : picture)
+  )
+  return { ...card, pictures } as unknown as MessageCard
 }
 
 const SEALED_SHOW_KINDS = new Set([`surface`, `question`, `plan`])
@@ -507,8 +522,18 @@ export async function replaceTarget(
  *  row (same label = same picture): their attachment, size and a plan's
  *  `upload:<label>` embeds resolve on the new card too. */
 export function carryPictures(before: MessageCard, card: ShowCard): ShowCard {
-  // EXP-1458: a sealed card's pictures are clear attachment ids, never labels.
-  if (!hasCardPictures(before) || isSealedCard(before) || isSealedCard(card)) return card
+  if (!hasCardPictures(before)) return card
+  // EXP-1458: a sealed card carries on its CLEAR pictures only: a label
+  // still to upload takes the id the replaced sealed card's clear entry got.
+  if (isSealedCard(card)) {
+    if (!isSealedCard(before)) return card
+    let next = card as unknown as MessageCard
+    for (const picture of before.pictures ?? []) {
+      if (picture.label && picture.attachmentId) next = fileSealedPicture(next, picture.label, picture.attachmentId)
+    }
+    return next as unknown as ShowCard
+  }
+  if (isSealedCard(before)) return card
   let next = card
   for (const picture of before.pictures ?? []) {
     if (!picture.attachmentId) continue
@@ -575,7 +600,7 @@ export async function postShowCard(args: {
           .where(eq(messages.id, target.id))
         if (sealedCard) {
           await claimCardAttachments(tx, {
-            ids: sealedCardAttachmentIds(args.card),
+            ids: sealedCardAttachmentIds(card),
             messageId: target.id,
             teamId: session.teamId,
             uploaderId: args.userId,
@@ -806,7 +831,7 @@ export async function postAskCard(args: {
   })
   return {
     messageId,
-    // EXP-1458: a sealed card's pictures arrive uploaded (clear attachmentId).
+    // EXP-1458: a sealed card's clear `{label}` entries still to upload.
     uploads: mintCardUploads({
       userId: args.userId,
       sessionId: args.sessionId,
@@ -877,15 +902,24 @@ export async function publishCardPicture(
         ...sessionAttachmentValues(prepared, { teamId: input.teamId }, input.uploaderId),
         messageId: input.messageId,
       })
-      const next = resolveUpload(card as AskCardLike, {
-        label: input.label,
-        attachmentId: prepared.attachmentId,
-        width: prepared.width,
-        height: prepared.height,
-      }) as MessageCard
+      // EXP-1458: a sealed card's upload lands on its clear entry only and
+      // joins the row's clear attachment list (`claimCardAttachments`).
+      const sealed = isSealedCard(card)
+      const next = sealed
+        ? fileSealedPicture(card, input.label, prepared.attachmentId)
+        : (resolveUpload(card as AskCardLike, {
+            label: input.label,
+            attachmentId: prepared.attachmentId,
+            width: prepared.width,
+            height: prepared.height,
+          }) as MessageCard)
       await tx
         .update(messages)
-        .set({ card: next, updatedAt: new Date() })
+        .set({
+          card: next,
+          ...(sealed ? { attachmentIds: sql`array_append(coalesce(${messages.attachmentIds}, '{}'), ${prepared.attachmentId}::uuid)` } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(messages.id, input.messageId))
       return { label: input.label, card: next, rootId: row.rootId }
     })

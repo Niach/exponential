@@ -48,23 +48,67 @@ pub const CARD_CLEAR_FIELDS: [&str; 12] = [
 ];
 
 /// The clear projection of a card's `pictures`: `{label, attachmentId}` per
-/// entry that names an attachment; `None` when none does.
+/// entry that names an attachment, `{label}` per entry still to upload (the
+/// server mints its upload and files it by label); `None` when none names
+/// either.
 pub fn clear_pictures(pictures: Option<&Value>) -> Option<Value> {
     let out: Vec<Value> = pictures?
         .as_array()?
         .iter()
         .filter_map(|p| {
             let p = p.as_object()?;
-            let id = p.get("attachmentId")?.as_str()?;
             let mut m = Map::new();
-            if let Some(label) = p.get("label").and_then(Value::as_str) {
-                m.insert("label".into(), Value::String(label.into()));
+            for key in ["label", "attachmentId"] {
+                if let Some(value) = p.get(key).and_then(Value::as_str) {
+                    m.insert(key.into(), Value::String(value.into()));
+                }
             }
-            m.insert("attachmentId".into(), Value::String(id.into()));
-            Some(Value::Object(m))
+            (!m.is_empty()).then_some(Value::Object(m))
         })
         .collect();
     (!out.is_empty()).then_some(Value::Array(out))
+}
+
+/// A sealed card's pictures uploaded AFTER it was sealed (the server filed
+/// them on the clear `pictures` entry of their label): each sealed picture
+/// without an `attachmentId` takes its label's clear id and, on a plan,
+/// every `](upload:<label>)` embed points at the attachment. A sealed id is
+/// never replaced.
+pub fn resolve_clear_pictures(card: &mut Map<String, Value>, clear: Option<&Value>) {
+    let mut uploaded: Vec<(&str, &str)> = Vec::new();
+    for entry in clear.and_then(Value::as_array).into_iter().flatten() {
+        if let (Some(label), Some(id)) =
+            (entry.get("label").and_then(Value::as_str), entry.get("attachmentId").and_then(Value::as_str))
+        {
+            if !uploaded.iter().any(|(known, _)| *known == label) {
+                uploaded.push((label, id));
+            }
+        }
+    }
+    if uploaded.is_empty() {
+        return;
+    }
+    let mut resolved: Vec<(String, String)> = Vec::new();
+    if let Some(pictures) = card.get_mut("pictures").and_then(Value::as_array_mut) {
+        for picture in pictures.iter_mut().filter_map(Value::as_object_mut) {
+            if picture.get("attachmentId").is_some_and(Value::is_string) {
+                continue;
+            }
+            let Some(label) = picture.get("label").and_then(Value::as_str).map(str::to_string) else { continue };
+            if let Some((_, id)) = uploaded.iter().find(|(known, _)| *known == label) {
+                picture.insert("attachmentId".into(), Value::String((*id).into()));
+                resolved.push((label, (*id).to_string()));
+            }
+        }
+    }
+    if card.get("kind").and_then(Value::as_str) != Some("plan") {
+        return;
+    }
+    if let Some(Value::String(plan)) = card.get_mut("plan") {
+        for (label, id) in resolved {
+            *plan = plan.replace(&format!("](upload:{label})"), &format!("](/api/attachments/{id})"));
+        }
+    }
 }
 
 /// A tree keypair (`sessions.seal_public_key` = base64url of `public`).
@@ -346,10 +390,13 @@ pub fn open_card(card: &Value, keys: &dyn Fn(u32) -> Option<[u8; 32]>) -> Opened
             if inner.get("kind") != clear.get("kind") {
                 return refused(epoch, clear);
             }
-            // The clear `pictures` is a projection: the sealed ones stay whole.
-            for (k, v) in clear.into_iter().filter(|(k, _)| k != "pictures") {
+            // The clear `pictures` is a projection: the sealed ones stay
+            // whole, and only take the ids of pictures uploaded after sealing.
+            let projected = clear.remove("pictures");
+            for (k, v) in clear {
                 inner.insert(k, v);
             }
+            resolve_clear_pictures(&mut inner, projected.as_ref());
             OpenedCard { status: OpenStatus::Opened, epoch, card: Value::Object(inner) }
         }
         (status, epoch, _) => OpenedCard { status, epoch, card: Value::Object(clear) },

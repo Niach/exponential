@@ -5,7 +5,7 @@ import { db } from "@/db/connection"
 import { attachments, boards, devices, installs, messages, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
-import { generateTreeKey, sealBody, sealCard, wrapTreeKey } from "@exp/domain-contract/sealed-content"
+import { generateTreeKey, openCard, sealBody, sealCard, wrapTreeKey } from "@exp/domain-contract/sealed-content"
 
 // EXP-1458: sealed show/ask/plan cards, their pictures (clear attachment
 // ids), their ask mirrors (the device's sealed texts), answering them with
@@ -39,7 +39,9 @@ const ready = await probeRealDb(`
 if (!ready.ok) console.info(`[plan-sealed.real-db] skipped: ${ready.reason}`)
 
 const { sendSession } = await import(`@/lib/sessions/send`)
-const { postShowCard, postSealedSuggestionCard, buildQuestionCard, buildSealedShowCard } = await import(`@/lib/sessions/plan`)
+const { postShowCard, postSealedSuggestionCard, buildQuestionCard, buildSealedShowCard, publishCardPicture } = await import(
+  `@/lib/sessions/plan`
+)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
@@ -149,6 +151,54 @@ describe.skipIf(!ready.ok)(`sealed show cards`, () => {
     expect(() => buildSealedShowCard({ ...sealCard(w.tree.publicKey, 1, { kind: `surface` }), title: `leak` })).toThrow(/clear fields/)
     const keyless = buildSealedShowCard(sealCard(generateTreeKey().publicKey, 1, { kind: `surface` }))
     await expect(postShowCard({ userId: w.owner, sessionId: w.plainChild, card: keyless, replace: false })).rejects.toThrow(/no key/)
+  })
+
+  it(`a sealed plan with pictures still to upload: uploads minted by label, the late upload filed on the clear entry only`, async () => {
+    const w = await world()
+    const full = {
+      kind: `plan`,
+      plan: `## Plan\n![After](upload:web-after)`,
+      pictures: [{ label: `web-after`, caption: `After` }],
+    }
+    const card = buildSealedShowCard(sealCard(w.tree.publicKey, 1, full), `plan`)
+    expect(card).toMatchObject({ kind: `plan`, pictures: [{ label: `web-after` }] })
+    const posted = await postShowCard({ userId: w.owner, sessionId: w.childId, card, replace: false, sealed: {} })
+    expect(posted.uploads.map((upload) => upload.label)).toEqual([`web-after`])
+    expect(posted.uploads[0]!.curl).toContain(`/api/guide-uploads/`)
+    expect((await message(posted.messageId)).attachmentIds).toBeNull()
+
+    const attachmentId = crypto.randomUUID()
+    const prepared = {
+      attachmentId,
+      filename: `web-after.png`,
+      contentType: `image/png`,
+      sizeBytes: 3,
+      storageKey: `k-${id8()}`,
+      url: `/api/attachments/${attachmentId}`,
+      width: 800,
+      height: 600,
+    }
+    const input = { messageId: posted.messageId, sessionId: w.childId, teamId: w.teamId, label: `web-after`, uploaderId: w.owner }
+    await publishCardPicture(input, prepared)
+    const row = await message(posted.messageId)
+    // The sealed part is untouched; only the clear entry names the upload.
+    expect(row.card).toEqual({ ...card, pictures: [{ label: `web-after`, attachmentId }] })
+    expect(row.attachmentIds).toEqual([attachmentId])
+    await expect(publishCardPicture(input, { ...prepared, attachmentId: crypto.randomUUID() })).rejects.toThrow(/already uploaded/)
+    // Readers fill the sealed picture (and the plan's embed) from it.
+    const opened = openCard(row.card as never, new Map([[1, w.tree.secret]]))
+    expect(opened.card).toMatchObject({
+      plan: `## Plan\n![After](/api/attachments/${attachmentId})`,
+      pictures: [{ label: `web-after`, caption: `After`, attachmentId }],
+    })
+
+    // A sealed replace naming the same label still to upload keeps the file.
+    const next = buildSealedShowCard(sealCard(w.tree.publicKey, 1, { ...full, plan: `## Plan v2\n![After](upload:web-after)` }))
+    const replaced = await postShowCard({ userId: w.owner, sessionId: w.childId, card: next, replace: true, sealed: {} })
+    expect(replaced).toMatchObject({ messageId: posted.messageId, replaced: true, uploads: [] })
+    const after = await message(posted.messageId)
+    expect(after.card).toEqual({ ...next, pictures: [{ label: `web-after`, attachmentId }] })
+    expect(after.attachmentIds).toEqual([attachmentId])
   })
 
   it(`a plaintext question keeps its uploads and its plaintext mirror`, async () => {

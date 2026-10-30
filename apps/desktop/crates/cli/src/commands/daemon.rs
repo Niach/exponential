@@ -2542,6 +2542,9 @@ const DAEMON_SHAPES: &[&str] = &[
     "boards",
     // S-4: the worktree sweep's merged-PR rule (`coding::open_branches`).
     "pull_requests",
+    // EXP-1458: an engine reply's `@email` mentions → `mentionUserIds`
+    // (`coding::sealing::note_users`).
+    "users",
 ];
 
 /// EXP-1457: how often the 1Hz loop looks for a team change.
@@ -2986,6 +2989,10 @@ impl DaemonHost {
         if self.synced.ready(PICKUP_SHAPES) {
             let rows = read_shape_rows::<SessionRow>(&store, "sessions");
             let mut messages = read_keyed_messages(&store);
+            // EXP-1458: who an engine reply's `@email` names.
+            coding::sealing::note_users(
+                read_shape_rows::<domain::rows::User>(&store, "users").into_iter().filter_map(|user| Some((user.id, user.email?))),
+            );
             // EXP-1458: agent-to-agent messages that came over eNet ahead
             // of their synced copy (deduped by id against it).
             coding::direct_inbox::merge(&mut messages);

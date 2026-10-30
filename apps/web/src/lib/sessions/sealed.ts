@@ -50,18 +50,16 @@ export function validSealedCard(card: Record<string, unknown>): boolean {
   if (parseSealedValue(card.sealed).kind === `malformed`) return false
   const clear = new Set<string>([...CARD_CLEAR_FIELDS, `sealed`])
   if (!Object.keys(card).every((key) => clear.has(key))) return false
-  // `pictures` in clear is the projection only: `{label?, attachmentId}`.
+  // `pictures` in clear is the projection only: `{label?, attachmentId}`,
+  // or `{label}` = a picture still to upload (addendum 4).
   if (card.pictures !== undefined) {
     if (!Array.isArray(card.pictures) || card.pictures.length === 0) return false
-    return card.pictures.every(
-      (picture) =>
-        !!picture &&
-        typeof picture === `object` &&
-        typeof (picture as Record<string, unknown>).attachmentId === `string` &&
-        Object.entries(picture as Record<string, unknown>).every(
-          ([key, value]) => (key === `attachmentId` || key === `label`) && typeof value === `string`
-        )
-    )
+    return card.pictures.every((picture) => {
+      if (!picture || typeof picture !== `object`) return false
+      const entry = picture as Record<string, unknown>
+      if (typeof entry.attachmentId !== `string` && typeof entry.label !== `string`) return false
+      return Object.entries(entry).every(([key, value]) => (key === `attachmentId` || key === `label`) && typeof value === `string`)
+    })
   }
   return true
 }

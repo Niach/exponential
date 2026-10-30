@@ -60,6 +60,7 @@ import {
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import { escalateTarget } from "@/lib/sessions/escalate"
+import { sendTarget } from "@/lib/sessions/send-target"
 import { extractMentionEmails } from "@/lib/mention-refs"
 import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage, inSession, sessionConversation } from "@/lib/sessions/messages"
 import { clearBlockedInTx, interruption, INTERRUPTIONS } from "@/lib/sessions/watchdog"
@@ -1025,6 +1026,17 @@ export const sessionsRouter = router({
   escalateTarget: authedProcedure
     .input(z.object({ messageId: uuid }))
     .query(({ ctx, input }) => escalateTarget(ctx.session.user.id, input.messageId)),
+
+  /** EXP-1458: the conversation a send to an agent / app lands in, with its
+   *  key (`SendTarget`): the device seals the text to it (or sends `seal`
+   *  for a keyless or new root) instead of sending it in plaintext. */
+  sendTarget: authedProcedure
+    .input(
+      z
+        .object({ agentId: uuid.optional(), appId: uuid.optional() })
+        .refine((input) => !input.agentId !== !input.appId, `name agentId or appId`)
+    )
+    .query(({ ctx, input }) => sendTarget(ctx.session.user.id, input)),
 
   /** The device delivered these pending inputs (person messages, another
    *  session's question or report) into the agent. EXP-1280: also the
