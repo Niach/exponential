@@ -4582,6 +4582,9 @@ internal fun SessionComposer(
     LaunchedEffect(session?.teamId) { viewModel.loadMcpServers() }
     val composerAgent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
     val promptRows by viewModel.promptRows.collectAsStateWithLifecycle()
+    // #EXP-1434: the + menu's prompt lands at the composer's caret (its
+    // selection, kept current below where the field value lives).
+    val promptCaret = remember { intArrayOf(-1, -1) }
     val plusMenu = SessionComposerMenu(
         agent = composerAgent,
         effort = picks.effort ?: session?.effort.orEmpty(),
@@ -4612,7 +4615,7 @@ internal fun SessionComposer(
         onImplement = viewModel::implementIssues,
         surface = surface,
         prompts = promptRows,
-        onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id) },
+        onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id, at = promptCaret[0] to promptCaret[1]) },
     )
 
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
@@ -4675,6 +4678,8 @@ internal fun SessionComposer(
     // in the connection — it has to survive a reconnect — so this is the
     // caret's home, not the text's.
     var composerField by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    promptCaret[0] = composerField.selection.min
+    promptCaret[1] = composerField.selection.max
     // The ARMED latch (BlockTextField parity, EXP-322): only a TEXT change may
     // OPEN the menu. Moving the caret back into an existing `#EXP-238` or
     // `@ann@example.com` must not pop it — on a phone the caret moves on every

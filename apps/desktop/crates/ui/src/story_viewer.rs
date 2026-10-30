@@ -16,12 +16,15 @@
 //!   title (one line) and description (muted, up to 3 lines), each ONCE.
 //! - Body: a picture fills the modal fitted (contain) on black; a surface
 //!   frame = THE surface renderer with no card chrome; a text frame = the
-//!   plan's markdown; a title frame = nothing.
-//! - Footer, on a story's LAST frame only: a plan's / question's answer
+//!   plan's markdown; a title frame = nothing. A scrolling body ends clear of
+//!   the footer.
+//! - Footer, on a story's LAST frame only, floating over the bottom on the
+//!   mirrored scrim on every frame: a plan's / question's answer
 //!   controls are THE card's ([`crate::plan_card::plan_story_sheet`] /
 //!   [`crate::plan_card::question_story_sheet`]), answered through THE
 //!   card-answer path (`sessions.answer`); a result has none.
-//! - Navigation: → / the side arrow / a click on a picture's right third =
+//! - Navigation: → / the side arrow / a click on the right third (any
+//!   frame, never on an interactive element: [`tap_to_step`]) =
 //!   next frame (past a ring's last = the next ring, past the last ring =
 //!   close); ← / the left arrow / the left third = previous; Escape, the
 //!   close glyph or a press on the BARE scrim = close (a press on a side
@@ -74,8 +77,8 @@ struct Open {
     story_index: usize,
     shown_at: Instant,
     paused_at: Option<Instant>,
-    /// The press on the body (its start, for hold vs. click).
-    pressed_at: Option<Instant>,
+    /// The press on the panel (its start and place: hold, drag or tap).
+    pressed_at: Option<(Instant, gpui::Point<gpui::Pixels>)>,
 }
 
 #[derive(Default)]
@@ -86,6 +89,14 @@ struct Viewer {
     _images: Option<Subscription>,
     /// The greatest mark sent per root this run (never re-sent).
     marked: HashMap<String, i64>,
+    /// The panel's last painted bounds (the tap thirds).
+    panel_bounds: Option<gpui::Bounds<gpui::Pixels>>,
+    /// The floating footer's measured height per story (the scrolling body
+    /// ends clear of it).
+    footer_heights: HashMap<String, f32>,
+    /// The focus when the current press began (capture phase): a press that
+    /// moved it went to a text field, never a tap.
+    press_focus: Option<Option<FocusHandle>>,
 }
 
 impl gpui::Global for Viewer {}
@@ -492,7 +503,9 @@ fn layer(panel: gpui::Stateful<Div>, focus: FocusHandle, window: &mut Window) ->
                                         _ => {}
                                     }
                                 })
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                // The panel hides the scrim under it (a press on
+                                // it never closes) and keeps its own taps.
+                                .occlude()
                                 .w(width)
                                 .h(height)
                                 .rounded(px(spec.radius))
@@ -521,7 +534,8 @@ pub(crate) struct PanelHandlers {
     pub open_session: Option<Action>,
     /// The close glyph.
     pub close: Option<Action>,
-    /// A picture frame navigates by thirds and a held press pauses.
+    /// A press on the thirds steps (every frame, off the interactive
+    /// elements) and a held press pauses.
     pub navigate: bool,
 }
 
@@ -665,7 +679,9 @@ pub(crate) fn story_panel(
                 .items_center()
                 .gap_2p5()
                 .rounded_md()
-                .when(header_open.is_some(), |this| this.cursor_pointer())
+                .when(header_open.is_some(), |this| {
+                    this.cursor_pointer().on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                })
                 .on_click(move |_, window, cx| {
                     if let Some(action) = &header_open {
                         cx.stop_propagation();
@@ -693,6 +709,7 @@ pub(crate) fn story_panel(
                 ),
         )
         .child(
+            div().on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).child(
             Button::new("story-close")
                 .ghost()
                 .small()
@@ -705,6 +722,7 @@ pub(crate) fn story_panel(
                         action(window, cx);
                     }
                 }),
+            ),
         );
     let spec = &STORIES.viewer;
     let fade = px(spec.scrim_fade);
@@ -724,7 +742,6 @@ pub(crate) fn story_panel(
                 .pt_3()
                 .pb_3()
                 .bg(scrim_fill())
-                .occlude()
                 .child(story_progress(frames.len(), index, fraction, Some(&groups), cx))
                 .child(header)
                 .children(title_block(frame, false, cx)),
@@ -735,79 +752,83 @@ pub(crate) fn story_panel(
             linear_color_stop(gpui::black().opacity(0.), 1.),
         )));
     let StoryContent { fill, body, footer } = content;
-    let navigate = handlers.navigate;
     let base = div()
         .id(SharedString::from(STORIES.test_ids.viewer.clone()))
         .relative()
         .overflow_hidden()
         .bg(gpui::black())
-        .text_color(theme.foreground);
-    if fill {
-        // A picture: edge to edge on black, a click on its thirds steps, a
-        // held press pauses; the footer floats over the bottom scrim.
-        let picture = div()
-            .id("story-body")
+        .text_color(theme.foreground)
+        // The panel's bounds (the tap thirds are measured against them).
+        .child(
+            gpui::canvas(
+                |bounds, _, cx| {
+                    if let Some(viewer) = cx.try_global::<Viewer>() {
+                        if viewer.panel_bounds != Some(bounds) {
+                            cx.global_mut::<Viewer>().panel_bounds = Some(bounds);
+                        }
+                    }
+                },
+                |_, _, _, _| {},
+            )
             .absolute()
-            .inset_0()
-            .child(body)
-            .when(navigate, |body| {
-                body.cursor_pointer()
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                        let viewer = cx.default_global::<Viewer>();
-                        if let Some(open) = viewer.open.as_mut() {
-                            open.pressed_at = Some(Instant::now());
-                        }
-                        pause(true, cx);
-                    })
-                    .on_mouse_up(MouseButton::Left, |event, window, cx| {
-                        let pressed = cx
-                            .default_global::<Viewer>()
-                            .open
-                            .as_mut()
-                            .and_then(|open| open.pressed_at.take());
-                        pause(false, cx);
-                        let Some(pressed) = pressed else { return };
-                        if pressed.elapsed() >= HOLD {
-                            return;
-                        }
-                        // The thirds of the panel: it is centred in the
-                        // window, so they sit around the viewport's middle.
-                        let width = STORIES.viewer.width;
-                        let middle = f32::from(window.viewport_size().width) / 2.;
-                        let x = f32::from(event.position.x) - (middle - width / 2.);
-                        if x < width / 3. {
-                            previous(cx);
-                        } else if x > width * 2. / 3. {
-                            next(cx);
-                        }
-                    })
-            });
-        let bottom = footer.map(|footer| {
-            v_flex()
-                .absolute()
-                .bottom_0()
-                .left_0()
-                .right_0()
-                .child(div().h(fade).bg(linear_gradient(
-                    180.,
-                    linear_color_stop(gpui::black().opacity(0.), 0.),
-                    linear_color_stop(scrim_fill(), 1.),
-                )))
-                .child(
-                    v_flex()
-                        .id("story-footer")
-                        .max_h(px(spec.height * 0.55))
-                        .bg(scrim_fill())
-                        .occlude()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(footer),
-                )
-        });
+            .size_full(),
+        )
+        .when(handlers.navigate, tap_to_step);
+    // The footer floats over the bottom on the mirrored scrim (clear over
+    // its first `scrimFade` px), on EVERY frame; its height is measured so a
+    // scrolling body ends clear of it.
+    let footer_key = story.id.clone();
+    let footer_height = cx
+        .try_global::<Viewer>()
+        .and_then(|viewer| viewer.footer_heights.get(&footer_key).copied())
+        .unwrap_or(0.);
+    let bottom = footer.map(|footer| {
+        v_flex()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .right_0()
+            .child(div().h(fade).bg(linear_gradient(
+                180.,
+                linear_color_stop(gpui::black().opacity(0.), 0.),
+                linear_color_stop(scrim_fill(), 1.),
+            )))
+            .child(
+                v_flex()
+                    .id("story-footer")
+                    .relative()
+                    .max_h(px(spec.height * 0.55))
+                    .bg(scrim_fill())
+                    .occlude()
+                    .cursor_default()
+                    // THE footer is interactive: a press on it never steps.
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(footer)
+                    .child(
+                        gpui::canvas(
+                            move |bounds, window, cx| {
+                                let height = f32::from(bounds.size.height);
+                                let viewer = cx.default_global::<Viewer>();
+                                if viewer.footer_heights.get(&footer_key).is_none_or(|at| (at - height).abs() > 0.5) {
+                                    viewer.footer_heights.insert(footer_key.clone(), height);
+                                    window.refresh();
+                                }
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    ),
+            )
+    });
+    if fill {
+        // A picture: edge to edge on black.
+        let picture = div().id("story-body").absolute().inset_0().child(body);
         return base.child(picture).child(top).children(bottom);
     }
     // A surface / the plan text / a bare title: the body scrolls from under
-    // the band (an invisible twin of its text keeps the room), the footer
-    // under it.
+    // the band (an invisible twin of its text keeps the room) and ends clear
+    // of the floating footer (its measured height).
     let spacer = v_flex()
         .flex_shrink_0()
         .gap_3()
@@ -817,15 +838,73 @@ pub(crate) fn story_panel(
         .child(div().h(px(STORIES.progress.height)))
         .child(div().h(px(HEADER_RING)))
         .children(title_block(frame, true, cx));
+    let has_footer = bottom.is_some();
     base.child(
         v_flex()
             .absolute()
             .inset_0()
             .child(spacer)
             .child(div().id("story-body").flex_1().min_h_0().flex().flex_col().child(body))
-            .children(footer.map(|footer| div().id("story-footer").flex_shrink_0().child(footer))),
+            .when(has_footer, |column| column.child(div().flex_shrink_0().h(px(footer_height)))),
     )
     .child(top)
+    .children(bottom)
+}
+
+/// Tap to step on EVERY frame (web `StoryViewerPanel` pointer handlers): a
+/// press that no interactive element claimed (they stop the mouse-down: the
+/// footer, the header's controls, eUI's pressable nodes, the side arrows)
+/// and that moved the keyboard focus nowhere (a text field took it) is a
+/// tap: the left third = previous, the right third = next; a held press
+/// pauses the timer and never steps; a drag never steps.
+fn tap_to_step(panel: gpui::Stateful<Div>) -> gpui::Stateful<Div> {
+    panel
+        .cursor_pointer()
+        .capture_any_mouse_down(|_, window, cx| {
+            let focused = window.focused(cx);
+            cx.default_global::<Viewer>().press_focus = Some(focused);
+        })
+        .on_mouse_down(MouseButton::Left, |event, window, cx| {
+            let viewer = cx.default_global::<Viewer>();
+            let before = viewer.press_focus.take().flatten();
+            let own = viewer.focus.clone();
+            let now = window.focused(cx);
+            if now != before {
+                // A child took the focus (a text field): not a tap.
+                return;
+            }
+            // A bare press while a field holds the keys hands them back.
+            if let Some(own) = own.filter(|own| now.as_ref() != Some(own)) {
+                window.focus(&own, cx);
+            }
+            if let Some(open) = cx.default_global::<Viewer>().open.as_mut() {
+                open.pressed_at = Some((Instant::now(), event.position));
+            }
+            pause(true, cx);
+        })
+        .on_mouse_up(MouseButton::Left, |event, _, cx| {
+            let pressed = cx.default_global::<Viewer>().open.as_mut().and_then(|open| open.pressed_at.take());
+            let Some((at, from)) = pressed else { return };
+            pause(false, cx);
+            let moved = (f32::from(event.position.x - from.x)).abs() > 10. || (f32::from(event.position.y - from.y)).abs() > 10.;
+            if at.elapsed() >= HOLD || moved {
+                return;
+            }
+            let Some(bounds) = cx.global::<Viewer>().panel_bounds else { return };
+            let width = f32::from(bounds.size.width).max(1.);
+            let x = (f32::from(event.position.x - bounds.origin.x)) / width;
+            if x < 1. / 3. {
+                previous(cx);
+            } else if x > 2. / 3. {
+                next(cx);
+            }
+        })
+        .on_mouse_up_out(MouseButton::Left, |_, _, cx| {
+            let pressed = cx.default_global::<Viewer>().open.as_mut().and_then(|open| open.pressed_at.take());
+            if pressed.is_some() {
+                pause(false, cx);
+            }
+        })
 }
 
 /// One frame's body and footer: a picture fitted on black; a result's
@@ -887,13 +966,13 @@ pub(crate) fn story_content(
                 .w_full()
                 .min_h_0()
                 .child(sheet.body)
-                .children(sheet.footer.filter(|_| answering))
+                .children(sheet.footer.filter(|_| answering).map(footer_pad))
                 .into_any_element()
         });
         return StoryContent { fill: true, body: picture_fill(picture, images, cx), footer };
     }
     if let Some(sheet) = sheet {
-        return StoryContent { fill: false, body: sheet.body, footer: sheet.footer.filter(|_| answering) };
+        return StoryContent { fill: false, body: sheet.body, footer: sheet.footer.filter(|_| answering).map(footer_pad) };
     }
     let body = match (&row, frame.kind) {
         (Some(SessionThreadRow::Surface { id, session_id, surface, .. }), StoryFrameKind::Surface) => {
@@ -907,6 +986,11 @@ pub(crate) fn story_content(
         _ => div().into_any_element(),
     };
     StoryContent { fill: false, body, footer: None }
+}
+
+/// The floating footer's inset (web `px-4 pt-3 pb-4`).
+fn footer_pad(footer: AnyElement) -> AnyElement {
+    div().w_full().px_4().pt_3().pb_4().child(footer).into_any_element()
 }
 
 /// A text frame's markdown without a card behind it (a settled plan).

@@ -40,6 +40,18 @@ class ThreadPagesTest {
     }
 
     @Test
+    fun theOpenItemLeavesThePagesOnceThePagerSettlesElsewhere() {
+        // Web `threadPages`: the opened item is a page only while it is the
+        // shown one; Android drops it when the pager rests on another page.
+        assertEquals("session:s2", threadGroupOpenAfterSettle("session:s2", "session:s2"))
+        assertNull(threadGroupOpenAfterSettle("session:s2", "conversation"))
+        assertNull(threadGroupOpenAfterSettle("issue:i2", "stories"))
+        assertNull(threadGroupOpenAfterSettle(null, "conversation"))
+        val open = threadGroupOpenAfterSettle("issue:i2", "stories")
+        assertEquals(listOf("conversation", "stories"), threadPages(groupTabs, open = open).map(::threadTabKey))
+    }
+
+    @Test
     fun theGroupListsEveryIssueAndSessionNestedOnesIncluded() {
         val items = threadStripItems(groupTabs, null)
         assertEquals(listOf("i1", "i2", "i3"), items.issues.map { it.issueId })

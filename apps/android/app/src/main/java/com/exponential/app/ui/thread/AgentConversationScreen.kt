@@ -63,7 +63,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -84,6 +88,7 @@ class AgentConversationViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val sender: SessionSender,
     private val imagesApi: com.exponential.app.data.api.IssueImagesApi,
+    private val promptsApi: com.exponential.app.data.api.PromptsApi,
 ) : ViewModel() {
 
     val agentId: String = savedStateHandle["agentId"] ?: ""
@@ -101,6 +106,50 @@ class AgentConversationViewModel @Inject constructor(
         auth.userId,
     ) { sessions, me -> SessionTree.conversations(sessions, me)[agentId] }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #EXP-1434 (composer-menu.json `prompts`, surface `agent`): the "+"
+     *  menu's Prompts › rows = the agent's team's prompts in the `/` menu's
+     *  order (the agent session composer's source). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val promptRows: StateFlow<List<com.exponential.app.domain.SlashPrompt>> =
+        agent.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }
+            .distinctUntilChanged()
+            .flatMapLatest { team ->
+                if (team == null) {
+                    flowOf(emptyList())
+                } else {
+                    dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.PromptEntity>()) {
+                        it.promptDao().observeByTeam(team)
+                    }
+                }
+            }
+            .map { rows -> rows.map { com.exponential.app.domain.SlashPrompt(it.id, it.name, it.icon) } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _promptFailure = MutableStateFlow<FailedAction?>(null)
+    /** A picked prompt whose body could not load, raised once. */
+    val promptFailure: StateFlow<FailedAction?> = _promptFailure
+
+    fun clearPromptFailure() {
+        _promptFailure.value = null
+    }
+
+    /** #EXP-1434: a Prompts › pick = the `/` menu's pick: loads the
+     *  prompt's body and hands it to [onBody] (the screen inserts it at the
+     *  caret). */
+    fun loadPrompt(promptId: String, onBody: (String) -> Unit) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                onBody(promptsApi.get(accountId, promptId).body)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _promptFailure.value = FailedAction("load", "the prompt", trpcErrorMessage(t, "")) {
+                    loadPrompt(promptId, onBody)
+                }
+            }
+        }
+    }
 
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending
@@ -211,6 +260,9 @@ fun AgentConversationScreen(
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
+    val promptRows by viewModel.promptRows.collectAsStateWithLifecycle()
+    val promptFailure by viewModel.promptFailure.collectAsStateWithLifecycle()
+    FailedActionToast(promptFailure, onShown = viewModel::clearPromptFailure)
 
     LaunchedEffect(conversationId, sent) {
         (sent ?: conversationId)?.let(onOpenConversation)
@@ -332,6 +384,12 @@ fun AgentConversationScreen(
                                 onConfigure = {},
                                 onImplement = {},
                                 surface = com.exponential.app.domain.ComposerMenuSurface.Agent,
+                                // #EXP-1434: Prompts › on every composer; a
+                                // pick inserts the body at the caret.
+                                prompts = promptRows,
+                                onPickPrompt = { prompt ->
+                                    viewModel.loadPrompt(prompt.id) { body -> field = insertAtCaret(field, body) }
+                                },
                             ),
                             onRemoveImage = viewModel::removeImage,
                             onSend = { viewModel.send(field.text) { field = TextFieldValue("") } },
@@ -351,4 +409,13 @@ fun AgentConversationScreen(
             }
         }
     }
+}
+
+/** #EXP-1434: [text] replaces the selection (or lands at the caret), the
+ *  caret after it. */
+internal fun insertAtCaret(value: TextFieldValue, text: String): TextFieldValue {
+    val start = minOf(value.selection.start, value.selection.end).coerceIn(0, value.text.length)
+    val end = maxOf(value.selection.start, value.selection.end).coerceIn(0, value.text.length)
+    val next = value.text.substring(0, start) + text + value.text.substring(end)
+    return TextFieldValue(next, androidx.compose.ui.text.TextRange(start + text.length))
 }

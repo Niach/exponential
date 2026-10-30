@@ -57,6 +57,10 @@ fun <T> TabPager(
     /** #EXP-1387: a page's cheap stand-in while it is not the settled page;
      *  null (for the page, or no lambda) = that page always runs [content]. */
     neighbour: ((T) -> (@Composable () -> Unit)?)? = null,
+    /** #EXP-1433: the pager came to REST on [selected] (no scroll in
+     *  flight): a page the screen keeps only while it is shown can go now,
+     *  never mid-drag. */
+    onSettled: ((T) -> Unit)? = null,
     content: @Composable (T) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = pages.indexOf(selected).coerceAtLeast(0)) { pages.size }
@@ -92,6 +96,19 @@ fun <T> TabPager(
             val picked = page?.let { latestPages.getOrNull(it) } ?: return@collect
             if (picked != latestSelected) latestOnSelect(picked)
         }
+    }
+    val latestOnSettled by rememberUpdatedState(onSettled)
+    LaunchedEffect(pagerState) {
+        // Read in ONE snapshot: the settled page counts only once it IS the
+        // selected page (a pages-change snap still pending never reports
+        // the old index's page).
+        snapshotFlow {
+            if (pagerState.isScrollInProgress) {
+                null
+            } else {
+                latestPages.getOrNull(pagerState.settledPage)?.takeIf { it == latestSelected }
+            }
+        }.collect { page -> if (page != null) latestOnSettled?.invoke(page) }
     }
     // Never on first composition — a page's own initial focus is its to take.
     val focusManager = LocalFocusManager.current

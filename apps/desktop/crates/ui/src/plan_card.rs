@@ -520,7 +520,7 @@ pub(crate) fn card_surface_view(
 /// The surface block: the `Preview` label (medium) ABOVE the surface in
 /// its own frame (`card.surface*`; a skeleton-height box until the view
 /// exists). `labelled` false = the story viewer's look (stories.json: no
-/// label above the surface).
+/// label above the surface, no frame around it).
 fn surface_block(message_id: &str, labelled: bool, cx: &App) -> AnyElement {
     let copy = model::copy();
     let card = model::card();
@@ -536,12 +536,17 @@ fn surface_block(message_id: &str, labelled: bool, cx: &App) -> AnyElement {
             div()
                 .w_full()
                 .min_w_0()
-                .p(px(card.surface_padding))
-                .rounded(px(card.surface_radius))
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                .bg(theme::tokens::glass::FILL_ROW.to_hsla())
-                .overflow_hidden()
+                // The story viewer: the tree straight on the viewer's black,
+                // NO card chrome (stories.json VIEWER; web `StorySurface`).
+                .when(labelled, |frame| {
+                    frame
+                        .p(px(card.surface_padding))
+                        .rounded(px(card.surface_radius))
+                        .border_1()
+                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                        .bg(theme::tokens::glass::FILL_ROW.to_hsla())
+                        .overflow_hidden()
+                })
                 .map(|frame| match view {
                     Some(view) => frame.child(view),
                     None => frame.min_h(px(48.)),
@@ -965,7 +970,8 @@ fn plan_sheet_with(
         meta: question.map(|_| SharedString::from(model::copy().step_label(page, count))),
         action: None,
         body: crate::dock::sheet_body(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)), body),
-        footer: Some(crate::dock::sheet_footer(footer)),
+        // The story viewer floats its footer on the bottom scrim: no hairline.
+        footer: Some(if story { footer.into_any_element() } else { crate::dock::sheet_footer(footer) }),
     }
 }
 
@@ -1317,25 +1323,40 @@ fn question_sheet_with(
     let answering = crate::thread_screen::answering(message_id, cx);
     let interactive = !facts.answered && !answering;
     prepare_question(facts, window, cx);
-    let (content, picked) = question_content(facts, interactive, !story, images, window, cx);
+    let (mut content, picked) = question_content(facts, interactive, !story, images, window, cx);
+    // S-3 (stories.json VIEWER, web `StoryFooter`): the story's body is the
+    // surface alone; the option rows, the free-text row and Answer float in
+    // the footer.
+    let controls = if story && facts.surface.is_some() && !content.is_empty() {
+        content.split_off(1)
+    } else if story && facts.surface.is_none() {
+        std::mem::take(&mut content)
+    } else {
+        Vec::new()
+    };
     let body = v_flex()
         .id(SharedString::from(format!("{}-{message_id}", model::test_ids().card)))
         .w_full()
         .min_w_0()
         .child(question)
         .children(content);
-    let footer = if answering {
+    let action = if answering {
         crate::thread_screen::card_answering(cx)
     } else if facts.answered {
         closed_answer(facts, &picked, cx)
     } else {
         h_flex().w_full().justify_end().child(answer_button(facts, cx)).into_any_element()
     };
+    let footer = if story {
+        v_flex().w_full().min_w_0().gap_2().children(controls).child(action).into_any_element()
+    } else {
+        crate::dock::sheet_footer(action)
+    };
     crate::dock::SheetContent {
         meta: None,
         action: None,
         body: crate::dock::sheet_body(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)), body),
-        footer: Some(crate::dock::sheet_footer(footer)),
+        footer: Some(footer),
     }
 }
 

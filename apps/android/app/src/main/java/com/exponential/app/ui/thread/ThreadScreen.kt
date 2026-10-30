@@ -649,9 +649,10 @@ fun ThreadContent(
     val stripItems = remember(stripTabs, mainSessionId) { threadStripItems(stripTabs.orEmpty(), mainSessionId) }
     // NEW-46: "conversation" on a single-session thread = the main page.
     val pageKey = if (mainSessionId != null && selectedKey == "conversation") "session:$mainSessionId" else selectedKey
-    // The item opened from the group stays a page while the reader swipes
-    // between it and its neighbours; a tap on Conversation / Stories (or
-    // another pick) lets it go.
+    // session-thread.json STRIP: the item opened from the group is a page
+    // only while it is open (web `threadPages`: the shown page). It stays
+    // through a drag away (no mid-drag jump) and goes once the pager settles
+    // on another page ([threadGroupOpenAfterSettle]).
     var groupOpen by rememberSaveable { mutableStateOf<String?>(null) }
     val groupMode = stripItems.single == null
     val openNow = pageKey.takeIf { groupMode && stripItems.tabOf(it) != null }
@@ -675,11 +676,6 @@ fun ThreadContent(
         } else {
             false
         }
-    }
-    // A tap on Conversation / Stories closes the group's open item.
-    val onStripSelect: (String) -> Unit = { key ->
-        if (key == "conversation" || key == STORIES_TAB_KEY) groupOpen = null
-        onSelectKey(key)
     }
     var composerExpanded by rememberSaveable { mutableStateOf(false) }
     Scaffold(
@@ -707,7 +703,7 @@ fun ThreadContent(
                             selectedKey = threadTabKey(selected).let {
                                 if (mainSessionId != null && it == "session:$mainSessionId") "conversation" else it
                             },
-                            onSelect = onStripSelect,
+                            onSelect = onSelectKey,
                             onAdd = onAdd,
                             issueStatus = issueStatus,
                             issueTitle = issueTitle,
@@ -743,6 +739,7 @@ fun ThreadContent(
             // holds live models), so a swipe's first frame never builds one.
             beyondViewportPageCount = 1,
             pageViewModels = true,
+            onSettled = { tab -> groupOpen = threadGroupOpenAfterSettle(groupOpen, threadTabKey(tab)) },
             neighbour = { tab ->
                 when (tab) {
                     is SessionTree.ThreadTab.IssueTab, is SessionTree.ThreadTab.SessionTab -> {
@@ -850,6 +847,14 @@ internal fun threadPages(
         if (SessionTree.ThreadTab.Stories in tabs) add(SessionTree.ThreadTab.Stories)
     }
 }
+
+/**
+ * #EXP-1433 (session-thread.json STRIP, web `threadPages`): the group's open
+ * item once the pager RESTS on [settledKey]: kept while it is the shown page,
+ * dropped the moment another page is (Conversation, Stories).
+ */
+internal fun threadGroupOpenAfterSettle(open: String?, settledKey: String): String? =
+    open?.takeIf { it == settledKey }
 
 /**
  * NEW-46: [pages] with the single-session thread's Conversation page REPLACED,
