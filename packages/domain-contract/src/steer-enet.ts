@@ -16,7 +16,7 @@ export const STEER_ENET_STALE_MS = fixture.staleMs
 export const STEER_ENET_JOIN_TIMEOUT_MS = fixture.joinTimeoutMs
 export const STEER_ENET_SEND_TIMEOUT_MS = fixture.sendTimeoutMs
 
-export type SteerFrame = { type: string } & Record<string, unknown>
+export type SteerFrame = { t: string } & Record<string, unknown>
 
 export type SteerEnvelope = {
   t: string
@@ -54,7 +54,7 @@ export function steerEnvelopeFrom(value: unknown): SteerEnvelope | null {
   if (!Array.isArray(v.frames) || v.frames.length === 0) return null
   for (const frame of v.frames) {
     if (!frame || typeof frame !== `object` || Array.isArray(frame)) return null
-    if (typeof (frame as Record<string, unknown>).type !== `string`) return null
+    if (typeof (frame as Record<string, unknown>).t !== `string`) return null
   }
   return { t: v.t, v: v.v, sessionId: v.sessionId, frames: v.frames as SteerFrame[] }
 }

@@ -17,7 +17,7 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
       expect(envelope !== null).toBe(c.ok)
       if (envelope) {
         expect(envelope.sessionId).toBe(c.sessionId as string)
-        expect(envelope.frames.map((f) => f.type)).toEqual(c.types as string[])
+        expect(envelope.frames.map((f) => f.t)).toEqual(c.types as string[])
       }
     })
   }
@@ -27,7 +27,7 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
     })
   }
   test(`encode round-trips`, () => {
-    const frames = [{ type: `join`, channel: `activity` }]
+    const frames = [{ t: `join`, channel: `activity` }]
     expect(parseSteerEnvelope(encodeSteerEnvelope(`s1`, frames))?.frames).toEqual(frames)
   })
 })
