@@ -4460,6 +4460,8 @@ mod tests {
 
     #[test]
     fn a_disabled_launch_replies_the_reason_and_ends_the_thread() {
+        // Serialised with the tests that install a seal service, so the reply stays plain.
+        let _serial = crate::sealing::test_support::serial();
         let dir = temp_dir("pickup-disabled");
         let (base, requests) = canned_server_recording(vec![
             (200, CLAIM_OK.to_string()),
