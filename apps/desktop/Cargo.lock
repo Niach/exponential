@@ -2962,7 +2962,7 @@ dependencies = [
 
 [[package]]
 name = "etalk"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "base64 0.22.1",
  "block2 0.6.2",
@@ -2984,7 +2984,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-codec"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "log",
  "opus-rs",
@@ -2993,7 +2993,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-crispasr"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "flate2",
  "libc",
@@ -3007,7 +3007,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-engine"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cpal",
  "decibri-aec",
@@ -3023,7 +3023,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-ffi"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "etalk",
  "etalk-codec",
@@ -3033,7 +3033,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-gpui"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "ashpd",
  "async-io",
@@ -3065,7 +3065,7 @@ dependencies = [
 
 [[package]]
 name = "etalk-wakeword"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "libc",
  "sha2 0.10.9",
