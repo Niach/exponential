@@ -56,10 +56,19 @@ How spezl (or anyone) depends on the `publish = false` crates:
    what broke. A gpui revision change is breaking for the gpui crates
    (`etalk-gpui`, like `eui-gpui`).
 4. **No path escapes the checkout.** A consumable crate's path dependencies
-   are other shared libs only, never an app crate (`ui`, `theme`, `domain`,
+   are crates of its OWN lib only, never an app crate (`ui`, `theme`, `domain`,
    `sync`, `api`, `app`, …): gated per crate (`tests/dependency_gate.rs` in
    `exponential-agent-runtime` and `etalk-gpui`). Fixtures come in with
    `include_str!` from `packages/`, which a git checkout carries.
+   **Another lib comes in through ITS release tag** (#EXP-1460): `etalk-gpui`
+   takes `eui-core`/`eui-gpui` with `git = "https://github.com/Niach/exponential",
+   tag = "eui-v…"` and `epilot`/`epilot-screen` at `epilot-v…`; a path
+   dependency would resolve inside the etalk tag's checkout and hand a
+   consumer a second eui-gpui whose types never unify with its own. The
+   desktop workspace's `[patch."https://github.com/Niach/exponential"]` builds
+   them from the local crates. A consumer of `etalk-gpui` pins eUI and ePilot
+   at the tags `etalk-gpui`'s Cargo.toml names (same URL, same tag): Cargo
+   then sees one source and keeps one copy.
 5. **gpui consumers copy two things** (a dependency's `[patch]` and lock never
    reach its consumers): the ztracing patch and the zed pin, exactly as
    `apps/desktop/crates/eui-gpui/README.md` "gpui revisions" says. The
@@ -68,8 +77,10 @@ How spezl (or anyone) depends on the `publish = false` crates:
 6. **Proven per release.** Each lib's release workflow runs
    `scripts/libs/git-consumer-smoke.sh <lib> <commit>`: a scratch crate outside
    this workspace depends on every crate of the lib through `git` + the commit,
-   with the patch and the lock copied, and must build. Run it locally before
-   tagging.
+   with the patch and the lock copied, and must build. eTalk's run also pins
+   eUI and ePilot at the tags `etalk-gpui` names, like a consumer of all
+   three, and fails on a second copy of any crate of this repo
+   (`cargo tree -d`). Run it locally before tagging.
 
 | lib | tag | crates under it | workflow |
 |---|---|---|---|
