@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-103: the conformance DASHBOARD, an agent-style project dashboard laid out by every renderer in the real-font geometry matrix (fixtures/conformance-cases.json `dashboard`, data = dashboard.data.json): an AppBar with trailing actions + a Menu, three KPI cards (Heading + Badge + Sparkline / Progress) in a responsive Grid (1 → 3 columns at md), Tabs whose active panel holds a search Input + Segmented filter toolbar and a sortable, multi-select Table with a badge, a currency and an Avatar SLOT column, an activity List from a data template beside an EmptyState card, and a closed Dialog holding a Form (overlay layers are not geometry-compared, so only its trigger is). Current catalog names only, colours = $color.* tokens.",
+  "$comment": "VAPP-103: the conformance DASHBOARD, an agent-style project dashboard laid out by every renderer in the real-font geometry matrix (fixtures/conformance-cases.json `dashboard`, data = dashboard.data.json): an AppBar with trailing actions + a Menu, three KPI cards (Heading + Badge + Sparkline / Progress) in a responsive Grid (1 → 3 columns at md), Tabs whose active panel holds a search Input + Segmented filter toolbar and a sortable, multi-select Table with a badge, a currency and an Avatar SLOT column, an activity List from a data template beside an EmptyState card whose icon-less `bar` Segmented sits in an `align: start` Stack (a `bar` is width 100% on every renderer, VAPP-164), and a closed Dialog holding a Form (overlay layers are not geometry-compared, so only its trigger is). Current catalog names only, colours = $color.* tokens.",
   "id": "dash",
   "component": "Box",
   "style": {
@@ -584,6 +584,35 @@
             "title": "Reviews"
           },
           "children": [
+            {
+              "id": "reviews-range-row",
+              "component": "Stack",
+              "props": {
+                "direction": "vertical",
+                "gap": "sm",
+                "align": "start"
+              },
+              "children": [
+                {
+                  "id": "reviews-range",
+                  "component": "Segmented",
+                  "props": {
+                    "variant": "bar",
+                    "items": [
+                      {
+                        "label": "Mine",
+                        "value": "mine"
+                      },
+                      {
+                        "label": "Team",
+                        "value": "team"
+                      }
+                    ],
+                    "value": "mine"
+                  }
+                }
+              ]
+            },
             {
               "id": "reviews-empty",
               "component": "EmptyState",

@@ -30,6 +30,23 @@ TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
 export CARGO_TARGET_DIR="$TARGET"
 case "$(uname -s)" in Darwin) EXT=dylib ;; *) EXT=so ;; esac
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin >/dev/null
+# VAPP-165: two runs at once broke each other: both used out/thin + out/fat
+# (one's `rm -rf` deleted the other's slices: "strip: can't stat", "lipo:
+# open() failed"), and with a shared CARGO_TARGET_DIR another worktree's
+# build can rewrite $TARGET/<t>/mobile/libexponential_ui_ffi.a between our
+# cargo and our cp. So: ONE run per target dir at a time (a mkdir lock that
+# a dead holder's pid frees), and this run's slices live in its own scratch dir.
+LOCK="$TARGET/.exponential-ui-build-ios.lock"
+mkdir -p "$TARGET"
+until mkdir "$LOCK" 2>/dev/null; do
+  holder="$(cat "$LOCK/pid" 2>/dev/null || true)"
+  if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then rm -rf "$LOCK"; continue; fi
+  echo "waiting for build-ios.sh pid ${holder:-?} ($LOCK)"; sleep 5
+done
+echo $$ >"$LOCK/pid"
+mkdir -p "$HERE/out"
+WORK="$(mktemp -d "$HERE/out/build-ios.XXXXXX")"
+trap 'rm -rf "$WORK" "$LOCK"' EXIT
 
 echo "== host build (bindgen reads the dylib's metadata)"
 cargo build -p exponential-ui-ffi --release --features cli
@@ -54,8 +71,7 @@ APPLE_TARGETS=(aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-
 if [ -n "${EXPONENTIAL_UI_APPLE_TARGETS:-}" ]; then read -r -a APPLE_TARGETS <<<"$EXPONENTIAL_UI_APPLE_TARGETS"; fi
 FEATURE_ARGS=()
 if [ -n "${EXPONENTIAL_UI_FEATURES+x}" ]; then FEATURE_ARGS=(--no-default-features --features "$EXPONENTIAL_UI_FEATURES"); fi
-THIN="$HERE/out/thin"
-rm -rf "$THIN"
+THIN="$WORK/thin"
 for t in "${APPLE_TARGETS[@]}"; do
   cargo rustc -p exponential-ui-ffi --profile mobile --target "$t" --crate-type staticlib ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"}
   # Strip a COPY (debug info + local symbols of the std objects cargo cannot
@@ -67,12 +83,11 @@ done
 lib() { echo "$THIN/$1/libexponential_ui_ffi.a"; }
 
 echo "== xcframework"
-HEADERS="$HERE/out/headers"
+HEADERS="$WORK/headers"
 rm -rf "$HEADERS" && mkdir -p "$HEADERS"
 cp "$HERE/bindings/swift/ExponentialUIFFIFFI.h" "$HEADERS/"
 cp "$HERE/bindings/swift/module.modulemap" "$HEADERS/module.modulemap"
-FAT="$HERE/out/fat"
-rm -rf "$FAT"
+FAT="$WORK/fat"
 built() { [ -f "$(lib "$1")" ]; }
 # One -library per platform the built targets fill; two archs = one lipo'd slice.
 slice() {
@@ -92,7 +107,6 @@ slice macos aarch64-apple-darwin x86_64-apple-darwin
 XCF="$SWIFT_PKG/Binaries/ExponentialUIFFI.xcframework"
 rm -rf "$HERE/out/ExponentialUIFFI.xcframework" "$XCF" && mkdir -p "$SWIFT_PKG/Binaries"
 xcodebuild -create-xcframework "${XCF_ARGS[@]}" -output "$XCF" | tail -2
-rm -rf "$FAT" "$THIN"
 for slice in "$XCF"/*/libexponential_ui_ffi.a; do
   echo "$(basename "$(dirname "$slice")"): $(lipo -archs "$slice") $(du -h "$slice" | cut -f1)"
 done

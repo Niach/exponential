@@ -1218,6 +1218,11 @@ impl SurfaceView {
             px_prop(&item_props, "height").unwrap_or(lcx.h)
         };
         let pad = px_prop(&item_props, "paddingHorizontal").or_else(|| px_prop(&item_props, "padding")).unwrap_or(12.0);
+        // VAPP-164: the label paints in the style it was measured in (the
+        // `Segmented/item` recipe's size, weight, family), not the inherited
+        // surface default (400): measure and paint agree, as on the web.
+        let item_ts = crate::measure::segmented_item_text(&item_props, lcx.text_style);
+        let item_font = self.fonts.for_style(&item_ts);
         let (x, y, w, h) = lcx.inner();
         let focused_item = self.focused == Some(index) && self.keyboard;
         let roving = self.group_index(n);
@@ -1250,7 +1255,7 @@ impl SurfaceView {
                 row = row.child(self.segmented_bar_item(lcx, index, item_id, it, &label, value, &st, &s, color, ring, disabled, ih, rail.then_some(w), window, cx));
                 continue;
             }
-            let mut item = styled_box(lcx.row(div().id(SharedString::from(item_id.clone())).h(px(ih)).px(px(pad))).items_center().justify_center().gap(px(px_prop(&item_props, "gap").unwrap_or(0.0))).whitespace_nowrap().text_color(color), &s, 80.0, ih)
+            let mut item = styled_box(lcx.row(div().id(SharedString::from(item_id.clone())).h(px(ih)).px(px(pad))).items_center().justify_center().gap(px(px_prop(&item_props, "gap").unwrap_or(0.0))).whitespace_nowrap().font(item_font.clone()).text_size(px(item_ts.font_size)).line_height(px(item_ts.line_height)).text_color(color), &s, 80.0, ih)
                 .when(fill && !vertical, |d| d.flex_1())
                 .when(vertical, |d| d.flex_none().w(px(w)))
                 .role(gpui::Role::RadioButton)
@@ -1274,9 +1279,7 @@ impl SurfaceView {
                 let shown = crate::text::transform(&label, lcx.style.text_transform.as_deref()).into_owned();
                 if lcx.style.letter_spacing != 0.0 {
                     // Tracked as measured: the item's size and weight.
-                    let size = px_prop(&item_props, "fontSize").unwrap_or(lcx.text_style.font_size);
-                    let weight = item_props.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(500);
-                    let font = crate::measure::make_font(lcx.font.family.clone(), weight);
+                    let (size, font) = (item_ts.font_size, item_font.clone());
                     let tw = natives::tracked_width(window, &font, size, &shown, lcx.style.letter_spacing);
                     let t = natives::Tracked { font, size, ink: color, ..lcx.tracked(vec![shown], "left", false) };
                     item = item.child(natives::tracked_text(t).flex_none().w(px(tw)).h(px(lcx.text_style.line_height)));
