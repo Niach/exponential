@@ -5,6 +5,7 @@ import { db } from "@/db/connection"
 import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
 import { pruneEvents } from "@/lib/events"
+import { purgeTrashedAppRecords } from "@/lib/app-records-purge"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
 import { hostRowCondition, hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { pendingInput } from "@/lib/sessions/messages"
@@ -47,6 +48,8 @@ export interface WatchdogRun {
   meetingPruned: number
   /** NEW-57: meetings stopped by `autoStop` this tick. */
   meetingsStopped: number
+  /** VAPP-159: trashed app records hard-deleted this tick. */
+  recordsPurged: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -549,6 +552,8 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     pruned: await pruneEvents(now),
     meetingPruned: await pruneExpiredMessages(now),
     meetingsStopped: await stopExpiredMeetings(now),
+    // VAPP-159: app records trashed past the retention (app-records.json `purge`).
+    recordsPurged: await purgeTrashedAppRecords(now),
   }
 }
 
@@ -626,7 +631,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged`,
         })
       )
       .catch((error: unknown) => {

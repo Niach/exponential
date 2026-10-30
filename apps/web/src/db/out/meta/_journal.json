@@ -1520,6 +1520,13 @@
       "when": 1793340810062,
       "tag": "0216_exp1439_assistant_builtin_prompt",
       "breakpoints": true
+    },
+    {
+      "idx": 217,
+      "version": "7",
+      "when": 1793364618104,
+      "tag": "0217_vapp159_app_records_trashed_index",
+      "breakpoints": true
     }
   ]
 }

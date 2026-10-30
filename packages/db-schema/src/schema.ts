@@ -2348,6 +2348,10 @@ export const appRecords = pgTable(
   (table) => [
     index(`idx_app_records_app_kind`).on(table.appId, table.kind),
     index(`idx_app_records_team`).on(table.teamId),
+    // VAPP-159: the purge's walk (trashed rows only, oldest first).
+    index(`idx_app_records_trashed`)
+      .on(sql`least(${table.deletedAt}, ${table.appDeletedAt})`)
+      .where(sql`least(${table.deletedAt}, ${table.appDeletedAt}) IS NOT NULL`),
   ]
 )
 
