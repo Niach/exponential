@@ -639,37 +639,47 @@ fun ThreadContent(
             if (agent == null && storiesPage != null) tabs + SessionTree.ThreadTab.Stories else tabs
         }
     }
-    // An agent channel is the conversation only. EXP-1334: a folded
-    // sub-issue is a page too (right after its chip's). EXP-1343: phones
-    // page through EVERY strip tab in strip order, the session chips (and
-    // their folded sessions) included.
-    // NEW-6 (N-1): a thread with ONE session (the root alone) IS that
-    // session. NEW-46: the strip always carries the Conversation tab; on a
-    // single-session thread its page IS the root's session page (one page,
-    // the Conversation tab active while it shows). An agent conversation
-    // stays the Conversation.
+    // An agent channel is the conversation only. NEW-6 (N-1) / NEW-46: a
+    // thread with ONE session (the root alone) IS that session: the
+    // Conversation tab's page is the root's session page (one page).
     val mainSessionId = if (agent != null) null else view?.mainSessionId
-    val pages = remember(agent != null, stripTabs, mainSessionId) {
-        threadMainPages(threadPages(if (agent != null) null else stripTabs), mainSessionId)
+    // #EXP-1433: the strip's issues + sessions (chips = the one issue, group
+    // = everything behind ONE tab); phones page Conversation · (the one
+    // issue | the item opened from the group) · Stories.
+    val stripItems = remember(stripTabs, mainSessionId) { threadStripItems(stripTabs.orEmpty(), mainSessionId) }
+    // NEW-46: "conversation" on a single-session thread = the main page.
+    val pageKey = if (mainSessionId != null && selectedKey == "conversation") "session:$mainSessionId" else selectedKey
+    // The item opened from the group stays a page while the reader swipes
+    // between it and its neighbours; a tap on Conversation / Stories (or
+    // another pick) lets it go.
+    var groupOpen by rememberSaveable { mutableStateOf<String?>(null) }
+    val groupMode = stripItems.single == null
+    val openNow = pageKey.takeIf { groupMode && stripItems.tabOf(it) != null }
+    LaunchedEffect(openNow) { if (openNow != null) groupOpen = openNow }
+    val open = openNow ?: groupOpen?.takeIf { groupMode && stripItems.tabOf(it) != null }
+    val pages = remember(agent != null, stripTabs, mainSessionId, open) {
+        threadMainPages(threadPages(if (agent != null) null else stripTabs, open, mainSessionId), mainSessionId)
     }
     // A tab that left the strip (an issue unlinked elsewhere) falls back to
     // the first page: the conversation, or the main session's page.
-    // NEW-46: "conversation" on a single-session thread = the main page.
-    val pageKey = if (mainSessionId != null && selectedKey == "conversation") "session:$mainSessionId" else selectedKey
     val selected = pages.firstOrNull { threadTabKey(it) == pageKey }
         ?: pages.firstOrNull()
         ?: SessionTree.ThreadTab.Conversation
-    val pageKeys = remember(pages) { pages.mapTo(mutableSetOf()) { threadTabKey(it) } }
-    // EXP-1343: a session of this thread with a page opens AS that page; any
-    // other (another root's card) keeps its own route.
+    // EXP-1343 / #EXP-1433: a session of this thread's strip opens IN PLACE
+    // (its page); any other (another root's card) keeps its own route.
     val openSessionHere: (String) -> Boolean = { id ->
         val key = "session:$id"
-        if (key in pageKeys) {
+        if (stripItems.tabOf(key) != null || pages.any { threadTabKey(it) == key }) {
             onSelectKey(key)
             true
         } else {
             false
         }
+    }
+    // A tap on Conversation / Stories closes the group's open item.
+    val onStripSelect: (String) -> Unit = { key ->
+        if (key == "conversation" || key == STORIES_TAB_KEY) groupOpen = null
+        onSelectKey(key)
     }
     var composerExpanded by rememberSaveable { mutableStateOf(false) }
     Scaffold(
@@ -697,12 +707,13 @@ fun ThreadContent(
                             selectedKey = threadTabKey(selected).let {
                                 if (mainSessionId != null && it == "session:$mainSessionId") "conversation" else it
                             },
-                            onSelect = onSelectKey,
+                            onSelect = onStripSelect,
                             onAdd = onAdd,
                             issueStatus = issueStatus,
                             issueTitle = issueTitle,
                             onIssueMenu = onIssueMenu,
                             onOpenSession = { id -> openSessionHere(id) },
+                            mainSessionId = mainSessionId,
                         )
                     }
                 } else {
@@ -818,22 +829,26 @@ private fun ThreadPageSkeleton(topInset: Dp) {
 }
 
 /**
- * EXP-1343: the phone pager's pages = the strip's tabs in strip order, each
- * folded issue / session right after its chip; null (an agent channel, or
+ * EXP-1343 / #EXP-1433 (session-thread.json STRIP): the phone pager's pages
+ * = Conversation · (chips: the ONE issue | group: the item [open] from the
+ * group's sheet, only while it is open) · Stories (the last page). The "+"
+ * and the group tab are never pages. null [tabs] (an agent channel, or
  * nothing loaded) = the conversation alone.
  */
-internal fun threadPages(tabs: List<SessionTree.ThreadTab>?): List<SessionTree.ThreadTab> {
+internal fun threadPages(
+    tabs: List<SessionTree.ThreadTab>?,
+    open: String? = null,
+    mainSessionId: String? = null,
+): List<SessionTree.ThreadTab> {
     if (tabs == null) return listOf(SessionTree.ThreadTab.Conversation)
-    return tabs.flatMap { tab ->
-        when (tab) {
-            SessionTree.ThreadTab.Add -> emptyList()
-            is SessionTree.ThreadTab.IssueTab ->
-                listOf(tab) + tab.nested.map { SessionTree.ThreadTab.IssueTab(it.issueId, it.identifier) }
-            is SessionTree.ThreadTab.SessionTab ->
-                listOf(tab) + tab.nested.map { SessionTree.ThreadTab.SessionTab(it.sessionId, it.name, it.markState) }
-            else -> listOf(tab)
-        }
-    }.distinctBy(::threadTabKey)
+    val items = threadStripItems(tabs, mainSessionId)
+    val middle = items.single?.let { SessionTree.ThreadTab.IssueTab(it.issueId, it.identifier) }
+        ?: open?.let(items::tabOf)
+    return buildList {
+        if (SessionTree.ThreadTab.Conversation in tabs) add(SessionTree.ThreadTab.Conversation)
+        middle?.let(::add)
+        if (SessionTree.ThreadTab.Stories in tabs) add(SessionTree.ThreadTab.Stories)
+    }
 }
 
 /**

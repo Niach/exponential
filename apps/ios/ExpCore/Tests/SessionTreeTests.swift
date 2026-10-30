@@ -437,6 +437,11 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertNil(fixture["titleMax"])
         let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
         XCTAssertEqual(testIds["tabs"], SessionTree.ThreadCopy.tabsTestId)
+        XCTAssertEqual(testIds["group"], SessionTree.ThreadCopy.groupTestId)
+        XCTAssertEqual(copy["stripGroup"] as? String, SessionTree.ThreadCopy.stripGroup)
+        XCTAssertEqual(
+            (fixture["stripGroupMaxWidth"] as? NSNumber)?.doubleValue, SessionTree.ThreadCopy.stripGroupMaxWidth
+        )
         XCTAssertEqual(testIds["conversation"], SessionTree.ThreadCopy.conversationTestId)
         XCTAssertEqual(testIds["composer"], SessionTree.ThreadCopy.composerTestId)
         XCTAssertEqual(copy["stack"] as? String, SessionTree.ThreadCopy.stack)
@@ -535,28 +540,15 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(view.rows, [])
     }
 
-    /// EXP-1334: `stripCases` — the never-scrolling strip's partition.
-    func testPartitionThreadStripReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("session-thread.json"), "stripCases") {
+    /// #EXP-1433: `stripModeCases` — chips (one issue, no session) or ONE group.
+    func testThreadStripModeReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-thread.json"), "stripModeCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
-            let issues = try XCTUnwrap(input["issues"] as? [[String: Any]]).map { issue in
-                (full: try XCTUnwrap(issue["full"] as? Double), short: try XCTUnwrap(issue["short"] as? Double))
-            }
-            let layout = SessionTree.partitionThreadStrip(
-                issues: issues,
-                sessions: try XCTUnwrap(input["sessions"] as? [Double]),
-                available: try XCTUnwrap(input["available"] as? Double),
-                gap: try XCTUnwrap(input["gap"] as? Double),
-                overflowW: try XCTUnwrap(input["overflowW"] as? Double),
-                activeIssue: input["activeIssue"] as? Int,
-                activeSession: input["activeSession"] as? Int
+            let mode = SessionTree.threadStripMode(
+                issues: try XCTUnwrap(input["issues"] as? Int), sessions: try XCTUnwrap(input["sessions"] as? Int)
             )
-            assertJSON(
-                ["tier": layout.tier.rawValue, "issues": layout.issues, "sessions": layout.sessions] as [String: Any],
-                testCase["expected"],
-                name
-            )
+            assertJSON(["mode": mode.mode.rawValue, "count": mode.count] as [String: Any], testCase["expected"], name)
         }
     }
 

@@ -259,32 +259,72 @@ fun AgentGlyph(icon: String?, color: String?, size: androidx.compose.ui.unit.Dp,
 
 // ── The tab strip = the pager's tabs ────────────────────────────────────────
 
-/** The strip's hidden-chip zones (each with its own "+N"). */
-private enum class StripZone { Issues, Sessions }
+/** The page key of an issue / a session (the strip's open item). */
+internal fun issueKey(issueId: String) = "issue:$issueId"
+internal fun sessionKey(sessionId: String) = "session:$sessionId"
 
-/** The open sheet: a chip's subtree, or a zone's hidden chips (THE chips
- *  the measure pass folded behind its "+N", iOS/web parity). */
-private sealed interface StripSheet {
-    data class Subtree(val tab: SessionTree.ThreadTab) : StripSheet
-    data class Hidden(val zone: StripZone, val tabs: List<SessionTree.ThreadTab>) : StripSheet
-}
+/** #EXP-1433: one issue of the strip (a top-level chip or a nested one). */
+data class StripIssue(val issueId: String, val identifier: String)
 
-/** The page key of an issue (a top-level chip or a folded sub-issue). */
-private fun issueKey(issueId: String) = "issue:$issueId"
-private fun sessionKey(sessionId: String) = "session:$sessionId"
+/** #EXP-1433: one session under the root, as THE tree row ([depth] for the guides). */
+data class StripSession(
+    val sessionId: String,
+    val name: String,
+    val markState: SessionTree.SessionState,
+    val depth: Int,
+)
 
 /**
- * EXP-1334 (session-thread.json): the ONE strip, and NOTHING scrolls — "+"
- * (Link an issue · New issue) and Conversation pinned left, Guide pinned
- * right; between them the issue chips then the session chips, laid out by
- * [SessionTree.partitionThreadStrip] over their MEASURED widths: everything
- * full (identifier + title) → identifiers only → fold, each zone with its own
- * "+N" (a sheet of the hidden chips). Issue chips = the top-level linked
- * issues, session chips = the dispatcher's DIRECT children; a chip with
- * folded rows wears a chevron-down and a TAP opens its subtree sheet (row 1 =
- * the chip itself, then THE tree rows with their guides). The active chip
- * reads `<chip> › <open one>` while a folded issue is open. A long-press on
- * an issue chip opens its menu (Unlink).
+ * #EXP-1433 (session-thread.json STRIP): what sits between Conversation and
+ * Stories. [issues] = EVERY issue of the tree (nested ones included),
+ * [sessions] = every session under the root (the main session excluded);
+ * [mode] = [SessionTree.threadStripMode] over their counts.
+ */
+data class ThreadStripItems(val issues: List<StripIssue>, val sessions: List<StripSession>) {
+    val mode: SessionTree.ThreadStripMode = SessionTree.threadStripMode(issues.size, sessions.size)
+
+    /** The chips mode's ONE issue (it keeps its chip and its page). */
+    val single: StripIssue? get() = if (mode.mode == SessionTree.StripMode.Chips) issues.firstOrNull() else null
+
+    /** The group item a page [key] names (null = none of the group). */
+    fun tabOf(key: String): SessionTree.ThreadTab? {
+        issues.firstOrNull { issueKey(it.issueId) == key }?.let {
+            return SessionTree.ThreadTab.IssueTab(it.issueId, it.identifier)
+        }
+        sessions.firstOrNull { sessionKey(it.sessionId) == key }?.let {
+            return SessionTree.ThreadTab.SessionTab(it.sessionId, it.name, it.markState)
+        }
+        return null
+    }
+
+    /** The group tab's open label: the identifier, or the session's name. */
+    fun label(key: String): String? =
+        issues.firstOrNull { issueKey(it.issueId) == key }?.identifier
+            ?: sessions.firstOrNull { sessionKey(it.sessionId) == key }?.name
+}
+
+/** #EXP-1433: the strip's items out of the thread's tabs (the chips with
+ *  their folded rows, flattened in strip order). */
+fun threadStripItems(tabs: List<SessionTree.ThreadTab>, mainSessionId: String?): ThreadStripItems {
+    val issues = tabs.filterIsInstance<SessionTree.ThreadTab.IssueTab>().flatMap { tab ->
+        listOf(StripIssue(tab.issueId, tab.identifier)) + tab.nested.map { StripIssue(it.issueId, it.identifier) }
+    }.distinctBy { it.issueId }
+    val sessions = tabs.filterIsInstance<SessionTree.ThreadTab.SessionTab>().flatMap { tab ->
+        listOf(StripSession(tab.sessionId, tab.name, tab.markState, 0)) +
+            tab.nested.map { StripSession(it.sessionId, it.name, it.markState, it.depth) }
+    }.filter { it.sessionId != mainSessionId }.distinctBy { it.sessionId }
+    return ThreadStripItems(issues, sessions)
+}
+
+/**
+ * #EXP-1433 (session-thread.json STRIP, amends EXP-1334): the ONE strip, and
+ * NOTHING scrolls — "+" (Link an issue · New issue) and Conversation pinned
+ * left, Stories pinned right; between them [SessionTree.threadStripMode]: at
+ * most ONE issue and no session = that issue's chip (the pager: its
+ * identifier; a long-press opens its menu), anything more = ONE group tab
+ * (the `session-tree` glyph + the muted count; active = the glyph + the open
+ * item's label) opening THE bottom sheet over every issue and session. A
+ * pick opens that issue / session IN PLACE ([onSelect] / [onOpenSession]).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -295,27 +335,19 @@ fun ThreadTabStrip(
     onAdd: (() -> Unit)?,
     issueStatus: (String) -> ResolvedIssueStatus?,
     modifier: Modifier = Modifier,
-    /** An issue's title (the full tier's chip label); null = identifier only. */
+    /** An issue's title (the group sheet's rows, the chip's accessible name). */
     issueTitle: (String) -> String? = { null },
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)? = null,
     onOpenSession: ((sessionId: String) -> Unit)? = null,
     /** stories.json STORIES TAB: the tab's dot (`storyTab().unseen`). */
     storiesDot: Boolean = false,
+    /** NEW-46: the single-session thread's main session (never a group row). */
+    mainSessionId: String? = null,
+    /** The styleguide's static paint: the group sheet held open. */
+    groupSheetOpen: Boolean = false,
 ) {
-    var sheet by remember { mutableStateOf<StripSheet?>(null) }
-    val issueTabs = tabs.filterIsInstance<SessionTree.ThreadTab.IssueTab>()
-    val sessionTabs = tabs.filterIsInstance<SessionTree.ThreadTab.SessionTab>()
-
-    // A chip's tap: its page / session, or its subtree when it folds rows.
-    val activate: (SessionTree.ThreadTab) -> Unit = { tab ->
-        when (tab) {
-            is SessionTree.ThreadTab.IssueTab ->
-                if (tab.nested.isEmpty()) onSelect(issueKey(tab.issueId)) else sheet = StripSheet.Subtree(tab)
-            is SessionTree.ThreadTab.SessionTab ->
-                if (tab.nested.isEmpty()) onOpenSession?.invoke(tab.sessionId) else sheet = StripSheet.Subtree(tab)
-            else -> onSelect(threadTabKey(tab))
-        }
-    }
+    var sheet by remember { mutableStateOf(groupSheetOpen) }
+    val items = remember(tabs, mainSessionId) { threadStripItems(tabs, mainSessionId) }
 
     Row(
         modifier = modifier
@@ -341,20 +373,34 @@ fun ThreadTabStrip(
                 modifier = Modifier.size(16.dp),
             )
         }
-        ThreadStripChips(
-            issueTabs = issueTabs,
-            sessionTabs = sessionTabs,
-            selectedKey = selectedKey,
-            issueStatus = issueStatus,
-            issueTitle = issueTitle,
-            onActivate = activate,
-            onIssueMenu = onIssueMenu,
-            onMore = { zone, hidden -> sheet = StripSheet.Hidden(zone, hidden) },
-            modifier = Modifier.weight(1f),
-        )
-        // stories.json STORIES TAB: pinned right where the Guide was, after
-        // the last chip; phones ICON-ONLY (`thread-stories`), the Guide's dot
-        // on the icon's corner while a story waits or is unseen.
+        Row(
+            modifier = Modifier.weight(1f).clipToBounds().testTag("thread-strip-zone"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val single = items.single
+            when {
+                single != null -> {
+                    val tab = tabs.filterIsInstance<SessionTree.ThreadTab.IssueTab>().firstOrNull { it.issueId == single.issueId }
+                        ?: SessionTree.ThreadTab.IssueTab(single.issueId, single.identifier)
+                    IssueStripChip(
+                        tab = tab,
+                        selected = selectedKey == issueKey(single.issueId),
+                        title = issueTitle(single.issueId),
+                        status = issueStatus(single.issueId),
+                        onClick = { onSelect(issueKey(single.issueId)) },
+                        onLongClick = onIssueMenu?.let { menu -> { menu(tab) } },
+                    )
+                }
+                items.mode.mode == SessionTree.StripMode.Group -> ThreadStripGroupTab(
+                    count = items.mode.count,
+                    openLabel = items.label(selectedKey),
+                    onClick = { sheet = true },
+                )
+            }
+        }
+        // stories.json STORIES TAB: pinned right, after the last chip;
+        // phones ICON-ONLY (`thread-stories`), the dot on the icon's corner
+        // while a story waits or is unseen.
         if (SessionTree.ThreadTab.Stories in tabs) {
             val storiesSelected = selectedKey == STORIES_TAB_KEY
             ThreadTab(storiesSelected, { onSelect(STORIES_TAB_KEY) }, null, Stories.Tab.TestIds.TAB) {
@@ -380,230 +426,84 @@ fun ThreadTabStrip(
         }
     }
 
-    when (val open = sheet) {
-        is StripSheet.Subtree -> ThreadSubtreeSheet(
-            tab = open.tab,
+    if (sheet && items.mode.mode == SessionTree.StripMode.Group) {
+        ThreadStripGroupSheet(
+            items = items,
             selectedKey = selectedKey,
             issueStatus = issueStatus,
             issueTitle = issueTitle,
             onPickIssue = { id ->
-                sheet = null
+                sheet = false
                 onSelect(issueKey(id))
             },
             onPickSession = { id ->
-                sheet = null
+                sheet = false
                 onOpenSession?.invoke(id)
             },
-            onDismiss = { sheet = null },
+            onDismiss = { sheet = false },
         )
-        is StripSheet.Hidden -> {
-            // The "+N": ONLY the chips the strip had no room for (the measure
-            // pass names them), never the zone's shown ones.
-            val hidden = open.tabs
-            GlassSheet(title = null, onDismiss = { sheet = null }, modifier = Modifier.testTag("thread-strip-more-sheet")) {
-                hidden.forEach { tab ->
-                    when (tab) {
-                        is SessionTree.ThreadTab.IssueTab -> GlassSheetRow(
-                            label = listOfNotNull(tab.identifier, issueTitle(tab.issueId)).joinToString("  "),
-                            selected = selectedKey == issueKey(tab.issueId) ||
-                                tab.nested.any { selectedKey == issueKey(it.issueId) },
-                            onClick = {
-                                sheet = null
-                                activate(tab)
-                            },
-                            leading = { issueStatus(tab.issueId)?.let { StatusIcon(it, size = 16.dp) } },
-                        )
-                        is SessionTree.ThreadTab.SessionTab -> GlassSheetRow(
-                            label = tab.name,
-                            selected = selectedKey == sessionKey(tab.sessionId) ||
-                                tab.nested.any { selectedKey == sessionKey(it.sessionId) },
-                            onClick = {
-                                sheet = null
-                                activate(tab)
-                            },
-                            leading = { SessionTabMark(tab.markState) },
-                        )
-                        else -> Unit
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-        }
-        null -> Unit
     }
 }
 
-/** The strip's one gap (between chips and between the zones). */
+/** The strip's one gap. */
 private val StripGap = 4.dp
 
-/**
- * The strip's middle: every chip measured at its natural width (issue chips at
- * both tiers), then [SessionTree.partitionThreadStrip] decides which are
- * drawn and whether a zone folds behind its "+N" (iOS `ThreadStripTabs`
- * parity). Identifiers and "+N" never truncate; when even the contract's
- * survivors overflow, a zone folds WHOLE into its "+N" (the sessions first
- * while an issue is the shown page, else the issues), and the shown issue's
- * open `A › B` label is the only text that may ellipsize. Nothing ever slides
- * under the pinned Guide.
- */
+/** #EXP-1433: THE group tab — the strip chip box, the `session-tree` glyph
+ *  and the count (muted) at rest; ACTIVE with the open item's label
+ *  (truncated at `stripGroupMaxWidth`) while one of its items is open. */
 @Composable
-private fun ThreadStripChips(
-    issueTabs: List<SessionTree.ThreadTab.IssueTab>,
-    sessionTabs: List<SessionTree.ThreadTab.SessionTab>,
-    selectedKey: String,
-    issueStatus: (String) -> ResolvedIssueStatus?,
-    issueTitle: (String) -> String?,
-    onActivate: (SessionTree.ThreadTab) -> Unit,
-    onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)?,
-    onMore: (zone: StripZone, hidden: List<SessionTree.ThreadTab>) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    // The open folded issue names its chip: `<chip> › <open one>`.
-    fun openNested(tab: SessionTree.ThreadTab.IssueTab) =
-        tab.nested.firstOrNull { selectedKey == issueKey(it.issueId) }?.identifier
-    val activeIssue = issueTabs.indexOfFirst { tab ->
-        selectedKey == issueKey(tab.issueId) || openNested(tab) != null
-    }.takeIf { it >= 0 }
-    // EXP-1343: a session chip is a page too: active while it or a folded
-    // session is shown, reading `<chip> › <open one>`.
-    fun openNestedSession(tab: SessionTree.ThreadTab.SessionTab) =
-        tab.nested.firstOrNull { selectedKey == sessionKey(it.sessionId) }?.name
-    fun sessionActive(tab: SessionTree.ThreadTab.SessionTab) =
-        selectedKey == sessionKey(tab.sessionId) || openNestedSession(tab) != null
-    val activeSession = sessionTabs.indexOfFirst(::sessionActive).takeIf { it >= 0 }
-    androidx.compose.ui.layout.SubcomposeLayout(modifier.clipToBounds().testTag("thread-strip-chips")) { constraints ->
-        val loose = androidx.compose.ui.unit.Constraints()
-        val gap = StripGap.roundToPx()
-        val room = constraints.maxWidth
-        @Composable
-        fun IssueChipFor(tab: SessionTree.ThreadTab.IssueTab, full: Boolean) = IssueStripChip(
-            tab = tab,
-            selected = selectedKey == issueKey(tab.issueId) || openNested(tab) != null,
-            title = if (full) issueTitle(tab.issueId) else null,
-            openNested = openNested(tab),
-            status = issueStatus(tab.issueId),
-            onClick = { onActivate(tab) },
-            onLongClick = onIssueMenu?.let { menu -> { menu(tab) } },
+private fun ThreadStripGroupTab(count: Int, openLabel: String?, onClick: () -> Unit) {
+    val active = openLabel != null
+    val name = SessionTree.ThreadCopy.STRIP_GROUP
+    ThreadTab(
+        selected = active,
+        onClick = onClick,
+        onLongClick = null,
+        testTag = SessionTree.ThreadCopy.TEST_ID_GROUP,
+        chip = true,
+        modifier = Modifier.semantics {
+            contentDescription = if (active) "$name: $openLabel" else "$name ($count)"
+        },
+    ) {
+        Icon(
+            ExpIcons.sessionTree,
+            contentDescription = null,
+            tint = if (active) MaterialTheme.colorScheme.onSurface else Secondary,
+            modifier = Modifier.size(14.dp),
         )
-        val full = issueTabs.mapIndexed { index, tab ->
-            subcompose("issue-full-$index") { IssueChipFor(tab, full = true) }.first().measure(loose)
-        }
-        val short = issueTabs.mapIndexed { index, tab ->
-            subcompose("issue-short-$index") { IssueChipFor(tab, full = false) }.first().measure(loose)
-        }
-        val sessions = sessionTabs.mapIndexed { index, tab ->
-            subcompose("session-$index") {
-                SessionStripChip(
-                    tab,
-                    selected = sessionActive(tab),
-                    openNested = openNestedSession(tab),
-                    onClick = { onActivate(tab) },
-                )
-            }.first().measure(loose)
-        }
-        // The "+N" probe at the widest count a zone can fold (10+ chips
-        // would otherwise clip the real chip).
-        val overflowW = subcompose("overflow-probe") { MoreChip(maxOf(issueTabs.size, sessionTabs.size), onClick = {}) }
-            .first().measure(loose).width
-        val layout = SessionTree.partitionThreadStrip(
-            issues = full.indices.map { SessionTree.StripIssueWidth(full[it].width.toFloat(), short[it].width.toFloat()) },
-            sessions = sessions.map { it.width.toFloat() },
-            available = room.toFloat(),
-            gap = gap.toFloat(),
-            overflowW = overflowW.toFloat(),
-            activeIssue = activeIssue,
-            activeSession = activeSession,
-        )
-        val isFull = layout.tier == SessionTree.StripTier.Full
-        val issueWidths = (if (isFull) full else short).map { it.width }
-        var shownIssues = layout.issues.sorted()
-        var shownSessions = layout.sessions.sorted()
-        fun zoneWidth(widths: List<Int>, hidden: Boolean): Int {
-            val all = widths + if (hidden) listOf(overflowW) else emptyList()
-            return if (all.isEmpty()) 0 else all.sum() + gap * (all.size - 1)
-        }
-        fun sessionsWidth() = if (sessionTabs.isEmpty()) {
-            0
-        } else {
-            zoneWidth(shownSessions.map { sessions[it].width }, shownSessions.size < sessionTabs.size)
-        }
-        fun issuesWidth() = if (issueTabs.isEmpty()) {
-            0
-        } else {
-            zoneWidth(shownIssues.map { issueWidths[it] }, shownIssues.size < issueTabs.size)
-        }
-        val sep = if (issueTabs.isNotEmpty() && sessionTabs.isNotEmpty()) gap else 0
-        fun fits() = room == androidx.compose.ui.unit.Constraints.Infinity ||
-            issuesWidth() + sep + sessionsWidth() <= room
-        // Whatever the contract keeps, nothing may clip: an over-full zone
-        // folds WHOLE into its "+N" (a zone always keeps its "+N" or a chip).
-        val order = if (activeIssue != null) listOf(StripZone.Sessions, StripZone.Issues) else listOf(StripZone.Issues, StripZone.Sessions)
-        for (zone in order) {
-            if (fits()) break
-            if (zone == StripZone.Sessions) shownSessions = emptyList() else shownIssues = listOfNotNull(activeIssue)
-        }
-
-        val placed = mutableListOf<androidx.compose.ui.layout.Placeable>()
-        val sessionW = sessionsWidth()
-        val issueRoom = if (room == androidx.compose.ui.unit.Constraints.Infinity) {
-            Int.MAX_VALUE
-        } else {
-            (room - if (sessionTabs.isEmpty()) 0 else sessionW + sep).coerceAtLeast(0)
-        }
-        // Over-full (the shown issue plus its "+N"), the open `A › B` label
-        // truncates: the shown chip is re-measured into what is left.
-        val excess = issuesWidth() - issueRoom
-        shownIssues.forEach { index ->
-            val natural = if (isFull) full[index] else short[index]
-            placed.add(
-                if (excess > 0 && index == activeIssue) {
-                    subcompose("issue-fit-$index") { IssueChipFor(issueTabs[index], full = isFull) }.first()
-                        .measure(androidx.compose.ui.unit.Constraints(maxWidth = (natural.width - excess).coerceAtLeast(0)))
-                } else {
-                    natural
-                },
+        Spacer(Modifier.width(6.dp))
+        if (openLabel != null) {
+            Text(
+                openLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = SessionTree.ThreadCopy.STRIP_GROUP_MAX_WIDTH.dp)
+                    .testTag("thread-strip-group-label"),
             )
-        }
-        val hiddenIssues = issueTabs.filterIndexed { index, _ -> index !in shownIssues }
-        if (hiddenIssues.isNotEmpty()) {
-            placed.add(
-                subcompose("issue-more") { MoreChip(hiddenIssues.size, onClick = { onMore(StripZone.Issues, hiddenIssues) }) }
-                    .first().measure(loose),
+        } else {
+            Text(
+                "$count",
+                style = MaterialTheme.typography.labelMedium,
+                color = Muted,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.testTag("thread-strip-group-count"),
             )
-        }
-        shownSessions.forEach { placed.add(sessions[it]) }
-        val hiddenSessions = sessionTabs.filterIndexed { index, _ -> index !in shownSessions }
-        if (hiddenSessions.isNotEmpty()) {
-            placed.add(
-                subcompose("session-more") { MoreChip(hiddenSessions.size, onClick = { onMore(StripZone.Sessions, hiddenSessions) }) }
-                    .first().measure(loose),
-            )
-        }
-        val height = (placed.maxOfOrNull { it.height } ?: 0).coerceAtLeast(constraints.minHeight)
-        val width = room.takeIf { it != androidx.compose.ui.unit.Constraints.Infinity }
-            ?: placed.sumOf { it.width + gap }
-        layout(width, height) {
-            var x = 0
-            placed.forEachIndexed { index, placeable ->
-                if (index > 0) x += gap
-                placeable.placeRelative(x, (height - placeable.height) / 2)
-                x += placeable.width
-            }
         }
     }
 }
 
-/** An issue chip = the strip's issue chip box (×4, iOS `issueChip`): the
- *  status glyph · the mono identifier [· the title at the full tier], then
- *  `› <open one>` while a folded sub-issue is the shown page (the ONLY label
- *  that may ellipsize) and a chevron-down when it folds rows. */
+/** An issue chip = the strip's issue chip box (×4): the status glyph · the
+ *  mono identifier (phones: the identifier alone; [title] is its accessible
+ *  name's tail). */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun IssueStripChip(
     tab: SessionTree.ThreadTab.IssueTab,
     selected: Boolean,
     title: String?,
-    openNested: String?,
     status: ResolvedIssueStatus?,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
@@ -614,126 +514,35 @@ private fun IssueStripChip(
         onLongClick = onLongClick,
         testTag = "thread-tab-issue:${tab.issueId}",
         chip = true,
+        modifier = Modifier.semantics {
+            contentDescription = listOfNotNull(tab.identifier, title).joinToString(" ")
+        },
     ) {
         // An unsynced issue (another team's) is the one chip without a glyph.
         status?.let {
             StatusIcon(it, size = 13.dp)
             Spacer(Modifier.width(5.dp))
         }
-        val tokenColor = if (selected) MaterialTheme.colorScheme.onSurface else MdStyle.ChipToken
         Text(
             tab.identifier,
             style = MaterialTheme.typography.labelMedium,
             fontFamily = FontFamily.Monospace,
-            color = tokenColor,
+            color = if (selected) MaterialTheme.colorScheme.onSurface else MdStyle.ChipToken,
             maxLines = 1,
             softWrap = false,
         )
-        if (openNested != null) {
-            Text(
-                " › $openNested",
-                style = MaterialTheme.typography.labelMedium,
-                fontFamily = FontFamily.Monospace,
-                color = tokenColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-        }
-        if (!title.isNullOrBlank()) {
-            Spacer(Modifier.width(6.dp))
-            Text(
-                title,
-                style = MaterialTheme.typography.labelMedium,
-                color = Secondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 140.dp),
-            )
-        }
-        if (tab.nested.isNotEmpty()) FoldChevron()
-    }
-}
-
-/** A session chip: its run mark, its NAME (truncating at the chip's cap) and
- *  a chevron-down when it folds deeper sessions. Its accessible name is
- *  `name, state word` (iOS parity: the mark's word is read, not drawn). */
-@Composable
-private fun SessionStripChip(
-    tab: SessionTree.ThreadTab.SessionTab,
-    selected: Boolean,
-    openNested: String?,
-    onClick: () -> Unit,
-) {
-    val stateWord = SessionTree.CardCopy.STATES.getValue(tab.markState)
-    ThreadTab(
-        selected = selected,
-        onClick = onClick,
-        onLongClick = null,
-        testTag = "thread-tab-session",
-        chip = true,
-        modifier = Modifier.semantics { contentDescription = "${tab.name}, $stateWord" },
-    ) {
-        SessionTabMark(tab.markState, size = 13.dp)
-        Spacer(Modifier.width(5.dp))
-        Text(
-            tab.name,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (selected) MaterialTheme.colorScheme.onSurface else Secondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 120.dp),
-        )
-        if (openNested != null) {
-            Text(
-                " › $openNested",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 120.dp),
-            )
-        }
-        if (tab.nested.isNotEmpty()) FoldChevron()
-    }
-}
-
-@Composable
-private fun FoldChevron() {
-    Spacer(Modifier.width(5.dp))
-    Icon(
-        ExpIcons.uiChevronDown,
-        contentDescription = null,
-        tint = Muted,
-        modifier = Modifier.size(10.dp).testTag("thread-tab-fold"),
-    )
-}
-
-/** A zone's "+N": the hidden chips' sheet. Never truncates; reads
- *  `N more` (iOS parity). */
-@Composable
-private fun MoreChip(count: Int, onClick: () -> Unit) {
-    ThreadTab(
-        selected = false,
-        onClick = onClick,
-        onLongClick = null,
-        testTag = "thread-strip-more",
-        chip = true,
-        modifier = Modifier.semantics { contentDescription = "$count more" },
-    ) {
-        Text("+$count", style = MaterialTheme.typography.labelMedium, color = Secondary, maxLines = 1, softWrap = false)
     }
 }
 
 /**
- * A folded chip's subtree as the phone's bottom sheet: row 1 = the chip
- * itself, then the folded rows as THE tree rows ([TreeGuidesRow] over
- * [TreeGuides.compute]): issues = status glyph + mono identifier + title,
- * sessions = their mark, name and state word. The open one wears the check.
+ * #EXP-1433: the group tab's bottom sheet — the issue rows first (status
+ * glyph, mono identifier, title: the issue search list's row), a separator,
+ * then the session rows (THE tree rows over [TreeGuides.compute]: the run
+ * mark, the name and its state word). The open row wears the check.
  */
 @Composable
-private fun ThreadSubtreeSheet(
-    tab: SessionTree.ThreadTab,
+private fun ThreadStripGroupSheet(
+    items: ThreadStripItems,
     selectedKey: String,
     issueStatus: (String) -> ResolvedIssueStatus?,
     issueTitle: (String) -> String?,
@@ -741,56 +550,74 @@ private fun ThreadSubtreeSheet(
     onPickSession: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    data class SubtreeRow(val id: String, val depth: Int, val label: String, val mark: SessionTree.SessionState?)
-    val rows = when (tab) {
-        is SessionTree.ThreadTab.IssueTab ->
-            listOf(SubtreeRow(tab.issueId, 0, tab.identifier, null)) +
-                tab.nested.map { SubtreeRow(it.issueId, it.depth, it.identifier, null) }
-        is SessionTree.ThreadTab.SessionTab ->
-            listOf(SubtreeRow(tab.sessionId, 0, tab.name, tab.markState)) +
-                tab.nested.map { SubtreeRow(it.sessionId, it.depth, it.name, it.markState) }
-        else -> return
+    val guides = remember(items.sessions) {
+        com.exponential.app.domain.TreeGuides.compute(items.sessions.map { it.depth })
     }
-    val title = rows.first().label
-    val guides = remember(rows) { com.exponential.app.domain.TreeGuides.compute(rows.map { it.depth }) }
-    GlassSheet(title = title, onDismiss = onDismiss, modifier = Modifier.testTag("thread-subtree-sheet")) {
-        rows.forEachIndexed { index, row ->
-            com.exponential.app.ui.components.TreeGuidesRow(depth = row.depth, guide = guides.getOrNull(index)) {
-                val issue = row.mark == null
-                val selected = selectedKey == if (issue) issueKey(row.id) else sessionKey(row.id)
+    GlassSheet(
+        title = SessionTree.ThreadCopy.STRIP_GROUP,
+        onDismiss = onDismiss,
+        modifier = Modifier.testTag("${SessionTree.ThreadCopy.TEST_ID_GROUP}-menu"),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .testTag("thread-strip-group-rows"),
+        ) {
+            items.issues.forEach { issue ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { if (issue) onPickIssue(row.id) else onPickSession(row.id) }
+                        .heightIn(min = 44.dp)
+                        .clickable { onPickIssue(issue.issueId) }
                         .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
-                        .testTag("thread-subtree-row"),
+                        .testTag("thread-strip-group-issue"),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (issue) {
-                        issueStatus(row.id)?.let { StatusIcon(it, size = 16.dp) }
+                    issueStatus(issue.issueId)?.let { StatusIcon(it, size = 16.dp) }
+                    Text(
+                        issue.identifier,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                    Text(
+                        issueTitle(issue.issueId).orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (selectedKey == issueKey(issue.issueId)) {
+                        Icon(ExpIcons.uiCheck, contentDescription = null, tint = Secondary, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            if (items.issues.isNotEmpty() && items.sessions.isNotEmpty()) {
+                HorizontalDivider(
+                    thickness = GlassTokens.Hairline,
+                    color = GlassTokens.StrokeRow,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
+            items.sessions.forEachIndexed { index, session ->
+                com.exponential.app.ui.components.TreeGuidesRow(depth = session.depth, guide = guides.getOrNull(index)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .clickable { onPickSession(session.sessionId) }
+                            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
+                            .testTag("thread-strip-group-session"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SessionTabMark(session.markState)
                         Text(
-                            row.label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                        )
-                        issueTitle(row.id)?.let {
-                            Text(
-                                it,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Secondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                        }
-                    } else {
-                        val mark = row.mark ?: SessionTree.SessionState.Idle
-                        SessionTabMark(mark)
-                        Text(
-                            row.label,
+                            session.name,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -798,20 +625,20 @@ private fun ThreadSubtreeSheet(
                             modifier = Modifier.weight(1f, fill = false),
                         )
                         Text(
-                            SessionTree.CardCopy.STATES.getValue(mark),
+                            SessionTree.CardCopy.STATES.getValue(session.markState),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = sessionToneColor(SessionTree.CardCopy.TONES.getValue(mark)),
+                            color = sessionToneColor(SessionTree.CardCopy.TONES.getValue(session.markState)),
                             maxLines = 1,
                         )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    if (selected) {
-                        Icon(ExpIcons.uiCheck, contentDescription = null, tint = Secondary, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.weight(1f))
+                        if (selectedKey == sessionKey(session.sessionId)) {
+                            Icon(ExpIcons.uiCheck, contentDescription = null, tint = Secondary, modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
             }
+            Spacer(Modifier.height(8.dp))
         }
-        Spacer(Modifier.height(8.dp))
     }
 }
 

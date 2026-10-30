@@ -317,6 +317,18 @@ pub(crate) fn surface_row(
     surface_frame(id, title, view.map(|view| view.into_any_element()), look, cx)
 }
 
+/// #EXP-1432: THE surface renderer with NO card chrome around it (a story
+/// viewer's `surface` frame): the same view [`surface_row`] frames, bare;
+/// a 48px box until it exists.
+pub(crate) fn surface_bare(id: &str, session_id: &str, surface: &CardSurface, window: &Window, cx: &mut App) -> AnyElement {
+    ensure_view(id, session_id, surface, window, cx);
+    let view = cx.default_global::<SurfaceCards>().views.get(id).cloned().flatten();
+    match view {
+        Some(view) => div().w_full().min_w_0().child(view).into_any_element(),
+        None => div().w_full().min_h(px(48.)).into_any_element(),
+    }
+}
+
 /// The card's frame around `body` (`None` = the skeleton-height box until
 /// the view exists); `look` = the ENTER state ([`enter_frame`]).
 pub(crate) fn surface_frame(

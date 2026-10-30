@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -102,13 +103,22 @@ fun StoryRingArcs(
 }
 
 /**
- * THE story progress: one segment per story of the ring,
- * [Stories.Progress.GAP] apart, [Stories.Progress.HEIGHT] tall; done =
+ * THE story progress: one segment per FRAME of the ring (#EXP-1432),
+ * grouped by story ([groups]), [Stories.Progress.HEIGHT] tall; done =
  * foreground, the current = its fill [fraction], todo = the glass-stroke
  * track.
  */
 @Composable
-fun StoryProgress(count: Int, index: Int, fraction: Float, modifier: Modifier = Modifier) {
+fun StoryProgress(
+    count: Int,
+    index: Int,
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    /** #EXP-1432: each segment's story (the frame's `story`): segments of one
+     *  story sit `progress.gap` apart, a new story starts `progress.storyGap`
+     *  after the last; null = one group. */
+    groups: List<Int>? = null,
+) {
     val foreground = MaterialTheme.colorScheme.onSurface
     val shape = RoundedCornerShape(50)
     Row(
@@ -117,7 +127,6 @@ fun StoryProgress(count: Int, index: Int, fraction: Float, modifier: Modifier = 
             .height(Stories.Progress.HEIGHT.dp)
             .semantics { contentDescription = "${minOf(index + 1, count)} / $count" }
             .testTag(Stories.TestIds.PROGRESS),
-        horizontalArrangement = Arrangement.spacedBy(Stories.Progress.GAP.dp),
     ) {
         repeat(count.coerceAtLeast(0)) { segment ->
             val fill = when {
@@ -125,6 +134,12 @@ fun StoryProgress(count: Int, index: Int, fraction: Float, modifier: Modifier = 
                 segment == index -> fraction.coerceIn(0f, 1f)
                 else -> 0f
             }
+            val lead = when {
+                segment == 0 -> 0f
+                groups != null && groups.getOrNull(segment) != groups.getOrNull(segment - 1) -> Stories.Progress.STORY_GAP
+                else -> Stories.Progress.GAP
+            }
+            if (lead > 0f) Spacer(Modifier.width(lead.dp))
             BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)

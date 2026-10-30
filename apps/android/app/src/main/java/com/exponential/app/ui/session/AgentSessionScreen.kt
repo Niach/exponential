@@ -4581,6 +4581,7 @@ internal fun SessionComposer(
     )
     LaunchedEffect(session?.teamId) { viewModel.loadMcpServers() }
     val composerAgent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
+    val promptRows by viewModel.promptRows.collectAsStateWithLifecycle()
     val plusMenu = SessionComposerMenu(
         agent = composerAgent,
         effort = picks.effort ?: session?.effort.orEmpty(),
@@ -4610,6 +4611,8 @@ internal fun SessionComposer(
         onConfigure = viewModel::configure,
         onImplement = viewModel::implementIssues,
         surface = surface,
+        prompts = promptRows,
+        onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id) },
     )
 
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
@@ -5181,6 +5184,10 @@ internal data class SessionComposerMenu(
     val onImplement: (List<String>) -> Unit,
     /** S-3: which composer this is (composer-menu.json `surfaces`). */
     val surface: com.exponential.app.domain.ComposerMenuSurface = com.exponential.app.domain.ComposerMenuSurface.Session,
+    /** #EXP-1434: Prompts › = the team's prompts (the `/` menu's list) ... */
+    val prompts: List<com.exponential.app.domain.SlashPrompt> = emptyList(),
+    /** ... and its pick = the `/` menu's pick (the body into the draft). */
+    val onPickPrompt: (com.exponential.app.domain.SlashPrompt) -> Unit = {},
 )
 
 @Composable
@@ -5348,7 +5355,10 @@ private fun ExpandedSteerComposer(
                 menu.surface,
                 // S-3: a session / an agent chat changes its model only (on a
                 // model-switching agent); never its device or login here.
-                ComposerMenuConditions(model = model != null && (modelPickable || modelSwitches)),
+                ComposerMenuConditions(
+                    model = model != null && (modelPickable || modelSwitches),
+                    prompts = menu.prompts.isNotEmpty(),
+                ),
             ),
             codex = menu.agent == "codex",
             effortValue = null,
@@ -5383,6 +5393,16 @@ private fun ExpandedSteerComposer(
             },
             values = mapOf(ComposerMenuRowId.Model to model?.let(::modelLabel)),
             pages = mapOf(
+                // #EXP-1434: the `/` menu's pick, from the "+".
+                ComposerMenuRowId.Prompts to { close ->
+                    com.exponential.app.ui.agent.ComposerPromptsPage(
+                        prompts = menu.prompts,
+                        onPick = { prompt ->
+                            menu.onPickPrompt(prompt)
+                            close()
+                        },
+                    )
+                },
                 ComposerMenuRowId.Model to { close ->
                     // THE model picker's rows inline in the pushed page.
                     com.exponential.app.ui.components.picker.ModelPicker(

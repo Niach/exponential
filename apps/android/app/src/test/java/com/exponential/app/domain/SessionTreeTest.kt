@@ -616,29 +616,24 @@ class SessionTreeTest {
     }
 
     @Test
-    fun `every strip case matches the fixture`() {
-        val cases = threadFixture.list("stripCases")
+    fun `every strip mode case matches the fixture`() {
+        val cases = threadFixture.list("stripModeCases")
         assertTrue(cases.isNotEmpty())
-        fun JsonObject.f(key: String) = getValue(key).jsonPrimitive.double.toFloat()
-        fun JsonObject.index(key: String) = (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.int
         for (case in cases) {
             val input = case.getValue("input").jsonObject
-            val layout = SessionTree.partitionThreadStrip(
-                issues = input.list("issues").map { SessionTree.StripIssueWidth(it.f("full"), it.f("short")) },
-                sessions = input.getValue("sessions").jsonArray.map { it.jsonPrimitive.double.toFloat() },
-                available = input.f("available"),
-                gap = input.f("gap"),
-                overflowW = input.f("overflowW"),
-                activeIssue = input.index("activeIssue"),
-                activeSession = input.index("activeSession"),
+            val mode = SessionTree.threadStripMode(
+                issues = input.getValue("issues").jsonPrimitive.int,
+                sessions = input.getValue("sessions").jsonPrimitive.int,
             )
             val actual = buildJsonObject {
-                put("tier", layout.tier.wire)
-                put("issues", JsonArray(layout.issues.map(::JsonPrimitive)))
-                put("sessions", JsonArray(layout.sessions.map(::JsonPrimitive)))
+                put("mode", mode.mode.wire)
+                put("count", mode.count)
             }
             assertEquals(case.str("name"), case.getValue("expected"), actual)
         }
+        assertEquals(threadFixture.getValue("stripGroupMaxWidth").jsonPrimitive.int, SessionTree.ThreadCopy.STRIP_GROUP_MAX_WIDTH)
+        assertEquals(threadFixture.getValue("copy").jsonObject.str("stripGroup"), SessionTree.ThreadCopy.STRIP_GROUP)
+        assertEquals(threadFixture.getValue("testIds").jsonObject.str("group"), SessionTree.ThreadCopy.TEST_ID_GROUP)
     }
 
     @Test

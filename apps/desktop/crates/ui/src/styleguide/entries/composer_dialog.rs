@@ -251,6 +251,7 @@ pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
             ultracode: true,
             mcp: true,
             computer_use: true,
+            prompts: true,
         },
     )
     .into_iter()
@@ -282,6 +283,10 @@ fn plus_menu(
             }
             ComposerMenuRow::AddFile => {
                 menu.item(pointer_menu_item(None, MENU_ADD_FILE, |_| None, |_, _| {}).icon(menu_icon(row)))
+            }
+            // #EXP-1434: Prompts › (the team's prompts' search list).
+            ComposerMenuRow::Prompts => {
+                menu.submenu_with_icon(Some(menu_icon(row)), row.label(), window, cx, |sub, _, _| sub)
             }
             ComposerMenuRow::Effort => {
                 menu.submenu_with_icon(Some(menu_icon(row)), "Effort · High", window, cx, |sub, _, _| sub)
@@ -469,6 +474,7 @@ mod tests {
             vec![
                 AddFile,
                 ImplementIssue,
+                Prompts,
                 Separator,
                 Device,
                 Account,
@@ -482,7 +488,7 @@ mod tests {
                 ComputerUse
             ]
         );
-        assert_eq!(plus_menu_rows(Phase::Running), vec![AddFile, ImplementIssue, Separator, Model]);
+        assert_eq!(plus_menu_rows(Phase::Running), vec![AddFile, ImplementIssue, Prompts, Separator, Model]);
         assert_eq!(plus_menu_rows(Phase::Idle), plus_menu_rows(Phase::Running));
     }
 

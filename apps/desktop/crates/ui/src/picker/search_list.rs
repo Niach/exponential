@@ -1371,6 +1371,68 @@ pub(crate) fn issue_ref_source(team_id: String, insert: Rc<dyn Fn(String, &mut W
     }
 }
 
+/// #EXP-1434 (composer-menu.json `prompts`): THE search list over the
+/// team's prompts in the `/` menu's order (row = the prompt's icon + its
+/// name; the field filters by name exactly like the `/` filter); a pick
+/// hands the prompt to `pick` (what that composer's `/` pick does) and closes
+/// the menu.
+pub(crate) fn prompt_source(
+    prompts: Vec<crate::slash_commands::SlashPrompt>,
+    pick: Rc<dyn Fn(crate::slash_commands::SlashPrompt, &mut Window, &mut App)>,
+) -> MenuListSource {
+    use crate::slash_commands::{filter_slash_prompts, prompt_slash_name};
+    let rows_prompts = prompts.clone();
+    MenuListSource {
+        placeholder: "Search",
+        rows: Rc::new(move |query: &str, _window: &mut Window, cx: &mut App| {
+            filter_slash_prompts(&rows_prompts, &prompt_slash_name(query))
+                .into_iter()
+                .map(|prompt| MenuListRow {
+                    id: prompt.id.clone(),
+                    body: action_row_body(crate::icons::action_icon(prompt.icon.as_deref()), prompt.name, cx),
+                    disabled: false,
+                })
+                .collect()
+        }),
+        pick: Rc::new(move |id: &str, window: &mut Window, cx: &mut App| {
+            if let Some(prompt) = prompts.iter().find(|prompt| prompt.id == id) {
+                pick(prompt.clone(), window, cx);
+            }
+            true
+        }),
+        empty: Rc::new(|_query: &str, _cx: &App| "No results".into()),
+        loading: Rc::new(|_: &App| false),
+        footer: None,
+    }
+}
+
+/// #EXP-1434: a session / agent composer's Prompts › pick = the prompt's
+/// BODY (`prompts.get`, the only body path: the shape is body-less) inserted
+/// handed to `insert` (the composer's at-the-caret insert, the one
+/// Issue › uses); a failed fetch is the `Couldn't load <name>` toast.
+pub(crate) fn insert_prompt_body(
+    prompt: crate::slash_commands::SlashPrompt,
+    insert: Rc<dyn Fn(String, &mut Window, &mut App)>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        crate::action_error::failed_action("load", &prompt.name, None, cx);
+        return;
+    };
+    let id = prompt.id.clone();
+    let fetch = cx.background_executor().spawn(async move { api::prompts::get(&trpc, &id) });
+    window
+        .spawn(cx, async move |cx| {
+            let result = fetch.await;
+            let _ = cx.update(|window, cx| match result {
+                Ok(full) => insert(full.body, window, cx),
+                Err(err) => crate::action_error::failed_action_err("load", &prompt.name, &err, cx),
+            });
+        })
+        .detach();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

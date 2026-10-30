@@ -872,6 +872,11 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
             .map { rows -> rows.map { com.exponential.app.domain.SlashPrompt(it.id, it.name, it.icon) } }
 
+    /** #EXP-1434: the "+" menu's Prompts › rows = the team's prompts in the
+     *  `/` menu's order. */
+    val promptRows: StateFlow<List<com.exponential.app.domain.SlashPrompt>> =
+        teamPrompts.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /**
      * NEW-2: THE `/` menu's rows ×4 = the builtins [slashMatches] offers,
      * then the team's prompts whose slash name the draft prefixes

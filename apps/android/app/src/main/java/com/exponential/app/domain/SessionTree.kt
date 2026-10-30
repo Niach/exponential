@@ -200,6 +200,11 @@ object SessionTree {
             "reported" to "Reported to",
         )
         const val TEST_ID_XREF = "thread-xref"
+        /** #EXP-1433: the strip's ONE group tab (its accessible name + the cap
+         *  of its open label, dp). */
+        const val TEST_ID_GROUP = "thread-strip-group"
+        const val STRIP_GROUP = "Issues and sessions"
+        const val STRIP_GROUP_MAX_WIDTH = 160
     }
 
     /** S-3 inter-session links: a compact header naming ANOTHER session (the
@@ -1618,57 +1623,21 @@ object SessionTree {
         return visible
     }
 
-    enum class StripTier(val wire: String) { Full("full"), Short("short"), Fold("fold") }
+    enum class StripMode(val wire: String) { Chips("chips"), Group("group") }
 
-    /** One issue chip's two measured widths: identifier + title, identifier alone. */
-    data class StripIssueWidth(val full: Float, val short: Float)
-
-    /** [issues] / [sessions] = the indexes of the chips drawn (strip order). */
-    data class ThreadStripLayout(val tier: StripTier, val issues: List<Int>, val sessions: List<Int>)
+    /** #EXP-1433: [count] = the issues + sessions the group menu lists. */
+    data class ThreadStripMode(val mode: StripMode, val count: Int)
 
     /**
-     * EXP-1334: the strip between Conversation and Guide (both pinned, never
-     * scrolled): issues then sessions, one [gap] between the zones. Tiers:
-     * everything full → every issue short → fold: the sessions keep their OWN
-     * room (what the short issues leave, at least half), each zone packs with
-     * [partitionTabs] and its own "+N" ([overflowW]). Replays `stripCases`.
+     * #EXP-1433 (session-thread.json `stripModeCases`): the strip between
+     * Conversation and Stories. `chips` = at most one issue and no session
+     * (that issue keeps its chip); `group` = ONE icon tab for every issue and
+     * session, [ThreadStripMode.count] of them, opening THE menu of their rows.
      */
-    fun partitionThreadStrip(
-        issues: List<StripIssueWidth>,
-        sessions: List<Float>,
-        available: Float,
-        gap: Float,
-        overflowW: Float,
-        activeIssue: Int?,
-        activeSession: Int?,
-    ): ThreadStripLayout {
-        val room = maxOf(available, 0f)
-        fun span(widths: List<Float>) = if (widths.isEmpty()) 0f else widths.sum() + gap * (widths.size - 1)
-        val sep = if (issues.isNotEmpty() && sessions.isNotEmpty()) gap else 0f
-        val sessionSpan = span(sessions)
-        val full = issues.map { it.full }
-        val short = issues.map { it.short }
-        if (span(full) + sep + sessionSpan <= room) {
-            return ThreadStripLayout(StripTier.Full, issues.indices.toList(), sessions.indices.toList())
-        }
-        if (span(short) + sep + sessionSpan <= room) {
-            return ThreadStripLayout(StripTier.Short, issues.indices.toList(), sessions.indices.toList())
-        }
-        fun zone(widths: List<Float>, budget: Float, active: Int?): Pair<List<Int>, Float> {
-            val shown = partitionTabs(widths, budget, gap, overflowW, active)
-            val used = span(shown.map { widths[it] }) + if (shown.size < widths.size) gap + overflowW else 0f
-            return shown to used
-        }
-        val sessionBudget = if (issues.isEmpty()) {
-            room
-        } else {
-            minOf(sessionSpan, maxOf(room / 2, room - span(short) - sep))
-        }
-        val (shownSessions, usedSessions) = zone(sessions, sessionBudget, activeSession)
-        val issueBudget = room - if (sessions.isNotEmpty()) usedSessions + sep else 0f
-        val (shownIssues, _) = zone(short, issueBudget, activeIssue)
-        return ThreadStripLayout(StripTier.Fold, shownIssues, shownSessions)
-    }
+    fun threadStripMode(issues: Int, sessions: Int): ThreadStripMode = ThreadStripMode(
+        mode = if (issues <= 1 && sessions == 0) StripMode.Chips else StripMode.Group,
+        count = issues + sessions,
+    )
 
     /** EXP-1309/1318 (`threads-list.json` `copy.words`): a Threads row's ONE
      *  quiet word ([wire] = the fixture key). EXP-1339: [Merged] has NO text

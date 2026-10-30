@@ -297,17 +297,16 @@ struct ThreadCardsScreen: View {
     }
 }
 
-/// EXP-1334: the thread header's never-scrolling strip (`sg_thread-strip`):
-/// everything fitting, a one-session thread's (NEW-6: no Conversation tab),
-/// then folded (issue chips identifier-only with a
-/// sub-issue chevron and `› APP-16` open, the session chips with a folded
-/// subtree, each zone's "+N"), the subtree sheet's rows, and THE thread
-/// composer's tool row (the + alone, S-3) and an agent chat's "+" rows.
+/// EXP-1334 / #EXP-1433: the thread header's never-scrolling strip
+/// (`sg_thread-strip`): one issue keeps its chip, a one-session thread's
+/// (NEW-6: no Conversation tab), more = ONE group tab (the count muted; an
+/// item of it open: active, its label), the group's Menu sheet (issues, a
+/// separator, the session tree), and THE thread composer's tool row (the +
+/// alone, S-3) and an agent chat's "+" rows.
 private struct ThreadStripSpecimens: View {
-    private static let fits: [ThreadTab] = [
+    private static let oneIssue: [ThreadTab] = [
         .add, .conversation,
         .issue(issueId: "i14", identifier: "APP-14", nested: []),
-        .session(sessionId: "s1", name: "Web lane", markState: .working, nested: []),
     ]
 
     /// NEW-6 (N-1): a ONE-session thread — no Conversation tab; the
@@ -336,19 +335,27 @@ private struct ThreadStripSpecimens: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            caption("Everything fits")
-            strip(Self.fits, selection: .conversation)
+            caption("One issue, no session: its chip stays")
+            strip(Self.oneIssue, selection: .conversation)
             caption("One session (no child yet): no Conversation tab, the session's own work is the body")
             strip(Self.single, selection: .session("root"))
-            caption("Folded: identifiers only, each zone's +N")
+            caption("More: ONE group tab, the count muted")
             strip(Self.folded, selection: .conversation)
-            caption("A sub-issue open: <chip> › <open one>")
+            caption("A session open from the group: the tab is active and names it")
+            strip(Self.folded, selection: .session("s2"))
+            caption("An issue open from the group")
             strip(Self.folded, selection: .issue("i16"))
-            if let fold = ThreadStripFold.subtree(Self.folded[6]) {
-                caption("A folded chip's tap: THE tree rows")
-                ThreadFoldSheet(fold: fold) { _ in }
-                    .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
-            }
+            caption("The group's Menu: issues, a separator, the session tree")
+            ThreadStripGroupSheet(
+                group: ThreadStripGroup(tabs: Self.folded),
+                issueStatus: { id in
+                    let ids = ThreadStripGroup(tabs: Self.folded).issues.map(\.issueId)
+                    let key: IssueStatus = (ids.firstIndex(of: id) ?? 0) % 2 == 0 ? .inProgress : .backlog
+                    return IssueStatusResolver.builtinFallbackTeam.first { $0.builtinKey == key }
+                },
+                shown: .session("s2")
+            ) { _ in }
+                .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
             caption("THE composer row: the + alone … the ring beside Send")
             composerRow()
             caption("EXP-1211: the agent's quick replies above the composer")
@@ -429,8 +436,7 @@ private struct ThreadStripSpecimens: View {
                 return IssueStatusResolver.builtinFallbackTeam.first { $0.builtinKey == key }
             },
             onSelect: { _ in },
-            onAdd: {},
-            onOpenSession: { _ in }
+            onAdd: {}
         )
             .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
     }

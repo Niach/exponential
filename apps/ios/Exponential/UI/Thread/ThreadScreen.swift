@@ -37,8 +37,9 @@ import SwiftUI
 /// The "+" (left of Conversation, EXP-1334) opens THE Menu's sheet: Link an
 /// issue (THE search list → `sessions.linkIssues`) · New issue (the New
 /// issue page filing into this root); an issue chip's long press adds
-/// Unlink (`sessions.unlinkIssue`). The strip never scrolls (EXP-1334): a
-/// folded chip or a "+N" opens `ThreadFoldSheet`.
+/// Unlink (`sessions.unlinkIssue`). The strip never scrolls (#EXP-1433):
+/// past one issue (or any session) ONE group tab opens
+/// `ThreadStripGroupSheet`.
 /// Failed actions toast (`Couldn't link the issue`, feedback-states).
 ///
 /// EXP-1323: a suggested tasks card acts through `sessions.startSuggestion`
@@ -81,10 +82,10 @@ struct ThreadScreen: View {
     /// The sheet's pick, run once the sheet has dismissed.
     @State private var pendingMenuAction: (action: ThreadMenuSheet.Action, issueId: String?)?
     @State private var linkSheetOpen = false
-    /// EXP-1334: a folded chip's subtree or a "+N" (THE Menu's sheet), and
-    /// its pick, run once the sheet has dismissed.
-    @State private var foldTarget: ThreadStripFold?
-    @State private var pendingFoldPick: ThreadStripFold.Row?
+    /// #EXP-1433: the strip group's Menu sheet, and its pick, run once the
+    /// sheet has dismissed.
+    @State private var groupOpen = false
+    @State private var pendingGroupPick: ThreadStripGroupSheet.Pick?
     /// The question / plan answer in flight.
     @State private var answeringId: String?
     /// N-12: THE Dock's open sheet (a card id).
@@ -149,17 +150,15 @@ struct ThreadScreen: View {
 
     private var rows: ThreadRows? { model?.rows }
 
-    /// The pager's pages: the strip's (an app editor's chat has the
-    /// Conversation alone: its band replaces the strip). NEW-46: on a
+    /// EVERY page the strip reaches (the Conversation, each issue of the
+    /// tree, each session under the root, Stories): what a pill, a landing
+    /// or a pick may open in place. An app editor's chat has the
+    /// Conversation alone (its band replaces the strip). NEW-46: on a
     /// `transcript` thread with ONE session the Conversation tab IS that
     /// session's page (one page, not two); `bubbles` keeps the Conversation.
-    private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
+    private func reachable(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
         guard editor == nil else { return [.conversation] }
         let main = rows.chatMode == .transcript ? view.mainSessionId : nil
-        // EXP-1334: a folded sub-issue is a page too (its chip's subtree);
-        // EXP-1343: so is every session chip and every session it folds, in
-        // strip order (`+` is never a page); stories.json: the Stories page
-        // is always the last.
         return view.tabs.flatMap { tab -> [ThreadPage] in
             switch tab {
             case .conversation: [main.map { .session($0) } ?? .conversation]
@@ -171,9 +170,31 @@ struct ThreadScreen: View {
         } + [.stories]
     }
 
+    /// EXP-1343 / #EXP-1433: the pager's pages = Conversation · (chips: the
+    /// one issue | group: the item opened from the group, only while it is
+    /// the shown page) · Stories; `+` and the group tab are never pages.
+    private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
+        guard editor == nil else { return [.conversation] }
+        let conversation = resolved(.conversation)
+        let group = ThreadStripGroup(tabs: view.tabs)
+        let middle: [ThreadPage] = if let single = group.single {
+            [.issue(single.issueId)]
+        } else if page != conversation, group.holds(page) {
+            [page]
+        } else {
+            []
+        }
+        return [conversation] + middle + [.stories]
+    }
+
     private var currentPages: [ThreadPage] {
         guard let rows, let view = model?.view else { return [.conversation] }
         return pages(rows, view)
+    }
+
+    private var reachablePages: [ThreadPage] {
+        guard let rows, let view = model?.view else { return [.conversation] }
+        return reachable(rows, view)
     }
 
     /// The page a thread lands on: its Conversation, or (NEW-6 N-1) the ONE
@@ -355,15 +376,17 @@ struct ThreadScreen: View {
                     )
                 }
         }
-        .sheet(item: $foldTarget, onDismiss: runPendingFoldPick) { fold in
-            ThreadFoldSheet(
-                fold: fold,
-                issue: { rows?.issue(id: $0) },
-                issueStatus: { rows?.issueStatus(id: $0) },
-                shownIssueId: { if case let .issue(id) = page { id } else { nil } }()
-            ) { row in
-                pendingFoldPick = row
-                foldTarget = nil
+        .sheet(isPresented: $groupOpen, onDismiss: runPendingGroupPick) {
+            if let view = model?.view {
+                ThreadStripGroupSheet(
+                    group: ThreadStripGroup(tabs: view.tabs),
+                    issue: { rows?.issue(id: $0) },
+                    issueStatus: { rows?.issueStatus(id: $0) },
+                    shown: page
+                ) { pick in
+                    pendingGroupPick = pick
+                    groupOpen = false
+                }
             }
         }
         .sheet(isPresented: $linkSheetOpen) {
@@ -384,7 +407,7 @@ struct ThreadScreen: View {
         .onDisappear(perform: disappear)
         // A held tab that arrived is shown; a page that vanished (an
         // unlinked issue) lands on the Conversation.
-        .onChange(of: currentPages) { _, pages in
+        .onChange(of: reachablePages) { _, pages in
             if let pending = pendingPage, pages.contains(pending) {
                 pendingPage = nil
                 selectPage(pending)
@@ -427,14 +450,9 @@ struct ThreadScreen: View {
             },
             onIssueMenu: { issueId in openMenu(issueId: issueId) },
             onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
-            // EXP-1343: a session chip is a page of this pager.
-            onOpenSession: { sessionId in
-                pendingPage = nil
-                openSession(sessionId)
-            },
-            onOpenFold: { fold in
+            onOpenGroup: {
                 UIApplication.endEditing()
-                foldTarget = fold
+                groupOpen = true
             },
             storiesDot: storyTab?.unseen ?? false
         )
@@ -446,25 +464,22 @@ struct ThreadScreen: View {
         stories.tab(now: storiesNow, rootId: rows?.root.id ?? rootId)
     }
 
-    /// EXP-1334: a fold sheet's pick — an issue shows its page, a session
-    /// pushes its screen.
-    private func runPendingFoldPick() {
-        guard let pick = pendingFoldPick else { return }
-        pendingFoldPick = nil
+    /// #EXP-1433: the group sheet's pick opens that issue / session IN
+    /// PLACE (its page).
+    private func runPendingGroupPick() {
+        guard let pick = pendingGroupPick else { return }
+        pendingGroupPick = nil
+        pendingPage = nil
         switch pick {
-        case let .issue(issueId, _, _):
-            pendingPage = nil
-            selectPage(.issue(issueId))
-        case let .session(sessionId, _, _, _):
-            pendingPage = nil
-            openSession(sessionId)
+        case let .issue(issueId): selectPage(.issue(issueId))
+        case let .session(sessionId): openSession(sessionId)
         }
     }
 
     /// EXP-1343: a session of this thread's strip shows as its page; one
     /// the strip does not hold (another root's) pushes its own screen.
     private func openSession(_ sessionId: String) {
-        if currentPages.contains(.session(sessionId)) {
+        if reachablePages.contains(.session(sessionId)) {
             selectPage(.session(sessionId))
         } else {
             pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
@@ -474,7 +489,7 @@ struct ThreadScreen: View {
     /// EXP-1347: an issue pill inside this thread whose issue is one of its
     /// tabs selects that tab; false = not ours (the caller pushes).
     private func openIssueTab(_ issueId: String) -> Bool {
-        guard currentPages.contains(.issue(issueId)) else { return false }
+        guard reachablePages.contains(.issue(issueId)) else { return false }
         pendingPage = nil
         selectPage(.issue(issueId))
         return true
@@ -1250,7 +1265,7 @@ struct ThreadScreen: View {
     private func land(on request: ThreadPage) {
         let target = resolved(request)
         menuTarget = nil
-        if currentPages.contains(target) {
+        if reachablePages.contains(target) {
             pendingPage = nil
             selectPage(target)
         } else {
@@ -1601,7 +1616,19 @@ struct ThreadComposer: View {
             onUsage: { showUsageSheet = true },
             ended: ended,
             surface: (root?.agentId ?? agentId).map { $0.isEmpty ? .session : .agent } ?? .session,
-            teamId: draftTeamId
+            teamId: draftTeamId,
+            // #EXP-1434: the "+" Prompts page = the `/` menu's prompts; a
+            // pick inserts the body at the caret.
+            prompts: slashPrompts.prompts,
+            onPickPrompt: { prompt in
+                Task {
+                    guard let body = await TeamSlashPrompts.loadBody(prompt, accountId: accountId, deps: deps),
+                          let editor = draft?.draftEditor
+                    else { return }
+                    editor.insertTextAtCaret(body)
+                    focus()
+                }
+            }
         )
     }
 

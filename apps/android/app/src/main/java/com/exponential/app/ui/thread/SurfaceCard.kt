@@ -72,6 +72,9 @@ fun SurfaceCard(
     modifier: Modifier = Modifier,
     /** false = no title caption (the story viewer's header names it). */
     showTitle: Boolean = true,
+    /** #EXP-1432: false = THE renderer with NO card chrome (no frame fill,
+     *  hairline, glow or inset: the story viewer's surface frame). */
+    chrome: Boolean = true,
 ) {
     val reduce = LocalReduceMotion.current
     val model = rememberCardSurfaceModel(row.surface) { name, context ->
@@ -149,7 +152,7 @@ fun SurfaceCard(
             )
         }
         Box(
-            modifier = Modifier
+            modifier = if (!chrome) Modifier.fillMaxWidth() else Modifier
                 .fillMaxWidth()
                 .clip(shape)
                 .background(SurfaceFrameFill, shape)

@@ -772,6 +772,8 @@ fun AgentScreen(
         val temporary = agentSubject == null
         val accountOptions = accountOptionsFor(device, availableAgentsFor(device))
         val account = accountOptions.firstOrNull { it.key == launch.accountKey } ?: accountOptions.firstOrNull()
+        // #EXP-1434: Prompts › = the `/` menu's prompts, in its order.
+        val teamPrompts = actionsState.actions.orEmpty().map { SlashPrompt(it.id, it.name, it.icon) }
         ComposerPlusMenuSheet(
             layout = ComposerMenu.composerMenuLayout(
                 ComposerMenuSurface.Launch,
@@ -790,6 +792,7 @@ fun AgentScreen(
                     // no subject owns it — the team's servers alone decide.
                     mcp = mcpServers.isNotEmpty(),
                     computerUse = device?.canToggleComputerUse == true,
+                    prompts = teamPrompts.isNotEmpty(),
                 ),
             ),
             codex = launch.agent == "codex",
@@ -842,6 +845,17 @@ fun AgentScreen(
             ),
             // S-3: THE existing pickers' rows, inline in the pushed page.
             pages = mapOf(
+                // #EXP-1434: the `/` menu's pick: the prompt becomes the
+                // new session's subject.
+                ComposerMenuRowId.Prompts to { close ->
+                    ComposerPromptsPage(
+                        prompts = teamPrompts,
+                        onPick = { prompt ->
+                            viewModel.pickPrompt(prompt.id)
+                            close()
+                        },
+                    )
+                },
                 ComposerMenuRowId.Device to { close ->
                     DevicePicker(
                         devices = candidateDevices.orEmpty().map { row ->

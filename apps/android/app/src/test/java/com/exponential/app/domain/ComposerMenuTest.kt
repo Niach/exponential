@@ -68,6 +68,7 @@ class ComposerMenuTest {
                     ultracode = b("ultracode"),
                     mcp = b("mcp"),
                     computerUse = b("computerUse"),
+                    prompts = b("prompts"),
                 ),
             )
             assertEquals(

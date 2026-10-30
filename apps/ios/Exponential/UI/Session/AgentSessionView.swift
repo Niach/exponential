@@ -1691,7 +1691,18 @@ struct AgentSessionView: View {
                 // An ended row takes no `/model` (no Model row in the "+").
                 ended: model.session?.isLive == false,
                 // S-3: the "+" Issue page searches the session's team.
-                teamId: model.session?.teamId
+                teamId: model.session?.teamId,
+                // #EXP-1434: the "+" Prompts page = the `/` menu's prompts; a
+                // pick inserts the body at the caret.
+                prompts: slashPrompts.prompts,
+                onPickPrompt: { prompt in
+                    Task {
+                        guard let body = await TeamSlashPrompts.loadBody(prompt, accountId: accountId, deps: deps)
+                        else { return }
+                        model.draftEditor.insertTextAtCaret(body)
+                        focusComposer()
+                    }
+                }
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits

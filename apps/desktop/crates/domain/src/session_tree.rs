@@ -7,7 +7,7 @@
 //! * `fixtures/session-thread.json` → [`build_session_thread`] (the thread
 //!   screen: tabs, conversation rows, composer target) + [`guide_pull_request`]
 //!   (the Guide's ONE PR) + [`guide_menu_entries`] (its header `…`,
-//!   EXP-1307) + [`partition_thread_strip`] (the never-scrolling strip, EXP-1334);
+//!   EXP-1307) + [`thread_strip_mode`] (the strip, #EXP-1433);
 //! * `fixtures/threads-list.json`   → [`partition_threads`] (the Threads page:
 //!   Needs you · Running · Recent, live trees nested, EXP-1323) +
 //!   [`threads_unread`] (the nav dot) + [`list_agents`] (the rail's Agents).
@@ -145,6 +145,9 @@ pub struct ThreadCopy {
     /// thought or done (`{reason}` = the ACP stopReason).
     #[serde(rename = "emptyTurn")]
     pub empty_turn: String,
+    /// #EXP-1433: the strip's group tab accessible name.
+    #[serde(rename = "stripGroup")]
+    pub strip_group: String,
 }
 
 /// S-3: `session-thread.json` `copy.xref` (the [`SessionXref`] lead).
@@ -218,6 +221,8 @@ pub struct ThreadTestIds {
     pub live_tail: String,
     /// S-3: an inter-session link header.
     pub xref: String,
+    /// #EXP-1433: the strip's ONE group tab.
+    pub group: String,
 }
 
 /// `fixtures/session-thread.json` minus its cases.
@@ -226,6 +231,8 @@ pub struct ThreadTestIds {
 pub struct ThreadSpec {
     pub copy: ThreadCopy,
     pub test_ids: ThreadTestIds,
+    /// #EXP-1433: the active group tab's label truncates at this width (px).
+    pub strip_group_max_width: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -1474,89 +1481,30 @@ pub fn partition_tabs(
     visible
 }
 
-/// [`partition_thread_strip`]'s tier: `Full` = identifier + title, `Short`
-/// = the identifier alone, `Fold` = short and some chips behind a "+N".
+/// #EXP-1433: [`thread_strip_mode`]'s mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum StripTier {
-    Full,
-    Short,
-    Fold,
+pub enum StripMode {
+    /// At most one issue and no session: that issue keeps its chip.
+    Chips,
+    /// ONE icon tab for every issue and session, opening THE Menu of rows.
+    Group,
 }
 
-/// One issue chip's two measured widths.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
-pub struct StripIssueWidth {
-    pub full: f32,
-    pub short: f32,
+/// #EXP-1433 (session-thread.json `stripModeCases`): the strip between
+/// Conversation and Stories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ThreadStripMode {
+    pub mode: StripMode,
+    /// Issues + sessions (the group menu's row count).
+    pub count: usize,
 }
 
-/// [`partition_thread_strip`]'s answer: indexes of the drawn chips per zone.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ThreadStripLayout {
-    pub tier: StripTier,
-    pub issues: Vec<usize>,
-    pub sessions: Vec<usize>,
-}
-
-/// EXP-1334: the strip between Conversation and Guide (both pinned, never
-/// scrolled) holds two zones, issues then sessions, one `gap` between them.
-/// Tiers: everything full → every issue short → fold: the sessions keep
-/// their OWN room (what the short issues leave, at least half), each zone
-/// packs with [`partition_tabs`] and its own "+N" (`overflow_w`).
-pub fn partition_thread_strip(
-    issues: &[StripIssueWidth],
-    sessions: &[f32],
-    available: f32,
-    gap: f32,
-    overflow_w: f32,
-    active_issue: Option<usize>,
-    active_session: Option<usize>,
-) -> ThreadStripLayout {
-    let room = available.max(0.);
-    let span = |widths: &[f32]| -> f32 {
-        if widths.is_empty() {
-            0.
-        } else {
-            widths.iter().sum::<f32>() + gap * (widths.len() - 1) as f32
-        }
-    };
-    let sep = if !issues.is_empty() && !sessions.is_empty() { gap } else { 0. };
-    let session_span = span(sessions);
-    let full: Vec<f32> = issues.iter().map(|issue| issue.full).collect();
-    let short: Vec<f32> = issues.iter().map(|issue| issue.short).collect();
-    if span(&full) + sep + session_span <= room {
-        return ThreadStripLayout {
-            tier: StripTier::Full,
-            issues: (0..issues.len()).collect(),
-            sessions: (0..sessions.len()).collect(),
-        };
-    }
-    if span(&short) + sep + session_span <= room {
-        return ThreadStripLayout {
-            tier: StripTier::Short,
-            issues: (0..issues.len()).collect(),
-            sessions: (0..sessions.len()).collect(),
-        };
-    }
-    let zone = |widths: &[f32], budget: f32, active: Option<usize>| -> (Vec<usize>, f32) {
-        let shown = partition_tabs(widths, budget, gap, overflow_w, active);
-        let drawn: Vec<f32> = shown.iter().map(|&ix| widths[ix]).collect();
-        let used = span(&drawn) + if shown.len() < widths.len() { gap + overflow_w } else { 0. };
-        (shown, used)
-    };
-    let session_budget = if issues.is_empty() {
-        room
-    } else {
-        session_span.min((room / 2.).max(room - span(&short) - sep))
-    };
-    let (session_shown, session_used) = zone(sessions, session_budget, active_session);
-    let issue_budget = room - if sessions.is_empty() { 0. } else { session_used + sep };
-    let (issue_shown, _) = zone(&short, issue_budget, active_issue);
-    ThreadStripLayout {
-        tier: StripTier::Fold,
-        issues: issue_shown,
-        sessions: session_shown,
+/// #EXP-1433: `chips` while at most ONE issue and NO session, else `group`.
+pub fn thread_strip_mode(issues: usize, sessions: usize) -> ThreadStripMode {
+    ThreadStripMode {
+        mode: if issues <= 1 && sessions == 0 { StripMode::Chips } else { StripMode::Group },
+        count: issues + sessions,
     }
 }
 
@@ -3046,29 +2994,20 @@ mod tests {
         assert_eq!(partition_tabs(&[], 100., 4., 30., Some(0)), Vec::<usize>::new());
     }
 
-    /// EXP-1334: `session-thread.json` `stripCases`, whole values.
+    /// #EXP-1433: `session-thread.json` `stripModeCases`, whole values.
     #[test]
-    fn partition_thread_strip_matches_the_fixture() {
+    fn thread_strip_mode_matches_the_fixture() {
         let fixture = fixture(SESSION_THREAD_JSON);
-        let cases = fixture["stripCases"].as_array().unwrap();
+        let cases = fixture["stripModeCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
             let input = &case["input"];
-            let issues: Vec<StripIssueWidth> = serde_json::from_value(input["issues"].clone()).unwrap();
-            let sessions: Vec<f32> = serde_json::from_value(input["sessions"].clone()).unwrap();
-            let num = |key: &str| input[key].as_f64().unwrap() as f32;
-            let index = |key: &str| input[key].as_u64().map(|ix| ix as usize);
-            let layout = partition_thread_strip(
-                &issues,
-                &sessions,
-                num("available"),
-                num("gap"),
-                num("overflowW"),
-                index("activeIssue"),
-                index("activeSession"),
-            );
-            assert_whole(&layout, &case["expected"], case["name"].as_str().unwrap());
+            let count = |key: &str| input[key].as_u64().unwrap() as usize;
+            let mode = thread_strip_mode(count("issues"), count("sessions"));
+            assert_whole(&mode, &case["expected"], case["name"].as_str().unwrap());
         }
+        assert_eq!(THREAD.strip_group_max_width, 160);
+        assert_eq!(THREAD.test_ids.group, "thread-strip-group");
     }
 
     /// S-3: `session-thread.json` `chatModeCases` (TS `threadChatMode`).

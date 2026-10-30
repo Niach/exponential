@@ -316,6 +316,8 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let story: Bool?
     /// The card's `pictures` (plan uploads; S-3: a result story's screenshots).
     public let pictures: [PlanCardPicture]
+    /// #EXP-1432 stories.json: the story's one line under its title.
+    public let description: String?
 
     public init(
         kind: String?,
@@ -349,11 +351,13 @@ public struct TreeMessageCard: Equatable, Sendable {
         eventName: String? = nil,
         messageId: String? = nil,
         story: Bool? = nil,
-        pictures: [PlanCardPicture] = []
+        pictures: [PlanCardPicture] = [],
+        description: String? = nil
     ) {
         self.kind = kind
         self.story = story
         self.pictures = pictures
+        self.description = description
         self.eventName = eventName
         self.messageId = messageId
         self.summary = summary
@@ -490,7 +494,8 @@ public struct TreeMessageCard: Equatable, Sendable {
             story: (object["story"] as? NSNumber).flatMap {
                 CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil
             },
-            pictures: pictures
+            pictures: pictures,
+            description: text("description")
         )
     }
 
@@ -690,19 +695,18 @@ public struct SessionBanner: Equatable, Sendable {
     }
 }
 
-/// EXP-1334: `SessionTree.partitionThreadStrip`'s answer: `full` =
-/// identifier + title; `short` = identifiers alone; `fold` = short and some
-/// chips behind a "+N". Indexes = the chips drawn, strip order.
-public struct ThreadStripLayout: Equatable, Sendable {
-    public enum Tier: String, Sendable { case full, short, fold }
-    public let tier: Tier
-    public let issues: [Int]
-    public let sessions: [Int]
+/// #EXP-1433 (session-thread.json `stripModeCases`): the strip between
+/// Conversation and Stories. `chips` = at most one issue and no session (that
+/// issue keeps its chip); `group` = ONE icon tab for every issue and session,
+/// `count` of them, opening THE menu of their rows.
+public struct ThreadStripMode: Equatable, Sendable {
+    public enum Mode: String, Sendable { case chips, group }
+    public let mode: Mode
+    public let count: Int
 
-    public init(tier: Tier, issues: [Int], sessions: [Int]) {
-        self.tier = tier
-        self.issues = issues
-        self.sessions = sessions
+    public init(mode: Mode, count: Int) {
+        self.mode = mode
+        self.count = count
     }
 }
 
@@ -1344,12 +1348,11 @@ public enum SessionTree {
         ]
         public static let xrefTestId = "thread-xref"
         public static let tabsTestId = "thread-tabs"
-        /// EXP-1334: a zone's "+N" chip reads out as web's
-        /// `THREAD_STRIP_MORE_COPY` (`2 more issues`, `1 more session`).
-        public static func more(_ count: Int, zone: String) -> String {
-            let noun = zone == "issues" ? "issue" : "session"
-            return "\(count) more \(noun)\(count == 1 ? "" : "s")"
-        }
+        /// #EXP-1433: the strip's ONE group tab (its accessible name, testId,
+        /// and the open label's max width).
+        public static let stripGroup = "Issues and sessions"
+        public static let groupTestId = "thread-strip-group"
+        public static let stripGroupMaxWidth: Double = 160
         public static let conversationTestId = "thread-conversation"
         public static let composerTestId = "thread-composer"
         /// EXP-1306: the Guide's stack band.
@@ -1854,83 +1857,12 @@ public enum SessionTree {
         return nil
     }
 
-    // MARK: - EXP-1334: the thread strip never scrolls
+    // MARK: - #EXP-1433: the thread strip
 
-    /// Which chips get drawn, in order; the rest collapse into one "+N" (a
-    /// port of the desktop's `partition_tabs`): chips pack in order until the
-    /// next would not fit; the overflow chip's width is reserved only once
-    /// something overflows; the ACTIVE chip is always visible; one chip
-    /// always survives.
-    public static func partitionTabs(
-        _ widths: [Double],
-        available: Double,
-        gap: Double,
-        overflowW: Double,
-        activeIndex: Int?
-    ) -> [Int] {
-        let count = widths.count
-        let room = max(available, 0)
-        let total = widths.reduce(0, +) + gap * Double(max(count - 1, 0))
-        if total <= room { return Array(0..<count) }
-        let budget = max(room - overflowW - gap, 0)
-        var visible: [Int] = []
-        var used = activeIndex.map { widths[$0] } ?? 0
-        var chips = activeIndex == nil ? 0 : 1
-        for index in 0..<count {
-            if index == activeIndex {
-                visible.append(index)
-                continue
-            }
-            let next = used + widths[index] + (chips > 0 ? gap : 0)
-            if next > budget && chips > 0 { break }
-            visible.append(index)
-            used = next
-            chips += 1
-        }
-        if let activeIndex, !visible.contains(activeIndex) { visible.append(activeIndex) }
-        if visible.isEmpty && count > 0 { visible.append(0) }
-        return visible
-    }
-
-    /// EXP-1334: the strip between Conversation and Guide: issues then
-    /// sessions. Tiers: everything full → every issue short → fold (the
-    /// sessions keep their OWN room, at least half; each zone packs with
-    /// `partitionTabs` and its own "+N").
-    public static func partitionThreadStrip(
-        issues: [(full: Double, short: Double)],
-        sessions: [Double],
-        available: Double,
-        gap: Double,
-        overflowW: Double,
-        activeIssue: Int?,
-        activeSession: Int?
-    ) -> ThreadStripLayout {
-        let room = max(available, 0)
-        func span(_ widths: [Double]) -> Double {
-            widths.isEmpty ? 0 : widths.reduce(0, +) + gap * Double(widths.count - 1)
-        }
-        let sep = !issues.isEmpty && !sessions.isEmpty ? gap : 0
-        let sessionSpan = span(sessions)
-        let full = issues.map(\.full)
-        let short = issues.map(\.short)
-        if span(full) + sep + sessionSpan <= room {
-            return ThreadStripLayout(tier: .full, issues: Array(0..<issues.count), sessions: Array(0..<sessions.count))
-        }
-        if span(short) + sep + sessionSpan <= room {
-            return ThreadStripLayout(tier: .short, issues: Array(0..<issues.count), sessions: Array(0..<sessions.count))
-        }
-        func zone(_ widths: [Double], _ budget: Double, _ active: Int?) -> (shown: [Int], used: Double) {
-            let shown = partitionTabs(widths, available: budget, gap: gap, overflowW: overflowW, activeIndex: active)
-            let used = span(shown.map { widths[$0] }) + (shown.count < widths.count ? gap + overflowW : 0)
-            return (shown, used)
-        }
-        let sessionBudget = issues.isEmpty
-            ? room
-            : min(sessionSpan, max(room / 2, room - span(short) - sep))
-        let placed = zone(sessions, sessionBudget, activeSession)
-        let issueBudget = room - (sessions.isEmpty ? 0 : placed.used + sep)
-        let issueZone = zone(short, issueBudget, activeIssue)
-        return ThreadStripLayout(tier: .fold, issues: issueZone.shown, sessions: placed.shown)
+    /// `issues` = every issue of the tree, nested ones included; `sessions` =
+    /// every session under the root.
+    public static func threadStripMode(issues: Int, sessions: Int) -> ThreadStripMode {
+        ThreadStripMode(mode: issues <= 1 && sessions == 0 ? .chips : .group, count: issues + sessions)
     }
 
     private static func suggestionsRow(

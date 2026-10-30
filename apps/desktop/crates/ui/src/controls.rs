@@ -650,33 +650,52 @@ pub(crate) fn pointer_check_item(
     )
 }
 
-/// [`pointer_check_item`] led by its own `icon`, drawn as given (an agent's
-/// glyph in its colour, NEW-3's Message an agent › rows): the Picker row's
-/// glyph, the label, the trailing check on the picked one.
-pub(crate) fn pointer_check_item_with_icon(
+/// #EXP-1434: the composer "+" menu's Account › row — [`pointer_check_item`] led by its agent `icon`
+/// whose hover shows THE EXP-992 usage preview (the account picker's
+/// `render_account_limits` bars) beside it; a login with no `limits` shows
+/// none. `id` keys the hover (one per row).
+pub(crate) fn pointer_account_item(
+    id: impl Into<SharedString>,
     icon: impl Fn() -> Icon + 'static,
     label: impl Into<SharedString>,
     checked: bool,
+    limits: Option<coding::AccountLimits>,
     on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
+    use gpui::prelude::FluentBuilder as _;
+    let id = id.into();
     let label = label.into();
     let on_select = host_bound(on_select);
     PopupMenuItem::element(move |_, cx| {
-        pointer_row_fill(
-            gpui_component::h_flex()
-                .flex_1()
-                .min_w_0()
-                .gap(px(t::menu::pointer::ITEM_GAP))
-                .items_center()
-                .child(icon().size(px(t::menu::pointer::ICON_SIZE)).flex_shrink_0())
-                .child(div().flex_1().min_w_0().truncate().child(label.clone()))
-                .children(checked.then(|| {
-                    Icon::new(crate::icons::registry::UI_CHECK)
-                        .size(px(14.))
-                        .text_color(cx.theme().foreground)
-                })),
-            false,
-        )
+        let limits = limits.clone();
+        div()
+            .id(gpui::ElementId::Name(id.clone()))
+            .flex_1()
+            .min_w_0()
+            .child(pointer_row_fill(
+                gpui_component::h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(t::menu::pointer::ITEM_GAP))
+                    .items_center()
+                    .child(icon().size(px(t::menu::pointer::ICON_SIZE)).flex_shrink_0())
+                    .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                    .children(checked.then(|| {
+                        Icon::new(crate::icons::registry::UI_CHECK)
+                            .size(px(14.))
+                            .text_color(cx.theme().foreground)
+                    })),
+                false,
+            ))
+            .when_some(limits, |row, limits| {
+                row.tooltip(move |window, cx| {
+                    let limits = limits.clone();
+                    gpui_component::tooltip::Tooltip::element(move |_, cx| {
+                        crate::usage_bar::render_account_limits(&limits, cx)
+                    })
+                    .build(window, cx)
+                })
+            })
     })
     .on_click(move |_, window, cx| on_select(window, cx))
 }
