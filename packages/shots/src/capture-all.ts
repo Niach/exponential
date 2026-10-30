@@ -97,8 +97,8 @@ import {
   type ShotDiffReport,
 } from "./store.ts"
 
-/** Through the Caddy h2 proxy — what the browser and the natives talk to. */
-const PROXY_URL = `https://localhost:3000`
+/** Through the Caddy h2 proxy — what the browser and the natives talk to (`SHOTS_PROXY_URL` on an isolated stack, VAPP-170). */
+const PROXY_URL = process.env.SHOTS_PROXY_URL?.trim().replace(/\/+$/, ``) || `https://localhost:3000`
 /** The vite dev server — what the desktop app talks to (`SHOTS_DEV_URL` when 5173 is another stack's). */
 const DEV_URL = DEFAULT_BASE_URL
 /** Compose services every capture depends on. */
@@ -1523,8 +1523,9 @@ async function startRelayStub(): Promise<Child | undefined> {
   // through here was the old fix and it cost more than it bought: Chromium
   // blocks `ws://192.168.x.x` from the https capture page as mixed content, so
   // the browser and desktop lanes lost their steering shots and android had to
-  // run in a pass of its own.
-  const relayUrl = `ws://localhost:4002`
+  // run in a pass of its own. An isolated stack on other ports names its own
+  // relay (`SHOTS_RELAY_URL`, VAPP-170).
+  const relayUrl = process.env.SHOTS_RELAY_URL?.trim() || `ws://localhost:4002`
 
   console.log(`\n── steer relay stub (${relayUrl}) ─────────────────────`)
   const child = track(

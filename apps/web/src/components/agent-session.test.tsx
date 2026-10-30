@@ -98,6 +98,7 @@ function snap(over: Partial<SteerSessionSnapshot>): SteerSessionSnapshot {
     answerStates: {},
     connected: true,
     canLoadEarlier: false,
+    deviceOffline: false,
     ...over,
   }
 }
@@ -168,6 +169,13 @@ describe(`AgentSessionView Trace transcript`, () => {
     expect(output.querySelector(`[data-token="success"]`)?.textContent).toBe(
       `BUILD SUCCESSFUL in 41s`
     )
+  })
+
+  it(`an ended row no device fed names the machine holding its transcript (VAPP-171)`, () => {
+    const detail = `buildbox is offline. The transcript lives on that machine.`
+    snapshot = snap({ phase: { kind: `ended`, detail }, deviceOffline: true, connected: false })
+    render(<AgentSessionView session={{ ...session, status: `ended` } as SessionRow} />)
+    expect(screen.getByTestId(`transcript-device-offline`).textContent).toBe(detail)
   })
 
   it(`the running call is its shimmering line alone`, () => {

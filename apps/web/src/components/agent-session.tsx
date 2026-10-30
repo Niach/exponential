@@ -317,6 +317,7 @@ export function AgentSessionView({
     runningWorkflow,
     answerStates,
     canLoadEarlier: snapshotCanLoadEarlier,
+    deviceOffline,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot)
   /** EXP-724: the agent is folding its context. */
   const compactingNow = compacting !== null
@@ -854,6 +855,14 @@ export function AgentSessionView({
                   title="Waiting for activity"
                   description="This session isn't publishing an activity feed yet."
                 />
+              </CenteredState>
+            ) : feedPlaceholder && deviceOffline && phase.kind === `ended` ? (
+              /* VAPP-171: an ended row no device fed — the machine that holds
+                 its transcript, named (×4). */
+              <CenteredState>
+                <span className="text-xs text-muted-foreground" data-testid="transcript-device-offline">
+                  {phase.detail}
+                </span>
               </CenteredState>
             ) : activeAgent !== null ? (
               <div

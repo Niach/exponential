@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-offline-copy`,
+    date: `2026-10-30`,
+    title: `The offline copy, everywhere`,
+    summary: `A finished session whose device is offline now says so the same way on every app.`,
+    body: `- **Same words everywhere**: a finished session whose device is offline now names that device and says the transcript lives there, on web and desktop as on iOS and Android, instead of an empty view.`,
+  },
+  {
     id: `2026-10-30-own-worktrees-and-short-ids`,
     date: `2026-10-30`,
     title: `Worktrees and short session ids, fixed`,
