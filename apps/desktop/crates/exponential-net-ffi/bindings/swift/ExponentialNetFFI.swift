@@ -2585,6 +2585,18 @@ public func generateIdentity() -> Data  {
 })
 }
 /**
+ * The identity's 64-byte ed25519 signature over `message` (verifiable
+ * against its endpoint id), e.g. the `exp-install-v1` registration string.
+ */
+public func identitySign(identity: Data, message: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_func_identity_sign(
+        FfiConverterData.lower(identity),
+        FfiConverterData.lower(message),$0
+    )
+})
+}
+/**
  * Parses (validates) an `enet1…` ticket.
  */
 public func parseTicket(ticket: String)throws  -> EnetTicket  {
@@ -2629,6 +2641,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_func_generate_identity() != 54854) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_identity_sign() != 63657) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_func_parse_ticket() != 46612) {
