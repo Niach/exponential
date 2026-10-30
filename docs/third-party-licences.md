@@ -457,3 +457,47 @@ fetched by the user's machine with CrispASR's notices, not shipped by us.
 Re-check on every CrispASR or model bump:
 the pins, the release's notices, and that no GPL component entered the
 prebuilt library.
+
+## eTalk wake word models (EXP-1424)
+
+### What we download
+
+A wake phrase with a model of its own (`apps/desktop/crates/etalk-wakeword`,
+`models.rs`; the first is spezl's `Hey spezl`, never `Hey Claude`) is heard by
+openWakeWord's pipeline instead of Parakeet. The speech worker fetches its
+files the first time the phrase is asked for, sha256-pinned like the voice
+models, into `{data_dir}/talk/models/wakeword/`; nothing is in the binary.
+They run on tract (MIT OR Apache-2.0, linked, listed by the notice generator
+with the other Rust crates): no ONNX Runtime is linked or downloaded.
+
+| what | version | licence | where from |
+|---|---|---|---|
+| openWakeWord `melspectrogram.onnx` (a fixed torch melspectrogram) | v0.5.1 release asset (byte-identical to livekit-wakeword 0.1.3's copy) | Apache-2.0 (openWakeWord's code licence; livekit-wakeword redistributes the same file under Apache-2.0) | github.com/dscripka/openWakeWord releases |
+| openWakeWord `embedding_model.onnx` (Google's speech_embedding, re-implemented) | v0.5.1 release asset | Apache-2.0 (Google's TF Hub module) | same |
+| `hey_spezl.onnx`, the phrase's classifier | ours, trained by `crates/etalk-wakeword/train/train.sh` | Apache-2.0 (ours) | pinned in `models.rs` |
+
+The tests and the CPU example also fetch livekit-wakeword 0.1.3's crate
+tarball (Apache-2.0) by sha256 for its `hey_livekit.onnx` and two WAVs; they
+never ship.
+
+### Training data (what the classifier learnt from)
+
+livekit-wakeword (Apache-2.0, pinned revision in `train.sh`) trains it from
+Piper VITS samples only (the `en-us-libritts-high` checkpoint it publishes;
+LibriTTS is CC BY 4.0), augmented with MUSAN noise (CC BY 4.0) and the MIT
+environmental impulse responses (CC BY 4.0), and with openWakeWord's
+pre-computed ACAV100M speech features (~2,000 h) as negatives. No person's
+recorded voice is a positive sample.
+
+### Determination (2026-10-29)
+
+Permitted, with attribution (the desktop notices name openWakeWord, Google's
+speech embedding, livekit-wakeword and tract). We never ship openWakeWord's
+own PRE-TRAINED wake-word models: those are CC BY-NC-SA 4.0. The open point:
+openWakeWord gives exactly the ACAV100M negatives as the reason its
+pre-trained models are non-commercial ("datasets with unknown or restrictive
+licensing"); livekit-wakeword trains on the same features and publishes its
+`hey_livekit` model under Apache-2.0, and we follow it, but whether a
+classifier is a derived work of its training data is untested. Re-check
+before selling a model (spezl's marketplace), and retrain without the
+ACAV100M features if the answer changes.

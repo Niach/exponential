@@ -491,8 +491,9 @@ pub struct Utterance {
     /// stripped from it.
     wake: Option<String>,
     /// S-3: a later (sliding) check woke it: the phrase may follow a few
-    /// fragments ([`crate::wake::slide_match`]).
-    slid: bool,
+    /// fragments ([`crate::wake::slide_match`]); EXP-1424: or a model did
+    /// ([`crate::wake::model_match`]).
+    opening: crate::wake::Opening,
 }
 
 impl Utterance {
@@ -508,7 +509,7 @@ impl Utterance {
             partial_at: 0,
             last_partial: String::new(),
             wake: None,
-            slid: false,
+            opening: crate::wake::Opening::First,
         }
     }
 
@@ -519,14 +520,14 @@ impl Utterance {
         id: impl Into<String>,
         language: impl Into<String>,
         phrase: impl Into<String>,
-        sliding: bool,
+        opening: crate::wake::Opening,
         audio: &[f32],
         scores: &[f32],
         transcriber: &mut dyn Transcriber,
     ) -> Result<Self, (ListenFailure, String)> {
         let mut utterance = Utterance::new(id, language);
         utterance.wake = Some(phrase.into());
-        utterance.slid = sliding;
+        utterance.opening = opening;
         // The seed's levels and partials are history: the capsule starts now.
         utterance.feed_scored(audio, scores, transcriber, &mut |_| {})?;
         Ok(utterance)
@@ -555,9 +556,7 @@ impl Utterance {
     fn text_with(&self, open: Option<&str>) -> String {
         let joined = join_transcripts(self.heard.iter().map(String::as_str).chain(open));
         match self.wake.as_deref() {
-            Some(phrase) => crate::wake::wake_match(phrase, &joined)
-                .or_else(|| self.slid.then(|| crate::wake::slide_match(phrase, &joined)).flatten())
-                .unwrap_or(joined),
+            Some(phrase) => crate::wake::strip(phrase, self.opening, &joined),
             None => joined,
         }
     }

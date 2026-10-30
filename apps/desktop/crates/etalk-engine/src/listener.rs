@@ -61,7 +61,7 @@ use crate::capture::{self, Capture};
 use crate::echo::{Echo, FarEnd};
 use crate::listen::{Call, Transcriber, Utterance, Vad, RATE};
 use crate::meeting::Meeting;
-use crate::wake::{turn_ended, WakeScanner};
+use crate::wake::{turn_ended, DetectorKind, WINDOW_MIN_MS, ModelDetector, TranscriptMatcher, WakeDetector, WakeScanner};
 use crate::{emit, retry_after, runtime};
 
 /// The CrispASR backend of the transcriber.
@@ -355,6 +355,11 @@ pub trait Hearing {
     fn debug_dir(&self) -> Option<PathBuf> {
         None
     }
+    /// EXP-1424: `phrase`'s model detector, once its files are ready (None
+    /// = the transcript matcher; may start fetching them).
+    fn wake_model(&mut self, _phrase: &str) -> Option<etalk_wakeword::Detector> {
+        None
+    }
 }
 
 /// NEW-57: a meeting as the host asked for it.
@@ -514,6 +519,46 @@ struct Scan<H: Hearing> {
     mic: H::Mic,
     vad: H::Vad,
     scanner: WakeScanner,
+    /// EXP-1424: the phrase's model once its files are ready, else the
+    /// transcript matcher.
+    detector: Box<dyn WakeDetector>,
+    /// EXP-1424: when the matcher next asks whether the phrase's model is
+    /// ready (None = it has none).
+    upgrade_at: Option<Instant>,
+}
+
+impl<H: Hearing> Scan<H> {
+    /// EXP-1424: hear `phrase` (a new one) with its model when one is
+    /// ready, else with the transcript matcher.
+    fn hear(&mut self, hearing: &mut H, phrase: &str) {
+        let (scanner, detector) = wake_detector(hearing, phrase);
+        let waiting = detector.kind() == DetectorKind::Transcript
+            && crate::wake::detector_kind(etalk_wakeword::models::MODELS, phrase) == DetectorKind::Model;
+        self.upgrade_at = waiting.then(|| Instant::now() + WAKE_RETRY);
+        self.scanner = scanner;
+        self.detector = detector;
+    }
+
+    /// EXP-1424: the matcher hears a phrase that has a model: switch to it
+    /// once it is ready (the scan goes on untouched until then).
+    fn upgrade(&mut self, hearing: &mut H, phrase: &str) {
+        match hearing.wake_model(phrase) {
+            Some(model) => {
+                self.scanner = WakeScanner::for_model();
+                self.detector = Box::new(ModelDetector(model));
+                self.upgrade_at = None;
+            }
+            None => self.upgrade_at = Some(Instant::now() + WAKE_RETRY),
+        }
+    }
+}
+
+/// EXP-1424: the scanner and detector for `phrase`.
+fn wake_detector<H: Hearing>(hearing: &mut H, phrase: &str) -> (WakeScanner, Box<dyn WakeDetector>) {
+    match hearing.wake_model(phrase) {
+        Some(model) => (WakeScanner::for_model(), Box::new(ModelDetector(model))),
+        None => (WakeScanner::new(crate::wake::window_ms(phrase)), Box::new(TranscriptMatcher)),
+    }
 }
 
 /// #NEW-56: the wake word as the host asked for it.
@@ -721,11 +766,13 @@ pub struct Ears {
     data_dir: PathBuf,
     engines: Option<Engines>,
     fetch: Fetch,
+    /// EXP-1424: the wake word's models.
+    wake: crate::wake_model::WakeModels,
 }
 
 impl Ears {
     pub fn new(data_dir: PathBuf) -> Self {
-        Ears { data_dir, engines: None, fetch: Fetch::Idle { failures: 0, retry_at: None } }
+        Ears { data_dir, engines: None, fetch: Fetch::Idle { failures: 0, retry_at: None }, wake: Default::default() }
     }
 
     fn start_download(&mut self) -> Result<(), String> {
@@ -843,6 +890,10 @@ impl Hearing for Ears {
 
     fn debug_dir(&self) -> Option<PathBuf> {
         Some(self.data_dir.join(crate::meeting::DEBUG_DIR))
+    }
+
+    fn wake_model(&mut self, phrase: &str) -> Option<etalk_wakeword::Detector> {
+        self.wake.detector(&self.data_dir, phrase)
     }
 }
 
@@ -996,7 +1047,7 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                     // (through a window sized to the new phrase).
                     wake_retry = None;
                     if let (Some(scanning), Some(word)) = (scan.as_mut(), wanted.as_ref()) {
-                        scanning.scanner = WakeScanner::new(crate::wake::window_ms(&word.phrase));
+                        scanning.hear(hearing, &word.phrase);
                     }
                 }
                 wake = wanted;
@@ -1154,9 +1205,14 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
             continue;
         }
         let (Some(scanning), Some(word)) = (scan.as_mut(), wake.as_ref()) else { continue };
+        // EXP-1424: the phrase's model became ready: hear it with that.
+        if scanning.upgrade_at.is_some_and(|at| Instant::now() >= at) {
+            scanning.upgrade(hearing, &word.phrase);
+        }
         match scanning.mic.recv_timeout(Duration::from_millis(20)) {
             Ok(samples) => match crate::wake::scan(
                 &mut scanning.scanner,
+                scanning.detector.as_mut(),
                 &mut scanning.vad,
                 hearing.engines(),
                 &samples,
@@ -1174,7 +1230,7 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
             ) {
                 Ok(None) => {}
                 Ok(Some(matched)) => {
-                    let Scan { mic, vad, scanner } = scan.take().expect("scanning");
+                    let Scan { mic, vad, scanner, .. } = scan.take().expect("scanning");
                     turns += 1;
                     let id = format!("wake-{turns}");
                     let utterance = match crate::wake::turn(&id, word.language, &word.phrase, &scanner, matched, hearing.engines()) {
@@ -1220,7 +1276,9 @@ fn open_scan<H: Hearing>(hearing: &mut H, phrase: &str) -> Result<Scan<H>, (List
     hearing.prepare(true)?;
     let vad = hearing.vad()?;
     let mic = hearing.mic()?;
-    Ok(Scan { mic, vad, scanner: WakeScanner::new(crate::wake::window_ms(phrase)) })
+    let mut scan = Scan { mic, vad, scanner: WakeScanner::new(WINDOW_MIN_MS), detector: Box::new(TranscriptMatcher), upgrade_at: None };
+    scan.hear(hearing, phrase);
+    Ok(scan)
 }
 
 /// One job from the reader (or the backlog).
