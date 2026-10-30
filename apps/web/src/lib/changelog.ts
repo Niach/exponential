@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-start-coding-keeps-issue`,
+    date: `2026-10-30`,
+    title: `Start coding keeps your issue`,
+    summary: `Picking an agent, device or model no longer drops the issue you started from, and the Start coding dialog shows the agent row like everywhere else.`,
+    body: `- **Your issue stays**: on web, desktop, iOS and Android, picking an agent, a device, a model or any other option in the composer keeps the issue you are about to implement; sending it to an agent hands that agent the issue.
+- **One composer**: the Start coding dialog on web and desktop now has the same agent row above the text field as the Agent page.`,
+  },
+  {
     id: `2026-10-30-call-reasons`,
     date: `2026-10-30`,
     title: `Calls say what's missing`,

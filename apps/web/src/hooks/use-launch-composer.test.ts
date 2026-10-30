@@ -350,6 +350,25 @@ describe(`useLaunchComposer subject`, () => {
     expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i1`] })
   })
 
+  it(`#EXP-1450: no pick drops the seeded issue (composer-home.json pickCases)`, () => {
+    const { result } = mount({ issueIds: [`i1`] }, [device], true)
+    const issues = { kind: `issues`, ids: [`i1`] }
+    act(() => result.current.pickRecipient(`ag-1`))
+    expect(result.current.subject).toEqual(issues)
+    expect(result.current.submitLabel).toBe(`Send`)
+    act(() => result.current.pickRecipient(`temporary`))
+    expect(result.current.subject).toEqual(issues)
+    act(() => result.current.launch.setDeviceId(device.deviceId))
+    act(() => result.current.launch.setModel(`opus`))
+    expect(result.current.subject).toEqual(issues)
+    // An agent tap drops only a prompt; Temporary session keeps it.
+    act(() => result.current.pickPrompt(`pr-1`))
+    act(() => result.current.pickRecipient(`temporary`))
+    expect(result.current.subject).toEqual({ kind: `prompt`, id: `pr-1` })
+    act(() => result.current.pickRecipient(`ag-1`))
+    expect(result.current.subject).toBeNull()
+  })
+
   it(`S-3: a device seed starts the row on Temporary session`, () => {
     const { result } = mount({ issueIds: [], deviceId: `dev-1` }, [device], true)
     expect(result.current.agentRow?.selected).toBe(`temporary`)
