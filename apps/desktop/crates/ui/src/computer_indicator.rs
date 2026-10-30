@@ -19,10 +19,12 @@
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use etalk_gpui::bar::{
+    item, rem_size, shaped_width, value, BAR_GAP_REMS, BAR_SIDE_REMS, BAR_SLACK, BAR_STROKE, BAR_TOP_REMS, ITEM_SIDE, LABEL_SIDE,
+};
 use gpui::{
-    div, point, px, size, App, AppContext as _, Bounds, Context, Div, Font, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Pixels, Render, SharedString, Size, Stateful, Styled as _, TextRun, Window,
-    WindowBounds, WindowKind, WindowOptions, WindowTextSystem,
+    div, point, px, size, App, AppContext as _, Bounds, Context, Div, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, Pixels, Render, SharedString, Size, Stateful, Styled as _, Window, WindowBounds, WindowKind, WindowOptions,
 };
 use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 
@@ -37,30 +39,12 @@ const TICK: Duration = Duration::from_millis(400);
 /// less that air on both sides.
 const BANNER_BOTTOM: f32 = 16.;
 
-/// The bar's boxes around its words. `glass_bar`'s are in rems (2.5, 2 and
-/// 1 spacing steps: 0.625 rem sides, 0.5 rem top and bottom, 0.25 rem
-/// gaps) inside a 1 px stroke; the rest in logical pixels ([`item`]: 32
-/// tall, 8 px sides, 6 px gaps; the label 4 px sides; the key chip 6 px
-/// sides and a 1 px hairline; the glyph 16).
-pub(crate) const BAR_SIDE_REMS: f32 = 0.625;
-pub(crate) const BAR_TOP_REMS: f32 = 0.5;
-pub(crate) const BAR_GAP_REMS: f32 = 0.25;
-pub(crate) const BAR_STROKE: f32 = 1.;
+/// The bar's boxes (`etalk_gpui::bar`, THE bar's parts the voice overlay
+/// shares): the item's height, gaps, the key chip's sides and the glyph.
 const ITEM_HEIGHT: f32 = 32.;
-pub(crate) const ITEM_SIDE: f32 = 8.;
 const ITEM_GAP: f32 = 6.;
-pub(crate) const LABEL_SIDE: f32 = 4.;
 const KEY_SIDE: f32 = 6.;
 const GLYPH: f32 = 16.;
-
-/// The air the window gives the bar beyond its sum: the toolkit snaps
-/// every box to whole device pixels (fractional rem sizes, fractional
-/// scale factors) and takes each text whole pixels up, so the drawn bar
-/// can be a few device pixels wider than the sum of its parts. The bar
-/// fills the window ([`Banner`]'s `w_full`) and the air lands inside its
-/// padding, unseen; without it the window was 1 px narrower than the bar
-/// for some labels and ellipsized them.
-pub(crate) const BAR_SLACK: f32 = 4.;
 
 /// X11 without a screen layout (no RandR answer): the toolkit's display is
 /// the whole X screen, every monitor side by side, so its width is no cap a
@@ -91,25 +75,6 @@ impl Words {
         let key = gap + ITEM_SIDE + (KEY_SIDE + self.key + KEY_SIDE + 2. * BAR_STROKE) + ITEM_GAP + self.abort + ITEM_SIDE;
         (2. * (BAR_SIDE_REMS * rem + BAR_STROKE) + title + label + key).ceil()
     }
-}
-
-/// The banner's rem: the theme's font size, as every `Root` window sets it
-/// (the styleguide's bar, which the banner must match).
-pub(crate) fn rem_size(cx: &App) -> Pixels {
-    cx.theme().font_size
-}
-
-/// One line's shaped width in the theme's font, the path the text element
-/// takes, without a window (the banner's does not exist yet); whole pixels
-/// up, as the text element takes it.
-pub(crate) fn shaped_width(text: &str, size: Pixels, weight: FontWeight, cx: &App) -> f32 {
-    if text.is_empty() {
-        return 0.;
-    }
-    let font = Font { weight, ..gpui::font(cx.theme().font_family.clone()) };
-    let run = TextRun { len: text.len(), font, color: gpui::black(), background_color: None, underline: None, strikethrough: None };
-    let layout = WindowTextSystem::new(cx.text_system().clone()).layout_line(text, size, &[run], None);
-    f32::from(layout.width).ceil()
 }
 
 /// The banner window's size: the bar around these words plus
@@ -146,28 +111,6 @@ fn copy() -> &'static Copy {
         let word = |key: &str| fixture["copy"][key].as_str().expect("banner copy").to_string();
         Copy { title: word("title"), key: word("key"), abort: word("abort") }
     })
-}
-
-/// One `item` of the bar (the bulk bar's: 32 tall, 8 px sides, a glyph
-/// and words in the muted foreground).
-/// One item of THE bar (the glyph and the words, muted): also the voice
-/// overlay's line (`voice_overlay::capsule`, NEW-77).
-pub(crate) fn item(cx: &App) -> Div {
-    div().flex().flex_shrink_0().items_center().gap(px(6.)).h(px(32.)).px(px(8.)).text_sm().text_color(cx.theme().muted_foreground)
-}
-
-/// THE bar's bold value (the session's label; the voice overlay's state).
-pub(crate) fn value(text: impl Into<SharedString>, cx: &App) -> Div {
-    div()
-        .min_w_0()
-        .px(px(LABEL_SIDE))
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_ellipsis()
-        .text_sm()
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(cx.theme().foreground)
-        .child(text.into())
 }
 
 /// THE bar (the bulk bar's capsule): the glyph and the title as one item,
@@ -235,7 +178,7 @@ fn toolkit_display(target: &coding::computer::Display, cx: &App) -> Option<std::
     // #FEED-161: by the stable id, the same display however the list moved.
     let index = screens.iter().position(|screen| screen.id == target.id)?;
     let displays = cx.displays();
-    let map = crate::push_to_talk::overlay::display_map(&displays, &screens);
+    let map = etalk_gpui::push_to_talk::overlay::display_map(&displays, &screens);
     map.iter().position(|mapped| *mapped == Some(index)).and_then(|ix| displays.get(ix).cloned())
 }
 

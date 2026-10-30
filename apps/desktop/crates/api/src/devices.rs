@@ -230,7 +230,7 @@ pub struct HeartbeatResult {
     pub launch_defaults_updated_at: Option<String>,
     /// NEW-67: the member's voice settings, on every beat.
     #[serde(default)]
-    pub voice: Option<domain::voice::VoiceSettings>,
+    pub voice: Option<etalk::voice::VoiceSettings>,
     /// EXP-1417: `ok: false` because the owner REMOVED the machine: do not
     /// re-register until the next launch (the server refuses it anyway).
     #[serde(default)]

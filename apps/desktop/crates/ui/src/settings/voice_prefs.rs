@@ -29,13 +29,13 @@ use gpui_component::{
 };
 
 use api::voice::VoiceUpdate;
-use domain::voice::{
+use etalk::voice::{
     agent_options, capture_pending, capture_start, capture_step, language_label, shortcut_reason, tray_header,
     voice_device_options, voice_text_input, wake_phrase_error, wake_phrase_placeholder, CaptureEvent, CaptureState, CaptureStatus,
     VoiceAgent, VoiceDevice, VoiceOption, VoiceSettings, VOICE,
 };
 
-use domain::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudioCapability, MEETING};
+use etalk::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudioCapability, MEETING};
 
 use crate::controls::{glass_input, kbd, kbd_group, shortcut_keys, PointerMenuButtonExt as _};
 use crate::picker::{Picker, PickerItem};
@@ -290,14 +290,14 @@ fn remote_wake_detail(settings: &VoiceSettings, device_name: &str, cx: &App) -> 
                 .find(|item| item.key == coding::device_doctor::KEY_WAKE && item.group == coding::device_doctor::DoctorGroup::Voice)
         })
         .and_then(|item| item.detail);
-    let context = domain::voice::WakeDetailContext {
+    let context = etalk::voice::WakeDetailContext {
         wake_word: settings.wake_word,
         agent: settings.agent_id.is_some(),
         online,
         device: device_name,
         state: None,
     };
-    let detail = domain::voice::wake_detail(&context)?;
+    let detail = etalk::voice::wake_detail(&context)?;
     // Listening / muted / … come from the device itself; `starting` until
     // its doctor says.
     Some(if online && settings.agent_id.is_some() { reported.unwrap_or(detail) } else { detail })
@@ -386,7 +386,7 @@ pub(crate) fn voice_rows(
     // voice.json: while the voice downloads (only ever on the voice device,
     // i.e. here) a row's detail reads `downloadProgress`; S-3 removed the
     // Speak replies row, so the Language row (the voice) carries it.
-    let downloading = (on_change.is_some() && ready).then(|| crate::speak_replies::download_detail(cx)).flatten();
+    let downloading = (on_change.is_some() && ready).then(|| etalk_gpui::speak_replies::download_detail(cx)).flatten();
     let send = |make: Rc<dyn Fn(Option<String>) -> VoiceUpdate>| -> Option<Rc<dyn Fn(Option<String>, &mut App)>> {
         on_change.clone().map(|on_change| {
             Rc::new(move |value: Option<String>, cx: &mut App| on_change(make(value), cx)) as Rc<dyn Fn(Option<String>, &mut App)>
@@ -463,12 +463,12 @@ pub(crate) fn voice_rows(
             && cx.try_global::<crate::session::AuthContext>().is_some_and(|auth| {
                 settings.voice_device_id.as_deref() == Some(steer::persistent_device_id(&auth.data_dir).as_str())
             });
-        let status = if here && settings.push_to_talk() { crate::push_to_talk::status(cx) } else { Default::default() };
+        let status = if here && settings.push_to_talk() { etalk_gpui::push_to_talk::status(cx) } else { Default::default() };
         let reason = status.reason().map(|reason| SharedString::from(shortcut_reason(reason, &settings.ptt_shortcut)));
         // S-3 (WAKE DETAIL ×4): why the wake word is or is not listening:
         // here from the worker, elsewhere from the voice device's doctor.
         let wake_detail = if here {
-            crate::push_to_talk::own_wake_detail(settings, &device_name, cx)
+            etalk_gpui::push_to_talk::own_wake_detail(settings, &device_name, cx)
         } else if on_change.is_some() {
             remote_wake_detail(settings, &device_name, cx)
         } else {
@@ -507,7 +507,7 @@ pub(crate) fn voice_rows(
             let mut tray: Vec<gpui::Div> = Vec::new();
             let words = &MEETING.copy;
             let meeting_on = settings.meeting();
-            let who = meeting_on.then(|| domain::meeting::who(settings.desktop_audio, &settings.desktop_audio_apps, capability));
+            let who = meeting_on.then(|| etalk::meeting::who(settings.desktop_audio, &settings.desktop_audio_apps, capability));
             tray.push(switch_row(
                 "settings-voice-meeting",
                 &words.meeting,
@@ -522,8 +522,8 @@ pub(crate) fn voice_rows(
                 "settings-voice-auto-stop",
                 &words.auto_stop_after,
                 None,
-                SharedString::from(domain::meeting::auto_stop_option(hours)),
-                domain::meeting::auto_stop_options().into_iter().map(|option| (Some(option.value.to_string()), option.label)).collect(),
+                SharedString::from(etalk::meeting::auto_stop_option(hours)),
+                etalk::meeting::auto_stop_options().into_iter().map(|option| (Some(option.value.to_string()), option.label)).collect(),
                 Some(hours.to_string()),
                 ready,
                 send(Rc::new(|value| VoiceUpdate {
@@ -540,7 +540,7 @@ pub(crate) fn voice_rows(
                 desktop_audio_options(capability).into_iter().map(|value| (Some(value.key().to_string()), value.label().to_string())).collect(),
                 Some(settings.desktop_audio.key().to_string()),
                 send(Rc::new(|value| VoiceUpdate {
-                    desktop_audio: value.as_deref().map(domain::meeting::DesktopAudio::from_key),
+                    desktop_audio: value.as_deref().map(etalk::meeting::DesktopAudio::from_key),
                     ..Default::default()
                 })),
                 cx,
@@ -597,7 +597,7 @@ pub struct VoicePrefsPane {
     wake_phrase_invalid: Option<SharedString>,
     /// S-3: the wake word's state as last drawn (the Wake word row's
     /// detail); push to talk notifies far more often than that.
-    wake_drawn: Option<domain::voice::WakeState>,
+    wake_drawn: Option<etalk::voice::WakeState>,
     /// S-3: the push-to-talk recorder while it records.
     capture: Option<CaptureState>,
     /// S-3: the recorder's key focus.
@@ -673,7 +673,7 @@ impl VoicePrefsPane {
     pub fn new(cx: &mut gpui::Context<Self>) -> Self {
         // A change another client made (a tray toggle, a heartbeat) reaches
         // the speaker first; the open pane follows it.
-        if let Some(speaker) = crate::speak_replies::entity(cx) {
+        if let Some(speaker) = etalk_gpui::speak_replies::entity(cx) {
             cx.observe(&speaker, |this: &mut Self, _, cx| this.on_speaker(cx)).detach();
         }
         // S-3: on another desktop the Wake word row reads the voice
@@ -682,17 +682,17 @@ impl VoicePrefsPane {
             cx.observe(&store.collections().devices.clone(), |_: &mut Self, _, cx| cx.notify()).detach();
         }
         // #NEW-86: the Wake word row's detail follows the microphone and Mute.
-        if let Some(push_to_talk) = crate::push_to_talk::entity(cx) {
+        if let Some(push_to_talk) = etalk_gpui::push_to_talk::entity(cx) {
             cx.observe(&push_to_talk, |this: &mut Self, _, cx| this.on_wake(cx)).detach();
         }
-        if let Some(tray) = crate::voice_tray::entity(cx) {
+        if let Some(tray) = etalk_gpui::voice_tray::entity(cx) {
             cx.observe(&tray, |this: &mut Self, _, cx| this.on_wake(cx)).detach();
         }
         // F42: a pane dropped while it records gives the push-to-talk grab
         // back (only stop_recording would otherwise).
         cx.on_release(|this: &mut Self, cx| {
             if this.capture.is_some() {
-                crate::push_to_talk::set_recording(false, cx);
+                etalk_gpui::push_to_talk::set_recording(false, cx);
             }
         })
         .detach();
@@ -704,9 +704,9 @@ impl VoicePrefsPane {
             _subscriptions: Vec::new(),
             write: 0,
             in_flight: 0,
-            seen: crate::speak_replies::settings(cx),
+            seen: etalk_gpui::speak_replies::settings(cx),
             wake_phrase_invalid: None,
-            wake_drawn: crate::push_to_talk::wake_state(cx),
+            wake_drawn: etalk_gpui::push_to_talk::wake_state(cx),
             capture: None,
             recorder_focus: None,
             _intercept: None,
@@ -722,7 +722,7 @@ impl VoicePrefsPane {
     }
 
     fn on_wake(&mut self, cx: &mut gpui::Context<Self>) {
-        let now = crate::push_to_talk::wake_state(cx);
+        let now = etalk_gpui::push_to_talk::wake_state(cx);
         if now != self.wake_drawn {
             self.wake_drawn = now;
             cx.notify();
@@ -745,7 +745,7 @@ impl VoicePrefsPane {
                 }
                 self.capture = Some(capture);
                 // While it records the IDE lets its own grab go.
-                crate::push_to_talk::set_recording(true, cx);
+                etalk_gpui::push_to_talk::set_recording(true, cx);
                 let focus = self.recorder_focus.get_or_insert_with(|| cx.focus_handle()).clone();
                 window.focus(&focus, cx);
                 self._recorder_blur = Some(cx.on_blur(&focus, window, |this, _, cx| this.stop_recording(cx)));
@@ -779,7 +779,7 @@ impl VoicePrefsPane {
     /// modifier change was not seen).
     fn on_keystroke(&mut self, keystroke: &gpui::Keystroke, _window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(capture) = self.capture.as_ref() else { return };
-        let Some((key, shifted)) = crate::push_to_talk::hotkey::grammar_key(&keystroke.key) else { return };
+        let Some((key, shifted)) = etalk_gpui::push_to_talk::hotkey::grammar_key(&keystroke.key) else { return };
         let mut modifiers = keystroke.modifiers;
         modifiers.shift |= shifted;
         let mut events = modifier_events(capture, modifiers);
@@ -809,12 +809,12 @@ impl VoicePrefsPane {
         self.capture = None;
         self._intercept = None;
         self._recorder_blur = None;
-        crate::push_to_talk::set_recording(false, cx);
+        etalk_gpui::push_to_talk::set_recording(false, cx);
         cx.notify();
     }
 
     fn on_speaker(&mut self, cx: &mut gpui::Context<Self>) {
-        let now = crate::speak_replies::settings(cx);
+        let now = etalk_gpui::speak_replies::settings(cx);
         if now == self.seen {
             return;
         }
@@ -934,7 +934,7 @@ impl VoicePrefsPane {
                     Ok(stored) => {
                         if newest {
                             this.seen = stored.clone();
-                            crate::speak_replies::set_settings(stored.clone(), cx);
+                            crate::talk_host::set_voice_settings(stored.clone(), cx);
                             this.load = Load::Ready(stored);
                         }
                     }
@@ -1097,7 +1097,7 @@ fn modifier_events(capture: &CaptureState, modifiers: Modifiers) -> Vec<CaptureE
 #[cfg(test)]
 mod tests {
     use super::{modifier_events, Field};
-    use domain::voice::{capture_pending, capture_start, capture_step, CaptureEvent, CaptureStatus};
+    use etalk::voice::{capture_pending, capture_start, capture_step, CaptureEvent, CaptureStatus};
 
     /// S-3: gpui's modifier changes fold into the recorder like the
     /// fixture's `down` / `up` events.

@@ -183,7 +183,10 @@ const WORKSPACE_TARGETS: &[&str] = &[
     "gpui_markdown_editor",
     // S-3: the voice stack (the speech worker's stderr logs under `talk`).
     "talk",
-    "voice",
+    "etalk",
+    "etalk_engine",
+    "etalk_crispasr",
+    "etalk_codec",
 ];
 
 fn is_workspace_target(target: &str) -> bool {

@@ -7,7 +7,7 @@ import kotlinx.serialization.json.intOrNull
 
 /**
  * NEW-69 (voice V5): caller mode on phones. A port of the TS reference
- * `packages/domain-contract/src/voice-call.ts` (desktop `domain::voice_call`,
+ * `packages/etalk/src/voice-call.ts` (desktop `domain::voice_call`,
  * iOS `VoiceCall.swift`), byte-locked by `fixtures/voice-call.json` (`copy`,
  * `testIds`, `icons`, `constants`, `wire`, `surfaceSpecimens` and every
  * `availabilityCases` / `flowCases` row, replayed by `VoiceCallTest`). The

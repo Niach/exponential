@@ -36,10 +36,6 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "call-codec@0.14.84",
-      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
-    },
-    {
       "package": "cesu8@1.1.0",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
@@ -84,10 +80,6 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "crispasr@0.14.84",
-      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
-    },
-    {
       "package": "critical-section@1.2.0",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
@@ -109,6 +101,26 @@
     },
     {
       "package": "engine@0.14.84",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "etalk-codec@0.14.84",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "etalk-crispasr@0.14.84",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "etalk-engine@0.14.84",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "etalk-gpui@0.14.84",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "etalk@0.14.84",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -368,10 +380,6 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "talk@0.14.84",
-      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
-    },
-    {
       "package": "tao-core-video-sys@0.2.0",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
@@ -422,10 +430,6 @@
     {
       "package": "valuable@0.1.1",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
-      "package": "voice@0.14.84",
-      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
       "package": "wasi@0.11.1+wasi-snapshot-preview1",

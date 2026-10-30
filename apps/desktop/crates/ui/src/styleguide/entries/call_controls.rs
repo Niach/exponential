@@ -11,10 +11,10 @@
 use gpui::{div, px, App, Div, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
-use domain::voice_call::VOICE_CALL;
+use etalk::call::VOICE_CALL;
 use exponential_ui_gpui::controls::CallSize;
 
-use crate::voice_overlay::{call_buttons, call_pill, specimen_face, CallActions};
+use etalk_gpui::voice_overlay::{call_buttons, call_pill, specimen_face, CallActions};
 
 pub(crate) const ID: &str = "call-controls";
 pub(crate) const OWNER: &str = "S-3";
@@ -35,7 +35,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         let face = specimen_face(row);
         let mut pill_face = specimen_face(row);
         // The pill is the desktop's: no speaker.
-        pill_face.view.buttons.retain(|button| *button != domain::voice_call::CallButton::Speaker);
+        pill_face.view.buttons.retain(|button| *button != etalk::call::CallButton::Speaker);
         rows = rows.child(
             h_flex()
                 .items_start()

@@ -1,0 +1,3022 @@
+{
+  "$comment": "S-3 (voice call ×4, 2026-10-28; SUPERSEDES the older text below where they differ): (1) SPEAK-BACK IS ALWAYS ON: the `speakReplies` setting, its toggle row ×4, its tray and rail item and voice-call.json's `speakOff` reason are gone (the `speak_replies` column stays as a legacy shim: `voice.get` answers true to old clients, `voice.update` ignores it). `shouldSpeak` reads context `voiceTurn` in its place: true while a call runs with the voice agent (voice-call.json) or while a push-to-talk / wake turn waits for or plays its reply (the capsule is Thinking or Speaking), so a TYPED message is never read aloud. The voice device's doctor rows `speech` (and `wake`, below) are reported whenever this device is the member's voice device. (2) PUSH TO TALK = A KEY BINDING: the Push to talk toggle and the fixed `shortcuts` list are gone; NO KEY BOUND (`pttShortcut` empty, the new default) = push to talk off (`push_to_talk` stays as a legacy shim: `voice.get` answers `pttShortcut !== ''`; an old client's pushToTalk false clears the key, true with no key binds `ctrl+space`; a migration empties pttShortcut where push_to_talk was false). `pttShortcut` follows `shortcutGrammar`; `shortcutCanonical(text)` (`shortcutParseCases`: `value` = the canonical text or null when the grammar refuses it, `label` = `shortcutLabel(value)`, `copy.shortcutNone` for empty) and `voice.update` refuses any text whose canonical form is not itself (BAD_REQUEST). `shortcutLabel` = each part's `shortcutGrammar.labels` entry (a letter upper case, f13 = F13, mouseN = `labels.mouse` with {n}) joined by `separator`. The row: Settings → Voice's second group keeps ONE row `copy.pushToTalk` (testId `shortcut`) whose value is the binding's label as keycaps (`copy.shortcutNone` while empty). On the IDE of the voice device itself it is THE recorder: a click starts recording (`copy.shortcutRecord` as the placeholder, the held modifiers as `pending`), `captureStep(state, event)` folds the key events (`captureCases`: events `down {key}` / `up {key}` with the grammar's key names plus `escape`, `mouse {button}`; result `status` recording | done | cancelled, `value` the binding after the events, `pending` = the held modifiers' labels + ` + …` (empty while none), `error` = `pttCopy.shortcutNeedsModifier` inline under the row, feedback-states.json `errors`): a non-modifier key with the held modifiers records (canonical order), a bare key outside `bareKeys` shows the error and keeps recording, Esc alone cancels (the binding stays), Backspace or Delete alone clears it (= off), a modifier pressed and released alone records nothing, a left or right click is no binding, a key the grammar does not know is ignored; while recording the IDE releases its own grab so the old binding cannot fire; the clear button (`copy.shortcutClear`, testId `shortcutClear`) empties it too; a done value is written with `voice.update` optimistically (a refusal reverts and toasts). On web, iOS, Android and another desktop the row is READ-ONLY (the label, no picker): keys are recorded on the voice device. The tray's and rail's Push to talk item is no longer a check: while a key is bound it is the action `pushToTalk` (label `copy.pushToTalk` + ` · ` + the label or `shortcutUnavailable`) that opens Settings → Voice; no key = no item. `clearOnNone` clears only wakeWord. `micAvailable` = a key bound or the wake word, and the worker up. `shortcutSupport` reads any grammar value (a `mouseN` part decides as before, with or without modifiers). The recorder hears the mouse buttons the windowing layer reports (gpui: 3-5), and Windows grabs only mouse3-mouse5 (`shortcutReason` mouse for 6-9); mouse6-mouse9 stay valid grammar for X11. The keycaps are THE eUI `Kbd` ×4 (one cap per label part, `KbdGroup`). (3) WAKE DETAIL ×4: the Wake word row's trailing detail says why it is or is not listening on EVERY client: `wakeDetail(context)` (`wakeDetailCases`; context {wakeWord, agent (one picked), online (the voice device), device (its name), state}), in order: null while wakeWord is off; `pttCopy.wakeDetail.noAgent` without an agent; `offline` ({device}) while the voice device is offline; else by `state`: listening, muted (the tray's Mute), downloading, micBusy (a call holds it), meeting, noMicrophone, notGranted, unavailable; null state = `starting`. On the voice device's own IDE `state` is the worker's (`WakeListening` and its reason, the tray's Mute, the call, the meeting); every other client reads the voice device's doctor row `wake` (group voice, reported while wakeWord is on: state ok while listening else off, detail = the device's own `wakeDetail` text, shown verbatim). (4) TRAY: while a call runs on this device (context `inCall`) the Call item reads `copy.trayEndCall` (id `endCall`, always enabled) and ends it. NEW-67 (voice plan v3, V1): THE Settings → Voice section ×4 and the spoken-reply rules (TS reference packages/etalk/src/voice.ts; desktop domain::voice; iOS ExpCore Voice.swift and Android domain/Voice.kt mirror `copy`, `testIds`, `shortcuts` and the option builders). STORAGE: ONE row per member, `user_voice_settings` (server-only table, no shape): voiceDeviceId (a `devices.device_id` of the member's own desktop), agentId (an agent of one of the member's teams), speakReplies, pushToTalk, pttShortcut (one of `shortcuts`), wakeWord, wakePhrase (empty = `Hey {agent}`), language (one of `languages`: the language replies are spoken in), voiceFile (the path of a reference WAV ON the voice device, empty = the built-in voice) and voiceTranscript (what that clip says) (#NEW-73); read with tRPC `voice.get` (missing row = the defaults below), written with `voice.update` (the member only; an unknown device or agent is refused), and handed to the member's devices on every heartbeat (`voice`), with a nudge to the old and new voice device on each write. The per-device `launch_defaults.voice` of NEW-53 is migrated into it and retired. UI: Settings → Personal gains `copy.group` (icon concept `settings-voice`) after Notifications, on web, the IDE, iOS and Android; Device settings no longer has a Voice group. The page = ONE group: row `copy.voiceDevice` = THE device picker over `voiceDeviceOptions` (None first, then the member's desktop devices by name; phones and servers are never a voice device), row `copy.agent` = THE picker over `agentOptions` (None first, the member's agents by label, `{name} · {team}` on a shared name), toggle row `copy.speakReplies`, picker row `copy.language` over `languages` (the row's value AND each menu option read `languageLabel(value, {device})` = the language's label, plus ` · ` and `languageNote(value, {device})` when that is not null: every language is spoken on the voice device's GPU only, so each one notes it, and without one replies are shown, never spoken; no note while no voice device is picked); while a voice device is picked two input rows follow in the same group, `copy.voiceFile` (placeholder `copy.voiceFilePlaceholder`) and `copy.voiceTranscript` (placeholder `copy.voiceTranscriptPlaceholder`), both one line under THE input rule (INPUTS below), at most `limits.voiceFile` / `limits.voiceTranscript`. VOICES (#NEW-74, owner decision 2026-10-26 on #NEW-9): ONE engine speaks English and German, Qwen3-TTS 0.6B Base through CrispASR, zero-shot, F16, on the voice device's GPU only (Kokoro on the CPU is retired); the model downloads on first use (pinned + sha256, never in the binary). Every reply is cloned from the member's reference clip (`voiceFile`, 8-15 s of calm, clean speech) plus its transcript (`voiceTranscript`) for the picked language, or from a built-in reference clip per language while the file is empty: no training, no upload, the file never leaves the voice device. `voices` = the languages the device's speech worker reports: both with a usable GPU, none (`[]`) without one; without a usable GPU on the voice device replies are shown, never spoken, in either language. While a voice device is picked a second group follows under the header `copy.trayHeader` with {device} = the device's name: toggle `copy.pushToTalk`, picker row `copy.shortcut` over `shortcuts`, toggle `copy.wakeWord`, input row `copy.wakePhrase` (placeholder `copy.wakePhrasePlaceholder` with {agent}; THE input rule, at most `limits.wakePhrase`). TOGGLES: every switch reads off and is disabled while the voice device or the agent is None; choosing None for either clears speakReplies, pushToTalk and wakeWord, so picking again never turns listening or speaking on by itself (`clearOnNone`). Push to talk and the wake word are stored now and used from V2/V3/V7. SPEAKING (desktop): `shouldSpeak` decides whether a synced `messages` row is spoken: author_kind `agent`, no card, non-blank body, no author_session_id (a child's post is not the assistant talking), the row belongs to the member's conversation session with the voice agent (`agentSessionId`), speakReplies on, THIS device is the member's voice device (`isVoiceDevice`), the settings' `language` is one THIS device's speech worker reports (`voices`, empty without a usable GPU), and created at or after the moment the watcher armed (a backfill is never read aloud). The text spoken is `spokenText(body, maxChars, language)` (an unknown language reads as `en`): Markdown reduced to what a voice can say, in order: fenced code blocks and tables are dropped; images are dropped; a link keeps its text; a bare URL becomes `spokenWords[language].link`; inline code, emphasis, strike, heading and quote markers are unwrapped; list bullets and numbers drop; a mention `@local@domain` keeps `local`; an issue ref `#EXP-12` loses the `#`; an identifier `ABC-123` is spelled letter by letter and its number read the way people say issue numbers (`identifierNumberWords`: 1-3 digits as a cardinal, 4 digits as two pairs with `hundred` for a trailing 00 and `oh` for a leading 0 in the second pair, `x000` as a cardinal, 5+ digits digit by digit), an all-caps word of 2-5 letters is spelled letter by letter; any other number becomes cardinal words in the language (`numberWords`: integers up to 999,999,999, longer digit by digit, a decimal reads `spokenWords[language].point` then each digit, `%` reads `spokenWords[language].percent`). GERMAN (`de`): cardinals are written German compounds, lowercase (`null`, `eins` standalone, `einundzwanzig`, `einhunderteins`, `eintausenddreihundertneunundsechzig`, `eine Million`, `zwei Millionen fünfhunderttausend`), decimal digits read one by one (`drei Komma eins vier`); issue numbers keep the English shape (`zwölf zweiundvierzig`, `zwölfhundert`, `zwölf null fünf`, `zweitausend`, 5+ digits digit by digit); spelling stays letter by letter and the Markdown rules are the same in every language; whitespace collapses; the result stops at the last sentence end within `maxChars` (else at a word boundary + `copy.ellipsis`). While a reply is spoken the session shows a Dock banner (dock.json `Banner`: icon `media-volume-up`, label `copy.speaking`, title = the spoken text's first sentence, action `copy.stop`, tone muted); Stop ends the voice. While the voice model downloads the toggle row's trailing detail reads `downloadProgress(received, total)`: `copy.downloading` while the total is unknown (0), else `copy.downloadingProgress` with each size in decimal units, MB (no decimal) below 1 GB, else GB with one decimal; received rounds down so it never overstates progress, the total rounds to nearest; a failed download is a toast `copy.downloadFailed` and the switch stays on; the worker retries it with backoff (1 min doubling to 1 h), never on every reply. A worker that keeps crashing is restarted with backoff (2, 4, 8 s) and given up on after 3 crashes in a row: a toast `copy.unavailable`, no more speaking until the setting changes. Speaking stops when the agent or the voice device changes, the setting turns off, or the account changes or signs out (which also ends the worker). TRAY (#NEW-68, voice plan V2): the IDE shows a system-tray item ONLY while THIS device is the member's voice device (Linux: our own StatusNotifierItem + dbusmenu over D-Bus, no GTK, re-registering whenever a StatusNotifierWatcher appears or a host registers, and rechecking when a host unregisters (#NEW-86, so a lost host is noticed at once), so GNOME without the AppIndicator extension shows nothing; macOS and Windows: the native tray), icon = the app icon, and its OS-native menu is `trayMenu(settings, {agent, muted, callAvailable, micAvailable, deviceIsVoiceDevice, screenMemory})` (null = no tray): action `copy.trayOpen` (brings an IDE window up, a new one when none is open; also what clicking the icon does on Linux and Windows), then `copy.trayCall` with {agent} (only while callAvailable: the call lands in V4), a separator; check items `copy.speakReplies`, `copy.pushToTalk` + ` · ` + the shortcut's label, `copy.wakeWord` + ` · ` + the wake phrase (empty = `wakePhrasePlaceholder(agent)`, `…` for no agent), each checked = its stored value and disabled (and unchecked) while the voice device or the agent is None, exactly as on the page; then (#NEW-58, screen-memory.json) the check item Screen memory while `screenMemory.available` (this IDE captures here; absent = no row): label = screen-memory.json `copy.tray`, plus ` · ` + its `copy.paused` while on and `screenMemory.paused` (a denylisted window is focused, the focus is unknown, or the pause hotkey holds it), checked = `screenMemory.on`, always enabled (device-local, never synced, default off, kept across restarts like Mute; turning it off, signing out, another voice device or account deletes the buffer); then `copy.trayMute` only while micAvailable (V3 listens; device-local, never synced, always enabled; #NEW-86: the voice device keeps it across restarts); a separator; actions `copy.traySettings` (opens Settings → Voice) and `copy.trayQuit`. A toggle writes `voice.update` optimistically like the page (the menu flips at once, the stored value is handed to the speaker, a refusal reverts and toasts). While the tray is registered with a host, closing the last window keeps the IDE running (Linux and Windows quit otherwise; macOS always keeps running), so the speech worker stays resident; a lost tray host with no window open brings a window back, and launching the IDE again while it runs brings a window up. PUSH TO TALK (#NEW-54, voice plan V3; its words are `pttCopy`, desktop-only, so the phones' `copy` mirrors stay as they are): only on the member's voice device with pushToTalk on (after `clearOnNone`) does the IDE hold the shortcut. SHORTCUTS: `shortcutSupport(os, session, shortcut, portal)` (`shortcutSupportCases`): Windows and X11 grab every shortcut globally (X11: XGrabKey + XGrabButton, press and release; Windows: RegisterHotKey + release detection, mouse buttons through a low-level mouse hook), macOS every key (Carbon; `ctrl+space` collides with Select previous input source), never a mouse button; Wayland asks the xdg GlobalShortcuts portal (`portal`: KDE 5.27+, GNOME 48+, Hyprland; Activated/Deactivated = hold; the compositor may rebind it, so its `trigger_description` labels the shortcut) and without one the key works only while an IDE window is focused (`focused-only`), never a mouse button. `shortcutOptions(os, session)` = the Shortcut picker's options on the voice device: every `shortcuts` entry whose support is not `unavailable` (`shortcutOptionsCases`; mouse buttons hidden on macOS and Wayland). A shortcut that can't be grabbed never fails silently: the tray's Push to talk item reads `copy.pushToTalk` + ` · ` + `pttCopy.shortcutUnavailable` ({shortcut} = its label), Settings → Voice shows `shortcutReason(reason, shortcut)` inline under the Shortcut row (`pttCopy.shortcutReasons`: taken = another app holds it, noPortal = no portal, declined = the portal refused, mouse = a mouse button where none can be grabbed; `shortcutReasonCases`), and the key still works while an IDE window is focused. FLOW: `pttStep(state, event)` folds key and worker events into the overlay (`pttOverlay(state, agent)`; null = hidden; `pttFlowCases`, events in order from hidden): keyDown{muted} = Listening (Listen, which stops any speech: barge-in) or, muted, `pttCopy.overlayMuted` with `pttCopy.overlayMutedLine` and pill `pttCopy.overlayUnmute` (the microphone never opens); partial = the line, quoted “…”; keyUp = EndListen (the state waits for the worker); heard = `utteranceText` (trimmed; blank = hidden, nothing sent) quoted under `pttCopy.overlayHeard`, the wave thinking; empty = hidden; listenFailed{reason} = `pttCopy.listenFailed[reason]`; sent = `pttCopy.overlayThinking` until the agent's reply row lands; sendFailed = `pttCopy.overlayNotSent` with `pttCopy.overlayNotSentLine` (the text goes into that chat's composer draft); replied{body, speaking} (only while Thinking) = the first sentence of `spokenText(body)` under `copy.speaking` with the primary pill `copy.stop` while Speak replies reads it, else under `pttCopy.overlayReplied`; speakFinished = `pttCopy.overlayReplied`; cancel (sign-out, a voice-device change, push to talk off, another agent or language: the host sends CancelListen) and hide = hidden. The pill is the agent's name (`…` without one) unless named above. `overlayHideAfterMs` = how long a state stays before it fades (absent = until the next event). UTTERANCE (`utteranceCases`): `utteranceInput(heard, {teamId, agentId, conversationId})` = `sessions.send` {sessionId, text} into the member's conversation with the agent, or {teamId, agentId, text} while there is none yet; null for blank text or no agent: a plain message, no marker. TRAY (V3): `micAvailable` = push to talk or (#NEW-56) the wake word here and the speech worker up; context `shortcutUnavailable` and `shortcutLabel` (the portal's trigger description) shape the Push to talk item. OVERLAY: a transparent, always-on-top, never-focused window at the bottom centre of the display under the pointer, 24 px above its edge (Wayland: the compositor places it), hosting THE capsule; `overlaySpecimens` are the styleguide `voice-call-overlay` rows ×2 (web + desktop read them). WAKE WORD (#NEW-56, voice plan V7; desktop-only like push to talk, no new UI: the tray's Wake word item and Settings → Voice's two rows are the whole surface): only on the member's voice device with wakeWord on (after `clearOnNone`) and the tray's Mute off does the IDE hand its speech worker the phrase (`wakePhrase`, empty = `wakePhrasePlaceholder(agent)`; never while the agent's name is unknown) and the language; Mute, Wake word off, another device, agent or account takes it back and cancels a wake turn in flight. The worker keeps the microphone open and matches the phrase without a model of its own (talk-listen.json `wake`); a heard phrase is a keyDown{muted: false} for one turn (`woke`: Listening, Speak replies stops: barge-in), the worker ends the turn itself with heard or empty, and from there the flow is push to talk's (`pttFlowCases`). A push-to-talk key-down replaces a wake turn. A CALL TAKES PRECEDENCE (voice-call.json, talk-listen.json `micOwnerCases`): Call closes the wake word's microphone (a wake turn in flight ends unanswered), the wake scan pauses for the whole call (no wake match, the tray dot goes out), and it comes back after Hangup; a push-to-talk Listen during a call is refused. ALWAYS-ON MICROPHONE: while the wake word holds the microphone open the tray icon says so, `trayIcon(context)` (`trayIconCases`): null = no tray (not the voice device), `listening` = the app icon with a filled dot in its lower right corner while `wakeListening` (the worker reported the microphone open) and not muted, OR while `meetingListening` (#NEW-57: a meeting runs on this device, the worker reported its channels listening and Pause listening does not hold it; Mute microphone never pauses a meeting, so muted keeps that dot: the icon never hides an open microphone), else `app`; #FEED-163: `recording` wins over both whenever `meetingRunning` (a meeting runs on this device, paused or not, for its WHOLE run): the app icon with a RED record dot in the same corner (the destructive token's red, never templated or tinted by the OS, so it reads as recording on a light or dark macOS menu bar, the Windows notification area and a Linux StatusNotifierItem alike), the one sign a room is being transcribed. `meetingRunning` absent = false. WAKE PHRASE LENGTH (#NEW-56 review of #1263): a stored wake phrase needs at least `limits.wakePhraseMinLetters` LETTERS (letters only: spaces, digits and punctuation do not count; `Jürgen` = 6), so a short word like `Ok` can't fire on every segment; an empty phrase stays valid (it means `wakePhrasePlaceholder(agent)`). `wakePhraseError(text)` (`wakePhraseErrorCases`) = `copy.wakePhraseTooShort` for a trimmed, non-empty text with fewer letters, else null. `voice.update` refuses such a `wakePhrase` with that text (BAD_REQUEST), and the IDE never listens for one stored before the rule; Settings → Voice on web, the IDE, iOS and Android checks it when the Wake phrase field is left or submitted: an invalid phrase is not sent (the stored one stays) and the line shows inline under the field (feedback-states.json `errors`: the field's red border + the 13px rose line, never a toast) until the next edit. LISTENING DETAIL (#NEW-86; a tray host is not always there, GNOME without AppIndicator shows none, so the page says it too): in the IDE's Settings → Voice on the voice device itself the Wake word toggle row's trailing detail (the Speak replies row's download-progress slot) reads `wakeDetail(context)` (`wakeDetailCases`, desktop only: the phones and web never know whether the device's microphone is open): null while `here` is false (another device, or the styleguide twin) or wakeWord is off, `pttCopy.overlayMuted` while the tray's Mute is on, `pttCopy.overlayListening` while `wakeListening` (the worker reported the wake word's microphone open), else null (downloading, no microphone, a call holds it). No new words, no new component. RAIL VOICE (#NEW-97, approved 2026-10-27; desktop only): a tray host is not always there (GNOME without AppIndicator), so while NO host shows the tray the IDE rail's footer carries a voice button, `railVoice(settings, context)` (`railVoiceCases`; context = trayMenu's plus `wakeListening` and `trayHosted`, the tray's own registered state; null = no button): only while THIS device is the voice device, wakeWord is on (after `clearOnNone`) OR a meeting runs (`meeting.on`, #NEW-57: without a tray host it is the only place a running meeting shows and stops) and `trayHosted` is false. The button is the footer's Computer button (the small ghost square) with the `settings-voice` glyph; `badge` = the rail's dot in `destructive` exactly while `trayIcon(context)` is `listening`; `tooltip` = while a meeting runs the tray's Meeting mode row label (`Meeting mode · {who}`, paused or not), else `pttCopy.overlayMuted` while muted, else `pttCopy.railListening` with {phrase} = the Wake word row's phrase; context adds `meetingListening` (trayIcon's); `menu` = THE pointer menu of `trayMenu(settings, context)`'s rows minus Open, Quit and the separators (a pointer menu has no dividers), each running the tray's own handler (the toggles optimistic, Mute and Screen memory device-local and kept). #NEW-91: THE synthesis chunks of a spoken reply on the voice device, `speechChunks(spoken, streaming)` (`speechChunkCases`; TS reference, desktop voice crate `speech_chunks`): its sentences, split after `.` `!` `?` followed by a space, trimmed, blanks dropped (a decimal point is no end). `streaming` = the speaker hands out audio while it still synthesizes (Qwen3-TTS's own streaming entry point, the Linux and macOS runtimes: the first audio after 8 codec frames of any sentence): sentences only, never a clause split (it would only break the prosody). Without it (the Windows runtime, one whole utterance per call) the first sentence's first clause is synthesized on its own: split at the first `,` `;` `:` followed by whitespace, or ` - `, when that leaves 2 to 8 words in front and something behind; only the first mark counts (a `,` or `:` inside a number is none, nor a hyphen); the front keeps its punctuation, a dash is dropped. Target: first audio under 400 ms at p95 on the voice device's GPU (measured with `crates/etalk-engine/examples/call_latency.rs --first-audio`). INPUTS (#NEW-75): THE rule of the page's three one-line inputs (Voice file, Transcript, Wake phrase) ×4, `voiceTextInput(value, max)` (`voiceTextInputCases`; desktop `voice_text_input`, iOS `Voice.textInput`, Android `Voice.textInput`), applied AS YOU TYPE (every edit and paste, so an over-long paste or a tab never reaches the server): first (#FEED-160) every maximal run of consecutive whitespace control characters (tab U+0009, LF U+000A, VT U+000B, FF U+000C, CR U+000D, NEL U+0085) becomes ONE space (`a\r\nb` = `a b`, a pasted line break separates words, never glues them; spaces next to the run are kept, not merged), then every other control character is dropped (Unicode Cc = C0 U+0000-U+001F, DEL U+007F, C1 U+0080-U+009F; dropped, no space: `a\u0000b` = `ab`, and a dropped one between two whitespace controls splits their run, so each side becomes its own space; format characters such as an emoji's ZWJ stay), then the value is cut to the longest prefix of at most `max` UTF-16 code units (zod's `.max`, the server's count), whole code points only (a surrogate pair straddling the cap is dropped whole, never split; a grapheme may be). Leading and trailing spaces stay while typing; the value is trimmed on save (blur, submit, the debounce). `max` = `limits.voiceFile`, `limits.voiceTranscript`, `limits.wakePhrase` (= `voice.update`'s caps; the server refuses Cc and longer text with the same counts). MEETING MODE (#NEW-57, meeting.json): `shouldSpeak` is false while a meeting runs on the voice device (context `meeting`: nothing is read aloud mid-meeting). `trayMenu` context gains `meeting` {available, on, who} and `pause` {available, paused}: after Wake word the check item `meeting.json copy.meeting` (+ ` · ` + who while on; checked = on; enabled like the other toggles), and after Screen memory the check item `meeting.json copy.pause` + ` · ` + `meeting.json pause.label` (only while `pause.available`: a meeting runs or screen memory is on; checked = paused; always enabled); while a meeting runs the Call item is hidden. The rail voice menu mirrors these rows like the others.",
+  "copy": {
+    "group": "Voice",
+    "voiceDevice": "Voice device",
+    "voiceDeviceNone": "None",
+    "agent": "Agent",
+    "agentNone": "None",
+    "language": "Language",
+    "languageNote": "Needs a GPU on {device}",
+    "voiceFile": "Voice file",
+    "voiceFilePlaceholder": "Built-in",
+    "voiceTranscript": "Transcript",
+    "voiceTranscriptPlaceholder": "What the clip says",
+    "trayHeader": "On {device} (tray)",
+    "pushToTalk": "Push to talk",
+    "wakeWord": "Wake word",
+    "wakePhrase": "Wake phrase",
+    "wakePhrasePlaceholder": "Hey {agent}",
+    "trayOpen": "Open Exponential",
+    "trayCall": "Call {agent}",
+    "trayMute": "Mute microphone",
+    "traySettings": "Voice settings…",
+    "trayQuit": "Quit",
+    "downloading": "Downloading voice…",
+    "downloadingProgress": "Downloading voice… {received} of {total}",
+    "downloadFailed": "Couldn't download the voice",
+    "unavailable": "The voice stopped working",
+    "speaking": "Speaking",
+    "stop": "Stop",
+    "link": "link",
+    "ellipsis": "…",
+    "wakePhraseTooShort": "The wake phrase needs at least 6 letters",
+    "shortcutNone": "None",
+    "shortcutRecord": "Press any key or combination…",
+    "shortcutClear": "Clear",
+    "trayEndCall": "End call"
+  },
+  "pttCopy": {
+    "shortcutUnavailable": "{shortcut} unavailable",
+    "shortcutReasons": {
+      "taken": "Another app holds {shortcut}. It works while Exponential is focused.",
+      "noPortal": "This desktop has no global shortcuts. {shortcut} works while Exponential is focused.",
+      "declined": "The desktop didn't allow {shortcut}. It works while Exponential is focused.",
+      "mouse": "Mouse buttons can't be a shortcut here. Pick a key."
+    },
+    "overlayListening": "Listening",
+    "overlayHeard": "Heard",
+    "overlayThinking": "Thinking",
+    "overlayReplied": "Replied",
+    "overlayMuted": "Microphone muted",
+    "railListening": "Listening for “{phrase}”",
+    "overlayMutedLine": "Unmute in the tray to talk",
+    "overlayUnmute": "Unmute",
+    "overlayNotSent": "Not sent",
+    "overlayNotSentLine": "Kept in the chat's composer",
+    "listenFailed": {
+      "no_microphone": "No microphone",
+      "not_granted": "Microphone not allowed",
+      "downloading": "Downloading speech recognition…",
+      "unavailable": "Speech recognition unavailable",
+      "failed": "Couldn't transcribe"
+    },
+    "wakeDetail": {
+      "listening": "Listening",
+      "muted": "Microphone muted",
+      "noAgent": "Pick an agent",
+      "downloading": "Downloading speech recognition…",
+      "micBusy": "A call is using the microphone",
+      "meeting": "A meeting is using the microphone",
+      "noMicrophone": "No microphone",
+      "notGranted": "Microphone not allowed",
+      "unavailable": "Speech recognition unavailable",
+      "offline": "{device} is offline",
+      "starting": "Starting…"
+    },
+    "shortcutNeedsModifier": "Hold Ctrl, Alt, Shift or Super with that key"
+  },
+  "testIds": {
+    "page": "settings-voice",
+    "voiceDevice": "settings-voice-device",
+    "agent": "settings-voice-agent",
+    "language": "settings-voice-language",
+    "voiceFile": "settings-voice-file",
+    "voiceTranscript": "settings-voice-transcript",
+    "shortcut": "settings-voice-shortcut",
+    "wakeWord": "settings-voice-wake-word",
+    "wakePhrase": "settings-voice-wake-phrase",
+    "shortcutClear": "settings-voice-shortcut-clear"
+  },
+  "languages": [
+    {
+      "value": "en",
+      "label": "English"
+    },
+    {
+      "value": "de",
+      "label": "Deutsch"
+    }
+  ],
+  "defaults": {
+    "voiceDeviceId": null,
+    "agentId": null,
+    "pttShortcut": "",
+    "wakeWord": false,
+    "wakePhrase": "",
+    "language": "en",
+    "voiceFile": "",
+    "voiceTranscript": ""
+  },
+  "limits": {
+    "voiceFile": 512,
+    "voiceTranscript": 500,
+    "wakePhrase": 64,
+    "wakePhraseMinLetters": 6
+  },
+  "maxChars": 600,
+  "spokenWords": {
+    "en": {
+      "link": "link",
+      "point": "point",
+      "percent": "percent"
+    },
+    "de": {
+      "link": "Link",
+      "point": "Komma",
+      "percent": "Prozent"
+    }
+  },
+  "voiceDeviceOptionsCases": [
+    {
+      "name": "desktops only, by name, None first",
+      "devices": [
+        {
+          "deviceId": "d-mint",
+          "name": "mint",
+          "kind": "desktop"
+        },
+        {
+          "deviceId": "d-srv",
+          "name": "server",
+          "kind": "server"
+        },
+        {
+          "deviceId": "d-mac",
+          "name": "macbook",
+          "kind": "desktop"
+        },
+        {
+          "deviceId": "d-phone",
+          "name": "iPhone",
+          "kind": "phone"
+        }
+      ],
+      "options": [
+        {
+          "id": null,
+          "label": "None"
+        },
+        {
+          "id": "d-mac",
+          "label": "macbook"
+        },
+        {
+          "id": "d-mint",
+          "label": "mint"
+        }
+      ]
+    }
+  ],
+  "agentOptionsCases": [
+    {
+      "name": "names unique: the bare name; None first",
+      "agents": [
+        {
+          "id": "a1",
+          "name": "Studio",
+          "team": "Feedback"
+        },
+        {
+          "id": "a2",
+          "name": "Helper",
+          "team": "Feedback"
+        }
+      ],
+      "options": [
+        {
+          "id": null,
+          "label": "None"
+        },
+        {
+          "id": "a2",
+          "label": "Helper"
+        },
+        {
+          "id": "a1",
+          "label": "Studio"
+        }
+      ]
+    },
+    {
+      "name": "two agents share a name: the team follows",
+      "agents": [
+        {
+          "id": "a1",
+          "name": "Studio",
+          "team": "Feedback"
+        },
+        {
+          "id": "a2",
+          "name": "Studio",
+          "team": "Acme"
+        }
+      ],
+      "options": [
+        {
+          "id": null,
+          "label": "None"
+        },
+        {
+          "id": "a2",
+          "label": "Studio · Acme"
+        },
+        {
+          "id": "a1",
+          "label": "Studio · Feedback"
+        }
+      ]
+    }
+  ],
+  "clearOnNoneCases": [
+    {
+      "name": "agent cleared",
+      "before": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "wakeWord": true
+      },
+      "change": {
+        "agentId": null
+      },
+      "after": {
+        "voiceDeviceId": "d-mint",
+        "agentId": null,
+        "wakeWord": false
+      }
+    },
+    {
+      "name": "voice device cleared",
+      "before": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "wakeWord": true
+      },
+      "change": {
+        "voiceDeviceId": null
+      },
+      "after": {
+        "voiceDeviceId": null,
+        "agentId": "a1",
+        "wakeWord": false
+      }
+    },
+    {
+      "name": "another agent keeps the switches",
+      "before": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "wakeWord": false
+      },
+      "change": {
+        "agentId": "a2"
+      },
+      "after": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a2",
+        "wakeWord": false
+      }
+    }
+  ],
+  "trayHeaderCases": [
+    {
+      "device": "mint",
+      "header": "On mint (tray)"
+    }
+  ],
+  "wakePhrasePlaceholderCases": [
+    {
+      "agent": "Ops",
+      "placeholder": "Hey Ops"
+    }
+  ],
+  "wakePhraseErrorCases": [
+    {"in": "", "error": null},
+    {"in": "   ", "error": null},
+    {"in": "Ok", "error": "The wake phrase needs at least 6 letters"},
+    {"in": "Hey Bo", "error": "The wake phrase needs at least 6 letters"},
+    {"in": "Ok 123456!", "error": "The wake phrase needs at least 6 letters"},
+    {"in": "R2-D2, go", "error": "The wake phrase needs at least 6 letters"},
+    {"in": "Hey Bob", "error": null},
+    {"in": "  Computer  ", "error": null},
+    {"in": "Jürgen", "error": null},
+    {"in": "Hey Studio", "error": null}
+  ],
+  "voiceTextInputCases": [
+    {"in": "", "max": 8, "out": ""},
+    {"in": "Hey Studio", "max": 64, "out": "Hey Studio"},
+    {"in": "  spaced  ", "max": 64, "out": "  spaced  "},
+    {"in": "Hello\tthere", "max": 64, "out": "Hello there"},
+    {"in": "line one\nline two", "max": 64, "out": "line one line two"},
+    {"in": "a\r\nb", "max": 64, "out": "a b"},
+    {"in": "a\n\n\t\u000b\u000cb", "max": 64, "out": "a b"},
+    {"in": "a \n b", "max": 64, "out": "a   b"},
+    {"in": "a\u0085b", "max": 64, "out": "a b"},
+    {"in": "a\u0000b", "max": 64, "out": "ab"},
+    {"in": "a\n\u0000\nb", "max": 64, "out": "a  b"},
+    {"in": "\u0000a\u001fb\u007fc\u0084d\u009fe", "max": 64, "out": "abcde"},
+    {"in": "abcdef", "max": 4, "out": "abcd"},
+    {"in": "ab\tcd", "max": 4, "out": "ab c"},
+    {"in": "Jürgen", "max": 6, "out": "Jürgen"},
+    {"in": "ab😀", "max": 4, "out": "ab😀"},
+    {"in": "abc😀", "max": 4, "out": "abc"},
+    {"in": "😀😀😀", "max": 5, "out": "😀😀"},
+    {"in": "👩‍💻", "max": 5, "out": "👩‍💻"},
+    {"in": "👩‍💻", "max": 4, "out": "👩‍"},
+    {"in": "éé", "max": 3, "out": "ée"},
+    {"in": "/home/me/voice.wav\n", "max": 512, "out": "/home/me/voice.wav "},
+    {"in": "\r\nHey Studio", "max": 64, "out": " Hey Studio"}
+  ],
+  "languageNoteCases": [
+    {
+      "name": "German on a voice device names its GPU",
+      "language": "de",
+      "device": "Alex's MacBook Pro",
+      "note": "Needs a GPU on Alex's MacBook Pro"
+    },
+    {
+      "name": "English needs the GPU too",
+      "language": "en",
+      "device": "Alex's MacBook Pro",
+      "note": "Needs a GPU on Alex's MacBook Pro"
+    },
+    {
+      "name": "no voice device, no note",
+      "language": "de",
+      "device": null,
+      "note": null
+    },
+    {
+      "name": "no voice device, no note for English either",
+      "language": "en",
+      "device": null,
+      "note": null
+    }
+  ],
+  "languageLabelCases": [
+    {
+      "name": "German carries the GPU note",
+      "language": "de",
+      "device": "Alex's MacBook Pro",
+      "label": "Deutsch · Needs a GPU on Alex's MacBook Pro"
+    },
+    {
+      "name": "English carries the GPU note",
+      "language": "en",
+      "device": "Alex's MacBook Pro",
+      "label": "English · Needs a GPU on Alex's MacBook Pro"
+    },
+    {
+      "name": "no voice device, no note",
+      "language": "de",
+      "device": null,
+      "label": "Deutsch"
+    },
+    {
+      "name": "no voice device, English is its label",
+      "language": "en",
+      "device": null,
+      "label": "English"
+    }
+  ],
+  "shouldSpeakCases": [
+    {
+      "name": "the assistant's final reply is spoken",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done, the PR is open.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": true
+      },
+      "speak": true
+    },
+    {
+      "name": "not a voice turn (typed)",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": false
+      },
+      "speak": false
+    },
+    {
+      "name": "no assistant conversation",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": null,
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {
+      "name": "another session's reply",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-2",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {
+      "name": "the person's own message",
+      "message": {
+        "authorKind": "user",
+        "body": "What is running?",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {
+      "name": "a card row (a question, a plan, a session card)",
+      "message": {
+        "authorKind": "agent",
+        "body": "",
+        "card": {
+          "kind": "question"
+        },
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {
+      "name": "a blank body",
+      "message": {
+        "authorKind": "agent",
+        "body": "   \n",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {
+      "name": "a child session posting into the conversation",
+      "message": {
+        "authorKind": "agent",
+        "body": "Report from the child.",
+        "card": null,
+        "authorSessionId": "child-1",
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {
+      "name": "a backfilled row older than the arm time",
+      "message": {
+        "authorKind": "agent",
+        "body": "Old reply.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T09:59:59.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {
+      "name": "not the voice device",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "agentSessionId": "s-1",
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "isVoiceDevice": false,
+        "language": "en",
+        "voices": [
+          "en"
+        ],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {
+      "name": "German without a usable GPU: the device reports no voices, shown, never spoken",
+      "message": {
+        "authorKind": "agent",
+        "body": "Fertig, der PR ist offen.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "de",
+        "voices": [],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {
+      "name": "German is spoken on a device whose worker reports it",
+      "message": {
+        "authorKind": "agent",
+        "body": "Fertig, der PR ist offen.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "de",
+        "voices": [
+          "en",
+          "de"
+        ],
+        "voiceTurn": true
+      },
+      "speak": true
+    },
+    {
+      "name": "no usable GPU: the device reports no voices, nothing is spoken",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done, the PR is open.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [],
+        "voiceTurn": true
+      },
+      "speak": false
+    },
+    {"name": "#NEW-57 mid-meeting nothing is spoken", "message": {"authorKind": "agent", "body": "Done, the PR is open.", "card": null, "authorSessionId": null, "sessionId": "s-1", "createdAt": "2026-10-25T10:00:05.000Z"}, "context": {"armedAt": "2026-10-25T10:00:00.000Z", "agentSessionId": "s-1", "isVoiceDevice": true, "language": "en", "voices": ["en"], "meeting": true, "voiceTurn": true}, "speak": false}
+  ],
+  "spokenTextCases": [
+    {
+      "name": "plain prose passes",
+      "body": "The build is green.",
+      "spoken": "The build is green."
+    },
+    {
+      "name": "emphasis, inline code and headings unwrap",
+      "body": "## Result\n\nThe **tests** pass and `cargo build` is _clean_.",
+      "spoken": "Result The tests pass and cargo build is clean."
+    },
+    {
+      "name": "code blocks drop",
+      "body": "Run this:\n\n```bash\nbun install\n```\n\nThen restart.",
+      "spoken": "Run this: Then restart."
+    },
+    {
+      "name": "links keep their text, bare urls become the word link",
+      "body": "See [the guide](https://example.com/guide) or https://example.com.",
+      "spoken": "See the guide or link."
+    },
+    {
+      "name": "images drop",
+      "body": "Here it is ![shot](/api/attachments/abc) done.",
+      "spoken": "Here it is done."
+    },
+    {
+      "name": "issue refs and identifiers are spelled",
+      "body": "I fixed #EXP-1242 and NEW-9.",
+      "spoken": "I fixed E X P twelve forty-two and N E W nine."
+    },
+    {
+      "name": "numbers become words",
+      "body": "3 threads, 1369 lines, 25% done, 0.5 seconds.",
+      "spoken": "three threads, one thousand three hundred sixty-nine lines, twenty-five percent done, zero point five seconds."
+    },
+    {
+      "name": "acronyms are spelled",
+      "body": "The PR and the API are ready.",
+      "spoken": "The P R and the A P I are ready."
+    },
+    {
+      "name": "bullets and numbered items drop their markers",
+      "body": "Done:\n- the tests\n- the docs\n1. first\n2. second",
+      "spoken": "Done: the tests the docs first second"
+    },
+    {
+      "name": "mentions keep the local part",
+      "body": "Pinged @danny@example.com about it.",
+      "spoken": "Pinged danny about it."
+    },
+    {
+      "name": "tables drop",
+      "body": "Numbers:\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nThat is all.",
+      "spoken": "Numbers: That is all."
+    },
+    {
+      "name": "quotes and strike unwrap",
+      "body": "> careful\n\n~~old~~ new",
+      "spoken": "careful old new"
+    },
+    {
+      "name": "long text stops at the last sentence within maxChars",
+      "body": "One sentence here. Two sentence here. Three sentence here.",
+      "maxChars": 40,
+      "spoken": "One sentence here. Two sentence here."
+    },
+    {
+      "name": "long text without a sentence end stops at a word",
+      "body": "alpha beta gamma delta epsilon zeta eta theta",
+      "maxChars": 20,
+      "spoken": "alpha beta gamma…"
+    },
+    {
+      "name": "German: identifiers are spelled, issue numbers read in pairs",
+      "language": "de",
+      "body": "EXP-1390 ist erledigt.",
+      "spoken": "E X P dreizehn neunzig ist erledigt."
+    },
+    {
+      "name": "German: issue refs lose the hash",
+      "language": "de",
+      "body": "Ich habe #NEW-74 geschlossen.",
+      "spoken": "Ich habe N E W vierundsiebzig geschlossen."
+    },
+    {
+      "name": "German: percent reads Prozent",
+      "language": "de",
+      "body": "Die Tests sind zu 95% grün.",
+      "spoken": "Die Tests sind zu fünfundneunzig Prozent grün."
+    },
+    {
+      "name": "German: bare urls become the word Link",
+      "language": "de",
+      "body": "Details unter https://example.com/pr/12.",
+      "spoken": "Details unter Link."
+    },
+    {
+      "name": "German: numbers become German words",
+      "language": "de",
+      "body": "Drei Sessions, 240 Zeilen.",
+      "spoken": "Drei Sessions, zweihundertvierzig Zeilen."
+    },
+    {
+      "name": "German: a decimal reads Komma, then each digit",
+      "language": "de",
+      "body": "Der Build dauerte 3.14 Sekunden.",
+      "spoken": "Der Build dauerte drei Komma eins vier Sekunden."
+    },
+    {
+      "name": "German: acronyms are spelled",
+      "language": "de",
+      "body": "Der PR ist offen.",
+      "spoken": "Der P R ist offen."
+    }
+  ],
+  "numberWordsCases": [
+    {
+      "n": "0",
+      "words": "zero"
+    },
+    {
+      "n": "7",
+      "words": "seven"
+    },
+    {
+      "n": "13",
+      "words": "thirteen"
+    },
+    {
+      "n": "42",
+      "words": "forty-two"
+    },
+    {
+      "n": "100",
+      "words": "one hundred"
+    },
+    {
+      "n": "1369",
+      "words": "one thousand three hundred sixty-nine"
+    },
+    {
+      "n": "2026",
+      "words": "two thousand twenty-six"
+    },
+    {
+      "n": "1000000",
+      "words": "one million"
+    },
+    {
+      "n": "3.14",
+      "words": "three point one four"
+    },
+    {
+      "language": "de",
+      "n": "0",
+      "words": "null"
+    },
+    {
+      "language": "de",
+      "n": "1",
+      "words": "eins"
+    },
+    {
+      "language": "de",
+      "n": "7",
+      "words": "sieben"
+    },
+    {
+      "language": "de",
+      "n": "13",
+      "words": "dreizehn"
+    },
+    {
+      "language": "de",
+      "n": "16",
+      "words": "sechzehn"
+    },
+    {
+      "language": "de",
+      "n": "17",
+      "words": "siebzehn"
+    },
+    {
+      "language": "de",
+      "n": "21",
+      "words": "einundzwanzig"
+    },
+    {
+      "language": "de",
+      "n": "42",
+      "words": "zweiundvierzig"
+    },
+    {
+      "language": "de",
+      "n": "100",
+      "words": "einhundert"
+    },
+    {
+      "language": "de",
+      "n": "101",
+      "words": "einhunderteins"
+    },
+    {
+      "language": "de",
+      "n": "1369",
+      "words": "eintausenddreihundertneunundsechzig"
+    },
+    {
+      "language": "de",
+      "n": "2026",
+      "words": "zweitausendsechsundzwanzig"
+    },
+    {
+      "language": "de",
+      "n": "1000000",
+      "words": "eine Million"
+    },
+    {
+      "language": "de",
+      "n": "2500000",
+      "words": "zwei Millionen fünfhunderttausend"
+    },
+    {
+      "language": "de",
+      "n": "3.14",
+      "words": "drei Komma eins vier"
+    }
+  ],
+  "identifierNumberCases": [
+    {
+      "n": "9",
+      "words": "nine"
+    },
+    {
+      "n": "52",
+      "words": "fifty-two"
+    },
+    {
+      "n": "783",
+      "words": "seven hundred eighty-three"
+    },
+    {
+      "n": "1242",
+      "words": "twelve forty-two"
+    },
+    {
+      "n": "1200",
+      "words": "twelve hundred"
+    },
+    {
+      "n": "1205",
+      "words": "twelve oh five"
+    },
+    {
+      "n": "2000",
+      "words": "two thousand"
+    },
+    {
+      "n": "12345",
+      "words": "one two three four five"
+    },
+    {
+      "language": "de",
+      "n": "9",
+      "words": "neun"
+    },
+    {
+      "language": "de",
+      "n": "52",
+      "words": "zweiundfünfzig"
+    },
+    {
+      "language": "de",
+      "n": "783",
+      "words": "siebenhundertdreiundachtzig"
+    },
+    {
+      "language": "de",
+      "n": "1242",
+      "words": "zwölf zweiundvierzig"
+    },
+    {
+      "language": "de",
+      "n": "1200",
+      "words": "zwölfhundert"
+    },
+    {
+      "language": "de",
+      "n": "1205",
+      "words": "zwölf null fünf"
+    },
+    {
+      "language": "de",
+      "n": "2000",
+      "words": "zweitausend"
+    },
+    {
+      "language": "de",
+      "n": "12345",
+      "words": "eins zwei drei vier fünf"
+    }
+  ],
+  "downloadProgressCases": [
+    {
+      "name": "an unknown total reads the plain label",
+      "received": 0,
+      "total": 0,
+      "text": "Downloading voice…"
+    },
+    {
+      "name": "nothing received yet",
+      "received": 0,
+      "total": 2900000000,
+      "text": "Downloading voice… 0 MB of 2.9 GB"
+    },
+    {
+      "name": "MB below 1 GB, no decimal",
+      "received": 350000000,
+      "total": 2900000000,
+      "text": "Downloading voice… 350 MB of 2.9 GB"
+    },
+    {
+      "name": "GB with one decimal",
+      "received": 1234000000,
+      "total": 2900000000,
+      "text": "Downloading voice… 1.2 GB of 2.9 GB"
+    },
+    {
+      "name": "done",
+      "received": 2900000000,
+      "total": 2900000000,
+      "text": "Downloading voice… 2.9 GB of 2.9 GB"
+    },
+    {
+      "name": "received rounds down, the total to nearest",
+      "received": 1299999999,
+      "total": 2950000000,
+      "text": "Downloading voice… 1.2 GB of 3.0 GB"
+    },
+    {
+      "name": "received just under 1 GB stays in MB, rounded down",
+      "received": 999999999,
+      "total": 2900000000,
+      "text": "Downloading voice… 999 MB of 2.9 GB"
+    },
+    {
+      "name": "a total below 1 GB reads MB",
+      "received": 120400000,
+      "total": 350600000,
+      "text": "Downloading voice… 120 MB of 351 MB"
+    }
+  ],
+  "trayMenuCases": [
+    {
+      "name": "another device has no tray",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": false,
+        "deviceIsVoiceDevice": false
+      },
+      "menu": null
+    },
+    {
+      "name": "the voice device: Open first, stored switches, the shortcut and the placeholder phrase; no Call before V4, no Mute before V3",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": false,
+        "deviceIsVoiceDevice": true
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey Ops",
+          "checked": true,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "Call follows Open while a call is available",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": true,
+        "micAvailable": false,
+        "deviceIsVoiceDevice": true
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "call",
+          "label": "Call Ops",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey Ops",
+          "checked": true,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {"name": "S-3: a call runs here: End call takes Call's place", "settings": {"voiceDeviceId": "d-mint", "agentId": "a1", "pttShortcut": "", "wakeWord": true, "wakePhrase": ""}, "context": {"agent": "Ops", "muted": false, "callAvailable": true, "micAvailable": false, "deviceIsVoiceDevice": true, "inCall": true}, "menu": [{"kind": "action", "id": "open", "label": "Open Exponential", "enabled": true}, {"kind": "action", "id": "endCall", "label": "End call", "enabled": true}, {"kind": "separator"}, {"kind": "check", "id": "wakeWord", "label": "Wake word · Hey Ops", "checked": true, "enabled": true}, {"kind": "separator"}, {"kind": "action", "id": "settings", "label": "Voice settings…", "enabled": true}, {"kind": "action", "id": "quit", "label": "Quit", "enabled": true}]},
+    {
+      "name": "a custom phrase, another shortcut; Mute shows once the mic listens, muted",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "mouse4",
+        "wakeWord": true,
+        "wakePhrase": "Computer"
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": true,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "pushToTalk",
+          "label": "Push to talk · Mouse button 4",
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Computer",
+          "checked": true,
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "mute",
+          "label": "Mute microphone",
+          "checked": true,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "no agent: every switch off and disabled; Open, Mute, settings and Quit stay usable",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": null,
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": null,
+        "muted": false,
+        "callAvailable": true,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "call",
+          "label": "Call …",
+          "enabled": false
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey …",
+          "checked": false,
+          "enabled": false
+        },
+        {
+          "kind": "check",
+          "id": "mute",
+          "label": "Mute microphone",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "a key bound, the worker ready: Mute shows, unchecked",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "ctrl+space",
+        "wakeWord": false,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "pushToTalk",
+          "label": "Push to talk · Ctrl + Space",
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey Ops",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "mute",
+          "label": "Mute microphone",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "a key bound, the worker not up yet: no Mute",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "ctrl+space",
+        "wakeWord": false,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": false,
+        "deviceIsVoiceDevice": true
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "pushToTalk",
+          "label": "Push to talk · Ctrl + Space",
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey Ops",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "the shortcut could not be grabbed: the item says so",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "ctrl+space",
+        "wakeWord": false,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "shortcutUnavailable": true
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "pushToTalk",
+          "label": "Push to talk · Ctrl + Space unavailable",
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey Ops",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "mute",
+          "label": "Mute microphone",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "Wayland: the compositor's trigger names the shortcut",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "ctrl+space",
+        "wakeWord": false,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "shortcutLabel": "Super+V"
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "pushToTalk",
+          "label": "Push to talk · Super+V",
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey Ops",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "mute",
+          "label": "Mute microphone",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "#NEW-58 screen memory off: its switch after Wake word, before Mute, unchecked",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "ctrl+space",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "screenMemory": {
+          "available": true,
+          "on": false,
+          "paused": false
+        }
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "pushToTalk",
+          "label": "Push to talk · Ctrl + Space",
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey Ops",
+          "checked": true,
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "screenMemory",
+          "label": "Screen memory",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "mute",
+          "label": "Mute microphone",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "#NEW-58 screen memory on and capturing",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "ctrl+space",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "screenMemory": {
+          "available": true,
+          "on": true,
+          "paused": false
+        }
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "pushToTalk",
+          "label": "Push to talk · Ctrl + Space",
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey Ops",
+          "checked": true,
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "screenMemory",
+          "label": "Screen memory",
+          "checked": true,
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "mute",
+          "label": "Mute microphone",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "#NEW-58 screen memory paused by a private window: the label says so; always enabled, even with no agent",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": null,
+        "pttShortcut": "ctrl+space",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": null,
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "screenMemory": {
+          "available": true,
+          "on": true,
+          "paused": true
+        }
+      },
+      "menu": [
+        {
+          "kind": "action",
+          "id": "open",
+          "label": "Open Exponential",
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "pushToTalk",
+          "label": "Push to talk · Ctrl + Space",
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "wakeWord",
+          "label": "Wake word · Hey …",
+          "checked": false,
+          "enabled": false
+        },
+        {
+          "kind": "check",
+          "id": "screenMemory",
+          "label": "Screen memory · Paused",
+          "checked": true,
+          "enabled": true
+        },
+        {
+          "kind": "check",
+          "id": "mute",
+          "label": "Mute microphone",
+          "checked": false,
+          "enabled": true
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "action",
+          "id": "settings",
+          "label": "Voice settings…",
+          "enabled": true
+        },
+        {
+          "kind": "action",
+          "id": "quit",
+          "label": "Quit",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "#NEW-58 not the voice device: no tray, so no switch",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "ctrl+space",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Ops",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": false,
+        "screenMemory": {
+          "available": true,
+          "on": true,
+          "paused": false
+        }
+      },
+      "menu": null
+    },
+    {"name": "#NEW-57 a meeting runs: its who, Pause listening, no Call", "settings": {"voiceDeviceId": "d-mint", "agentId": "a1", "pttShortcut": "ctrl+space", "wakeWord": true, "wakePhrase": ""}, "context": {"agent": "Ops", "muted": false, "callAvailable": true, "micAvailable": true, "deviceIsVoiceDevice": true, "screenMemory": {"available": true, "on": true, "paused": false}, "meeting": {"available": true, "on": true, "who": "You, Zoom and Slack"}, "pause": {"available": true, "paused": false}}, "menu": [{"kind": "action", "id": "open", "label": "Open Exponential", "enabled": true}, {"kind": "separator"}, {"kind": "action", "id": "pushToTalk", "label": "Push to talk · Ctrl + Space", "enabled": true}, {"kind": "check", "id": "wakeWord", "label": "Wake word · Hey Ops", "checked": true, "enabled": true}, {"kind": "check", "id": "meeting", "label": "Meeting mode · You, Zoom and Slack", "checked": true, "enabled": true}, {"kind": "check", "id": "screenMemory", "label": "Screen memory", "checked": true, "enabled": true}, {"kind": "check", "id": "pause", "label": "Pause listening · Ctrl + Alt + P", "checked": false, "enabled": true}, {"kind": "check", "id": "mute", "label": "Mute microphone", "checked": false, "enabled": true}, {"kind": "separator"}, {"kind": "action", "id": "settings", "label": "Voice settings…", "enabled": true}, {"kind": "action", "id": "quit", "label": "Quit", "enabled": true}]},
+    {"name": "#NEW-57 no meeting, screen memory off: Meeting mode unchecked, no Pause", "settings": {"voiceDeviceId": "d-mint", "agentId": "a1", "pttShortcut": "ctrl+space", "wakeWord": true, "wakePhrase": ""}, "context": {"agent": "Ops", "muted": false, "callAvailable": true, "micAvailable": true, "deviceIsVoiceDevice": true, "meeting": {"available": true, "on": false, "who": "You"}, "pause": {"available": false, "paused": false}}, "menu": [{"kind": "action", "id": "open", "label": "Open Exponential", "enabled": true}, {"kind": "action", "id": "call", "label": "Call Ops", "enabled": true}, {"kind": "separator"}, {"kind": "action", "id": "pushToTalk", "label": "Push to talk · Ctrl + Space", "enabled": true}, {"kind": "check", "id": "wakeWord", "label": "Wake word · Hey Ops", "checked": true, "enabled": true}, {"kind": "check", "id": "meeting", "label": "Meeting mode", "checked": false, "enabled": true}, {"kind": "check", "id": "mute", "label": "Mute microphone", "checked": false, "enabled": true}, {"kind": "separator"}, {"kind": "action", "id": "settings", "label": "Voice settings…", "enabled": true}, {"kind": "action", "id": "quit", "label": "Quit", "enabled": true}]}
+  ],
+  "trayIconCases": [
+    { "name": "another device has no tray", "context": { "deviceIsVoiceDevice": false, "wakeListening": true, "muted": false }, "icon": null },
+    { "name": "#NEW-57 a meeting holds the microphone with the wake word off", "context": { "deviceIsVoiceDevice": true, "wakeListening": false, "meetingListening": true, "muted": false }, "icon": "listening" },
+    { "name": "#NEW-57 Mute never pauses a meeting: the dot stays", "context": { "deviceIsVoiceDevice": true, "wakeListening": true, "meetingListening": true, "muted": true }, "icon": "listening" },
+    { "name": "#NEW-57 a paused meeting listens to nothing", "context": { "deviceIsVoiceDevice": true, "wakeListening": false, "meetingListening": false, "muted": false }, "icon": "app" },
+    { "name": "the wake word holds the microphone open", "context": { "deviceIsVoiceDevice": true, "wakeListening": true, "muted": false }, "icon": "listening" },
+    { "name": "muted never claims an open microphone", "context": { "deviceIsVoiceDevice": true, "wakeListening": true, "muted": true }, "icon": "app" },
+    { "name": "the wake word is on but the microphone is not open (downloading, no device)", "context": { "deviceIsVoiceDevice": true, "wakeListening": false, "muted": false }, "icon": "app" },
+    { "name": "#FEED-163 a running meeting records: the red dot", "context": { "deviceIsVoiceDevice": true, "wakeListening": false, "meetingListening": true, "meetingRunning": true, "muted": false }, "icon": "recording" },
+    { "name": "#FEED-163 recording wins over the wake word's dot", "context": { "deviceIsVoiceDevice": true, "wakeListening": true, "meetingListening": true, "meetingRunning": true, "muted": true }, "icon": "recording" },
+    { "name": "#FEED-163 a paused meeting still runs: recording", "context": { "deviceIsVoiceDevice": true, "wakeListening": false, "meetingListening": false, "meetingRunning": true, "muted": false }, "icon": "recording" },
+    { "name": "#FEED-163 another device never shows a meeting", "context": { "deviceIsVoiceDevice": false, "wakeListening": false, "meetingListening": false, "meetingRunning": true, "muted": false }, "icon": null }
+  ],
+  "wakeDetailCases": [
+    {"name": "the wake word holds the microphone", "context": {"wakeWord": true, "agent": true, "online": true, "device": "mint", "state": "listening"}, "detail": "Listening"},
+    {"name": "muted in the tray", "context": {"wakeWord": true, "agent": true, "online": true, "device": "mint", "state": "muted"}, "detail": "Microphone muted"},
+    {"name": "no agent picked", "context": {"wakeWord": true, "agent": false, "online": true, "device": "mint", "state": null}, "detail": "Pick an agent"},
+    {"name": "the speech model downloads", "context": {"wakeWord": true, "agent": true, "online": true, "device": "mint", "state": "downloading"}, "detail": "Downloading speech recognition…"},
+    {"name": "a call holds the microphone", "context": {"wakeWord": true, "agent": true, "online": true, "device": "mint", "state": "micBusy"}, "detail": "A call is using the microphone"},
+    {"name": "a meeting holds the microphone", "context": {"wakeWord": true, "agent": true, "online": true, "device": "mint", "state": "meeting"}, "detail": "A meeting is using the microphone"},
+    {"name": "no microphone", "context": {"wakeWord": true, "agent": true, "online": true, "device": "mint", "state": "noMicrophone"}, "detail": "No microphone"},
+    {"name": "the microphone is not allowed", "context": {"wakeWord": true, "agent": true, "online": true, "device": "mint", "state": "notGranted"}, "detail": "Microphone not allowed"},
+    {"name": "the speech model failed", "context": {"wakeWord": true, "agent": true, "online": true, "device": "mint", "state": "unavailable"}, "detail": "Speech recognition unavailable"},
+    {"name": "not reported yet", "context": {"wakeWord": true, "agent": true, "online": true, "device": "mint", "state": null}, "detail": "Starting…"},
+    {"name": "another client: the voice device is offline", "context": {"wakeWord": true, "agent": true, "online": false, "device": "mint", "state": "listening"}, "detail": "mint is offline"},
+    {"name": "no agent wins over offline", "context": {"wakeWord": true, "agent": false, "online": false, "device": "mint", "state": null}, "detail": "Pick an agent"},
+    {"name": "wake word off", "context": {"wakeWord": false, "agent": true, "online": true, "device": "mint", "state": null}, "detail": null}
+  ],
+  "railVoiceCases": [
+    {"name": "#NEW-57 a meeting runs with the wake word off: the button, the dot, the meeting's row as the tooltip", "settings": {"voiceDeviceId": "d-mint", "agentId": "a1", "pttShortcut": "", "wakeWord": false, "wakePhrase": ""}, "context": {"agent": "Studio", "muted": false, "callAvailable": false, "micAvailable": false, "deviceIsVoiceDevice": true, "wakeListening": false, "meetingListening": true, "trayHosted": false, "meeting": {"available": true, "on": true, "who": "You, Zoom and Slack"}, "pause": {"available": true, "paused": false}}, "rail": {"badge": true, "tooltip": "Meeting mode · You, Zoom and Slack", "menu": [{"kind": "check", "id": "wakeWord", "label": "Wake word · Hey Studio", "checked": false, "enabled": true}, {"kind": "check", "id": "meeting", "label": "Meeting mode · You, Zoom and Slack", "checked": true, "enabled": true}, {"kind": "check", "id": "pause", "label": "Pause listening · Ctrl + Alt + P", "checked": false, "enabled": true}, {"kind": "action", "id": "settings", "label": "Voice settings…", "enabled": true}]}},
+    {"name": "#NEW-57 a paused meeting: no dot, Pause listening checked", "settings": {"voiceDeviceId": "d-mint", "agentId": "a1", "pttShortcut": "", "wakeWord": false, "wakePhrase": ""}, "context": {"agent": "Studio", "muted": false, "callAvailable": false, "micAvailable": false, "deviceIsVoiceDevice": true, "wakeListening": false, "meetingListening": false, "trayHosted": false, "meeting": {"available": true, "on": true, "who": "You, Zoom and Slack"}, "pause": {"available": true, "paused": true}}, "rail": {"badge": false, "tooltip": "Meeting mode · You, Zoom and Slack", "menu": [{"kind": "check", "id": "wakeWord", "label": "Wake word · Hey Studio", "checked": false, "enabled": true}, {"kind": "check", "id": "meeting", "label": "Meeting mode · You, Zoom and Slack", "checked": true, "enabled": true}, {"kind": "check", "id": "pause", "label": "Pause listening · Ctrl + Alt + P", "checked": true, "enabled": true}, {"kind": "action", "id": "settings", "label": "Voice settings…", "enabled": true}]}},
+    {"name": "#NEW-57 a meeting with a tray host: no button", "settings": {"voiceDeviceId": "d-mint", "agentId": "a1", "pttShortcut": "", "wakeWord": false, "wakePhrase": ""}, "context": {"agent": "Studio", "muted": false, "callAvailable": false, "micAvailable": false, "deviceIsVoiceDevice": true, "wakeListening": false, "meetingListening": true, "trayHosted": true, "meeting": {"available": true, "on": true, "who": "You, Zoom and Slack"}, "pause": {"available": true, "paused": false}}, "rail": null},
+    {
+      "name": "#NEW-58: the Screen memory row follows Wake word, like the tray's",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Studio",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "wakeListening": true,
+        "trayHosted": false,
+        "screenMemory": {
+          "available": true,
+          "on": true,
+          "paused": true
+        }
+      },
+      "rail": {
+        "badge": true,
+        "tooltip": "Listening for “Hey Studio”",
+        "menu": [
+          {
+            "kind": "check",
+            "id": "wakeWord",
+            "label": "Wake word · Hey Studio",
+            "checked": true,
+            "enabled": true
+          },
+          {
+            "kind": "check",
+            "id": "screenMemory",
+            "label": "Screen memory · Paused",
+            "checked": true,
+            "enabled": true
+          },
+          {
+            "kind": "check",
+            "id": "mute",
+            "label": "Mute microphone",
+            "checked": false,
+            "enabled": true
+          },
+          {
+            "kind": "action",
+            "id": "settings",
+            "label": "Voice settings…",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "the wake word holds the microphone with no tray host: the dot, the phrase, the tray rows minus Open and Quit",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Studio",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "wakeListening": true,
+        "trayHosted": false
+      },
+      "rail": {
+        "badge": true,
+        "tooltip": "Listening for “Hey Studio”",
+        "menu": [
+          {
+            "kind": "check",
+            "id": "wakeWord",
+            "label": "Wake word · Hey Studio",
+            "checked": true,
+            "enabled": true
+          },
+          {
+            "kind": "check",
+            "id": "mute",
+            "label": "Mute microphone",
+            "checked": false,
+            "enabled": true
+          },
+          {
+            "kind": "action",
+            "id": "settings",
+            "label": "Voice settings…",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "muted: no dot, Microphone muted, Mute checked",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Studio",
+        "muted": true,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "wakeListening": true,
+        "trayHosted": false
+      },
+      "rail": {
+        "badge": false,
+        "tooltip": "Microphone muted",
+        "menu": [
+          {
+            "kind": "check",
+            "id": "wakeWord",
+            "label": "Wake word · Hey Studio",
+            "checked": true,
+            "enabled": true
+          },
+          {
+            "kind": "check",
+            "id": "mute",
+            "label": "Mute microphone",
+            "checked": true,
+            "enabled": true
+          },
+          {
+            "kind": "action",
+            "id": "settings",
+            "label": "Voice settings…",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "the microphone is not open yet (downloading, a call): no dot, the phrase; Call stays when it can start",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Studio",
+        "muted": false,
+        "callAvailable": true,
+        "micAvailable": false,
+        "deviceIsVoiceDevice": true,
+        "wakeListening": false,
+        "trayHosted": false
+      },
+      "rail": {
+        "badge": false,
+        "tooltip": "Listening for “Hey Studio”",
+        "menu": [
+          {
+            "kind": "action",
+            "id": "call",
+            "label": "Call Studio",
+            "enabled": true
+          },
+          {
+            "kind": "check",
+            "id": "wakeWord",
+            "label": "Wake word · Hey Studio",
+            "checked": true,
+            "enabled": true
+          },
+          {
+            "kind": "action",
+            "id": "settings",
+            "label": "Voice settings…",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "the member's own phrase",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": "Computer"
+      },
+      "context": {
+        "agent": "Studio",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "wakeListening": true,
+        "trayHosted": false
+      },
+      "rail": {
+        "badge": true,
+        "tooltip": "Listening for “Computer”",
+        "menu": [
+          {
+            "kind": "check",
+            "id": "wakeWord",
+            "label": "Wake word · Computer",
+            "checked": true,
+            "enabled": true
+          },
+          {
+            "kind": "check",
+            "id": "mute",
+            "label": "Mute microphone",
+            "checked": false,
+            "enabled": true
+          },
+          {
+            "kind": "action",
+            "id": "settings",
+            "label": "Voice settings…",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "a tray host shows the tray: no button",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Studio",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "wakeListening": true,
+        "trayHosted": true
+      },
+      "rail": null
+    },
+    {
+      "name": "another device: no button",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Studio",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": false,
+        "wakeListening": true,
+        "trayHosted": false
+      },
+      "rail": null
+    },
+    {
+      "name": "wake word off: no button",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "pttShortcut": "",
+        "wakeWord": false,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": "Studio",
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "wakeListening": false,
+        "trayHosted": false
+      },
+      "rail": null
+    },
+    {
+      "name": "no agent: wake word cleared, no button",
+      "settings": {
+        "voiceDeviceId": "d-mint",
+        "agentId": null,
+        "pttShortcut": "",
+        "wakeWord": true,
+        "wakePhrase": ""
+      },
+      "context": {
+        "agent": null,
+        "muted": false,
+        "callAvailable": false,
+        "micAvailable": true,
+        "deviceIsVoiceDevice": true,
+        "wakeListening": false,
+        "trayHosted": false
+      },
+      "rail": null
+    }
+  ],
+  "overlayHideAfterMs": {
+    "thinking": 60000,
+    "spoken": 1500,
+    "reply": 4000,
+    "muted": 1500,
+    "notSent": 4000,
+    "failed": 4000
+  },
+  "shortcutSupportCases": [
+    {
+      "os": "linux",
+      "session": "x11",
+      "portal": false,
+      "shortcut": "ctrl+space",
+      "support": "global"
+    },
+    {
+      "os": "linux",
+      "session": "x11",
+      "portal": false,
+      "shortcut": "mouse4",
+      "support": "global"
+    },
+    {
+      "os": "linux",
+      "session": "wayland",
+      "portal": true,
+      "shortcut": "ctrl+space",
+      "support": "portal"
+    },
+    {
+      "os": "linux",
+      "session": "wayland",
+      "portal": true,
+      "shortcut": "f13",
+      "support": "portal"
+    },
+    {
+      "os": "linux",
+      "session": "wayland",
+      "portal": false,
+      "shortcut": "alt+space",
+      "support": "focused-only"
+    },
+    {
+      "os": "linux",
+      "session": "wayland",
+      "portal": true,
+      "shortcut": "mouse4",
+      "support": "unavailable"
+    },
+    {
+      "os": "linux",
+      "session": "wayland",
+      "portal": false,
+      "shortcut": "mouse5",
+      "support": "unavailable"
+    },
+    {
+      "os": "macos",
+      "session": null,
+      "portal": false,
+      "shortcut": "ctrl+space",
+      "support": "global"
+    },
+    {
+      "os": "macos",
+      "session": null,
+      "portal": false,
+      "shortcut": "mouse5",
+      "support": "unavailable"
+    },
+    {
+      "os": "windows",
+      "session": null,
+      "portal": false,
+      "shortcut": "ctrl+shift+space",
+      "support": "global"
+    },
+    {
+      "os": "windows",
+      "session": null,
+      "portal": false,
+      "shortcut": "mouse4",
+      "support": "global"
+    },
+    {"os": "linux", "session": "x11", "portal": false, "shortcut": "ctrl+shift+k", "support": "global"},
+    {"os": "macos", "session": null, "portal": false, "shortcut": "ctrl+mouse4", "support": "unavailable"},
+    {"os": "linux", "session": "wayland", "portal": true, "shortcut": "alt+super+1", "support": "portal"}
+  ],
+  "shortcutReasonCases": [
+    {
+      "reason": "taken",
+      "shortcut": "ctrl+space",
+      "text": "Another app holds Ctrl + Space. It works while Exponential is focused."
+    },
+    {
+      "reason": "noPortal",
+      "shortcut": "f13",
+      "text": "This desktop has no global shortcuts. F13 works while Exponential is focused."
+    },
+    {
+      "reason": "declined",
+      "shortcut": "alt+space",
+      "text": "The desktop didn't allow Alt + Space. It works while Exponential is focused."
+    },
+    {
+      "reason": "mouse",
+      "shortcut": "mouse4",
+      "text": "Mouse buttons can't be a shortcut here. Pick a key."
+    }
+  ],
+  "pttFlowCases": [
+    {
+      "name": "a key-down listens; the partial shows quoted",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "partial",
+          "text": "create an issue"
+        }
+      ],
+      "overlay": {
+        "activity": "listening",
+        "state": "Listening",
+        "line": "“create an issue”",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": null
+      }
+    },
+    {
+      "name": "the release keeps listening until the worker answers",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "keyUp"
+        }
+      ],
+      "overlay": {
+        "activity": "listening",
+        "state": "Listening",
+        "line": "",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": null
+      }
+    },
+    {
+      "name": "heard: the trimmed text, quoted; the wave thinks",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "keyUp"
+        },
+        {
+          "t": "heard",
+          "text": "  create an issue push to talk breaks under Wayland "
+        }
+      ],
+      "overlay": {
+        "activity": "thinking",
+        "state": "Heard",
+        "line": "“create an issue push to talk breaks under Wayland”",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": null
+      }
+    },
+    {
+      "name": "sent: Thinking until the reply lands",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "heard",
+          "text": "create an issue push to talk breaks under Wayland"
+        },
+        {
+          "t": "sent"
+        }
+      ],
+      "overlay": {
+        "activity": "thinking",
+        "state": "Thinking",
+        "line": "“create an issue push to talk breaks under Wayland”",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": 60000
+      }
+    },
+    {
+      "name": "the reply is spoken: Speaking, its first sentence, Stop",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "heard",
+          "text": "create an issue push to talk breaks under Wayland"
+        },
+        {
+          "t": "sent"
+        },
+        {
+          "t": "replied",
+          "body": "Created **NEW-81**. It is on the board.",
+          "speaking": true
+        }
+      ],
+      "overlay": {
+        "activity": "speaking",
+        "state": "Speaking",
+        "line": "Created N E W eighty-one.",
+        "pill": "Stop",
+        "primary": true,
+        "hideAfterMs": null
+      }
+    },
+    {
+      "name": "the voice ends: Replied, fades after 1.5 s",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "heard",
+          "text": "create an issue push to talk breaks under Wayland"
+        },
+        {
+          "t": "sent"
+        },
+        {
+          "t": "replied",
+          "body": "Created NEW-81. It is on the board.",
+          "speaking": true
+        },
+        {
+          "t": "speakFinished"
+        }
+      ],
+      "overlay": {
+        "activity": "idle",
+        "state": "Replied",
+        "line": "Created N E W eighty-one.",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": 1500
+      }
+    },
+    {
+      "name": "without Speak replies: the reply's first line for 4 s",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "heard",
+          "text": "create an issue push to talk breaks under Wayland"
+        },
+        {
+          "t": "sent"
+        },
+        {
+          "t": "replied",
+          "body": "Done.\n\nThe PR is open.",
+          "speaking": false
+        }
+      ],
+      "overlay": {
+        "activity": "idle",
+        "state": "Replied",
+        "line": "Done.",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": 4000
+      }
+    },
+    {
+      "name": "a reply before the send landed is not this utterance's",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "heard",
+          "text": "create an issue push to talk breaks under Wayland"
+        },
+        {
+          "t": "replied",
+          "body": "Old news.",
+          "speaking": false
+        }
+      ],
+      "overlay": {
+        "activity": "thinking",
+        "state": "Heard",
+        "line": "“create an issue push to talk breaks under Wayland”",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": null
+      }
+    },
+    {
+      "name": "Empty sends nothing and hides",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "keyUp"
+        },
+        {
+          "t": "empty"
+        }
+      ],
+      "overlay": null
+    },
+    {
+      "name": "blank Heard sends nothing and hides",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "heard",
+          "text": "   "
+        }
+      ],
+      "overlay": null
+    },
+    {
+      "name": "a failed send: Not sent, the text kept in the composer",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "heard",
+          "text": "create an issue push to talk breaks under Wayland"
+        },
+        {
+          "t": "sendFailed"
+        }
+      ],
+      "overlay": {
+        "activity": "idle",
+        "state": "Not sent",
+        "line": "Kept in the chat's composer",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": 4000
+      }
+    },
+    {
+      "name": "muted: the microphone never opens",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": true
+        }
+      ],
+      "overlay": {
+        "activity": "muted",
+        "state": "Microphone muted",
+        "line": "Unmute in the tray to talk",
+        "pill": "Unmute",
+        "primary": false,
+        "hideAfterMs": 1500
+      }
+    },
+    {
+      "name": "a key-down while speaking listens again (barge-in)",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "heard",
+          "text": "create an issue push to talk breaks under Wayland"
+        },
+        {
+          "t": "sent"
+        },
+        {
+          "t": "replied",
+          "body": "Created NEW-81.",
+          "speaking": true
+        },
+        {
+          "t": "keyDown",
+          "muted": false
+        }
+      ],
+      "overlay": {
+        "activity": "listening",
+        "state": "Listening",
+        "line": "",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": null
+      }
+    },
+    {
+      "name": "the worker could not listen: the reason, nothing sent",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "listenFailed",
+          "reason": "downloading"
+        }
+      ],
+      "overlay": {
+        "activity": "idle",
+        "state": "Downloading speech recognition…",
+        "line": "",
+        "pill": "Studio",
+        "primary": false,
+        "hideAfterMs": 4000
+      }
+    },
+    {
+      "name": "no agent name: the pill reads the ellipsis",
+      "agent": null,
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        }
+      ],
+      "overlay": {
+        "activity": "listening",
+        "state": "Listening",
+        "line": "",
+        "pill": "…",
+        "primary": false,
+        "hideAfterMs": null
+      }
+    },
+    {
+      "name": "the timer hides it",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": true
+        },
+        {
+          "t": "hide"
+        }
+      ],
+      "overlay": null
+    },
+    {
+      "name": "cancelled (settings changed, signed out): hidden, nothing sent",
+      "agent": "Studio",
+      "events": [
+        {
+          "t": "keyDown",
+          "muted": false
+        },
+        {
+          "t": "partial",
+          "text": "create"
+        },
+        {
+          "t": "cancel"
+        }
+      ],
+      "overlay": null
+    }
+  ],
+  "utteranceCases": [
+    {
+      "name": "into the conversation with the agent",
+      "heard": "  Move NEW-78 to done. ",
+      "teamId": "t1",
+      "agentId": "a1",
+      "conversationId": "s-1",
+      "input": {
+        "sessionId": "s-1",
+        "text": "Move NEW-78 to done."
+      }
+    },
+    {
+      "name": "no conversation yet: to the agent, which creates it",
+      "heard": "Hello",
+      "teamId": "t1",
+      "agentId": "a1",
+      "conversationId": null,
+      "input": {
+        "teamId": "t1",
+        "agentId": "a1",
+        "text": "Hello"
+      }
+    },
+    {
+      "name": "blank sends nothing",
+      "heard": " \n ",
+      "teamId": "t1",
+      "agentId": "a1",
+      "conversationId": "s-1",
+      "input": null
+    },
+    {
+      "name": "no agent sends nothing",
+      "heard": "Hello",
+      "teamId": "t1",
+      "agentId": null,
+      "conversationId": null,
+      "input": null
+    }
+  ],
+  "overlaySpecimens": [
+    {
+      "activity": "listening",
+      "level": 0.7,
+      "bands": [
+        0.9,
+        0.6,
+        1,
+        0.5
+      ],
+      "state": "Listening",
+      "line": "“create an issue push to talk breaks under Wayland”",
+      "pill": "Studio",
+      "primary": false
+    },
+    {
+      "activity": "thinking",
+      "level": 0,
+      "bands": [],
+      "state": "Heard",
+      "line": "“create an issue push to talk breaks under Wayland”",
+      "pill": "Studio",
+      "primary": false
+    },
+    {
+      "activity": "speaking",
+      "level": 0.5,
+      "bands": [
+        0.7,
+        1,
+        0.5,
+        0.8
+      ],
+      "state": "Speaking",
+      "line": "Created NEW-81 “Push to talk breaks under Wayland”.",
+      "pill": "Stop",
+      "primary": true
+    },
+    {
+      "activity": "muted",
+      "level": 0,
+      "bands": [],
+      "state": "Microphone muted",
+      "line": "Unmute in the tray to talk",
+      "pill": "Unmute",
+      "primary": false
+    }
+  ],
+  "speechChunkCases": [
+    {
+      "name": "streaming: sentences only",
+      "text": "Three issues are open: NEW-55, NEW-56 and NEW-79. Done.",
+      "streaming": true,
+      "chunks": [
+        "Three issues are open: NEW-55, NEW-56 and NEW-79.",
+        "Done."
+      ]
+    },
+    {
+      "name": "streaming: no clause split",
+      "text": "Sure thing, I moved it. The PR is open, too.",
+      "streaming": true,
+      "chunks": [
+        "Sure thing, I moved it.",
+        "The PR is open, too."
+      ]
+    },
+    {
+      "name": "streaming: German",
+      "text": "Ich habe mir den fehlgeschlagenen Build angesehen, und das Problem ist eine fehlende Migration. Soll ich sie anlegen?",
+      "streaming": true,
+      "chunks": [
+        "Ich habe mir den fehlgeschlagenen Build angesehen, und das Problem ist eine fehlende Migration.",
+        "Soll ich sie anlegen?"
+      ]
+    },
+    {
+      "name": "streaming: a decimal point is no end",
+      "text": "Version 1.5 ships. Done! Merge it? yes",
+      "streaming": true,
+      "chunks": [
+        "Version 1.5 ships.",
+        "Done!",
+        "Merge it?",
+        "yes"
+      ]
+    },
+    {
+      "name": "streaming: blank",
+      "text": "  ",
+      "streaming": true,
+      "chunks": []
+    },
+    {
+      "name": "whole utterances: the first clause splits off",
+      "text": "Three issues are open: NEW-55, NEW-56 and NEW-79.",
+      "streaming": false,
+      "chunks": [
+        "Three issues are open:",
+        "NEW-55, NEW-56 and NEW-79."
+      ]
+    },
+    {
+      "name": "whole utterances: only in the first sentence",
+      "text": "Sure thing, I moved it. The PR is open, too.",
+      "streaming": false,
+      "chunks": [
+        "Sure thing,",
+        "I moved it.",
+        "The PR is open, too."
+      ]
+    },
+    {
+      "name": "whole utterances: German",
+      "text": "Ich habe mir den fehlgeschlagenen Build angesehen, und das Problem ist eine fehlende Migration.",
+      "streaming": false,
+      "chunks": [
+        "Ich habe mir den fehlgeschlagenen Build angesehen,",
+        "und das Problem ist eine fehlende Migration."
+      ]
+    },
+    {
+      "name": "whole utterances: one word in front",
+      "text": "Erledigt, ich habe es nach Review verschoben.",
+      "streaming": false,
+      "chunks": [
+        "Erledigt, ich habe es nach Review verschoben."
+      ]
+    },
+    {
+      "name": "whole utterances: a dash is dropped",
+      "text": "The build is green - merging now.",
+      "streaming": false,
+      "chunks": [
+        "The build is green",
+        "merging now."
+      ]
+    },
+    {
+      "name": "whole utterances: a semicolon",
+      "text": "All right then; the PR is open.",
+      "streaming": false,
+      "chunks": [
+        "All right then;",
+        "the PR is open."
+      ]
+    },
+    {
+      "name": "whole utterances: nine words in front",
+      "text": "One two three four five six seven eight nine, ten.",
+      "streaming": false,
+      "chunks": [
+        "One two three four five six seven eight nine, ten."
+      ]
+    },
+    {
+      "name": "whole utterances: eight words in front",
+      "text": "One two three four five six seven eight, nine.",
+      "streaming": false,
+      "chunks": [
+        "One two three four five six seven eight,",
+        "nine."
+      ]
+    },
+    {
+      "name": "whole utterances: only the first mark counts",
+      "text": "Okay, so the plan is set, go.",
+      "streaming": false,
+      "chunks": [
+        "Okay, so the plan is set, go."
+      ]
+    },
+    {
+      "name": "whole utterances: a digit comma is no mark",
+      "text": "It costs 1,000 euros, roughly.",
+      "streaming": false,
+      "chunks": [
+        "It costs 1,000 euros,",
+        "roughly."
+      ]
+    },
+    {
+      "name": "whole utterances: a time colon is no mark",
+      "text": "It is 12:30 now, so lunch.",
+      "streaming": false,
+      "chunks": [
+        "It is 12:30 now,",
+        "so lunch."
+      ]
+    },
+    {
+      "name": "whole utterances: a hyphen is no dash",
+      "text": "NEW-55 and NEW-56 are open.",
+      "streaming": false,
+      "chunks": [
+        "NEW-55 and NEW-56 are open."
+      ]
+    },
+    {
+      "name": "whole utterances: nothing behind the mark",
+      "text": "Two words,",
+      "streaming": false,
+      "chunks": [
+        "Two words,"
+      ]
+    },
+    {
+      "name": "whole utterances: one sentence",
+      "text": "Done.",
+      "streaming": false,
+      "chunks": [
+        "Done."
+      ]
+    }
+  ],
+  "shortcutGrammar": {
+    "_": "S-3: a push-to-talk binding is ANY key or mouse combination the member presses (recorded like a game keybind), stored canonical: zero or more `mods` in this order joined by `+`, then exactly ONE key: a letter a-z, a digit 0-9, a function key f1-f24, one of `named`, or a mouse button mouse3-mouse9 (`mouse1`/`mouse2` are clicks, never a binding). A key in `bareKeys` (and every mouse button) may stand alone; every other key needs at least one modifier (a bare letter would steal typing). Empty = no key bound = push to talk off. At most `maxLength` characters (the column).",
+    "mods": [
+      "ctrl",
+      "alt",
+      "shift",
+      "super"
+    ],
+    "named": [
+      "space",
+      "enter",
+      "tab",
+      "backspace",
+      "delete",
+      "insert",
+      "home",
+      "end",
+      "pageup",
+      "pagedown",
+      "up",
+      "down",
+      "left",
+      "right",
+      "minus",
+      "equal",
+      "bracketleft",
+      "bracketright",
+      "backslash",
+      "semicolon",
+      "quote",
+      "comma",
+      "period",
+      "slash",
+      "backquote",
+      "pause",
+      "scrolllock",
+      "printscreen"
+    ],
+    "bareKeys": [
+      "f1-f24",
+      "insert",
+      "pause",
+      "scrolllock",
+      "printscreen",
+      "mouse3-mouse9"
+    ],
+    "mouse": {
+      "min": 3,
+      "max": 9
+    },
+    "function": {
+      "min": 1,
+      "max": 24
+    },
+    "maxLength": 32,
+    "labels": {
+      "ctrl": "Ctrl",
+      "alt": "Alt",
+      "shift": "Shift",
+      "super": "Super",
+      "space": "Space",
+      "enter": "Enter",
+      "tab": "Tab",
+      "backspace": "Backspace",
+      "delete": "Delete",
+      "insert": "Insert",
+      "home": "Home",
+      "end": "End",
+      "pageup": "Page Up",
+      "pagedown": "Page Down",
+      "up": "Up",
+      "down": "Down",
+      "left": "Left",
+      "right": "Right",
+      "minus": "-",
+      "equal": "=",
+      "bracketleft": "[",
+      "bracketright": "]",
+      "backslash": "\\",
+      "semicolon": ";",
+      "quote": "'",
+      "comma": ",",
+      "period": ".",
+      "slash": "/",
+      "backquote": "`",
+      "pause": "Pause",
+      "scrolllock": "Scroll Lock",
+      "printscreen": "Print Screen",
+      "mouse": "Mouse button {n}"
+    },
+    "separator": " + "
+  },
+  "shortcutParseCases": [
+    {"in": "ctrl+space", "value": "ctrl+space", "label": "Ctrl + Space"},
+    {"in": "shift+ctrl+k", "value": "ctrl+shift+k", "label": "Ctrl + Shift + K"},
+    {"in": "super+alt+1", "value": "alt+super+1", "label": "Alt + Super + 1"},
+    {"in": "f13", "value": "f13", "label": "F13"},
+    {"in": "ctrl+f24", "value": "ctrl+f24", "label": "Ctrl + F24"},
+    {"in": "mouse4", "value": "mouse4", "label": "Mouse button 4"},
+    {"in": "ctrl+mouse5", "value": "ctrl+mouse5", "label": "Ctrl + Mouse button 5"},
+    {"in": "alt+backquote", "value": "alt+backquote", "label": "Alt + `"},
+    {"in": "pause", "value": "pause", "label": "Pause"},
+    {"in": "", "value": "", "label": "None"},
+    {"in": "k", "value": null, "label": null},
+    {"in": "space", "value": null, "label": null},
+    {"in": "ctrl", "value": null, "label": null},
+    {"in": "ctrl+shift", "value": null, "label": null},
+    {"in": "ctrl+ctrl+k", "value": null, "label": null},
+    {"in": "ctrl+a+b", "value": null, "label": null},
+    {"in": "mouse1", "value": null, "label": null},
+    {"in": "mouse2", "value": null, "label": null},
+    {"in": "mouse10", "value": null, "label": null},
+    {"in": "ctrl+f25", "value": null, "label": null},
+    {"in": "hyper+k", "value": null, "label": null},
+    {"in": "Ctrl+Space", "value": null, "label": null},
+    {"in": "ctrl + space", "value": null, "label": null}
+  ],
+  "captureCases": [
+    {"name": "a combination: the modifiers held, then the key", "before": "ctrl+space", "events": [{"t": "down", "key": "ctrl"}, {"t": "down", "key": "shift"}, {"t": "down", "key": "k"}], "result": {"status": "done", "value": "ctrl+shift+k", "pending": "", "error": null}},
+    {"name": "the modifiers held show as pending", "before": "ctrl+space", "events": [{"t": "down", "key": "ctrl"}, {"t": "down", "key": "alt"}], "result": {"status": "recording", "value": "ctrl+space", "pending": "Ctrl + Alt + …", "error": null}},
+    {"name": "a modifier pressed and released alone keeps recording", "before": "ctrl+space", "events": [{"t": "down", "key": "ctrl"}, {"t": "up", "key": "ctrl"}], "result": {"status": "recording", "value": "ctrl+space", "pending": "", "error": null}},
+    {"name": "a bare function key", "before": "ctrl+space", "events": [{"t": "down", "key": "f13"}], "result": {"status": "done", "value": "f13", "pending": "", "error": null}},
+    {"name": "a mouse button", "before": "ctrl+space", "events": [{"t": "mouse", "button": 4}], "result": {"status": "done", "value": "mouse4", "pending": "", "error": null}},
+    {"name": "a modifier and a mouse button", "before": "ctrl+space", "events": [{"t": "down", "key": "ctrl"}, {"t": "mouse", "button": 5}], "result": {"status": "done", "value": "ctrl+mouse5", "pending": "", "error": null}},
+    {"name": "a left or right click is no binding", "before": "ctrl+space", "events": [{"t": "mouse", "button": 1}, {"t": "mouse", "button": 2}], "result": {"status": "recording", "value": "ctrl+space", "pending": "", "error": null}},
+    {"name": "Esc cancels, the binding stays", "before": "ctrl+space", "events": [{"t": "down", "key": "escape"}], "result": {"status": "cancelled", "value": "ctrl+space", "pending": "", "error": null}},
+    {"name": "Esc with a modifier is no binding: Esc is not in the grammar", "before": "ctrl+space", "events": [{"t": "down", "key": "ctrl"}, {"t": "down", "key": "escape"}], "result": {"status": "recording", "value": "ctrl+space", "pending": "Ctrl + …", "error": "Hold Ctrl, Alt, Shift or Super with that key"}},
+    {"name": "Backspace alone clears the binding (push to talk off)", "before": "ctrl+space", "events": [{"t": "down", "key": "backspace"}], "result": {"status": "done", "value": "", "pending": "", "error": null}},
+    {"name": "Delete alone clears it too", "before": "ctrl+space", "events": [{"t": "down", "key": "delete"}], "result": {"status": "done", "value": "", "pending": "", "error": null}},
+    {"name": "a modifier with Backspace is a binding", "before": "ctrl+space", "events": [{"t": "down", "key": "alt"}, {"t": "down", "key": "backspace"}], "result": {"status": "done", "value": "alt+backspace", "pending": "", "error": null}},
+    {"name": "a bare letter needs a modifier: the error shows, still recording", "before": "ctrl+space", "events": [{"t": "down", "key": "k"}], "result": {"status": "recording", "value": "ctrl+space", "pending": "", "error": "Hold Ctrl, Alt, Shift or Super with that key"}},
+    {"name": "after the error a valid combination records", "before": "ctrl+space", "events": [{"t": "down", "key": "k"}, {"t": "up", "key": "k"}, {"t": "down", "key": "super"}, {"t": "down", "key": "k"}], "result": {"status": "done", "value": "super+k", "pending": "", "error": null}},
+    {"name": "modifiers pressed in any order store canonical", "before": "ctrl+space", "events": [{"t": "down", "key": "super"}, {"t": "down", "key": "shift"}, {"t": "down", "key": "alt"}, {"t": "down", "key": "ctrl"}, {"t": "down", "key": "space"}], "result": {"status": "done", "value": "ctrl+alt+shift+super+space", "pending": "", "error": null}},
+    {"name": "a key the grammar does not know is ignored", "before": "ctrl+space", "events": [{"t": "down", "key": "ctrl"}, {"t": "down", "key": "media-play"}], "result": {"status": "recording", "value": "ctrl+space", "pending": "Ctrl + …", "error": null}},
+    {"name": "from no binding", "before": "", "events": [{"t": "down", "key": "ctrl"}, {"t": "down", "key": "space"}], "result": {"status": "done", "value": "ctrl+space", "pending": "", "error": null}}
+  ]
+}

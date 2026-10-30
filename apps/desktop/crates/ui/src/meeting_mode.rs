@@ -1,38 +1,20 @@
 //! NEW-57: meeting mode's IDE surfaces (`fixtures/meeting.json`) beside the
-//! host (`crate::meeting`, which listens and flushes): THE consent dialog
-//! (Settings → Voice's toggle and the tray's item open it; Start =
-//! `voice.startMeeting {consent: true}`), stopping at once
-//! (`voice.stopMeeting`), the voice device's desktop audio as its doctor
-//! reports it (`doctor.desktopAudio`), and the pause hotkey
-//! (`pause.shortcut`), grabbed like push to talk's keys whenever a meeting
-//! runs or screen memory is on.
+//! host (`etalk_gpui::meeting`, which listens, flushes and grabs the pause
+//! hotkey): THE consent dialog (Settings → Voice's toggle and the tray's
+//! item open it; Start = `voice.startMeeting {consent: true}`), stopping at
+//! once (`voice.stopMeeting`) and the voice device's desktop audio as its
+//! doctor reports it (`doctor.desktopAudio`).
 
-use gpui::{App, Global, Window};
+use gpui::{App, Window};
 
-use domain::meeting::{consent_body, who, AudioApp, DesktopAudioCapability, MeetingStopReason, MEETING, RETENTION_DAYS};
-use domain::voice::{VoiceSettings, VOICE};
-
-use crate::push_to_talk::hotkey::{self, HotkeyEvent};
+use etalk::meeting::{consent_body, AudioApp, DesktopAudioCapability, MEETING, RETENTION_DAYS};
+use etalk::voice::{VoiceSettings, VOICE};
 
 /// The voice device's desktop audio as its synced doctor reports it
 /// (`doctor.desktopAudio`; absent = `none` and `[]`).
 pub(crate) fn desktop_audio_of(settings: &VoiceSettings, cx: &App) -> (DesktopAudioCapability, Vec<AudioApp>) {
     let Some(device_id) = settings.voice_device_id.as_deref() else { return Default::default() };
-    let Some(store) = sync::Store::try_global(cx) else { return Default::default() };
-    let devices = store.collections().devices.read(cx);
-    let audio = devices
-        .iter()
-        .find(|row| row.device_id.as_deref() == Some(device_id))
-        .and_then(|row| row.doctor.as_ref())
-        .and_then(|doctor| doctor.get("desktopAudio"))
-        .and_then(|audio| serde_json::from_value::<coding::device_doctor::DoctorDesktopAudio>(audio.clone()).ok());
-    audio.map(|audio| (audio.capability, audio.apps)).unwrap_or_default()
-}
-
-/// `meeting::who` of the member's settings, with the voice device's capability.
-pub(crate) fn who_of(settings: &VoiceSettings, cx: &App) -> String {
-    let (capability, _) = desktop_audio_of(settings, cx);
-    who(settings.desktop_audio, &settings.desktop_audio_apps, capability)
+    crate::talk_host::desktop_audio(device_id, cx)
 }
 
 /// THE consent dialog (`copy.consentTitle`, `consentBody`, Cancel / Start).
@@ -48,9 +30,9 @@ pub(crate) fn consent_alert(
 
 /// Open the consent dialog over `window` for the member's current settings.
 pub(crate) fn open_consent(window: &mut Window, cx: &mut App) {
-    let settings = crate::speak_replies::settings(cx);
-    let who = who_of(&settings, cx);
-    let agent = crate::voice_tray::agent_label(&settings, cx).unwrap_or_else(|| VOICE.copy.agent.clone());
+    let settings = etalk_gpui::speak_replies::settings(cx);
+    let who = etalk_gpui::meeting::who_of(&settings, cx);
+    let agent = etalk_gpui::voice_tray::agent_label(&settings, cx).unwrap_or_else(|| VOICE.copy.agent.clone());
     let spec = consent_alert(&who, &agent, |_, cx| {
         start(cx);
         true
@@ -95,35 +77,13 @@ pub(crate) fn request_consent(cx: &mut App) {
 /// Start = `voice.startMeeting {consent: true}`; the stored settings go to
 /// the speaker (the host follows them).
 pub(crate) fn start(cx: &mut App) {
-    write(true, None, cx);
+    etalk_gpui::meeting::write(etalk_gpui::VoiceWrite::StartMeeting, cx);
 }
 
-/// Stop at once (`voice.stopMeeting`, no dialog).
+/// Stop at once (`voice.stopMeeting`, no dialog). #FEED-163's automatic
+/// stops (`{reason}`) are the meeting host's own (`etalk_gpui::meeting`).
 pub(crate) fn stop(cx: &mut App) {
-    write(false, None, cx);
-}
-
-/// #FEED-163: an automatic stop (`voice.stopMeeting {reason}`; the server
-/// posts the conversation note).
-pub(crate) fn stop_for(reason: MeetingStopReason, cx: &mut App) {
-    write(false, Some(reason), cx);
-}
-
-fn write(on: bool, reason: Option<MeetingStopReason>, cx: &mut App) {
-    let Some(trpc) = crate::queries::trpc_client(cx) else { return };
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move {
-                if on { api::voice::voice_start_meeting(&trpc) } else { api::voice::voice_stop_meeting(&trpc, reason) }
-            })
-            .await;
-        let _ = cx.update(|cx| match result {
-            Ok(stored) => crate::speak_replies::set_settings(stored, cx),
-            Err(err) => crate::action_error::failed_action_err(if on { "start" } else { "stop" }, "meeting mode", &err, cx),
-        });
-    })
-    .detach();
+    etalk_gpui::meeting::write(etalk_gpui::VoiceWrite::StopMeeting(None), cx);
 }
 
 /// AUTO-STOP said on the feedback path: an info toast in the active IDE
@@ -131,55 +91,9 @@ fn write(on: bool, reason: Option<MeetingStopReason>, cx: &mut App) {
 /// notification (the IDE may live in the tray with no window) that opens
 /// Settings → Voice.
 pub(crate) fn notify_auto_stopped(hours: i64, cx: &mut App) {
-    let line = domain::meeting::auto_stopped(hours);
+    let line = etalk::meeting::auto_stopped(hours);
     crate::toast::show_in_active_window(crate::toast::Toast::info(line.clone()), cx);
     crate::os_notifications::raise_settings(crate::settings::SettingsSection::Voice, &MEETING.copy.meeting, &line, cx);
-}
-
-/// The portal shortcut id the pause hotkey binds.
-const PAUSE_ID: &str = "pause-listening";
-
-/// The live pause grab (dropping it lets the keys go).
-#[derive(Default)]
-struct PauseHotkey(Option<hotkey::Grab>);
-
-impl Global for PauseHotkey {}
-
-/// Grab `pause.shortcut` while `wanted` (the voice device, a meeting runs or
-/// screen memory is on); each press toggles `meeting::set_paused`. Letting
-/// it go resumes. Main thread (the native grab lives there).
-pub(crate) fn sync_pause_hotkey(wanted: bool, cx: &mut App) {
-    let held = cx.try_global::<PauseHotkey>().is_some_and(|pause| pause.0.is_some());
-    if wanted == held {
-        return;
-    }
-    if !wanted {
-        cx.set_global(PauseHotkey(None));
-        if crate::meeting::state(cx).paused {
-            crate::meeting::set_paused(false, cx);
-        }
-        return;
-    }
-    let (tx, rx) = flume::unbounded::<HotkeyEvent>();
-    let grab = hotkey::grab_as(&MEETING.pause.shortcut, PAUSE_ID, &MEETING.copy.pause, tx);
-    cx.set_global(PauseHotkey(Some(grab)));
-    cx.spawn(async move |cx| {
-        while let Ok(event) = rx.recv_async().await {
-            match event {
-                HotkeyEvent::Down => cx.update(|cx| {
-                    let paused = crate::meeting::state(cx).paused;
-                    crate::meeting::set_paused(!paused, cx);
-                }),
-                HotkeyEvent::Status(status) => {
-                    if let Some(reason) = status.reason() {
-                        log::info!("[meeting] the pause hotkey is not held system-wide: {reason:?}");
-                    }
-                }
-                HotkeyEvent::Up => {}
-            }
-        }
-    })
-    .detach();
 }
 
 #[cfg(test)]

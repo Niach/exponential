@@ -10,9 +10,9 @@
 use gpui::{div, px, App, Div, IntoElement as _, ParentElement as _, Styled as _, Window};
 use gpui_component::{h_flex, ActiveTheme as _};
 
-use domain::voice_call::VOICE_CALL;
+use etalk::call::VOICE_CALL;
 
-use crate::voice_overlay::{call_panel, specimen_face, CallActions};
+use etalk_gpui::voice_overlay::{call_panel, specimen_face, CallActions};
 
 pub(crate) const ID: &str = "voice-call";
 pub(crate) const OWNER: &str = "NEW-55";
@@ -20,7 +20,7 @@ pub(crate) const OWNER: &str = "NEW-55";
 /// One specimen's frame (a narrow portrait: all five in one row), tall
 /// enough for the panel at full size with a 4-line caption.
 const FRAME_W: f32 = 208.;
-const FRAME_H: f32 = crate::voice_overlay::PANEL_FULL_H + 8.;
+const FRAME_H: f32 = etalk_gpui::voice_overlay::PANEL_FULL_H + 8.;
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let actions = CallActions::none();
@@ -28,7 +28,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     for (i, specimen) in VOICE_CALL.surface_specimens.iter().enumerate() {
         let mut face = specimen_face(specimen);
         // The IDE's panel: no speaker (voice-call.json `callView(.., desktop)`).
-        face.view.buttons.retain(|button| *button != domain::voice_call::CallButton::Speaker);
+        face.view.buttons.retain(|button| *button != etalk::call::CallButton::Speaker);
         let frame = div()
             .w(px(FRAME_W))
             .h(px(FRAME_H))

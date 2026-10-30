@@ -26,8 +26,8 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm"
 
-import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUT_GRAMMAR, shortcutCanonical, wakePhraseError } from "@exp/domain-contract/voice"
-import { callAvailability } from "@exp/domain-contract/voice-call"
+import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUT_GRAMMAR, shortcutCanonical, wakePhraseError } from "@exp/etalk/voice"
+import { callAvailability } from "@exp/etalk/voice-call"
 import {
   autoStopHours,
   DESKTOP_AUDIO_VALUES,
@@ -37,7 +37,7 @@ import {
   type MeetingStopReason,
   type AudioApp,
   type DesktopAudio,
-} from "@exp/domain-contract/meeting"
+} from "@exp/etalk/meeting"
 
 import type { db as Database } from "@/db/connection"
 import { agents, devices, teamMembers, userVoiceSettings } from "@/db/schema"

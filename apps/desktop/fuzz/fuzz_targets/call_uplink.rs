@@ -1,4 +1,4 @@
-//! NEW-88: the call host's exact receive path (`call_codec::Uplink`, what
+//! NEW-88: the call host's exact receive path (`etalk_codec::Uplink`, what
 //! `steer::call_host` feeds every caller packet): any sequence numbers (in
 //! order, lost, reordered, wrapped) with any packets.
 //! Oracle: no panic, no memory error (ASan), at most two frames per packet.
@@ -9,7 +9,7 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let mut uplink = call_codec::Uplink::new(16_000).expect("a valid uplink");
+    let mut uplink = etalk_codec::Uplink::new(16_000).expect("a valid uplink");
     let mut rest = data;
     while rest.len() >= 4 {
         let seq = u16::from_be_bytes([rest[0], rest[1]]);

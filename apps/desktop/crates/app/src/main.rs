@@ -37,8 +37,8 @@ fn main() {
     }
     // NEW-53: exponentialTalk's speech worker (`__speech-worker`, one child
     // per app): the voice model and the audio device, killable by the host.
-    if talk::requested() {
-        voice::run_and_exit();
+    if etalk::requested() {
+        etalk_engine::run_and_exit();
     }
     // EXP-1099: THE logger, first — `{data_dir}/logs/exponential.log`
     // (rotated at 5 MB, 3 kept; level from `EXP_LOG`, default info). Before
@@ -208,20 +208,11 @@ fn main() {
         // closed asks this hook for a fresh one to land in.
         ui::set_open_shell_window_hook(windows::open_shell_window, cx);
         ui::os_notifications::install(cx);
-        // NEW-53: Speak replies (after the store + AuthContext, like the
-        // notifier above).
-        ui::speak_replies::install(cx);
-        // #NEW-54: push to talk (shares the speech worker; before the tray,
-        // which shows its shortcut status and Mute).
-        ui::push_to_talk::install(cx);
-        // NEW-55: caller mode (observes Speak replies; before the tray,
-        // whose Call item it answers).
-        ui::voice_call::install(cx);
-        // NEW-57: meeting mode's host (shares the speech worker and follows
-        // the settings Speak replies holds; before the tray, which reads it).
-        ui::meeting::init(cx);
-        // NEW-68: the voice tray (follows the settings speak replies holds).
-        ui::voice_tray::install(cx);
+        // #EXP-1422: eTalk (after the store + AuthContext, like the notifier
+        // above): Speak replies (NEW-53), push to talk (#NEW-54), caller mode
+        // (NEW-55), meeting mode's host (NEW-57) and the voice tray (NEW-68),
+        // in that order, with Exponential as their host.
+        ui::talk_host::install(cx);
 
         // Session bootstrap: the EXP_DEV_SERVER/EXP_DEV_TOKEN dev override
         // (headless verification, dev-only) or a warm-start resume of the
@@ -243,7 +234,7 @@ fn main() {
                 // window up (the voice tray may keep the IDE running with
                 // every window closed).
                 if urls.is_empty() {
-                    cx.update(ui::voice_tray::open_ide);
+                    cx.update(ui::talk_host::open_ide);
                 } else {
                     cx.update(|cx| ui::handle_open_urls(urls, cx));
                 }

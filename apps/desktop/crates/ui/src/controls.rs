@@ -50,9 +50,9 @@ pub(crate) use exponential_ui_gpui::controls::{
 /// [`kbd`] per `shortcutLabel` part in a [`kbd_group`]; empty =
 /// `copy.shortcutNone` as muted words.
 pub(crate) fn shortcut_keys(value: &str, cx: &App) -> Div {
-    let caps = domain::voice::shortcut_keycaps(value);
+    let caps = etalk::voice::shortcut_keycaps(value);
     if caps.is_empty() {
-        return div().text_sm().text_color(cx.theme().muted_foreground).child(domain::voice::shortcut_label(value));
+        return div().text_sm().text_color(cx.theme().muted_foreground).child(etalk::voice::shortcut_label(value));
     }
     kbd_group(caps.into_iter().map(|cap| kbd(cap, cx)))
 }

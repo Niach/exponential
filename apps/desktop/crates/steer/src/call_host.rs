@@ -27,7 +27,7 @@ pub const KIND_DOWN: u8 = 2;
 /// voice-call.json `wire.maxFrameBytes`.
 pub const MAX_FRAME_BYTES: usize = 1500;
 /// voice-call.json `constants.frameMs`.
-pub const FRAME_MS: u32 = call_codec::FRAME_MS;
+pub const FRAME_MS: u32 = etalk_codec::FRAME_MS;
 /// voice-call.json `constants.upRate`.
 pub const UP_RATE: u32 = 16_000;
 /// voice-call.json `constants.downKbps`.
@@ -116,14 +116,14 @@ pub fn parse_audio_frame(frame: &[u8]) -> Option<(u8, u16, &[u8])> {
 /// `libopus` feature).
 struct Encoder {
     rate: u32,
-    opus: call_codec::Encoder,
+    opus: etalk_codec::Encoder,
     pending: Vec<i16>,
     seq: u16,
 }
 
 impl Encoder {
     fn new(rate: u32) -> Result<Self, String> {
-        Ok(Encoder { rate, opus: call_codec::Encoder::new(rate, DOWN_BITRATE, None)?, pending: Vec::new(), seq: 0 })
+        Ok(Encoder { rate, opus: etalk_codec::Encoder::new(rate, DOWN_BITRATE, None)?, pending: Vec::new(), seq: 0 })
     }
 
     fn frame_len(&self) -> usize {
@@ -172,7 +172,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
         crate::DialError::Other(err) => err,
     })?;
     let (mut sink, mut source) = stream.split();
-    let mut decoder = call_codec::Uplink::new(UP_RATE)?;
+    let mut decoder = etalk_codec::Uplink::new(UP_RATE)?;
     let mut encoder: Option<Encoder> = None;
     loop {
         tokio::select! {
@@ -249,10 +249,10 @@ mod tests {
     use super::*;
 
     /// Wave review of #1265: the wire constants are voice-call.json's
-    /// (`domain::voice_call::VOICE_CALL`), never free-standing numbers.
+    /// (`etalk::call::VOICE_CALL`), never free-standing numbers.
     #[test]
     fn wire_constants_match_the_fixture() {
-        let spec = &*domain::voice_call::VOICE_CALL;
+        let spec = &*etalk::call::VOICE_CALL;
         assert_eq!(KIND_UP, spec.wire.kinds.up);
         assert_eq!(KIND_DOWN, spec.wire.kinds.down);
         assert_eq!(MAX_FRAME_BYTES, spec.wire.max_frame_bytes);
@@ -285,10 +285,10 @@ mod tests {
         assert_eq!(parse_audio_frame(&frames[1]).unwrap().1, 1);
         assert!(frames.iter().all(|frame| frame.len() <= MAX_FRAME_BYTES));
         // The caller's side, at 16 kHz: one frame = 320 samples.
-        let mut up = call_codec::Encoder::new(UP_RATE, 24_000, Some(10)).unwrap();
+        let mut up = etalk_codec::Encoder::new(UP_RATE, 24_000, Some(10)).unwrap();
         let mut packet = [0u8; 1500];
         let size = up.encode(&[0i16; 320], &mut packet).unwrap();
-        let mut decoder = call_codec::Uplink::new(UP_RATE).unwrap();
+        let mut decoder = etalk_codec::Uplink::new(UP_RATE).unwrap();
         assert_eq!(decoder.push(0, &packet[..size]).len(), 320);
     }
 

@@ -29,7 +29,7 @@
 //!
 //! #NEW-97: while no tray host shows that item (GNOME without AppIndicator)
 //! and the wake word is on, the rail's footer carries a voice button beside
-//! Computer instead (`domain::voice::rail_voice`): the same ghost square
+//! Computer instead (`etalk::voice::rail_voice`): the same ghost square
 //! with the settings-voice glyph, the rail's destructive dot while the wake
 //! word holds the microphone open, the tooltip "Listening for “{phrase}”"
 //! (or "Microphone muted"), and a pointer menu with the tray's rows minus
@@ -48,7 +48,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Sizable as _,
 };
 
-use domain::voice::{
+use etalk::voice::{
     agent_options, rail_voice, voice_device_options, ScreenMemoryState, TrayContext, TrayItem, VoiceAgent, VoiceDevice,
     VoiceSettings, VOICE,
 };
@@ -83,10 +83,10 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         voice_file: String::new(),
         voice_transcript: String::new(),
         // #NEW-57: a meeting runs for Zoom and Slack.
-        desktop_audio: domain::meeting::DesktopAudio::Include,
+        desktop_audio: etalk::meeting::DesktopAudio::Include,
         desktop_audio_apps: vec![
-            domain::meeting::AudioApp { id: "us.zoom.xos".into(), name: "Zoom".into() },
-            domain::meeting::AudioApp { id: "com.tinyspeck.slackmacgap".into(), name: "Slack".into() },
+            etalk::meeting::AudioApp { id: "us.zoom.xos".into(), name: "Zoom".into() },
+            etalk::meeting::AudioApp { id: "com.tinyspeck.slackmacgap".into(), name: "Slack".into() },
         ],
         meeting_started_at: Some("2026-10-28T10:00:00.000Z".into()),
         // #FEED-163: Stop after 4 hours (the default).
@@ -101,13 +101,13 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         surface::glass_row_input(glass_input(&input, window, cx)).into_any_element()
     };
     let inputs = VoiceInputs {
-        wake_phrase: field("sg-voice-settings-wake", domain::voice::wake_phrase_placeholder("Studio"), ""),
+        wake_phrase: field("sg-voice-settings-wake", etalk::voice::wake_phrase_placeholder("Studio"), ""),
         voice_file: field("sg-voice-settings-file", VOICE.copy.voice_file_placeholder.clone(), ""),
         voice_transcript: field("sg-voice-settings-transcript", VOICE.copy.voice_transcript_placeholder.clone(), ""),
     };
     let mut body = v_flex().w_full().gap_2();
     let meeting = MeetingRows {
-        capability: domain::meeting::DesktopAudioCapability::PerApp,
+        capability: etalk::meeting::DesktopAudioCapability::PerApp,
         apps: apps_control(&settings, &[], None, window, cx),
         on_meeting: None,
     };
@@ -176,7 +176,7 @@ fn rail_meeting_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
         shortcut_unavailable: false,
         shortcut_label: None,
         screen_memory: None,
-        meeting: Some(domain::voice::MeetingTrayState { on: true, who: "You, Zoom and Slack" }),
+        meeting: Some(etalk::voice::MeetingTrayState { on: true, who: "You, Zoom and Slack" }),
         pause: Some(false),
         in_call: false,
     };
@@ -192,7 +192,7 @@ fn rail_meeting_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
 fn rail_specimen(
     menu_key: &'static str,
     button_id: &'static str,
-    rail: domain::voice::RailVoice,
+    rail: etalk::voice::RailVoice,
     caption: String,
     window: &mut Window,
     cx: &mut App,

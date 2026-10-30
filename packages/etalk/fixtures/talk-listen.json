@@ -1,0 +1,231 @@
+{
+  "_": "NEW-78: what the speech worker does with the microphone while push to talk is held, before any client draws it. Only the voice device listens, so ONE implementation replays this (apps/desktop/crates/etalk-engine/src/listen.rs); the clients ×4 draw the `level` events (VoiceWave, NEW-54 b2) and never recompute them. Audio is mono 16 kHz in frames of 512 samples (32 ms, Silero's frame): every frame yields one `level` event (`level` + 8 `bands`, each 0..1, rounded to 3 decimals). A frame's level = its RMS in dBFS mapped linearly from floorDb (0) to ceilingDb (1), clamped; a band's level = the same mapping of the RMS of its share of a Hann-windowed spectrum (bandEdgesHz, log-spaced). The drawn value moves towards the measured one by `attack` per frame when rising and by `release` when falling. Speech = Silero probabilities per frame: a segment opens at a frame >= threshold, a run of frames below negThreshold starts the silence (frames between the two thresholds keep the segment open), minSilenceMs of silence closes it, a segment with less than minSpeechMs of speech is dropped, padMs of audio is kept on both sides (never reaching back into the previous segment), and a segment is cut at maxSegmentMs. Releasing the key closes the open segment where the speech ended. Every closed segment is transcribed at once (Parakeet), so release waits only for the last; on a GPU the open segment is re-transcribed every partialEveryMs for `partial` (never on the CPU). Transcripts are normalised (whitespace collapsed, no space before . , ! ? ; : % ), nothing without a letter or digit) and the segments joined with one space: empty = `empty`, else `heard`.",
+  "constants": {
+    "rate": 16000,
+    "frame": 512,
+    "floorDb": -60,
+    "ceilingDb": -10,
+    "attack": 0.6,
+    "release": 0.2,
+    "bandEdgesHz": [80, 142.3, 253, 449.9, 800, 1422.6, 2529.8, 4498.6, 8000],
+    "threshold": 0.5,
+    "negThreshold": 0.35,
+    "minSpeechMs": 250,
+    "minSilenceMs": 300,
+    "padMs": 64,
+    "maxSegmentMs": 20000,
+    "partialEveryMs": 300
+  },
+  "levelOfRms": [
+    { "rms": 0, "level": 0 },
+    { "rms": 0.001, "level": 0 },
+    { "rms": 0.0031623, "level": 0.2 },
+    { "rms": 0.01, "level": 0.4 },
+    { "rms": 0.1, "level": 0.8 },
+    { "rms": 0.316228, "level": 1 },
+    { "rms": 1, "level": 1 }
+  ],
+  "smoothing": [
+    { "name": "rises fast, falls slowly", "from": 0, "measured": [1, 1, 0, 0], "drawn": [0.6, 0.84, 0.672, 0.5376] },
+    { "name": "holds a steady level", "from": 0.5, "measured": [0.5, 0.5], "drawn": [0.5, 0.5] },
+    { "name": "settles towards silence", "from": 1, "measured": [0, 0, 0, 0, 0], "drawn": [0.8, 0.64, 0.512, 0.4096, 0.32768] }
+  ],
+  "normalize": [
+    { "in": "  Move EXP thirteen  sixty nine to done . ", "out": "Move EXP thirteen sixty nine to done." },
+    { "in": "Hallo , Welt !", "out": "Hallo, Welt!" },
+    { "in": "Setz die Priorität auf hoch.", "out": "Setz die Priorität auf hoch." },
+    { "in": "Raise it to 50 %", "out": "Raise it to 50%" },
+    { "in": "Say (hello) now", "out": "Say (hello) now" },
+    { "in": ".", "out": "" },
+    { "in": " - ", "out": "" },
+    { "in": "", "out": "" }
+  ],
+  "join": [
+    { "parts": ["Move the issue.", "", " To done. "], "out": "Move the issue. To done." },
+    { "parts": ["", "  "], "out": "" }
+  ],
+  "segments": [
+    { "name": "one phrase", "probabilities": [[0.1, 10], [0.9, 20], [0.1, 15]], "segments": [[8, 32]] },
+    { "name": "a blip shorter than minSpeech is dropped", "probabilities": [[0.1, 10], [0.9, 5], [0.1, 20]], "segments": [] },
+    { "name": "frames between the thresholds keep the segment open", "probabilities": [[0.9, 10], [0.4, 12], [0.9, 10], [0.1, 12]], "segments": [[0, 34]] },
+    { "name": "two phrases; the second's padding stops at the first's end", "probabilities": [[0.9, 10], [0.1, 10], [0.9, 10], [0.1, 10]], "segments": [[0, 12], [18, 32]] },
+    { "name": "released mid-phrase", "probabilities": [[0.1, 5], [0.9, 12]], "segments": [[3, 17]] },
+    { "name": "released in a pause shorter than minSilence", "probabilities": [[0.9, 10], [0.1, 4]], "segments": [[0, 12]] },
+    { "name": "a tap without speech", "probabilities": [[0.1, 8]], "segments": [] },
+    { "name": "a long monologue is cut at maxSegment", "probabilities": [[0.9, 1300]], "segments": [[0, 625], [625, 1250], [1250, 1300]] }
+  ],
+  "wake": {
+    "_": "#NEW-56 (voice plan V7, approved 2026-10-27): the wake word, with NO wake-word model. While it is on (the voice device, an agent picked, Wake word on, the tray's Mute off) the speech worker keeps the microphone open and Silero scoring it (the segment rules above); in silence that is all it does. The start of every speech segment is transcribed ONCE by the resident Parakeet, a window sized to the phrase (`window`: windowBaseMs + windowPerLetterMs × the phrase's letters, clamped to windowMinMs … windowMaxMs; `Hey Studio` = 9 letters = 1500 ms; owner decision 2026-10-27: a 2 s window cost 29 % of a CPU core under continuous talk): as soon as the open segment is that long, or when a shorter segment closes (`checks`: [start, end) in frames, padding included, one per segment; a dropped segment is never checked; a segment cut at maxSegmentMs is a new segment). MATCH (`match`): the transcript's `words` are its runs of letters and digits, lowercased, the accents Parakeet writes folded to ASCII (ä→a, ö→o, ü→u, ß→ss, é→e …), an apostrophe joining (What's = whats), anything else separating. The phrase (Settings → Voice `wakePhrase`, empty = `Hey {agent}`) must OPEN the segment: its letters with the spaces dropped are compared (Levenshtein) with the transcript's first 1 … n+2 words joined (n = the phrase's words), the closest wins, and it matches within floor(letters × maxEditRatio) edits (`Hey Studio` = 9 letters = 2 edits; a 5-letter phrase tolerates 1, so `Hey Al` hears `Hey all`: pick a longer name). MEASURED (#NEW-56, docs/talk-spike.md `Wake word false accepts`): maxEditRatio 0.25 gave 0 false accepts in 8.5 h of mixed corpus audio per language for Hey Triage, Hey Ops, Hey Studio and Hey Assistant; 1/3 would take `He assisted at it` for Hey Assistant and `Hey boss` / `Hey Oma` for Hey Ops, so it stays 0.25 (the `corpus` and `near miss a looser match would take` cases). A phrase without a letter or digit never matches. `rest` = the text after the matched words, leading punctuation and spaces dropped, its first letter capitalised (null = no match). TURN: a match is a push-to-talk key-down for one turn (worker event `woke`, then the same level / partial / heard / empty as a Listen, the capsule ×1): the segment from its padded start seeds the utterance, everything heard is joined as above and loses the phrase (`rest` again; unchanged when the longer transcript no longer opens with it), and the worker ends the turn itself (`turn`): never while a segment is open, after turnEndMs of quiet (since the last segment's padded end) once a command was heard, after noCommandMs while only the phrase was (empty: a false wake costs one capsule and sends nothing), and at maxTurnMs regardless. A push-to-talk key-down replaces a running turn (no answer for it) and borrows the open microphone; the wake word resumes after every turn and Listen. A CALL TAKES PRECEDENCE (`micOwnerCases` at the top level). NO SELF-WAKE (#1263 review): while a reply is being spoken, and for echoTailMs after it ends, every frame the microphone hears counts as the reply's: a segment whose padded start falls among those frames is never checked (no transcription), so the agent's own voice can neither wake it nor barge in on itself; a phrase said after the reply wakes as usual. Wake word off (or Mute) ends a wake turn in flight in the worker, unanswered, and a `woke` that reaches the host after the wake word was taken back is cancelled there (CancelListen), never sent. COOLDOWN (#NEW-86): for cooldownMs after a wake turn ends (answered, empty, replaced or cut at maxTurnMs) the frames the reopened scan hears count as the turn's, exactly like the echo tail: a segment whose padded start falls in the cooldown is never checked (`cooldown`: msSinceTurn = when the segment's padded start was heard, null = no wake turn yet), so a trailing phrase or an echo of the command can't open a second turn at once; a segment that began in the cooldown stays unchecked even when it runs past it, and a phrase said after the cooldown wakes as usual. A push-to-talk Listen has no cooldown. S-3 SLIDING WINDOW (2026-10-28; the wake word missed every phrase said into a segment that was already open: continuous talk, a TV, music keep Silero's segment open up to maxSegmentMs, and only its first window was ever transcribed): after the first check an OPEN segment is checked again each time it has grown windowHopMs past the previous check's end, each check covering the segment's LAST window (end = that frame, start = end - the window's frames, never before the segment's padded start), and once more when it closes if the unchecked tail is at least half a hop; at most maxChecksPerSegment checks per segment, the first included (a segment cut at maxSegmentMs is a new segment and counts again). Frames = ceil(ms / 32). The FIRST check matches exactly as above (the phrase opens the segment, maxEditRatio). A LATER check opens mid-speech, so its transcript's first words may be fragments: the phrase may start at any of its first slideSkipWords + 1 words, and it must match within floor(letters × slideEditRatio) edits (`slideMatch`: `Hey Studio` = 1 edit, a phrase under 7 letters must be exact). FALSE-ACCEPT SAFETY: #NEW-56's corpus measured 0 false accepts in 8.5 h per language for the first-window rule at 0.25; a sliding check transcribes up to maxChecksPerSegment - 1 more windows per long segment and lets the phrase start later, so it is held to the stricter 0.15 (every corpus near miss above stays a miss under it, and so do `Hey Triad` and `Hey oops`, which 0.25 takes); the corpus has NOT been re-run for the sliding rule yet (docs/talk-spike.md `Wake word false accepts` names the command), so these numbers are the conservative bound, not a measurement. CPU: a check is one Parakeet pass over ≤ windowMaxMs; continuous talk costs at most one pass per windowHopMs.",
+    "constants": { "windowBaseMs": 600, "windowPerLetterMs": 100, "windowMinMs": 1200, "windowMaxMs": 2000, "maxEditRatio": 0.25, "turnEndMs": 900, "noCommandMs": 4000, "maxTurnMs": 60000, "echoTailMs": 300, "cooldownMs": 1500, "windowHopMs": 1000, "maxChecksPerSegment": 6, "slideEditRatio": 0.15, "slideSkipWords": 3 },
+    "cooldown": [
+      { "name": "no wake turn yet", "msSinceTurn": null, "checked": true },
+      { "name": "the moment the turn ended", "msSinceTurn": 0, "checked": false },
+      { "name": "a trailing phrase", "msSinceTurn": 400, "checked": false },
+      { "name": "the last moment of the cooldown", "msSinceTurn": 1499, "checked": false },
+      { "name": "the cooldown is over", "msSinceTurn": 1500, "checked": true },
+      { "name": "a later phrase", "msSinceTurn": 10000, "checked": true }
+    ],
+    "window": [
+      { "phrase": "Hey Studio", "windowMs": 1500 },
+      { "phrase": "Hey Al", "windowMs": 1200 },
+      { "phrase": "Computer", "windowMs": 1400 },
+      { "phrase": "Hey Exponential Assistant", "windowMs": 2000 },
+      { "phrase": "", "windowMs": 1200 }
+    ],
+    "words": [
+      { "in": "Hey, Studio! What's next?", "out": ["hey", "studio", "whats", "next"] },
+      { "in": "Hallo Jürgen, wie geht’s?", "out": ["hallo", "jurgen", "wie", "gehts"] },
+      { "in": "Move NEW-78 to done.", "out": ["move", "new", "78", "to", "done"] },
+      { "in": "Straße", "out": ["strasse"] },
+      { "in": " ... ", "out": [] }
+    ],
+    "match": [
+      { "name": "the phrase and a command", "phrase": "Hey Studio", "heard": "Hey Studio, move NEW-78 to done.", "rest": "Move NEW-78 to done." },
+      { "name": "the phrase alone", "phrase": "Hey Studio", "heard": "Hey studio.", "rest": "" },
+      { "name": "punctuation between", "phrase": "Hey Studio", "heard": "Hey, Studio! What's on my board?", "rest": "What's on my board?" },
+      { "name": "one letter off", "phrase": "Hey Studio", "heard": "Hay Studio, status?", "rest": "Status?" },
+      { "name": "a plural", "phrase": "Hey Studio", "heard": "Hey Studios, what's next?", "rest": "What's next?" },
+      { "name": "written as one word", "phrase": "Hey Studio", "heard": "Heystudio what's next", "rest": "What's next" },
+      { "name": "split in three", "phrase": "Hey Studio", "heard": "Hey stu dio, open the board.", "rest": "Open the board." },
+      { "name": "a typed phrase in other case", "phrase": "hey studio", "heard": "HEY STUDIO open it", "rest": "Open it" },
+      { "name": "German, accents folded", "phrase": "Hallo Jurgen", "heard": "Hallo Jürgen, wie geht's?", "rest": "Wie geht's?" },
+      { "name": "near miss: another name", "phrase": "Hey Studio", "heard": "Hey Stewart, how are you?", "rest": null },
+      { "name": "near miss: another assistant", "phrase": "Hey Studio", "heard": "Hey Siri, set a timer.", "rest": null },
+      { "name": "near miss: a sentence that sounds alike", "phrase": "Hey Studio", "heard": "They studied it.", "rest": null },
+      { "name": "near miss: the name without the greeting", "phrase": "Hey Studio", "heard": "Studio, move it.", "rest": null },
+      { "name": "near miss: another greeting", "phrase": "Hey Studio", "heard": "Okay Studio, go.", "rest": null },
+      { "name": "near miss: the greeting alone", "phrase": "Hey Studio", "heard": "Hey.", "rest": null },
+      { "name": "the phrase must open the segment", "phrase": "Hey Studio", "heard": "I said hey Studio.", "rest": null },
+      { "name": "nothing heard", "phrase": "Hey Studio", "heard": "", "rest": null },
+      { "name": "a blank phrase never matches", "phrase": "  ", "heard": "Hey", "rest": null },
+      { "name": "a short phrase tolerates one edit", "phrase": "Hey Al", "heard": "Hey all, listen up.", "rest": "Listen up." },
+      { "name": "corpus: a Qwen voice's Triage, two edits off", "phrase": "Hey Triage", "heard": "Hey Triad.", "rest": "" },
+      { "name": "corpus: a Qwen voice's Triage, a German command", "phrase": "Hey Triage", "heard": "Hey Triash, was steht heute an?", "rest": "Was steht heute an?" },
+      { "name": "corpus: Ops heard as oops", "phrase": "Hey Ops", "heard": "Hey, oops. Move.", "rest": "Move." },
+      { "name": "corpus: Ops heard as ups, a German command", "phrase": "Hey Ops", "heard": "Hey Ups, was steht heute an?", "rest": "Was steht heute an?" },
+      { "name": "corpus: Assistant in German spelling", "phrase": "Hey Assistant", "heard": "Hey Assistent! Was steht?", "rest": "Was steht?" },
+      { "name": "corpus: Studio said fast", "phrase": "Hey Studio", "heard": "Hey studio! What's up?", "rest": "What's up?" },
+      { "name": "corpus near miss: an audiobook line four edits from Assistant", "phrase": "Hey Assistant", "heard": "He assisted at it, but", "rest": null },
+      { "name": "corpus near miss: an audiobook line four edits from Assistant, again", "phrase": "Hey Assistant", "heard": "He was sitting there with his head down to the", "rest": null },
+      { "name": "near miss a looser match would take: Hey boss", "phrase": "Hey Ops", "heard": "Hey boss, got a minute?", "rest": null },
+      { "name": "near miss a looser match would take: Hey Oma", "phrase": "Hey Ops", "heard": "Hey Oma, wie geht's?", "rest": null },
+      { "name": "near miss a looser match would take: Hey Tracy", "phrase": "Hey Triage", "heard": "Hey Tracy, over here.", "rest": null },
+      { "name": "near miss a looser match would take: a fused greeting", "phrase": "Hey Triage", "heard": "Hatrige", "rest": null }
+    ],
+    "slideMatch": [
+      { "name": "a phrase after a few words of a long segment", "phrase": "Hey Studio", "heard": "ing and then hey studio, move it.", "rest": "Move it." },
+      { "name": "a filler word first", "phrase": "Hey Studio", "heard": "so hey Studio, what's next?", "rest": "What's next?" },
+      { "name": "one letter off is still within the stricter ratio", "phrase": "Hey Studio", "heard": "yeah hay Studio status", "rest": "Status" },
+      { "name": "split in three", "phrase": "Hey Studio", "heard": "the hey stu dio open the board", "rest": "Open the board" },
+      { "name": "two edits pass the first window but not a sliding one", "phrase": "Hey Triage", "heard": "and hey Triad.", "rest": null },
+      { "name": "a short phrase must be exact mid-segment", "phrase": "Hey Ops", "heard": "right hey oops move it", "rest": null },
+      { "name": "too deep into the window", "phrase": "Hey Studio", "heard": "we talked about this yesterday and hey studio", "rest": null },
+      { "name": "a sentence that sounds alike", "phrase": "Hey Studio", "heard": "so they studied it", "rest": null },
+      { "name": "the exact phrase mid-segment", "phrase": "Hey Ops", "heard": "okay so hey ops what's open", "rest": "What's open" }
+    ],
+    "checks": [
+      { "windowMs": 2000, "name": "a short segment is checked when it closes", "probabilities": [[0.0, 10], [0.9, 20], [0.0, 20]], "checks": [[8, 32]] },
+      { "windowMs": 2000, "name": "S-3: a long segment is checked at windowMs, then its last windowMs every windowHopMs, then its tail when it closes", "probabilities": [[0.0, 10], [0.9, 120], [0.0, 20]], "checks": [[8, 71], [40, 103], [69, 132]] },
+      { "windowMs": 2000, "name": "two segments, two checks", "probabilities": [[0.0, 5], [0.9, 15], [0.0, 15], [0.9, 30], [0.0, 15]], "checks": [[3, 22], [33, 67]] },
+      { "windowMs": 2000, "name": "too short to be speech: no check", "probabilities": [[0.0, 5], [0.9, 5], [0.0, 30]], "checks": [] },
+      { "windowMs": 2000, "name": "silence: no check", "probabilities": [[0.0, 300]], "checks": [] },
+      { "windowMs": 2000, "name": "a monologue cut at maxSegmentMs: at most maxChecksPerSegment checks, then the new segment is checked again", "probabilities": [[0.9, 700], [0.0, 20]], "checks": [[0, 63], [32, 95], [64, 127], [96, 159], [128, 191], [160, 223], [625, 688]] },
+      { "windowMs": 1500, "name": "a 1.5 s window checks sooner; a tail under half a hop is not checked again", "probabilities": [[0.0, 10], [0.9, 120], [0.0, 20]], "checks": [[8, 55], [40, 87], [72, 119]] }
+    ],
+    "turn": [
+      { "name": "still talking", "open": true, "quietMs": 0, "command": true, "elapsedMs": 5000, "over": false },
+      { "name": "a short pause after the command", "open": false, "quietMs": 600, "command": true, "elapsedMs": 5000, "over": false },
+      { "name": "the command ended", "open": false, "quietMs": 900, "command": true, "elapsedMs": 5000, "over": true },
+      { "name": "only the phrase, waiting for the command", "open": false, "quietMs": 3000, "command": false, "elapsedMs": 4000, "over": false },
+      { "name": "only the phrase, nobody went on", "open": false, "quietMs": 4000, "command": false, "elapsedMs": 5000, "over": true },
+      { "name": "the longest turn ends even mid-sentence", "open": true, "quietMs": 0, "command": true, "elapsedMs": 60000, "over": true }
+    ]
+  },
+  "micOwnerCases": {
+    "_": "#NEW-56 + NEW-55 (#1265 review): who owns the voice device's microphone. ONE owner at a time, never two capture streams: `wake` (the wake word's scan), `listen` (a push-to-talk Listen or a wake turn, which borrows the scan's microphone), `call` (a local call, behind its echo canceller), `meeting` (NEW-57, meeting.json MICROPHONE: the meeting's `you` channel, beside the desktop audio) or null (closed; a REMOTE call hears the caller's stream and keeps the device's microphone closed). A CALL TAKES PRECEDENCE: Call closes the wake word's microphone (a wake turn in flight is replaced, unanswered), the wake scan pauses for the WHOLE call (a phrase said into a local call is the call's utterance, `said`, never a `woke`; Wake handed over during a call is kept and waits), and it comes back after Hangup; a push-to-talk Listen during a call is refused at once (`empty`: nothing heard, nothing sent, the call and its reply go on). Steps in order: `do` = wake (the host hands the phrase) | call | remoteCall | hangup | listen (a key-down) | phrase (the person says the wake phrase into the device) | meeting (the host starts one) | meetingStop; `mic` = the owner once the step settled; `answer` = what the step produced: woke | said | empty | flush (a meeting flush trigger: the phrase opening a `you` segment) | refused (a call during a meeting, `failed.meeting`) | null (nothing); `flush: true` = the step also produced a flush trigger (a push-to-talk Listen during a meeting is answered `empty` and flushes). NEW-57: a MEETING owns the microphone like a call: the wake scan pauses for it (the phrase said into it is a flush trigger, never a `woke`), a Listen during it flushes, a Call is refused and the meeting goes on, a meeting asked for during a call waits for Hangup, and the scan comes back after meetingStop. Replayed by the speech worker's tests (apps/desktop/crates/etalk-engine/src/listener.rs).",
+    "cases": [
+      { "name": "a call pauses the wake scan; Hangup resumes it", "steps": [
+        { "do": "wake", "mic": "wake", "answer": null },
+        { "do": "call", "mic": "call", "answer": null },
+        { "do": "phrase", "mic": "call", "answer": "said" },
+        { "do": "hangup", "mic": "wake", "answer": null },
+        { "do": "phrase", "mic": "listen", "answer": "woke" }
+      ] },
+      { "name": "push to talk during a call is refused", "steps": [
+        { "do": "wake", "mic": "wake", "answer": null },
+        { "do": "call", "mic": "call", "answer": null },
+        { "do": "listen", "mic": "call", "answer": "empty" },
+        { "do": "phrase", "mic": "call", "answer": "said" },
+        { "do": "hangup", "mic": "wake", "answer": null }
+      ] },
+      { "name": "a call replaces a wake turn in flight, unanswered", "steps": [
+        { "do": "wake", "mic": "wake", "answer": null },
+        { "do": "phrase", "mic": "listen", "answer": "woke" },
+        { "do": "call", "mic": "call", "answer": null },
+        { "do": "hangup", "mic": "wake", "answer": null }
+      ] },
+      { "name": "a remote call keeps the device's microphone closed", "steps": [
+        { "do": "wake", "mic": "wake", "answer": null },
+        { "do": "remoteCall", "mic": null, "answer": null },
+        { "do": "listen", "mic": null, "answer": "empty" },
+        { "do": "hangup", "mic": "wake", "answer": null }
+      ] },
+      { "name": "the wake word turned on during a call waits for Hangup", "steps": [
+        { "do": "call", "mic": "call", "answer": null },
+        { "do": "wake", "mic": "call", "answer": null },
+        { "do": "hangup", "mic": "wake", "answer": null }
+      ] },
+      { "name": "NEW-57 a meeting owns the microphone: the phrase and push to talk flush, a call is refused", "steps": [
+        { "do": "wake", "mic": "wake", "answer": null },
+        { "do": "meeting", "mic": "meeting", "answer": null },
+        { "do": "phrase", "mic": "meeting", "answer": "flush" },
+        { "do": "listen", "mic": "meeting", "answer": "empty", "flush": true },
+        { "do": "call", "mic": "meeting", "answer": "refused" },
+        { "do": "meetingStop", "mic": "wake", "answer": null }
+      ] },
+      { "name": "NEW-57 a meeting asked for during a call waits for Hangup", "steps": [
+        { "do": "call", "mic": "call", "answer": null },
+        { "do": "meeting", "mic": "call", "answer": null },
+        { "do": "hangup", "mic": "meeting", "answer": null },
+        { "do": "meetingStop", "mic": null, "answer": null }
+      ] }
+    ]
+  },
+  "echoGate": {
+    "_": "#NEW-92 (decision on #NEW-9's thread, 2026-10-27): a LOCAL call (the voice device's own microphone next to its own speakers; DESKTOP ONLY: phones and web capture with the OS echo canceller, so a remote call never passes here) hears the agent's reply through the worker's echo canceller, which needs a few seconds of reply to converge. (1) ONE OUTPUT STREAM PER CALL: the voice device plays every reply of the call on one stream, open from the first reply to Hangup and playing silence in between, and the canceller's reference is what that stream hands the device (silence included), so the echo stays one fixed delay behind its reference and the canceller keeps its converged delay across replies (a player per reply moved it by tens of ms each time and the canceller fell back to ~0 dB). (2) The BARGE-IN GATE, on the canceller's output only (never the raw microphone). Per 32 ms frame: `level` = the frame's level after the canceller (dBFS) and `reference` = the reply's reference ENVELOPE, its loudest 32 ms block over the last echoWindowMs (covers the echo's delay and the room's tail). A reply is AUDIBLE while reference >= replyFloorDb. While nothing is audible every frame at or above `threshold` counts, and bargeInMs of counted frames in the open utterance is the barge-in (voice-call.json `bargeInMs`). Every audible frame adds `level - reference` to the call's history (its last echoFloorFrames); the ECHO FLOOR = the history's median (sorted, the element at index length/2), or initialFloorDb while it holds fewer than echoFloorMinFrames; it tracks how well the canceller removes the echo, so the gate is strict before convergence and again after a divergence. While a reply is audible a frame counts only when it is at or above `threshold` AND, once the floor is at or below convergedFloorDb (CONVERGED), `level - reference` >= echo floor + marginDb (the floor as it stood before this frame); while the floor is above convergedFloorDb (not converged yet, including while it is initialFloorDb) it counts only when `level` >= unconvergedMicDb, an ABSOLUTE microphone level (#1281 review: the reference's dBFS and the microphone's sit on unrelated gains, the output volume and the microphone's, so before the floor measured their relation a margin over the reference means nothing), and the barge-in needs unconvergedBargeInMs of counted frames. A pause that closes the utterance starts the count again. The floor learns from every audible frame, speech or not, EXCEPT a frame that counts within the first echoFloorHoldMs of its utterance (that is the member, who must never raise the bar against themself; after it a canceller that diverged still teaches the floor). An utterance heard while a reply was audible that never became a barge-in is the reply's echo: never transcribed, no partial, never said. `bargeInCases`: `frames` = runs of [probability, level, reference (null = nothing audible), count], followed in the replay by closing frames [0.1, -60, the last run's reference] that close it (S-3: the call's minSilenceMs, 700 ms = 22 frames; 10 before); `speechStartedAt` = the 0-based frame that emits speechStarted, null = none; `said` = whether the utterance is said. (3) The ECHO TEXT RULE: a finished utterance (and a partial) whose words are the reply's own is dropped, never said nor sent as a turn, UNLESS it barged in over the reply (#1281 review: then it is the member, whatever it repeats; and an utterance heard over the reply that never barged in is never transcribed, so the rule reads what is heard after a reply, within its hold): words = lower case, letters and digits only (`I've` = `ive`); it is the echo when it has at least echoTextMinWords words (a short answer like \"merge it\" to \"Should I merge it or close it?\" is the member's) and at least echoTextCoverage of its words appear IN ORDER in one sentence of the call's last two replies (voice.json `speechChunkCases` with streaming true: the reply's sentences) or in two neighbouring ones (a segment can straddle a boundary); a reply's sentences count from its start until spokenHoldMs after it ended. `echoTextCases`. S-3 REVIEW (2026-10-28, \"it does not detect my speech\" on a headset): the gate ONLY applies while the call's reply is audible (reference >= replyFloorDb: the output stream's own samples, so silence between replies and a remote call are never gated) and, absolute, only until the floor converged; unconvergedMicDb stays -16 dBFS because before convergence a laptop's speaker echo reaches the microphone near the reference's level (the `before convergence the echo at the reference's level` case), and a lower bar would let that echo barge in on itself. A HEADSET has no echo path: while the member is silent every audible frame teaches the floor about -40 dB (e.g. headset noise near -60 dBFS against a -20 dBFS reference), so it converges after echoFloorMinFrames (8 frames, 256 ms) and from then a voice counts by the margin, at any level. What dropped a headset was the order of events: the member answering during the very first reply, before 256 ms of their silence existed. The call's spoken greeting (voice-call.json `copy.greeting`, played on the call's ONE output stream) is the first reply, so the canceller and the floor converge while the device says Hello?, before the member's first turn. And an utterance that began while the reply was audible keeps counting after the reply goes silent: bargeInMs of counted frames after it ended make it speech (speechStarted) and it is said (`bargeInCases` `S-3`), never dropped as the reply's echo.",
+    "constants": { "replyFloorDb": -50, "echoWindowMs": 500, "marginDb": 12, "echoFloorFrames": 64, "echoFloorMinFrames": 8, "echoFloorHoldMs": 2000, "initialFloorDb": 0, "convergedFloorDb": -20, "bargeInMs": 250, "unconvergedBargeInMs": 500, "unconvergedMicDb": -16, "echoTextCoverage": 0.7, "echoTextMinWords": 4, "spokenHoldMs": 3000 },
+    "bargeInCases": [
+      { "name": "nothing audible: 250 ms of speech barges in", "frames": [[0.9, -30, null, 10]], "speechStartedAt": 7, "said": true },
+      { "name": "nothing audible: a quiet voice barges in too", "frames": [[0.9, -55, null, 10]], "speechStartedAt": 7, "said": true },
+      { "name": "before convergence the echo at the reference's level never barges in", "frames": [[0.9, -20, -20, 60]], "speechStartedAt": null, "said": false },
+      { "name": "before convergence a voice at -6 dBFS barges in after 500 ms", "frames": [[0.9, -20, -20, 20], [0.9, -6, -20, 20]], "speechStartedAt": 35, "said": true },
+      { "name": "before convergence a near voice barges in under a louder reference", "frames": [[0.9, -12, -6, 20]], "speechStartedAt": 15, "said": true },
+      { "name": "before convergence a voice under unconvergedMicDb never counts", "frames": [[0.9, -20, -40, 40]], "speechStartedAt": null, "said": false },
+      { "name": "converged: the residual under floor + margin never barges in", "frames": [[0.1, -60, -20, 20], [0.9, -50, -20, 40]], "speechStartedAt": null, "said": false },
+      { "name": "converged: the member over the residual barges in after 250 ms", "frames": [[0.1, -60, -20, 20], [0.9, -25, -20, 10]], "speechStartedAt": 27, "said": true },
+      { "name": "converged: residual frames between the member's do not count", "frames": [[0.1, -60, -20, 20], [0.9, -25, -20, 4], [0.9, -60, -20, 3], [0.9, -25, -20, 6]], "speechStartedAt": 30, "said": true },
+      { "name": "a diverged canceller is strict again once the floor rose", "frames": [[0.1, -60, -20, 20], [0.1, -20, -20, 64], [0.9, -20, -20, 30]], "speechStartedAt": null, "said": false },
+      { "name": "the member talking over an unconverged reply never raises the floor against themself", "frames": [[0.1, -20, -20, 8], [0.9, -6, -20, 30]], "speechStartedAt": 23, "said": true },
+      { "name": "a pause that closes the utterance starts the count again", "frames": [[0.9, -30, null, 5], [0.1, -60, null, 25], [0.9, -30, null, 10]], "speechStartedAt": 37, "said": true },
+      { "name": "S-3: the member answering over the reply's tail is said once the reply went silent", "frames": [[0.9, -30, -20, 10], [0.9, -30, null, 10]], "speechStartedAt": 17, "said": true },
+      { "name": "unvoiced frames never count, however loud", "frames": [[0.4, -10, null, 30]], "speechStartedAt": null, "said": false }
+    ],
+    "echoTextCases": [
+      { "name": "the sentence being spoken", "heard": "I've looked through the changes and the tests are passing cleanly now.", "spoken": ["Good morning.", "I've looked through the changes, and the tests are passing cleanly now.", "Just tell me what you need next."], "echo": true },
+      { "name": "a fragment of it", "heard": "the tests are passing cleanly", "spoken": ["Good morning.", "I've looked through the changes, and the tests are passing cleanly now.", "Just tell me what you need next."], "echo": true },
+      { "name": "across two neighbouring sentences", "heard": "Cleanly now. Just tell me", "spoken": ["Good morning.", "I've looked through the changes, and the tests are passing cleanly now.", "Just tell me what you need next."], "echo": true },
+      { "name": "a transcription slip or two", "heard": "I looked through the change and the tests are passing clearly now.", "spoken": ["Good morning.", "I've looked through the changes, and the tests are passing cleanly now.", "Just tell me what you need next."], "echo": true },
+      { "name": "German", "heard": "Ich habe mir die Änderungen angesehen", "spoken": ["Guten Morgen.", "Ich habe mir die Änderungen angesehen, und die Tests laufen jetzt sauber durch.", "Sag mir einfach, was du als Nächstes brauchst."], "echo": true },
+      { "name": "the member interjects", "heard": "Wait, stop for a second.", "spoken": ["Good morning.", "I've looked through the changes, and the tests are passing cleanly now.", "Just tell me what you need next."], "echo": false },
+      { "name": "the member answers with some of the reply's words", "heard": "No, the tests are not passing on my machine.", "spoken": ["Good morning.", "I've looked through the changes, and the tests are passing cleanly now.", "Just tell me what you need next."], "echo": false },
+      { "name": "words of two sentences that are not neighbours", "heard": "Good morning, what do you need next?", "spoken": ["Good morning.", "I've looked through the changes, and the tests are passing cleanly now.", "Just tell me what you need next."], "echo": false },
+      { "name": "no reply plays", "heard": "Good morning.", "spoken": [], "echo": false },
+      { "name": "a short answer: merge it", "heard": "Merge it.", "spoken": ["Should I merge it or close it?"], "echo": false },
+      { "name": "a short answer: close it", "heard": "close it", "spoken": ["Should I merge it or close it?"], "echo": false },
+      { "name": "a short answer: yes deploy it", "heard": "Yes, deploy it.", "spoken": ["The build is green.", "Yes, deploy it now, or wait?"], "echo": false },
+      { "name": "a short answer: stop", "heard": "Stop.", "spoken": ["I'll stop the deploy if you want."], "echo": false },
+      { "name": "four of the reply's words are its echo", "heard": "merge it or close", "spoken": ["Should I merge it or close it?"], "echo": true },
+      { "name": "nothing but punctuation", "heard": ".", "spoken": ["Good morning."], "echo": false }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import fixture from "@exp/domain-contract/fixtures/voice-call.json"
-import type { CallAvailabilityInput } from "@exp/domain-contract/voice-call"
+import fixture from "@exp/etalk/fixtures/voice-call.json"
+import type { CallAvailabilityInput } from "@exp/etalk/voice-call"
 
 import type { DeviceDoctor } from "@/db/schema"
 import { callSpeechOf, webCallAvailability, webCallInput, type CallDeviceRowLike } from "./availability"

@@ -198,22 +198,22 @@ pub(crate) struct WakeRow {
     /// An agent is picked.
     pub agent: bool,
     /// `push_to_talk::wake_state` (None = not reported yet).
-    pub state: Option<domain::voice::WakeState>,
+    pub state: Option<etalk::voice::WakeState>,
 }
 
 /// S-3: the `wake` row's state and detail: ok while listening, else off;
 /// the detail is the device's own `wake_detail` (always online here).
 pub(crate) fn wake_row(row: WakeRow) -> (bool, String) {
     let context =
-        domain::voice::WakeDetailContext { wake_word: true, agent: row.agent, online: true, device: "", state: row.state };
-    let listening = row.agent && row.state == Some(domain::voice::WakeState::Listening);
-    (listening, domain::voice::wake_detail(&context).unwrap_or_default())
+        etalk::voice::WakeDetailContext { wake_word: true, agent: row.agent, online: true, device: "", state: row.state };
+    let listening = row.agent && row.state == Some(etalk::voice::WakeState::Listening);
+    (listening, etalk::voice::wake_detail(&context).unwrap_or_default())
 }
 
 /// meeting.json: the live app names ride the heartbeat only on the voice
 /// device, while Desktop audio picks apps (`include`/`exclude`) AND the box
 /// is shared with no team (teammates read a shared box's doctor).
-pub(crate) fn reports_apps(voice_device: bool, desktop_audio: domain::meeting::DesktopAudio, shared: bool) -> bool {
+pub(crate) fn reports_apps(voice_device: bool, desktop_audio: etalk::meeting::DesktopAudio, shared: bool) -> bool {
     voice_device && desktop_audio.picks_apps() && !shared
 }
 
@@ -230,7 +230,7 @@ fn own_device_shared(device_id: &str, cx: &gpui::App) -> bool {
 }
 
 pub(crate) fn voice_rows(cx: &gpui::App) -> VoiceRows {
-    let settings = crate::speak_replies::settings(cx);
+    let settings = etalk_gpui::speak_replies::settings(cx);
     let device_id = cx
         .try_global::<crate::session::AuthContext>()
         .map(|auth| steer::persistent_device_id(&auth.data_dir));
@@ -238,14 +238,14 @@ pub(crate) fn voice_rows(cx: &gpui::App) -> VoiceRows {
     let shared = device_id.as_deref().is_none_or(|id| own_device_shared(id, cx));
     let wake_word = settings.clone().clear_on_none().wake_word;
     VoiceRows {
-        listening: device_id.as_deref().is_some_and(|id| crate::push_to_talk::listens_here(&settings, id)),
-        speech: crate::speak_replies::speech_state(cx).filter(|_| voice_device),
+        listening: device_id.as_deref().is_some_and(|id| etalk_gpui::push_to_talk::listens_here(&settings, id)),
+        speech: crate::talk_host::speech_state(cx).filter(|_| voice_device),
         wake: (voice_device && settings.wake_word).then(|| WakeRow {
             agent: settings.agent_id.is_some(),
-            state: if wake_word { crate::push_to_talk::wake_state(cx) } else { None },
+            state: if wake_word { etalk_gpui::push_to_talk::wake_state(cx) } else { None },
         }),
         voice_device,
-        desktop_audio: voice_device && settings.desktop_audio != domain::meeting::DesktopAudio::Off,
+        desktop_audio: voice_device && settings.desktop_audio != etalk::meeting::DesktopAudio::Off,
         apps: reports_apps(voice_device, settings.desktop_audio, shared),
     }
 }
@@ -272,15 +272,15 @@ pub(crate) fn add_desktop_audio(doctor: &mut DeviceDoctor, rows: VoiceRows) {
     if !rows.voice_device {
         return;
     }
-    let capability = match talk::apps::capability() {
-        talk::apps::Capability::PerApp => domain::meeting::DesktopAudioCapability::PerApp,
-        talk::apps::Capability::System => domain::meeting::DesktopAudioCapability::System,
-        talk::apps::Capability::None => domain::meeting::DesktopAudioCapability::None,
+    let capability = match etalk::apps::capability() {
+        etalk::apps::Capability::PerApp => etalk::meeting::DesktopAudioCapability::PerApp,
+        etalk::apps::Capability::System => etalk::meeting::DesktopAudioCapability::System,
+        etalk::apps::Capability::None => etalk::meeting::DesktopAudioCapability::None,
     };
     let apps = if rows.apps {
-        talk::apps::live()
+        etalk::apps::live()
             .into_iter()
-            .map(|app| domain::meeting::AudioApp { id: app.id, name: app.name })
+            .map(|app| etalk::meeting::AudioApp { id: app.id, name: app.name })
             .collect()
     } else {
         Vec::new()
@@ -290,27 +290,27 @@ pub(crate) fn add_desktop_audio(doctor: &mut DeviceDoctor, rows: VoiceRows) {
         return;
     }
     let state = match capability {
-        _ if talk::apps::permission() == Some(false) => device_doctor::DesktopAudioState::NotGranted,
-        domain::meeting::DesktopAudioCapability::PerApp => device_doctor::DesktopAudioState::PerApp,
-        domain::meeting::DesktopAudioCapability::System => device_doctor::DesktopAudioState::System,
-        domain::meeting::DesktopAudioCapability::None => device_doctor::DesktopAudioState::None,
+        _ if etalk::apps::permission() == Some(false) => device_doctor::DesktopAudioState::NotGranted,
+        etalk::meeting::DesktopAudioCapability::PerApp => device_doctor::DesktopAudioState::PerApp,
+        etalk::meeting::DesktopAudioCapability::System => device_doctor::DesktopAudioState::System,
+        etalk::meeting::DesktopAudioCapability::None => device_doctor::DesktopAudioState::None,
     };
     device_doctor::add_desktop_audio(doctor, state);
 }
 
 /// NEW-78: the IDE's `microphone` row, appended only while THIS device
 /// listens (`push_to_talk::listens_here`); the CLI daemon never adds it.
-/// Probes the OS (`talk::microphone`, a `pactl` run on Linux): background
+/// Probes the OS (`etalk::microphone`, a `pactl` run on Linux): background
 /// executor only. The mapping lives here because coding never depends on talk.
 pub(crate) fn add_microphone_row(doctor: &mut DeviceDoctor, listening: bool) {
     if !listening {
         return;
     }
-    let state = match talk::microphone::probe() {
-        talk::microphone::Microphone::Granted => device_doctor::MicrophoneState::Granted,
-        talk::microphone::Microphone::NotGranted => device_doctor::MicrophoneState::NotGranted,
-        talk::microphone::Microphone::NoDevice => device_doctor::MicrophoneState::NoDevice,
-        talk::microphone::Microphone::NeedsRuntime => device_doctor::MicrophoneState::NeedsRuntime,
+    let state = match etalk::microphone::probe() {
+        etalk::microphone::Microphone::Granted => device_doctor::MicrophoneState::Granted,
+        etalk::microphone::Microphone::NotGranted => device_doctor::MicrophoneState::NotGranted,
+        etalk::microphone::Microphone::NoDevice => device_doctor::MicrophoneState::NoDevice,
+        etalk::microphone::Microphone::NeedsRuntime => device_doctor::MicrophoneState::NeedsRuntime,
     };
     device_doctor::add_microphone(doctor, state);
 }
@@ -765,7 +765,7 @@ pub(crate) fn install_url(key: &str) -> Option<&'static str> {
         KEY_GIT => Some("https://git-scm.com/downloads"),
         "claude" => Some("https://code.claude.com/docs/en/quickstart#step-1-install-claude-code"),
         // NEW-54: the Visual C++ runtime the Windows CPU transcriber needs.
-        KEY_MICROPHONE => Some(talk::microphone::VC_RUNTIME_URL),
+        KEY_MICROPHONE => Some(etalk::microphone::VC_RUNTIME_URL),
         // EXP-1232: codex is a managed download — its row never offers Install.
         _ => None,
     }
@@ -856,7 +856,7 @@ pub(crate) fn run_local_action(key: &str, action: DoctorAction, _window: &mut Wi
 /// Privacy → Microphone.
 fn grant_microphone(cx: &mut App) {
     let (answered, answer) = std::sync::mpsc::channel::<bool>();
-    let asked = talk::microphone::request_access(move |granted| {
+    let asked = etalk::microphone::request_access(move |granted| {
         let _ = answered.send(granted);
     });
     if !asked {
@@ -883,7 +883,7 @@ fn grant_microphone(cx: &mut App) {
 /// still not granted = System Settings → Privacy → Audio Recording.
 fn grant_desktop_audio(cx: &mut App) {
     cx.spawn(async move |cx| {
-        let granted = cx.background_executor().spawn(async move { talk::apps::request_permission() }).await;
+        let granted = cx.background_executor().spawn(async move { etalk::apps::request_permission() }).await;
         let _ = cx.update(|cx| {
             if granted == Some(false) {
                 if let Some(url) = privacy_pane_url(KEY_DESKTOP_AUDIO) {
@@ -1278,7 +1278,7 @@ mod tests {
     /// device, while Desktop audio picks apps, on a box shared with no team.
     #[test]
     fn app_names_ride_the_heartbeat_only_unshared_and_picking() {
-        use domain::meeting::DesktopAudio;
+        use etalk::meeting::DesktopAudio;
         assert!(reports_apps(true, DesktopAudio::Include, false));
         assert!(reports_apps(true, DesktopAudio::Exclude, false));
         assert!(!reports_apps(true, DesktopAudio::Include, true), "a shared box never names its apps");
@@ -1291,7 +1291,7 @@ mod tests {
     /// wake detail as the text every other client shows.
     #[test]
     fn the_wake_row_carries_the_devices_wake_detail() {
-        use domain::voice::WakeState;
+        use etalk::voice::WakeState;
         assert_eq!(wake_row(WakeRow { agent: true, state: Some(WakeState::Listening) }), (true, "Listening".into()));
         assert_eq!(wake_row(WakeRow { agent: true, state: Some(WakeState::Muted) }), (false, "Microphone muted".into()));
         assert_eq!(wake_row(WakeRow { agent: true, state: None }), (false, "Starting…".into()));

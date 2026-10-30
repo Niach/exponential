@@ -1,7 +1,7 @@
 import Foundation
 
 // NEW-69 (voice V5): CALLER MODE on the phones. A port of the TS reference
-// `packages/domain-contract/src/voice-call.ts` (desktop `domain::voice_call`,
+// `packages/etalk/src/voice-call.ts` (desktop `domain::voice_call`,
 // Android `domain/VoiceCall.kt`), byte-locked by `fixtures/voice-call.json`
 // (`copy`, `testIds`, `icons`, `constants`, `wire`, `surfaceSpecimens`, every
 // `availabilityCases` and `flowCases` row, replayed by `VoiceCallTests`). The

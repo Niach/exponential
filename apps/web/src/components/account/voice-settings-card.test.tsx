@@ -11,9 +11,9 @@ import {
   VOICE_LIMITS,
   VOICE_TEST_IDS,
   wakePhrasePlaceholder,
-} from "@exp/domain-contract/voice"
-import voiceFixture from "@exp/domain-contract/fixtures/voice.json" with { type: "json" }
-import { autoStopOptions, consentBody, MEETING_COPY, MEETING_TEST_IDS } from "@exp/domain-contract/meeting"
+} from "@exp/etalk/voice"
+import voiceFixture from "@exp/etalk/fixtures/voice.json" with { type: "json" }
+import { autoStopOptions, consentBody, MEETING_COPY, MEETING_TEST_IDS } from "@exp/etalk/meeting"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // NEW-67 (`voice.json`): Settings → Voice. The device + agent pickers (None

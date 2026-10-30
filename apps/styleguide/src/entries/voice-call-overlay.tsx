@@ -1,5 +1,5 @@
-import voice from "@exp/domain-contract/fixtures/voice.json"
-import voiceCall from "@exp/domain-contract/fixtures/voice-call.json"
+import voice from "@exp/etalk/fixtures/voice.json"
+import voiceCall from "@exp/etalk/fixtures/voice-call.json"
 import { ExponentialLogo, ExponentialUiTwin, Pill, TooltipProvider, VoiceCallPillSpecimen, VoiceWave, type VoiceWaveActivity } from "@exp/ui"
 import { renderIsland } from "@exp/ui/island"
 

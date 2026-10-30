@@ -14,7 +14,7 @@ final class VoiceTests: XCTestCase {
             .deletingLastPathComponent()          // apps/ios/
             .deletingLastPathComponent()          // apps/
             .deletingLastPathComponent()          // the repo root
-            .appendingPathComponent("packages/domain-contract/fixtures/voice.json")
+            .appendingPathComponent("packages/etalk/fixtures/voice.json")
         let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
         return try XCTUnwrap(json as? [String: Any])
     }

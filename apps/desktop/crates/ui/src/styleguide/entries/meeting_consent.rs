@@ -9,7 +9,7 @@
 
 use gpui::{div, App, Div, ParentElement as _, Styled as _, Window};
 
-use domain::meeting::{who, AudioApp, DesktopAudio, DesktopAudioCapability};
+use etalk::meeting::{who, AudioApp, DesktopAudio, DesktopAudioCapability};
 
 pub(crate) const ID: &str = "meeting-consent";
 pub(crate) const OWNER: &str = "NEW-57";

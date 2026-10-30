@@ -134,16 +134,12 @@ mod navigation;
 mod oauth;
 mod onboarding;
 pub mod os_notifications;
-/// NEW-53: exponentialTalk, Speak replies (the assistant's replies read aloud).
-pub mod meeting;
-/// NEW-57: the consent dialog, start/stop and the pause hotkey.
+/// NEW-57: the consent dialog and start/stop (the meeting host itself is
+/// `etalk_gpui::meeting`).
 mod meeting_mode;
-pub mod speak_replies;
-pub mod voice_call;
-pub mod push_to_talk;
-pub mod voice_tray;
-// NEW-77: the voice overlay capsule (push to talk #NEW-54 puts it in a window).
-mod voice_overlay;
+/// #EXP-1422: Exponential as eTalk's host (the tray, push to talk, the
+/// overlay, the call UI, spoken replies and meeting mode live in `etalk-gpui`).
+pub mod talk_host;
 mod pickers;
 // EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
 mod picker;

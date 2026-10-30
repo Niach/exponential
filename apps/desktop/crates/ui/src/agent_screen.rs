@@ -189,7 +189,7 @@ pub struct AgentScreenView {
     focus_handle: FocusHandle,
     /// S-3: the in-window call panel over the conversation's body (empty
     /// unless THIS client runs a call with the agent).
-    call_panel: Entity<crate::voice_call::CallPanel>,
+    call_panel: Entity<etalk_gpui::voice_call::CallPanel>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -282,7 +282,7 @@ impl AgentScreenView {
             conv: ChannelRows::default(),
             opened_at: Instant::now(),
             focus_handle: cx.focus_handle(),
-            call_panel: cx.new(crate::voice_call::CallPanel::new),
+            call_panel: cx.new(etalk_gpui::voice_call::CallPanel::new),
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
@@ -816,21 +816,21 @@ impl AgentScreenView {
     /// the call panel; a new call focuses it too (Esc there ends it).
     fn header_call(&self, cx: &App) -> Option<AnyElement> {
         let agent_id = self.agent.as_ref()?.id.clone();
-        let copy = &domain::voice_call::VOICE_CALL.copy;
-        let here = crate::voice_call::runs_for(&agent_id, cx);
-        let reason = (!here).then(|| crate::voice_call::unavailable(cx)).flatten();
+        let copy = &etalk::call::VOICE_CALL.copy;
+        let here = etalk_gpui::voice_call::runs_for(&agent_id, cx);
+        let reason = (!here).then(|| etalk_gpui::voice_call::unavailable(cx)).flatten();
         let tooltip = reason.clone().unwrap_or_else(|| copy.call.replace("{agent}", &self.subject_name()));
         let panel = self.call_panel.read(cx).focus_handle(cx);
         let button = crate::controls::ghost_icon_button(
-            domain::voice_call::VOICE_CALL.test_ids.call.as_str(),
+            etalk::call::VOICE_CALL.test_ids.call.as_str(),
             Icon::new(registry::VOICE_CALL),
             cx,
         )
         .tooltip(tooltip)
         .disabled(reason.is_some())
         .on_click(move |_, window, cx| {
-            if !crate::voice_call::runs_for(&agent_id, cx) {
-                crate::voice_call::start(agent_id.clone(), cx);
+            if !etalk_gpui::voice_call::runs_for(&agent_id, cx) {
+                etalk_gpui::voice_call::start(agent_id.clone(), cx);
             }
             window.focus(&panel, cx);
         });

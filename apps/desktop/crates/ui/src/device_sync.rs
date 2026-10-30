@@ -312,7 +312,7 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
                 // active one (a switch mid-beat never hands A's settings to B).
                 let _ = cx.update(|cx| {
                     if crate::queries::active_account(cx).is_some_and(|active| active.id == account_id) {
-                        crate::speak_replies::set_settings(voice, cx);
+                        crate::talk_host::set_voice_settings(voice, cx);
                     }
                 });
             }
@@ -557,7 +557,7 @@ struct BeatOutcome {
     beat_again: bool,
     /// NEW-67: the member's voice settings off this beat (every beat
     /// carries them; `None` = an older server or a failed beat).
-    voice: Option<domain::voice::VoiceSettings>,
+    voice: Option<etalk::voice::VoiceSettings>,
 }
 
 impl BeatOutcome {
@@ -624,7 +624,7 @@ fn beat(
     let mut defaults_changed = false;
     let mut deferred = Vec::new();
     let mut beat_again = false;
-    let mut voice: Option<domain::voice::VoiceSettings> = None;
+    let mut voice: Option<etalk::voice::VoiceSettings> = None;
     let synced_at = coding::read_marker(&snapshot.settings_path, &snapshot.device_id).synced_at;
 
     // EXP-484: refresh whatever the poll policy says is due (keychain reads,

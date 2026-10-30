@@ -1,0 +1,32 @@
+[package]
+name = "etalk-codec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# NEW-88: the call's Opus, behind one seam. The default is `opus-rs`, a
+# pure-Rust port of libopus 1.6 (BSD-3), so no cmake or C toolchain on any
+# runner. `libopus` swaps in the reference C library, linked from the system
+# through pkg-config (Linux: `libopus-dev`; nothing is built here, no cmake):
+#
+#   cargo build -p app --features steer/libopus
+#
+# The fallback for when fuzzing finds a hole in `opus-rs` or the crate goes
+# stale; with both features on, libopus wins.
+[features]
+default = ["opus-rs"]
+opus-rs = ["dep:opus-rs"]
+libopus = ["dep:pkg-config"]
+
+[dependencies]
+opus-rs = { version = "=0.1.40", optional = true }
+log = "0.4"
+
+[build-dependencies]
+pkg-config = { version = "0.3", optional = true }
+
+
+[lints.rust]
+# cargo-fuzz builds with `--cfg fuzzing`: the panic guard steps aside there.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
