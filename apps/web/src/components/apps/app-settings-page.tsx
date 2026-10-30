@@ -73,9 +73,11 @@ export function AppSettingsPage({
     try {
       // VAPP-158: a stored grant that is no longer grantable never rides along
       // (the server refuses it), so the toggle writes grantable names only.
+      // VAPP-156: the grant names the head version on screen; a newer one
+      // (published meanwhile) refuses, the toast says so and the page resyncs.
       const kept = granted.filter((g) => g !== name)
       const next = on ? [...kept, name] : kept
-      const result = await trpc.apps.update.mutate({ id: app.id, grantedTools: next }, SKIP_ERROR_TOAST)
+      const result = await trpc.apps.update.mutate({ id: app.id, headVersion: app.headVersion, grantedTools: next }, SKIP_ERROR_TOAST)
       await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
     } catch (error) {
       failedAction(`save`, `the app`, error)
