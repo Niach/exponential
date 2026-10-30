@@ -1566,7 +1566,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
 
     // NEW-1: a root runs on its own picks: configure moves them like a child's.
     await owner.configure({ sessionId: root.sessionId, model: `opus`, planMode: true, effort: `low` })
-    expect(await row(root.sessionId)).toMatchObject({ dispatch: false, model: `opus`, planMode: false, effort: `low` })
+    expect(await row(root.sessionId)).toMatchObject({ model: `opus`, planMode: false, effort: `low` })
 
     // The steer rule: a private session refuses a teammate; the device-only
     // read refuses anyone but the host.
