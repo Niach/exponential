@@ -138,7 +138,7 @@ export function sessionIdentity(row: SessionListRow): {
       subject: row.issueTitle?.trim() || `Untitled issue`,
     }
   }
-  if (row.actionName) return { identifier: null, subject: row.actionName }
+  if (row.title) return { identifier: null, subject: row.title }
   if (row.issueId) return { identifier: null, subject: `Issue syncing…` }
   return { identifier: null, subject: `Batch run` }
 }

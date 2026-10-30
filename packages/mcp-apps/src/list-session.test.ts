@@ -68,12 +68,12 @@ describe(`row lines`, () => {
     expect(blockedBadgeLabel({ kind: `other` }, NOW)).toBe(`Blocked`)
   })
 
-  it(`names issue, action and batch runs`, () => {
+  it(`names issue, titled and batch runs`, () => {
     expect(sessionIdentity(run(`a`, { issueIdentifier: `EXP-1`, issueTitle: `Fix` }))).toEqual({
       identifier: `EXP-1`,
       subject: `Fix`,
     })
-    expect(sessionIdentity(run(`a`, { actionName: `Chat` })).subject).toBe(`Chat`)
+    expect(sessionIdentity(run(`a`, { title: `Chat` })).subject).toBe(`Chat`)
     expect(sessionIdentity(run(`a`)).subject).toBe(`Batch run`)
   })
 

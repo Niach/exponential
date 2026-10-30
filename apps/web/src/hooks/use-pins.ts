@@ -5,17 +5,15 @@ import type { PinKind } from "@exp/db-schema/domain"
 import { issueCollection, pinCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
-import type { Issue, Pin as PinRecord } from "@/db/schema"
+import type { Issue, Pin } from "@/db/schema"
 
-/** A synced pin as the client reads it (NEW-8: no `actionId`). */
-export type Pin = Omit<PinRecord, `actionId`>
+export type { Pin }
 
 // EXP-778: personal pins — the sidebar's "Pinned" group. The `pins` shape is
 // per USER (static `user_id = me`), so the collection only ever holds the
 // caller's rows; the hooks below narrow to the active team and let the
 // sidebar resolve each target against the scoped collections (an issue on a
 // trashed board, a session of a team the user left — no target, no row).
-// NEW-2/NEW-8: a pin of kind `action` (actions are gone) never resolves.
 
 /** The caller's pins in a team, in display order (sort_order ascending). */
 export function useTeamPins(teamId: string | undefined): Pin[] {

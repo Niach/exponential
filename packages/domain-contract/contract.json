@@ -360,8 +360,7 @@
   "pinKind": {
     "values": [
       "issue",
-      "session",
-      "action"
+      "session"
     ]
   },
   "issueEventType": {
@@ -450,9 +449,6 @@
   "codexEffort": {
     "values": ["minimal", "low", "medium", "high", "xhigh"]
   },
-  "actionInputType": {
-    "values": ["repo", "board", "pr", "issue"]
-  },
   "mcpTransport": {
     "values": ["http", "stdio"]
   },
@@ -510,10 +506,6 @@
     "$comment": "NEW-57 (fixtures/meeting.json): meeting-mode transcript batches the server keeps (`sessions.send {meeting: true}` stamps messages.expires_at; the watchdog prunes) and the raw segment log the voice device keeps in its own SQLite.",
     "retentionDays": 7,
     "localRetentionDays": 30
-  },
-  "actionInputs": {
-    "max": 10,
-    "maxTextLength": 4096
   },
   "startPrompt": {
     "maxLength": 16384,

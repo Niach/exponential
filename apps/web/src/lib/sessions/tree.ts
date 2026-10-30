@@ -186,8 +186,6 @@ export interface SessionListRow {
   accountEmail: string | null
   accountHealth: DeviceAgentHealth | null
   blocked: Session[`blocked`]
-  name: string | null
-  actionName: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -221,8 +219,6 @@ export async function listSessions(
       cli: sessions.cli,
       account: sessions.account,
       blocked: sessions.blocked,
-      name: sessions.name,
-      actionName: sessions.actionName,
       createdAt: sessions.createdAt,
       updatedAt: sessions.updatedAt,
     })

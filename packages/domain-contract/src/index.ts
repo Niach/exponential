@@ -243,13 +243,11 @@ export interface DomainContract {
   /** Codex reasoning-effort levels (`model_reasoning_effort`); blank is per-client. */
   codexEffort: { values: readonly string[] }
   /** Typed action-input kinds (EXP-257/EXP-259/EXP-273): repo | board | pr | issue — every one a PICK. EXP-825 retired the free-text kinds: a run's free text is the start's `prompt`. */
-  actionInputType: { values: readonly string[] }
   /** EXP-792: how a team MCP server is reached — a remote `http` endpoint or a local `stdio` command. */
   mcpTransport: { values: readonly string[] }
   /** EXP-792: how the device authenticates to it — `none`, an `oauth` sign-in, or a typed `secret`. */
   mcpAuth: { values: readonly string[] }
   /** Action-input limits — parity-locked with @exp/db-schema/domain. */
-  actionInputs: { max: number; maxTextLength: number }
   /**
    * EXP-825: the free text a start carries beside its subject (the chat
    * prompt, or additional instructions for an issue/action run), in the

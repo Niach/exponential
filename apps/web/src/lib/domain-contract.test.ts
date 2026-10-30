@@ -46,11 +46,8 @@ import {
   ISSUE_RELATION_LABELS,
   issueStatusOrder,
   CODING_SESSION_STALE_HOURS,
-  actionInputTypeValues,
   mcpAuthValues,
   mcpTransportValues,
-  MAX_ACTION_INPUTS,
-  MAX_ACTION_INPUT_TEXT,
   MAX_START_PROMPT,
   MAX_START_PROMPT_IMAGES,
   agentTriggerKindValues,
@@ -324,12 +321,7 @@ describe(`domain-contract parity`, () => {
     expect([...mcpAuthValues]).toEqual([...contract.mcpAuth.values])
   })
 
-  it(`action input types + limits match the contract (EXP-257)`, () => {
-    expect([...actionInputTypeValues]).toEqual([
-      ...contract.actionInputType.values,
-    ])
-    expect(MAX_ACTION_INPUTS).toBe(contract.actionInputs.max)
-    expect(MAX_ACTION_INPUT_TEXT).toBe(contract.actionInputs.maxTextLength)
+  it(`start prompt limits match the contract`, () => {
     // EXP-825: the start's free text + its image embeds.
     expect(MAX_START_PROMPT).toBe(contract.startPrompt.maxLength)
     expect(MAX_START_PROMPT_IMAGES).toBe(contract.startPrompt.maxImages)

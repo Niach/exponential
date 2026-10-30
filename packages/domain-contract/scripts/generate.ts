@@ -115,7 +115,6 @@ interface Contract {
   codexModel: Section
   codexEffort: Section
   deviceComputerUseDefaults: { model: string }
-  actionInputType: Section
   mcpTransport: Section
   mcpAuth: Section
   // A device's agent defaults.
@@ -126,7 +125,6 @@ interface Contract {
     codexModel: string
     codexThreadModel: string
   }
-  actionInputs: { max: number; maxTextLength: number }
   startPrompt: { maxLength: number; maxImages: number }
   agentTrigger: {
     kindValues: string[]
@@ -517,7 +515,6 @@ ${swiftStringArray("codingModelValues", contract.codingModel.values)}
 ${swiftStringArray("codingEffortValues", contract.codingEffort.values)}
 ${swiftStringArray("codexModelValues", contract.codexModel.values)}
 ${swiftStringArray("codexEffortValues", contract.codexEffort.values)}
-${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${swiftStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${swiftStringArray("mcpAuthValues", contract.mcpAuth.values)}
 ${swiftStringArray("agentTriggerKindValues", contract.agentTrigger.kindValues)}
@@ -589,8 +586,6 @@ ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)
     public static let deviceAgentDefaultsCodexModel: String = "${contract.deviceAgentDefaults.codexModel}"
     public static let deviceAgentDefaultsCodexThreadModel: String = "${contract.deviceAgentDefaults.codexThreadModel}"
     public static let deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
-    public static let actionInputsMax: Int = ${contract.actionInputs.max}
-    public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     public static let startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
     public static let agentTriggerMaxPerAgent: Int = ${contract.agentTrigger.maxPerAgent}
@@ -687,7 +682,6 @@ ${kotlinStringArray("codingModelValues", contract.codingModel.values)}
 ${kotlinStringArray("codingEffortValues", contract.codingEffort.values)}
 ${kotlinStringArray("codexModelValues", contract.codexModel.values)}
 ${kotlinStringArray("codexEffortValues", contract.codexEffort.values)}
-${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${kotlinStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${kotlinStringArray("mcpAuthValues", contract.mcpAuth.values)}
 ${kotlinStringArray("agentTriggerKindValues", contract.agentTrigger.kindValues)}
@@ -759,8 +753,6 @@ ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys
     const val deviceAgentDefaultsCodexModel: String = "${contract.deviceAgentDefaults.codexModel}"
     const val deviceAgentDefaultsCodexThreadModel: String = "${contract.deviceAgentDefaults.codexThreadModel}"
     const val deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
-    const val actionInputsMax: Int = ${contract.actionInputs.max}
-    const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     const val startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
     const val agentTriggerMaxPerAgent: Int = ${contract.agentTrigger.maxPerAgent}
@@ -859,7 +851,6 @@ ${rustStrSlice("codingModelValues", contract.codingModel.values)}
 ${rustStrSlice("codingEffortValues", contract.codingEffort.values)}
 ${rustStrSlice("codexModelValues", contract.codexModel.values)}
 ${rustStrSlice("codexEffortValues", contract.codexEffort.values)}
-${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
 ${rustStrSlice("mcpTransportValues", contract.mcpTransport.values)}
 ${rustStrSlice("mcpAuthValues", contract.mcpAuth.values)}
 ${rustStrSlice("agentTriggerKindValues", contract.agentTrigger.kindValues)}
@@ -934,8 +925,6 @@ pub const DEVICE_AGENT_DEFAULTS_THREAD_MODEL: &str = "${contract.deviceAgentDefa
 pub const DEVICE_AGENT_DEFAULTS_CODEX_MODEL: &str = "${contract.deviceAgentDefaults.codexModel}";
 pub const DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL: &str = "${contract.deviceAgentDefaults.codexThreadModel}";
 pub const DEVICE_COMPUTER_USE_DEFAULTS_MODEL: &str = "${contract.deviceComputerUseDefaults.model}";
-pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
-pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};
 pub const START_PROMPT_MAX_IMAGES: usize = ${contract.startPrompt.maxImages};
 pub const AGENT_TRIGGER_MAX_PER_AGENT: usize = ${contract.agentTrigger.maxPerAgent};

@@ -606,15 +606,11 @@ async function seedSessionTree(ctx: {
     teamId,
     rootId: id,
     depth: 0,
-    kind: `thread`,
     userId: demoId,
     deviceId: DEMO_DEVICE_ID,
     cli: `claude`,
     repositoryId: repoId,
     shared: true,
-    // Every root dispatches (threads and team agents alike): it runs on the
-    // device's thread model and hands real work to child sessions.
-    dispatch: true,
     ...extra,
   })
 
@@ -708,11 +704,6 @@ async function seedSessionTree(ctx: {
     agentSpecs.map((spec) =>
       root(DEMO_AGENT_CONVERSATION_IDS[spec.key], {
         agentId: DEMO_AGENT_IDS[spec.key],
-        // Legacy read shims (≤0.14.74 devices): kind + the agent's facets.
-        kind: `agent`,
-        name: spec.name,
-        icon: spec.icon,
-        color: spec.color,
         title: spec.name,
         deviceId: DEMO_SERVER_DEVICE_ID,
         account: `system`,
@@ -1035,15 +1026,12 @@ async function seedSessionTree(ctx: {
       ...liveState(ids.groupByAssignee),
       cli: `codex`,
       branch: `exp/APP-14`,
-      // EXP-1323: the live caption under its name.
-      caption: `Editing src/board/group-by.tsx`,
     }),
     root(ids.sortReports, {
       ...liveState(ids.sortReports),
       title: `Sort today's widget reports`,
       deviceId: DEMO_SERVER_DEVICE_ID,
       branch: `exp/FB-9`,
-      spawnedBySessionId: DEMO_AGENT_CONVERSATION_ID,
     }),
     root(ids.offlineSpike, {
       ...liveState(ids.offlineSpike),
@@ -1079,7 +1067,6 @@ async function seedSessionTree(ctx: {
     parentId: ids.coldStart,
     rootId: ids.coldStart,
     depth: 1,
-    dispatch: false,
     title: `Profile the launch path`,
     branch: `exp/APP-5`,
   })
@@ -1115,7 +1102,6 @@ async function seedSessionTree(ctx: {
     parentId: ids.coldStart,
     rootId: ids.coldStart,
     depth: 1,
-    dispatch: false,
     title: null,
     branch: `exp/APP-10`,
   })
@@ -1136,7 +1122,7 @@ async function seedSessionTree(ctx: {
     const row = issue(identifier)
     // NEW-1: a link is a row on the session that HOLDS the issue (`to` = the
     // child it was forwarded to); the root's strip is the union over its
-    // tree. `assigned_session_id` is a never-written read shim.
+    // tree.
     return {
       sessionId: extra.to ?? sessionId,
       issueId: row.id,

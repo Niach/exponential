@@ -12,7 +12,7 @@ describe(`RunsListView`, () => {
   it(`nests a child run under its parent and opens a row`, () => {
     const runs = [
       { id: `p`, status: `running`, agent: `claude`, agentBusy: true, issueIdentifier: `EXP-1`, issueTitle: `Parent` },
-      { id: `c`, status: `running`, agent: `codex`, parentSessionId: `p`, actionName: `Tidy up` },
+      { id: `c`, status: `running`, agent: `codex`, parentSessionId: `p`, title: `Tidy up` },
       { id: `e`, status: `ended`, deviceLabel: `box`, issueIdentifier: `EXP-2`, issueTitle: `Old` },
     ] as RunDetail[]
     const opened: string[] = []

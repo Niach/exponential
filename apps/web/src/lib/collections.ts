@@ -48,34 +48,6 @@ const baseUrl =
 
 const columnMapper = snakeCamelMapper()
 
-// NEW-8: the legacy columns the server drops in step 4. The shapes still
-// stream them today; the client schemas leave them out so no reader can
-// depend on them (synced rows are never validated, so present or absent
-// both decode).
-const syncedSessionSchema = selectSyncedSessionSchema.omit({
-  kind: true,
-  dispatch: true,
-  moveToDeviceId: true,
-  handoffRestoredAt: true,
-  caption: true,
-  aside: true,
-  actionId: true,
-  actionName: true,
-  actionInputs: true,
-  spawnedBySessionId: true,
-  name: true,
-  icon: true,
-  color: true,
-  triggers: true,
-  sortOrder: true,
-})
-const syncedSessionIssueSchema = selectSyncedSessionIssueSchema.omit({
-  assignedSessionId: true,
-})
-// A pin of kind `action` never resolves (actions are gone), and its
-// `actionId` is never read.
-const syncedPinSchema = selectPinSchema.omit({ actionId: true })
-
 function getShapeUrl(path: string) {
   return new URL(path, baseUrl).toString()
 }
@@ -330,7 +302,7 @@ export const pinCollection = createCollection(
   electricCollectionOptions({
     id: `pins`,
     shapeOptions: shapeOptions(`/api/shapes/pins`),
-    schema: syncedPinSchema,
+    schema: selectPinSchema,
     getKey: (item) => item.id,
   })
 )
@@ -389,7 +361,7 @@ export const sessionCollection = createCollection(
   electricCollectionOptions({
     id: `sessions`,
     shapeOptions: shapeOptions(`/api/shapes/sessions`),
-    schema: syncedSessionSchema,
+    schema: selectSyncedSessionSchema,
     getKey: (item) => item.id,
   })
 )
@@ -398,7 +370,7 @@ export const sessionIssueCollection = createCollection(
   electricCollectionOptions({
     id: `session_issues`,
     shapeOptions: shapeOptions(`/api/shapes/session-issues`),
-    schema: syncedSessionIssueSchema,
+    schema: selectSyncedSessionIssueSchema,
     getKey: (item) => item.id,
   })
 )

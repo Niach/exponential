@@ -301,8 +301,6 @@ export async function openPullRequest(args: {
   const caller = args.callerSessionId
     ? await loadSessionForUser(args.userId, args.callerSessionId)
     : null
-  // EXP-1330: a `/btw` aside is a read-only fork: it never opens a PR.
-  if (caller?.aside) fail(`BAD_REQUEST`, `An aside never opens a pull request`)
   const root = caller ? await loadRoot(caller.rootId) : null
 
   const explicitIds = args.issueIds ? [...new Set(args.issueIds)] : null

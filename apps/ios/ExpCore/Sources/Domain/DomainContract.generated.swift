@@ -32,7 +32,7 @@ public enum DomainContract {
     public static let toolKindValues: [String] = ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "script", "other"]
     public static let toolKindEditValues: [String] = ["edit", "delete", "move"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
-    public static let pinKindValues: [String] = ["issue", "session", "action"]
+    public static let pinKindValues: [String] = ["issue", "session"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed", "estimate_changed", "title_changed"]
     public static let issueRelationTypeValues: [String] = ["blocks", "parent", "duplicate", "related"]
     public static let issueRelationTypeForwardLabels: [String] = ["blocks", "parent of", "duplicate of", "related to"]
@@ -49,7 +49,6 @@ public enum DomainContract {
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
     public static let codexModelValues: [String] = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
     public static let codexEffortValues: [String] = ["minimal", "low", "medium", "high", "xhigh"]
-    public static let actionInputTypeValues: [String] = ["repo", "board", "pr", "issue"]
     public static let mcpTransportValues: [String] = ["http", "stdio"]
     public static let mcpAuthValues: [String] = ["none", "oauth", "secret"]
     public static let agentTriggerKindValues: [String] = ["schedule", "event"]
@@ -121,8 +120,6 @@ public enum DomainContract {
     public static let deviceAgentDefaultsCodexModel: String = "gpt-5.6-sol"
     public static let deviceAgentDefaultsCodexThreadModel: String = "gpt-5.6-luna"
     public static let deviceComputerUseDefaultsModel: String = "haiku"
-    public static let actionInputsMax: Int = 10
-    public static let actionInputTextMax: Int = 4096
     public static let startPromptMaxLength: Int = 16384
     public static let startPromptMaxImages: Int = 4
     public static let agentTriggerMaxPerAgent: Int = 10
@@ -221,7 +218,6 @@ public enum DomainContract {
     public static let subscriberSourceWidgetReporter: String = "widget_reporter"
     public static let pinKindIssue: String = "issue"
     public static let pinKindSession: String = "session"
-    public static let pinKindAction: String = "action"
     public static let issueEventTypeStatusChanged: String = "status_changed"
     public static let issueEventTypeAssigneeChanged: String = "assignee_changed"
     public static let issueEventTypeLabelAdded: String = "label_added"

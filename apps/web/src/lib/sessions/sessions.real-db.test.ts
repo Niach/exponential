@@ -300,7 +300,7 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
       userId: w.owner,
       input: { teamId: w.teamId, deviceId: w.deviceId, promptId: prompt!.id, text: `Web board only.` },
     })
-    expect(await row(sent.sessionId)).toMatchObject({ title: `Triage`, actionId: null, actionName: null })
+    expect(await row(sent.sessionId)).toMatchObject({ title: `Triage` })
     const [first] = await db.select({ body: messages.body }).from(messages).where(eq(messages.sessionId, sent.sessionId))
     expect(first!.body).toBe(`Triage the backlog.\n\nWeb board only.`)
     const brief = await composeSessionBrief(sent.sessionId)
@@ -345,11 +345,10 @@ describe.skipIf(!ready.ok)(`sessions.send — a root works on its own picks`, ()
       ultracode: true,
       computerUse: true,
     }
-    // The legacy shims stay unwritten.
-    expect(await row(root.sessionId)).toMatchObject({ ...picks, dispatch: false, spawnedBySessionId: null })
+    expect(await row(root.sessionId)).toMatchObject(picks)
 
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part 1` } })
-    expect(await row(child.sessionId)).toMatchObject({ ...picks, dispatch: false })
+    expect(await row(child.sessionId)).toMatchObject(picks)
     // The child's own picks win over the inherited ones.
     const picked = await sendSession({
       userId: w.owner,
@@ -467,15 +466,11 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     const holders = async (issueId: string) =>
       (
         await db
-          .select({ sessionId: sessionIssues.sessionId, assigned: sessionIssues.assignedSessionId })
+          .select({ sessionId: sessionIssues.sessionId })
           .from(sessionIssues)
           .where(eq(sessionIssues.issueId, issueId))
       )
-        .map((link) => {
-          // The legacy shim is never written.
-          expect(link.assigned).toBeNull()
-          return link.sessionId
-        })
+        .map((link) => link.sessionId)
         .sort()
     // The row sits on the session that holds the issue: each start its own.
     expect(await holders(a)).toEqual([root.sessionId, grouped.sessionId].sort())
@@ -863,7 +858,6 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       deviceId: w.deviceId,
       parentId: null,
       agentId: null,
-      spawnedBySessionId: null,
     })
     // NEW-1: the agent WATCHES its spawn (the bus reports back to it).
     expect((await row(agent.sessionId)).wakeOn).toEqual([spawned.sessionId])
@@ -929,7 +923,7 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
       expect(second.linked).toEqual([])
     })
     const links = await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, a))
-    expect(links).toMatchObject([{ sessionId: child.sessionId, source: `agent`, assignedSessionId: null }])
+    expect(links).toMatchObject([{ sessionId: child.sessionId, source: `agent` }])
     // The root's "−" reaches the row wherever its tree holds it.
     const out = await db.transaction((tx) => unlinkIssue(tx, { sessionId: root.sessionId, issueId: a }))
     expect(out).toEqual({ unlinked: true })
@@ -1950,7 +1944,6 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       deviceId: w.target,
       status: `queued`,
       account: `pb`,
-      moveToDeviceId: null,
     })
     const [moved] = await db
       .select()
@@ -2125,7 +2118,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     })
     // NEW-1: the continuation TAKES OVER the ended child's rows.
     const links = await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, issueId))
-    expect(links).toMatchObject([{ sessionId: cont.sessionId, assignedSessionId: null }])
+    expect(links).toMatchObject([{ sessionId: cont.sessionId }])
     // FEED-134: an ended ROOT never continues as a child: it revives.
     await endSession({ userId: w.owner, sessionId: root.sessionId })
     const rootCont = await sendSession({ userId: w.owner, input: { sessionId: root.sessionId, text: `again` } })
