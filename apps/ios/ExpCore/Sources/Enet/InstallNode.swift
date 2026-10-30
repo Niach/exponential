@@ -28,6 +28,25 @@ public protocol InstallNodeDriver: AnyObject, Sendable {
     func allow(peer: String) throws
     func revoke(peer: String) throws
     func shutdown() async
+    /// VAPP-33: one chat message, returned once the peer acked it.
+    func sendChat(peer: String, body: Data) async throws
+    /// The node's next event; nil once it stopped. ONE consumer drains it
+    /// (`InstallNodeService`'s pump), dispatching by tag.
+    func nextEvent() async -> InstallNodeEvent?
+}
+
+/// The node events the app consumes (everything else is `other`).
+public enum InstallNodeEvent: Sendable, Equatable {
+    case chat(from: String, body: Data)
+    case peerRefused(peer: String)
+    case other
+}
+
+struct InstallNodeNotRunning: Error {}
+
+extension InstallNodeDriver {
+    public func sendChat(peer: String, body: Data) async throws { throw InstallNodeNotRunning() }
+    public func nextEvent() async -> InstallNodeEvent? { nil }
 }
 
 public enum InstallRegistration {
@@ -133,6 +152,14 @@ public actor InstallNodeService {
     private let onIdentityRotated: @Sendable () -> Void
 
     private var node: InstallNodeDriver?
+    /// VAPP-33: the ONE task draining `node.nextEvent()`.
+    private var pump: Task<Void, Never>?
+    /// Incoming steer envelopes, routed to the open viewer links.
+    public nonisolated let steerInbox = SteerEnetInbox()
+    /// Every event the pump does not route itself (no consumer yet besides
+    /// the tests; bounded so an unread tap never grows).
+    public nonisolated let otherEvents: AsyncStream<InstallNodeEvent>
+    private nonisolated let otherEventsSink: AsyncStream<InstallNodeEvent>.Continuation
     private var accounts: [InstallAccount] = []
     /// accountId → installId, for accounts registered with this node's identity.
     private var installIds: [String: String] = [:]
@@ -155,6 +182,7 @@ public actor InstallNodeService {
         self.now = now
         self.onIdentityRotated = onIdentityRotated
         self.startNode = startNode
+        (otherEvents, otherEventsSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(64))
     }
 
     public var endpointId: String? { node?.endpointId }
@@ -244,7 +272,42 @@ public actor InstallNodeService {
     public func stop() async {
         guard let node else { return }
         self.node = nil
+        pump?.cancel()
+        pump = nil
         await node.shutdown()
+    }
+
+    /// VAPP-33: one chat message over the running node.
+    public func sendChat(peer: String, body: Data) async throws {
+        guard let node else { throw InstallNodeNotRunning() }
+        try await node.sendChat(peer: peer, body: body)
+    }
+
+    /// Admit `peer` now (a steer device dials the viewer back) when the
+    /// allowlist has not caught up yet; the next refresh keeps it only if
+    /// the registry lists it.
+    public func admit(peer: String) {
+        guard let node, !node.allowedPeers().contains(peer) else { return }
+        try? node.allow(peer: peer)
+    }
+
+    private func startPump(_ node: InstallNodeDriver) {
+        pump?.cancel()
+        let inbox = steerInbox
+        let others = otherEventsSink
+        pump = Task.detached(priority: .utility) {
+            while !Task.isCancelled, let event = await node.nextEvent() {
+                switch event {
+                case let .chat(from, body):
+                    if !inbox.deliver(from: from, body: body) { others.yield(event) }
+                case let .peerRefused(peer):
+                    logger.info("eNet refused \(peer.prefix(12), privacy: .public)")
+                    others.yield(event)
+                case .other:
+                    others.yield(event)
+                }
+            }
+        }
     }
 
     private func ensureNode(_ seed: Data) async -> InstallNodeDriver? {
@@ -252,6 +315,7 @@ public actor InstallNodeService {
         do {
             let started = try await startNode(seed)
             node = started
+            startPump(started)
             logger.info("eNet node started: \(started.endpointId, privacy: .public)")
             return started
         } catch {

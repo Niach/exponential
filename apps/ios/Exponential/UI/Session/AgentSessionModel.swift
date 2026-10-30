@@ -293,6 +293,9 @@ final class AgentSessionModel {
     /// EXP-829/EXP-909: the command queue the overlay's one-shot usage refresh
     /// rides. Set by the session screen; nil = nothing is ever queued.
     var devicesApi: DevicesApi?
+    /// VAPP-33: this install's eNet node, tried before the steer relay on
+    /// every dial. Set by the session screen; nil = relay only.
+    @ObservationIgnored var steerEnet: SteerEnetCarrier?
     /// The host machine as the devices shape presents it — the usage
     /// refresh's target.
     private(set) var hostSteerDevice: SteerDevice?
@@ -868,6 +871,12 @@ final class AgentSessionModel {
     @ObservationIgnored private var issueRefAugmentor: IssueRefAugmentor?
 
     private var task: URLSessionWebSocketTask?
+    /// VAPP-33: the joined device over eNet's chat channel. While set it IS
+    /// the socket: every client frame goes over it, its frames feed the same
+    /// reducer the relay's do.
+    @ObservationIgnored private var enetLink: SteerEnetLink?
+    @ObservationIgnored private var enetPumpTask: Task<Void, Never>?
+    @ObservationIgnored private var enetStaleTask: Task<Void, Never>?
     /// EXP-796: an open viewer socket is one of `canLoadEarlier`'s inputs, so
     /// the projection re-derives on every flip.
     private var connected = false {
@@ -1208,6 +1217,7 @@ final class AgentSessionModel {
         phase = .idle
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        closeEnetLink()
     }
 
     // MARK: - Messages (EXP-1295: the database is the bus)
@@ -1727,6 +1737,23 @@ final class AgentSessionModel {
         lastFrameAt = nil
         joinAckTask?.cancel()
         joinAckTask = nil
+        if let carrier = steerEnet {
+            let outcome = await SteerEnetJoiner.join(carrier: carrier, accountId: accountId, sessionId: sessionId)
+            guard !stopped, generation == dialGeneration else {
+                if case let .joined(link, _) = outcome { link.close(sendLeave: true) }
+                if generation == dialGeneration { dialInFlight = false }
+                return
+            }
+            switch outcome {
+            case let .joined(link, replay):
+                logger.info("joined over eNet")
+                attachEnet(link, replay: replay, generation: generation)
+                return
+            case let .fallback(reason):
+                // The steer relay exactly as before (until VAPP-43).
+                logger.info("eNet fallback \(reason.rawValue, privacy: .public), dialing the relay")
+            }
+        }
         let ticket: SteerTicket
         do {
             ticket = try await steerApi.mintViewerTicket(accountId: accountId, sessionId: sessionId)
@@ -1997,6 +2024,12 @@ final class AgentSessionModel {
                 // failures leave the banner on its plain "Session ended", and
                 // the failures already said their piece through `history`.
                 endDetail = SteerOutcome.endDetail(outcome)
+            }
+            // VAPP-33: the device drops an eNet viewer after `bye`; the relay
+            // closes its socket instead. Same close path either way.
+            if enetLink != nil {
+                disconnectSocket()
+                onSocketClosed()
             }
         case "error":
             let code = (obj["code"] as? String) ?? "error"
@@ -2629,6 +2662,74 @@ final class AgentSessionModel {
         historyRequest = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        closeEnetLink()
+    }
+
+    // MARK: - eNet (VAPP-33)
+
+    /// The joiner already holds the replay (everything up to `activity_synced`):
+    /// it goes through `enqueue` like a relay burst, then the link's live frames.
+    private func attachEnet(_ link: SteerEnetLink, replay: [String], generation: Int) {
+        enetLink = link
+        connected = true
+        // Same as a relay dial: the replayed transcript is the only copy of a
+        // sent message after a reconnect.
+        recentEchoes = []
+        for frame in replay { enqueue(frame, generation: generation) }
+        let stream = link.stream { [weak self, weak link] in
+            Task { @MainActor in
+                guard let self, let link, self.enetLink === link, generation == self.dialGeneration else { return }
+                self.disconnectSocket()
+                self.onSocketClosed(generation: generation)
+            }
+        }
+        enetPumpTask = Task { @MainActor [weak self] in
+            for await frames in stream {
+                guard let self, generation == self.dialGeneration, self.enetLink === link else { return }
+                for frame in frames { self.enqueue(frame, generation: generation) }
+            }
+        }
+        armEnetStaleWatch(link, generation: generation)
+    }
+
+    /// No frame for `staleMs` = re-send `join` (the device restarts the
+    /// feed); still nothing one more `staleMs` later = a dead link: the close
+    /// path redials (eNet first, then the relay).
+    private func armEnetStaleWatch(_ link: SteerEnetLink, generation: Int) {
+        enetStaleTask?.cancel()
+        let stale = Double(SteerEnet.staleMs) / 1000
+        enetStaleTask = Task { @MainActor [weak self] in
+            var rejoinedAt: Date?
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self, !Task.isCancelled, self.enetLink === link, generation == self.dialGeneration else { return }
+                let last = self.lastFrameAt ?? .distantPast
+                if let since = rejoinedAt, last > since {
+                    rejoinedAt = nil
+                }
+                if let since = rejoinedAt {
+                    guard Date().timeIntervalSince(since) > stale else { continue }
+                    logger.info("eNet link silent after a re-join, redialing")
+                    self.disconnectSocket()
+                    self.onSocketClosed(generation: generation)
+                    return
+                }
+                if Date().timeIntervalSince(last) > stale {
+                    logger.info("eNet link silent for \(stale)s, re-joining")
+                    rejoinedAt = Date()
+                    link.rejoin()
+                }
+            }
+        }
+    }
+
+    private func closeEnetLink() {
+        enetStaleTask?.cancel()
+        enetStaleTask = nil
+        enetPumpTask?.cancel()
+        enetPumpTask = nil
+        enetLink?.close(sendLeave: true)
+        enetLink = nil
     }
 
     /// - Parameters:
@@ -2653,6 +2754,7 @@ final class AgentSessionModel {
         pendingFrames = []
         discardStaging()
         task = nil
+        closeEnetLink()
         if sawEnd {
             phase = .ended(detail: endDetail)
             return
@@ -2756,7 +2858,12 @@ final class AgentSessionModel {
     }
 
     private func sendText(_ text: String) {
-        guard connected, let task else { return }
+        guard connected else { return }
+        if let enetLink {
+            enetLink.send([text])
+            return
+        }
+        guard let task else { return }
         task.send(.string(text)) { _ in }
     }
 

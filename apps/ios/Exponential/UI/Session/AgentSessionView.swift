@@ -3969,6 +3969,7 @@ extension AppDependencies {
         // command queue. Set on every claim — a reattached model was built on
         // an earlier one.
         model.devicesApi = devicesApi
+        model.steerEnet = installNode?.steer
         return model
     }
 }
