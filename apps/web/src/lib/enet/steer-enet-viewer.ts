@@ -4,14 +4,15 @@
 // `error no_such_session` (or `unauthorized`, or a send that never lands)
 // the next → the first `activity_synced` wins. No carrier, no endpoint,
 // every endpoint refused, or no `activity_synced` within joinTimeoutMs =
-// null, and the store dials the steer relay exactly as before (the fallback
-// until #VAPP-43).
+// null = NO FEED: since VAPP-43 the steer relay carries no session content,
+// so the store shows its existing no-feed states (`starting` for a live row,
+// `ended` with the device-offline copy for an ended one).
 //
 // A won attempt is handed to the store as a WebSocket-shaped object
-// (`EnetSteerSocket`): the store sends and parses the relay's `{t, ...}`
+// (`EnetSteerSocket`): the store sends and parses the steer `{t, ...}`
 // frames unchanged, and they ride the envelope as they are. The replay that proved the join is buffered and
 // delivered when the store sends its own `join` (its onopen), so the store's
-// staging sees the same reset → replay → synced sequence a relay join gives.
+// staging sees the reset → replay → synced sequence of every join.
 
 import {
   encodeSteerEnvelope,
@@ -42,8 +43,8 @@ export type EnetSteerDeps = {
   staleMs?: number
 }
 
-/** The eNet feed went silent past a re-join: the store redials silently
- *  (eNet again, else the relay), like the relay's slow-consumer eviction. */
+/** The eNet feed went silent past a re-join (or a send never landed): the
+ *  store redials silently, eNet again. */
 export const CLOSE_ENET_LOST = 4901
 
 const OPEN = 1
@@ -52,7 +53,7 @@ const JOIN: SteerFrame = { t: `join`, channel: `activity` }
 
 type Outcome = { kind: `joined`; frames: SteerFrame[] } | { kind: `refused` } | { kind: `timeout` }
 
-/** One eNet attempt for a dial; null = use the steer relay. */
+/** One eNet attempt for a dial; null = no feed (there is no fallback). */
 export async function openEnetSteer(sessionId: string, deps: EnetSteerDeps): Promise<EnetSteerSocket | null> {
   const joinTimeoutMs = deps.joinTimeoutMs ?? STEER_ENET_JOIN_TIMEOUT_MS
   const carrier = await deps.carrier().catch(() => undefined)
@@ -67,10 +68,15 @@ export async function openEnetSteer(sessionId: string, deps: EnetSteerDeps): Pro
     const unsubscribe = carrier.subscribe((from, body) => {
       const envelope = steerEnvelopeFor(sessionId, endpointId, from, body)
       if (!envelope) return
-      for (const frame of envelope.frames) {
+      for (const [index, frame] of envelope.frames.entries()) {
         if (frame.t === `error` || frame.t === `bye`) return settle({ kind: `refused` })
         buffered.push(frame)
-        if (frame.t === `activity_synced`) return settle({ kind: `joined`, frames: buffered })
+        // The rest of the marker's envelope belongs to the feed too: a stored
+        // replay of an ended row batches its `bye {history}` right after it.
+        if (frame.t === `activity_synced`) {
+          buffered.push(...envelope.frames.slice(index + 1))
+          return settle({ kind: `joined`, frames: buffered })
+        }
       }
     })
     carrier.send(endpointId, encodeSteerEnvelope(sessionId, [JOIN])).catch(() => settle({ kind: `refused` }))
@@ -95,7 +101,7 @@ function steerEnvelopeFor(sessionId: string, endpointId: string, from: string, b
   return envelope && envelope.sessionId === sessionId ? envelope : null
 }
 
-/** A joined eNet feed, shaped like the relay WebSocket the store drives. */
+/** A joined eNet feed, shaped like the WebSocket the store drives. */
 export class EnetSteerSocket {
   readyState = OPEN
   onmessage: ((event: { data: string }) => void) | null = null
@@ -142,7 +148,7 @@ export class EnetSteerSocket {
     })
   }
 
-  /** One relay-shaped client frame (`{t, ...}` JSON). */
+  /** One steer client frame (`{t, ...}` JSON). */
   send(data: string): void {
     if (this.readyState !== OPEN) return
     const frame = JSON.parse(data) as SteerFrame
@@ -192,7 +198,7 @@ export class EnetSteerSocket {
     for (const frame of frames) {
       if (this.readyState !== OPEN) return
       this.onmessage?.({ data: JSON.stringify(frame) })
-      // The device dropped this viewer (the relay closes after its `bye`).
+      // The device dropped this viewer after its `bye`.
       if (frame.t === `bye`) return this.shut(1000, false)
     }
   }

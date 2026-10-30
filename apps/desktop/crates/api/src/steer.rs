@@ -5,8 +5,9 @@
 //! - `steer.config` — **query**, no input → `{enabled, relayUrl}`. Clients
 //!   poll this before dialing anything; `enabled: false` is a normal state,
 //!   never an error (an unconfigured instance generates no noise).
-//! - `steer.mintTicket` — **mutation**, discriminated on `kind`
-//!   (`control` / `publisher` / `viewer`) → `{disabled: true}` or
+//! - `steer.mintTicket` — **mutation**, `{kind: "control"}` (VAPP-43: the
+//!   desktop mints nothing else; sessions are served over eNet) →
+//!   `{disabled: true}` or
 //!   `{ticket, url}` where `url` is the FULL ws(s) dial URL with
 //!   `?ticket=…` already embedded (`steerTicketUrl`). Consumers use `url`
 //!   **as-is** — never reconstruct it (the relay reads the ticket from the
@@ -84,23 +85,14 @@ enum MintWire {
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-enum MintInput<'a> {
+enum MintInput {
     // The mint carries the kind and nothing else: the device's label reaches
     // the server through `devices.register` (the persisted row the pickers
     // read), and the ticket never encoded it.
     Control,
-    // EXP-707: the wire name is `sessionId` (renamed from `codingSessionId`).
-    Publisher {
-        #[serde(rename = "sessionId")]
-        session_id: &'a str,
-    },
-    Viewer {
-        #[serde(rename = "sessionId")]
-        session_id: &'a str,
-    },
 }
 
-fn mint(trpc: &TrpcClient, input: &MintInput<'_>) -> Result<MintTicketResult, ApiError> {
+fn mint(trpc: &TrpcClient, input: &MintInput) -> Result<MintTicketResult, ApiError> {
     let wire: MintWire = trpc.mutation("steer.mintTicket", input)?;
     Ok(match wire {
         MintWire::Ticket { ticket, url } => MintTicketResult::Ticket(MintedTicket { ticket, url }),
@@ -112,25 +104,6 @@ fn mint(trpc: &TrpcClient, input: &MintInput<'_>) -> Result<MintTicketResult, Ap
 /// (§8.3). Any authed user may register presence for their own account.
 pub fn mint_control_ticket(trpc: &TrpcClient) -> Result<MintTicketResult, ApiError> {
     mint(trpc, &MintInput::Control)
-}
-
-/// `steer.mintTicket({kind: "publisher", sessionId})` — the per-session
-/// PTY publisher ticket (§8.4). The server checks `session.userId === caller`
-/// (only the owner's desktop may publish).
-pub fn mint_publisher_ticket(
-    trpc: &TrpcClient,
-    session_id: &str,
-) -> Result<MintTicketResult, ApiError> {
-    mint(trpc, &MintInput::Publisher { session_id })
-}
-
-/// `steer.mintTicket({kind: "viewer", sessionId})` — watch/steer a
-/// session from this client (team members; owners get perm `steer`).
-pub fn mint_viewer_ticket(
-    trpc: &TrpcClient,
-    session_id: &str,
-) -> Result<MintTicketResult, ApiError> {
-    mint(trpc, &MintInput::Viewer { session_id })
 }
 
 #[cfg(test)]
@@ -185,33 +158,5 @@ mod tests {
         assert!(request.starts_with("POST /api/trpc/steer.mintTicket HTTP/1.1"));
         // The kind and nothing else — no `deviceLabel` rides the mint.
         assert!(request.ends_with(r#"{"kind":"control"}"#));
-    }
-
-    #[test]
-    fn mint_publisher_posts_session_id_and_decodes_disabled() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"disabled":true}}}"#);
-        let result = mint_publisher_ticket(
-            &client(&base),
-            "3f0f5a2e-1d4b-4c1e-9f6a-000000000001",
-        )
-        .unwrap();
-        assert_eq!(result, MintTicketResult::Disabled);
-        assert_eq!(result.clone().into_ticket(), None);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(
-            r#"{"kind":"publisher","sessionId":"3f0f5a2e-1d4b-4c1e-9f6a-000000000001"}"#
-        ));
-    }
-
-    #[test]
-    fn mint_viewer_posts_kind_viewer() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"ticket":"t","url":"wss://steer.exponential.at/ws?ticket=t"}}}"#,
-        );
-        let result = mint_viewer_ticket(&client(&base), "sess-1").unwrap();
-        assert!(matches!(result, MintTicketResult::Ticket(_)));
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(r#"{"kind":"viewer","sessionId":"sess-1"}"#));
     }
 }

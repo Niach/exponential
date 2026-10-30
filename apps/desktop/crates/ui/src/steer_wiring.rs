@@ -32,10 +32,7 @@ use std::sync::Arc;
 
 use gpui::{App, AppContext as _, Entity, Global};
 
-use steer::{
-    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, PublisherTickets,
-    SteerRuntime, TrpcControlApi, TrpcPublisherTickets,
-};
+use steer::{spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, SteerRuntime, TrpcControlApi};
 use sync::{KillWatch, Store};
 
 use crate::coding_flow;
@@ -158,16 +155,9 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let device_label = api::users::hostname();
     let check_in = crate::device_sync::check_in_flag(cx);
     let account_id = account.id.clone();
-    // EXP-773: the transcript store this account's runs write to, and the
-    // one-replay-per-session guard the `history_request` handler takes.
+    // EXP-773: the transcript store this account's runs write to (VAPP-43:
+    // eNet's STORED REPLAY serves it, `enet_wiring`).
     let history_dir = auth.data_dir.clone();
-    let history_trpc = Arc::clone(&trpc);
-    let history_runtime = Arc::clone(&runtime);
-    let history_in_flight = steer::HistoryInFlight::new();
-    // EXP-796: the same store answers "Load earlier" pages of a run this
-    // machine already replayed, back down the control socket.
-    let page_dir = auth.data_dir.clone();
-    let page_runtime = Arc::clone(&runtime);
     // The register's account rows read the profile index.
     let register_dir = auth.data_dir.clone();
     // EXP-1138: the doctor reads the account profiles.
@@ -253,26 +243,6 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
                 check_in.store(true, std::sync::atomic::Ordering::SeqCst);
             });
-            // EXP-773: serve a stored transcript back to the relay. Reading
-            // and republishing both happen on the steer runtime — the socket
-            // loop only hands the id over.
-            let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id, reply| {
-                let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
-                    trpc: Arc::clone(&history_trpc),
-                    session_id: session_id.clone(),
-                });
-                steer::serve_history_request(
-                    &history_runtime,
-                    tickets,
-                    history_dir.clone(),
-                    session_id,
-                    history_in_flight.clone(),
-                    reply,
-                );
-            });
-            let on_history_page: steer::HistoryPageFn = Arc::new(move |ask, reply| {
-                steer::serve_history_page(&page_runtime, page_dir.clone(), ask, reply);
-            });
             // NEW-55: the relay rings this device for a streamed call; the
             // socket loop only hands it over, the IDE answers on its thread
             // (`voice_call::on_ring`). The task ends with the channel.
@@ -292,8 +262,6 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 device,
                 control_api,
                 on_check_in,
-                on_history_request,
-                on_history_page,
                 on_call_ring,
             );
 

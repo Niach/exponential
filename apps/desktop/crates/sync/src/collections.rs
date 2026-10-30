@@ -1072,6 +1072,12 @@ impl Store {
         &self.collections
     }
 
+    /// The sync manager: its per-account stores are readable off the UI
+    /// thread (VAPP-43: eNet's stored replay reads a `sessions` row there).
+    pub fn manager(&self) -> Arc<SyncManager> {
+        Arc::clone(&self.manager)
+    }
+
     /// Per-shape sync status snapshot — the debug board's status line.
     pub fn shape_statuses(&self, cx: &App) -> Vec<ShapeStatus> {
         self.collections.statuses(cx)

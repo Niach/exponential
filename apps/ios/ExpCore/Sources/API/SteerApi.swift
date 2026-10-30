@@ -1,41 +1,8 @@
 import Foundation
 
-// Mirrors apps/web/src/lib/trpc/steer.ts (the ticket-minting router) + the relay
-// wire contract in apps/steer-relay/src/protocol.ts. The steer relay is the
-// data-plane for the live activity channel (Electric can't carry it). The desktop
-// mints a short-lived HS256 relay ticket per socket via tRPC, then dials the
-// relay outbound (`wss://<relay>/ws?ticket=<token>`). `STEER_RELAY_URL` unset ⇒
-// the subsystem reports disabled and the desktop opens no sockets (graceful-off).
-
-/// A minted relay ticket + the wss URL to dial. `disabled == true` (or a nil
-/// ticket/url) means the subsystem is off on this instance.
-public struct SteerTicket: Decodable, Sendable {
-    public let ticket: String?
-    public let url: String?
-    public let disabled: Bool?
-
-    public init(ticket: String?, url: String?, disabled: Bool?) {
-        self.ticket = ticket
-        self.url = url
-        self.disabled = disabled
-    }
-
-    public var isDisabled: Bool { disabled == true || ticket == nil || url == nil }
-
-    /// Dial URL — the server returns `url` as the full
-    /// `ws(s)://<relay>/ws?ticket=<token>` (the relay reads the ticket from the
-    /// query string; browsers can't set WS headers and the desktop mirrors that).
-    /// Appends `ticket` only when the server URL doesn't already carry one.
-    public func connectURL() -> URL? {
-        guard let url, let ticket, var comps = URLComponents(string: url) else { return nil }
-        var items = comps.queryItems ?? []
-        if !items.contains(where: { $0.name == "ticket" }) {
-            items.append(URLQueryItem(name: "ticket", value: ticket))
-            comps.queryItems = items
-        }
-        return comps.url
-    }
-}
+// The steer wire types (apps/steer-relay/src/protocol.ts). Since VAPP-43 this
+// app watches a session only over eNet (Enet/SteerEnet.swift): the steer relay
+// carries no session content, so there is no viewer ticket to mint here.
 
 /// EXP-432: the owner of a machine SHARED with the team — set only on rows
 /// that are not the caller's own, so the lists/pickers can attribute them.
@@ -732,29 +699,5 @@ public struct LatestVersions: Decodable, Sendable {
     public init(desktop: String?, cli: String?) {
         self.desktop = desktop
         self.cli = cli
-    }
-}
-
-private struct ViewerTicketInput: Encodable {
-    let kind = "viewer"
-    // EXP-707: the wire name is `sessionId` (renamed from `codingSessionId`).
-    let sessionId: String
-}
-
-public final class SteerApi: Sendable {
-    private let trpc: TrpcClient
-
-    public init(trpc: TrpcClient) {
-        self.trpc = trpc
-    }
-
-    /// Mint a `viewer` ticket (watch + optional steer, per the ticket's perm)
-    /// for a live session's relay room.
-    public func mintViewerTicket(accountId: String, sessionId: String) async throws -> SteerTicket {
-        try await trpc.mutation(
-            accountId: accountId,
-            path: "steer.mintTicket",
-            input: ViewerTicketInput(sessionId: sessionId)
-        )
     }
 }

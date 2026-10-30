@@ -2389,24 +2389,18 @@ fun ActivityFeedState.trimmed(): ActivityFeedState {
 }
 
 /**
- * EXP-773: where an ENDED run's transcript is coming from. The relay has no
- * room for a finished session, so it asks the device that ran it to republish
- * its on-disk journal; these are the three answers.
+ * EXP-773: where an ENDED run's transcript is coming from. VAPP-43: the device
+ * that ran it serves its journal over eNet; the one answer left to show is
+ * that it cannot be reached.
  */
 enum class HistoryState {
-    /** The relay woke the device and is waiting for it to publish. */
-    Pending,
-
     /** The machine holding the journal is not reachable. Terminal: nothing to
      *  redial for, the file is on that disk. */
     DeviceOffline,
-
-    /** The device answered and has no journal for this run. Terminal. */
-    Unavailable,
     ;
 
     /** Nothing is going to change on its own — stop dialing. */
-    val terminal: Boolean get() = this != Pending
+    val terminal: Boolean get() = true
 }
 
 sealed interface AgentPhase {

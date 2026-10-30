@@ -79,26 +79,6 @@ pub enum ClientFrame<'a> {
     /// still send the old keys keep registering.
     #[serde(rename_all = "camelCase")]
     Online { device_id: &'a str },
-    #[serde(rename_all = "camelCase")]
-    Hello {
-        session_id: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        issue_id: Option<&'a str>,
-        /// EXP-90: the anonymous public-activity audience is removed, so the
-        /// publisher ALWAYS sends `Some(false)`. The field survives because
-        /// `None` = absent means "public" to LEGACY relays (pre-EXP-90 fan
-        /// activity to anonymous sockets when the key is missing) — relay
-        /// deploys are manual, so the explicit `false` must stay on the wire.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        activity_public: Option<bool>,
-        /// #EXP-1415: `Some(true)` = a device's one-shot journal replay
-        /// (`steer::history::publish_history`), never the live publisher.
-        /// The relay refuses a replay into a room the run's live publisher
-        /// holds (or is reconnecting to), so a replay can never evict it.
-        /// The live publisher leaves it absent (old relays ignore the key).
-        #[serde(skip_serializing_if = "Option::is_none")]
-        replay: Option<bool>,
-    },
     /// Join the ONE audience the relay has (EXP-696, the viewer role).
     ///
     /// `channel` is REQUIRED by the relay's zod (`z.literal('activity')`,
@@ -173,25 +153,18 @@ pub enum ClientFrame<'a> {
         seq: u64,
     },
     /// EXP-783 (viewer role): ask for the page of transcript BELOW `before_seq`.
-    /// The relay routes it to the room's LIVE publisher — or, in a history
-    /// room the device already replayed and left (EXP-796, the room lingers
-    /// five minutes), down that device's CONTROL socket — under an id of its
-    /// own, and translates the answering [`ClientFrame::HistoryChunk`]s back
-    /// to this `request_id`.
+    /// VAPP-43: sent over eNet to the device that runs (or holds the stored
+    /// journal of) the session, which answers with ONE
+    /// [`ClientFrame::HistoryChunk`] under this `request_id`.
     #[serde(rename_all = "camelCase")]
     HistoryPage {
         request_id: String,
         before_seq: u64,
         limit: u32,
     },
-    /// EXP-783 (publisher/device role): one page of older transcript, answering
-    /// a [`ServerFrame::HistoryPage`]. The relay delivers it to the ONE viewer
-    /// that asked and never adds it to the room's replay log.
-    ///
-    /// EXP-796: `session_id` is REQUIRED when the answer goes down the
-    /// device's CONTROL socket (one socket serves every session the machine
-    /// ran, so the chunk has to say which room it answers) and stays `None`
-    /// from a publisher socket, whose wire form is unchanged.
+    /// EXP-783 (device role): one page of older transcript, answering a
+    /// [`ServerFrame::HistoryPage`], to the ONE viewer that asked. VAPP-43:
+    /// over eNet the envelope names the session, so `session_id` is `None`.
     #[serde(rename_all = "camelCase")]
     HistoryChunk {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -201,22 +174,14 @@ pub enum ClientFrame<'a> {
         seqs: Vec<u64>,
         done: bool,
     },
-    /// #EXP-1415 (control role): the answer to a
-    /// [`ServerFrame::HistoryRequest`] this device cannot serve — it holds no
-    /// journal for the session (pruned, or the run never wrote one here).
-    /// The relay answers the waiting viewers at once and backs the session
-    /// off instead of waiting out its 20s timer.
-    #[serde(rename_all = "camelCase")]
-    HistoryNone { session_id: String },
     /// PUBLISHER-only (EXP-249): drop the room's replay log + last diff and
     /// tell the activity audience to clear its feed. Sent right before a
     /// full-history re-publish, so a reconnect never doubles the feed.
     ActivityReset,
-    /// PUBLISHER-only (EXP-936): the host's answer to a
+    /// CONTROL socket (EXP-936, VAPP-43): the host's answer to a
     /// [`ServerFrame::CompactRequest`]. The relay hands it to the web
-    /// server's awaiting `POST /sessions/:id/compact` and nothing else — no
-    /// viewer sees it, nothing enters the room's replay log. One ask is in
-    /// flight per room at a time, so `session_id` (the room) is the whole
+    /// server's awaiting `POST /sessions/:id/compact` and nothing else. One
+    /// ask is in flight per session at a time, so `session_id` is the whole
     /// correlation. `refused_because` is absent when accepted.
     #[serde(rename_all = "camelCase")]
     CompactVerdict {
@@ -1830,23 +1795,11 @@ impl ClientFrame<'_> {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ServerFrame {
-    /// EXP-773: a viewer asked for the transcript of a session that is no
-    /// longer live, and the relay routed the ask to THIS device (the ticket
-    /// named it). The host reads `{data_dir}/journal/<sessionId>.jsonl` back
-    /// and republishes it with `steer::history::publish_history`; there is
-    /// no reply frame, and a device with no such file simply says nothing
-    /// (the relay's own 20s timer answers the viewer).
-    #[serde(rename_all = "camelCase")]
-    HistoryRequest { session_id: String },
     /// EXP-783: a viewer scrolled past the top of what it holds and asked for
-    /// the page of transcript BELOW `before_seq`. Reaches the room's live
-    /// publisher, which reads the page off its journal file and answers with
-    /// [`ClientFrame::HistoryChunk`]s under the same (relay-issued)
-    /// `request_id` — or (EXP-796) this device's CONTROL socket, once the
-    /// device replayed the finished run and the room lingers without a
-    /// publisher; the control-socket answer names `session_id` back. Silence
-    /// is a legal answer (no journal); the relay frees the ask after its own
-    /// timeout.
+    /// the page of transcript BELOW `before_seq`. VAPP-43: arrives over eNet
+    /// (`enet_steer` names the session from the envelope); the device reads
+    /// the page off the journal file and answers with ONE
+    /// [`ClientFrame::HistoryChunk`] under the same `request_id`.
     #[serde(rename_all = "camelCase")]
     HistoryPage {
         session_id: String,
@@ -1896,16 +1849,29 @@ pub enum ServerFrame {
     SetConfig { id: String, value: String },
     /// EXP-746: switch to one of the modes the publisher advertised.
     SetMode { id: String },
-    Kill,
+    /// End the run. From a viewer (over eNet) the envelope names the
+    /// session; VAPP-43: down the CONTROL socket the relay names it
+    /// (`sessionId`), and the device routes it to that session's live run.
+    #[serde(rename_all = "camelCase")]
+    Kill {
+        #[serde(default)]
+        session_id: Option<String>,
+    },
     /// EXP-790/EXP-861: a viewer's Stop — cancel the running turn and drop
-    /// the queued messages; the run itself continues.
-    Interrupt,
+    /// the queued messages; the run itself continues. `session_id` as for
+    /// [`ServerFrame::Kill`].
+    #[serde(rename_all = "camelCase")]
+    Interrupt {
+        #[serde(default)]
+        session_id: Option<String>,
+    },
     /// EXP-861: a viewer revoking one queued message.
     Unqueue { id: String },
     /// EXP-988/EXP-936: the run's own `exponential_sessions_compact` asked
     /// the host to compact the agent's context at the next turn boundary;
-    /// `keep` names what the summary must preserve. The publisher answers it
-    /// with ONE [`ClientFrame::CompactVerdict`] from the engine's
+    /// `keep` names what the summary must preserve. VAPP-43: it comes down
+    /// the CONTROL socket and the device answers it there with ONE
+    /// [`ClientFrame::CompactVerdict`] from the run's
     /// `PublisherHooks::compact` (the host holds the context meter and the
     /// compaction state the verdict needs); an accepted ask is executed at
     /// the next turn boundary.
@@ -2067,59 +2033,6 @@ mod tests {
         assert_eq!(
             ClientFrame::Online { device_id: "dev-1" }.to_json(),
             r#"{"t":"online","deviceId":"dev-1"}"#
-        );
-    }
-
-    #[test]
-    fn hello_serializes_session_without_geometry() {
-        // EXP-249: cols/rows belonged to the removed PTY mirror. The relay's
-        // helloFrame keeps them optional, so omitting them parses on every
-        // relay generation (old relays included).
-        assert_eq!(
-            ClientFrame::Hello {
-                session_id: "sess-1",
-                issue_id: Some("issue-1"),
-                activity_public: None,
-                replay: None,
-            }
-            .to_json(),
-            r#"{"t":"hello","sessionId":"sess-1","issueId":"issue-1"}"#
-        );
-        assert_eq!(
-            ClientFrame::Hello {
-                session_id: "sess-1",
-                issue_id: None,
-                activity_public: None,
-                replay: None,
-            }
-            .to_json(),
-            r#"{"t":"hello","sessionId":"sess-1"}"#
-        );
-    }
-
-    #[test]
-    fn hello_activity_public_false_serializes_byte_exact() {
-        // EXP-90: every real hello carries the explicit camelCase
-        // `activityPublic:false` — absent means "public" to legacy relays.
-        assert_eq!(
-            ClientFrame::Hello {
-                session_id: "sess-1",
-                issue_id: Some("issue-1"),
-                activity_public: Some(false),
-                replay: None,
-            }
-            .to_json(),
-            r#"{"t":"hello","sessionId":"sess-1","issueId":"issue-1","activityPublic":false}"#
-        );
-        assert_eq!(
-            ClientFrame::Hello {
-                session_id: "sess-1",
-                issue_id: None,
-                activity_public: Some(false),
-                replay: None,
-            }
-            .to_json(),
-            r#"{"t":"hello","sessionId":"sess-1","activityPublic":false}"#
         );
     }
 
@@ -3306,15 +3219,6 @@ mod tests {
                 ClientFrame::Online { device_id: "d" },
                 "online",
             ),
-            (
-                ClientFrame::Hello {
-                    session_id: "s",
-                    issue_id: None,
-                    activity_public: None,
-                    replay: None,
-                },
-                "hello",
-            ),
             (ClientFrame::join(), "join"),
             (ClientFrame::Input { data: String::new() }, "input"),
             (ClientFrame::Kill, "kill"),
@@ -3344,14 +3248,9 @@ mod tests {
             ServerFrame::parse(r#"{"t":"check_in"}"#).unwrap(),
             ServerFrame::CheckIn
         );
-        // EXP-773: the history ask names the session it wants back.
-        assert_eq!(
-            ServerFrame::parse(r#"{"t":"history_request","sessionId":"sess-1"}"#).unwrap(),
-            ServerFrame::HistoryRequest {
-                session_id: "sess-1".to_string()
-            }
-        );
-        assert_eq!(ServerFrame::parse(r#"{"t":"history_request"}"#), None);
+        // VAPP-43: the relay carries no history any more; a stray ask from
+        // an old relay drops like any unknown frame.
+        assert_eq!(ServerFrame::parse(r#"{"t":"history_request","sessionId":"sess-1"}"#), None);
         // NEW-55: the relay rings the voice device for a call.
         assert_eq!(
             ServerFrame::parse(r#"{"t":"call_ring","callId":"call-1","agentId":"agent-1"}"#)
@@ -3362,7 +3261,8 @@ mod tests {
             }
         );
         assert_eq!(ServerFrame::parse(r#"{"t":"call_ring","callId":"call-1"}"#), None);
-        // EXP-783/796: a page ask, on a publisher OR a control socket.
+        // EXP-783: a page ask (VAPP-43: from an eNet viewer, the session
+        // filled in from the envelope).
         assert_eq!(
             ServerFrame::parse(
                 r#"{"t":"history_page","sessionId":"sess-1","requestId":"h7","beforeSeq":40,"limit":20}"#
@@ -3401,22 +3301,6 @@ mod tests {
             chunk.to_json(),
             r#"{"t":"history_chunk","requestId":"h7","events":[{"kind":"narration","text":"older"}],"seqs":[39],"done":true}"#
         );
-        // #EXP-1415: a journal replay says so in its hello.
-        assert_eq!(
-            ClientFrame::Hello {
-                session_id: "sess-1",
-                issue_id: None,
-                activity_public: Some(false),
-                replay: Some(true),
-            }
-            .to_json(),
-            r#"{"t":"hello","sessionId":"sess-1","activityPublic":false,"replay":true}"#
-        );
-        // #EXP-1415: the control socket's "no journal here" answer.
-        assert_eq!(
-            ClientFrame::HistoryNone { session_id: "sess-1".to_string() }.to_json(),
-            r#"{"t":"history_none","sessionId":"sess-1"}"#
-        );
         let chunk = ClientFrame::HistoryChunk {
             session_id: Some("sess-1".to_string()),
             request_id: "h7".to_string(),
@@ -3436,12 +3320,21 @@ mod tests {
             ServerFrame::parse(r#"{"t":"input","data":"ls\r"}"#).unwrap(),
             ServerFrame::Input { data: "ls\r".into() }
         );
-        assert_eq!(ServerFrame::parse(r#"{"t":"kill"}"#).unwrap(), ServerFrame::Kill);
+        assert_eq!(ServerFrame::parse(r#"{"t":"kill"}"#).unwrap(), ServerFrame::Kill { session_id: None });
+        // VAPP-43: down the control socket the relay names the session.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"kill","sessionId":"s1"}"#).unwrap(),
+            ServerFrame::Kill { session_id: Some("s1".to_string()) }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"interrupt","sessionId":"s1"}"#).unwrap(),
+            ServerFrame::Interrupt { session_id: Some("s1".to_string()) }
+        );
         // EXP-790/EXP-861: the viewer's Stop and a queue revoke, relay →
         // publisher; the send side spells the same bytes every client does.
         assert_eq!(
             ServerFrame::parse(r#"{"t":"interrupt"}"#).unwrap(),
-            ServerFrame::Interrupt
+            ServerFrame::Interrupt { session_id: None }
         );
         assert_eq!(
             ServerFrame::parse(r#"{"t":"unqueue","id":"m1"}"#).unwrap(),

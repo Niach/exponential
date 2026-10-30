@@ -1,23 +1,30 @@
 // Steer relay wire protocol (masterplan §3.2; steering v2 = EXP-249).
 //
-// TEXT frames: JSON control messages `{ t, ... }`. A control socket
-// announces device presence (`online`); a publisher opens its room (`hello`)
-// and streams already-scrubbed `activity` events; a viewer `join`s the one
-// audience there is (`channel: 'activity'`) and steers it with `input` /
-// `answer` / `kill`. Anything else on the wire fails the parse and is
-// dropped.
+// VAPP-43: the relay carries NO session content. It is presence, control and
+// eTalk calls:
+//   - a CONTROL socket announces its device (`online`), receives `check_in`,
+//     `kill {sessionId}`, `interrupt {sessionId}` and `compact_request` from
+//     the web server's admin routes, and answers the last with
+//     `compact_verdict`;
+//   - a voice call's `caller` and `call_host` sockets (NEW-55) exchange the
+//     call frames below.
+// The session content frames (`CONTENT_FRAME_TYPES`: a session's activity,
+// its history, and a viewer's steering) travel over eNet between a viewer
+// and the device that runs the session (fixtures/steer-enet.json, which keeps
+// the shapes in the "steer content frames" section below as their spec). The
+// relay answers any of them, from any socket, `error content_refused` and
+// drops it. Anything else that fails the parse is dropped too.
 //
 // NEW-55: BINARY frames exist for ONE pair of roles only — a voice call's
 // `caller` and `call_host` sockets (fixtures/voice-call.json `wire`). Byte 0
 // is the kind (`up` caller → host, `down` host → caller), bytes 1-2 a u16
 // big-endian sequence, then one Opus packet; the relay forwards a frame whose
 // kind matches the sender's role and whose length is within
-// `CALL_MAX_FRAME_BYTES`, and drops everything else. A binary frame from any
-// other role (publisher, viewer, control) is still dropped. The call's JSON
-// control frames (`call_mute`, `call_event`, `call_end`) ride beside them.
+// `CALL_MAX_FRAME_BYTES`, and drops everything else (a control socket's
+// binary frame included). The call's JSON control frames (`call_mute`,
+// `call_event`, `call_end`) ride beside them.
 //
-// The relay is a dumb pipe with auth + ephemeral presence: it never parses
-// terminal escape codes, never decodes audio and never persists anything.
+// The relay never decodes audio and never persists anything.
 
 import { contract } from "@exp/domain-contract"
 import scriptCard from "@exp/domain-contract/fixtures/script-card.json" with { type: "json" }
@@ -53,6 +60,12 @@ export const onlineFrame = z.object({
   // Non-strict parsing drops unknown keys; never `.strict()` — an extra key
   // would fail the parse and the device would silently go dark.
 })
+
+// ── Steer content frames (eNet only; the relay refuses them) ─────────────────
+//
+// VAPP-43: the shapes a viewer and the device running a session exchange
+// over eNet's chat channel (fixtures/steer-enet.json). None of them is a
+// relay client frame any more: see `CONTENT_FRAME_TYPES`.
 
 export const helloFrame = z.object({
   t: z.literal(`hello`),
@@ -820,16 +833,19 @@ export const activityResetFrame = z.object({
   t: z.literal(`activity_reset`),
 })
 
-// EXP-936, publisher → relay: the host's answer to a `compact_request`. The
+// ── Client → relay: the control socket's compaction verdict + eTalk calls ────
+
+// EXP-936, control → relay: the host's answer to a `compact_request`. The
 // DEVICE holds the facts the verdict needs (context occupancy, turns since
 // the last compaction, whether a fold is already open), so it decides and
 // the relay only carries the answer back to the web server's awaiting
-// `POST /sessions/:id/compact` — the agent reads it off its tool result;
-// viewers never see it (nothing enters the room's log). One ask is in flight
-// per room at a time, so the frame needs no request id: `sessionId` names
-// the room the way `compact_request` did. `refusedBecause` is one of the
-// handler's four codes (`sessionsCompactRefusals`, lib/mcp/handlers/
-// sessions-compact.ts); absent when accepted.
+// `POST /sessions/:id/compact` — the agent reads it off its tool result.
+// One ask is in flight per session at a time, so the frame needs no request
+// id: `sessionId` names the session the way `compact_request` did, and only
+// the control socket of the device the ask went to may answer it.
+// `refusedBecause` is one of the handler's four codes
+// (`sessionsCompactRefusals`, lib/mcp/handlers/sessions-compact.ts); absent
+// when accepted.
 export const COMPACT_REFUSALS = [
   `too_early`,
   `cooldown`,
@@ -876,21 +892,6 @@ export const callEndFrame = z.object({
 
 export const clientFrame = z.discriminatedUnion(`t`, [
   onlineFrame,
-  helloFrame,
-  joinFrame,
-  inputFrame,
-  answerFrame,
-  killFrame,
-  interruptFrame,
-  unqueueFrame,
-  setConfigFrame,
-  setModeFrame,
-  byeFrame,
-  activityFrame,
-  activityResetFrame,
-  historyPageFrame,
-  historyChunkFrame,
-  historyNoneFrame,
   compactVerdictFrame,
   callMuteFrame,
   callEventFrame,
@@ -899,26 +900,51 @@ export const clientFrame = z.discriminatedUnion(`t`, [
 
 export type ClientFrame = z.infer<typeof clientFrame>
 
+/** VAPP-43: every frame type of the old relay session protocol (a session's
+ *  activity and history, a viewer's join and steering, a publisher's hello
+ *  and bye) plus eNet's `leave`. The relay answers each, from any socket,
+ *  `{t:"error", code:"content_refused"}` and drops it: session content never
+ *  crosses the relay. */
+export const CONTENT_FRAME_TYPES = [
+  `hello`,
+  `join`,
+  `leave`,
+  `input`,
+  `answer`,
+  `kill`,
+  `interrupt`,
+  `unqueue`,
+  `set_config`,
+  `set_mode`,
+  `bye`,
+  `activity`,
+  `activity_reset`,
+  `activity_synced`,
+  `history_page`,
+  `history_chunk`,
+  `history_none`,
+  `history_request`,
+] as const
+export type ContentFrameType = (typeof CONTENT_FRAME_TYPES)[number]
+
+const CONTENT_FRAME_TYPE_SET: ReadonlySet<string> = new Set(CONTENT_FRAME_TYPES)
+
+export function isContentFrameType(t: string): t is ContentFrameType {
+  return CONTENT_FRAME_TYPE_SET.has(t)
+}
+
 // ── Relay → client control frames ────────────────────────────────────────────
 
 export type ServerFrame =
-  | { t: `input`; data: string } // viewer keystrokes, relay → publisher
-  | { t: `answer`; questionId: string; askId?: string; keys: string[]; text?: string } // relay → publisher
-  // EXP-746: live-config steering, relay → publisher. Fire-and-forget — the
-  // publisher's next `config_state` is the only confirmation there is.
-  | { t: `set_config`; id: string; value: string }
-  | { t: `set_mode`; id: string }
-  | { t: `kill` }
-  // EXP-790/EXP-861: Stop the running turn (relay → publisher).
-  | { t: `interrupt` }
-  // EXP-861: revoke one queued message (relay → publisher).
-  | { t: `unqueue`; id: string }
-  // EXP-988/EXP-936: relay → publisher. The run's OWN MCP call
-  // (`exponential_sessions_compact`) asked the host to compact the agent's
-  // context; the host does it at the next turn boundary, or refuses (the
-  // verdict rides the tool result, never a frame). `keep` = what the summary
-  // must preserve. Declared ahead of the behaviour: the hub route that sends
-  // it and the device side that acts on it are EXP-936's.
+  // Relay → a device's CONTROL socket, from the web server's admin routes
+  // (`POST /sessions/:id/kill` and `/interrupt`): end the session, or
+  // interrupt its running turn (EXP-1291; the session stays live).
+  | { t: `kill`; sessionId: string }
+  | { t: `interrupt`; sessionId: string }
+  // EXP-988/EXP-936: relay → a device's CONTROL socket. The run's OWN MCP
+  // call (`exponential_sessions_compact`) asked the host to compact the
+  // agent's context; the host answers `compact_verdict` and does it at the
+  // next turn boundary, or refuses. `keep` = what the summary must preserve.
   | { t: `compact_request`; sessionId: string; keep?: string }
   // EXP-481: fire-and-forget check-in nudge to a device's control socket —
   // the web server persisted new work (a queued command, edited launch
@@ -926,13 +952,6 @@ export type ServerFrame =
   // next cadence. No reply frame exists; the heartbeat pickup is the durable
   // path.
   | { t: `check_in` }
-  // EXP-773: relay → a DEVICE's control socket. A viewer asked to watch a
-  // session whose room is not up and its ticket names this device, so the
-  // device is asked to republish the transcript it stored on disk (it opens a
-  // publisher socket, replays, and says `bye {outcome:'history'}`). No reply
-  // frame: a device with no journal stays silent and the room's own 20s timer
-  // answers the viewer with `history_unavailable`.
-  | { t: `history_request`; sessionId: string }
   // NEW-55: relay → the voice device's CONTROL socket. A caller dialed it;
   // the device mints a `call_host` ticket for `callId` and joins within
   // CALL_RING_TIMEOUT_MS or the caller is told `no_answer`.
@@ -943,94 +962,20 @@ export type ServerFrame =
   | { t: `call_mute`; muted: boolean }
   | { t: `call_event`; event: Record<string, unknown> }
   | { t: `call_end`; reason?: string }
-  // EXP-783: relay → the room's PUBLISHER, or (EXP-796) → the owning
-  // DEVICE's control socket once the device has replayed a finished run and
-  // the room lingers without a publisher. "Read your journal and send back
-  // the page below `beforeSeq`." Answered with `history_chunk` frames carrying
-  // the same (relay-issued) `requestId` (+ `sessionId` on the control
-  // route); a publisher with no journal simply stays silent and the relay
-  // frees the ask after HISTORY_PAGE_TIMEOUT_MS.
-  | {
-      t: `history_page`
-      sessionId: string
-      requestId: string
-      beforeSeq: number
-      limit: number
-    }
-  // EXP-783: relay → the ONE viewer that asked. Never fanned out, never
-  // logged — the events are older than the room's replay tail.
-  | {
-      t: `history_chunk`
-      requestId: string
-      events: ActivityEvent[]
-      seqs: number[]
-      done: boolean
-    }
-  // EXP-773: relay → the JOINING viewer, in place of `activity_synced`, when
-  // the room it joined is a PENDING history room. "The device is fetching the
-  // transcript" — events follow if it answers, `error history_unavailable` if
-  // it does not.
-  | { t: `history_pending` }
   | { t: `bye`; outcome?: string }
-  // Codes a viewer may see: `no_such_session` (the room is not up and the
-  // ticket names no device), and the EXP-773 history pair —
-  // `device_offline` (the machine that holds the transcript is not connected)
-  // and `history_unavailable` (it is, but it produced nothing in 20s). Both
-  // of the history pair are TERMINAL, so each is followed by a `bye` carrying
-  // the same string as its outcome before the close: a viewer that gets a
-  // close with no `bye` reads a plain drop and redials forever.
-  // NEW-55: a CALLER may see `device_offline` (the voice device's control
-  // socket is not connected), `busy` (a call already runs on it) and
-  // `no_answer` (no host joined in time); a host `no_such_call` (the room is
-  // gone, already answered, or not its own). All terminal: error, `bye` with
-  // the same outcome, close.
+  // VAPP-43: `content_refused` on any socket that sent a content frame (the
+  // socket stays open). NEW-55: a CALLER may see `device_offline` (the voice
+  // device's control socket is not connected), `busy` (a call already runs
+  // on it) and `no_answer` (no host joined in time); a host `no_such_call`
+  // (the room is gone, already answered, or not its own). Those four are
+  // terminal: error, `bye` with the same outcome, close.
   | { t: `error`; code: string; message?: string }
-  // relay → activity audience (authenticated members only). EXP-783: `seq` is
-  // the publisher's own index, echoed unchanged.
-  | { t: `activity`; event: ActivityEvent; seq: number }
-  | { t: `activity_reset` } // relay → activity audience: drop everything rendered so far
-  // EXP-648: relay → activity audience every VIEWER_KEEPALIVE_INTERVAL_MS so
-  // a viewer can tell a quiet socket from a dead one (an agent parked on a
-  // question or plan approval sends nothing for minutes, and the desktop's
-  // 30s ping is a WS control frame that never reaches viewers). Carries
-  // nothing, never changes a viewer's phase, and is only ever sent to a
-  // socket whose join has already been answered.
-  | { t: `keepalive` }
-  // EXP-656: relay → the JOINING viewer only, right after `activity_reset` +
-  // the replay — "the picture is complete, commit it". Lets a client stage a
-  // reconnect's replay behind its visible feed and swap atomically, so a
-  // reader scrolled up in a plan is never yanked to the bottom. Carries
-  // nothing; every client ignores unknown `t` values, and a publisher-driven
-  // reset + republish never gets one (old desktops give the relay no
-  // end-of-republish signal — clients fall back to a quiet timer).
-  //
-  // EXP-783: it now names the SPAN it replayed. A client that already holds
-  // this run's transcript keeps everything BELOW `firstSeq` and splices the
-  // replay on top instead of losing pages it had scrolled back to load;
-  // `truncated` says the room evicted older events, so those pages have to
-  // come from the device (`history_page`) rather than from here. The span is
-  // always named (a room with nothing to replay names the empty span at 0);
-  // only `truncated` is optional, and only because it is a flag.
-  | {
-      t: `activity_synced`
-      firstSeq: number
-      lastSeq: number
-      truncated?: boolean
-    }
 
 // ── Close codes ───────────────────────────────────────────────────────────────
 
 export const CLOSE_SESSION_ENDED = 4001
 export const CLOSE_REPLACED = 4002
 export const CLOSE_UNAUTHORIZED = 4003
-export const CLOSE_SLOW_CONSUMER = 4008
-// EXP-283: idle-publisher eviction. Deliberately NOT 4001 — desktops treated
-// CLOSE_SESSION_ENDED as a terminal remote kill (tear down the live agent +
-// terminal tab), so an idle close after a laptop sleep >90s was killing live
-// sessions on wake. Publishers treat this (and any unknown code) as a plain
-// drop and reconnect; a truly dead publisher just never re-hellos and the
-// room dies via the grace timer.
-export const CLOSE_PUBLISHER_IDLE = 4009
 
 export function parseClientFrame(raw: string): ClientFrame | null {
   let json: unknown

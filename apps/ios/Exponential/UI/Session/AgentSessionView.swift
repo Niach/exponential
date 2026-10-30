@@ -98,13 +98,13 @@ struct AgentSessionScreen: View {
 
 /// EXP-1295: a SESSION's raw work — today's session view, opened from its
 /// card in a thread (or any session ref). A chat-style view of the session
-/// over the relay's scrubbed activity channel: narration bubbles, compact tool
+/// over the scrubbed steer activity channel (eNet, VAPP-43): narration bubbles, compact tool
 /// rows, collapsible subagent runs, question cards. NO terminal rendering.
 ///
 /// The header is the back button, a back row naming the THREAD (its root,
 /// EXP-1310) over the session's name (S-3: no Stop; the composer's
 /// stop-turn is the one); the composer box sends a `messages` row
-/// (`sessions.send({sessionId})`). The relay stays the LIVE layer (streaming
+/// (`sessions.send({sessionId})`). The steer feed stays the LIVE layer (streaming
 /// text, tool lines, usage). Read-only for a viewer who may not post (a
 /// teammate's session on a private device).
 struct AgentSessionView: View {
@@ -511,14 +511,12 @@ struct AgentSessionView: View {
         model?.hostDevice.displayLabel ?? SessionHostDevice(label: nil, online: nil).displayLabel
     }
 
-    /// EXP-773: the journal fetch's own status line — which machine is being
-    /// asked, and what it said. Nil whenever no fetch is in play. Mirrored ×4.
+    /// EXP-773: why an ended run shows no transcript — which machine holds
+    /// it. Nil while a device feeds the session. Mirrored ×4.
     private func historyStatus(_ model: AgentSessionModel) -> String? {
         switch model.history {
-        case .pending: return "Fetching the transcript from \(hostLabel)…"
         case .deviceOffline:
             return "\(hostLabel) is offline. The transcript lives on that machine."
-        case .unavailable: return "No transcript on \(hostLabel)."
         case nil: return nil
         }
     }
@@ -529,12 +527,9 @@ struct AgentSessionView: View {
     private func feedBody(_ model: AgentSessionModel) -> some View {
         if model.feed.isEmpty, let status = historyStatus(model) {
             // EXP-773: a finished session's transcript lives on the machine
-            // that ran it, and the relay is asking that machine for it. Say
-            // which machine, and say plainly when it can't answer.
+            // that ran it. Say which machine when it can't answer (VAPP-43:
+            // no device fed the join).
             centeredState {
-                if model.history == .pending {
-                    InlineSpinner()
-                }
                 Text(status)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -3958,7 +3953,6 @@ extension AppDependencies {
                 accountId: accountId,
                 session: session,
                 currentUserId: auth.userId,
-                steerApi: steerApi,
                 sessionsApi: SessionsApi(trpc: trpc),
                 attachmentsApi: attachmentsApi,
                 issuesApi: issuesApi,

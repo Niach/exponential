@@ -107,11 +107,11 @@ describe(`probeSteerRelay`, () => {
             startedAt: 123,
             connections: 4,
             devices: 2,
-            rooms: 1,
+            calls: 1,
             counters: {
               connectionsAccepted: 10,
-              activityFramesFanned: 500,
-              slowConsumerEvictions: 0,
+              contentFramesRefused: 3,
+              callRings: 5,
               rateLimitedRejections: 1,
             },
           },
@@ -123,9 +123,14 @@ describe(`probeSteerRelay`, () => {
       ok: true,
       connections: 4,
       devices: 2,
-      rooms: 1,
+      calls: 1,
       startedAt: 123,
-      counters: { connectionsAccepted: 10, rateLimitedRejections: 1 },
+      counters: {
+        connectionsAccepted: 10,
+        contentFramesRefused: 3,
+        callRings: 5,
+        rateLimitedRejections: 1,
+      },
     })
   })
 

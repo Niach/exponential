@@ -1,6 +1,5 @@
 package com.exponential.app.data.steer
 
-import com.exponential.app.data.api.SteerTicketResult
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.DomainContract
@@ -39,8 +38,8 @@ import org.junit.Test
  * backgrounding again both no-oped. Everything here is one of the ways it
  * died, or one of the ways it now comes back.
  *
- * The socket and the ticket mint ride the [SteerTransport] seam, so the loop
- * is exercised with no engine and no clock to wait on.
+ * The feed rides the [SteerTransport] seam, so the loop is exercised with no
+ * node and no clock to wait on.
  */
 class SteerConnectionTest {
 
@@ -52,7 +51,6 @@ class SteerConnectionTest {
         reconnectBaseMs = 50,
         reconnectMaxMs = 50,
         joinAckMs = 300,
-        upgradeMs = 2_000,
         liveStaleMs = 200,
     )
 
@@ -61,8 +59,6 @@ class SteerConnectionTest {
         val sent = CopyOnWriteArrayList<String>()
 
         @Volatile var cancelled = false
-
-        @Volatile var code: Int? = null
 
         @Volatile var reason: String? = null
 
@@ -81,18 +77,15 @@ class SteerConnectionTest {
             frames.close()
         }
 
-        override suspend fun closeCode(): Int? = code
-
         override suspend fun closeReason(): String? = reason
 
-        /** Push a relay frame at the viewer. */
+        /** Push a device frame at the viewer. */
         fun emit(text: String) {
             assertTrue(frames.trySend(text).isSuccess)
         }
 
-        /** The relay hangs up on us. */
-        fun hangUp(withCode: Int? = null) {
-            code = withCode
+        /** The feed ends under us. */
+        fun hangUp() {
             frames.close()
         }
     }
@@ -104,10 +97,7 @@ class SteerConnectionTest {
         /** Shape the Nth socket (1-based) before the dial gets hold of it. */
         @Volatile var prepare: (Int, FakeSocket) -> Unit = { _, _ -> }
 
-        override suspend fun mint(codingSessionId: String) =
-            SteerTicketResult(ticket = "tkt", url = "wss://relay.test/ws?ticket=tkt")
-
-        override suspend fun open(url: String): SteerSocket {
+        override suspend fun open(codingSessionId: String): SteerSocket {
             val socket = FakeSocket()
             prepare(dials.incrementAndGet(), socket)
             opens.send(socket)
@@ -264,7 +254,7 @@ class SteerConnectionTest {
             // The superseded socket unwinding late must not take the live one's
             // state with it: the dial's cleanup used to null `ws` and flip
             // `connected` false whether or not it still owned them.
-            first.hangUp(1006)
+            first.hangUp()
             delay(50)
             assertEquals(AgentPhase.Live, connection.phase.value)
             assertTrue(connection.connected.value)
@@ -277,7 +267,7 @@ class SteerConnectionTest {
     // EXP-648: the relay ticks a keepalive to every joined viewer, so a quiet
     // agent (parked on a question or a plan approval) no longer reads as a
     // dead socket, and a kick does not throw a healthy socket away for a
-    // mint + activity_reset + full replay.
+    // re-join + activity_reset + full replay.
     @Test
     fun aKeepaliveFrameKeepsALiveSocketFresh() = runBlocking {
         val transport = FakeTransport()
@@ -533,7 +523,7 @@ class SteerConnectionTest {
         try {
             val socket = liveWithFeed(transport, connection)
             socket.emit("""{"t":"activity_reset"}""")
-            socket.hangUp(1006)
+            socket.hangUp()
             waitUntil("the dial to unwind") { !connection.connected.value }
             delay(stagingTimings.replayQuietMs * 3)
             // A half-delivered replay is worth less than the last complete
@@ -1182,8 +1172,8 @@ class SteerConnectionTest {
         try {
             connection.connect()
             val socket = transport.awaitOpen()
-            // The device republished its journal; the relay keeps the room
-            // open afterwards (no bye) so pages can still be asked for.
+            // The device's stored replay of an ENDED row; while the feed is
+            // open (before its bye) pages can still be asked for.
             socket.emit("""{"t":"activity_reset"}""")
             socket.emit("""{"t":"activity","seq":40,"event":{"kind":"narration","text":"tail"}}""")
             socket.emit("""{"t":"activity_synced","truncated":true,"firstSeq":40}""")
@@ -1194,45 +1184,14 @@ class SteerConnectionTest {
             assertTrue(connection.loadEarlier())
             waitUntil("the page ask") { socket.sent.any { it.contains(""""t":"history_page"""") } }
             socket.emit("""{"t":"keepalive"}""")
-            // The linger expired minutes later: terminal, never a drop.
+            // The device signs off: terminal, never a drop.
             socket.emit("""{"t":"bye","outcome":"history"}""")
-            socket.hangUp(withCode = CLOSE_SESSION_ENDED)
+            socket.hangUp()
             waitUntil("the socket to go") { !connection.canLoadEarlier() }
             delay(150)
             assertEquals(AgentPhase.Ended(null), connection.phase.value)
             assertFalse(connection.loadEarlier())
             // No redial to page.
-            assertNull(withTimeoutOrNull(100) { transport.opens.receive() })
-        } finally {
-            connection.close()
-        }
-    }
-
-    @Test
-    fun aDeviceGoingOfflineMidPageIsTerminal() = runBlocking {
-        val transport = FakeTransport()
-        val row = MutableStateFlow<SessionEntity?>(
-            runningRow().copy(status = DomainContract.sessionStatusEnded),
-        )
-        val connection = connection(transport, stagingTimings, row)
-        try {
-            connection.connect()
-            val socket = transport.awaitOpen()
-            socket.emit("""{"t":"activity_reset"}""")
-            socket.emit("""{"t":"activity","seq":40,"event":{"kind":"narration","text":"tail"}}""")
-            socket.emit("""{"t":"activity_synced","truncated":true,"firstSeq":40}""")
-            waitUntil("the truncated tail") { connection.activity.value.feed.size == 1 }
-            assertTrue(connection.loadEarlier())
-            waitUntil("the page ask") { socket.sent.any { it.contains(""""t":"history_page"""") } }
-            socket.emit("""{"t":"error","code":"device_offline"}""")
-            // The client hangs up on a terminal error itself; the relay's
-            // trailing bye never reaches it.
-            socket.hangUp(withCode = CLOSE_SESSION_ENDED)
-            waitUntil("the socket to go") { !connection.canLoadEarlier() }
-            delay(150)
-            assertEquals(AgentPhase.Ended(null), connection.phase.value)
-            // The transcript it already had stays; nothing redials.
-            assertEquals(1, connection.activity.value.feed.size)
             assertNull(withTimeoutOrNull(100) { transport.opens.receive() })
         } finally {
             connection.close()

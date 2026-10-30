@@ -60,9 +60,6 @@ final class AppDependencies: @unchecked Sendable {
     // Server-only repositories registry (not a synced shape) — read + link
     // management in team settings (masterplan §7a).
     let repositoriesApi: RepositoriesApi
-    // The live steer viewer (relay-backed; graceful-off when the instance
-    // has no relay configured). Starts go through `sessionsApi`.
-    let steerApi: SteerApi
     // The caller's registered machines (EXP-403) — polled, never synced.
     let devicesApi: DevicesApi
     // Team actions (EXP-253) = saved prompts — synced for reads; tRPC for
@@ -192,7 +189,6 @@ final class AppDependencies: @unchecked Sendable {
         self.pullRequestsApi = PullRequestsApi(trpc: trpc)
         self.onboardingApi = OnboardingApi(trpc: trpc)
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
-        self.steerApi = SteerApi(trpc: trpc)
         self.devicesApi = DevicesApi(trpc: trpc)
         self.promptsApi = PromptsApi(trpc: trpc)
         self.appsApi = AppsApi(trpc: trpc)

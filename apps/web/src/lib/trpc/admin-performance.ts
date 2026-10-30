@@ -27,8 +27,8 @@ const RELAY_PROBE_TIMEOUT_MS = 3_000
 
 export interface SteerRelayCounters {
   connectionsAccepted: number
-  activityFramesFanned: number
-  slowConsumerEvictions: number
+  contentFramesRefused: number
+  callRings: number
   rateLimitedRejections: number
 }
 
@@ -38,7 +38,7 @@ export interface SteerRelayProbe {
   latencyMs?: number
   connections?: number
   devices?: number
-  rooms?: number
+  calls?: number
   startedAt?: number | null
   counters?: SteerRelayCounters
 }
@@ -88,7 +88,7 @@ export async function probeSteerRelay(
         startedAt?: number
         connections?: number
         devices?: number
-        rooms?: number
+        calls?: number
         counters?: Partial<SteerRelayCounters>
       }
       return {
@@ -97,12 +97,12 @@ export async function probeSteerRelay(
         latencyMs,
         connections: asCount(json.connections),
         devices: asCount(json.devices),
-        rooms: asCount(json.rooms),
+        calls: asCount(json.calls),
         startedAt: typeof json.startedAt === `number` ? json.startedAt : null,
         counters: {
           connectionsAccepted: asCount(json.counters?.connectionsAccepted),
-          activityFramesFanned: asCount(json.counters?.activityFramesFanned),
-          slowConsumerEvictions: asCount(json.counters?.slowConsumerEvictions),
+          contentFramesRefused: asCount(json.counters?.contentFramesRefused),
+          callRings: asCount(json.counters?.callRings),
           rateLimitedRejections: asCount(json.counters?.rateLimitedRejections),
         },
       }

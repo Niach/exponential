@@ -5,12 +5,10 @@ import {
   getSteerRelayConfig,
   mintSteerTicket,
   relayPostCompact,
-  relayPostInput,
   relayPostKill,
   relayPostNudge,
   relayPostInterrupt,
   steerHttpBase,
-  viewerHistoryClaims,
   steerTicketUrl,
   steerWsBase,
   STEER_TICKET_TTL_SECONDS,
@@ -18,6 +16,8 @@ import {
 } from "@/lib/steer"
 
 const NOW = 1_750_000_000
+const DEVICE = { userId: `host-1`, deviceId: `dev-1` }
+const DEVICE_BODY = JSON.stringify(DEVICE)
 const CONFIG = { url: `https://steer.example.com`, secret: `test-secret` }
 
 function fakeResponse(status: number, body: unknown) {
@@ -141,146 +141,15 @@ describe(`ticket claim composition`, () => {
     expect(claims).not.toHaveProperty(`deviceLabel`)
   })
 
-  it(`publisher: team-scoped, session-bound`, () => {
-    expect(
-      buildSteerTicketClaims(
-        {
-          kind: `publisher`,
-          userId: `user-1`,
-          teamId: `ws-1`,
-          sessionId: `session-1`,
-        },
+  // VAPP-43: the relay serves control and the call pair only.
+  it(`there is no publisher or viewer seed any more`, () => {
+    for (const kind of [`publisher`, `viewer`]) {
+      const claims = buildSteerTicketClaims(
+        { kind, userId: `user-1` } as unknown as Parameters<typeof buildSteerTicketClaims>[0],
         NOW
       )
-    ).toEqual({
-      sub: `user-1`,
-      team: `ws-1`,
-      sessionId: `session-1`,
-      role: `publisher`,
-      iat: NOW,
-      exp: NOW + STEER_TICKET_TTL_SECONDS,
-    })
-  })
-
-  it(`viewer: session-bound (EXP-312 — owner-only at mint, no perm claim)`, () => {
-    expect(
-      buildSteerTicketClaims(
-        {
-          kind: `viewer`,
-          userId: `user-1`,
-          teamId: `ws-1`,
-          sessionId: `session-1`,
-        },
-        NOW
-      )
-    ).toEqual({
-      sub: `user-1`,
-      team: `ws-1`,
-      sessionId: `session-1`,
-      role: `viewer`,
-      iat: NOW,
-      exp: NOW + STEER_TICKET_TTL_SECONDS,
-    })
-  })
-
-  it(`viewer: carries the session's deviceId when the row named one (EXP-773)`, () => {
-    expect(
-      buildSteerTicketClaims(
-        {
-          kind: `viewer`,
-          userId: `user-1`,
-          teamId: `ws-1`,
-          sessionId: `session-1`,
-          deviceId: `dev-1`,
-        },
-        NOW
-      )
-    ).toEqual({
-      sub: `user-1`,
-      team: `ws-1`,
-      sessionId: `session-1`,
-      role: `viewer`,
-      deviceId: `dev-1`,
-      iat: NOW,
-      exp: NOW + STEER_TICKET_TTL_SECONDS,
-    })
-    // No device on the row: the key stays OFF the wire (an absent claim is
-    // the relay's "no history to ask for" signal).
-    expect(
-      buildSteerTicketClaims(
-        {
-          kind: `viewer`,
-          userId: `user-1`,
-          teamId: `ws-1`,
-          sessionId: `session-1`,
-          deviceId: undefined,
-        },
-        NOW
-      )
-    ).not.toHaveProperty(`deviceId`)
-  })
-
-  it(`viewer: names the device's owner only when it differs (EXP-432)`, () => {
-    // A run hosted on someone else's machine: the relay indexes presence by
-    // device owner, so the host rides along.
-    expect(
-      buildSteerTicketClaims(
-        {
-          kind: `viewer`,
-          userId: `user-1`,
-          teamId: `ws-1`,
-          sessionId: `session-1`,
-          deviceId: `dev-1`,
-          deviceOwnerId: `host-1`,
-        },
-        NOW
-      )
-    ).toMatchObject({ deviceId: `dev-1`, deviceOwnerId: `host-1` })
-    // The caller's own machine: `sub` already is the owner, so the extra
-    // claim stays off the wire.
-    expect(
-      buildSteerTicketClaims(
-        {
-          kind: `viewer`,
-          userId: `user-1`,
-          teamId: `ws-1`,
-          sessionId: `session-1`,
-          deviceId: `dev-1`,
-          deviceOwnerId: `user-1`,
-        },
-        NOW
-      )
-    ).not.toHaveProperty(`deviceOwnerId`)
-  })
-
-  it(`viewer: \`live\` rides only beside a device (#EXP-1405)`, () => {
-    const seed = { kind: `viewer` as const, userId: `user-1`, teamId: `ws-1`, sessionId: `session-1` }
-    expect(buildSteerTicketClaims({ ...seed, deviceId: `dev-1`, live: true }, NOW)).toMatchObject({
-      deviceId: `dev-1`,
-      live: true,
-    })
-    expect(buildSteerTicketClaims({ ...seed, live: true }, NOW)).not.toHaveProperty(`live`)
-    expect(buildSteerTicketClaims({ ...seed, deviceId: `dev-1` }, NOW)).not.toHaveProperty(`live`)
-  })
-})
-
-describe(`viewerHistoryClaims (#EXP-1405)`, () => {
-  const row = { deviceId: `dev-1`, startedAt: `2026-10-27T10:00:00.000Z`, busy: false }
-  it(`an ended row names its device, never live`, () => {
-    expect(viewerHistoryClaims({ ...row, status: `ended` }, `host-1`)).toEqual({ deviceId: `dev-1`, deviceOwnerId: `host-1` })
-  })
-  it(`an idle row names its device as live: any device replays its transcript`, () => {
-    expect(viewerHistoryClaims({ ...row, status: `idle` }, `host-1`)).toEqual({
-      deviceId: `dev-1`,
-      deviceOwnerId: `host-1`,
-      live: true,
-    })
-    expect(viewerHistoryClaims({ ...row, status: `running` }, `host-1`)).toMatchObject({ live: true })
-  })
-  it(`a busy, queued or never-started row keeps the plain answer`, () => {
-    expect(viewerHistoryClaims({ ...row, status: `running`, busy: true }, `host-1`)).toEqual({})
-    expect(viewerHistoryClaims({ ...row, status: `queued` }, `host-1`)).toEqual({})
-    expect(viewerHistoryClaims({ ...row, status: `idle`, startedAt: null }, `host-1`)).toEqual({})
+      expect(claims?.role).not.toBe(kind)
+    }
   })
 })
 
@@ -294,12 +163,7 @@ describe(`mintSteerTicket`, () => {
   it(`signs a ticket the relay can verify and returns the dial URL`, () => {
     const result = mintSteerTicket(
       CONFIG,
-      {
-        kind: `viewer`,
-        userId: `user-1`,
-        teamId: `ws-1`,
-        sessionId: `session-1`,
-      },
+      { kind: `control`, userId: `user-1` },
       NOW
     )
     if (`disabled` in result) throw new Error(`expected a ticket`)
@@ -312,9 +176,8 @@ describe(`mintSteerTicket`, () => {
     if (!verdict.ok) throw new Error(`expected a valid ticket`)
     expect(verdict.claims).toMatchObject({
       sub: `user-1`,
-      team: `ws-1`,
-      sessionId: `session-1`,
-      role: `viewer`,
+      team: ``,
+      role: `control`,
       exp: NOW + STEER_TICKET_TTL_SECONDS,
     })
   })
@@ -345,15 +208,15 @@ describe(`relay admin HTTP`, () => {
       .fn<RelayFetch>()
       .mockResolvedValue(fakeResponse(200, { devices: [], delivered: true }))
 
-    await relayPostInterrupt(config, `sess-1`, fetchImpl)
-    await relayPostKill(config, `sess-1`, fetchImpl)
+    await relayPostInterrupt(config, `sess-1`, DEVICE, fetchImpl)
+    await relayPostKill(config, `sess-1`, DEVICE, fetchImpl)
     await relayPostNudge(config, `user-1`, `dev-1`, fetchImpl)
-    await relayPostInput(config, `sess-1`, `hello`, fetchImpl)
+    await relayPostCompact(config, `sess-1`, DEVICE, undefined, fetchImpl)
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       `http://steer-relay:4002/sessions/sess-1/interrupt`,
       `http://steer-relay:4002/sessions/sess-1/kill`,
       `http://steer-relay:4002/devices/user-1/dev-1/nudge`,
-      `http://steer-relay:4002/sessions/sess-1/input`,
+      `http://steer-relay:4002/sessions/sess-1/compact`,
     ])
 
     const minted = mintSteerTicket(config, { kind: `control`, userId: `u` })
@@ -362,28 +225,45 @@ describe(`relay admin HTTP`, () => {
     )
   })
 
-  it(`kill is best-effort: reports delivery and never throws`, async () => {
-    const okFetch = vi
-      .fn<RelayFetch>()
-      .mockResolvedValue(fakeResponse(200, { ok: true, delivered: true }))
-    await expect(
-      relayPostKill(CONFIG, `session-1`, okFetch)
-    ).resolves.toEqual({ delivered: true })
-    expect(okFetch).toHaveBeenCalledWith(
-      `https://steer.example.com/sessions/session-1/kill`,
-      {
-        method: `POST`,
-        headers: { "x-relay-secret": `test-secret` },
-        signal: expect.any(AbortSignal),
-      }
-    )
+  // VAPP-43: kill and interrupt name the session's DEVICE in the body; the
+  // relay sends the frame down that device's control socket.
+  it(`kill and interrupt post the device, report delivery and never throw`, async () => {
+    for (const [post, route] of [
+      [relayPostKill, `kill`],
+      [relayPostInterrupt, `interrupt`],
+    ] as const) {
+      const okFetch = vi
+        .fn<RelayFetch>()
+        .mockResolvedValue(fakeResponse(200, { ok: true, delivered: true }))
+      await expect(post(CONFIG, `session-1`, DEVICE, okFetch)).resolves.toEqual({
+        delivered: true,
+      })
+      expect(okFetch).toHaveBeenCalledWith(
+        `https://steer.example.com/sessions/session-1/${route}`,
+        {
+          method: `POST`,
+          headers: {
+            "content-type": `application/json`,
+            "x-relay-secret": `test-secret`,
+          },
+          body: DEVICE_BODY,
+          signal: expect.any(AbortSignal),
+        }
+      )
 
-    const downFetch = vi
-      .fn<RelayFetch>()
-      .mockRejectedValue(new Error(`ECONNREFUSED`))
-    await expect(
-      relayPostKill(CONFIG, `session-1`, downFetch)
-    ).resolves.toEqual({ delivered: false })
+      const offlineFetch = vi
+        .fn<RelayFetch>()
+        .mockResolvedValue(fakeResponse(200, { ok: true, delivered: false }))
+      await expect(post(CONFIG, `session-1`, DEVICE, offlineFetch)).resolves.toEqual({
+        delivered: false,
+      })
+      const downFetch = vi
+        .fn<RelayFetch>()
+        .mockRejectedValue(new Error(`ECONNREFUSED`))
+      await expect(post(CONFIG, `session-1`, DEVICE, downFetch)).resolves.toEqual({
+        delivered: false,
+      })
+    }
   })
 
   // The PR-merge path awaits this fan-out inside the GitHub webhook handler,
@@ -399,7 +279,7 @@ describe(`relay admin HTTP`, () => {
           )
         })
     )
-    const call = relayPostKill(CONFIG, `session-1`, hungFetch)
+    const call = relayPostKill(CONFIG, `session-1`, DEVICE, hungFetch)
     const signal = hungFetch.mock.calls[0]?.[1]?.signal
     expect(signal).toBeInstanceOf(AbortSignal)
     expect(signal?.aborted).toBe(false)
@@ -439,43 +319,6 @@ describe(`relay admin HTTP`, () => {
     ).resolves.toEqual({ delivered: false })
   })
 
-  // EXP-700: text injection — same best-effort/never-throws contract as
-  // kill; an old relay's 404 must read as not-delivered, never as an error.
-  it(`input posts the text, reports delivery and never throws`, async () => {
-    const okFetch = vi
-      .fn<RelayFetch>()
-      .mockResolvedValue(fakeResponse(200, { ok: true, delivered: true }))
-    await expect(
-      relayPostInput(CONFIG, `session-1`, `hello there`, okFetch)
-    ).resolves.toEqual({ delivered: true })
-    expect(okFetch).toHaveBeenCalledWith(
-      `https://steer.example.com/sessions/session-1/input`,
-      {
-        method: `POST`,
-        headers: {
-          "content-type": `application/json`,
-          "x-relay-secret": `test-secret`,
-        },
-        body: JSON.stringify({ text: `hello there` }),
-        signal: expect.any(AbortSignal),
-      }
-    )
-
-    const oldRelayFetch = vi
-      .fn<RelayFetch>()
-      .mockResolvedValue(fakeResponse(404, { error: `Not found` }))
-    await expect(
-      relayPostInput(CONFIG, `session-1`, `hello`, oldRelayFetch)
-    ).resolves.toEqual({ delivered: false })
-
-    const downFetch = vi
-      .fn<RelayFetch>()
-      .mockRejectedValue(new Error(`ECONNREFUSED`))
-    await expect(
-      relayPostInput(CONFIG, `session-1`, `hello`, downFetch)
-    ).resolves.toEqual({ delivered: false })
-  })
-
   // EXP-936: the compaction ask — awaited by the relay until the host
   // answers, so the outcome carries a verdict (or a named delivery failure)
   // and never throws.
@@ -486,7 +329,7 @@ describe(`relay admin HTTP`, () => {
         fakeResponse(200, { ok: true, delivered: true, accepted: true })
       )
     await expect(
-      relayPostCompact(CONFIG, `session-1`, `open threads`, accepted)
+      relayPostCompact(CONFIG, `session-1`, DEVICE, `open threads`, accepted)
     ).resolves.toEqual({ delivered: true, accepted: true })
     expect(accepted).toHaveBeenCalledWith(
       `https://steer.example.com/sessions/session-1/compact`,
@@ -496,12 +339,12 @@ describe(`relay admin HTTP`, () => {
           "content-type": `application/json`,
           "x-relay-secret": `test-secret`,
         },
-        body: JSON.stringify({ keep: `open threads` }),
+        body: JSON.stringify({ ...DEVICE, keep: `open threads` }),
         signal: expect.any(AbortSignal),
       }
     )
 
-    // No keep → an empty body, never `keep: undefined` on the wire.
+    // No keep → the device alone, never `keep: undefined` on the wire.
     const refused = vi
       .fn<RelayFetch>()
       .mockResolvedValue(
@@ -513,37 +356,37 @@ describe(`relay admin HTTP`, () => {
         })
       )
     await expect(
-      relayPostCompact(CONFIG, `session-1`, undefined, refused)
+      relayPostCompact(CONFIG, `session-1`, DEVICE, undefined, refused)
     ).resolves.toEqual({
       delivered: true,
       accepted: false,
       refusedBecause: `too_early`,
     })
-    expect(refused.mock.calls[0]?.[1]?.body).toBe(`{}`)
+    expect(refused.mock.calls[0]?.[1]?.body).toBe(DEVICE_BODY)
 
     // The relay's delivery failures keep their reason; anything else (an
     // old relay's 404, a dead relay, an unknown code) is `relay_error`.
-    for (const reason of [`no_publisher`, `no_verdict`, `busy`] as const) {
+    for (const reason of [`device_offline`, `no_verdict`, `busy`] as const) {
       const undelivered = vi
         .fn<RelayFetch>()
         .mockResolvedValue(
           fakeResponse(200, { ok: true, delivered: false, reason })
         )
       await expect(
-        relayPostCompact(CONFIG, `session-1`, `k`, undelivered)
+        relayPostCompact(CONFIG, `session-1`, DEVICE, `k`, undelivered)
       ).resolves.toEqual({ delivered: false, reason })
     }
     const oldRelayFetch = vi
       .fn<RelayFetch>()
       .mockResolvedValue(fakeResponse(404, { error: `Not found` }))
     await expect(
-      relayPostCompact(CONFIG, `session-1`, `k`, oldRelayFetch)
+      relayPostCompact(CONFIG, `session-1`, DEVICE, `k`, oldRelayFetch)
     ).resolves.toEqual({ delivered: false, reason: `relay_error` })
     const downFetch = vi
       .fn<RelayFetch>()
       .mockRejectedValue(new Error(`ECONNREFUSED`))
     await expect(
-      relayPostCompact(CONFIG, `session-1`, `k`, downFetch)
+      relayPostCompact(CONFIG, `session-1`, DEVICE, `k`, downFetch)
     ).resolves.toEqual({ delivered: false, reason: `relay_error` })
     const strangeCode = vi
       .fn<RelayFetch>()
@@ -556,7 +399,7 @@ describe(`relay admin HTTP`, () => {
         })
       )
     await expect(
-      relayPostCompact(CONFIG, `session-1`, `k`, strangeCode)
+      relayPostCompact(CONFIG, `session-1`, DEVICE, `k`, strangeCode)
     ).resolves.toEqual({
       delivered: true,
       accepted: false,
@@ -573,7 +416,7 @@ describe(`relay admin HTTP`, () => {
           )
         })
     )
-    const call = relayPostCompact(CONFIG, `session-1`, `k`, hungFetch)
+    const call = relayPostCompact(CONFIG, `session-1`, DEVICE, `k`, hungFetch)
     const signal = hungFetch.mock.calls[0]?.[1]?.signal
     expect(signal).toBeInstanceOf(AbortSignal)
     // The armed timeout is 6s (above the relay's own 4s verdict wait).
@@ -582,20 +425,4 @@ describe(`relay admin HTTP`, () => {
       reason: `relay_error`,
     })
   }, 10_000)
-
-  it(`input bounds a hung relay with an armed timeout signal`, async () => {
-    const hungFetch = vi.fn<RelayFetch>().mockImplementation(
-      (_url, init) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener(`abort`, () =>
-            reject(new DOMException(`The operation timed out.`, `TimeoutError`))
-          )
-        })
-    )
-    const call = relayPostInput(CONFIG, `session-1`, `hello`, hungFetch)
-    const signal = hungFetch.mock.calls[0]?.[1]?.signal
-    expect(signal).toBeInstanceOf(AbortSignal)
-    expect(signal?.aborted).toBe(false)
-    await expect(call).resolves.toEqual({ delivered: false })
-  })
 })

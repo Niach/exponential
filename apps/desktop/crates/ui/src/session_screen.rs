@@ -433,7 +433,7 @@ mod tests {
 
     /// The source decision in one table: a live local engine always wins, a
     /// replay needs BOTH a transcript on this machine and an ended run, and
-    /// everything else falls back to the relay.
+    /// everything else is the remote viewer (eNet, VAPP-43).
     #[test]
     fn feed_source_for_prefers_the_engine_then_a_local_transcript() {
         // A run this process hosts renders its own engine, ended or not: the
@@ -442,10 +442,10 @@ mod tests {
         assert_eq!(feed_source_for(true, true, true), SessionFeed::Local);
         // An ended run we no longer host replays off its on-device transcript.
         assert_eq!(feed_source_for(false, true, true), SessionFeed::Replay);
-        // Still running elsewhere — the relay is the only live feed.
+        // Still running elsewhere — the eNet viewer is the only live feed.
         assert_eq!(feed_source_for(false, true, false), SessionFeed::Remote);
         // Nothing on this machine (another machine's run, or a pruned
-        // journal): the relay, which asks that device for the history.
+        // journal): the eNet viewer, which that device answers off its journal.
         assert_eq!(feed_source_for(false, false, true), SessionFeed::Remote);
         assert_eq!(feed_source_for(false, false, false), SessionFeed::Remote);
     }

@@ -1,65 +1,40 @@
 //! The steering VIEWER connection (EXP-696) — watch and steer a coding
 //! session running on ANOTHER of the user's devices.
 //!
-//! The third relay role. [`publisher`] streams a session this machine is
-//! hosting and [`control_channel`] announces the machine itself; this module
-//! is the other end of the publisher's wire, and it is what web/iOS/Android
-//! have had since EXP-249. It dials the relay with a server-minted VIEWER
-//! ticket, joins the one audience there is (`channel: "activity"`), turns
-//! everything that arrives into [`ViewerEvent`]s on a channel, and sends
-//! steering back up: whole composer messages and semantic answers (EXP-730:
-//! a question is answered ONLY by its wire id — the blind-keystroke path is
-//! gone).
+//! [`publisher`] serves a session this machine is hosting; this module is
+//! the other end of that wire, what web/iOS/Android have had since EXP-249.
+//! VAPP-43: it talks to the session's DEVICE over eNet's chat channel and
+//! nothing else (`fixtures/steer-enet.json`): the endpoints
+//! `installs.forSession` names, newest first, each sent a `join` until one
+//! answers with its replay up to `activity_synced` within
+//! [`enet_steer::JOIN_TIMEOUT`]. It turns everything that arrives into
+//! [`ViewerEvent`]s on a channel, and sends steering back up: whole composer
+//! messages and semantic answers (EXP-730: a question is answered ONLY by
+//! its wire id).
 //!
 //! [`publisher`]: crate::publisher
-//! [`control_channel`]: crate::control_channel
+//! [`enet_steer::JOIN_TIMEOUT`]: crate::enet_steer::JOIN_TIMEOUT
 //!
-//! **The UI is a dumb reducer.** Nothing here interprets a feed: the socket
-//! task emits phases and frames, the caller pumps them into a [`SteerFeed`]
-//! and renders it. That split is what makes the whole protocol testable
-//! without a UI — and the feed testable without a socket.
+//! **The UI is a dumb reducer.** Nothing here interprets a feed: the task
+//! emits phases and frames, the caller pumps them into a [`SteerFeed`] and
+//! renders it.
 //!
 //! [`SteerFeed`]: crate::feed::SteerFeed
 //!
-//! ## The reconnect rules (mirrored from `steer-session-store.ts`)
-//!
-//! A viewer socket dies for many reasons and only some of them mean "the
-//! session is over". Getting this wrong strands the user on a dead feed or
-//! spins the relay's connect budget, so each case is explicit:
+//! ## The reconnect rules
 //!
 //! | signal | meaning | what happens |
 //! |---|---|---|
-//! | `error no_such_session` | the desktop's publisher has not `hello`'d yet | [`ViewerPhase::Starting`] + jittered 3s→30s redial |
-//! | `bye {outcome:"publisher_lost"}` | the publisher's socket dropped; the run may live | retry like any drop |
-//! | `bye` (any other outcome) | the room is finished | [`ViewerPhase::Ended`], stop |
-//! | close 4008 (slow consumer) | the relay evicted a saturated socket | SILENT immediate redial — no phase flap |
-//! | close 4003 (unauthorized) | a "no" a retry re-mints forever | [`ViewerPhase::Unauthorized`], stop |
-//! | 15s with the join unanswered | the socket opened but is dead (half-open TCP after a sleep, a stalled proxy) | [`ViewerPhase::Reconnecting`] + backoff (web `JOIN_ACK_TIMEOUT_MS`) |
-//! | 45s of total silence while live | the socket is dead, not the agent quiet | silent redial (EXP-648: the relay's 15s `keepalive` is what makes "quiet" distinguishable from "gone") |
-//! | anything else | a transport drop | [`ViewerPhase::Reconnecting`] + backoff |
+//! | NO FEED: no node, no endpoint, every endpoint refused, or no `activity_synced` in time | the device is not reachable (or not running the session yet) | a live row: [`ViewerPhase::Starting`] + jittered 3s→30s redial; an ended row: [`ViewerPhase::Ended`] `device_offline` |
+//! | `bye` | the run (or a stored replay, `history`) is finished | [`ViewerPhase::Ended`], stop |
+//! | `error` after the join | the device stopped serving the session | treated as NO FEED |
+//! | [`enet_steer::STALE`] of silence while live | the feed is dead, not the agent quiet (the device beats every 30s) | silent re-join |
+//! | a failed send | the device went away | [`ViewerPhase::Reconnecting`] + backoff |
 //!
-//! The relay forwards `input` ONLY from a joined connection, so "connected"
-//! here means JOINED, not merely opened: everything the handle sends is gated
-//! on the join answer (web gates the composer on the `live` phase for the same
-//! reason). A socket that opened but was never answered silently discards
-//! whatever it is handed.
+//! "Connected" here means JOINED: everything the handle sends is gated on
+//! the join answer (web gates the composer on the `live` phase for the same
+//! reason).
 //!
-//! Steering is owner-only and enforced at MINT time (EXP-312) — there is no
-//! client-side gate here, and there must not be one.
-//!
-//! ## eNet first (VAPP-33)
-//!
-//! With an [`EnetViewerSource`], every dial first tries the device directly
-//! over eNet's chat channel (`fixtures/steer-enet.json`): the endpoints
-//! `installs.forSession` names, newest first, each sent a `join` until one
-//! answers with its replay up to `activity_synced` within
-//! [`enet_steer::JOIN_TIMEOUT`]. The same reducer events come out and every
-//! [`ViewerHandle`] frame goes back over eNet. No node, no endpoint, every
-//! endpoint refusing or silent = the relay ticket path above, and eNet is
-//! retried after [`ENET_RETRY`]. A joined eNet feed silent for
-//! [`enet_steer::STALE`] re-joins.
-//!
-//! [`enet_steer::JOIN_TIMEOUT`]: crate::enet_steer::JOIN_TIMEOUT
 //! [`enet_steer::STALE`]: crate::enet_steer::STALE
 
 use std::collections::VecDeque;
@@ -68,99 +43,44 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use api::error::ApiError;
-use api::steer::MintedTicket;
-use api::trpc::TrpcClient;
-use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
-use tokio_tungstenite::tungstenite::Message;
 
-use crate::frames::{
-    ActivityEvent, ClientFrame, ViewerFrame, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
-    CLOSE_UNAUTHORIZED,
-};
 use crate::enet_steer;
-use crate::{dial, Backoff, DialError, SteerRuntime, WsStream};
+use crate::frames::{ActivityEvent, ClientFrame, ViewerFrame};
+use crate::{Backoff, SteerRuntime};
 
-/// VAPP-33: after eNet could not be built (or its device went away), the
-/// relay serves this long before eNet is tried again.
-pub const ENET_RETRY: Duration = Duration::from_secs(120);
+/// The `bye` outcome a viewer reports for an ENDED row whose device cannot
+/// be reached: the transcript lives on that machine.
+pub const DEVICE_OFFLINE: &str = "device_offline";
 
-/// The relay rejects `input` frames over 8 KiB; chunk well under that. The cap
-/// is measured in UTF-16 code units — the relay validates against a JS
+/// Steer `input` frames stay under 8 KiB; chunk well under that. The cap
+/// is measured in UTF-16 code units — every client validates against a JS
 /// string's `length` — so the chunker counts UTF-16 units too (web
 /// `INPUT_CHUNK_CHARS`, iOS `inputChunkUtf16`).
 pub const INPUT_CHUNK_UTF16: usize = 4096;
-
-/// §8.7: surfaced after two consecutive fresh-ticket 401s — the relay only
-/// rejects a ticket at upgrade time when it is expired on arrival, and a
-/// second fresh one failing the same way is a clock, not a network.
-const CLOCK_SKEW_ERROR: &str = "Steer relay rejected the viewer ticket (expired on arrival) — \
-     check that this machine's clock is in sync (NTP).";
 
 /// Timings the viewer loop runs on. Defaults are the production values
 /// (web/iOS/Android parity); tests shrink them.
 #[derive(Clone, Debug)]
 pub struct ViewerTimings {
-    /// EXP-648: a LIVE socket that has delivered nothing — not even one of
-    /// the relay's 15s `keepalive` beats — for this long is dead, not quiet.
-    /// Three missed beats. Mirrors web `LIVE_STALE_MS`, iOS
-    /// `liveStaleSeconds`, Android `liveStaleMs`.
+    /// A LIVE feed that has delivered nothing — not even one of the device's
+    /// `keepalive` beats — for this long is dead, not quiet.
     pub live_stale: Duration,
-    /// EXP-696: the relay ALWAYS answers a join (`activity_reset` + replay, or
-    /// `error no_such_session` then a close), so silence this long after the
-    /// join frame means the socket is dead rather than the room quiet — a
-    /// half-open TCP the machine woke up with, a proxy that stalled. Only
-    /// applies BEFORE the connection goes live; a redial under a held `Live`
-    /// phase is governed by [`Self::live_stale`] instead, exactly as the web
-    /// store leaves a young in-flight redial alone. Mirrors web
-    /// `JOIN_ACK_TIMEOUT_MS`.
-    pub join_ack: Duration,
-    /// First redial bound while the desktop's publisher is still starting.
+    /// First redial bound while the device's run is not reachable yet.
     pub retry_base: Duration,
     /// Cap the redial bound doubles toward.
     pub retry_cap: Duration,
-    /// How often the loop re-checks the staleness window. Coarse: one timer
-    /// for the connection instead of one per frame.
+    /// How often the loop re-checks the staleness window.
     pub liveness_tick: Duration,
 }
 
 impl Default for ViewerTimings {
     fn default() -> Self {
         Self {
-            live_stale: Duration::from_secs(45),
-            join_ack: Duration::from_secs(15),
+            live_stale: enet_steer::STALE,
             retry_base: Duration::from_secs(3),
             retry_cap: Duration::from_secs(30),
             liveness_tick: Duration::from_secs(5),
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tickets
-// ---------------------------------------------------------------------------
-
-/// Viewer-ticket source, injectable for tests (the [`crate::publisher`]
-/// `PublisherTickets` pattern). Blocking (reqwest underneath) — the loop wraps
-/// calls in `spawn_blocking`. `Ok(None)` = the instance reports steering
-/// disabled ⇒ there is nothing to watch, ever, on this deployment.
-pub trait ViewerTickets: Send + Sync + 'static {
-    fn mint(&self) -> Result<Option<MintedTicket>, ApiError>;
-}
-
-/// Production tickets over the account's tRPC client:
-/// `steer.mintTicket({kind:"viewer", sessionId})` (EXP-1292: the `sessions`
-/// row id). The server decides
-/// authorization there and nowhere else (EXP-312: a LIVE session is
-/// viewable/steerable only by its owner).
-pub struct TrpcViewerTickets {
-    pub trpc: Arc<TrpcClient>,
-    pub session_id: String,
-}
-
-impl ViewerTickets for TrpcViewerTickets {
-    fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-        Ok(api::steer::mint_viewer_ticket(&self.trpc, &self.session_id)?.into_ticket())
     }
 }
 
@@ -173,6 +93,26 @@ pub trait EnetViewerSource: Send + Sync + 'static {
     fn endpoints(&self, session_id: &str) -> Result<Vec<String>, ApiError>;
 }
 
+/// The production source: this account's install node and the registry's
+/// `installs.forSession` (the desktop app and the CLI alike).
+pub struct InstallViewerSource {
+    pub install: crate::enet::InstallNode,
+    pub trpc: Arc<api::TrpcClient>,
+}
+
+impl EnetViewerSource for InstallViewerSource {
+    fn node(&self) -> Option<Arc<enet_core::Node>> {
+        self.install.node()
+    }
+
+    fn endpoints(&self, session_id: &str) -> Result<Vec<String>, ApiError> {
+        Ok(api::installs::for_session(&self.trpc, session_id)?
+            .into_iter()
+            .map(|install| install.endpoint_id)
+            .collect())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // What the UI observes
 // ---------------------------------------------------------------------------
@@ -181,26 +121,21 @@ pub trait EnetViewerSource: Send + Sync + 'static {
 /// loop has stopped and the handle is inert.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ViewerPhase {
-    /// Minting + dialing the first socket.
+    /// The first join is under way.
     Connecting,
-    /// The relay answered `no_such_session` while the session row still says
-    /// running: the desktop is still dialing its publisher socket. Auto-
-    /// redialing with jittered backoff.
+    /// No feed while the session row still says alive: the device may still
+    /// be connecting. Auto-redialing with jittered backoff.
     Starting,
     /// Joined; frames are flowing.
     Live,
-    /// An unexpected drop — redialing with backoff. (The two SILENT redials,
-    /// slow-consumer eviction and live staleness, deliberately do NOT enter
-    /// this phase: the session never stopped being live, and a flicker to
-    /// "Reconnecting" for a socket that comes straight back is a lie.)
+    /// An unexpected drop — redialing with backoff. (The silent re-join on
+    /// staleness deliberately does NOT enter this phase.)
     Reconnecting,
-    /// The room is finished. `outcome` is the relay's, minus the uninformative
-    /// `"ended"`.
+    /// The run is finished (or, `device_offline`, its device unreachable).
+    /// `outcome` is the device's, minus the uninformative `"ended"`.
     Ended { outcome: Option<String> },
-    /// A refusal a retry cannot turn into a yes: steering disabled on the
-    /// instance, a mint refused for ownership or a gone row, a ticket the
-    /// relay rejected twice. Terminal by design (web `closed {terminal:true}`)
-    /// — respawn the viewer to try again.
+    /// A refusal a retry cannot turn into a yes. The viewer task never
+    /// emits it since VAPP-43; hosts use it for "nothing to dial with".
     Unauthorized { detail: Option<String> },
 }
 
@@ -223,10 +158,10 @@ pub enum ViewerEvent {
     /// per-frame re-emission would re-render the world on every replayed
     /// message).
     Phase(ViewerPhase),
-    /// The socket is JOINED (open AND the relay answered the join) / went
+    /// The socket is JOINED (the device answered the join) / went
     /// away. Distinct from the phase: a silent redial keeps the phase steady
     /// while the socket is briefly down, and send affordances should dim
-    /// honestly for that gap. Deliberately not "opened": the relay forwards
+    /// honestly for that gap. Deliberately not "opened": the device applies
     /// `input` only from a joined connection, so a socket that is open but
     /// unanswered can send nothing and must not look otherwise.
     Connected(bool),
@@ -250,7 +185,7 @@ pub enum ViewerEvent {
         events: Vec<(Option<u64>, ActivityEvent)>,
         done: bool,
     },
-    /// The relay's 15s liveness beat. Carries nothing; the loop has already
+    /// The device's liveness beat. Carries nothing; the loop has already
     /// counted it. Forwarded because EXP-656 also treats it as an
     /// end-of-replay signal for a markerless republish.
     Keepalive,
@@ -294,7 +229,7 @@ impl ViewerHandle {
     /// `user_message` twin when the publisher echoes it back.
     ///
     /// `false` when the socket is down OR not joined yet — the caller keeps
-    /// its draft, and NOTHING is echoed: a local message for input the relay
+    /// its draft, and NOTHING is echoed: a local message for input the device
     /// silently dropped is the one lie the feed must never tell.
     pub fn send_message(&self, text: &str) -> bool {
         if text.is_empty() || !self.send_frames(message_frames(text)) {
@@ -304,8 +239,7 @@ impl ViewerHandle {
         true
     }
 
-    /// Protocol v2 answer: the relay forwards it verbatim to the desktop,
-    /// which drives its own picker and confirms with `answer_ack`. The caller
+    /// Protocol v2 answer: the device drives its own picker and confirms with `answer_ack`. The caller
     /// locks the card (`SteerFeed::note_answer_sent`) the instant this
     /// returns true.
     pub fn send_answer(
@@ -324,9 +258,8 @@ impl ViewerHandle {
         .to_json()])
     }
 
-    /// EXP-783: ask for the page of transcript BELOW `before_seq`. The relay
-    /// routes it to whoever can read the run's journal (the live publisher,
-    /// or the owning device for an ended run); the answer arrives as
+    /// EXP-783: ask for the page of transcript BELOW `before_seq`. The device
+    /// reads it off the run's journal (live, or VAPP-43 stored); the answer arrives as
     /// [`ViewerEvent::HistoryPage`]. `false` when the socket is not joined —
     /// the caller retries on its next scroll to the top.
     pub fn request_history_page(&self, request_id: &str, before_seq: u64, limit: u32) -> bool {
@@ -435,7 +368,7 @@ impl ViewerHandle {
 /// Rust strings are UTF-8 and this walks `chars`, so a surrogate pair (one
 /// `char` whose `len_utf16()` is 2) is inherently indivisible — the explicit
 /// pair-check the JS/Swift chunkers need has no counterpart here. What DOES
-/// carry over is the UNIT: the relay validates against a JS string's
+/// carry over is the UNIT: every client validates against a JS string's
 /// `length`, so the budget is UTF-16 code units, not bytes and not chars.
 pub fn chunk_input(text: &str) -> Vec<String> {
     let mut chunks = Vec::new();
@@ -478,39 +411,23 @@ pub fn message_frames(text: &str) -> Vec<String> {
 // Spawning
 // ---------------------------------------------------------------------------
 
-/// Start watching a coding session. Non-blocking: spawns the socket task onto
-/// the steer runtime and returns the handle immediately. Drain `events_rx` on
-/// the UI side and apply what arrives to a [`crate::feed::SteerFeed`].
+/// Start watching a coding session over eNet (`enet` = this install's node
+/// and the session's endpoints; `None` = no eNet here: NO FEED). Non-blocking:
+/// spawns the task onto the steer runtime and returns the handle
+/// immediately. Drain `events_rx` on the UI side and apply what arrives to a
+/// [`crate::feed::SteerFeed`].
 pub fn spawn_viewer(
     runtime: &SteerRuntime,
-    tickets: Arc<dyn ViewerTickets>,
+    enet: Option<Arc<dyn EnetViewerSource>>,
     session_id: String,
     events_tx: flume::Sender<ViewerEvent>,
 ) -> ViewerHandle {
-    spawn_viewer_with(
-        runtime,
-        tickets,
-        session_id,
-        events_tx,
-        ViewerTimings::default(),
-    )
+    spawn_viewer_with(runtime, enet, session_id, events_tx, ViewerTimings::default())
 }
 
 /// [`spawn_viewer`] with explicit timings (tests shrink the windows).
 pub fn spawn_viewer_with(
     runtime: &SteerRuntime,
-    tickets: Arc<dyn ViewerTickets>,
-    session_id: String,
-    events_tx: flume::Sender<ViewerEvent>,
-    timings: ViewerTimings,
-) -> ViewerHandle {
-    spawn_viewer_over(runtime, tickets, None, session_id, events_tx, timings)
-}
-
-/// VAPP-33: [`spawn_viewer_with`] trying eNet (`enet`) before the relay.
-pub fn spawn_viewer_over(
-    runtime: &SteerRuntime,
-    tickets: Arc<dyn ViewerTickets>,
     enet: Option<Arc<dyn EnetViewerSource>>,
     session_id: String,
     events_tx: flume::Sender<ViewerEvent>,
@@ -529,7 +446,6 @@ pub fn spawn_viewer_over(
     };
     runtime.handle().spawn(run_viewer_loop(
         session_id,
-        tickets,
         enet,
         events_tx,
         timings,
@@ -545,24 +461,20 @@ pub fn spawn_viewer_over(
 // The task
 // ---------------------------------------------------------------------------
 
-/// How one connection ended — the whole reconnect policy keys on this.
+/// How one feed ended — the whole reconnect policy keys on this.
 #[derive(Debug)]
 enum ConnEnd {
     /// The handle said stop.
     Shutdown,
     /// The handle said redial now.
     Kicked,
-    /// `bye` with a terminal outcome, or a bare `CLOSE_SESSION_ENDED`.
+    /// `bye`: the run (or its stored replay) is finished.
     Ended(Option<String>),
-    /// `error no_such_session` — the publisher has not arrived yet.
-    Starting,
-    /// `CLOSE_UNAUTHORIZED` — terminal.
-    Unauthorized,
-    /// `CLOSE_SLOW_CONSUMER` — an eviction, not an ending. Silent redial.
-    Evicted,
-    /// Live but mute past the staleness window. Silent redial.
+    /// NO FEED: nothing answered the join, or the device stopped serving.
+    NoFeed,
+    /// Live but mute past the staleness window. Silent re-join.
     Stale,
-    /// Any other close, socket error or EOF.
+    /// A failed send.
     Dropped(Option<String>),
 }
 
@@ -589,7 +501,6 @@ impl Phases {
 #[allow(clippy::too_many_arguments)]
 async fn run_viewer_loop(
     session_id: String,
-    tickets: Arc<dyn ViewerTickets>,
     enet: Option<Arc<dyn EnetViewerSource>>,
     events_tx: flume::Sender<ViewerEvent>,
     timings: ViewerTimings,
@@ -604,184 +515,21 @@ async fn run_viewer_loop(
     };
     phases.set(ViewerPhase::Connecting);
     let mut backoff = Backoff::new(timings.retry_base, timings.retry_cap);
-    // §8.7: one immediate re-mint is allowed after a fresh-ticket 401; a
-    // second consecutive one is a clock, not a network.
-    let mut unauthorized_once = false;
-    // Consecutive slow-consumer evictions. The FIRST redials instantly (the
-    // session never stopped being live); a repeat means something is
-    // pathological, so it takes the backoff instead of spinning.
-    let mut consecutive_evictions = 0u32;
-    // VAPP-33: when eNet may be tried again (`None` = now).
-    let mut enet_retry_at: Option<Instant> = None;
 
-    'dial: while running.load(Ordering::SeqCst) {
-        let mut over_enet = false;
-        let end = 'conn: {
-        // VAPP-33: the device directly over eNet first.
-        if let Some(source) = enet.as_ref().filter(|_| enet_retry_at.is_none_or(|at| Instant::now() >= at)) {
-            match join_over_enet(source, &session_id).await {
-                Some(link) => {
-                    over_enet = true;
-                    break 'conn pump_connection(
-                        &mut Link::Enet(link),
-                        &events_tx,
-                        &mut phases,
-                        &cmd_rx,
-                        &timings,
-                        &mut backoff,
-                        &connected,
-                    )
-                    .await;
-                }
-                None => enet_retry_at = Some(Instant::now() + ENET_RETRY),
+    while running.load(Ordering::SeqCst) {
+        let end = match join_over_enet(enet.as_ref(), &session_id).await {
+            Some(mut link) => {
+                pump_connection(&mut link, &events_tx, &mut phases, &cmd_rx, &timings, &mut backoff, &connected).await
             }
-        }
-        // Mint (blocking reqwest off the reactor), then dial IMMEDIATELY —
-        // the ticket's connect window is ~60s (§8.7).
-        let tickets_for_mint = tickets.clone();
-        let minted = match tokio::task::spawn_blocking(move || tickets_for_mint.mint()).await {
-            Ok(result) => result,
-            Err(join_err) => {
-                log::warn!("steer viewer: mint task panicked: {join_err}");
-                stop(&running, &mut phases, ViewerPhase::Unauthorized { detail: None });
-                return;
-            }
-        };
-        let url = match minted {
-            Ok(Some(ticket)) => ticket.url,
-            Ok(None) => {
-                // Steering is off on this instance: nothing to retry.
-                stop(
-                    &running,
-                    &mut phases,
-                    ViewerPhase::Unauthorized {
-                        detail: Some("Live steering is unavailable on this instance.".into()),
-                    },
-                );
-                return;
-            }
-            Err(ApiError::Unauthorized) => {
-                stop(
-                    &running,
-                    &mut phases,
-                    ViewerPhase::Unauthorized {
-                        detail: Some("Signed out — sign in again to watch this session.".into()),
-                    },
-                );
-                return;
-            }
-            // A mint refused for ownership (403) or for a row that is gone
-            // (404) mints the same "no" forever (web: FORBIDDEN / NOT_FOUND).
-            Err(ApiError::Http {
-                status: status @ (403 | 404),
-                message,
-            }) => {
-                log::info!("steer viewer: mint refused ({status}): {message}");
-                stop(
-                    &running,
-                    &mut phases,
-                    ViewerPhase::Unauthorized {
-                        detail: Some(message),
-                    },
-                );
-                return;
-            }
-            Err(err) => {
-                // Transport, 5xx: worth a retry.
-                log::debug!("steer viewer: mint failed: {err}");
-                if !phases.is(&ViewerPhase::Starting) {
-                    phases.set(ViewerPhase::Reconnecting);
-                }
-                if wait(backoff.next_delay_equal_jitter(), &cmd_rx, &running)
-                    .await
-                    .is_break()
-                {
-                    return;
-                }
-                continue 'dial;
-            }
-        };
-
-        let mut ws = match dial(&url).await {
-            Ok(stream) => stream,
-            Err(DialError::Unauthorized) => {
-                if unauthorized_once {
-                    stop(
-                        &running,
-                        &mut phases,
-                        ViewerPhase::Unauthorized {
-                            detail: Some(CLOCK_SKEW_ERROR.to_string()),
-                        },
-                    );
-                    return;
-                }
-                unauthorized_once = true;
-                continue 'dial; // re-mint once, immediately (§8.7)
-            }
-            Err(DialError::Other(reason)) => {
-                log::debug!("steer viewer: connect failed: {reason}");
-                if !phases.is(&ViewerPhase::Starting) {
-                    phases.set(ViewerPhase::Reconnecting);
-                }
-                if wait(backoff.next_delay_equal_jitter(), &cmd_rx, &running)
-                    .await
-                    .is_break()
-                {
-                    return;
-                }
-                continue 'dial;
-            }
-        };
-        unauthorized_once = false;
-
-        // The ONE audience. The feed is NEVER wiped here: the relay answers
-        // the join with an explicit `activity_reset`, so a redial that never
-        // lands keeps showing what was already on screen.
-        if ws.send(Message::Text(ClientFrame::join().to_json())).await.is_err() {
-            if wait(backoff.next_delay_equal_jitter(), &cmd_rx, &running)
-                .await
-                .is_break()
-            {
-                return;
-            }
-            continue 'dial;
-        }
-        log::debug!("steer viewer: join sent for room {session_id}");
-
-        // NOT connected yet: the relay forwards `input` only from a JOINED
-        // connection, so the flag flips in `pump_connection` on the frame
-        // that answers the join. Sending before that would be swallowed —
-        // and locally echoed as if it had landed.
-        pump_connection(
-            &mut Link::Ws(&mut ws),
-            &events_tx,
-            &mut phases,
-            &cmd_rx,
-            &timings,
-            &mut backoff,
-            &connected,
-        )
-        .await
-        };
-        // VAPP-33: an eNet feed whose device went away (or refused) hands
-        // the next dial to the relay; a stale one simply re-joins.
-        if over_enet && matches!(end, ConnEnd::Starting | ConnEnd::Dropped(_) | ConnEnd::Unauthorized) {
-            enet_retry_at = Some(Instant::now() + ENET_RETRY);
-        }
-        let end = match end {
-            ConnEnd::Starting | ConnEnd::Unauthorized if over_enet => ConnEnd::Kicked,
-            end => end,
+            None => ConnEnd::NoFeed,
         };
 
         if connected.swap(false, Ordering::SeqCst) {
             let _ = events_tx.send(ViewerEvent::Connected(false));
         }
 
-        // The delay this end earns before the next dial, and whether there IS
-        // a next dial.
-        if !matches!(end, ConnEnd::Evicted) {
-            consecutive_evictions = 0;
-        }
+        // The delay this end earns before the next join, and whether there
+        // IS a next join.
         let delay = match end {
             ConnEnd::Shutdown => {
                 running.store(false, Ordering::SeqCst);
@@ -791,54 +539,24 @@ async fn run_viewer_loop(
                 stop(&running, &mut phases, ViewerPhase::Ended { outcome });
                 return;
             }
-            ConnEnd::Unauthorized => {
-                stop(
-                    &running,
-                    &mut phases,
-                    ViewerPhase::Unauthorized {
-                        detail: Some("The relay refused this viewer ticket.".into()),
-                    },
-                );
-                return;
-            }
-            ConnEnd::Starting => {
-                // An `in_review` run is still alive and steerable (EXP-194) —
-                // only a truly ended one stops the redial.
+            ConnEnd::NoFeed => {
+                // VAPP-43: the relay carries no session content, so there is
+                // no fallback. An ended row's transcript lives on its device;
+                // a live one may still be connecting (an `in_review` run is
+                // still alive and steerable, EXP-194).
                 if session_ended.load(Ordering::SeqCst) {
-                    stop(
-                        &running,
-                        &mut phases,
-                        ViewerPhase::Ended { outcome: None },
-                    );
+                    stop(&running, &mut phases, ViewerPhase::Ended { outcome: Some(DEVICE_OFFLINE.to_string()) });
                     return;
                 }
                 phases.set(ViewerPhase::Starting);
                 backoff.next_delay_equal_jitter()
             }
-            ConnEnd::Kicked => {
-                // The user (or a wakeup) asked: no delay, no phase flap.
-                Duration::ZERO
-            }
-            ConnEnd::Evicted => {
-                // EXP-621: an eviction is not an ending. The phase holds
-                // (usually `live`), so nothing flickers; only a REPEAT
-                // eviction pays a backoff.
-                consecutive_evictions += 1;
-                if consecutive_evictions > 1 {
-                    backoff.next_delay_equal_jitter()
-                } else {
-                    Duration::ZERO
-                }
-            }
+            // The user (or a wakeup) asked: no delay, no phase flap.
+            ConnEnd::Kicked => Duration::ZERO,
             ConnEnd::Stale => {
-                // EXP-648: live on paper over a socket that said nothing for
-                // three keepalives. Redial under the live phase so a socket
-                // that turns out fine never flashes "Reconnecting".
-                if session_ended.load(Ordering::SeqCst) {
-                    stop(&running, &mut phases, ViewerPhase::Ended { outcome: None });
-                    return;
-                }
-                log::debug!("steer viewer: silent redial (no frames for {:?})", timings.live_stale);
+                // Live on paper over a feed that said nothing for two
+                // keepalives: re-join under the live phase.
+                log::debug!("steer viewer: silent re-join (no frames for {:?})", timings.live_stale);
                 Duration::ZERO
             }
             ConnEnd::Dropped(reason) => {
@@ -858,15 +576,14 @@ async fn run_viewer_loop(
 fn stop(running: &Arc<AtomicBool>, phases: &mut Phases, phase: ViewerPhase) {
     // The flag goes down FIRST: the phase event is what a view learns the
     // ending from, and it must never read `is_active()` as `true` off the
-    // back of a terminal phase (the loop is already returning). Emitting
-    // first left a window in which the composer stayed lit.
+    // back of a terminal phase (the loop is already returning).
     running.store(false, Ordering::SeqCst);
     phases.set(phase);
 }
 
-/// One connection's select loop.
+/// One joined feed's select loop.
 async fn pump_connection(
-    ws: &mut Link<'_>,
+    link: &mut EnetLink,
     events_tx: &flume::Sender<ViewerEvent>,
     phases: &mut Phases,
     cmd_rx: &flume::Receiver<ViewerCmd>,
@@ -876,200 +593,102 @@ async fn pump_connection(
 ) -> ConnEnd {
     let mut liveness = tokio::time::interval(timings.liveness_tick);
     liveness.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    // Any inbound frame proves the socket — including the relay's `keepalive`
-    // beat, which exists for exactly this (EXP-648).
+    // Any inbound frame proves the feed — including the device's
+    // `keepalive` beat, which exists for exactly this (EXP-648).
     let mut last_rx = Instant::now();
-    // The join was ANSWERED ⇒ this connection is a member of the room and
-    // what the handle sends will actually be forwarded. Frames the relay
-    // sends to joined viewers only (everything but `bye`/`error`) prove it.
-    let mark_joined = || {
-        if !connected.swap(true, Ordering::SeqCst) {
-            let _ = events_tx.send(ViewerEvent::Connected(true));
-        }
-    };
-    // Set by the frame handler; the socket close that follows is expected.
-    let mut pending_end: Option<ConnEnd> = None;
+    // `join_over_enet` returned only once the device answered the join with
+    // its replay: what the handle sends from here is applied.
+    if !connected.swap(true, Ordering::SeqCst) {
+        let _ = events_tx.send(ViewerEvent::Connected(true));
+    }
     loop {
         tokio::select! {
             cmd = cmd_rx.recv_async() => match cmd {
                 Ok(ViewerCmd::Frames(frames)) => {
-                    if !ws.send(frames).await {
+                    if !link.send(frames).await {
                         return ConnEnd::Dropped(Some("send failed".into()));
                     }
                 }
                 Ok(ViewerCmd::Kick) => {
-                    // A wakeup nudge, not a Reconnect button: it acts only on
-                    // a connection that is provably stuck. A live socket that
-                    // spoke inside the staleness window is healthy, and a dial
-                    // still inside its join deadline is merely young — tearing
-                    // either down would buy a full replay and nothing else.
-                    // (Web `kick` makes the same two exemptions; the third
-                    // case it handles, a backoff to cut short, is `wait`'s.)
-                    let healthy = if phases.is(&ViewerPhase::Live) {
-                        last_rx.elapsed() <= timings.live_stale
-                    } else {
-                        last_rx.elapsed() <= timings.join_ack
-                    };
-                    if healthy {
+                    // A wakeup nudge, not a Reconnect button: a feed that
+                    // spoke inside the staleness window is healthy, and
+                    // re-joining it would buy a full replay and nothing else.
+                    if last_rx.elapsed() <= timings.live_stale {
                         continue;
                     }
-                    ws.close().await;
+                    link.leave();
                     return ConnEnd::Kicked;
                 }
                 Ok(ViewerCmd::Shutdown) | Err(_) => {
-                    ws.close().await; // 1000 normal closure / `leave`
+                    link.leave();
                     return ConnEnd::Shutdown;
                 }
             },
-            msg = ws.next() => {
-                if matches!(msg, Some(Ok(_))) {
-                    last_rx = Instant::now();
-                }
-                match msg {
-                    Some(Ok(Message::Text(text))) => match ViewerFrame::parse(&text) {
-                        Some(ViewerFrame::Activity { event, seq }) => {
-                            // The join was answered ⇒ the room is live. A
-                            // long-lived connection also earns a fresh
-                            // backoff for whatever comes next.
-                            mark_joined();
-                            if !phases.is(&ViewerPhase::Live) {
-                                phases.set(ViewerPhase::Live);
-                                backoff.reset();
-                            }
-                            let _ = events_tx.send(ViewerEvent::Activity(seq, event));
+            frame = link.next() => {
+                let Some(text) = frame else {
+                    return ConnEnd::Dropped(Some("subscription closed".into()));
+                };
+                last_rx = Instant::now();
+                match ViewerFrame::parse(&text) {
+                    Some(ViewerFrame::Activity { event, seq }) => {
+                        if !phases.is(&ViewerPhase::Live) {
+                            phases.set(ViewerPhase::Live);
+                            backoff.reset();
                         }
-                        Some(ViewerFrame::ActivityReset) => {
-                            mark_joined();
-                            if !phases.is(&ViewerPhase::Live) {
-                                phases.set(ViewerPhase::Live);
-                                backoff.reset();
-                            }
-                            let _ = events_tx.send(ViewerEvent::Reset);
-                        }
-                        Some(ViewerFrame::ActivitySynced {
-                            first_seq, truncated, ..
-                        }) => {
-                            mark_joined();
-                            let _ = events_tx.send(ViewerEvent::Synced {
-                                first_seq,
-                                truncated: truncated.unwrap_or(false),
-                            });
-                        }
-                        Some(ViewerFrame::HistoryChunk { request_id, events, seqs, done }) => {
-                            mark_joined();
-                            // The relay guarantees `seqs` lines up with
-                            // `events`; a short array (it cannot happen, the
-                            // zod requires one per event) leaves the tail of
-                            // the page prepended unnumbered rather than
-                            // dropping it. A `None` slot is an event kind
-                            // this build does not know (compat review R6
-                            // #3): dropped AFTER the zip so the numbering of
-                            // its neighbours stays right.
-                            let events = events
-                                .into_iter()
-                                .enumerate()
-                                .filter_map(|(ix, event)| Some((seqs.get(ix).copied(), event?)))
-                                .collect();
-                            let _ = events_tx.send(ViewerEvent::HistoryPage {
-                                request_id,
-                                events,
-                                done,
-                            });
-                        }
-                        Some(ViewerFrame::Keepalive) => {
-                            mark_joined();
-                            // Counted by the `last_rx` stamp above; never a
-                            // phase change. Forwarded because EXP-656 uses it
-                            // as an end-of-replay signal.
-                            let _ = events_tx.send(ViewerEvent::Keepalive);
-                        }
-                        Some(ViewerFrame::Bye { outcome }) => {
-                            if outcome.as_deref() == Some("publisher_lost") {
-                                // The desktop's relay socket dropped, but the
-                                // run may still be going — the synced row is
-                                // the truth. Stay retryable.
-                                pending_end = Some(ConnEnd::Dropped(Some("publisher_lost".into())));
-                            } else {
-                                let outcome = outcome.filter(|o| o != "ended");
-                                pending_end = Some(ConnEnd::Ended(outcome));
-                            }
-                        }
-                        Some(ViewerFrame::Error { code, message }) => {
-                            if code == "no_such_session" {
-                                // Not live on the relay YET — the desktop may
-                                // still be connecting.
-                                pending_end = Some(ConnEnd::Starting);
-                            } else {
-                                pending_end = Some(ConnEnd::Dropped(Some(
-                                    message.unwrap_or(code),
-                                )));
-                            }
-                        }
-                        // Unknown/publisher-bound frames: ignored, never a
-                        // teardown (the relay ships ahead of desktop builds).
-                        None => log::debug!("steer viewer: unparseable frame ignored"),
-                    },
-                    Some(Ok(Message::Close(frame))) => {
-                        // A `bye`/`error` already decided what this close
-                        // means — the relay always closes right behind them.
-                        if let Some(end) = pending_end.take() {
-                            return end;
-                        }
-                        return match close_code(&frame) {
-                            Some(CLOSE_UNAUTHORIZED) => ConnEnd::Unauthorized,
-                            Some(CLOSE_SLOW_CONSUMER) => ConnEnd::Evicted,
-                            Some(CLOSE_SESSION_ENDED) => ConnEnd::Ended(None),
-                            code => ConnEnd::Dropped(code.map(|c| format!("close {c}"))),
-                        };
+                        let _ = events_tx.send(ViewerEvent::Activity(seq, event));
                     }
-                    Some(Ok(_ping_or_binary)) => {
-                        // The relay speaks TEXT only; a pong's whole job here
-                        // is the `last_rx` stamp above.
+                    Some(ViewerFrame::ActivityReset) => {
+                        if !phases.is(&ViewerPhase::Live) {
+                            phases.set(ViewerPhase::Live);
+                            backoff.reset();
+                        }
+                        let _ = events_tx.send(ViewerEvent::Reset);
                     }
-                    Some(Err(err)) => {
-                        return pending_end
-                            .take()
-                            .unwrap_or(ConnEnd::Dropped(Some(err)));
+                    Some(ViewerFrame::ActivitySynced { first_seq, truncated, .. }) => {
+                        let _ = events_tx.send(ViewerEvent::Synced {
+                            first_seq,
+                            truncated: truncated.unwrap_or(false),
+                        });
                     }
-                    None => {
-                        return pending_end.take().unwrap_or(ConnEnd::Dropped(None));
+                    Some(ViewerFrame::HistoryChunk { request_id, events, seqs, done }) => {
+                        // A `None` slot is an event kind this build does not
+                        // know (compat review R6 #3): dropped AFTER the zip so
+                        // the numbering of its neighbours stays right.
+                        let events = events
+                            .into_iter()
+                            .enumerate()
+                            .filter_map(|(ix, event)| Some((seqs.get(ix).copied(), event?)))
+                            .collect();
+                        let _ = events_tx.send(ViewerEvent::HistoryPage { request_id, events, done });
                     }
-                }
-                // eNet has no close frame: a `bye`/`error` IS the end.
-                if ws.is_enet() {
-                    if let Some(end) = pending_end.take() {
-                        return end;
+                    Some(ViewerFrame::Keepalive) => {
+                        // Counted by the `last_rx` stamp above; never a phase
+                        // change. Forwarded because EXP-656 uses it as an
+                        // end-of-replay signal.
+                        let _ = events_tx.send(ViewerEvent::Keepalive);
                     }
+                    // eNet has no close frame: a `bye` IS the end.
+                    Some(ViewerFrame::Bye { outcome }) => {
+                        return ConnEnd::Ended(outcome.filter(|o| o != "ended"));
+                    }
+                    Some(ViewerFrame::Error { code, .. }) => {
+                        log::debug!("steer viewer: the device stopped serving the session ({code})");
+                        return ConnEnd::NoFeed;
+                    }
+                    // Unknown frames: ignored, never a teardown.
+                    None => log::debug!("steer viewer: unparseable frame ignored"),
                 }
             },
             _ = liveness.tick() => {
-                // EXP-648: silence past three relay keepalives means the
-                // socket is dead, not that the agent is parked on a question.
-                if phases.is(&ViewerPhase::Live) {
-                    if last_rx.elapsed() > ws.live_stale(timings) {
-                        ws.close().await;
-                        return ConnEnd::Stale;
-                    }
-                // …and BEFORE the room is live the same reasoning runs on a
-                // tighter clock: the relay answers every join, so a socket
-                // that opened and then said nothing at all (a half-open TCP
-                // the machine woke up with, a proxy that stalled) is dead.
-                // Without this the loop waits on `ws.next()` forever, since
-                // no close frame is ever coming. Web `JOIN_ACK_TIMEOUT_MS`.
-                } else if last_rx.elapsed() > timings.join_ack {
-                    ws.close().await;
-                    return ConnEnd::Dropped(Some("join went unanswered".into()));
+                // EXP-648: silence past two device keepalives means the feed
+                // is dead, not that the agent is parked on a question.
+                if last_rx.elapsed() > timings.live_stale {
+                    link.leave();
+                    return ConnEnd::Stale;
                 }
             }
         }
     }
-}
-
-/// One viewer connection's carrier: the relay socket, or (VAPP-33) the
-/// device directly over eNet chat. The pump reads both the same way.
-enum Link<'a> {
-    Ws(&'a mut WsStream),
-    Enet(EnetLink),
 }
 
 /// A joined eNet feed: the device's frames arrive on `sub`; `held` = what
@@ -1082,77 +701,41 @@ struct EnetLink {
     held: VecDeque<String>,
 }
 
-impl Link<'_> {
-    fn is_enet(&self) -> bool {
-        matches!(self, Link::Enet(_))
-    }
-
-    /// The live silence that means dead: the relay beats every 15s, the
-    /// device every 30s.
-    fn live_stale(&self, timings: &ViewerTimings) -> Duration {
-        match self {
-            Link::Ws(_) => timings.live_stale,
-            Link::Enet(_) => enet_steer::STALE,
+impl EnetLink {
+    async fn next(&mut self) -> Option<String> {
+        if let Some(frame) = self.held.pop_front() {
+            return Some(frame);
         }
+        self.sub.frames.recv_async().await.ok()
     }
 
-    async fn next(&mut self) -> Option<Result<Message, String>> {
-        match self {
-            Link::Ws(ws) => ws.next().await.map(|msg| msg.map_err(|err| err.to_string())),
-            Link::Enet(link) => {
-                if let Some(frame) = link.held.pop_front() {
-                    return Some(Ok(Message::Text(frame)));
-                }
-                link.sub.frames.recv_async().await.ok().map(|frame| Ok(Message::Text(frame)))
-            }
-        }
-    }
-
-    /// Writes `frames` in order (one envelope over eNet). `false` = gone.
+    /// Writes `frames` in order (one envelope). `false` = gone.
     async fn send(&mut self, frames: Vec<String>) -> bool {
-        match self {
-            Link::Ws(ws) => {
-                for frame in frames {
-                    if ws.send(Message::Text(frame)).await.is_err() {
-                        return false;
-                    }
-                }
-                true
-            }
-            Link::Enet(link) => {
-                match enet_steer::send_envelope(&link.node, link.device, &link.session_id, &frames).await {
-                    Ok(()) => true,
-                    Err(err) => {
-                        log::debug!("steer viewer: eNet send failed: {err}");
-                        false
-                    }
-                }
+        match enet_steer::send_envelope(&self.node, self.device, &self.session_id, &frames).await {
+            Ok(()) => true,
+            Err(err) => {
+                log::debug!("steer viewer: eNet send failed: {err}");
+                false
             }
         }
     }
 
-    /// Close the socket / tell the device we `leave` (best effort).
-    async fn close(&mut self) {
-        match self {
-            Link::Ws(ws) => {
-                let _ = WsStream::close(ws, None).await;
-            }
-            Link::Enet(link) => {
-                let (node, device, session_id) = (Arc::clone(&link.node), link.device, link.session_id.clone());
-                tokio::spawn(async move {
-                    let _ = enet_steer::send_envelope(&node, device, &session_id, &[LEAVE_FRAME.to_string()]).await;
-                });
-            }
-        }
+    /// Tell the device we `leave` (best effort).
+    fn leave(&self) {
+        let (node, device, session_id) = (Arc::clone(&self.node), self.device, self.session_id.clone());
+        tokio::spawn(async move {
+            let _ = enet_steer::send_envelope(&node, device, &session_id, &[LEAVE_FRAME.to_string()]).await;
+        });
     }
 }
 
 const LEAVE_FRAME: &str = r#"{"t":"leave"}"#;
 
-/// VAPP-33 DISCOVERY: `join` each install running the session, newest
-/// first, until one answers with its replay up to `activity_synced` within
-/// [`enet_steer::JOIN_TIMEOUT`]. `None` = the relay instead.
-async fn join_over_enet(source: &Arc<dyn EnetViewerSource>, session_id: &str) -> Option<EnetLink> {
+/// DISCOVERY: `join` each install running the session, newest first, until
+/// one answers with its replay up to `activity_synced` within
+/// [`enet_steer::JOIN_TIMEOUT`]. `None` = NO FEED.
+async fn join_over_enet(source: Option<&Arc<dyn EnetViewerSource>>, session_id: &str) -> Option<EnetLink> {
+    let source = source?;
     let node = source.node()?;
     let lookup = Arc::clone(source);
     let id = session_id.to_string();
@@ -1199,14 +782,10 @@ async fn join_over_enet(source: &Arc<dyn EnetViewerSource>, session_id: &str) ->
     None
 }
 
-fn close_code(frame: &Option<CloseFrame<'_>>) -> Option<u16> {
-    frame.as_ref().map(|f| u16::from(f.code))
-}
-
-/// Interruptible delay between dials: `Break` on shutdown, `Continue` on a
-/// kick (redial now) or the delay elapsing. Frames sent into a down socket are
+/// Interruptible delay between joins: `Break` on shutdown, `Continue` on a
+/// kick (redial now) or the delay elapsing. Frames sent meanwhile are
 /// dropped here — the handle already refused them, so this only catches the
-/// race where the socket died between the check and the send.
+/// race where the feed died between the check and the send.
 async fn wait(
     delay: Duration,
     cmd_rx: &flume::Receiver<ViewerCmd>,
@@ -1234,7 +813,6 @@ async fn wait(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     // ── Pure frame building ────────────────────────────────────────────────
 
@@ -1278,561 +856,5 @@ mod tests {
         }
         // Everything round-trips: chunking loses nothing.
         assert_eq!(chunks.concat(), emoji);
-    }
-
-    // ── Against a fake relay ───────────────────────────────────────────────
-
-    struct FakeTickets {
-        url: String,
-    }
-
-    impl ViewerTickets for FakeTickets {
-        fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-            Ok(Some(MintedTicket {
-                ticket: "fake.fake".to_string(),
-                url: self.url.clone(),
-            }))
-        }
-    }
-
-    struct DisabledTickets;
-
-    impl ViewerTickets for DisabledTickets {
-        fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-            Ok(None)
-        }
-    }
-
-    /// One accepted viewer socket: what the client sent, and a way to push
-    /// frames (or a close) back down.
-    struct Conn {
-        seen: flume::Receiver<String>,
-        inject: flume::Sender<Message>,
-    }
-
-    impl Conn {
-        fn next_frame(&self) -> String {
-            self.seen
-                .recv_timeout(Duration::from_secs(5))
-                .expect("a frame from the viewer")
-        }
-
-        fn send(&self, frame: &str) {
-            self.inject.send(Message::Text(frame.to_string())).unwrap();
-        }
-
-        fn close(&self, code: u16) {
-            self.inject
-                .send(Message::Close(Some(CloseFrame {
-                    code: CloseCode::from(code),
-                    reason: "".into(),
-                })))
-                .unwrap();
-        }
-    }
-
-    /// A fake relay that accepts EVERY connection (the redial tests need the
-    /// second and third), handing each one out over `conns`.
-    fn fake_relay(runtime: &SteerRuntime) -> (u16, flume::Receiver<Conn>) {
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (conns_tx, conns_rx) = flume::unbounded::<Conn>();
-        runtime.handle().spawn(async move {
-            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-            loop {
-                let Ok((stream, _addr)) = listener.accept().await else {
-                    break;
-                };
-                let Ok(mut ws) = tokio_tungstenite::accept_async(stream).await else {
-                    continue;
-                };
-                let (seen_tx, seen_rx) = flume::unbounded::<String>();
-                let (inject_tx, inject_rx) = flume::unbounded::<Message>();
-                if conns_tx
-                    .send(Conn {
-                        seen: seen_rx,
-                        inject: inject_tx,
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-                tokio::spawn(async move {
-                    loop {
-                        tokio::select! {
-                            inject = inject_rx.recv_async() => {
-                                let Ok(message) = inject else { break };
-                                if ws.send(message).await.is_err() { break; }
-                            }
-                            msg = ws.next() => match msg {
-                                Some(Ok(Message::Text(text))) => { let _ = seen_tx.send(text); }
-                                Some(Ok(_)) => {}
-                                _ => break,
-                            }
-                        }
-                    }
-                });
-            }
-        });
-        (port, conns_rx)
-    }
-
-    struct Harness {
-        _runtime: Arc<SteerRuntime>,
-        handle: ViewerHandle,
-        conns: flume::Receiver<Conn>,
-        events: flume::Receiver<ViewerEvent>,
-    }
-
-    impl Harness {
-        fn start(timings: ViewerTimings) -> Self {
-            let runtime = SteerRuntime::new().unwrap();
-            let (port, conns) = fake_relay(&runtime);
-            let (events_tx, events) = flume::unbounded();
-            let handle = spawn_viewer_with(
-                &runtime,
-                Arc::new(FakeTickets {
-                    url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-                }),
-                "sess-v".to_string(),
-                events_tx,
-                timings,
-            );
-            Self {
-                _runtime: runtime,
-                handle,
-                conns,
-                events,
-            }
-        }
-
-        fn fast() -> Self {
-            Self::start(ViewerTimings {
-                live_stale: Duration::from_millis(250),
-                // Generous on purpose: every test here answers its join in
-                // milliseconds, and the deadline has its own test below.
-                join_ack: Duration::from_secs(2),
-                retry_base: Duration::from_millis(10),
-                retry_cap: Duration::from_millis(40),
-                liveness_tick: Duration::from_millis(25),
-            })
-        }
-
-        fn next_conn(&self) -> Conn {
-            self.conns
-                .recv_timeout(Duration::from_secs(5))
-                .expect("a viewer connection")
-        }
-
-        /// Accept a connection, assert its join, and answer it so the phase
-        /// goes live.
-        fn go_live(&self) -> Conn {
-            let conn = self.next_conn();
-            assert_eq!(conn.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-            conn.send(r#"{"t":"activity_reset"}"#);
-            self.wait_for_phase(&ViewerPhase::Live);
-            // Drain the join answer's own event too, so a test that waits for
-            // the NEXT `Reset` (a redial's replay) isn't fooled by this one.
-            assert_eq!(self.next_event(), ViewerEvent::Reset);
-            conn
-        }
-
-        fn next_event(&self) -> ViewerEvent {
-            self.events
-                .recv_timeout(Duration::from_secs(5))
-                .expect("a viewer event")
-        }
-
-        /// Drain until the given phase arrives, returning everything seen on
-        /// the way (so a test can assert what did NOT happen).
-        fn wait_for_phase(&self, phase: &ViewerPhase) -> Vec<ViewerEvent> {
-            let mut seen = Vec::new();
-            loop {
-                let event = self.next_event();
-                let hit = matches!(&event, ViewerEvent::Phase(p) if p == phase);
-                seen.push(event);
-                if hit {
-                    return seen;
-                }
-            }
-        }
-    }
-
-    fn phases(events: &[ViewerEvent]) -> Vec<&ViewerPhase> {
-        events
-            .iter()
-            .filter_map(|event| match event {
-                ViewerEvent::Phase(phase) => Some(phase),
-                _ => None,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn joins_the_activity_channel_and_goes_live_on_the_first_frame() {
-        let harness = Harness::fast();
-        assert_eq!(
-            harness.next_event(),
-            ViewerEvent::Phase(ViewerPhase::Connecting)
-        );
-        let conn = harness.next_conn();
-        // The relay's zod REQUIRES the channel literal.
-        assert_eq!(conn.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-        // Not connected until the join is ANSWERED — the relay forwards
-        // nothing from an unjoined socket.
-        assert!(!harness.handle.is_connected());
-
-        conn.send(r#"{"t":"activity_reset"}"#);
-        assert_eq!(harness.next_event(), ViewerEvent::Connected(true));
-        assert_eq!(harness.next_event(), ViewerEvent::Phase(ViewerPhase::Live));
-        assert_eq!(harness.next_event(), ViewerEvent::Reset);
-
-        conn.send(r#"{"t":"activity","event":{"kind":"narration","text":"working"},"seq":4}"#);
-        assert_eq!(
-            harness.next_event(),
-            ViewerEvent::Activity(4, ActivityEvent::narration("working"))
-        );
-        conn.send(r#"{"t":"activity_synced","firstSeq":0,"lastSeq":4}"#);
-        assert_eq!(
-            harness.next_event(),
-            ViewerEvent::Synced {
-                first_seq: 0,
-                truncated: false
-            }
-        );
-        // EXP-783: an older page arrives addressed to its request, with the
-        // sequences that let the client prepend it in order.
-        conn.send(
-            r#"{"t":"history_chunk","requestId":"p1","events":[{"kind":"narration","text":"older"}],"seqs":[1],"done":true}"#,
-        );
-        assert_eq!(
-            harness.next_event(),
-            ViewerEvent::HistoryPage {
-                request_id: "p1".to_string(),
-                events: vec![(Some(1), ActivityEvent::narration("older"))],
-                done: true,
-            }
-        );
-        // Compat review R6 #3: an event kind from a newer device inside a
-        // page is dropped on its own — the page still lands, `done` with it,
-        // and the surviving neighbour keeps ITS sequence (3, not 2).
-        conn.send(
-            r#"{"t":"history_chunk","requestId":"p2","events":[{"kind":"from_the_future"},{"kind":"narration","text":"kept"}],"seqs":[2,3],"done":true}"#,
-        );
-        assert_eq!(
-            harness.next_event(),
-            ViewerEvent::HistoryPage {
-                request_id: "p2".to_string(),
-                events: vec![(Some(3), ActivityEvent::narration("kept"))],
-                done: true,
-            }
-        );
-        // EXP-648: a keepalive is forwarded but never a phase change.
-        conn.send(r#"{"t":"keepalive"}"#);
-        assert_eq!(harness.next_event(), ViewerEvent::Keepalive);
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn a_sent_message_chunks_ends_with_a_lone_return_and_echoes_locally() {
-        let harness = Harness::fast();
-        let conn = harness.go_live();
-        assert!(harness.handle.send_message("do the thing"));
-        assert_eq!(conn.next_frame(), r#"{"t":"input","data":"do the thing"}"#);
-        assert_eq!(conn.next_frame(), r#"{"t":"input","data":"\r"}"#);
-        // The local echo rides the SAME ordered channel as inbound frames.
-        let mut saw_echo = false;
-        for _ in 0..8 {
-            if harness.next_event() == ViewerEvent::LocalMessage("do the thing".into()) {
-                saw_echo = true;
-                break;
-            }
-        }
-        assert!(saw_echo, "the sent message is echoed to the feed");
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn an_answer_reaches_the_relay_in_its_wire_shape() {
-        let harness = Harness::fast();
-        let conn = harness.go_live();
-        assert!(harness.handle.send_answer(
-            "toolu_01#0",
-            Some("toolu_01"),
-            &["1".to_string()],
-            Some("purple"),
-        ));
-        assert_eq!(
-            conn.next_frame(),
-            r#"{"t":"answer","questionId":"toolu_01#0","askId":"toolu_01","keys":["1"],"text":"purple"}"#
-        );
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn sending_into_a_down_socket_reports_false() {
-        let harness = Harness::fast();
-        // Nothing is connected yet — the caller keeps its draft.
-        assert!(!harness.handle.send_message("too early"));
-        assert!(!harness.handle.send_answer("q", None, &["1".to_string()], None));
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn a_slow_consumer_eviction_redials_without_a_phase_change() {
-        let harness = Harness::fast();
-        let conn = harness.go_live();
-        conn.close(CLOSE_SLOW_CONSUMER);
-
-        // A second socket arrives and joins…
-        let next = harness.next_conn();
-        assert_eq!(next.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-        next.send(r#"{"t":"activity_reset"}"#);
-
-        // …and NOTHING in between claimed the session was reconnecting or
-        // over: an eviction is not an ending.
-        let mut seen = Vec::new();
-        loop {
-            let event = harness.next_event();
-            let done = event == ViewerEvent::Reset;
-            seen.push(event);
-            if done {
-                break;
-            }
-        }
-        assert!(
-            phases(&seen).is_empty(),
-            "the live phase held across the eviction: {:?}",
-            phases(&seen)
-        );
-        assert!(
-            seen.contains(&ViewerEvent::Connected(false))
-                && seen.contains(&ViewerEvent::Connected(true)),
-            "but `connected` dipped honestly for the gap"
-        );
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn bye_publisher_lost_retries_while_any_other_outcome_ends() {
-        // The desktop's socket dropped; the run may still be going.
-        let harness = Harness::fast();
-        let conn = harness.go_live();
-        conn.send(r#"{"t":"bye","outcome":"publisher_lost"}"#);
-        conn.close(CLOSE_SESSION_ENDED);
-        harness.wait_for_phase(&ViewerPhase::Reconnecting);
-        let next = harness.next_conn();
-        assert_eq!(next.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-        harness.handle.shutdown();
-
-        // A real ending stops the loop for good, outcome and all.
-        let harness = Harness::fast();
-        let conn = harness.go_live();
-        conn.send(r#"{"t":"bye","outcome":"exit:0"}"#);
-        conn.close(CLOSE_SESSION_ENDED);
-        harness.wait_for_phase(&ViewerPhase::Ended {
-            outcome: Some("exit:0".to_string()),
-        });
-        assert!(!harness.handle.is_active());
-        assert!(
-            harness.conns.recv_timeout(Duration::from_millis(300)).is_err(),
-            "an ended room is never redialed"
-        );
-    }
-
-    #[test]
-    fn no_such_session_parks_in_starting_and_keeps_redialing() {
-        let harness = Harness::fast();
-        let conn = harness.next_conn();
-        assert_eq!(conn.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-        // The desktop has not `hello`'d yet.
-        conn.send(r#"{"t":"error","code":"no_such_session"}"#);
-        conn.close(CLOSE_SESSION_ENDED);
-        harness.wait_for_phase(&ViewerPhase::Starting);
-
-        // It keeps trying — the publisher may arrive at any moment.
-        let next = harness.next_conn();
-        assert_eq!(next.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-        next.send(r#"{"t":"activity_reset"}"#);
-        harness.wait_for_phase(&ViewerPhase::Live);
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn a_run_the_synced_row_calls_ended_stops_the_starting_redial() {
-        // EXP-639: an ended run has no publisher left, so redialing can only
-        // draw `no_such_session` forever.
-        let harness = Harness::fast();
-        let conn = harness.next_conn();
-        conn.next_frame();
-        harness.handle.note_session_ended();
-        conn.send(r#"{"t":"error","code":"no_such_session"}"#);
-        conn.close(CLOSE_SESSION_ENDED);
-        harness.wait_for_phase(&ViewerPhase::Ended { outcome: None });
-        assert!(!harness.handle.is_active());
-    }
-
-    #[test]
-    fn a_live_socket_that_goes_silent_is_redialed_silently() {
-        let harness = Harness::fast(); // live_stale = 250ms
-        // Held open and never spoken through again: the socket stays
-        // ESTABLISHED (no close frame, no error), which is exactly the
-        // OS-killed-connection case the keepalive window exists for.
-        let _mute = harness.go_live();
-
-        let next = harness.next_conn();
-        assert_eq!(next.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-        next.send(r#"{"t":"activity_reset"}"#);
-        let mut seen = Vec::new();
-        loop {
-            let event = harness.next_event();
-            let done = event == ViewerEvent::Reset;
-            seen.push(event);
-            if done {
-                break;
-            }
-        }
-        // The phase held at `live` throughout — a socket that turns out fine
-        // must never flash "Reconnecting".
-        assert!(
-            phases(&seen).is_empty(),
-            "silent redial, no phase flap: {:?}",
-            phases(&seen)
-        );
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn a_join_the_relay_never_answers_is_dropped_and_redialed() {
-        // The socket OPENS and then nothing comes back — no reset, no error,
-        // no close: a half-open TCP the machine woke up with, or a stalled
-        // proxy. Nothing in the select loop would ever fire without the join
-        // deadline, so the viewer would wait forever.
-        let harness = Harness::start(ViewerTimings {
-            live_stale: Duration::from_secs(45), // never reached: not live
-            join_ack: Duration::from_millis(150),
-            retry_base: Duration::from_millis(10),
-            retry_cap: Duration::from_millis(40),
-            liveness_tick: Duration::from_millis(25),
-        });
-        let mute = harness.next_conn();
-        assert_eq!(mute.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-
-        harness.wait_for_phase(&ViewerPhase::Reconnecting);
-        let next = harness.next_conn();
-        assert_eq!(next.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-
-        // And throughout, the handle refused to pretend it could steer: an
-        // unjoined socket's `input` is silently discarded by the relay, so a
-        // `true` here would put a message in the feed that never happened.
-        assert!(!harness.handle.is_connected());
-        assert!(!harness.handle.send_message("into the void"));
-        drop(mute);
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn a_kick_leaves_a_healthy_live_socket_alone() {
-        // The wakeups fire on every window activation; redialing a socket
-        // that is talking would cost a full replay for nothing (web `kick`
-        // makes the same exemption on a fresh `live` store).
-        // Production-length silence windows: the point is that the KICK did
-        // nothing, so no other rule may redial during the test either.
-        let harness = Harness::start(ViewerTimings {
-            live_stale: Duration::from_secs(45),
-            join_ack: Duration::from_secs(15),
-            retry_base: Duration::from_millis(10),
-            retry_cap: Duration::from_millis(40),
-            liveness_tick: Duration::from_millis(25),
-        });
-        let conn = harness.go_live();
-        harness.handle.kick();
-        assert!(
-            harness.conns.recv_timeout(Duration::from_millis(300)).is_err(),
-            "no redial: the socket spoke well inside the staleness window"
-        );
-        // Still the same connection, still steerable.
-        assert!(harness.handle.send_message("still here"));
-        assert_eq!(conn.next_frame(), r#"{"t":"input","data":"still here"}"#);
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn an_unauthorized_close_is_terminal() {
-        let harness = Harness::fast();
-        let conn = harness.go_live();
-        conn.close(CLOSE_UNAUTHORIZED);
-        let seen = harness.wait_for_phase(&ViewerPhase::Unauthorized {
-            detail: Some("The relay refused this viewer ticket.".into()),
-        });
-        assert!(phases(&seen).last().unwrap().is_terminal());
-        assert!(!harness.handle.is_active());
-        assert!(
-            harness.conns.recv_timeout(Duration::from_millis(300)).is_err(),
-            "a refused ticket mints the same no forever"
-        );
-    }
-
-    #[test]
-    fn a_disabled_instance_stops_before_it_ever_dials() {
-        let runtime = SteerRuntime::new().unwrap();
-        let (events_tx, events) = flume::unbounded();
-        let handle = spawn_viewer(
-            &runtime,
-            Arc::new(DisabledTickets),
-            "sess-v".to_string(),
-            events_tx,
-        );
-        assert_eq!(
-            events.recv_timeout(Duration::from_secs(5)).unwrap(),
-            ViewerEvent::Phase(ViewerPhase::Connecting)
-        );
-        assert_eq!(
-            events.recv_timeout(Duration::from_secs(5)).unwrap(),
-            ViewerEvent::Phase(ViewerPhase::Unauthorized {
-                detail: Some("Live steering is unavailable on this instance.".into()),
-            })
-        );
-        assert!(!handle.is_active());
-    }
-
-    #[test]
-    fn a_kick_cuts_short_the_backoff_and_redials_now() {
-        let harness = Harness::start(ViewerTimings {
-            live_stale: Duration::from_secs(45),
-            join_ack: Duration::from_secs(15),
-            // A backoff long enough that only the kick can explain a prompt
-            // redial.
-            retry_base: Duration::from_secs(20),
-            retry_cap: Duration::from_secs(30),
-            liveness_tick: Duration::from_secs(5),
-        });
-        let conn = harness.next_conn();
-        conn.next_frame();
-        conn.send(r#"{"t":"error","code":"no_such_session"}"#);
-        conn.close(CLOSE_SESSION_ENDED);
-        harness.wait_for_phase(&ViewerPhase::Starting);
-
-        harness.handle.kick();
-        let next = harness
-            .conns
-            .recv_timeout(Duration::from_secs(5))
-            .expect("the kick redialed instead of waiting out the backoff");
-        assert_eq!(next.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-        harness.handle.shutdown();
-    }
-
-    #[test]
-    fn shutdown_closes_the_socket_and_stops_the_loop() {
-        let harness = Harness::fast();
-        let _conn = harness.go_live();
-        harness.handle.shutdown();
-        assert!(!harness.handle.is_active());
-        assert!(
-            harness.conns.recv_timeout(Duration::from_millis(300)).is_err(),
-            "a shut-down viewer never redials"
-        );
-        assert!(!harness.handle.send_message("too late"));
     }
 }

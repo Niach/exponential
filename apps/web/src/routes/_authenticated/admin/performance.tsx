@@ -830,7 +830,7 @@ function RelaysSection({
           {!steer.configured
             ? `not configured`
             : steer.ok
-              ? `online · ${steer.latencyMs ?? `?`} ms · ${formatCount(steer.connections ?? 0)} connections, ${formatCount(steer.devices ?? 0)} devices, ${formatCount(steer.rooms ?? 0)} rooms`
+              ? `online · ${steer.latencyMs ?? `?`} ms · ${formatCount(steer.connections ?? 0)} connections, ${formatCount(steer.devices ?? 0)} devices, ${formatCount(steer.calls ?? 0)} calls`
               : `unreachable`}
           {` `}· Push relay:{` `}
           {!push.configured
@@ -853,7 +853,7 @@ function RelaysSection({
               </>
             }
             titleClassName="flex items-center justify-between"
-            description="Live steer hub. Gauges are current; counters are since relay start."
+            description="Presence, control and calls. Gauges are current; counters are since relay start."
           >
             {!steer.configured ? (
               <p className="text-sm text-muted-foreground">
@@ -875,8 +875,8 @@ function RelaysSection({
                     value={formatCount(steer.devices ?? 0)}
                   />
                   <StatCard
-                    label="Rooms"
-                    value={formatCount(steer.rooms ?? 0)}
+                    label="Calls"
+                    value={formatCount(steer.calls ?? 0)}
                   />
                 </div>
                 {steer.counters && (
@@ -886,12 +886,12 @@ function RelaysSection({
                       value={formatCount(steer.counters.connectionsAccepted)}
                     />
                     <CounterRow
-                      label="Activity frames fanned"
-                      value={formatCount(steer.counters.activityFramesFanned)}
+                      label="Content frames refused"
+                      value={formatCount(steer.counters.contentFramesRefused)}
                     />
                     <CounterRow
-                      label="Slow-consumer evictions"
-                      value={formatCount(steer.counters.slowConsumerEvictions)}
+                      label="Calls rung"
+                      value={formatCount(steer.counters.callRings)}
                     />
                     <CounterRow
                       label="Rate-limited rejections"

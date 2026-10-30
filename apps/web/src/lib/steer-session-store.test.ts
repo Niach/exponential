@@ -14,7 +14,6 @@ import {
   isSubagentScoped,
 } from "@/lib/agent-feed"
 import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
-import { TRPCClientError } from "@trpc/client"
 import { encodeSteerEnvelope, parseSteerEnvelope, type SteerFrame } from "@exp/domain-contract/steer-enet"
 import { CLOSE_ENET_LOST, openEnetSteer, type SteerCarrier } from "@/lib/enet/steer-enet-viewer"
 
@@ -24,7 +23,7 @@ vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 
 // EXP-621: the per-session steer connection store — the socket, feed and
 // composer draft all outlive the view. These tests drive it with a fake
-// socket + mint (the injected test seams) and fake timers.
+// feed socket (the injected `openEnet` seam) and fake timers.
 
 class FakeSocket {
   readyState = 0 // CONNECTING
@@ -46,8 +45,8 @@ class FakeSocket {
     this.readyState = WebSocket.OPEN
     this.onopen?.()
   }
-  /** EXP-783: every publisher numbers its activity frames and every relay
-   *  names the span its replay covered, so the fake relay does too — a test
+  /** EXP-783: every publisher numbers its activity frames and every device
+   *  names the span its replay covered, so the fake feed does too — a test
    *  that cares about the numbers passes them and the counter follows along,
    *  everything else gets a plain 0-based run. */
   private nextSeq = 0
@@ -76,17 +75,16 @@ class FakeSocket {
 }
 
 function makeStore(overrides?: {
-  mint?: () => Promise<{ disabled: true } | { ticket: string; url: string }>
+  /** VAPP-43: false = eNet gives no feed (no endpoint, no node, refused). */
+  feed?: () => boolean
 }) {
   const sockets: FakeSocket[] = []
   const disposed = { current: false }
   const store = createSteerSessionStore(
     `session-1`,
     {
-      mintTicket:
-        overrides?.mint ??
-        (() => Promise.resolve({ ticket: `t`, url: `wss://relay/ws?ticket=t` })),
-      createSocket: () => {
+      openEnet: async () => {
+        if (overrides?.feed && !overrides.feed()) return null
         const socket = new FakeSocket()
         sockets.push(socket)
         return socket as unknown as WebSocket
@@ -99,7 +97,7 @@ function makeStore(overrides?: {
   return { store, sockets, disposed }
 }
 
-/** Connect and drive the newest socket to a joined, live state — the relay
+/** Connect and drive the newest socket to a joined, live state — the device
  *  answers a join with `activity_reset` + (an empty) replay + the
  *  `activity_synced` marker (EXP-656). */
 async function goLive(store: SteerSessionStore, sockets: FakeSocket[]) {
@@ -382,10 +380,9 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
-  // EXP-773: an ended run's transcript lives on the DEVICE. The relay parks
-  // the viewer, asks the machine to republish its journal, and the feed
-  // stays visible after the `bye`.
-  it(`history_pending names the device and the history bye ends the run`, async () => {
+  // VAPP-43: an ended run's transcript lives on the DEVICE, which serves its
+  // stored journal over eNet: reset, replay, synced, then `bye {history}`.
+  it(`a stored replay of an ended row ends with the plain ended caption`, async () => {
     const { store, sockets } = makeStore()
     store.noteSessionStatus(`ended`)
     store.noteDeviceLabel(`buildbox`)
@@ -393,61 +390,44 @@ describe(`connection lifecycle`, () => {
     await vi.advanceTimersByTimeAsync(0)
     const socket = sockets[0]
     socket.open()
-    socket.frame({ t: `history_pending` })
-    expect(store.getSnapshot().phase).toEqual({
-      kind: `history_pending`,
-      detail: `Fetching the transcript from buildbox…`,
-    })
-    // The republish streams like any replay — and never claims to be live.
-    // EXP-796: the marker ends the loading phase on its own; the room
-    // lingers open (no bye) so the reader can page.
     socket.frame({ t: `activity_reset` })
     socket.frame({ t: `activity`, event: { kind: `narration`, text: `did it` } })
     socket.frame({ t: `activity_synced` })
-    await vi.advanceTimersByTimeAsync(100)
-    expect(store.getSnapshot().phase).toEqual({ kind: `ended` })
-    expect(store.getSnapshot().connected).toBe(true)
-    expect(store.getSnapshot().feed).toHaveLength(1)
     socket.frame({ t: `bye`, outcome: `history` })
-    socket.serverClose(4001)
+    socket.serverClose(1000)
+    await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().phase).toEqual({ kind: `ended`, detail: undefined })
     // The transcript stays on screen, read-only.
     expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().connected).toBe(false)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(sockets).toHaveLength(1)
     store.dispose()
   })
 
-  // EXP-796: the relay keeps a served history room open for minutes so
-  // "Load earlier" pages keep flowing down the device's control socket; the
-  // late `bye {history}` + 4001 is the linger expiring — terminal, never a
-  // drop to redial from.
-  it(`a served history room lingers for pages until its late history bye`, async () => {
+  // VAPP-43: an idle row (its run went away between turns): the device
+  // serves the journal and keeps the viewer joined for the publisher's
+  // takeover, which lands on the same feed as a fresh replay.
+  it(`a stored replay of an idle row stays joined and pageable`, async () => {
     const { store, sockets } = makeStore()
-    // A watched store: an UNWATCHED ended store frees its socket after the
-    // ended grace, which is the last viewer leaving the room.
-    const unsubscribe = store.subscribe(() => {})
-    store.noteSessionStatus(`ended`)
+    store.noteSessionStatus(`idle`)
     store.connect()
     await vi.advanceTimersByTimeAsync(0)
     const socket = sockets[0]
     socket.open()
-    socket.frame({ t: `history_pending` })
     socket.frame({ t: `activity_reset` })
     socket.frame({ t: `activity`, event: { kind: `narration`, text: `tail` }, seq: 40 })
     socket.frame({ t: `activity_synced`, firstSeq: 40, lastSeq: 40, truncated: true })
     await vi.advanceTimersByTimeAsync(100)
-    expect(store.getSnapshot().phase.kind).toBe(`ended`)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
     expect(store.getSnapshot().canLoadEarlier).toBe(true)
-    // Minutes of keepalives: still ended, still pageable, no redial, and a
-    // wakeup leaves the open socket alone.
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 4; i++) {
       await vi.advanceTimersByTimeAsync(15_000)
       socket.frame({ t: `keepalive` })
     }
     store.kick(`visible`)
     await vi.advanceTimersByTimeAsync(100)
     expect(sockets).toHaveLength(1)
-    expect(store.getSnapshot().phase.kind).toBe(`ended`)
-    expect(store.getSnapshot().connected).toBe(true)
     socket.sent.length = 0
     expect(store.loadEarlier()).toBe(true)
     expect(JSON.parse(socket.sent[0])).toMatchObject({ t: `history_page`, beforeSeq: 40 })
@@ -463,199 +443,79 @@ describe(`connection lifecycle`, () => {
       `earlier`,
       `tail`,
     ])
-    // The linger expires.
-    socket.frame({ t: `bye`, outcome: `history` })
-    socket.serverClose(4001)
-    await vi.advanceTimersByTimeAsync(60_000)
-    const snapshot = store.getSnapshot()
-    expect(snapshot.phase).toEqual({ kind: `ended`, detail: undefined })
-    expect(snapshot.feed).toHaveLength(2)
-    expect(snapshot.canLoadEarlier).toBe(false)
-    expect(store.loadEarlier()).toBe(false)
-    expect(sockets).toHaveLength(1)
-    unsubscribe()
-    store.dispose()
-  })
-
-  it(`an unwatched served history store frees its socket after the ended grace`, async () => {
-    const { store, sockets } = makeStore()
-    store.noteSessionStatus(`ended`)
-    store.connect()
-    await vi.advanceTimersByTimeAsync(0)
-    const socket = sockets[0]
-    socket.open()
-    socket.frame({ t: `history_pending` })
+    // The publisher comes back: a fresh replay on the same feed.
     socket.frame({ t: `activity_reset` })
-    socket.frame({ t: `activity_synced` })
-    await vi.advanceTimersByTimeAsync(100)
-    expect(store.getSnapshot().phase.kind).toBe(`ended`)
-    expect(socket.closed).toBe(false)
-    await vi.advanceTimersByTimeAsync(120_000)
-    expect(socket.closed).toBe(true)
-  })
-
-  it(`a device going offline mid-page ends the lingering room, terminally`, async () => {
-    const { store, sockets } = makeStore()
-    store.noteSessionStatus(`ended`)
-    store.noteDeviceLabel(`buildbox`)
-    store.connect()
-    await vi.advanceTimersByTimeAsync(0)
-    const socket = sockets[0]
-    socket.open()
-    socket.frame({ t: `history_pending` })
-    socket.frame({ t: `activity_reset` })
-    socket.frame({ t: `activity`, event: { kind: `narration`, text: `tail` }, seq: 40 })
-    socket.frame({ t: `activity_synced`, firstSeq: 40, lastSeq: 40, truncated: true })
-    await vi.advanceTimersByTimeAsync(100)
-    expect(store.loadEarlier()).toBe(true)
-    socket.frame({ t: `error`, code: `device_offline` })
-    socket.frame({ t: `bye`, outcome: `device_offline` })
-    socket.serverClose(4001)
-    expect(store.getSnapshot().phase).toEqual({
-      kind: `ended`,
-      detail: `buildbox is offline. The transcript lives on that machine.`,
-    })
-    expect(store.getSnapshot().feed).toHaveLength(1)
-    expect(store.getSnapshot().canLoadEarlier).toBe(false)
-    store.kick(`test`)
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(sockets).toHaveLength(1)
-    store.dispose()
-  })
-
-  // A run the synced row still calls alive: the served history is not an
-  // ending, the publisher's takeover of the lingering room lands on the SAME
-  // socket as an ordinary replay, and only then is the viewer live.
-  it(`a served history on a live run waits in starting for the publisher's takeover`, async () => {
-    const { store, sockets } = makeStore()
-    store.noteSessionStatus(`running`)
-    store.connect()
-    await vi.advanceTimersByTimeAsync(0)
-    const socket = sockets[0]
-    socket.open()
-    socket.frame({ t: `history_pending` })
-    socket.frame({ t: `activity_reset` })
-    socket.frame({ t: `activity`, event: { kind: `narration`, text: `journal` } })
-    socket.frame({ t: `activity_synced` })
-    await vi.advanceTimersByTimeAsync(100)
-    expect(store.getSnapshot().phase.kind).toBe(`starting`)
-    expect(store.getSnapshot().connected).toBe(true)
-    // No redial while the socket talks — a wakeup included.
-    await vi.advanceTimersByTimeAsync(15_000)
-    socket.frame({ t: `keepalive` })
-    store.kick(`visible`)
-    await vi.advanceTimersByTimeAsync(10_000)
-    expect(sockets).toHaveLength(1)
-    // The publisher arrives: the room replays from scratch and goes live.
-    socket.frame({ t: `activity_reset` })
-    socket.frame({ t: `activity`, event: { kind: `narration`, text: `live now` } })
-    socket.frame({ t: `activity_synced` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `live now` }, seq: 41 })
+    socket.frame({ t: `activity_synced`, firstSeq: 41, lastSeq: 41 })
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().phase.kind).toBe(`live`)
-    expect(store.getSnapshot().feed.map((i) => (i as { text: string }).text)).toEqual([
-      `live now`,
-    ])
-    store.dispose()
-  })
-
-  it(`a device_offline history error is terminal and never redials`, async () => {
-    const { store, sockets } = makeStore()
-    store.noteSessionStatus(`ended`)
-    store.noteDeviceLabel(`buildbox`)
-    store.connect()
-    await vi.advanceTimersByTimeAsync(0)
-    const socket = sockets[0]
-    socket.open()
-    socket.frame({ t: `error`, code: `device_offline` })
-    socket.serverClose(4001)
-    expect(store.getSnapshot().phase).toEqual({
-      kind: `closed`,
-      detail: `buildbox is offline. The transcript lives on that machine.`,
-      terminal: true,
-    })
-    // Terminal: neither the backoff nor a wakeup opens a second socket.
-    store.kick(`test`)
-    await vi.advanceTimersByTimeAsync(60_000)
     expect(sockets).toHaveLength(1)
     store.dispose()
   })
 
-  // EXP-773: the relay parks EVERY join it has no live room for, so a run
-  // whose publisher has not hello'd yet gets a device answer instead of
-  // `no_such_session`. None of those answers is an ending while the synced
-  // row says the run is alive.
-  it(`a history bye on a live run goes back to starting and redials`, async () => {
-    const { store, sockets } = makeStore()
+  // VAPP-43 NO FEED: no endpoint, no node, every endpoint refused or a join
+  // timeout. The relay carries no session content, so there is no fallback:
+  // the existing states with their existing copy.
+  it(`no feed on a live row = starting, redialing on the backoff`, async () => {
+    let reachable = false
+    const { store, sockets } = makeStore({ feed: () => reachable })
     store.noteSessionStatus(`running`)
     store.connect()
     await vi.advanceTimersByTimeAsync(0)
-    const socket = sockets[0]
-    socket.open()
-    socket.frame({ t: `history_pending` })
-    socket.frame({
-      t: `activity`,
-      event: { kind: `narration`, text: `partial` },
-    })
-    socket.frame({ t: `bye`, outcome: `history` })
-    socket.serverClose(4001)
-    expect(store.getSnapshot().phase.kind).toBe(`starting`)
-    await vi.advanceTimersByTimeAsync(5_000)
-    expect(sockets.length).toBeGreaterThan(1)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    expect(sockets).toHaveLength(0)
+    // Still nothing: the phase holds, the backoff keeps going.
+    await vi.advanceTimersByTimeAsync(3_100)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    reachable = true
+    await vi.advanceTimersByTimeAsync(6_100)
+    expect(sockets).toHaveLength(1)
+    sockets[0].open()
+    sockets[0].frame({ t: `activity_reset` })
+    sockets[0].frame({ t: `activity_synced` })
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
     store.dispose()
   })
 
-  it(`a history_unavailable on a live run redials too`, async () => {
-    const { store, sockets } = makeStore()
-    store.noteSessionStatus(`running`)
-    store.connect()
-    await vi.advanceTimersByTimeAsync(0)
-    const socket = sockets[0]
-    socket.open()
-    socket.frame({ t: `history_pending` })
-    socket.frame({ t: `error`, code: `history_unavailable` })
-    socket.frame({ t: `bye`, outcome: `history_unavailable` })
-    socket.serverClose(4001)
-    expect(store.getSnapshot().phase.kind).toBe(`starting`)
-    await vi.advanceTimersByTimeAsync(5_000)
-    expect(sockets.length).toBeGreaterThan(1)
-    store.dispose()
-  })
-
-  // The relay's timeout sends the error frame and THEN closes the room with
-  // the same code as the bye outcome — the human caption must survive it.
-  it(`the history timeout keeps its caption instead of the raw outcome`, async () => {
-    const { store, sockets } = makeStore()
+  it(`no feed on an ended row = ended with the device-offline copy, no redial`, async () => {
+    const openEnet = vi.fn(async () => null)
+    const store = createSteerSessionStore(`session-1`, { openEnet })
     store.noteSessionStatus(`ended`)
     store.noteDeviceLabel(`buildbox`)
     store.connect()
     await vi.advanceTimersByTimeAsync(0)
-    const socket = sockets[0]
-    socket.open()
-    socket.frame({ t: `history_pending` })
-    socket.frame({ t: `error`, code: `history_unavailable` })
-    socket.frame({ t: `bye`, outcome: `history_unavailable` })
-    socket.serverClose(4001)
     expect(store.getSnapshot().phase).toEqual({
       kind: `ended`,
-      detail: `No transcript on buildbox.`,
+      detail: `buildbox is offline. The transcript lives on that machine.`,
+    })
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(openEnet).toHaveBeenCalledTimes(1)
+    store.dispose()
+  })
+
+  it(`the device-offline copy without a device name`, async () => {
+    const store = createSteerSessionStore(`session-1`, { openEnet: async () => null })
+    store.noteSessionStatus(`ended`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `ended`,
+      detail: `The device is offline. The transcript lives on that machine.`,
     })
     store.dispose()
   })
 
-  it(`history_unavailable says so, without a device name when none is known`, async () => {
+  it(`a no_such_session on a live row goes back to starting and redials`, async () => {
     const { store, sockets } = makeStore()
-    store.noteSessionStatus(`ended`)
-    store.connect()
-    await vi.advanceTimersByTimeAsync(0)
-    const socket = sockets[0]
-    socket.open()
-    socket.frame({ t: `error`, code: `history_unavailable` })
-    socket.serverClose(4001)
-    expect(store.getSnapshot().phase).toEqual({
-      kind: `closed`,
-      detail: `No transcript on the device.`,
-      terminal: true,
-    })
+    store.noteSessionStatus(`running`)
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `error`, code: `no_such_session` })
+    expect(socket.closed).toBe(true)
+    socket.serverClose(1000)
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+    await vi.advanceTimersByTimeAsync(3_100)
+    expect(sockets).toHaveLength(2)
     store.dispose()
   })
 
@@ -668,14 +528,14 @@ describe(`connection lifecycle`, () => {
   })
 })
 
-describe(`slow-consumer eviction (4008)`, () => {
+describe(`a lost eNet feed (CLOSE_ENET_LOST)`, () => {
   it(`redials silently — phase stays live, feed retained, no Disconnected`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
     socket.frame({ t: `activity`, event: { kind: `narration`, text: `keep` } })
     await vi.advanceTimersByTimeAsync(1_000)
 
-    socket.serverClose(4008)
+    socket.serverClose(CLOSE_ENET_LOST)
     // The eviction is not surfaced as a phase change: the phase holds and the
     // feed stays — but `connected` dips so send affordances dim honestly.
     expect(store.getSnapshot().phase.kind).toBe(`live`)
@@ -692,54 +552,40 @@ describe(`slow-consumer eviction (4008)`, () => {
     store.dispose()
   })
 
-  it(`does not redial a session already marked ended`, async () => {
-    const { store, sockets } = makeStore()
-    const socket = await goLive(store, sockets)
-    store.noteSessionStatus(`ended`)
-    socket.serverClose(4008)
-    expect(store.getSnapshot().phase.kind).toBe(`closed`)
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(sockets).toHaveLength(1)
-    store.dispose()
-  })
-
-  // EXP-781: the one ENDED case that must retry. A history replay is the
-  // device pushing a whole journal in a burst, which is exactly what overruns
-  // the relay's per-viewer buffer — and the staged feed is dropped on close,
-  // so landing in `closed` (where `kick()` refuses to recover) strands the
-  // reader on an empty transcript with no way back.
-  it(`an ended run redials when the eviction hit a history replay`, async () => {
-    const { store, sockets } = makeStore()
+  // EXP-781: a stored replay of an ENDED row cut short is retried from
+  // scratch (the staged half is dropped on close); a device gone by then
+  // lands on the no-feed path.
+  it(`an ended row redials once, then shows the device offline`, async () => {
+    let reachable = true
+    const { store, sockets } = makeStore({ feed: () => reachable })
     store.noteSessionStatus(`ended`)
     store.noteDeviceLabel(`buildbox`)
     store.connect()
     await vi.advanceTimersByTimeAsync(0)
     const socket = sockets[0]
     socket.open()
-    socket.frame({ t: `history_pending` })
     socket.frame({ t: `activity_reset` })
     socket.frame({ t: `activity`, event: { kind: `narration`, text: `half` } })
-    socket.serverClose(4008)
-
-    // Not terminal, and the redial is on the shared jittered backoff.
+    socket.serverClose(CLOSE_ENET_LOST)
     expect(store.getSnapshot().phase.kind).not.toBe(`closed`)
     await vi.advanceTimersByTimeAsync(3_100)
     expect(sockets).toHaveLength(2)
-
-    // The retry replays from scratch, so the half-delivered staging being
-    // discarded costs nothing.
     sockets[1].open()
-    sockets[1].frame({ t: `history_pending` })
     sockets[1].frame({ t: `activity_reset` })
-    sockets[1].frame({
-      t: `activity`,
-      event: { kind: `narration`, text: `whole` },
-    })
+    sockets[1].frame({ t: `activity`, event: { kind: `narration`, text: `whole` } })
     sockets[1].frame({ t: `activity_synced` })
     await vi.advanceTimersByTimeAsync(100)
     expect(
       store.getSnapshot().feed.map((item) => (item as { text: string }).text)
     ).toEqual([`whole`])
+    reachable = false
+    sockets[1].serverClose(CLOSE_ENET_LOST)
+    await vi.advanceTimersByTimeAsync(3_100)
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `ended`,
+      detail: `buildbox is offline. The transcript lives on that machine.`,
+    })
+    expect(store.getSnapshot().feed).toHaveLength(1)
     store.dispose()
   })
 
@@ -758,7 +604,7 @@ describe(`slow-consumer eviction (4008)`, () => {
 })
 
 // EXP-625: revival is driven by whether a dial is ALIVE, not by the phase
-// alone. A mute socket and a hung mint both used to strand the viewer on
+// alone. A mute socket used to strand the viewer on
 // "Connecting…" with nothing to click.
 describe(`stuck dials`, () => {
   it(`closes a socket that opens but never answers the join`, async () => {
@@ -773,21 +619,6 @@ describe(`stuck dials`, () => {
     // The store closes it; the browser then fires onclose as usual.
     socket.serverClose(1006)
     expect(store.getSnapshot().phase.kind).toBe(`closed`)
-    store.dispose()
-  })
-
-  it(`gives up on a mint that never resolves`, async () => {
-    const { store, sockets } = makeStore({
-      mint: () => new Promise<never>(() => {}),
-    })
-    store.connect()
-    await vi.advanceTimersByTimeAsync(19_000)
-    expect(store.getSnapshot().phase.kind).toBe(`connecting`)
-    await vi.advanceTimersByTimeAsync(1_500)
-    const { phase } = store.getSnapshot()
-    expect(phase.kind).toBe(`closed`)
-    expect(phase.kind === `closed` && phase.detail).toContain(`in time`)
-    expect(sockets).toHaveLength(0)
     store.dispose()
   })
 })
@@ -907,7 +738,7 @@ describe(`draft`, () => {
     const socket = await goLive(store, sockets)
     store.setDraftText(`half-typed thought`)
     store.addDraftImages([image(`a.png`)])
-    socket.serverClose(4008)
+    socket.serverClose(CLOSE_ENET_LOST)
     await vi.advanceTimersByTimeAsync(3_100)
     expect(store.getDraftSnapshot().text).toBe(`half-typed thought`)
     expect(store.getDraftSnapshot().images).toHaveLength(1)
@@ -1450,78 +1281,36 @@ describe(`live staleness (EXP-648)`, () => {
   })
 })
 
-// EXP-648: a "no" a retry cannot turn into a "yes" must not cost one mint per
+// EXP-648: a "no" a retry cannot turn into a "yes" must not cost one dial per
 // visibilitychange/online event per retained store.
 describe(`terminal closes (EXP-648)`, () => {
-  function trpcError(code: string, message: string) {
-    return new TRPCClientError(message, {
-      result: {
-        error: { message, code: -32003, data: { code, httpStatus: 403 } },
-      },
+  it(`an unauthorized refusal is terminal; Reconnect still tries`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `error`, code: `unauthorized` })
+    expect(socket.closed).toBe(true)
+    socket.serverClose(1000)
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `closed`,
+      detail: `unauthorized`,
+      terminal: true,
     })
-  }
-
-  it(`a disabled instance is left alone by kicks but not by Reconnect`, async () => {
-    const mint = vi.fn(() => Promise.resolve({ disabled: true as const }))
-    const { store, sockets } = makeStore({ mint })
-    store.connect()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(store.getSnapshot().phase.kind).toBe(`closed`)
     store.kick(`visible`)
     store.kick(`online`)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(mint).toHaveBeenCalledTimes(1)
-    expect(sockets).toHaveLength(0)
-    // The user asking is different from the tab merely waking up.
-    store.reconnect()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(mint).toHaveBeenCalledTimes(2)
-    store.dispose()
-  })
-
-  it.each([`FORBIDDEN`, `NOT_FOUND`])(
-    `a mint refused with %s is terminal`,
-    async (code) => {
-      const mint = vi.fn(() => Promise.reject(trpcError(code, `Nope`)))
-      const { store } = makeStore({ mint })
-      store.connect()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(store.getSnapshot().phase).toMatchObject({
-        kind: `closed`,
-        detail: `Nope`,
-      })
-      store.kick(`visible`)
-      store.kick(`online`)
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(mint).toHaveBeenCalledTimes(1)
-      store.reconnect()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mint).toHaveBeenCalledTimes(2)
-      store.dispose()
-    }
-  )
-
-  it(`a mint that failed transiently stays retryable`, async () => {
-    const mint = vi.fn(() => Promise.reject(new Error(`fetch failed`)))
-    const { store } = makeStore({ mint })
-    store.connect()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(store.getSnapshot().phase.kind).toBe(`closed`)
-    store.kick(`visible`)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(mint).toHaveBeenCalledTimes(2)
-    store.dispose()
-  })
-
-  it(`a 4003 close is terminal; other codes stay retryable`, async () => {
-    const { store, sockets } = makeStore()
-    const socket = await goLive(store, sockets)
-    socket.serverClose(4003)
-    expect(store.getSnapshot().phase.kind).toBe(`closed`)
-    store.kick(`visible`)
-    await vi.advanceTimersByTimeAsync(1_000)
     expect(sockets).toHaveLength(1)
     store.reconnect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(2)
+    store.dispose()
+  })
+
+  it(`other closes stay retryable`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.serverClose(1006)
+    expect(store.getSnapshot().phase).toMatchObject({ kind: `closed`, terminal: false })
+    store.kick(`visible`)
     await vi.advanceTimersByTimeAsync(0)
     expect(sockets).toHaveLength(2)
     store.dispose()
@@ -3271,8 +3060,8 @@ describe(`wait tool rows (§1)`, () => {
   })
 })
 
-// VAPP-33: the transport choice. eNet first (the real viewer transport over
-// a fake carrier), the relay socket when eNet gives nothing.
+// VAPP-33/VAPP-43: the real eNet viewer over a fake carrier. eNet is the only
+// carrier: when it gives nothing there is NO FEED (no relay fallback).
 describe(`steer over eNet`, () => {
   function enetStore(answer: (frames: SteerFrame[]) => SteerFrame[] | `fail` | null) {
     const listeners = new Set<(from: string, body: Uint8Array) => void>()
@@ -3295,22 +3084,15 @@ describe(`steer over eNet`, () => {
         return () => void listeners.delete(listener)
       },
     }
-    const mint = vi.fn(() => Promise.resolve({ ticket: `t`, url: `wss://relay/ws?ticket=t` }))
-    const sockets: FakeSocket[] = []
     const store = createSteerSessionStore(`session-1`, {
-      mintTicket: mint,
-      createSocket: () => {
-        const socket = new FakeSocket()
-        sockets.push(socket)
-        return socket as unknown as WebSocket
-      },
       openEnet: async (id) =>
         (await openEnetSteer(id, {
           carrier: async () => carrier,
           forSession: async () => [{ endpointId: `dev`, kind: `desktop` }],
         })) as unknown as WebSocket | null,
     })
-    return { store, sent, hear, mint, sockets }
+    const joins = () => sent.filter((frames) => frames[0]?.t === `join`).length
+    return { store, sent, hear, joins }
   }
   const replay: SteerFrame[] = [
     { t: `activity_reset` },
@@ -3319,12 +3101,11 @@ describe(`steer over eNet`, () => {
   ]
   const live = (frames: SteerFrame[]) => (frames[0]?.t === `join` ? replay : null)
 
-  it(`a joined device feeds the same store; no ticket is minted; sends go over eNet`, async () => {
-    const { store, sent, hear, mint } = enetStore(live)
+  it(`a joined device feeds the store; sends go over eNet`, async () => {
+    const { store, sent, hear } = enetStore(live)
     store.connect()
     await vi.advanceTimersByTimeAsync(10)
     await vi.advanceTimersByTimeAsync(REPLAY_QUIET_MS)
-    expect(mint).not.toHaveBeenCalled()
     expect(store.getSnapshot().phase.kind).toBe(`live`)
     expect(store.getSnapshot().connected).toBe(true)
     expect(store.getSnapshot().feed.map((row) => (row as { text?: string }).text)).toEqual([`over enet`])
@@ -3350,31 +3131,54 @@ describe(`steer over eNet`, () => {
     expect(sent.at(-1)).toEqual([{ t: `leave` }])
   })
 
-  it(`a device that runs no such session = the relay, exactly as before`, async () => {
-    const { store, mint, sockets } = enetStore(() => [{ t: `error`, code: `no_such_session` }])
+  it(`a device that runs no such session on a live row = starting, redialing`, async () => {
+    const { store, joins } = enetStore(() => [{ t: `error`, code: `no_such_session` }])
+    store.noteSessionStatus(`running`)
     store.connect()
     await vi.advanceTimersByTimeAsync(10)
-    expect(mint).toHaveBeenCalledTimes(1)
-    sockets[0].open()
-    expect(sockets[0].sent[0]).toBe(JSON.stringify({ t: `join`, channel: `activity` }))
-    sockets[0].frame({ t: `activity_reset` })
-    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    expect(joins()).toBe(1)
+    await vi.advanceTimersByTimeAsync(3_100)
+    expect(joins()).toBe(2)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
     store.dispose()
   })
 
-  it(`no activity_synced within joinTimeoutMs = the relay`, async () => {
-    const { store, mint } = enetStore(() => null)
+  it(`no activity_synced within joinTimeoutMs on an ended row = ended, device offline`, async () => {
+    const { store, joins } = enetStore(() => null)
+    store.noteSessionStatus(`ended`)
+    store.noteDeviceLabel(`buildbox`)
     store.connect()
     await vi.advanceTimersByTimeAsync(7_000)
-    expect(mint).not.toHaveBeenCalled()
+    expect(store.getSnapshot().phase.kind).toBe(`connecting`)
     await vi.advanceTimersByTimeAsync(1_100)
-    expect(mint).toHaveBeenCalledTimes(1)
+    expect(store.getSnapshot().phase).toEqual({
+      kind: `ended`,
+      detail: `buildbox is offline. The transcript lives on that machine.`,
+    })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(joins()).toBe(1)
+    store.dispose()
+  })
+
+  // VAPP-43: the device batches the end of a stored replay, so the marker
+  // and the `bye` may share ONE envelope; the bye must still end the view.
+  it(`a stored replay of an ended row whose bye shares the marker's envelope`, async () => {
+    const { store } = enetStore((frames) =>
+      frames[0]?.t === `join` ? [...replay, { t: `bye`, outcome: `history` }] : null
+    )
+    store.noteSessionStatus(`ended`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(10 + REPLAY_QUIET_MS)
+    expect(store.getSnapshot().phase).toEqual({ kind: `ended`, detail: undefined })
+    expect(store.getSnapshot().feed.map((row) => (row as { text?: string }).text)).toEqual([`over enet`])
     store.dispose()
   })
 
   it(`a lost eNet feed redials silently (phase and feed hold)`, async () => {
     let joins = 0
-    const { store, mint } = enetStore((frames) => (frames[0]?.t === `join` && ++joins === 1 ? replay : null))
+    const { store } = enetStore((frames) => (frames[0]?.t === `join` && ++joins === 1 ? replay : null))
+    store.noteSessionStatus(`running`)
     store.connect()
     await vi.advanceTimersByTimeAsync(10 + REPLAY_QUIET_MS)
     expect(store.getSnapshot().phase.kind).toBe(`live`)
@@ -3384,9 +3188,10 @@ describe(`steer over eNet`, () => {
     expect(store.getSnapshot().feed).toHaveLength(1)
     expect(store.getSnapshot().connected).toBe(false)
     expect(CLOSE_ENET_LOST).toBe(4901)
-    // The redial tries eNet again (refused now) and falls back to the relay.
+    // The redial tries eNet again (unanswered now): no feed on a live row.
     await vi.advanceTimersByTimeAsync(3_100 + 8_000 + 10)
-    expect(mint).toHaveBeenCalledTimes(1)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    expect(store.getSnapshot().feed).toHaveLength(1)
     store.dispose()
   })
 })

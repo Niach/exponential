@@ -4,6 +4,22 @@ Pinned before implementation (2026-09-12). Every lane implements exactly this;
 `apps/steer-relay/src/protocol.ts` (zod) and `crates/steer/src/frames.rs` are
 the schemas of record and must agree byte-for-byte with the shapes below.
 Raw CLI captures: `apps/desktop/crates/engine/tests/fixtures/claude/wire-captures/`.
+**Carrier (VAPP-43).** These frames no longer cross the steer relay. Since
+VAPP-33 they ride eNet's chat channel between the viewer and the device that
+runs the session (`packages/domain-contract/fixtures/steer-enet.json`), and
+since VAPP-43 that is the only path: the device's journal serves join
+replays, stored transcripts and "Load earlier" (`steer-replay.json`, replayed
+by `crates/steer/src/journal.rs`). The relay refuses every content frame
+(`activity`, `activity_reset`, `history_*`, `hello`, `join`, `input`,
+`answer`, `set_config`, `set_mode`, `unqueue`, `interrupt`, `kill`, `bye`)
+with `error content_refused`, and mints no publisher or viewer tickets. It
+keeps device presence (`online`), the `check_in` nudge, the server's
+secret-gated kill / interrupt / compact (sent down the device's CONTROL
+socket as `{t, sessionId}`, the verdict coming back as `compact_verdict`),
+and the eTalk voice call frames. Where this document says "the relay" about
+replay order, latest-wins slots or dropped frames, read "the device's
+journal" and "the receiving client".
+
 Contract vocabulary (already generated): `toolKind` += `wait` (and `script`, §1b); new
 `subagentStatus`, `workflowAgentState`, `workflowStatus`, `backgroundTaskKind`,
 `steerWorking { verbs[24], tokenTickMs: 2000, previewMax: 160 }`.

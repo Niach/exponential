@@ -395,6 +395,8 @@ struct Inner {
     /// VAPP-33: the same entries per team (a steer room admits only the
     /// endpoints its session's team lists).
     team_entries: Mutex<HashMap<String, Vec<InstallEntry>>>,
+    /// VAPP-43: the host's stored journals (STORED REPLAY), once set.
+    stored: Mutex<Option<crate::enet_steer::StoredJournals>>,
 }
 
 /// One install's running eNet node. Cheap to clone; [`InstallNode::stop`]
@@ -427,6 +429,7 @@ impl InstallNode {
             holder_wake: Arc::new(Notify::new()),
             entries: Mutex::new(Vec::new()),
             team_entries: Mutex::new(HashMap::new()),
+            stored: Mutex::new(None),
         });
         runtime.spawn(run(Arc::clone(&inner)));
         InstallNode { inner }
@@ -479,6 +482,26 @@ impl InstallNode {
     /// (as of the last allowlist pass).
     pub fn user_in_team(&self, team_id: &str, endpoint: &EndpointId) -> Option<String> {
         user_in_team(&self.inner, team_id, endpoint)
+    }
+
+    /// VAPP-43: serve STORED REPLAY joins off `stored` (the host's data dir
+    /// and its synced `sessions` rows).
+    pub fn serve_stored(&self, stored: crate::enet_steer::StoredJournals) {
+        *lock(&self.inner.stored) = Some(stored);
+    }
+
+    /// [`Self::passes_at_least`] for a caller off the runtime (a CLI
+    /// command): `false` when `timeout` ran out first.
+    pub fn wait_passes_blocking(&self, n: u64, timeout: Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        let passes = self.inner.passes.subscribe();
+        while *passes.borrow() < n {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        true
     }
 
     /// Waits until at least `n` allowlist passes have finished.
@@ -736,7 +759,8 @@ fn receive_chat(inner: &Inner, from: &EndpointId, body: &[u8]) {
     }
     if let Some(node) = lock(&inner.node).clone() {
         let lookup = |team_id: &str, endpoint: &EndpointId| user_in_team(inner, team_id, endpoint);
-        if crate::enet_steer::receive(&node, *from, body, &lookup) {
+        let stored = lock(&inner.stored).clone();
+        if crate::enet_steer::receive(&node, *from, body, &lookup, stored.as_ref()) {
             return;
         }
     }

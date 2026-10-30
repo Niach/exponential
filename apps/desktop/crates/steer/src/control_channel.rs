@@ -1,8 +1,12 @@
 //! The per-app, per-account device-presence socket (masterplan-v3 §8.3).
 //!
 //! The relay's in-memory presence map is populated by OUR `online` frame;
-//! the same socket carries the `check_in` nudge and the history asks for
-//! runs this machine hosted (EXP-773/796).
+//! the same socket carries the `check_in` nudge, NEW-55's `call_ring` and
+//! (VAPP-43) the session-scoped commands the relay used to send down a run's
+//! publisher socket: `kill`, `interrupt` and `compact_request {sessionId}`,
+//! routed to that session's live publisher here ([`crate::publisher::control`];
+//! an unknown session is ignored). A compaction verdict goes back UP this
+//! socket as `compact_verdict`. The relay carries no session content.
 //!
 //! EXP-1292: it no longer STARTS anything. A start is a `queued` `sessions`
 //! row naming this device and a message is a `messages` row — the device
@@ -24,9 +28,9 @@
 //!    rides the ticket mint only: EXP-672 left `online` carrying the
 //!    `deviceId` alone.
 //! 3. mint control ticket → dial the returned URL as-is → send `online`.
-//! 4. inbound `check_in` / `history_request` / `history_page` / (NEW-55)
-//!    `call_ring` → the host's non-blocking callbacks. `bye`/`error`/`kill` on this socket are
-//!    logged; `kill` is not session-scoped here → no-op.
+//! 4. inbound `check_in` / (NEW-55) `call_ring` → the host's non-blocking
+//!    callbacks; `kill` / `interrupt` / `compact_request` → the session's
+//!    live publisher. `bye`/`error` on this socket are logged.
 //! 5. reconnect with exponential backoff (250ms → 30s cap, full jitter);
 //!    each attempt re-mints (tickets last ~60s). Backoff resets after a
 //!    connection lived ≥ [`crate::BACKOFF_RESET_AFTER`] (outliving the ticket
@@ -46,6 +50,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::frames::{ClientFrame, ServerFrame};
+use crate::publisher::{CompactReply, ControlCmd};
 use crate::{dial, Backoff, SteerRuntime, BACKOFF_RESET_AFTER};
 
 /// §8.3 #6: the slow recheck cadence while the instance reports steer off.
@@ -113,41 +118,6 @@ impl ControlApi for TrpcControlApi {
 /// on a channel and return.
 pub type CheckInFn = Arc<dyn Fn() + Send + Sync>;
 
-/// EXP-773: an inbound `history_request` — "a viewer wants the transcript of
-/// session `<id>`, which ran here". Same non-blocking contract as
-/// [`CheckInFn`]: read the journal and republish it on a task, never on the
-/// socket loop. #EXP-1415: a device that has no journal for the id answers
-/// [`ClientFrame::HistoryNone`] through the reply (down THIS socket), so the
-/// relay answers the viewer at once instead of waiting out its timer.
-pub type HistoryRequestFn = Arc<dyn Fn(String, HistoryPageReply) + Send + Sync>;
-
-/// EXP-796: one inbound `history_page` on the CONTROL socket — a viewer of a
-/// finished run this machine already replayed scrolled past what it holds,
-/// and the relay's lingering history room (no publisher) routed the ask
-/// here. Answered on the SAME control socket through the reply the arm
-/// hands over, as ONE [`ClientFrame::HistoryChunk`] naming `session_id`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HistoryPageAsk {
-    pub session_id: String,
-    /// The RELAY-issued id; echoed verbatim on the chunk.
-    pub request_id: String,
-    pub before_seq: u64,
-    pub limit: u32,
-}
-
-/// EXP-796: sends one frame back down the control socket the ask came on.
-/// Queued, never awaited — the socket task writes it on its next select
-/// turn; a socket that dropped in between drops the frame with it (the
-/// relay's own page timeout frees the ask).
-pub type HistoryPageReply = Box<dyn Fn(ClientFrame<'_>) + Send>;
-
-/// EXP-796: an inbound `history_page` — "read the page below `before_seq` of
-/// session `<id>`'s journal and answer through `reply`". Same non-blocking
-/// contract as [`HistoryRequestFn`]: read on a task, never on the socket
-/// loop. A device with no journal answers an EMPTY done chunk (exactly what
-/// the live publisher does), so the viewer learns "nothing older".
-pub type HistoryPageFn = Arc<dyn Fn(HistoryPageAsk, HistoryPageReply) + Send + Sync>;
-
 /// NEW-55: one inbound `call_ring` — a phone or web caller dialed this
 /// device (the member's voice device) for a voice call with `agent_id`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -188,8 +158,6 @@ pub fn spawn_control_channel(
     device: DeviceIdentity,
     control_api: Arc<dyn ControlApi>,
     on_check_in: CheckInFn,
-    on_history_request: HistoryRequestFn,
-    on_history_page: HistoryPageFn,
     on_call_ring: CallRingFn,
 ) -> ControlChannelHandle {
     let stopped = Arc::new(AtomicBool::new(false));
@@ -202,8 +170,6 @@ pub fn spawn_control_channel(
         device,
         control_api,
         on_check_in,
-        on_history_request,
-        on_history_page,
         on_call_ring,
         stopped,
         stop_rx,
@@ -264,8 +230,6 @@ async fn run_control_loop(
     device: DeviceIdentity,
     control_api: Arc<dyn ControlApi>,
     on_check_in: CheckInFn,
-    on_history_request: HistoryRequestFn,
-    on_history_page: HistoryPageFn,
     on_call_ring: CallRingFn,
     stopped: Arc<AtomicBool>,
     stop_rx: flume::Receiver<()>,
@@ -352,8 +316,6 @@ async fn run_control_loop(
                 &url,
                 &device,
                 &on_check_in,
-                &on_history_request,
-                &on_history_page,
                 &on_call_ring,
                 &stop_rx,
             )
@@ -386,8 +348,6 @@ async fn connect_and_listen(
     url: &str,
     device: &DeviceIdentity,
     on_check_in: &CheckInFn,
-    on_history_request: &HistoryRequestFn,
-    on_history_page: &HistoryPageFn,
     on_call_ring: &CallRingFn,
     stop_rx: &flume::Receiver<()>,
 ) -> ConnectionOutcome {
@@ -423,11 +383,10 @@ async fn connect_and_listen(
     // they surface through `ws.next()`) proves the path; silence past
     // LIVENESS_TIMEOUT means it is gone.
     let mut last_rx = Instant::now();
-    // EXP-796: frames the host queues for THIS socket (history page answers)
-    // — the loop owns the sink, so replies come back through a channel and
-    // go out on the next turn. Per connection: a reply queued for a socket
-    // that has since dropped dies with it (the relay re-asks nobody; its
-    // page timeout frees the viewer's ask).
+    // VAPP-43: frames queued for THIS socket (compaction verdicts) — the
+    // loop owns the sink, so replies come back through a channel and go out
+    // on the next turn. Per connection: a reply queued for a socket that has
+    // since dropped dies with it (the relay's ask times out).
     let (out_tx, out_rx) = flume::unbounded::<String>();
 
     loop {
@@ -468,36 +427,26 @@ async fn connect_and_listen(
                         // EXP-481: the server persisted new work — pull now.
                         // Non-blocking by contract (see [`CheckInFn`]).
                         Some(ServerFrame::CheckIn) => on_check_in(),
-                        // EXP-773: serve this device's stored transcript.
-                        // Non-blocking by contract (see [`HistoryRequestFn`]).
-                        Some(ServerFrame::HistoryRequest { session_id }) => {
-                            log::info!("steer control: history_request for {session_id}");
-                            let reply_tx = out_tx.clone();
-                            let reply: HistoryPageReply = Box::new(move |frame| {
-                                let _ = reply_tx.send(frame.to_json());
-                            });
-                            on_history_request(session_id, reply);
+                        // VAPP-43: the relay's session-scoped commands, to
+                        // the session's live run here (unknown = ignored).
+                        Some(ServerFrame::Kill { session_id: Some(session_id) }) => {
+                            let routed = crate::publisher::control(&session_id, ControlCmd::Kill);
+                            log::info!("steer control: kill for {session_id} (live here: {routed})");
                         }
-                        // EXP-796: page a finished run this device already
-                        // replayed; the answer goes back down THIS socket.
-                        // Non-blocking by contract (see [`HistoryPageFn`]).
-                        Some(ServerFrame::HistoryPage {
-                            session_id,
-                            request_id,
-                            before_seq,
-                            limit,
-                        }) => {
-                            log::debug!(
-                                "steer control: history_page for {session_id} below {before_seq}"
-                            );
+                        Some(ServerFrame::Interrupt { session_id: Some(session_id) }) => {
+                            let routed = crate::publisher::control(&session_id, ControlCmd::Interrupt);
+                            log::info!("steer control: interrupt for {session_id} (live here: {routed})");
+                        }
+                        // EXP-936: the verdict goes back up THIS socket (the
+                        // relay holds the web server's call on it).
+                        Some(ServerFrame::CompactRequest { session_id, keep }) => {
                             let reply_tx = out_tx.clone();
-                            let reply: HistoryPageReply = Box::new(move |frame| {
-                                let _ = reply_tx.send(frame.to_json());
-                            });
-                            on_history_page(
-                                HistoryPageAsk { session_id, request_id, before_seq, limit },
-                                reply,
-                            );
+                            let reply_id = session_id.clone();
+                            let reply = CompactReply(Arc::new(move |verdict: crate::frames::CompactVerdict| {
+                                let _ = reply_tx.send(verdict.frame(&reply_id).to_json());
+                            }));
+                            let routed = crate::publisher::control(&session_id, ControlCmd::Compact { keep, reply });
+                            log::info!("steer control: compact_request for {session_id} (live here: {routed})");
                         }
                         // NEW-55: a caller rings this voice device.
                         // Non-blocking by contract (see [`CallRingFn`]).
@@ -506,8 +455,7 @@ async fn connect_and_listen(
                             on_call_ring(CallRing { call_id, agent_id });
                         }
                         Some(other) => {
-                            // bye/error/kill here: logged; kill is not
-                            // session-scoped on the control socket → no-op.
+                            // bye/error, an unscoped kill: logged, no-op.
                             log::debug!("steer control: ignoring frame {other:?}");
                         }
                         None => log::debug!("steer control: unparseable frame ignored"),

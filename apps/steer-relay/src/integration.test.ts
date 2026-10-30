@@ -1,6 +1,7 @@
-// End-to-end smoke through the real Bun server: ticket auth on upgrade,
-// hello/join, the scrubbed activity channel (reset + replay + live fan-out),
-// input + semantic answers, and the secret-authed admin endpoints.
+// End-to-end smoke through the real Bun server: ticket auth on upgrade (the
+// role allowlist: control + the call pair), device presence, the
+// secret-authed admin routes down the control socket, the VAPP-43 content
+// refusal, and a voice call.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { signSteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
@@ -32,7 +33,7 @@ function ticket(
     {
       sub: `user-1`,
       team: `team-1`,
-      role: `viewer`,
+      role: `control`,
       iat: now,
       exp: now + 60,
       ...overrides,
@@ -83,18 +84,6 @@ function collector(ws: WebSocket) {
   }
 }
 
-/** EXP-783: every publisher numbers its activity frames, so the tests do too
- *  — one 0-based counter per publisher socket, exactly like a device's
- *  recorder. Returns the seq it sent, which is what the relay echoes back and
- *  what `activity_synced` names its span with. */
-const publisherSeqs = new WeakMap<WebSocket, number>()
-function sendActivity(pub: WebSocket, event: unknown): number {
-  const seq = publisherSeqs.get(pub) ?? 0
-  publisherSeqs.set(pub, seq + 1)
-  pub.send(JSON.stringify({ t: `activity`, event, seq }))
-  return seq
-}
-
 /** EXP-672: with the outbound presence listing gone, "has the control socket
  *  registered yet?" is observable only through routing — the nudge answers
  *  `delivered: false` until the `online` frame lands, so retrying the real
@@ -112,9 +101,19 @@ async function nudgeWhenOnline(userId: string, deviceId: string): Promise<void> 
   throw new Error(`control socket never registered`)
 }
 
+const admin = (path: string, body?: unknown) =>
+  fetch(`${base}${path}`, {
+    method: `POST`,
+    headers: {
+      "x-relay-secret": `integration-secret`,
+      "content-type": `application/json`,
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+
 describe(`steer relay end-to-end`, () => {
   test(`rejects bad tickets at upgrade`, async () => {
-    const res = await fetch(`${base.replace(`http`, `http`)}/ws?ticket=garbage`, {
+    const res = await fetch(`${base}/ws?ticket=garbage`, {
       headers: { upgrade: `websocket`, connection: `upgrade` },
     })
     expect(res.status).toBe(401)
@@ -134,408 +133,113 @@ describe(`steer relay end-to-end`, () => {
     expect(res.status).toBe(401)
   })
 
+  // VAPP-43: session content goes over eNet; an old build's publisher or
+  // viewer ticket never gets a socket.
+  test(`rejects publisher and viewer tickets at upgrade (VAPP-43)`, async () => {
+    for (const role of [`publisher`, `viewer`]) {
+      const stale = ticket({
+        role,
+        sessionId: `sess-x`,
+      } as unknown as Partial<SteerTicketClaims>)
+      const res = await fetch(`${base}/ws?ticket=${encodeURIComponent(stale)}`, {
+        headers: { upgrade: `websocket`, connection: `upgrade` },
+      })
+      expect(res.status).toBe(401)
+      expect(await res.text()).toBe(`Unauthorized: unknown_role`)
+    }
+  })
+
   test(`healthz is open, admin requires the secret`, async () => {
     const health = await fetch(`${base}/healthz`)
     expect(health.ok).toBe(true)
 
-    const noAuth = await fetch(`${base}/sessions/no-such`)
+    const noAuth = await fetch(`${base}/stats`)
     expect(noAuth.status).toBe(401)
 
-    const authed = await fetch(`${base}/sessions/no-such`, {
+    const authed = await fetch(`${base}/stats`, {
       headers: { "x-relay-secret": `integration-secret` },
     })
     expect(authed.ok).toBe(true)
-    expect(await authed.json()).toEqual({ live: false })
+    const stats = (await authed.json()) as Record<string, unknown>
+    expect(stats).not.toHaveProperty(`rooms`)
   })
 
-  test(`activity channel: reset + replay, live fan-out, input, answer, kill, bye`, async () => {
-    const sessionId = `sess-e2e`
-
-    // Publishers still send the removed public-activity feature's
-    // activityPublic flag in hello — non-strict parsing must ignore it.
-    const pub = await connect(
-      ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
-    )
-    const pubIn = collector(pub)
-    pub.send(
-      JSON.stringify({
-        t: `hello`,
-        sessionId,
-        issueId: `i1`,
-        activityPublic: false,
-      })
-    )
-    // Activity emitted BEFORE anyone joins → the replayable log + lastDiff.
-    const thinkingSeq = sendActivity(pub, { kind: `narration`, text: `thinking` })
-    sendActivity(pub, { kind: `diff`, diff: `+ line` })
-
-    const member = await connect(
-      ticket({ role: `viewer`, sub: `member-user`, sessionId })
-    )
-    const memberIn = collector(member)
-    member.send(JSON.stringify({ t: `join`, channel: `activity` }))
-
-    // The relay owns the "clear your feed" moment — it arrives BEFORE the
-    // replay, so clients never wipe on dial/open themselves.
-    expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
-    expect(await memberIn.nextJson()).toMatchObject({
-      t: `activity`,
-      event: { kind: `narration`, text: `thinking` },
-    })
-    expect(await memberIn.nextJson()).toMatchObject({
-      t: `activity`,
-      event: { kind: `diff`, diff: `+ line` },
-    })
-    // EXP-656: the join replay ends with an explicit marker. EXP-783: it names
-    // the span of the LOG it replayed (the latest-wins diff is not in it).
-    expect(await memberIn.nextJson()).toEqual({
-      t: `activity_synced`,
-      firstSeq: thinkingSeq,
-      lastSeq: thinkingSeq,
-    })
-
-    // Live activity — including the v2 kinds — reaches the member intact.
-    const question = {
-      kind: `question`,
-      text: `Which color?`,
-      options: [
-        { label: `Red`, key: `1`, description: `warm` },
-        { label: `Blue`, key: `2` },
-      ],
-      id: `toolu_1#0`,
-      askId: `toolu_1`,
-      index: 1,
-      total: 2,
-      header: `Palette`,
-    }
-    const questionSeq = sendActivity(pub, question)
-    expect(await memberIn.nextJson()).toEqual({
-      t: `activity`,
-      event: question,
-      seq: questionSeq,
-    })
-
-    // A joined viewer's input and answers reach the publisher directly
-    // (EXP-312: steering is seamless and owner-only — no claim, no perm).
-    member.send(JSON.stringify({ t: `input`, data: `yes\n` }))
-    expect(await pubIn.nextJson()).toMatchObject({ t: `input`, data: `yes\n` })
-
-    member.send(
-      JSON.stringify({
-        t: `answer`,
-        questionId: `toolu_1#0`,
-        askId: `toolu_1`,
-        keys: [`2`],
-      })
-    )
-    expect(await pubIn.nextJson()).toEqual({
-      t: `answer`,
-      questionId: `toolu_1#0`,
-      askId: `toolu_1`,
-      keys: [`2`],
-    })
-
-    // The publisher acks + resolves the card; both are ordinary activity.
-    sendActivity(pub, {
-      kind: `answer_ack`,
-      id: `toolu_1#0`,
-      askId: `toolu_1`,
-    })
-    expect(await memberIn.nextJson()).toMatchObject({
-      t: `activity`,
-      event: { kind: `answer_ack`, id: `toolu_1#0` },
-    })
-    sendActivity(pub, {
-      kind: `question_resolved`,
-      id: `toolu_1#0`,
-      answers: [`Blue`],
-    })
-    expect(await memberIn.nextJson()).toMatchObject({
-      t: `activity`,
-      event: { kind: `question_resolved`, answers: [`Blue`] },
-    })
-
-    // activity_reset from the publisher clears the log and tells the audience.
-    pub.send(JSON.stringify({ t: `activity_reset` }))
-    expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
-    // The publisher keeps counting across its own reset (its journal is one
-    // run), so the republished log starts ABOVE zero — which is exactly what
-    // makes the late joiner's span `truncated`.
-    const republishedSeq = sendActivity(pub, {
-      kind: `narration`,
-      text: `republished`,
-    })
-    expect(await memberIn.nextJson()).toMatchObject({
-      t: `activity`,
-      event: { kind: `narration`, text: `republished` },
-    })
-
-    // EXP-746: config_state and usage are latest-wins STATE — the room keeps
-    // only the newest of each, out of the log, and replays them AFTER it, so
-    // a late joiner paints its chips and meter from one frame apiece.
-    const configState = {
-      kind: `config_state`,
-      options: [
-        {
-          id: `model`,
-          label: `Model`,
-          category: `model`,
-          value: `opus`,
-          values: [
-            { id: `opus`, label: `Opus` },
-            { id: `sonnet`, label: `Sonnet` },
-          ],
-        },
-      ],
-      currentMode: `plan`,
-      modes: [{ id: `plan`, label: `Plan`, description: `Read-only` }],
-      commands: [{ name: `compact`, description: `Compact the context` }],
-    }
-    const usage = {
-      kind: `usage`,
-      contextUsed: 124_000,
-      contextSize: 200_000,
-      costUsd: 1.24,
-    }
-    sendActivity(pub, { ...configState, currentMode: `code` })
-    expect(await memberIn.nextJson()).toMatchObject({ t: `activity` })
-    const configSeq = sendActivity(pub, configState)
-    expect(await memberIn.nextJson()).toEqual({
-      t: `activity`,
-      event: configState,
-      seq: configSeq,
-    })
-    const usageSeq = sendActivity(pub, usage)
-    expect(await memberIn.nextJson()).toEqual({
-      t: `activity`,
-      event: usage,
-      seq: usageSeq,
-    })
-
-    // EXP-850 §2/§3: the two new latest-wins kinds ride the same rails — the
-    // workflow cards keyed PER ID, replayed between `turn` and the strip.
-    const workflow = {
-      kind: `workflow`,
-      id: `toolu_017aGvi2moAfSykrRA4LmyT4`,
-      name: `wire-probe`,
-      description: `Probe the workflow progress wire`,
-      status: `running`,
-      phases: [
-        { index: 1, title: `Alpha` },
-        { index: 2, title: `Beta` },
-      ],
-      agents: [
-        {
-          index: 1,
-          label: `alpha:one`,
-          phaseIndex: 1,
-          agentId: `a0ce244c651aaa623`,
-          model: `claude-haiku-4-5-20251001`,
-          state: `running`,
-        },
-      ],
-    }
-    const backgroundTasks = {
-      kind: `background_tasks`,
-      tasks: [
-        {
-          id: `w5zr2977l`,
-          kind: `workflow`,
-          description: `Probe the workflow progress wire`,
-          toolId: `toolu_017aGvi2moAfSykrRA4LmyT4`,
-        },
-      ],
-    }
-    const workflowSeq = sendActivity(pub, workflow)
-    expect(await memberIn.nextJson()).toEqual({
-      t: `activity`,
-      event: workflow,
-      seq: workflowSeq,
-    })
-    const tasksSeq = sendActivity(pub, backgroundTasks)
-    expect(await memberIn.nextJson()).toEqual({
-      t: `activity`,
-      event: backgroundTasks,
-      seq: tasksSeq,
-    })
-
-    const late = await connect(
-      ticket({ role: `viewer`, sub: `late-user`, sessionId })
-    )
-    const lateIn = collector(late)
-    late.send(JSON.stringify({ t: `join`, channel: `activity` }))
-    expect(await lateIn.nextJson()).toEqual({ t: `activity_reset` })
-    expect(await lateIn.nextJson()).toMatchObject({
-      t: `activity`,
-      event: { kind: `narration`, text: `republished` },
-    })
-    // The newest snapshot only, and after the log.
-    expect(await lateIn.nextJson()).toEqual({
-      t: `activity`,
-      event: configState,
-      seq: configSeq,
-    })
-    expect(await lateIn.nextJson()).toEqual({
-      t: `activity`,
-      event: usage,
-      seq: usageSeq,
-    })
-    expect(await lateIn.nextJson()).toEqual({
-      t: `activity`,
-      event: workflow,
-      seq: workflowSeq,
-    })
-    expect(await lateIn.nextJson()).toEqual({
-      t: `activity`,
-      event: backgroundTasks,
-      seq: tasksSeq,
-    })
-    // The log this room holds starts above zero, so the span it names is a
-    // TAIL: the pages below it live in the device's journal.
-    expect(await lateIn.nextJson()).toEqual({
-      t: `activity_synced`,
-      firstSeq: republishedSeq,
-      lastSeq: republishedSeq,
-      truncated: true,
-    })
-    late.close()
-
-    // EXP-746: live-config steering rides the same viewer gate, and a BLANK
-    // value (the "CLI default" choice) survives the round trip.
-    member.send(
-      JSON.stringify({ t: `set_config`, id: `model`, value: `opus` })
-    )
-    expect(await pubIn.nextJson()).toEqual({
-      t: `set_config`,
-      id: `model`,
-      value: `opus`,
-    })
-    member.send(JSON.stringify({ t: `set_config`, id: `model`, value: `` }))
-    expect(await pubIn.nextJson()).toEqual({
-      t: `set_config`,
-      id: `model`,
-      value: ``,
-    })
-    member.send(JSON.stringify({ t: `set_mode`, id: `plan` }))
-    expect(await pubIn.nextJson()).toEqual({ t: `set_mode`, id: `plan` })
-
-    // Kill from the joined viewer reaches the publisher.
-    member.send(JSON.stringify({ t: `kill` }))
-    expect(await pubIn.nextJson()).toMatchObject({ t: `kill` })
-
-    // Publisher ends the session; the member gets bye + close.
-    const closed = new Promise<number>((resolve) => {
-      member.onclose = (e) => resolve(e.code)
-    })
-    pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
-    expect(await memberIn.nextJson()).toMatchObject({ t: `bye`, outcome: `done` })
-    expect(await closed).toBe(4001)
-
-    pub.close()
-  })
-
-  test(`an unknown frame is dropped and the room survives`, async () => {
-    const sessionId = `sess-legacy`
-    const pub = await connect(
-      ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
-    )
-    pub.send(JSON.stringify({ t: `hello`, sessionId }))
-
-    const member = await connect(
-      ticket({ role: `viewer`, sub: `member-user`, sessionId })
-    )
-    const memberIn = collector(member)
-    member.send(JSON.stringify({ t: `join`, channel: `activity` }))
-    expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
-    // Nothing to replay: the span is the empty one at zero.
-    expect(await memberIn.nextJson()).toEqual({
-      t: `activity_synced`,
-      firstSeq: 0,
-      lastSeq: 0,
-    })
-
-    // A frame no schema in the union matches fails the parse and is dropped;
-    // nothing is relayed and the socket stays open.
-    pub.send(JSON.stringify({ t: `resize`, cols: 200, rows: 50 }))
-    sendActivity(pub, { kind: `narration`, text: `after the unknown frame` })
-    // The very next frame is the activity event.
-    expect(await memberIn.nextJson()).toMatchObject({
-      t: `activity`,
-      event: { kind: `narration`, text: `after the unknown frame` },
-    })
-
-    const info = await fetch(`${base}/sessions/${sessionId}`, {
+  test(`the removed session routes are gone (VAPP-43)`, async () => {
+    const info = await fetch(`${base}/sessions/sess-1`, {
       headers: { "x-relay-secret": `integration-secret` },
     })
-    expect(await info.json()).toMatchObject({ live: true, viewers: 1 })
-
-    pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
-    pub.close()
-    member.close()
+    expect(info.status).toBe(404)
+    const input = await admin(`/sessions/sess-1/input`, { text: `hi` })
+    expect(input.status).toBe(404)
   })
 
-  // EXP-700: server-side input injection — POST /sessions/:id/input relays
-  // text into the publisher as owner input, then a separate `\r` submit frame.
-  test(`server input injection reaches the publisher`, async () => {
-    const sessionId = `sess-inject`
-    const pub = await connect(
-      ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
+  test(`kill, interrupt and compact go down the device's control socket`, async () => {
+    const desktop = await connect(ticket({ role: `control`, sub: `host-1` }))
+    const desktopIn = collector(desktop)
+    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-k` }))
+    await nudgeWhenOnline(`host-1`, `dev-k`)
+    expect(await desktopIn.nextJson()).toEqual({ t: `check_in` })
+    const device = { userId: `host-1`, deviceId: `dev-k` }
+
+    // A body that names no device is a 400, not a guess.
+    expect((await admin(`/sessions/sess-k/kill`)).status).toBe(400)
+    expect((await admin(`/sessions/sess-k/kill`, { userId: `host-1` })).status).toBe(400)
+    expect((await admin(`/sessions/sess-k/interrupt`, {})).status).toBe(400)
+    expect((await admin(`/sessions/sess-k/compact`, { deviceId: `dev-k` })).status).toBe(400)
+
+    const interrupt = await admin(`/sessions/sess-k/interrupt`, device)
+    expect(await interrupt.json()).toEqual({ ok: true, delivered: true })
+    expect(await desktopIn.nextJson()).toEqual({ t: `interrupt`, sessionId: `sess-k` })
+
+    const compact = admin(`/sessions/sess-k/compact`, { ...device, keep: `the plan` })
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `compact_request`,
+      sessionId: `sess-k`,
+      keep: `the plan`,
+    })
+    desktop.send(
+      JSON.stringify({ t: `compact_verdict`, sessionId: `sess-k`, accepted: true })
     )
-    const pubIn = collector(pub)
-    pub.send(JSON.stringify({ t: `hello`, sessionId }))
-
-    // The hello rides the socket — wait for the room before POSTing.
-    for (let i = 0; i < 20; i++) {
-      const res = await fetch(`${base}/sessions/${sessionId}`, {
-        headers: { "x-relay-secret": `integration-secret` },
-      })
-      if (((await res.json()) as { live?: boolean }).live) break
-      await new Promise((r) => setTimeout(r, 25))
-    }
-
-    const post = (body: unknown, headers: Record<string, string> = {}) =>
-      fetch(`${base}/sessions/${sessionId}/input`, {
-        method: `POST`,
-        headers: {
-          "content-type": `application/json`,
-          "x-relay-secret": `integration-secret`,
-          ...headers,
-        },
-        body: JSON.stringify(body),
-      })
-
-    const ok = await post({ text: `hello there` })
-    expect(await ok.json()).toEqual({ ok: true, delivered: true })
-    expect(await pubIn.nextJson()).toEqual({ t: `input`, data: `hello there` })
-    expect(await pubIn.nextJson()).toEqual({ t: `input`, data: `\r` })
-
-    // Same secret gate as every admin endpoint.
-    const noAuth = await fetch(`${base}/sessions/${sessionId}/input`, {
-      method: `POST`,
-      headers: { "content-type": `application/json` },
-      body: JSON.stringify({ text: `x` }),
+    expect(await (await compact).json()).toEqual({
+      ok: true,
+      delivered: true,
+      accepted: true,
     })
-    expect(noAuth.status).toBe(401)
 
-    // Malformed bodies are refused, not silently dropped.
-    expect((await post({})).status).toBe(400)
-    expect((await post({ text: 42 })).status).toBe(400)
-    expect((await post({ text: `` })).status).toBe(400)
-    expect((await post({ text: `a`.repeat(16 * 1024 + 1) })).status).toBe(400)
+    const kill = await admin(`/sessions/sess-k/kill`, device)
+    expect(await kill.json()).toEqual({ ok: true, delivered: true })
+    expect(await desktopIn.nextJson()).toEqual({ t: `kill`, sessionId: `sess-k` })
 
-    // No live publisher reads as not-delivered — the kill contract.
-    const gone = await fetch(`${base}/sessions/no-such-session/input`, {
-      method: `POST`,
-      headers: {
-        "content-type": `application/json`,
-        "x-relay-secret": `integration-secret`,
-      },
-      body: JSON.stringify({ text: `x` }),
+    // Another device (or another owner) is not connected: not delivered.
+    const offline = await admin(`/sessions/sess-k/kill`, { userId: `host-2`, deviceId: `dev-k` })
+    expect(await offline.json()).toEqual({ ok: true, delivered: false })
+    const compactOffline = await admin(`/sessions/sess-k/compact`, {
+      userId: `host-1`,
+      deviceId: `dev-gone`,
     })
-    expect(await gone.json()).toEqual({ ok: true, delivered: false })
+    expect(await compactOffline.json()).toEqual({
+      ok: true,
+      delivered: false,
+      reason: `device_offline`,
+    })
+    desktop.close()
+  })
 
-    pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
-    pub.close()
+  test(`a content frame on a control socket is refused and presence survives`, async () => {
+    const desktop = await connect(ticket({ role: `control`, sub: `owner-c` }))
+    const desktopIn = collector(desktop)
+    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-c` }))
+    await nudgeWhenOnline(`owner-c`, `dev-c`)
+    expect(await desktopIn.nextJson()).toEqual({ t: `check_in` })
+
+    desktop.send(
+      JSON.stringify({ t: `activity`, event: { kind: `narration`, text: `secret` }, seq: 0 })
+    )
+    expect(await desktopIn.nextJson()).toEqual({ t: `error`, code: `content_refused` })
+    // Still registered: the nudge reaches it.
+    await nudgeWhenOnline(`owner-c`, `dev-c`)
+    expect(await desktopIn.nextJson()).toEqual({ t: `check_in` })
+    desktop.close()
   })
 
   test(`the check-in nudge reaches the control socket`, async () => {
@@ -581,14 +285,14 @@ describe(`steer relay end-to-end`, () => {
 
     // A valid ticket still upgrades — it counts against a separate, larger
     // per-IP bucket (mirrors push-relay's failed-auth-only philosophy).
-    const ws = await connect(ticket({ sessionId: `sess-flood` }))
+    const ws = await connect(ticket({ role: `control` }))
     ws.close()
   })
 
   test(`admin endpoints throttle wrong-secret attempts`, async () => {
     let saw429 = false
     for (let i = 0; i < 150 && !saw429; i++) {
-      const res = await fetch(`${base}/sessions/u1`, {
+      const res = await fetch(`${base}/stats`, {
         headers: { "x-relay-secret": `wrong-${i}` },
       })
       expect([401, 429]).toContain(res.status)
@@ -598,7 +302,7 @@ describe(`steer relay end-to-end`, () => {
 
     // The secret-bearing web server keeps working through the flood — only
     // failed auth is throttled.
-    const authed = await fetch(`${base}/sessions/u1`, {
+    const authed = await fetch(`${base}/stats`, {
       headers: { "x-relay-secret": `integration-secret` },
     })
     expect(authed.status).toBe(200)

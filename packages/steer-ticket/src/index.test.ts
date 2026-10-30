@@ -12,8 +12,7 @@ function claims(overrides: Partial<SteerTicketClaims> = {}): SteerTicketClaims {
   return {
     sub: `user-1`,
     team: `team-1`,
-    sessionId: `sess-1`,
-    role: `viewer`,
+    role: `control`,
     iat: now,
     exp: now + 60,
     ...overrides,
@@ -81,13 +80,12 @@ describe(`steer tickets`, () => {
     const caller = claims({
       role: `caller`,
       team: ``,
-      sessionId: undefined,
       callId: `call-1`,
       agentId: `agent-1`,
       deviceId: `dev-1`,
       deviceOwnerId: `user-1`,
     })
-    const host = claims({ role: `call_host`, team: ``, sessionId: undefined, callId: `call-1` })
+    const host = claims({ role: `call_host`, team: ``, callId: `call-1` })
     for (const c of [caller, host]) {
       const result = verifySteerTicket(signSteerTicket(c, SECRET), SECRET)
       expect(result.ok).toBe(true)

@@ -59,7 +59,7 @@ afterEach(() => {
 })
 
 describe(`the bridge`, () => {
-  it(`no node tab answering = no carrier (the relay)`, async () => {
+  it(`no node tab answering = no carrier (no feed)`, async () => {
     const open = bus()
     const client = new SteerBridgeClient(open())
     const carrier = client.carrier()

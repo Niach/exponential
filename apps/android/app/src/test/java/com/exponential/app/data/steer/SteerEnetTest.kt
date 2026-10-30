@@ -1,12 +1,12 @@
 package com.exponential.app.data.steer
 
-import com.exponential.app.data.api.SteerTicketResult
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.enet.PeerChat
 import com.exponential.app.data.enet.PeerNode
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.HistoryState
 import java.io.File
 import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
@@ -36,8 +36,9 @@ import org.junit.Test
 /**
  * VAPP-33: the Android steer viewer over eNet. The fixture's `parse` cases
  * and constants, the transport choice (forSession order, no_such_session →
- * the next endpoint, every fallback to the relay), the viewer-side filter,
- * the re-join after staleMs, and a [SteerConnection] fed over eNet.
+ * the next endpoint, every NO FEED case), the viewer-side filter, the re-join
+ * after staleMs, and a [SteerConnection] fed over eNet only (VAPP-43: no
+ * relay fallback; the two no-feed outcomes and an ended row's stored replay).
  */
 class SteerEnetTest {
     private val fixture: JsonObject = run {
@@ -161,7 +162,7 @@ class SteerEnetTest {
     }
 
     @Test
-    fun everyFallbackIsTheRelay() = runBlocking {
+    fun everyNoFeedCaseIsNull() = runBlocking {
         // No node.
         assertNull(dialer(null, listOf("dev-a")).open(SESSION))
         // No endpoint.
@@ -180,9 +181,9 @@ class SteerEnetTest {
     }
 
     @Test
-    fun noActivitySyncedWithinTheJoinTimeoutIsTheRelay() = runBlocking {
+    fun noActivitySyncedWithinTheJoinTimeoutIsNoFeed() = runBlocking {
         // The device answers the reset but never ends its replay; the second
-        // endpoint is never tried (the timeout falls straight to the relay).
+        // endpoint is never tried (the timeout is NO FEED at once).
         val node = FakeNode().apply {
             device = { peer, env -> if (peer == "dev-a") deliver(peer, env.sessionId, """{"t":"activity_reset"}""") }
         }
@@ -287,49 +288,40 @@ class SteerEnetTest {
 
     // ── the connection over eNet ────────────────────────────────────────
 
-    private class EnetFirstTransport(private val dialer: EnetSteerDialer) : SteerTransport {
-        val mints = AtomicInteger()
-        override suspend fun mint(codingSessionId: String): SteerTicketResult {
-            mints.incrementAndGet()
-            return SteerTicketResult(ticket = null, url = null)
-        }
-        override suspend fun open(url: String): SteerSocket = error("the relay is not dialed")
-        override suspend fun openEnet(codingSessionId: String): SteerSocket? = dialer.open(codingSessionId)
-    }
+    private fun row(status: String) = SessionEntity(
+        id = SESSION,
+        teamId = "team-1",
+        userId = "user-1",
+        status = status,
+        startedAt = Instant.now().toString(),
+        createdAt = Instant.now().toString(),
+        updatedAt = Instant.now().toString(),
+    )
 
-    private fun connection(transport: SteerTransport) = SteerConnection(
+    private fun connection(
+        transport: SteerTransport,
+        status: String = DomainContract.sessionStatusRunning,
+    ) = SteerConnection(
         codingSessionId = SESSION,
         transport = transport,
-        sessionFlow = MutableStateFlow(
-            SessionEntity(
-                id = SESSION,
-                teamId = "team-1",
-                userId = "user-1",
-                status = DomainContract.sessionStatusRunning,
-                startedAt = Instant.now().toString(),
-                createdAt = Instant.now().toString(),
-                updatedAt = Instant.now().toString(),
-            ),
-        ),
+        sessionFlow = MutableStateFlow(row(status)),
         json = Json { ignoreUnknownKeys = true; explicitNulls = false },
         dispatcher = Dispatchers.Unconfined,
         nowMs = { System.currentTimeMillis() },
-        timings = SteerTimings(joinAckMs = 2_000, liveStaleMs = 10_000),
+        timings = SteerTimings(joinAckMs = 2_000, liveStaleMs = 10_000, startingRetryMs = 50),
     )
 
     @Test
     fun theConnectionGoesLiveOverENetAndSteersThroughIt() = runBlocking {
         val node = FakeNode().apply { serve(live = "dev-a") }
-        val transport = EnetFirstTransport(dialer(node, listOf("dev-a")))
-        val connection = connection(transport)
+        val connection = connection(EnetSteerTransport(dialer(node, listOf("dev-a"))))
         try {
             connection.connect()
             withTimeout(3_000) { while (connection.phase.value != AgentPhase.Live) delay(5) }
-            // The same reducer the relay feeds: the replayed narration is on screen.
+            // The same reducer the relay used to feed: the replayed narration is on screen.
             withTimeout(3_000) {
                 while (connection.activity.value.feed.none { it is AgentFeedItem.Narration }) delay(5)
             }
-            assertEquals(0, transport.mints.get())
             assertTrue(connection.sendMessage("over enet"))
             connection.interrupt()
             withTimeout(3_000) { while (node.sentTypes("dev-a").count { it != "join" } < 3) delay(5) }
@@ -340,13 +332,73 @@ class SteerEnetTest {
         }
     }
 
+    // ── VAPP-43: NO FEED, no relay fallback ─────────────────────────────
+
     @Test
-    fun withoutAnENetFeedTheConnectionMintsTheRelayAsToday() = runBlocking {
-        val transport = EnetFirstTransport(dialer(FakeNode(), emptyList()))
-        val connection = connection(transport)
+    fun noFeedOnARunningRowIsStartingAndRedials() = runBlocking {
+        val discoveries = AtomicInteger()
+        val connection = connection(EnetSteerTransport(dialer(FakeNode(), emptyList(), discoveries)))
         try {
             connection.connect()
-            withTimeout(3_000) { while (transport.mints.get() == 0) delay(5) }
+            withTimeout(3_000) { while (connection.phase.value != AgentPhase.Starting) delay(5) }
+            // Redials on the Starting cadence, never anything else.
+            withTimeout(3_000) { while (discoveries.get() < 3) delay(5) }
+            assertEquals(AgentPhase.Starting, connection.phase.value)
+            assertNull(connection.history.value)
+            assertTrue(connection.activity.value.feed.isEmpty())
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun noFeedOnAnEndedRowIsEndedWithTheDeviceOfflineLine() = runBlocking {
+        // Every endpoint refused: no install runs it or holds its journal.
+        val node = FakeNode().apply { serve(live = "nobody") }
+        val discoveries = AtomicInteger()
+        val connection = connection(
+            EnetSteerTransport(dialer(node, listOf("dev-a"), discoveries)),
+            status = DomainContract.sessionStatusEnded,
+        )
+        try {
+            connection.connect()
+            withTimeout(3_000) { while (connection.phase.value !is AgentPhase.Ended) delay(5) }
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            assertEquals(HistoryState.DeviceOffline, connection.history.value)
+            // Final: nothing redials.
+            delay(200)
+            assertEquals(1, discoveries.get())
+            assertTrue(connection.isFinished)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun anEndedRowsStoredReplayEndsWithItsTranscriptOnScreen() = runBlocking {
+        // The device holds the journal: reset, replay, synced, then bye history.
+        val node = FakeNode().apply {
+            device = { peer, env ->
+                if (env.types.contains("join")) {
+                    deliver(peer, env.sessionId, *replay, """{"t":"bye","outcome":"history"}""")
+                }
+            }
+        }
+        val discoveries = AtomicInteger()
+        val connection = connection(
+            EnetSteerTransport(dialer(node, listOf("dev-a"), discoveries)),
+            status = DomainContract.sessionStatusEnded,
+        )
+        try {
+            connection.connect()
+            withTimeout(3_000) {
+                while (connection.activity.value.feed.none { it is AgentFeedItem.Narration }) delay(5)
+            }
+            withTimeout(3_000) { while (!connection.isFinished) delay(5) }
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            assertNull(connection.history.value)
+            delay(200)
+            assertEquals(1, discoveries.get())
         } finally {
             connection.close()
         }

@@ -12,11 +12,18 @@
 //! queue + send task per joined viewer, batched per the fixture, with a
 //! keepalive, dropped on a failed or timed-out send, `bye` at run end.
 //!
+//! VAPP-43 STORED REPLAY: a `join` for a session with no live room here is
+//! answered from its journal file when the host holds one ([`StoredJournals`]):
+//! the replay, then `bye {outcome:"history"}` for an ended row; an idle row's
+//! viewers stay joined (keepalive, `history_page` off the file) until the
+//! run's publisher comes back here, which takes them over as fresh joins.
+//!
 //! Viewer half: a viewer subscribes to `(sessionId, device endpoint)`
 //! ([`subscribe`]) and gets the device's frames as JSON text, exactly what a
 //! relay socket would have delivered; [`send_envelope`] carries its frames.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -41,7 +48,8 @@ pub const CHAT_MAX_BYTES: usize = enet_core::MAX_CHAT_MESSAGE;
 pub const KEEPALIVE: Duration = Duration::from_millis(30_000);
 /// A viewer that hears nothing for this long re-sends `join`.
 pub const STALE: Duration = Duration::from_millis(75_000);
-/// A join with no `activity_synced` within this long = the relay instead.
+/// A join with no `activity_synced` within this long = no feed from that
+/// endpoint.
 pub const JOIN_TIMEOUT: Duration = Duration::from_millis(8_000);
 /// A device send that is not acked within this long drops the viewer.
 pub const SEND_TIMEOUT: Duration = Duration::from_millis(20_000);
@@ -53,7 +61,7 @@ pub const VIEWER_FRAMES: &[&str] = &[
 /// The frames a device sends.
 pub const DEVICE_FRAMES: &[&str] =
     &["activity_reset", "activity", "activity_synced", "history_chunk", "keepalive", "bye", "error"];
-/// This install runs no such live session.
+/// This install neither runs the session live nor holds its journal.
 pub const ERROR_NO_SUCH_SESSION: &str = "no_such_session";
 /// The access rule refused the sender.
 pub const ERROR_UNAUTHORIZED: &str = "unauthorized";
@@ -253,7 +261,15 @@ pub(crate) fn register_room(
     cmd_tx: flume::WeakSender<PublisherCmd>,
 ) -> RoomGuard {
     let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
+    let live = cmd_tx.upgrade();
     lock(rooms()).insert(session_id.to_string(), Room { generation, audience, cmd_tx });
+    // VAPP-43: the run came back — its stored viewers become live joins.
+    let stored = lock(stored_viewers()).remove(session_id);
+    if let (Some(viewers), Some(tx)) = (stored, live) {
+        for (_, (peer, _feed)) in viewers {
+            let _ = tx.send(PublisherCmd::EnetJoin(peer));
+        }
+    }
     RoomGuard { session_id: session_id.to_string(), generation }
 }
 
@@ -265,12 +281,13 @@ pub fn has_room(session_id: &str) -> bool {
 /// One chat message from `from`, received on `node`. Returns whether it was
 /// a steer envelope (the caller handles anything else). `user_in_team`
 /// resolves `(team id, endpoint)` to the endpoint's user in that team's
-/// registry list.
+/// registry list; `stored` = the host's journals for STORED REPLAY.
 pub fn receive(
     node: &Arc<Node>,
     from: EndpointId,
     body: &[u8],
     user_in_team: &dyn Fn(&str, &EndpointId) -> Option<String>,
+    stored: Option<&StoredJournals>,
 ) -> bool {
     let Some(envelope) = parse_envelope(body) else { return false };
     if envelope.from_device() {
@@ -282,16 +299,17 @@ pub fn receive(
         .get(&session_id)
         .and_then(|room| Some((room.audience.clone(), room.cmd_tx.upgrade()?)));
     let Some((audience, cmd_tx)) = room else {
-        reply(node, from, &session_id, ERROR_NO_SUCH_SESSION);
+        match stored.and_then(|stored| Some((stored, stored.lookup(&session_id)?))) {
+            Some((stored, session)) => {
+                if allowed(node, from, &session_id, &session.audience, user_in_team) {
+                    serve_stored(node, from, envelope, stored, session.ended);
+                }
+            }
+            None => reply(node, from, &session_id, ERROR_NO_SUCH_SESSION),
+        }
         return true;
     };
-    let user = user_in_team(&audience.team_id, &from);
-    if !viewer_allowed(user.as_deref(), &audience.starter_user_id, audience.shared) {
-        log::info!(
-            "enet steer: {} refused for session {session_id}",
-            crate::enet::endpoint_hex(&from)
-        );
-        reply(node, from, &session_id, ERROR_UNAUTHORIZED);
+    if !allowed(node, from, &session_id, &audience, user_in_team) {
         return true;
     }
     for mut frame in envelope.frames {
@@ -315,6 +333,23 @@ pub fn receive(
         }
     }
     true
+}
+
+/// The access rule for one envelope; a refusal is answered `unauthorized`.
+fn allowed(
+    node: &Arc<Node>,
+    from: EndpointId,
+    session_id: &str,
+    audience: &SteerAudience,
+    user_in_team: &dyn Fn(&str, &EndpointId) -> Option<String>,
+) -> bool {
+    let user = user_in_team(&audience.team_id, &from);
+    if viewer_allowed(user.as_deref(), &audience.starter_user_id, audience.shared) {
+        return true;
+    }
+    log::info!("enet steer: {} refused for session {session_id}", crate::enet::endpoint_hex(&from));
+    reply(node, from, session_id, ERROR_UNAUTHORIZED);
+    false
 }
 
 fn reply(node: &Arc<Node>, peer: EndpointId, session_id: &str, code: &str) {
@@ -354,23 +389,25 @@ impl Feeds {
         let tx = match self.viewers.get(&id) {
             Some(tx) if !tx.is_disconnected() => tx.clone(),
             _ => {
-                let (tx, rx) = flume::unbounded();
-                tokio::spawn(run_feed(peer, self.session_id.clone(), rx));
+                let tx = spawn_feed(peer, &self.session_id);
                 self.viewers.insert(id, tx.clone());
                 tx
             }
         };
-        let _ = tx.send(ClientFrame::ActivityReset.to_json());
-        for (seq, event) in journal.replay_seq() {
-            let _ = tx.send(ClientFrame::Activity { event: event.clone(), seq }.to_json());
-        }
-        let _ = tx.send(synced_frame(journal));
+        replay_to(&tx, journal);
         log::info!(
             "enet steer: {} joined {} ({} viewers)",
             crate::enet::endpoint_hex(&id),
             self.session_id,
             self.viewers.len()
         );
+    }
+
+    /// Tests only: a raw viewer queue (no node, no feed task), joined.
+    #[cfg(test)]
+    pub(crate) fn tap(&mut self, id: EndpointId, tx: flume::Sender<String>, journal: &ActivityJournal) {
+        replay_to(&tx, journal);
+        self.viewers.insert(id, tx);
     }
 
     pub(crate) fn leave(&mut self, id: &EndpointId) {
@@ -416,14 +453,178 @@ impl Drop for Feeds {
     }
 }
 
-/// The end-of-replay marker, exactly the relay's (`fixtures/steer-enet.json`).
-fn synced_frame(journal: &ActivityJournal) -> String {
+/// `activity_reset`, the journal replay, then `activity_synced`.
+fn replay_to(tx: &flume::Sender<String>, journal: &ActivityJournal) {
+    let _ = tx.send(ClientFrame::ActivityReset.to_json());
+    for (seq, event) in journal.replay_seq() {
+        let _ = tx.send(ClientFrame::Activity { event: event.clone(), seq }.to_json());
+    }
     let (first, last, truncated) = journal.synced_span();
+    let _ = tx.send(synced_frame(first, last, truncated));
+}
+
+/// The end-of-replay marker, exactly the relay's (`fixtures/steer-enet.json`).
+fn synced_frame(first: u64, last: u64, truncated: bool) -> String {
     let mut frame = serde_json::json!({ "t": "activity_synced", "firstSeq": first, "lastSeq": last });
     if truncated {
         frame["truncated"] = Value::Bool(true);
     }
     frame.to_string()
+}
+
+/// A new viewer feed task; its queue's sender.
+fn spawn_feed(peer: EnetPeer, session_id: &str) -> flume::Sender<String> {
+    let (tx, rx) = flume::unbounded();
+    tokio::spawn(run_feed(peer, session_id.to_string(), rx));
+    tx
+}
+
+// ---------------------------------------------------------------------------
+// Device: STORED REPLAY (VAPP-43)
+// ---------------------------------------------------------------------------
+
+/// The host's stored transcripts: the data dir whose `journal/` holds them
+/// and its synced `sessions` rows (who may watch, and whether it ended).
+#[derive(Clone)]
+pub struct StoredJournals {
+    pub data_dir: PathBuf,
+    /// Session id → its synced row's [`StoredSession`]; `None` = no row.
+    pub session: Arc<dyn Fn(&str) -> Option<StoredSession> + Send + Sync>,
+}
+
+/// What STORED REPLAY reads off a session's synced row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StoredSession {
+    pub audience: SteerAudience,
+    pub ended: bool,
+}
+
+impl StoredSession {
+    /// `None` when the row names no team or starter.
+    pub fn of(row: &domain::rows::SessionRow) -> Option<StoredSession> {
+        Some(StoredSession { audience: SteerAudience::of(row)?, ended: row.is_ended() })
+    }
+}
+
+impl StoredJournals {
+    /// The session's row, when its journal file is here too.
+    fn lookup(&self, session_id: &str) -> Option<StoredSession> {
+        let path = crate::history::journal_path(&self.data_dir, session_id)?;
+        if !path.is_file() {
+            return None;
+        }
+        (self.session)(session_id)
+    }
+}
+
+type StoredViewers = HashMap<String, HashMap<EndpointId, (EnetPeer, flume::Sender<String>)>>;
+
+/// The viewers joined to an idle session's journal, until its run comes back
+/// ([`register_room`] hands them over).
+fn stored_viewers() -> &'static Mutex<StoredViewers> {
+    static STORED: OnceLock<Mutex<StoredViewers>> = OnceLock::new();
+    STORED.get_or_init(Default::default)
+}
+
+/// Is `endpoint` joined to `session_id`'s stored journal here?
+pub fn has_stored_viewer(session_id: &str, endpoint: &EndpointId) -> bool {
+    lock(stored_viewers()).get(session_id).is_some_and(|viewers| viewers.contains_key(endpoint))
+}
+
+/// One allowed envelope for a session served from its journal: `join`,
+/// `leave` and `history_page` apply; a stored run cannot be steered.
+fn serve_stored(node: &Arc<Node>, from: EndpointId, envelope: Envelope, stored: &StoredJournals, ended: bool) {
+    let session_id = envelope.session_id;
+    for frame in envelope.frames {
+        match frame_tag(&frame) {
+            Some("join") => {
+                let peer = EnetPeer { id: from, node: Arc::clone(node) };
+                stored_join(peer, &session_id, stored.data_dir.clone(), ended);
+            }
+            Some("leave") => {
+                if let Some(viewers) = lock(stored_viewers()).get_mut(&session_id) {
+                    viewers.remove(&from);
+                }
+            }
+            Some("history_page") => {
+                let page = |key: &str| frame.get(key).and_then(Value::as_u64);
+                let request_id = frame.get("requestId").and_then(Value::as_str);
+                if let (Some(request_id), Some(before_seq), Some(limit)) =
+                    (request_id, page("beforeSeq"), page("limit"))
+                {
+                    stored_page(&session_id, from, stored.data_dir.clone(), request_id.to_string(), before_seq, limit);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `join` (or a re-join) on a stored journal: reset, the file's replay,
+/// synced, then `bye history` for an ended row (the viewer is dropped) or a
+/// place in the stored-viewer registry for an idle one.
+fn stored_join(peer: EnetPeer, session_id: &str, data_dir: PathBuf, ended: bool) {
+    let tx = if ended {
+        spawn_feed(peer, session_id)
+    } else {
+        let mut stored = lock(stored_viewers());
+        let viewers = stored.entry(session_id.to_string()).or_default();
+        match viewers.get(&peer.id) {
+            Some((_, tx)) if !tx.is_disconnected() => tx.clone(),
+            _ => {
+                let tx = spawn_feed(peer.clone(), session_id);
+                viewers.insert(peer.id, (peer, tx.clone()));
+                tx
+            }
+        }
+    };
+    let id = session_id.to_string();
+    tokio::spawn(async move {
+        let read_id = id.clone();
+        let events = tokio::task::spawn_blocking(move || crate::history::read_journal_seq(&data_dir, &read_id))
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        log::info!("enet steer: replaying {} stored event(s) of {id}", events.len());
+        for frame in stored_replay(&events, ended) {
+            let _ = tx.send(frame);
+        }
+    });
+}
+
+/// The frames a stored join gets: `activity_reset`, the file's replay,
+/// `activity_synced` (the first/last LOG seq; nothing was evicted), and for
+/// an ended row `bye {outcome:"history"}`.
+pub fn stored_replay(events: &[(u64, ActivityEvent)], ended: bool) -> Vec<String> {
+    let mut frames = vec![ClientFrame::ActivityReset.to_json()];
+    frames.extend(events.iter().map(|(seq, event)| ClientFrame::Activity { event: event.clone(), seq: *seq }.to_json()));
+    let mut log = events.iter().filter(|(_, event)| !crate::history::is_state_slot(event)).map(|(seq, _)| *seq);
+    let first = log.next().unwrap_or(0);
+    let last = log.last().unwrap_or(first);
+    frames.push(synced_frame(first, last, false));
+    if ended {
+        frames.push(ClientFrame::Bye { outcome: Some(crate::history::HISTORY_OUTCOME) }.to_json());
+    }
+    frames
+}
+
+/// A stored viewer's `history_page`, answered off the file.
+fn stored_page(session_id: &str, from: EndpointId, data_dir: PathBuf, request_id: String, before_seq: u64, limit: u64) {
+    let Some(tx) = lock(stored_viewers()).get(session_id).and_then(|viewers| viewers.get(&from)).map(|(_, tx)| tx.clone())
+    else {
+        return;
+    };
+    let id = session_id.to_string();
+    tokio::spawn(async move {
+        let limit = limit.min(u64::from(crate::history::HISTORY_PAGE_MAX)) as usize;
+        let page = tokio::task::spawn_blocking(move || {
+            crate::history::read_journal_page(&data_dir, &id, before_seq, limit).unwrap_or_default()
+        })
+        .await
+        .unwrap_or_default();
+        let _ = tx.send(crate::history::history_chunk_frame(&request_id, page));
+    });
 }
 
 /// One viewer's feed: drains its queue into envelopes, beats a keepalive
@@ -585,6 +786,29 @@ mod tests {
             assert_eq!(groups, want, "{}", case["name"]);
             assert_eq!(dropped, indexes(&case["dropped"]), "{}", case["name"]);
         }
+    }
+
+    /// VAPP-43 STORED REPLAY: reset, the file, synced over the LOG seqs
+    /// (state slots skipped, never truncated), and `bye history` only for an
+    /// ended row.
+    #[test]
+    fn a_stored_replay_spans_the_log_and_ends_an_ended_row() {
+        let events = vec![
+            (0, ActivityEvent::narration("a")),
+            (2, ActivityEvent::narration("b")),
+            (1, ActivityEvent::diff("state")),
+        ];
+        let idle = stored_replay(&events, false);
+        assert_eq!(idle.len(), 5);
+        assert_eq!(idle[0], r#"{"t":"activity_reset"}"#);
+        assert!(idle[3].contains(r#""kind":"diff""#));
+        assert_eq!(idle[4], r#"{"t":"activity_synced","firstSeq":0,"lastSeq":2}"#);
+        let ended = stored_replay(&events, true);
+        assert_eq!(ended.last().unwrap(), r#"{"t":"bye","outcome":"history"}"#);
+        assert_eq!(
+            stored_replay(&[], false),
+            vec![r#"{"t":"activity_reset"}"#.to_string(), r#"{"t":"activity_synced","firstSeq":0,"lastSeq":0}"#.to_string()]
+        );
     }
 
     #[test]

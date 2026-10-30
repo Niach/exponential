@@ -1,23 +1,23 @@
 //! VAPP-33: steer over eNet's chat channel (`fixtures/steer-enet.json`).
 //! Two REAL local eNet nodes started the way the apps start them: the
-//! device runs a publisher (relay disabled, so eNet is all it serves), the
-//! viewer joins over chat, gets the journal replay, a live event and steers
-//! an input; the run's end says `bye`. A teammate is refused from a private
+//! device runs a publisher (VAPP-43: eNet is all it serves), the viewer
+//! joins over chat, gets the journal replay, a live event and steers an
+//! input; the run's end says `bye`. A teammate is refused from a private
 //! session (its own test: both nodes live in one process, so they share the
-//! viewer subscriptions).
+//! viewer subscriptions). VAPP-43: STORED REPLAY off the device's journal
+//! file, and the desktop viewer's no-feed states.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use api::error::ApiError;
 use api::installs::{InstallEntry, RegisterInstall};
-use api::steer::MintedTicket;
 use enet_core::NetConfig;
 use serde_json::Value;
 use steer::enet::{self, InstallKind, InstallNode, InstallRegistry, InstallSpec};
 use steer::enet_steer;
 use steer::{
-    ActivityEvent, ImageEmbeds, KillSignal, PublishSpec, PublisherHooks, PublisherTickets, SessionAgent, SteerRuntime,
+    ActivityEvent, ImageEmbeds, KillSignal, PublishSpec, PublisherHooks, SessionAgent, SteerRuntime,
 };
 
 const WAIT: Duration = Duration::from_secs(20);
@@ -78,15 +78,6 @@ fn start(registry: &Arc<Registry>, dir: &std::path::Path, user: &str, kind: Inst
     )
 }
 
-/// The relay is disabled: the publisher serves eNet only.
-struct NoRelay;
-
-impl PublisherTickets for NoRelay {
-    fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-        Ok(None)
-    }
-}
-
 #[derive(Default)]
 struct Recorded {
     inputs: Mutex<Vec<Vec<u8>>>,
@@ -99,7 +90,6 @@ fn hooks(recorded: &Arc<Recorded>) -> PublisherHooks {
     PublisherHooks {
         write_input: Arc::new(move |bytes| inputs.inputs.lock().unwrap().push(bytes.to_vec())),
         kill: Arc::new(move |signal| kills.kills.lock().unwrap().push(signal)),
-        error: Arc::new(|_| {}),
         answers: None,
         agent: SessionAgent::Claude,
         text_sink: None,
@@ -181,13 +171,12 @@ async fn a_viewer_joins_gets_the_replay_and_live_events_and_steers_over_enet() {
                 shared: false,
             }),
         },
-        Arc::new(NoRelay),
         hooks(&recorded),
     );
     let activity = handle.activity_sender();
     activity.send(ActivityEvent::narration("before the join"));
     wait_until(|| enet_steer::has_room(&session_id)).await;
-    assert!(handle.is_active(), "a disabled relay keeps serving eNet");
+    assert!(handle.is_active(), "the run serves eNet until it ends");
 
     // Join: reset, the replay, the end-of-replay marker.
     let sub = enet_steer::subscribe(&session_id, d.endpoint_id());
@@ -272,7 +261,6 @@ async fn a_teammate_is_refused_from_a_private_session() {
             }),
             ..Default::default()
         },
-        Arc::new(NoRelay),
         hooks(&recorded),
     );
     wait_until(|| enet_steer::has_room(&session_id)).await;
@@ -304,21 +292,12 @@ impl steer::EnetViewerSource for Source {
     }
 }
 
-/// No relay for the viewer either: a fallback ends `Unauthorized`.
-struct NoViewerRelay;
-
-impl steer::ViewerTickets for NoViewerRelay {
-    fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-        Ok(None)
-    }
-}
-
 async fn next_event(events: &flume::Receiver<steer::ViewerEvent>) -> steer::ViewerEvent {
     tokio::time::timeout(WAIT, events.recv_async()).await.expect("an event in time").expect("viewer running")
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_desktop_viewer_steers_over_enet_and_falls_back_to_the_relay() {
+async fn the_desktop_viewer_steers_over_enet_and_has_no_fallback() {
     use steer::{ViewerEvent, ViewerPhase};
     let dir = std::env::temp_dir().join(format!("enet-steer-viewer-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -353,7 +332,6 @@ async fn the_desktop_viewer_steers_over_enet_and_falls_back_to_the_relay() {
             }),
             ..Default::default()
         },
-        Arc::new(NoRelay),
         hooks(&recorded),
     );
     publisher.activity_sender().send(ActivityEvent::narration("hello from the device"));
@@ -365,14 +343,7 @@ async fn the_desktop_viewer_steers_over_enet_and_falls_back_to_the_relay() {
         node: Some(Arc::clone(&v)),
         endpoints: vec![enet::endpoint_hex(&v.endpoint_id()), enet::endpoint_hex(&d.endpoint_id())],
     };
-    let handle = steer::spawn_viewer_over(
-        runtime,
-        Arc::new(NoViewerRelay),
-        Some(Arc::new(source)),
-        session_id.clone(),
-        events_tx,
-        steer::ViewerTimings::default(),
-    );
+    let handle = steer::spawn_viewer(runtime, Some(Arc::new(source)), session_id.clone(), events_tx);
     let mut seen = Vec::new();
     while !seen.iter().any(|event| matches!(event, ViewerEvent::Synced { .. })) {
         seen.push(next_event(&events).await);
@@ -401,23 +372,170 @@ async fn the_desktop_viewer_steers_over_enet_and_falls_back_to_the_relay() {
         }
     }
 
-    // No endpoint: the relay path (here disabled, so `Unauthorized`).
+    // VAPP-43 NO FEED (no endpoint): a live row waits in `Starting`…
     let (events_tx, events) = flume::unbounded();
-    let _fallback = steer::spawn_viewer_over(
+    let nowhere = steer::spawn_viewer(
         runtime,
-        Arc::new(NoViewerRelay),
         Some(Arc::new(Source { node: Some(Arc::clone(&v)), endpoints: Vec::new() })),
         "sess-nowhere".into(),
         events_tx,
-        steer::ViewerTimings::default(),
     );
     loop {
-        if let ViewerEvent::Phase(ViewerPhase::Unauthorized { .. }) = next_event(&events).await {
+        if let ViewerEvent::Phase(ViewerPhase::Starting) = next_event(&events).await {
+            break;
+        }
+    }
+    // …and an ended one says its device is offline (no relay fallback).
+    nowhere.note_session_ended();
+    nowhere.kick();
+    loop {
+        if let ViewerEvent::Phase(ViewerPhase::Ended { outcome }) = next_event(&events).await {
+            assert_eq!(outcome.as_deref(), Some(steer::viewer::DEVICE_OFFLINE));
+            break;
+        }
+    }
+    // No node at all: the same.
+    let (events_tx, events) = flume::unbounded();
+    let offline = steer::spawn_viewer(runtime, None, "sess-no-node".into(), events_tx);
+    offline.note_session_ended();
+    loop {
+        if let ViewerEvent::Phase(ViewerPhase::Ended { outcome }) = next_event(&events).await {
+            assert_eq!(outcome.as_deref(), Some(steer::viewer::DEVICE_OFFLINE));
             break;
         }
     }
 
     device.stop();
     viewer.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The device's synced rows for STORED REPLAY: one session, ended or not.
+fn stored(dir: &std::path::Path, session_id: &str, starter: &str, ended: Arc<std::sync::atomic::AtomicBool>) -> enet_steer::StoredJournals {
+    let id = session_id.to_string();
+    let starter = starter.to_string();
+    enet_steer::StoredJournals {
+        data_dir: dir.to_path_buf(),
+        session: Arc::new(move |session_id| {
+            (session_id == id).then(|| enet_steer::StoredSession {
+                audience: coding::SteerAudience { team_id: "team-1".into(), starter_user_id: starter.clone(), shared: false },
+                ended: ended.load(std::sync::atomic::Ordering::SeqCst),
+            })
+        }),
+    }
+}
+
+/// VAPP-43 STORED REPLAY: a join for a session with no live run here is
+/// answered off the journal file — an ended row with `bye history`, an idle
+/// one by staying joined (pages off the file) until the run comes back and
+/// takes the viewer over; a session with a row but no file (or a file but no
+/// row) is `no_such_session`, and a teammate is refused a private one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stored_journal_is_replayed_over_enet() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let dir = std::env::temp_dir().join(format!("enet-steer-stored-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = Arc::new(Registry::default());
+    let device = start(&registry, &dir, "dana", InstallKind::Daemon);
+    let viewer = start(&registry, &dir, "dana", InstallKind::Desktop);
+    let teammate = start(&registry, &dir, "erin", InstallKind::Desktop);
+    for install in [&device, &viewer, &teammate] {
+        tokio::time::timeout(WAIT, install.passes_at_least(1)).await.unwrap();
+    }
+    for install in [&device, &viewer, &teammate] {
+        install.refresh();
+        tokio::time::timeout(WAIT, install.passes_at_least(2)).await.unwrap();
+    }
+    let d = device.node().unwrap();
+    let v = viewer.node().unwrap();
+    let t = teammate.node().unwrap();
+    for (a, b) in [(&d, &v), (&d, &t)] {
+        a.add_ticket(&b.ticket());
+        b.add_ticket(&a.ticket());
+    }
+
+    let session_id = format!("sess-stored-{}", std::process::id());
+    let journals = dir.join("data");
+    let mut writer = steer::JournalWriter::open(&journals, &session_id).unwrap();
+    for i in 0..3 {
+        writer.append(&ActivityEvent::narration(format!("row {i}")));
+    }
+    writer.append(&ActivityEvent::diff("state"));
+    drop(writer);
+    let ended = Arc::new(AtomicBool::new(true));
+    device.serve_stored(stored(&journals, &session_id, "dana", Arc::clone(&ended)));
+    let join = vec![r#"{"t":"join","channel":"activity"}"#.to_string()];
+
+    // An ENDED row: the whole file, synced, then `bye history`.
+    let sub = enet_steer::subscribe(&session_id, d.endpoint_id());
+    enet_steer::send_envelope(&v, d.endpoint_id(), &session_id, &join).await.expect("join acked");
+    assert_eq!(next_real(&sub.frames).await["t"], "activity_reset");
+    for i in 0..3 {
+        let row = next_real(&sub.frames).await;
+        assert_eq!((row["seq"].as_u64(), row["event"]["text"].as_str()), (Some(i), Some(format!("row {i}").as_str())));
+    }
+    assert_eq!(next_real(&sub.frames).await["event"]["kind"], "diff");
+    assert_eq!(next_real(&sub.frames).await, serde_json::json!({"t": "activity_synced", "firstSeq": 0, "lastSeq": 2}));
+    assert_eq!(next_real(&sub.frames).await, serde_json::json!({"t": "bye", "outcome": "history"}));
+
+    // A teammate is refused a private session's journal too.
+    let refused = enet_steer::subscribe(&session_id, d.endpoint_id());
+    drop(sub);
+    enet_steer::send_envelope(&t, d.endpoint_id(), &session_id, &join).await.expect("acked");
+    assert_eq!(next_real(&refused.frames).await, serde_json::json!({"t": "error", "code": "unauthorized"}));
+    drop(refused);
+
+    // No file for a session = no_such_session.
+    let missing = enet_steer::subscribe("sess-no-file", d.endpoint_id());
+    enet_steer::send_envelope(&v, d.endpoint_id(), "sess-no-file", &join).await.expect("acked");
+    assert_eq!(next_real(&missing.frames).await, serde_json::json!({"t": "error", "code": "no_such_session"}));
+    drop(missing);
+
+    // An IDLE row: the replay, no `bye`; a page comes off the file.
+    ended.store(false, Ordering::SeqCst);
+    let sub = enet_steer::subscribe(&session_id, d.endpoint_id());
+    enet_steer::send_envelope(&v, d.endpoint_id(), &session_id, &join).await.expect("join acked");
+    loop {
+        if next_real(&sub.frames).await["t"] == "activity_synced" {
+            break;
+        }
+    }
+    wait_until(|| enet_steer::has_stored_viewer(&session_id, &v.endpoint_id())).await;
+    let page = vec![r#"{"t":"history_page","requestId":"p1","beforeSeq":2,"limit":1}"#.to_string()];
+    enet_steer::send_envelope(&v, d.endpoint_id(), &session_id, &page).await.expect("page acked");
+    let chunk = next_real(&sub.frames).await;
+    assert_eq!(chunk["t"], "history_chunk");
+    assert_eq!(chunk["requestId"], "p1");
+    assert_eq!(chunk["seqs"], serde_json::json!([1]));
+
+    // The run comes back here: the stored viewer becomes a live join.
+    let runtime: &SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
+    let recorded = Arc::new(Recorded::default());
+    let handle = steer::publish(
+        runtime,
+        PublishSpec {
+            session_id: session_id.clone(),
+            journal_dir: Some(journals.clone()),
+            audience: Some(coding::SteerAudience {
+                team_id: "team-1".into(),
+                starter_user_id: "dana".into(),
+                shared: false,
+            }),
+            ..Default::default()
+        },
+        hooks(&recorded),
+    );
+    assert_eq!(next_real(&sub.frames).await["t"], "activity_reset");
+    assert_eq!(next_real(&sub.frames).await["t"], "activity_synced");
+    assert!(!enet_steer::has_stored_viewer(&session_id, &v.endpoint_id()));
+    handle.activity_sender().send(ActivityEvent::narration("back"));
+    let live = next_real(&sub.frames).await;
+    assert_eq!((live["seq"].as_u64(), live["event"]["text"].as_str()), (Some(4), Some("back")));
+    handle.shutdown(Some("exit:0".into()));
+
+    device.stop();
+    viewer.stop();
+    teammate.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }

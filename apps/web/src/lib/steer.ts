@@ -1,8 +1,11 @@
 // Steer relay helpers — the pure core of the `steer` tRPC router (masterplan
 // §3.5). Ticket-claim composition, relay URL derivation, and the
 // secret-authed server-to-server relay HTTP calls live here so they are
-// unit-testable without a DB or a live relay. The wire truth for everything
-// steer is apps/steer-relay/src/protocol.ts + the ticket format in
+// unit-testable without a DB or a live relay. VAPP-43: the relay is device
+// presence, control (check_in, kill, interrupt, compact routed down a
+// device's control socket) and eTalk calls; it carries no session content
+// (viewers read sessions over eNet from the device). The wire truth is
+// apps/steer-relay/src/protocol.ts + the ticket format in
 // packages/steer-ticket.
 
 import { signSteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
@@ -56,7 +59,7 @@ export function steerHttpBase(relayUrl: string): string {
 }
 
 // EXP-504: the http(s) base for the relay admin calls below (/devices,
-// /start, /kill, nudge). These are SERVER-to-server: deriving them from the
+// /kill, /interrupt, /compact, nudge). These are SERVER-to-server: deriving them from the
 // public STEER_RELAY_URL sends the web container out through public DNS and
 // back in through the reverse proxy, which half-breaks remote start on
 // consumer routers without hairpin NAT (phones and desktops connect fine,
@@ -77,39 +80,10 @@ export function steerTicketUrl(relayUrl: string, ticket: string): string {
 /** Connect window in seconds; the socket outlives it once established. */
 export const STEER_TICKET_TTL_SECONDS = 60
 
-// EXP-312: there is no view/steer perm distinction anymore — a live session
-// is visible and steerable ONLY by its owner (the account that started it),
-// enforced at mint time in the tRPC router. A ticket in hand IS full access
-// to its session; the old `perm` claim is gone from the wire (every client
-// floor is past the pre-EXP-312 builds).
-// EXP-710: a control seed is the account and nothing else — the `deviceLabel`
-// claim went with the presence metadata the relay stopped reading (EXP-672).
+// EXP-710: a control seed is the account and nothing else. VAPP-43: the
+// `publisher` and `viewer` seeds are gone with the relay's session rooms.
 export type SteerTicketSeed =
   | { kind: `control`; userId: string }
-  | {
-      kind: `publisher`
-      userId: string
-      teamId: string
-      sessionId: string
-    }
-  | {
-      kind: `viewer`
-      userId: string
-      teamId: string
-      sessionId: string
-      /** EXP-773: the machine that ran the session
-       * (`sessions.device_id`). Riding the ticket is what lets the
-       * relay ask that device for the transcript when the room is not up —
-       * the transcript never leaves the device. Absent on rows that named no
-       * device. */
-      deviceId?: string
-      /** EXP-432: the account that device is registered under (the run's host
-       * for a shared-device run). Omitted = the ticket's own user. */
-      deviceOwnerId?: string
-      /** #EXP-1405: the row is still alive (idle): its replay is no ending
-       *  (`SteerTicketClaims.live`). Only with `deviceId`. */
-      live?: boolean
-    }
   // NEW-55: a voice call. The CALLER (a phone or web client streaming its
   // audio) names the call, the agent and the member's voice device; the relay
   // rings that device under the member (`deviceOwnerId`). The HOST (the voice
@@ -123,23 +97,6 @@ export type SteerTicketSeed =
       deviceId: string
     }
   | { kind: `call_host`; userId: string; callId: string; deviceId: string }
-
-/** The device claims of a VIEWER ticket: which machine the relay may ask
- *  for the stored transcript when no room is up. EXP-773: an ENDED session
- *  names its device. #EXP-1405: so does an IDLE one (started, not busy, not
- *  ended: its run went away between turns), marked `live` so the relay never
- *  answers its viewers with an ending; that is how web, desktop, iOS and
- *  Android all show the transcript of an idle session they did not run. A
- *  queued row (no journal yet) and a busy one (its publisher is the room)
- *  keep the plain `no_such_session` answer. */
-export function viewerHistoryClaims(
-  session: { status: string; busy: boolean; startedAt: Date | string | null; deviceId: string },
-  deviceOwnerId: string
-): { deviceId?: string; deviceOwnerId?: string; live?: boolean } {
-  if (session.status === `ended`) return { deviceId: session.deviceId, deviceOwnerId }
-  if (session.status === `queued` || session.busy || !session.startedAt) return {}
-  return { deviceId: session.deviceId, deviceOwnerId, live: true }
-}
 
 export function buildSteerTicketClaims(
   seed: SteerTicketSeed,
@@ -158,31 +115,6 @@ export function buildSteerTicketClaims(
         ...base,
         team: ``,
         role: `control`,
-      }
-    case `publisher`:
-      return {
-        ...base,
-        team: seed.teamId,
-        sessionId: seed.sessionId,
-        role: `publisher`,
-      }
-    case `viewer`:
-      return {
-        ...base,
-        team: seed.teamId,
-        sessionId: seed.sessionId,
-        role: `viewer`,
-        // EXP-773: only when the row named a device — an undefined key would
-        // widen the ticket's JSON for nothing. The owner claim rides along
-        // with it (EXP-432: presence is indexed by device owner) and only
-        // when it differs from the ticket's own user.
-        ...(seed.deviceId ? { deviceId: seed.deviceId } : {}),
-        ...(seed.deviceId &&
-        seed.deviceOwnerId &&
-        seed.deviceOwnerId !== seed.userId
-          ? { deviceOwnerId: seed.deviceOwnerId }
-          : {}),
-        ...(seed.deviceId && seed.live ? { live: true } : {}),
       }
     case `caller`:
       return {
@@ -236,6 +168,14 @@ export type RelayFetch = (
   }
 ) => Promise<RelayResponse>
 
+/** VAPP-43: the device a session control call is routed to — the account
+ * the device is registered under (the session's host) and its steer
+ * deviceId. The relay sends the frame down that device's control socket. */
+export interface RelayDevice {
+  userId: string
+  deviceId: string
+}
+
 /**
  * How long a kill fan-out may hang before we give up on it. The PR-merge path
  * (`applyPrMergeState`) awaits this fan-out post-commit inside the GitHub
@@ -246,13 +186,15 @@ export type RelayFetch = (
 const RELAY_KILL_TIMEOUT_MS = 3_000
 
 /**
- * POST /sessions/:id/kill — best-effort kill-switch fan-out. Never throws: the
- * relay is additive, never load-bearing; the DB row flip (which the desktop
- * watches over Electric) is the durable abort path.
+ * POST /sessions/:id/kill `{userId, deviceId}` — best-effort kill-switch
+ * down the session device's control socket. Never throws: the relay is
+ * additive, never load-bearing; the DB row flip (which the desktop watches
+ * over Electric) is the durable abort path.
  */
 export async function relayPostKill(
   config: SteerRelayConfig,
   sessionId: string,
+  device: RelayDevice,
   fetchImpl: RelayFetch = globalThis.fetch
 ): Promise<{ delivered: boolean }> {
   try {
@@ -260,7 +202,11 @@ export async function relayPostKill(
       `${steerServerHttpBase(config)}/sessions/${encodeURIComponent(sessionId)}/kill`,
       {
         method: `POST`,
-        headers: { "x-relay-secret": config.secret },
+        headers: {
+          "content-type": `application/json`,
+          "x-relay-secret": config.secret,
+        },
+        body: JSON.stringify({ userId: device.userId, deviceId: device.deviceId }),
         signal: AbortSignal.timeout(RELAY_KILL_TIMEOUT_MS),
       }
     )
@@ -277,14 +223,15 @@ export async function relayPostKill(
 const RELAY_INTERRUPT_TIMEOUT_MS = 3_000
 
 /**
- * POST /sessions/:id/interrupt — EXP-1291 Stop: interrupt the running TURN
- * (the relay forwards its `interrupt` frame to the publisher; the session
- * stays live). Best-effort and never throws; a relay without the route 404s
- * and reads as not-delivered.
+ * POST /sessions/:id/interrupt `{userId, deviceId}` — EXP-1291 Stop:
+ * interrupt the running TURN (the relay sends `interrupt {sessionId}` down
+ * the device's control socket; the session stays live). Best-effort and
+ * never throws; a relay without the route 404s and reads as not-delivered.
  */
 export async function relayPostInterrupt(
   config: SteerRelayConfig,
   sessionId: string,
+  device: RelayDevice,
   fetchImpl: RelayFetch = globalThis.fetch
 ): Promise<{ delivered: boolean }> {
   try {
@@ -292,45 +239,12 @@ export async function relayPostInterrupt(
       `${steerServerHttpBase(config)}/sessions/${encodeURIComponent(sessionId)}/interrupt`,
       {
         method: `POST`,
-        headers: { "x-relay-secret": config.secret },
-        signal: AbortSignal.timeout(RELAY_INTERRUPT_TIMEOUT_MS),
-      }
-    )
-    if (!res.ok) return { delivered: false }
-    const json = (await res.json().catch(() => null)) as {
-      delivered?: boolean
-    } | null
-    return { delivered: json?.delivered === true }
-  } catch {
-    return { delivered: false }
-  }
-}
-
-const RELAY_INPUT_TIMEOUT_MS = 3_000
-
-/**
- * POST /sessions/:id/input — inject text as user input into a live session's
- * agent (EXP-700 parent↔child messages). Best-effort and never throws; an old
- * relay 404s and reads as not-delivered, so callers must degrade with
- * guidance instead of assuming the message landed.
- */
-export async function relayPostInput(
-  config: SteerRelayConfig,
-  sessionId: string,
-  text: string,
-  fetchImpl: RelayFetch = globalThis.fetch
-): Promise<{ delivered: boolean }> {
-  try {
-    const res = await fetchImpl(
-      `${steerServerHttpBase(config)}/sessions/${encodeURIComponent(sessionId)}/input`,
-      {
-        method: `POST`,
         headers: {
           "content-type": `application/json`,
           "x-relay-secret": config.secret,
         },
-        body: JSON.stringify({ text }),
-        signal: AbortSignal.timeout(RELAY_INPUT_TIMEOUT_MS),
+        body: JSON.stringify({ userId: device.userId, deviceId: device.deviceId }),
+        signal: AbortSignal.timeout(RELAY_INTERRUPT_TIMEOUT_MS),
       }
     )
     if (!res.ok) return { delivered: false }
@@ -351,12 +265,13 @@ export async function relayPostInput(
 const RELAY_COMPACT_TIMEOUT_MS = 6_000
 
 /** EXP-936: what the relay answers `POST /sessions/:id/compact` with, as the
- * handler consumes it. `delivered: false` = the run has no live publisher,
- * the host never answered (older than the frame), or another ask is still
- * waiting — a tool ERROR on the web side, never a verdict; the four refusal
- * codes are the handler's own (`sessionsCompactRefusals`). */
+ * handler consumes it. `delivered: false` = the session's device is not
+ * connected (`device_offline`), the host never answered (older than the
+ * frame), or another ask is still waiting — a tool ERROR on the web side,
+ * never a verdict; the four refusal codes are the handler's own
+ * (`sessionsCompactRefusals`). */
 export type RelayCompactOutcome =
-  | { delivered: false; reason: `no_publisher` | `no_verdict` | `busy` | `relay_error` }
+  | { delivered: false; reason: `device_offline` | `no_verdict` | `busy` | `relay_error` }
   | {
       delivered: true
       accepted: boolean
@@ -364,14 +279,16 @@ export type RelayCompactOutcome =
     }
 
 /**
- * POST /sessions/:id/compact — relay the run's own `exponential_sessions_compact`
- * to its publisher and wait for the host's verdict (EXP-936). Never throws;
- * an old relay's 404 and a hung one both read as not-delivered with a
- * reason the handler can name.
+ * POST /sessions/:id/compact `{userId, deviceId, keep?}` — relay the run's
+ * own `exponential_sessions_compact` down its device's control socket and
+ * wait for the host's verdict (EXP-936). Never throws; an old relay's 404
+ * and a hung one both read as not-delivered with a reason the handler can
+ * name.
  */
 export async function relayPostCompact(
   config: SteerRelayConfig,
   sessionId: string,
+  device: RelayDevice,
   keep: string | undefined,
   fetchImpl: RelayFetch = globalThis.fetch
 ): Promise<RelayCompactOutcome> {
@@ -384,7 +301,11 @@ export async function relayPostCompact(
           "content-type": `application/json`,
           "x-relay-secret": config.secret,
         },
-        body: JSON.stringify(keep === undefined ? {} : { keep }),
+        body: JSON.stringify({
+          userId: device.userId,
+          deviceId: device.deviceId,
+          ...(keep === undefined ? {} : { keep }),
+        }),
         signal: AbortSignal.timeout(RELAY_COMPACT_TIMEOUT_MS),
       }
     )
@@ -397,7 +318,7 @@ export async function relayPostCompact(
       return {
         delivered: false,
         reason:
-          reason === `no_publisher` || reason === `no_verdict` || reason === `busy`
+          reason === `device_offline` || reason === `no_verdict` || reason === `busy`
             ? reason
             : `relay_error`,
       }

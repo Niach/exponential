@@ -2,45 +2,10 @@ import XCTest
 
 @testable import ExpCore
 
-// EXP-621: the close-code rule behind the viewer's redial. The codes are the
-// relay's (apps/steer-relay/src/protocol.ts) — a slow-consumer eviction is a
-// hiccup the viewer redials through silently, an unauthorized close is
-// permanent, and everything else keeps the pre-EXP-621 backoff behavior.
+// EXP-625: the viewer's revival rule, and the protocol words never shown as a
+// caption. (The EXP-621 relay close-code rule left with the relay viewer,
+// VAPP-43.)
 final class SteerReconnectPolicyTests: XCTestCase {
-
-    func testSlowConsumerRedialsImmediately() {
-        XCTAssertEqual(
-            SteerReconnectPolicy.decide(closeCode: 4008, sessionOver: false),
-            .redialImmediately
-        )
-    }
-
-    func testUnauthorizedIsTerminal() {
-        XCTAssertEqual(
-            SteerReconnectPolicy.decide(closeCode: 4003, sessionOver: false),
-            .terminalClosed
-        )
-    }
-
-    func testUnknownCodesKeepTheBackoffPath() {
-        for code in [nil, 0, 1000, 1006, 4001, 4002, 4009] as [Int?] {
-            XCTAssertEqual(
-                SteerReconnectPolicy.decide(closeCode: code, sessionOver: false),
-                .reconnectWithBackoff,
-                "close code \(String(describing: code))"
-            )
-        }
-    }
-
-    func testAnEndedSessionOutranksEveryCode() {
-        for code in [nil, 4003, 4008, 1006] as [Int?] {
-            XCTAssertEqual(
-                SteerReconnectPolicy.decide(closeCode: code, sessionOver: true),
-                .ended,
-                "close code \(String(describing: code))"
-            )
-        }
-    }
 
     // EXP-625: the revival rule behind every wake signal (foreground, screen
     // attach, network return). What matters is whether a dial is actually
@@ -152,12 +117,7 @@ final class SteerReconnectPolicyTests: XCTestCase {
         }
     }
 
-    func testCodesMatchTheRelayConstants() {
-        XCTAssertEqual(SteerCloseCode.unauthorized, 4003)
-        XCTAssertEqual(SteerCloseCode.slowConsumer, 4008)
-    }
-
-    // EXP-773: viewing an ended run ends with the relay's journal republish
+    // EXP-773: viewing an ended run ends with the device's stored replay
     // saying `bye {outcome:"history"}` — which the banner used to print
     // verbatim, so it read "history".
     func testProtocolOutcomesCarryNoCaption() {

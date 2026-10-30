@@ -32,8 +32,9 @@ import kotlinx.serialization.json.put
 // (packages/domain-contract/fixtures/steer-enet.json is the spec). One chat
 // message = one envelope {t:"exp-steer", v:1, sessionId, frames} carrying the
 // relay's own wire frames unchanged, so [SteerConnection] reads an eNet feed
-// exactly like a relay socket: [EnetSteerSocket] is a [SteerSocket]. The relay
-// stays the fallback (until VAPP-43) whenever [EnetSteerDialer] says null.
+// exactly like the relay socket it replaced: [EnetSteerSocket] is a
+// [SteerSocket]. VAPP-43: the relay carries no session content, so when
+// [EnetSteerDialer] says null there is NO FEED and no fallback.
 
 private const val TAG = "SteerEnet"
 
@@ -165,12 +166,20 @@ internal class EnetSteerSocket(
             if (text.isEmpty()) return EnetJoin.Refused
             val frame = Json.parseToJsonElement(text).jsonObject
             when (frameTag(frame)) {
-                "error" -> return if ((frame["code"] as? JsonPrimitive)?.contentOrNull == "no_such_session") {
-                    EnetJoin.NoSuchSession
-                } else {
-                    EnetJoin.Refused
+                // Ended here, not only in the collector: it may not have run
+                // yet, and [cancel] must not send `leave` to a refusal.
+                "error" -> {
+                    end("error")
+                    return if ((frame["code"] as? JsonPrimitive)?.contentOrNull == "no_such_session") {
+                        EnetJoin.NoSuchSession
+                    } else {
+                        EnetJoin.Refused
+                    }
                 }
-                "bye" -> return EnetJoin.Refused
+                "bye" -> {
+                    end("bye")
+                    return EnetJoin.Refused
+                }
                 "activity_synced" -> {
                     held += text
                     held.forEach { texts.trySend(it) }
@@ -215,7 +224,7 @@ internal class EnetSteerSocket(
         try {
             sendFrames(listOf(frame))
         } catch (err: Throwable) {
-            // A send that failed drops this feed: the loop redials (relay included).
+            // A send that failed drops this feed: the loop redials.
             if (err !is CancellationException) end("send failed")
             throw err
         }
@@ -255,16 +264,15 @@ internal class EnetSteerSocket(
         }
     }
 
-    override suspend fun closeCode(): Int? = null
-
     override suspend fun closeReason(): String? = reason
 }
 
 /**
  * The transport choice (the fixture's DISCOVERY): `installs.forSession`, then
  * a join to each endpoint in order, the next on `no_such_session` (or a
- * refusal). Null = the steer relay: no node, no endpoint, every endpoint
- * refused, or no `activity_synced` within joinTimeoutMs.
+ * refusal). Null = NO FEED (VAPP-43, no relay fallback): no node, no
+ * endpoint, every endpoint refused, or no `activity_synced` within
+ * joinTimeoutMs.
  */
 internal class EnetSteerDialer(
     private val node: () -> PeerNode?,

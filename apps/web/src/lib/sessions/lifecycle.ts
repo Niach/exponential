@@ -12,7 +12,7 @@ import { busReport, closeAskMirrorsOf, forgetWatched, type ListenerCopy } from "
 import { validSealedCard } from "@/lib/sessions/sealed"
 import { postAgentMessage, postMovedMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
-import { hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
+import { hostedByCondition, hostRowCondition, resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
 import { contract } from "@exp/domain-contract"
 import { yoloEdge } from "@/lib/yolo-edge"
@@ -25,14 +25,32 @@ import { yoloEdge } from "@/lib/yolo-edge"
 // before its row ends; a child's End ends only its subtree. Stop
 // interrupts the running TURN and leaves the session live. The DB row is
 // the durable signal (the device watches its sessions over Electric); the
-// relay frames only kill latency. What stalls is the watchdog's business.
+// relay frames (down the device's control socket) only kill latency. What
+// stalls is the watchdog's business.
 
-/** Best-effort relay kills for rows already flipped to ended. */
+/** Best-effort relay kills for rows already flipped to ended: each goes
+ *  down the control socket of the session's device, under its host account
+ *  (`sessionDeviceOwner`: the host row, else the starter), resolved for
+ *  every id in ONE query. A row naming no device is skipped. */
 export async function relayKillSessionsBestEffort(sessionIds: string[]): Promise<void> {
   if (sessionIds.length === 0) return
   const config = getSteerRelayConfig()
   if (!config) return
-  await Promise.all(sessionIds.map((id) => relayPostKill(config, id)))
+  const rows = await db
+    .select({
+      id: sessions.id,
+      deviceId: sessions.deviceId,
+      hostUserId: sql<string>`COALESCE((SELECT h.user_id FROM ${devices} h WHERE ${hostRowCondition(`h`)} LIMIT 1), ${sessions.userId})`,
+    })
+    .from(sessions)
+    .where(inArray(sessions.id, sessionIds))
+  await Promise.all(
+    rows
+      .filter((row) => row.deviceId)
+      .map((row) =>
+        relayPostKill(config, row.id, { userId: row.hostUserId, deviceId: row.deviceId })
+      )
+  )
 }
 
 type TreeRow = Pick<Session, `id` | `parentId` | `depth` | `agentId`>
@@ -204,7 +222,11 @@ export async function stopSession(args: {
   if (session.status === `queued` || session.status === `ended` || ghost) return { txid, delivered: true }
   const config = getSteerRelayConfig()
   if (!config) return { txid, delivered: !session.busy }
-  const { delivered } = await relayPostInterrupt(config, session.id)
+  if (!session.deviceId) return { txid, delivered: !session.busy }
+  const { delivered } = await relayPostInterrupt(config, session.id, {
+    userId: await sessionDeviceOwner(session),
+    deviceId: session.deviceId,
+  })
   return { txid, delivered: delivered || !session.busy }
 }
 

@@ -1,65 +1,47 @@
 //! The per-coding-session publisher (masterplan-v3 §8.4–§8.7, steering v2 =
-//! EXP-249): publish the scrubbed activity stream, replay the session's full
-//! journal on every (re)connect, inject remote `input` and semantic `answer`
-//! frames, honor kill, and auto-reconnect resuming the room.
+//! EXP-249): record the scrubbed activity stream (the in-memory journal and
+//! the EXP-773 journal file), serve it to eNet viewers (`enet_steer.rs`),
+//! inject their `input` and semantic `answer` frames, and honor kill.
 //!
-//! EXP-249 removed the binary PTY mirror it used to carry (no client ever
-//! joined `channel:'pty'`): there is no read-loop tee, no ring, no `resync`
-//! and no geometry here anymore. What remains on the socket is TEXT only.
+//! VAPP-43: the steer relay carries no session content any more — the
+//! publisher never dials it. Viewers reach the run over eNet only; the
+//! relay's session-scoped control commands (`kill`, `interrupt`,
+//! `compact_request`) arrive on the device's CONTROL socket and are routed
+//! here by session id ([`control`]).
 //!
-//! **Best-effort and non-blocking** (§8.4): if the relay is disabled or
-//! unreachable the coding session runs fine locally — the publisher never
-//! gates the terminal. Control frames and activity events ride ONE unbounded
-//! channel that is never dropped or reordered. Remote `input` frames ride a
-//! second ordered channel to a dedicated task (EXP-514), so their
-//! choreography — sleeps, EXP-511 image downloads — never stalls the pump
-//! loop's ping tick past the relay's idle-publisher timeout.
+//! **Best-effort and non-blocking** (§8.4): the coding session runs fine
+//! with no viewer at all — the publisher never gates the agent. Control
+//! commands and activity events ride ONE unbounded channel that is never
+//! dropped or reordered. Remote `input` frames ride a second ordered channel
+//! to a dedicated task (EXP-514), so their choreography — sleeps, EXP-511
+//! image downloads — never stalls the loop.
 //!
-//! Steering is seamless and owner-only (EXP-312): there is no operator claim
-//! and no perm tier, viewer tickets are minted only for the session owner,
-//! and the LOCAL user is never gated — their keystrokes go straight to the
-//! PTY while the relay forwards the joined viewer's input.
+//! Steering is seamless (EXP-312): there is no operator claim and no perm
+//! tier, and the LOCAL user is never gated.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use api::error::ApiError;
-use api::steer::MintedTicket;
 use api::trpc::TrpcClient;
-use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
-use tokio_tungstenite::tungstenite::Message;
 
 use crate::activity::{
     AnswerLink, CommandLink, ConfigChange, ConfigLink, RemoteAnswer, SessionAgent,
 };
 use crate::commands::parse_command;
-use crate::frames::{
-    ActivityEvent, ClientFrame, CompactRefusal, CompactVerdict, ServerFrame, CLOSE_REPLACED,
-    CLOSE_UNAUTHORIZED,
-};
+use crate::frames::{ActivityEvent, CompactRefusal, CompactVerdict, ServerFrame};
 use crate::history::JournalWriter;
 use crate::journal::ActivityJournal;
-use crate::{dial, Backoff, DialError, SteerRuntime, WsStream, BACKOFF_RESET_AFTER};
-
-/// The relay's WebSocket `maxPayloadLength` (bytes). A text frame at or past
-/// this makes the relay sever the connection — killing the whole activity
-/// stream — so oversize activity frames are dropped client-side instead.
-pub(crate) const RELAY_MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
-
-/// §8.7: surfaced after two consecutive fresh-ticket 401s (never silently
-/// retry a skewed clock — the native failure mode this fixes).
-const CLOCK_SKEW_ERROR: &str = "Steer relay rejected the connection (ticket expired on \
-     arrival) — check that this machine's clock is in sync (NTP).";
+use crate::SteerRuntime;
 
 // ---------------------------------------------------------------------------
-// Spec, hooks, tickets
+// Spec, hooks
 // ---------------------------------------------------------------------------
 
-/// What to publish (§8.4 handshake): the `sessions` row id (EXP-1292) keys
-/// the relay room; the issue id rides along for the phone's session list.
+/// What to publish: the `sessions` row id (EXP-1292) keys the eNet room and
+/// the journal file.
 #[derive(Clone, Debug, Default)]
 pub struct PublishSpec {
     pub session_id: String,
@@ -68,7 +50,7 @@ pub struct PublishSpec {
     /// this session's DURABLE transcript ([`crate::history`]). Every event
     /// this publisher sends is appended there, so the run can be replayed
     /// from disk long after the process is gone. `None` = don't record (the
-    /// examples and the relay integration tests).
+    /// examples and the tests).
     pub journal_dir: Option<PathBuf>,
     /// EXP-825: the session's image-embed restore map, SHARED with the
     /// engine — a start prompt's images are localized before the publisher
@@ -81,40 +63,17 @@ pub struct PublishSpec {
     pub audience: Option<coding::SteerAudience>,
 }
 
-/// Publisher-ticket source, injectable for tests. Blocking (reqwest) — the loop
-/// wraps calls in `spawn_blocking`. `Ok(None)` = instance reports disabled ⇒
-/// skip publishing entirely (§8.4 #1).
-pub trait PublisherTickets: Send + Sync + 'static {
-    fn mint(&self) -> Result<Option<MintedTicket>, ApiError>;
-}
-
-/// Production tickets over the account's tRPC client:
-/// `steer.mintTicket({kind:"publisher", sessionId})` — EXP-1292: keyed by
-/// the `sessions` row id.
-pub struct TrpcPublisherTickets {
-    pub trpc: Arc<TrpcClient>,
-    pub session_id: String,
-}
-
-impl PublisherTickets for TrpcPublisherTickets {
-    fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-        Ok(api::steer::mint_publisher_ticket(&self.trpc, &self.session_id)?.into_ticket())
-    }
-}
-
 /// Why the publisher asked the coding flow to tear the session down.
 ///
-/// EXP-283: an explicit relay `kill` frame is the ONLY relay signal that may
-/// end the local session. A relay-initiated socket CLOSE — whatever its code —
-/// is transport-level and must never kill live local work: the relay's
-/// idle-publisher detector closes quiet sockets with `CLOSE_SESSION_ENDED`
-/// (a laptop sleeping >90s reads that close on wake), and treating it as a
-/// kill was tearing down live agents mid-session. Real session ends always
-/// also flip the synced `sessions` row to `ended`, which the pickup pass's
-/// `Kill` action handles durably (EXP-1292).
+/// EXP-283: an explicit `kill` (a viewer's over eNet, or VAPP-43 the
+/// relay's down the control socket) is the ONLY remote signal that may end
+/// the local session. Real session ends always also flip the synced
+/// `sessions` row to `ended`, which the pickup pass's `Kill` action handles
+/// durably (EXP-1292).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KillSignal {
-    /// A relay `kill` frame (steer.killSession fan-out / a steerer's kill).
+    /// A `kill` frame (steer.killSession via the control socket / a
+    /// steerer's kill over eNet).
     RemoteKill,
 }
 
@@ -139,11 +98,9 @@ pub struct PublisherHooks {
     /// `\r`, an `\x1b` interrupt). EXP-773: the engine's
     /// `line_buffered_input` is the only implementation left.
     pub write_input: InputHook,
-    /// Relay-initiated teardown: kill the agent child; the exit hook then
-    /// reports the `sessions` row's terminal status (idempotent server-side).
+    /// Remote teardown: kill the agent child; the exit hook then reports the
+    /// `sessions` row's terminal status (idempotent server-side).
     pub kill: Arc<dyn Fn(KillSignal) + Send + Sync>,
-    /// Terminal-state errors worth surfacing (clock skew, repeated rejects).
-    pub error: Arc<dyn Fn(String) + Send + Sync>,
     /// EXP-249: semantic `answer` frames → the ACP engine, which owns the
     /// live question state. `None` makes `answer` a no-op.
     pub answers: Option<Arc<AnswerLink>>,
@@ -180,14 +137,15 @@ pub struct PublisherHooks {
     /// documented no-op.
     pub unqueue: Option<Arc<dyn Fn(String) + Send + Sync>>,
     /// EXP-936: the run's OWN `exponential_sessions_compact`, relayed as a
-    /// `compact_request`. The hook DECIDES (it holds the context meter, the
-    /// turns since the last compaction and the open-fold state) and, when it
-    /// accepts, arranges the agent's `/compact <keep>` at the next turn
-    /// boundary; the publisher only answers the relay with the verdict, which
-    /// is the web server's awaiting tool result. Synchronous and cheap by
-    /// contract: the relay times the ask out after 4s. `None` (tests, a run
-    /// with no engine) refuses as `unsupported_agent` rather than leaving the
-    /// relay to time out.
+    /// `compact_request` down the control socket (VAPP-43). The hook DECIDES
+    /// (it holds the context meter, the turns since the last compaction and
+    /// the open-fold state) and, when it accepts, arranges the agent's
+    /// `/compact <keep>` at the next turn boundary; the publisher only hands
+    /// the verdict back up the control socket, where it is the web server's
+    /// awaiting tool result. Synchronous and cheap by contract: the relay
+    /// times the ask out after 4s. `None` (tests, a run with no engine)
+    /// refuses as `unsupported_agent` rather than leaving the relay to time
+    /// out.
     pub compact: Option<CompactHook>,
 }
 
@@ -540,12 +498,12 @@ fn prepare_for_journal(event: &mut ActivityEvent, embeds: &ImageEmbedMap) {
 /// channel — never dropped, never reordered against each other).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PublisherCmd {
-    /// §P7: one PUBLIC activity event (already redacted) → `activity` text
-    /// frame. Rides the unbounded control channel like the others; low-rate
-    /// (per assistant turn / debounced diff), so it never backs up.
+    /// §P7: one PUBLIC activity event (already redacted): recorded, then fed
+    /// live to the eNet viewers. Low-rate (per assistant turn / debounced
+    /// diff), so it never backs up.
     Activity(ActivityEvent),
-    /// Clean end: send `bye {outcome}` and close (child exit, local stop,
-    /// kill-watch).
+    /// Clean end: `bye {outcome}` to the eNet viewers (child exit, local
+    /// stop, kill-watch).
     Shutdown { outcome: Option<String> },
     /// VAPP-33: an eNet viewer sent `join` (an allowed one: `enet_steer`
     /// checked the access rule): reset + replay + synced, then the live feed.
@@ -553,8 +511,56 @@ pub(crate) enum PublisherCmd {
     /// VAPP-33: an eNet viewer sent `leave`.
     EnetLeave(enet_core::EndpointId),
     /// VAPP-33: one client frame from an eNet viewer (JSON text, the relay's
-    /// shape), dispatched exactly like the relay's.
+    /// shape).
     EnetFrame { from: enet_core::EndpointId, frame: String },
+    /// VAPP-43: a session-scoped command the relay sent down the CONTROL
+    /// socket ([`control`]).
+    Control(ControlCmd),
+    /// Tests only: a raw viewer queue (no eNet node), joined like a viewer.
+    #[cfg(test)]
+    Tap(enet_core::EndpointId, TapTx),
+}
+
+/// Tests only: [`PublisherCmd::Tap`]'s queue.
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(crate) struct TapTx(pub flume::Sender<String>);
+
+#[cfg(test)]
+impl PartialEq for TapTx {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.same_channel(&other.0)
+    }
+}
+
+/// VAPP-43: what the relay may ask of a live run, down the device's CONTROL
+/// socket. Routed by session id to the run's publisher ([`control`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ControlCmd {
+    /// End the run (`steer.killSession`): exactly an eNet viewer's `kill`.
+    Kill,
+    /// Stop the running turn (`sessions.stop`): exactly a viewer's Stop.
+    Interrupt,
+    /// EXP-936: the run's own compaction ask. The verdict goes back through
+    /// `reply` (up the control socket the ask came on).
+    Compact { keep: Option<String>, reply: CompactReply },
+}
+
+/// VAPP-43: where a [`ControlCmd::Compact`] verdict goes (the control
+/// socket's outbound queue). Called once.
+#[derive(Clone)]
+pub struct CompactReply(pub Arc<dyn Fn(CompactVerdict) + Send + Sync>);
+
+impl std::fmt::Debug for CompactReply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CompactReply")
+    }
+}
+
+impl PartialEq for CompactReply {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 /// The coding-flow's handle onto a running publisher task.
@@ -568,7 +574,7 @@ pub struct PublisherHandle {
 /// emitter thread holds one and pushes already-redacted narration/tool/diff
 /// events; sending is fire-and-forget and never blocks the emitter (unbounded
 /// flume). Sending after the publisher has
-/// stopped is a harmless no-op (the pump drops the receiver).
+/// stopped is a harmless no-op (the loop drops the receiver).
 #[derive(Clone)]
 pub struct ActivitySender {
     cmd_tx: flume::Sender<PublisherCmd>,
@@ -599,9 +605,9 @@ impl PublisherHandle {
         }
     }
 
-    /// Clean end (§8.4 End): `bye {outcome}` + close(1000). Outcome format
-    /// per spec: `exit:<code>` from the child-exit hook, `killed` for a
-    /// kill-path teardown. Idempotent; stops any reconnect loop.
+    /// Clean end (§8.4 End): `bye {outcome}` to the eNet viewers. Outcome
+    /// format per spec: `exit:<code>` from the child-exit hook, `killed` for
+    /// a kill-path teardown. Idempotent.
     pub fn shutdown(&self, outcome: Option<String>) {
         self.running.store(false, Ordering::SeqCst);
         let _ = self.cmd_tx.send(PublisherCmd::Shutdown { outcome });
@@ -614,8 +620,7 @@ impl PublisherHandle {
         self.shutdown(Some("killed".to_string()));
     }
 
-    /// False once the publisher stopped for good (clean end, kill frame,
-    /// 4002 replaced, skew give-up).
+    /// False once the publisher stopped for good (clean end, kill).
     pub fn is_active(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
@@ -626,76 +631,77 @@ impl PublisherHandle {
 /// contract (the coding-flow seam):
 ///
 /// 1. `spawn_activity_emitter` with `handle.activity_sender()` — the events
-///    this task journals and republishes;
+///    this task journals and serves;
 /// 2. exit hook → `handle.shutdown(Some(format!("exit:{code}")))`;
 /// 3. the pickup pass's `Kill` action (the synced `sessions` row went
 ///    `ended`, EXP-1292) → `handle.session_ended()` (after killing the child).
-pub fn publish(
-    runtime: &SteerRuntime,
-    spec: PublishSpec,
-    tickets: Arc<dyn PublisherTickets>,
-    hooks: PublisherHooks,
-) -> PublisherHandle {
+pub fn publish(runtime: &SteerRuntime, spec: PublishSpec, hooks: PublisherHooks) -> PublisherHandle {
     let (cmd_tx, cmd_rx) = flume::unbounded();
     let running = Arc::new(AtomicBool::new(true));
     let handle = PublisherHandle {
         cmd_tx,
         running: running.clone(),
     };
-    let live = LivePublisher::claim(&spec.session_id);
+    let live = LivePublisher::claim(&spec.session_id, handle.cmd_tx.downgrade());
     let weak_tx = handle.cmd_tx.downgrade();
     runtime.handle().spawn(async move {
-        run_publisher_loop(spec, tickets, hooks, cmd_rx, weak_tx, running).await;
+        run_publisher_loop(spec, hooks, cmd_rx, weak_tx, running).await;
         drop(live);
     });
     handle
 }
 
-/// The sessions THIS PROCESS is publishing live, by id. Refcounted rather
-/// than a set: a second publisher for one id would otherwise have its
-/// teardown clear the entry the first one still needs.
-fn live_publishers() -> &'static Mutex<std::collections::HashMap<String, usize>> {
-    static LIVE: OnceLock<Mutex<std::collections::HashMap<String, usize>>> = OnceLock::new();
-    LIVE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+/// The sessions THIS PROCESS is publishing live, by id: the newest
+/// publisher's command channel (VAPP-43: where [`control`] routes) under a
+/// generation, so an older publisher's teardown never clears a newer one.
+fn live_publishers() -> &'static Mutex<HashMap<String, (u64, flume::WeakSender<PublisherCmd>)>> {
+    static LIVE: OnceLock<Mutex<HashMap<String, (u64, flume::WeakSender<PublisherCmd>)>>> = OnceLock::new();
+    LIVE.get_or_init(Default::default)
 }
+
+fn live_lock() -> std::sync::MutexGuard<'static, HashMap<String, (u64, flume::WeakSender<PublisherCmd>)>> {
+    live_publishers().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+static LIVE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// One live publisher's entry in [`live_publishers`], released on drop so
 /// every exit path of the task clears it — including a panic.
-struct LivePublisher(String);
+struct LivePublisher {
+    session_id: String,
+    generation: u64,
+}
 
 impl LivePublisher {
-    fn claim(session_id: &str) -> Self {
-        if let Ok(mut live) = live_publishers().lock() {
-            *live.entry(session_id.to_string()).or_insert(0) += 1;
-        }
-        Self(session_id.to_string())
+    fn claim(session_id: &str, cmd_tx: flume::WeakSender<PublisherCmd>) -> Self {
+        let generation = LIVE_GENERATION.fetch_add(1, Ordering::Relaxed);
+        live_lock().insert(session_id.to_string(), (generation, cmd_tx));
+        Self { session_id: session_id.to_string(), generation }
     }
 }
 
 impl Drop for LivePublisher {
     fn drop(&mut self) {
-        if let Ok(mut live) = live_publishers().lock() {
-            if let Some(count) = live.get_mut(&self.0) {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    live.remove(&self.0);
-                }
-            }
+        let mut live = live_lock();
+        if live.get(&self.session_id).is_some_and(|(generation, _)| *generation == self.generation) {
+            live.remove(&self.session_id);
         }
     }
 }
 
-/// Is this machine publishing that session RIGHT NOW? EXP-773: the relay
-/// replaces a room's publisher (`CLOSE_REPLACED`), which a live publisher
-/// treats as terminal, so a stored-transcript replay must never open a
-/// second publisher for a session still running here — the DB row can read
-/// `ended` while the run is alive (a `kill` frame lost in a reconnect gap),
-/// and the replay would then silence the real run for good.
+/// Is this process publishing that session RIGHT NOW?
 pub fn is_publishing(session_id: &str) -> bool {
-    match live_publishers().lock() {
-        Ok(live) => live.contains_key(session_id),
-        Err(_) => false,
-    }
+    live_lock().get(session_id).is_some_and(|(_, tx)| tx.upgrade().is_some())
+}
+
+/// VAPP-43: hand a control-socket command to the LIVE publisher of
+/// `session_id` on this process. `false` = no such run here (the caller
+/// ignores the command).
+pub fn control(session_id: &str, cmd: ControlCmd) -> bool {
+    let Some(tx) = live_lock().get(session_id).and_then(|(_, tx)| tx.upgrade()) else {
+        return false;
+    };
+    tx.send(PublisherCmd::Control(cmd)).is_ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -703,10 +709,10 @@ pub fn is_publishing(session_id: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// The session's transcript in BOTH places it lives: the in-memory replay
-/// journal (EXP-249, rebuilt on the wire after every reconnect) and the
-/// durable per-session file (EXP-773, read back long after the process is
-/// gone). One `push` keeps them in step, and the file is optional — a
-/// publisher without a `journal_dir` behaves exactly as it did before.
+/// journal (EXP-249, replayed to every joining viewer) and the durable
+/// per-session file (EXP-773, read back long after the process is gone). One
+/// `push` keeps them in step, and the file is optional — a publisher without
+/// a `journal_dir` keeps the memory journal alone.
 struct Recorder {
     journal: ActivityJournal,
     file: Option<JournalWriter>,
@@ -715,8 +721,8 @@ struct Recorder {
     /// and a viewer's `history_page` asks line up with what it already holds.
     next_seq: u64,
     /// EXP-906: the cap notice the last `push` minted, until the loop sends
-    /// it. Already in the memory journal (so a reconnect replays it); the
-    /// file is stopped by definition, so it is never on disk.
+    /// it. Already in the memory journal (so a join replays it); the file is
+    /// stopped by definition, so it is never on disk.
     notice: Option<(u64, ActivityEvent)>,
 }
 
@@ -751,45 +757,29 @@ impl Recorder {
     }
 }
 
-/// How one connection ended.
-enum LoopEnd {
-    /// `bye` sent, socket closed — the task is done.
-    Clean,
-    /// Relay closed with a code (§8.6 semantics apply).
-    Closed(Option<u16>),
-    /// Unexpected drop (socket error / EOF without close).
-    Dropped,
-}
-
+/// The run's whole life: record activity, serve the eNet viewers, dispatch
+/// their frames and the control socket's commands, until the run ends.
 async fn run_publisher_loop(
     spec: PublishSpec,
-    tickets: Arc<dyn PublisherTickets>,
     hooks: PublisherHooks,
     cmd_rx: flume::Receiver<PublisherCmd>,
     cmd_tx: flume::WeakSender<PublisherCmd>,
     running: Arc<AtomicBool>,
 ) {
     let hooks = Arc::new(hooks);
-    // VAPP-33: the run's eNet room, for its whole lifetime (relay or not).
-    // Dropping `feeds` (every exit below) says `bye` to its viewers.
+    // VAPP-33: the run's eNet room, for its whole lifetime. Dropping `feeds`
+    // (every exit below) says `bye` to its viewers.
     let room = spec
         .audience
         .clone()
         .map(|audience| crate::enet_steer::register_room(&spec.session_id, audience, cmd_tx));
-    let serve_enet = room.is_some();
     let mut feeds = crate::enet_steer::Feeds::new(&spec.session_id, room);
-    // EXP-511: the session's localized image embeds — filled by the input
-    // path, read by the activity path, and shared across reconnects.
-    // EXP-825: the spec's handle, so the engine's own localizations (the
-    // start prompt) restore here too.
+    // EXP-511/EXP-825: the session's localized image embeds — filled by the
+    // input path (and the engine's start prompt), read by the activity path.
     let embeds: ImageEmbedMap = spec.embeds.clone();
     // EXP-514: remote input is handled on its own session-lived task, fed in
-    // order over this channel — the pump loop must never await a download.
+    // order over this channel — the loop must never await a download.
     let input_tx = spawn_input_pump(hooks.clone(), embeds.clone());
-    // EXP-249: the session's full published history. Every connection starts
-    // with `activity_reset` + this journal, so a viewer joining a resumed room
-    // (or after a relay restart) sees the session from its first event.
-    // EXP-773 pairs it with the durable file the same events land in.
     let file = spec
         .journal_dir
         .as_deref()
@@ -808,183 +798,29 @@ async fn run_publisher_loop(
         spec: &spec,
         hooks: &hooks,
         input_tx: &input_tx,
-        cmd_rx: &cmd_rx,
         recorder: &mut recorder,
         embeds: &embeds,
         running: &running,
         feeds: &mut feeds,
     };
-    let mut backoff = Backoff::publisher();
-    // §8.7: one immediate re-mint is allowed after a fresh-ticket 401; a
-    // second consecutive 401 surfaces the clock-skew error and stops.
-    let mut unauthorized_once = false;
-
-    'reconnect: while running.load(Ordering::SeqCst) {
-        // Mint (blocking reqwest off the reactor), then dial IMMEDIATELY (§8.7).
-        let tickets_for_mint = tickets.clone();
-        let minted = match tokio::task::spawn_blocking(move || tickets_for_mint.mint()).await {
-            Ok(result) => result,
-            Err(join_err) => {
-                log::warn!("steer publisher: mint task panicked: {join_err}");
-                running.store(false, Ordering::SeqCst);
-                return;
+    while let Ok(cmd) = cmd_rx.recv_async().await {
+        match cmd {
+            PublisherCmd::Activity(event) => {
+                lp.record(event);
             }
-        };
-        let url = match minted {
-            Ok(Some(ticket)) => ticket.url,
-            Ok(None) => {
-                // Relay disabled: a normal state — no remote mirror (§8.4).
-                // VAPP-33: eNet viewers are still served until the run ends.
-                log::info!("steer publisher: relay disabled; not publishing");
-                if serve_enet {
-                    serve_enet_only(&mut lp).await;
-                }
-                running.store(false, Ordering::SeqCst);
-                return;
+            PublisherCmd::Shutdown { outcome } => {
+                lp.feeds.set_outcome(outcome);
+                break;
             }
-            Err(ApiError::Unauthorized) => {
-                log::info!("steer publisher: session token dead; not publishing");
-                if serve_enet {
-                    serve_enet_only(&mut lp).await;
-                }
-                running.store(false, Ordering::SeqCst);
-                return;
-            }
-            Err(ApiError::Http { status: 403, message }) => {
-                // Not the session owner — authorization is mint-time (§8.0).
-                (hooks.error)(format!("Steer publish refused: {message}"));
-                running.store(false, Ordering::SeqCst);
-                return;
-            }
-            Err(err) => {
-                log::debug!("steer publisher: mint failed: {err}");
-                if sleep_or_shutdown(backoff.next_delay(), &mut lp)
-                    .await
-                    .is_break()
-                {
-                    return;
-                }
-                continue 'reconnect;
-            }
-        };
-
-        let mut ws = match dial(&url).await {
-            Ok(stream) => stream,
-            Err(DialError::Unauthorized) => {
-                if unauthorized_once {
-                    // Two consecutive fresh tickets rejected: clock skew.
-                    (hooks.error)(CLOCK_SKEW_ERROR.to_string());
-                    running.store(false, Ordering::SeqCst);
-                    return;
-                }
-                unauthorized_once = true;
-                // Re-mint once and retry immediately (§8.7) — no backoff.
-                continue 'reconnect;
-            }
-            Err(DialError::Other(reason)) => {
-                log::debug!("steer publisher: connect failed: {reason}");
-                if sleep_or_shutdown(backoff.next_delay(), &mut lp)
-                    .await
-                    .is_break()
-                {
-                    return;
-                }
-                continue 'reconnect;
-            }
-        };
-        unauthorized_once = false;
-
-        // §8.4 #2 — hello creates the room (or resumes it on re-hello,
-        // evicting any stale publisher with CLOSE_REPLACED).
-        let hello = ClientFrame::Hello {
-            session_id: &spec.session_id,
-            issue_id: spec.issue_id.as_deref(),
-            // EXP-90: the anonymous public-activity audience is removed —
-            // always send the explicit opt-out, because an ABSENT key means
-            // "public" to legacy relays (manual, independent deploys).
-            activity_public: Some(false),
-            // #EXP-1415: the live publisher — a replay never evicts it.
-            replay: None,
-        }
-        .to_json();
-        if let Err(err) = ws.send(Message::Text(hello)).await {
-            log::debug!("steer publisher: hello failed: {err}");
-            if sleep_or_shutdown(backoff.next_delay(), &mut lp)
-                .await
-                .is_break()
-            {
-                return;
-            }
-            continue 'reconnect;
-        }
-        log::info!("steer publisher: room {} live", spec.session_id);
-        let established = Instant::now();
-
-        // EXP-249 full-history re-publish: clear whatever the room (and its
-        // viewers) still hold, then replay the journal in order. A resumed
-        // `--continue` transcript seeds the journal from byte 0, so this is
-        // the ONE deliberate place a feed is rebuilt.
-        if !republish_history(&mut ws, &lp.recorder.journal).await {
-            log::debug!("steer publisher: history replay failed; reconnecting");
-            if sleep_or_shutdown(backoff.next_delay(), &mut lp)
-                .await
-                .is_break()
-            {
-                return;
-            }
-            continue 'reconnect;
-        }
-
-        let end = pump_connection(&mut ws, &mut lp).await;
-
-        match end {
-            LoopEnd::Clean => {
-                running.store(false, Ordering::SeqCst);
-                return;
-            }
-            LoopEnd::Closed(Some(CLOSE_REPLACED)) => {
-                // 4002: a newer publisher socket owns the room — this socket
-                // must not fight it (expected during our own reconnect race).
-                log::info!("steer publisher: replaced by a newer socket");
-                running.store(false, Ordering::SeqCst);
-                return;
-            }
-            LoopEnd::Closed(Some(CLOSE_UNAUTHORIZED)) => {
-                if unauthorized_once {
-                    (hooks.error)(CLOCK_SKEW_ERROR.to_string());
-                    running.store(false, Ordering::SeqCst);
-                    return;
-                }
-                unauthorized_once = true;
-                continue 'reconnect; // re-mint once, immediately (§8.6/§8.7)
-            }
-            LoopEnd::Closed(_) | LoopEnd::Dropped => {
-                // Any other close or unexpected drop: reconnect while the
-                // session is still running, resuming the same room (§8.6).
-                // That INCLUDES 4001 (EXP-283): the relay's idle-publisher
-                // detector closes quiet sockets with CLOSE_SESSION_ENDED —
-                // e.g. read on wake after a laptop sleep >90s — and a relay
-                // close must never kill live local work. Real kills arrive as
-                // the explicit `kill` frame or the §8.8 own-row Electric flip;
-                // re-hello resets the relay's idle timer and resumes the room.
-                // Reconnect promptly — the relay's staleTimer bounds the
-                // grace window.
-                if established.elapsed() >= BACKOFF_RESET_AFTER {
-                    backoff.reset();
-                }
-                if !running.load(Ordering::SeqCst) {
-                    return;
-                }
-                log::debug!("steer publisher: dropped; reconnecting");
-                if sleep_or_shutdown(backoff.next_delay(), &mut lp)
-                    .await
-                    .is_break()
-                {
-                    return;
+            cmd => {
+                if let Some(Steered::Kill) = lp.command(cmd) {
+                    lp.kill();
+                    break;
                 }
             }
         }
     }
+    running.store(false, Ordering::SeqCst);
 }
 
 // ---------------------------------------------------------------------------
@@ -1117,13 +953,11 @@ async fn handle_input(
     (hooks.write_input)(data.as_bytes())
 }
 
-/// The state one publisher loop threads through its connections and
-/// backoff sleeps (VAPP-33: the eNet feeds ride both).
+/// The state the publisher loop threads through its commands.
 struct Loop<'a> {
     spec: &'a PublishSpec,
     hooks: &'a PublisherHooks,
     input_tx: &'a flume::Sender<String>,
-    cmd_rx: &'a flume::Receiver<PublisherCmd>,
     recorder: &'a mut Recorder,
     embeds: &'a ImageEmbedMap,
     running: &'a Arc<AtomicBool>,
@@ -1132,23 +966,19 @@ struct Loop<'a> {
 
 impl Loop<'_> {
     /// Record one event (stamped, embeds restored) and fan it out live to
-    /// the eNet viewers. Returns what the relay socket should carry: the
-    /// event, then (EXP-906) the cap notice it may have minted.
-    fn record(&mut self, mut event: ActivityEvent) -> Vec<(u64, ActivityEvent)> {
+    /// the eNet viewers, then (EXP-906) the cap notice it may have minted.
+    fn record(&mut self, mut event: ActivityEvent) {
         prepare_for_journal(&mut event, self.embeds);
         let seq = self.recorder.push(event.clone());
         self.feeds.activity(seq, &event);
-        let mut out = vec![(seq, event)];
         if let Some((seq, notice)) = self.recorder.take_notice() {
             self.feeds.activity(seq, &notice);
-            out.push((seq, notice));
         }
-        out
     }
 
-    /// The eNet commands, wherever the loop is. `Some(Steered::Kill)` when a
-    /// viewer killed the run.
-    fn enet(&mut self, cmd: PublisherCmd) -> Option<Steered> {
+    /// The eNet and control commands. `Some(Steered::Kill)` when the run is
+    /// to end.
+    fn command(&mut self, cmd: PublisherCmd) -> Option<Steered> {
         match cmd {
             PublisherCmd::EnetJoin(peer) => self.feeds.join(peer, &self.recorder.journal),
             PublisherCmd::EnetLeave(id) => self.feeds.leave(&id),
@@ -1158,21 +988,38 @@ impl Loop<'_> {
                     return None;
                 };
                 match steer_frame(frame, self.spec, self.hooks, self.input_tx) {
-                    Ok(Steered::Reply(reply)) => self.feeds.send_to(&from, reply),
-                    Ok(Steered::Kill) => return Some(Steered::Kill),
-                    Ok(Steered::Done) => {}
-                    // Relay-only frames (compact, check-in, …) never come
-                    // from a viewer.
-                    Err(_) => {}
+                    Steered::Reply(reply) => self.feeds.send_to(&from, reply),
+                    Steered::Kill => return Some(Steered::Kill),
+                    Steered::Done => {}
                 }
             }
+            PublisherCmd::Control(ControlCmd::Kill) => return Some(Steered::Kill),
+            PublisherCmd::Control(ControlCmd::Interrupt) => {
+                if let Some(interrupt) = &self.hooks.interrupt {
+                    interrupt();
+                }
+            }
+            // EXP-936: the hook decides off in-memory state; the verdict goes
+            // straight back up the control socket (the relay holds the web
+            // server's HTTP call on it) — never through `input_tx`, whose
+            // choreography sleeps.
+            PublisherCmd::Control(ControlCmd::Compact { keep, reply }) => {
+                let verdict = match &self.hooks.compact {
+                    Some(compact) => compact(keep),
+                    None => CompactVerdict::Refused(CompactRefusal::UnsupportedAgent),
+                };
+                log::info!("steer publisher: compact_request for {} → {verdict:?}", self.spec.session_id);
+                (reply.0)(verdict);
+            }
+            #[cfg(test)]
+            PublisherCmd::Tap(id, tx) => self.feeds.tap(id, tx.0, &self.recorder.journal),
             PublisherCmd::Activity(_) | PublisherCmd::Shutdown { .. } => {}
         }
         None
     }
 
-    /// A kill (relay or eNet): the hook ends the child; the viewers hear
-    /// `bye killed`.
+    /// A kill (an eNet viewer's or the control socket's): the hook ends the
+    /// child; the viewers hear `bye killed`.
     fn kill(&mut self) {
         log::info!("steer publisher: kill received");
         self.running.store(false, Ordering::SeqCst);
@@ -1190,24 +1037,21 @@ enum Steered {
     Reply(String),
 }
 
-/// The client frames every carrier delivers (relay socket and eNet): input
-/// → the input task, answer, set_config, set_mode, interrupt, unqueue, kill,
-/// history_page from the disk journal. `Err` = a relay-only frame the
-/// caller handles itself.
+/// The client frames an eNet viewer sends: input → the input task, answer,
+/// set_config, set_mode, interrupt, unqueue, kill, history_page from the
+/// disk journal. Anything else (frames only a relay ever sent) is ignored.
 fn steer_frame(
     frame: ServerFrame,
     spec: &PublishSpec,
     hooks: &PublisherHooks,
     input_tx: &flume::Sender<String>,
-) -> Result<Steered, ServerFrame> {
+) -> Steered {
     match frame {
         ServerFrame::Input { data } => {
             // EXP-514: input choreography sleeps (Enter separation, picker
             // revalidation) and downloads (EXP-511 embed localization — up
-            // to 60s per blob) — inline it starved the ping tick and the
-            // relay's 90s idle detector closed the room. The input task
-            // processes frames strictly in order; a send after teardown is a
-            // harmless no-op.
+            // to 60s per blob) run on the input task, strictly in order; a
+            // send after teardown is a harmless no-op.
             let _ = input_tx.send(data);
         }
         // EXP-249: the semantic answer path — the emitter owns question
@@ -1240,7 +1084,7 @@ fn steer_frame(
         // EXP-790/EXP-861: a viewer's Stop. Never through `input_tx` — the
         // ESC keystroke path is the TUI's, and this frame is what every
         // client sends.
-        ServerFrame::Interrupt => {
+        ServerFrame::Interrupt { .. } => {
             if let Some(interrupt) = &hooks.interrupt {
                 interrupt();
             }
@@ -1251,8 +1095,8 @@ fn steer_frame(
             }
         }
         // §8.4: kill → end the session. The kill hook kills the child (whose
-        // exit hook ends the synced row); the caller closes cleanly.
-        ServerFrame::Kill => return Ok(Steered::Kill),
+        // exit hook ends the synced row).
+        ServerFrame::Kill { .. } => return Steered::Kill,
         // EXP-783: a viewer scrolled past the top of what it holds. The page
         // comes off the DISK journal, not the in-memory one — the memory
         // journal is bounded and the file is the whole run. Answered inline:
@@ -1266,222 +1110,15 @@ fn steer_frame(
                         dir,
                         &spec.session_id,
                         before_seq,
-                        limit.min(HISTORY_PAGE_MAX) as usize,
+                        limit.min(crate::history::HISTORY_PAGE_MAX) as usize,
                     )
                 })
                 .unwrap_or_default();
-            // EXP-796: the page frame is built by `history` so the
-            // control-socket route answers with the SAME shape; a publisher
-            // names no session.
-            return Ok(Steered::Reply(crate::history::history_chunk_frame(None, &request_id, page)));
+            return Steered::Reply(crate::history::history_chunk_frame(&request_id, page));
         }
-        other => return Err(other),
+        _ => {}
     }
-    Ok(Steered::Done)
-}
-
-/// VAPP-33: the relay is off (disabled, or the token is dead) but eNet
-/// viewers still steer: serve them until the run ends.
-async fn serve_enet_only(lp: &mut Loop<'_>) {
-    log::info!("steer publisher: serving {} over eNet only", lp.spec.session_id);
-    while sleep_or_shutdown(Duration::from_secs(3600), lp).await.is_continue() {}
-}
-
-/// One connection's select loop (§8.4's pseudocode, made real). Remote
-/// `input` frames are FORWARDED to the session's input task (EXP-514), never
-/// handled here — their choreography sleeps and downloads, and this loop owns
-/// the ping tick the relay's idle detector watches.
-async fn pump_connection(ws: &mut WsStream, lp: &mut Loop<'_>) -> LoopEnd {
-    // REV2-X: Send periodic pings so the relay can detect dead publishers.
-    // During plan mode (or any idle period), the desktop sends no activity,
-    // and without pings, a dropped connection can sit undetected while UIs retry
-    // endlessly against a stale `no_such_session`.
-    const PING_INTERVAL: Duration = Duration::from_secs(30);
-    // REV-41, mirroring control_channel's EXP-414: no inbound traffic (relay
-    // pongs included) for this long means the path is dead — `send()` alone
-    // can buffer into TCP retransmit for ~15min without erroring, so the
-    // ping arm's send-side check can't detect a silently dead path (NAT
-    // expiry, AP roam, VPN flap). The relay's idle detector closes the room
-    // after 90s of publisher silence; without this watchdog the session
-    // looks live locally while remote view/steer is dead until TCP gives up.
-    // Dropping here reconnects promptly: re-mint, re-hello, journal replay.
-    const LIVENESS_TIMEOUT: Duration = Duration::from_secs(90);
-    let mut ping_interval = tokio::time::interval(PING_INTERVAL);
-    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    // REV-41: any inbound frame (the relay's pongs to our pings included —
-    // they surface through `ws.next()`) proves the path; silence past
-    // LIVENESS_TIMEOUT means it is gone.
-    let mut last_rx = Instant::now();
-    loop {
-        tokio::select! {
-            // 1) local control commands (unbounded — never dropped).
-            cmd = lp.cmd_rx.recv_async() => {
-                let Ok(cmd) = cmd else { return LoopEnd::Dropped };
-                match cmd {
-                    PublisherCmd::Activity(event) => {
-                        // §P7: publish one already-redacted activity event.
-                        // The relay fans it to the member activity audience.
-                        // Stamped first (the journal replays the ORIGINAL
-                        // timeline after a reconnect), any localized image
-                        // path put back to the token the steerer sent, and
-                        // (EXP-906) the "history stopped recording" row rides
-                        // right behind the event that hit the cap.
-                        for (seq, event) in lp.record(event) {
-                            if !send_activity(ws, seq, event).await {
-                                return LoopEnd::Dropped;
-                            }
-                        }
-                    }
-                    PublisherCmd::Shutdown { outcome } => {
-                        lp.feeds.set_outcome(outcome.clone());
-                        let bye = ClientFrame::Bye { outcome: outcome.as_deref() }.to_json();
-                        let _ = ws.send(Message::Text(bye)).await;
-                        let _ = ws.close(None).await; // 1000 normal closure
-                        return LoopEnd::Clean;
-                    }
-                    enet => {
-                        if let Some(Steered::Kill) = lp.enet(enet) {
-                            lp.kill();
-                            let bye = ClientFrame::Bye { outcome: Some("killed") }.to_json();
-                            let _ = ws.send(Message::Text(bye)).await;
-                            let _ = ws.close(None).await;
-                            return LoopEnd::Clean;
-                        }
-                    }
-                }
-            }
-            // 2) relay → publisher control frames.
-            msg = ws.next() => {
-                if matches!(msg, Some(Ok(_))) {
-                    last_rx = Instant::now();
-                }
-                match msg {
-                    Some(Ok(Message::Text(text))) => {
-                        let Some(frame) = ServerFrame::parse(&text) else {
-                            log::debug!("steer publisher: unparseable frame ignored");
-                            continue;
-                        };
-                        match steer_frame(frame, lp.spec, lp.hooks, lp.input_tx) {
-                            Ok(Steered::Done) => {}
-                            Ok(Steered::Kill) => {
-                                lp.kill();
-                                let bye = ClientFrame::Bye { outcome: Some("killed") }.to_json();
-                                let _ = ws.send(Message::Text(bye)).await;
-                                let _ = ws.close(None).await;
-                                return LoopEnd::Clean;
-                            }
-                            Ok(Steered::Reply(frame)) => {
-                                if ws.send(Message::Text(frame)).await.is_err() {
-                                    return LoopEnd::Dropped;
-                                }
-                            }
-                            Err(ServerFrame::Bye { outcome }) => {
-                                log::debug!("steer publisher: relay bye ({outcome:?})");
-                                return LoopEnd::Dropped;
-                            }
-                            Err(ServerFrame::Error { code, message }) => {
-                                log::debug!("steer publisher: relay error {code} ({message:?})");
-                                return LoopEnd::Dropped;
-                            }
-                            // EXP-936: the run asked its host to compact. The
-                            // hook decides off in-memory state; the verdict
-                            // goes straight back down THIS socket (the relay
-                            // holds the web server's HTTP call on it) — never
-                            // through `input_tx`, whose choreography sleeps. A
-                            // frame that names another room is answered for
-                            // ITS room so the relay's ask never dangles (the
-                            // relay drops a verdict whose id does not match
-                            // anyway).
-                            Err(ServerFrame::CompactRequest { session_id, keep }) => {
-                                let verdict = match &lp.hooks.compact {
-                                    Some(compact) if session_id == lp.spec.session_id => compact(keep),
-                                    Some(_) => CompactVerdict::Refused(CompactRefusal::NotOwnSession),
-                                    None => CompactVerdict::Refused(CompactRefusal::UnsupportedAgent),
-                                };
-                                log::info!(
-                                    "steer publisher: compact_request for {session_id} → {verdict:?}"
-                                );
-                                let frame = verdict.frame(&session_id).to_json();
-                                if ws.send(Message::Text(frame)).await.is_err() {
-                                    return LoopEnd::Dropped;
-                                }
-                            }
-                            // Control-socket frames; never valid here. Ignore.
-                            Err(_) => {}
-                        }
-                    }
-                    Some(Ok(Message::Close(frame))) => {
-                        return LoopEnd::Closed(close_code(&frame));
-                    }
-                    Some(Ok(_binary_or_ping)) => {
-                        // The relay speaks TEXT only since EXP-249; pings are
-                        // answered by tungstenite internally, and the relay's
-                        // pongs to OUR pings land here — bumping `last_rx`
-                        // above is their whole job (REV-41).
-                    }
-                    Some(Err(err)) => {
-                        log::debug!("steer publisher: socket error: {err}");
-                        return LoopEnd::Dropped;
-                    }
-                    None => return LoopEnd::Dropped,
-                }
-            }
-            // 3) periodic ping to keep the connection alive and let the relay
-            // detect dead publishers (REV2-X: plan mode can idle for minutes),
-            // and reconnect when the path has been silent past the watchdog
-            // window (REV-41).
-            _ = ping_interval.tick() => {
-                if last_rx.elapsed() > LIVENESS_TIMEOUT {
-                    log::debug!(
-                        "steer publisher: no traffic for {:?} — reconnecting",
-                        last_rx.elapsed()
-                    );
-                    return LoopEnd::Dropped;
-                }
-                if ws.send(Message::Ping(vec![])).await.is_err() {
-                    return LoopEnd::Dropped;
-                }
-            }
-        }
-    }
-}
-
-/// `activity_reset` + the whole journal, in order. `false` on a socket error
-/// (the caller reconnects and tries again from the top).
-async fn republish_history(ws: &mut WsStream, journal: &ActivityJournal) -> bool {
-    if ws
-        .send(Message::Text(ClientFrame::ActivityReset.to_json()))
-        .await
-        .is_err()
-    {
-        return false;
-    }
-    for (seq, event) in journal.replay_seq() {
-        if !send_activity(ws, seq, event.clone()).await {
-            return false;
-        }
-    }
-    true
-}
-
-/// Send one activity event. The emitter caps event strings in UTF-8 bytes, but
-/// JSON escaping can still inflate pathological content past the relay's frame
-/// limit — dropping the event beats letting the relay close the socket, so an
-/// oversize frame is a skip, not a failure.
-/// EXP-783: how many events one `history_page` answer carries — the
-/// contract's `steerFeed.historyPageMax`, which the relay's zod enforces.
-const HISTORY_PAGE_MAX: u32 = domain::contract::STEER_FEED_HISTORY_PAGE_MAX;
-
-async fn send_activity(ws: &mut WsStream, seq: u64, event: ActivityEvent) -> bool {
-    let frame = ClientFrame::Activity { event, seq }.to_json();
-    if frame.len() >= RELAY_MAX_PAYLOAD_BYTES {
-        log::warn!(
-            "steer publisher: dropping oversize activity frame ({} bytes)",
-            frame.len()
-        );
-        return true;
-    }
-    ws.send(Message::Text(frame)).await.is_ok()
+    Steered::Done
 }
 
 /// Whether an `input` frame carries MESSAGE text rather than a keystroke
@@ -1498,49 +1135,6 @@ fn now_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|since| since.as_millis() as i64)
         .unwrap_or(0)
-}
-
-fn close_code(frame: &Option<CloseFrame<'_>>) -> Option<u16> {
-    frame.as_ref().map(|f| u16::from(f.code))
-}
-
-/// Interruptible backoff sleep: `Break` on `Shutdown` (we're disconnected —
-/// nothing to `bye`) or when `running` flipped. Activity published while the
-/// socket is down still goes into the journal, so the reconnect's re-publish
-/// carries it; a take-over is momentary UI state, safely superseded by the
-/// re-`hello`. VAPP-33: eNet viewers keep being served (and fed live) here.
-async fn sleep_or_shutdown(delay: Duration, lp: &mut Loop<'_>) -> std::ops::ControlFlow<()> {
-    let deadline = tokio::time::Instant::now() + delay;
-    loop {
-        if !lp.running.load(Ordering::SeqCst) {
-            return std::ops::ControlFlow::Break(());
-        }
-        tokio::select! {
-            _ = tokio::time::sleep_until(deadline) => return std::ops::ControlFlow::Continue(()),
-            cmd = lp.cmd_rx.recv_async() => match cmd {
-                Ok(PublisherCmd::Shutdown { outcome }) => {
-                    lp.feeds.set_outcome(outcome);
-                    lp.running.store(false, Ordering::SeqCst);
-                    return std::ops::ControlFlow::Break(());
-                }
-                Err(_) => {
-                    lp.running.store(false, Ordering::SeqCst);
-                    return std::ops::ControlFlow::Break(());
-                }
-                Ok(PublisherCmd::Activity(event)) => {
-                    // Offline: the memory journal holds the event (and any
-                    // cap notice) and the reconnect's replay carries it.
-                    let _ = lp.record(event);
-                }
-                Ok(enet) => {
-                    if let Some(Steered::Kill) = lp.enet(enet) {
-                        lp.kill();
-                        return std::ops::ControlFlow::Break(());
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -1637,44 +1231,71 @@ mod tests {
         );
     }
 
-    /// The EXP-773 guard the history rail reads: a session is "publishing
-    /// here" for exactly as long as a publisher task holds it, and two
-    /// publishers for one id both have to let go before it clears.
+    /// A session is "publishing here" (and [`control`] reaches it) for as
+    /// long as its newest publisher holds it; an older one letting go never
+    /// clears the newer one.
     #[test]
-    fn a_live_publisher_is_visible_to_the_history_rail_until_it_lets_go() {
+    fn a_live_publisher_is_registered_until_it_lets_go() {
+        let (first_tx, first_rx) = flume::unbounded();
+        let (second_tx, second_rx) = flume::unbounded();
         assert!(!is_publishing("sess-live"));
-        let first = LivePublisher::claim("sess-live");
+        assert!(!control("sess-live", ControlCmd::Interrupt));
+        let first = LivePublisher::claim("sess-live", first_tx.downgrade());
         assert!(is_publishing("sess-live"));
-        let second = LivePublisher::claim("sess-live");
+        let second = LivePublisher::claim("sess-live", second_tx.downgrade());
         drop(first);
-        assert!(
-            is_publishing("sess-live"),
-            "the second publisher still owns the room"
-        );
+        assert!(control("sess-live", ControlCmd::Interrupt), "the newer publisher still owns it");
+        assert_eq!(second_rx.try_recv().unwrap(), PublisherCmd::Control(ControlCmd::Interrupt));
+        assert!(first_rx.try_recv().is_err());
         drop(second);
         assert!(!is_publishing("sess-live"));
+        drop(first_tx);
     }
 
-    // ── Full-task test against a local fake relay (tokio-tungstenite server)
+    // ── Full-task tests: a tapped viewer queue stands in for an eNet viewer
 
-    struct FakeTickets {
-        url: String,
+    use tokio_tungstenite::tungstenite::Message;
+
+    /// The endpoint the tap and the injected frames come from.
+    fn tap_peer() -> enet_core::EndpointId {
+        enet_core::Identity::generate().endpoint_id()
     }
 
-    impl PublisherTickets for FakeTickets {
-        fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-            Ok(Some(MintedTicket {
-                ticket: "fake.fake".to_string(),
-                url: self.url.clone(),
-            }))
+    /// What the tests inject: an eNet viewer's frames, from the tap's peer.
+    struct Inject {
+        cmd_tx: flume::Sender<PublisherCmd>,
+        from: enet_core::EndpointId,
+    }
+
+    impl Inject {
+        fn send(&self, message: Message) -> Result<(), ()> {
+            let Message::Text(frame) = message else { return Err(()) };
+            self.cmd_tx.send(PublisherCmd::EnetFrame { from: self.from, frame }).map_err(|_| ())
         }
+    }
+
+    /// Joins a raw queue to `handle`'s run as a viewer: everything the run
+    /// sends that viewer lands on the receiver (its join's `activity_reset`
+    /// and `activity_synced` already consumed); the [`Inject`] sends frames
+    /// as that viewer.
+    fn tap(handle: &PublisherHandle) -> (flume::Receiver<String>, Inject) {
+        let (tx, rx) = flume::unbounded();
+        let from = tap_peer();
+        handle.cmd_tx.send(PublisherCmd::Tap(from, TapTx(tx))).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), r#"{"t":"activity_reset"}"#);
+        loop {
+            let frame = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            if frame.contains(r#""t":"activity_synced""#) {
+                break;
+            }
+        }
+        (rx, Inject { cmd_tx: handle.cmd_tx.clone(), from })
     }
 
     #[derive(Default)]
     struct Recorded {
         inputs: Mutex<Vec<Vec<u8>>>,
         kills: Mutex<Vec<KillSignal>>,
-        errors: Mutex<Vec<String>>,
     }
 
     fn recording_hooks(recorded: Arc<Recorded>) -> PublisherHooks {
@@ -1686,17 +1307,13 @@ mod tests {
         answers: Option<Arc<AnswerLink>>,
     ) -> PublisherHooks {
         let r1 = recorded.clone();
-        let r2 = recorded.clone();
-        let r3 = recorded;
+        let r2 = recorded;
         PublisherHooks {
             write_input: Arc::new(move |bytes| {
                 r1.inputs.lock().unwrap().push(bytes.to_vec());
             }),
             kill: Arc::new(move |signal| {
                 r2.kills.lock().unwrap().push(signal);
-            }),
-            error: Arc::new(move |message| {
-                r3.errors.lock().unwrap().push(message);
             }),
             answers,
             agent: SessionAgent::Claude,
@@ -1719,43 +1336,11 @@ mod tests {
         }
     }
 
-    /// A fake relay socket: everything the publisher sends lands on `seen`,
-    /// everything the test injects goes back down the wire.
-    fn fake_relay(
-        runtime: &SteerRuntime,
-    ) -> (u16, flume::Receiver<String>, flume::Sender<Message>) {
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (seen_tx, seen_rx) = flume::unbounded::<String>();
-        let (inject_tx, inject_rx) = flume::unbounded::<Message>();
-        runtime.handle().spawn(async move {
-            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-            let (stream, _addr) = listener.accept().await.unwrap();
-            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
-            loop {
-                tokio::select! {
-                    inject = inject_rx.recv_async() => {
-                        let Ok(message) = inject else { break };
-                        if ws.send(message).await.is_err() { break; }
-                    }
-                    msg = ws.next() => match msg {
-                        Some(Ok(Message::Text(text))) => { let _ = seen_tx.send(text); }
-                        Some(Ok(_)) => {}
-                        _ => break,
-                    }
-                }
-            }
-        });
-        (port, seen_rx, inject_tx)
-    }
-
     /// EXP-773: every published event also lands in the durable per-session
     /// journal file, so the run has a transcript after the process is gone.
     #[test]
     fn published_events_are_appended_to_the_session_journal_file() {
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, _inject_tx) = fake_relay(&runtime);
         let data_dir = std::env::temp_dir().join(format!(
             "exp-publisher-journal-{}-{}",
             std::process::id(),
@@ -1772,18 +1357,14 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             recording_hooks(recorded),
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        let (seen_rx, _inject_tx) = tap(&handle);
 
         handle
             .activity_sender()
             .send(ActivityEvent::narration("on disk"));
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // the wire copy
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // the live copy
         wait_for(|| {
             crate::history::read_journal(&data_dir, "sess-j")
                 .is_some_and(|events| !events.is_empty())
@@ -1798,9 +1379,8 @@ mod tests {
     }
 
     #[test]
-    fn publisher_hellos_publishes_activity_steers_and_kills_against_a_fake_relay() {
+    fn a_viewer_gets_activity_steers_and_kills() {
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
 
         let recorded = Arc::new(Recorded::default());
         let (link, answers_rx) = AnswerLink::new();
@@ -1813,24 +1393,13 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             recording_hooks_with(recorded.clone(), Some(link.clone())),
         );
+        // A run serves until it ends, viewer or not (VAPP-43: no relay to
+        // be disabled).
+        let (seen_rx, inject_tx) = tap(&handle);
 
-        // 1) hello — no geometry since EXP-249. EXP-90: every hello carries
-        // the explicit activityPublic:false.
-        let hello = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(
-            hello,
-            r#"{"t":"hello","sessionId":"sess-t","issueId":"issue-t","activityPublic":false}"#
-        );
-        // 2) …immediately followed by the (empty) history re-publish.
-        let reset = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(reset, r#"{"t":"activity_reset"}"#);
-
-        // 3) activity events go out stamped and land in the journal.
+        // 1) activity events go out stamped, live, to the joined viewer.
         let sender = handle.activity_sender();
         sender.send(ActivityEvent::narration("Session started"));
         let narration = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1839,14 +1408,14 @@ mod tests {
             "{narration}"
         );
 
-        // 4) remote input → the PTY-writer hook, byte-identical.
+        // 2) remote input → the PTY-writer hook, byte-identical.
         inject_tx
             .send(Message::Text(r#"{"t":"input","data":"ls\r"}"#.to_string()))
             .unwrap();
         wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
         assert_eq!(recorded.inputs.lock().unwrap()[0], b"ls\r");
 
-        // 5) a semantic answer routes to the emitter's link, NOT the PTY.
+        // 3) a semantic answer routes to the emitter's link, NOT the PTY.
         inject_tx
             .send(Message::Text(
                 r#"{"t":"answer","questionId":"toolu_1#0","askId":"toolu_1","keys":["2"]}"#
@@ -1865,7 +1434,7 @@ mod tests {
         );
         assert_eq!(recorded.inputs.lock().unwrap().len(), 1, "answers never keystroke");
 
-        // 6) an unknown frame parses to None and is ignored — the pump keeps
+        // 4) an unknown frame parses to None and is ignored — the loop keeps
         // running (the kill below still lands).
         inject_tx
             .send(Message::Text(
@@ -1873,7 +1442,8 @@ mod tests {
             ))
             .unwrap();
 
-        // 7) relay kill → kill hook fires, clean bye goes out, task stops.
+        // 5) kill → kill hook fires, the viewers hear `bye killed`, the task
+        // stops.
         inject_tx
             .send(Message::Text(r#"{"t":"kill"}"#.to_string()))
             .unwrap();
@@ -1882,7 +1452,38 @@ mod tests {
         let bye = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(bye, r#"{"t":"bye","outcome":"killed"}"#);
         wait_for(|| !handle.is_active());
-        assert!(recorded.errors.lock().unwrap().is_empty());
+    }
+
+    /// VAPP-43: the relay's session-scoped commands, down the CONTROL
+    /// socket, reach the run by id: interrupt → the hook, kill → the kill
+    /// hook and `bye killed`; an unknown session is not routed.
+    #[test]
+    fn control_commands_reach_the_live_run_by_session_id() {
+        let runtime = SteerRuntime::new().unwrap();
+        let recorded = Arc::new(Recorded::default());
+        let interrupts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut hooks = recording_hooks(recorded.clone());
+        let counted = interrupts.clone();
+        hooks.interrupt = Some(Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }));
+        let handle = publish(
+            &runtime,
+            PublishSpec { session_id: "sess-ctl".to_string(), ..Default::default() },
+            hooks,
+        );
+        let (seen_rx, _inject_tx) = tap(&handle);
+        assert!(!control("sess-elsewhere", ControlCmd::Kill));
+        assert!(control("sess-ctl", ControlCmd::Interrupt));
+        wait_for(|| interrupts.load(Ordering::SeqCst) == 1);
+        assert!(recorded.kills.lock().unwrap().is_empty(), "a Stop never ends the run");
+        assert!(control("sess-ctl", ControlCmd::Kill));
+        wait_for(|| !recorded.kills.lock().unwrap().is_empty());
+        assert_eq!(
+            seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            r#"{"t":"bye","outcome":"killed"}"#
+        );
+        wait_for(|| !handle.is_active() && !is_publishing("sess-ctl"));
     }
 
     // ── EXP-724: remote slash commands ─────────────────────────────────────
@@ -1892,7 +1493,6 @@ mod tests {
     #[test]
     fn set_config_and_set_mode_are_no_ops_without_a_config_link() {
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let (answer_link, answers_rx) = AnswerLink::new();
         let handle = publish(
@@ -1904,13 +1504,9 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             recording_hooks_with(recorded.clone(), Some(answer_link)),
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        let (_seen_rx, inject_tx) = tap(&handle);
 
         inject_tx
             .send(Message::Text(
@@ -1932,7 +1528,6 @@ mod tests {
             "a config change never becomes keystrokes"
         );
         assert!(answers_rx.try_recv().is_err(), "and never an answer");
-        assert!(recorded.errors.lock().unwrap().is_empty());
         handle.shutdown(None);
     }
 
@@ -1942,7 +1537,6 @@ mod tests {
     #[test]
     fn set_config_and_set_mode_cross_to_the_config_link() {
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let config = ConfigLink::new();
         let mut hooks = recording_hooks(recorded.clone());
@@ -1956,13 +1550,9 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             hooks,
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        let (_seen_rx, inject_tx) = tap(&handle);
 
         // A BLANK value is the "CLI default" choice, not a malformed frame.
         inject_tx
@@ -1999,15 +1589,22 @@ mod tests {
         handle.shutdown(None);
     }
 
-    /// EXP-936: a `compact_request` is answered on THIS socket with the
-    /// hook's verdict — the relay holds the web server's HTTP call on it —
-    /// and the `keep` text reaches the hook verbatim. A request naming
-    /// another room, and a publisher with no hook, still answer (a refusal),
-    /// so the relay's ask never runs into its timeout.
+    /// The verdict a control-socket compaction ask gets back.
+    fn compact(session_id: &str, keep: Option<&str>) -> CompactVerdict {
+        let (tx, rx) = flume::bounded(1);
+        let reply = CompactReply(Arc::new(move |verdict| {
+            let _ = tx.send(verdict);
+        }));
+        assert!(control(session_id, ControlCmd::Compact { keep: keep.map(str::to_string), reply }));
+        rx.recv_timeout(Duration::from_secs(5)).unwrap()
+    }
+
+    /// EXP-936/VAPP-43: a `compact_request` down the control socket is
+    /// answered through its reply with the hook's verdict, and the `keep`
+    /// text reaches the hook verbatim.
     #[test]
     fn a_compact_request_is_answered_with_the_hooks_verdict() {
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let asked: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
         let mut hooks = recording_hooks(recorded.clone());
@@ -2022,60 +1619,11 @@ mod tests {
         }));
         let handle = publish(
             &runtime,
-            PublishSpec {
-                session_id: "sess-compact".to_string(),
-                issue_id: None,
-                journal_dir: None,
-                embeds: ImageEmbeds::default(),
-                audience: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
+            PublishSpec { session_id: "sess-compact".to_string(), ..Default::default() },
             hooks,
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
-
-        let next_verdict = || {
-            loop {
-                let text = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-                if text.contains(r#""t":"compact_verdict""#) {
-                    return text;
-                }
-            }
-        };
-        inject_tx
-            .send(Message::Text(
-                r#"{"t":"compact_request","sessionId":"sess-compact","keep":"open threads"}"#
-                    .to_string(),
-            ))
-            .unwrap();
-        assert_eq!(
-            next_verdict(),
-            r#"{"t":"compact_verdict","sessionId":"sess-compact","accepted":true}"#
-        );
-        inject_tx
-            .send(Message::Text(
-                r#"{"t":"compact_request","sessionId":"sess-compact"}"#.to_string(),
-            ))
-            .unwrap();
-        assert_eq!(
-            next_verdict(),
-            r#"{"t":"compact_verdict","sessionId":"sess-compact","accepted":false,"refusedBecause":"too_early"}"#
-        );
-        // Another room's ask is not this run's to decide: refused without
-        // consulting the hook.
-        inject_tx
-            .send(Message::Text(
-                r#"{"t":"compact_request","sessionId":"sess-other","keep":"open threads"}"#
-                    .to_string(),
-            ))
-            .unwrap();
-        assert_eq!(
-            next_verdict(),
-            r#"{"t":"compact_verdict","sessionId":"sess-other","accepted":false,"refusedBecause":"not_own_session"}"#
-        );
+        assert_eq!(compact("sess-compact", Some("open threads")), CompactVerdict::Accepted);
+        assert_eq!(compact("sess-compact", None), CompactVerdict::Refused(CompactRefusal::TooEarly));
         assert_eq!(
             asked.lock().unwrap().clone(),
             vec![Some("open threads".to_string()), None]
@@ -2092,38 +1640,15 @@ mod tests {
     #[test]
     fn a_compact_request_without_a_hook_is_refused_as_unsupported() {
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let handle = publish(
             &runtime,
-            PublishSpec {
-                session_id: "sess-nohook".to_string(),
-                issue_id: None,
-                journal_dir: None,
-                embeds: ImageEmbeds::default(),
-                audience: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
+            PublishSpec { session_id: "sess-nohook".to_string(), ..Default::default() },
             recording_hooks(recorded),
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
-        inject_tx
-            .send(Message::Text(
-                r#"{"t":"compact_request","sessionId":"sess-nohook"}"#.to_string(),
-            ))
-            .unwrap();
-        let verdict = loop {
-            let text = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-            if text.contains(r#""t":"compact_verdict""#) {
-                break text;
-            }
-        };
         assert_eq!(
-            verdict,
-            r#"{"t":"compact_verdict","sessionId":"sess-nohook","accepted":false,"refusedBecause":"unsupported_agent"}"#
+            compact("sess-nohook", None),
+            CompactVerdict::Refused(CompactRefusal::UnsupportedAgent)
         );
         handle.shutdown(None);
     }
@@ -2134,7 +1659,6 @@ mod tests {
     #[test]
     fn a_catalog_command_crosses_to_the_command_link_instead_of_the_pty() {
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let link = CommandLink::new();
         let mut hooks = recording_hooks(recorded.clone());
@@ -2148,13 +1672,9 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             hooks,
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        let (_seen_rx, inject_tx) = tap(&handle);
 
         let send = |data: &str| {
             inject_tx
@@ -2210,7 +1730,6 @@ mod tests {
     #[test]
     fn a_catalog_command_bypasses_the_text_sink() {
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let sunk: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let link = CommandLink::new();
@@ -2228,13 +1747,9 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             hooks,
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        let (_seen_rx, inject_tx) = tap(&handle);
 
         let send = |data: &str| {
             inject_tx
@@ -2324,7 +1839,6 @@ mod tests {
     #[test]
     fn image_embeds_become_local_paths_and_echo_back_as_the_token() {
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let local = image_dir("rewrite").join("11111111-2222-3333-4444-555555555555.png");
         let localized = local.clone();
@@ -2342,13 +1856,9 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             hooks,
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        let (seen_rx, inject_tx) = tap(&handle);
 
         let path = local.display().to_string();
         inject_tx
@@ -2388,7 +1898,6 @@ mod tests {
         // path — the agent can still fetch it over MCP, and the line restores
         // to the embed token like any other.
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let mut hooks = recording_hooks(recorded.clone());
         hooks.attachments = Some(Arc::new(|_id, _name| Err("offline".to_string())));
@@ -2401,13 +1910,9 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             hooks,
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        let (_seen_rx, inject_tx) = tap(&handle);
 
         inject_tx
             .send(Message::Text(format!(
@@ -2433,7 +1938,6 @@ mod tests {
         // reach the relay, and the message (with its chased Enter) must land
         // afterwards, localized and in order.
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let release = Arc::new(AtomicBool::new(false));
         let gate = release.clone();
@@ -2455,13 +1959,9 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             hooks,
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        let (seen_rx, inject_tx) = tap(&handle);
 
         inject_tx
             .send(Message::Text(format!(
@@ -2502,7 +2002,6 @@ mod tests {
         // The rewrite happens BEFORE the sink buffer opens, so a sunk session
         // gets the injected paths too.
         let runtime = SteerRuntime::new().unwrap();
-        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let sunk: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let local = image_dir("sink").join("11111111-2222-3333-4444-555555555555.png");
@@ -2521,13 +2020,9 @@ mod tests {
                 embeds: ImageEmbeds::default(),
                 audience: None,
             },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
             hooks,
         );
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        let (_seen_rx, inject_tx) = tap(&handle);
 
         inject_tx
             .send(Message::Text(format!(
@@ -2794,154 +2289,42 @@ mod tests {
         assert_eq!(tool, ActivityEvent::tool("Read", Some(EMBED.to_string())));
     }
 
+    /// A (re-)join gets `activity_reset` + the whole journal + synced.
     #[test]
-    fn a_reconnect_resets_and_replays_the_journal() {
+    fn a_join_resets_and_replays_the_journal() {
         let runtime = SteerRuntime::new().unwrap();
-        // Two sequential relay sockets on ONE port: the first is dropped after
-        // the publisher hellos, forcing the reconnect path.
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (seen_tx, seen_rx) = flume::unbounded::<(usize, String)>();
-        let (drop_tx, drop_rx) = flume::unbounded::<()>();
-        runtime.handle().spawn(async move {
-            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-            for connection in 0..2usize {
-                let Ok((stream, _addr)) = listener.accept().await else { return };
-                let Ok(mut ws) = tokio_tungstenite::accept_async(stream).await else { return };
-                loop {
-                    tokio::select! {
-                        _ = drop_rx.recv_async() => break, // sever this socket
-                        msg = ws.next() => match msg {
-                            Some(Ok(Message::Text(text))) => {
-                                let _ = seen_tx.send((connection, text));
-                            }
-                            Some(Ok(_)) => {}
-                            _ => break,
-                        }
-                    }
-                }
-                drop(ws);
-            }
-        });
-
         let recorded = Arc::new(Recorded::default());
         let handle = publish(
             &runtime,
-            PublishSpec {
-                session_id: "sess-j".to_string(),
-                issue_id: None,
-                journal_dir: None,
-                embeds: ImageEmbeds::default(),
-                audience: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
-            recording_hooks(recorded.clone()),
+            PublishSpec { session_id: "sess-replay".to_string(), ..Default::default() },
+            recording_hooks(recorded),
         );
-        assert!(seen_rx.recv_timeout(Duration::from_secs(5)).unwrap().1.contains("hello"));
-        assert_eq!(seen_rx.recv_timeout(Duration::from_secs(5)).unwrap().1, r#"{"t":"activity_reset"}"#);
-
         let sender = handle.activity_sender();
         sender.send(ActivityEvent::narration("first"));
         sender.send(ActivityEvent::tool("Edit", Some("a.rs".into())));
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-
-        // Sever the socket; the publisher re-mints, re-hellos, and rebuilds
-        // the whole feed on the fresh connection.
-        drop_tx.send(()).unwrap();
-        let mut second: Vec<String> = Vec::new();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while second.len() < 4 {
-            assert!(Instant::now() < deadline, "no replay after reconnect: {second:?}");
-            if let Ok((connection, text)) = seen_rx.recv_timeout(Duration::from_millis(250)) {
-                if connection == 1 {
-                    second.push(text);
-                }
-            }
-        }
-        assert!(second[0].contains(r#""t":"hello""#), "{:?}", second[0]);
-        assert_eq!(second[1], r#"{"t":"activity_reset"}"#);
-        assert!(second[2].contains(r#""text":"first""#), "{:?}", second[2]);
-        assert!(second[3].contains(r#""name":"Edit""#), "{:?}", second[3]);
+        let (tx, rx) = flume::unbounded();
+        handle.cmd_tx.send(PublisherCmd::Tap(tap_peer(), TapTx(tx))).unwrap();
+        let frames: Vec<String> = (0..4).map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap()).collect();
+        assert_eq!(frames[0], r#"{"t":"activity_reset"}"#);
+        assert!(frames[1].contains(r#""text":"first""#), "{:?}", frames[1]);
+        assert!(frames[2].contains(r#""name":"Edit""#), "{:?}", frames[2]);
+        assert_eq!(frames[3], r#"{"t":"activity_synced","firstSeq":0,"lastSeq":1}"#);
         handle.shutdown(None);
     }
 
     #[test]
     fn clean_shutdown_sends_bye_with_exit_outcome() {
         let runtime = SteerRuntime::new().unwrap();
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (seen_tx, seen_rx) = flume::unbounded::<String>();
-
-        runtime.handle().spawn(async move {
-            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-            let (stream, _addr) = listener.accept().await.unwrap();
-            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
-            while let Some(Ok(msg)) = ws.next().await {
-                if let Message::Text(text) = msg {
-                    let _ = seen_tx.send(text);
-                }
-            }
-        });
-
         let recorded = Arc::new(Recorded::default());
         let handle = publish(
             &runtime,
-            PublishSpec {
-                session_id: "sess-x".to_string(),
-                issue_id: None,
-                journal_dir: None,
-                embeds: ImageEmbeds::default(),
-                audience: None,
-            },
-            Arc::new(FakeTickets {
-                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
-            }),
+            PublishSpec { session_id: "sess-x".to_string(), ..Default::default() },
             recording_hooks(recorded),
         );
-        let hello = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(
-            hello,
-            r#"{"t":"hello","sessionId":"sess-x","activityPublic":false}"#
-        );
-        assert_eq!(
-            seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
-            r#"{"t":"activity_reset"}"#
-        );
-
+        let (seen_rx, _inject_tx) = tap(&handle);
         handle.shutdown(Some("exit:0".to_string()));
         let bye = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(bye, r#"{"t":"bye","outcome":"exit:0"}"#);
-        wait_for(|| !handle.is_active());
-    }
-
-    #[test]
-    fn disabled_relay_ends_the_task_without_noise() {
-        struct DisabledTickets;
-        impl PublisherTickets for DisabledTickets {
-            fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-                Ok(None)
-            }
-        }
-        let runtime = SteerRuntime::new().unwrap();
-        let recorded = Arc::new(Recorded::default());
-        let handle = publish(
-            &runtime,
-            PublishSpec {
-                session_id: "sess-d".to_string(),
-                issue_id: None,
-                journal_dir: None,
-                embeds: ImageEmbeds::default(),
-                audience: None,
-            },
-            Arc::new(DisabledTickets),
-            recording_hooks(recorded.clone()),
-        );
-        wait_for(|| !handle.is_active());
-        assert!(recorded.errors.lock().unwrap().is_empty(), "EXP-4: no noise");
+        wait_for(|| !handle.is_active() && !is_publishing("sess-x"));
     }
 }

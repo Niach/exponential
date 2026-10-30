@@ -1155,6 +1155,7 @@ describe(`exponential_sessions_compact (EXP-988/EXP-936)`, () => {
         id: SESSION,
         userId: USER.id,
         hostUserId: null,
+        deviceId: `dev-1`,
         status: `running`,
         agent: `claude`,
       },
@@ -1180,6 +1181,7 @@ describe(`exponential_sessions_compact (EXP-988/EXP-936)`, () => {
     expect(relayPostCompact).toHaveBeenCalledWith(
       { url: `wss://relay.test`, secret: `s` },
       SESSION,
+      { userId: USER.id, deviceId: `dev-1` },
       `open threads`
     )
   })

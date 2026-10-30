@@ -2,12 +2,13 @@
 // the agent's context.
 //
 // Compaction is a REQUEST, never an act: the server relays a `compact_request`
-// frame (steer protocol, `ServerFrame`) to the run's publisher and the HOST
+// frame (steer protocol, `ServerFrame`) down the control socket of the
+// session's device (VAPP-43: `{userId: host, deviceId}`) and the HOST
 // executes it at the next turn boundary (the device holds the compaction
 // until the running turn ends, sends the agent's own `/compact <keep>`, and
 // prompts it to continue once the summary is in — an unattended run must not
 // idle after it asked). The verdict comes back on the same call: the relay
-// awaits the publisher's `compact_verdict` and answers the HTTP request with
+// awaits that device's `compact_verdict` and answers the HTTP request with
 // it, so the agent reads it off its tool result and no viewer ever hears of a
 // refusal.
 //
@@ -25,7 +26,7 @@
 //    must preserve); `reason` is the tool card's subject on the run's feed
 //    (contract `expToolDisplay` `sessions_compact`) and logged here.
 //
-// A run with no live publisher, a host that never answers (older than the
+// A run whose device is not connected, a host that never answers (older than the
 // frame) or a relay that is off are ERRORS, not refusals: the agent must not
 // read "refused" into "nobody was there to ask".
 import { resolveSessionHost } from "@/lib/sessions/host"
@@ -60,13 +61,21 @@ export interface SessionsCompactResult {
   refusedBecause?: SessionsCompactRefusal
 }
 
-/** The row facts the ownership + agent checks need. */
+/** The row facts the ownership + agent checks need, and the device the ask
+ *  is routed to (`deviceId`, empty when the row names none). */
 export interface SessionsCompactRow {
   id: string
   userId: string
   hostUserId: string | null
+  deviceId: string
   status: string
   agent: string | null
+}
+
+/** The device a compaction ask goes down: its host account + deviceId. */
+export interface SessionsCompactDevice {
+  userId: string
+  deviceId: string
 }
 
 /** The two seams a test replaces: the row lookup and the relay hop. `relay`
@@ -75,6 +84,7 @@ export interface SessionsCompactDeps {
   loadSession: (sessionId: string) => Promise<SessionsCompactRow | null>
   relay: (
     sessionId: string,
+    device: SessionsCompactDevice,
     keep: string | undefined
   ) => Promise<RelayCompactOutcome | null>
   log: (line: string) => void
@@ -98,13 +108,13 @@ const defaultDeps: SessionsCompactDeps = {
     if (!row) return null
     // NEW-1: the hosting account is derived from the devices rows.
     const host = await resolveSessionHost(row)
-    const { teamId: _team, deviceId: _device, ...rest } = row
+    const { teamId: _team, ...rest } = row
     return { ...rest, hostUserId: host && host !== row.userId ? host : null }
   },
-  relay: async (sessionId, keep) => {
+  relay: async (sessionId, device, keep) => {
     const config = getSteerRelayConfig()
     if (!config) return null
-    return relayPostCompact(config, sessionId, keep)
+    return relayPostCompact(config, sessionId, device, keep)
   },
   log: (line) => console.info(line),
 }
@@ -114,8 +124,8 @@ export function describeCompactDeliveryFailure(
   reason: Extract<RelayCompactOutcome, { delivered: false }>[`reason`]
 ): string {
   switch (reason) {
-    case `no_publisher`:
-      return `The session's host is not connected to the steer relay right now; compaction needs a live host. Try again in a moment.`
+    case `device_offline`:
+      return `The session's device is not connected right now; compaction needs it online. Try again in a moment.`
     case `no_verdict`:
       return `The session's host did not answer the compaction request; it may predate this feature. Update the desktop app or the exponential CLI on that machine.`
     case `busy`:
@@ -144,7 +154,15 @@ export async function requestSessionCompaction(
   deps.log(
     `[mcp] session ${input.sessionId} asked to compact its context: ${input.reason}`
   )
-  const outcome = await deps.relay(input.sessionId, input.keep)
+  // A row naming no device has nobody to ask: the same answer as an
+  // offline one, without the relay hop.
+  const outcome: RelayCompactOutcome | null = row.deviceId
+    ? await deps.relay(
+        input.sessionId,
+        { userId: row.hostUserId ?? row.userId, deviceId: row.deviceId },
+        input.keep
+      )
+    : { delivered: false, reason: `device_offline` }
   if (!outcome) {
     throw new Error(
       `Remote steering is not configured on this server (STEER_RELAY_URL), so a compaction request cannot reach the session's host.`

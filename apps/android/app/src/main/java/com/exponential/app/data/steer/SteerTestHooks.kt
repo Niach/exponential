@@ -21,8 +21,8 @@ import java.net.URI
  * Nothing in the product reads or writes this — no route, no setting, no deep
  * link. `StoreScreenshotsTest` sets it from the `steerRelayUrl` instrumentation
  * argument, and only when the instance it signs into is host-local; it stays
- * null in every real run, and [KtorSteerTransport] only consults it on a debug
- * build anyway.
+ * null in every real run, and the voice call's relay dial only consults it on
+ * a debug build anyway (VAPP-43: the steer viewer no longer dials the relay).
  */
 @VisibleForTesting
 object SteerTestHooks {

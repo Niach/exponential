@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-steer-over-enet",
+    date: "2026-10-30",
+    title: "Sessions stream straight from your device",
+    summary: "Watching and steering a session now goes directly between your app and the device that runs it; the steer relay no longer carries session content.",
+    body: r#"- **Device to device**: a session's activity, your messages, answers and Stop travel over eNet between your app and the machine running the session, on web, desktop, iOS and Android. The steer relay only keeps device presence, the server's kill, Stop and compact commands, and voice calls.
+- **Earlier sessions**: an idle or ended session's transcript comes straight from the device that ran it. When that device is offline the session says so.
+- **Self-hosting**: this release removes server support for iOS below 0.14.76, Android below 0.14.78, desktop below 0.14.87 and the CLI below 0.14.87. Set `CLIENT_MIN_VERSION_*` to those versions before upgrading (see `selfhost/.env.example`)."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_122: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-sealed-content",
     date: "2026-10-30",
     title: "Sealed session content",

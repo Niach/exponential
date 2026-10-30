@@ -8,11 +8,10 @@
 //! JSON [`ActivityEvent`] per line, in publish order, written by the live
 //! publisher as it sends.
 //!
-//! The read path is the mirror image: when a viewer asks the relay for a room
-//! that is not up, the relay routes a `history_request` down the device's
-//! control socket, the device reads the file back and republishes it through
-//! [`publish_history`] as a short-lived publisher — hello, the events, then
-//! `bye {outcome:"history"}`. The server never stores a transcript.
+//! The read path is the mirror image: VAPP-43 STORED REPLAY — an eNet viewer
+//! that joins a session no live publisher here runs is answered off this
+//! file (`enet_steer.rs`, [`read_journal_seq`] + [`read_journal_page`]).
+//! Neither the server nor the relay ever stores or carries a transcript.
 //!
 //! Three rules the file inherits from the in-memory journal:
 //!
@@ -35,19 +34,14 @@
 //!
 //! Redaction is NOT done here. Events reach the writer already scrubbed by
 //! the emitter and stamped by the publisher's `prepare_for_journal`, exactly
-//! as they go on the wire — the file holds what the relay held, never more.
+//! as they go on the wire — the file holds what a viewer sees, never more.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use futures_util::SinkExt;
-use tokio_tungstenite::tungstenite::Message;
-
 use crate::frames::{ActivityEvent, ClientFrame};
-use crate::publisher::RELAY_MAX_PAYLOAD_BYTES;
-use crate::{dial, DialError};
 
 /// A journal file stops growing here. Well past any real run (the in-memory
 /// journal's own budget is 4 MiB) and small enough that a thousand of them
@@ -64,9 +58,8 @@ pub const JOURNAL_CAP_NOTICE: &str = "[Exponential] Session history stopped reco
 /// on every build, so a reader skips it like any unknown kind.
 const DIFF_REF_LINE: &str = "{\"kind\":\"diff_ref\"}\n";
 
-/// `bye` outcome that tells the relay this publisher was a history replay,
-/// not a live session ending — it answers the parked viewers with
-/// `activity_synced` before closing the room.
+/// `bye` outcome of a STORED REPLAY of an ended run (VAPP-43): the replay
+/// is the whole transcript, and no live run follows it.
 pub const HISTORY_OUTCOME: &str = "history";
 
 /// EXP-850 §3 review: how often ONE workflow id may reach the file while it
@@ -79,17 +72,6 @@ pub const HISTORY_OUTCOME: &str = "history";
 /// nothing but freshness. A TERMINAL status and the FIRST frame of an id are
 /// always written.
 const WORKFLOW_JOURNAL_INTERVAL: Duration = Duration::from_secs(10);
-
-/// Frames [`publish_history`] sends between yields, and how long it yields.
-///
-/// EXP-781: a replay pushes a whole journal as fast as the socket accepts it,
-/// while the relay fans every frame out into a per-viewer buffer it caps at
-/// 512 KiB (`hub.ts` `VIEWER_HIGH_WATER`) and evicts the viewer over. A tight
-/// send loop is the burst that trips that cap; a short yield every batch gives
-/// the fan-out room to drain. Cheap either way — a replay is a background
-/// task and nothing waits on it.
-const HISTORY_BATCH_FRAMES: usize = 64;
-const HISTORY_BATCH_PAUSE: Duration = Duration::from_millis(20);
 
 /// Where every session's journal file lives.
 pub fn journal_dir(data_dir: &Path) -> PathBuf {
@@ -494,34 +476,32 @@ pub fn read_journal_page(
 /// contract's `steerFeed.historyPageMax`, which the relay's zod enforces.
 pub const HISTORY_PAGE_MAX: u32 = domain::contract::STEER_FEED_HISTORY_PAGE_MAX;
 
-/// ONE `history_chunk` answering a page ask, serialized — the shape BOTH
-/// routes send: the live publisher (`session_id: None`, its socket already
-/// belongs to the room) and, EXP-796, the control socket (`Some`, one socket
-/// serves every session this machine ran). The page is already bounded to
-/// [`HISTORY_PAGE_MAX`] events, so it is one frame with `done: true`; an
-/// oversize frame is dropped down to an EMPTY done chunk rather than severing
-/// the socket, which leaves the asking viewer with "nothing older" instead of
-/// a dead connection.
-pub fn history_chunk_frame(
-    session_id: Option<&str>,
-    request_id: &str,
-    page: Vec<(u64, ActivityEvent)>,
-) -> String {
+/// The largest `history_chunk` frame: what one eNet envelope can carry with
+/// room to spare for the envelope itself.
+const PAGE_FRAME_MAX: usize = crate::enet_steer::CHAT_MAX_BYTES - 4096;
+
+/// ONE `history_chunk` answering a page ask, serialized — the live
+/// publisher's and the STORED REPLAY's (the envelope names the session). The
+/// page is already bounded to [`HISTORY_PAGE_MAX`] events, so it is one frame
+/// with `done: true`; an oversize frame is dropped down to an EMPTY done
+/// chunk, which leaves the asking viewer with "nothing older" instead of a
+/// page that never arrives.
+pub fn history_chunk_frame(request_id: &str, page: Vec<(u64, ActivityEvent)>) -> String {
     let (seqs, events): (Vec<u64>, Vec<ActivityEvent>) = page.into_iter().unzip();
     let frame = ClientFrame::HistoryChunk {
-        session_id: session_id.map(str::to_string),
+        session_id: None,
         request_id: request_id.to_string(),
         events,
         seqs,
         done: true,
     }
     .to_json();
-    if frame.len() < RELAY_MAX_PAYLOAD_BYTES {
+    if frame.len() < PAGE_FRAME_MAX {
         return frame;
     }
     log::warn!("steer history: page {request_id} too large — answering empty");
     ClientFrame::HistoryChunk {
-        session_id: session_id.map(str::to_string),
+        session_id: None,
         request_id: request_id.to_string(),
         events: Vec::new(),
         seqs: Vec::new(),
@@ -530,18 +510,10 @@ pub fn history_chunk_frame(
     .to_json()
 }
 
-/// EXP-796: the page a control-socket ask gets — [`read_journal_page`]
-/// bounded to [`HISTORY_PAGE_MAX`], or an EMPTY page when this machine has no
-/// journal for the session (the live publisher answers the same: `nothing
-/// older`, never silence, so the viewer's spinner ends).
-pub fn history_page_for(data_dir: &Path, ask: &crate::control_channel::HistoryPageAsk) -> Vec<(u64, ActivityEvent)> {
-    read_journal_page(
-        data_dir,
-        &ask.session_id,
-        ask.before_seq,
-        ask.limit.min(HISTORY_PAGE_MAX) as usize,
-    )
-    .unwrap_or_default()
+/// A latest-wins STATE slot (the fixed kinds and `workflow`), never a
+/// transcript row: what `activity_synced`'s first/last seq skip.
+pub(crate) fn is_state_slot(event: &ActivityEvent) -> bool {
+    slot_of(event).is_some() || matches!(event, ActivityEvent::Workflow(_))
 }
 
 /// EXP-764: drop ONE session's journal — the hosts call it when a repo-less
@@ -616,238 +588,6 @@ pub fn prune_session_history(data_dir: &Path) -> (usize, usize) {
     let journals = prune_journals(data_dir, retention);
     let records = coding::session_retention::prune_run_records(data_dir, retention);
     (journals, records)
-}
-
-/// Republish a stored transcript to the relay as a one-shot publisher.
-///
-/// `dial_url` is the mint's `url` field, used AS-IS (§8.2 — the ticket rides
-/// its query string and the URL is never reconstructed). The socket sends
-/// `hello`, the events, then `bye {outcome:"history"}` and closes; inbound
-/// frames are ignored throughout (no steering, no kill, no reconnect — the
-/// session this replays is over). Deliberately NOT the live
-/// [`crate::publisher`]: none of its state machine applies to a replay.
-pub async fn publish_history(
-    dial_url: &str,
-    session_id: &str,
-    events: &[(u64, ActivityEvent)],
-) -> Result<(), String> {
-    let mut ws = match dial(dial_url).await {
-        Ok(stream) => stream,
-        Err(DialError::Unauthorized) => return Err("relay rejected the ticket".to_string()),
-        Err(DialError::Other(reason)) => return Err(reason),
-    };
-    let hello = ClientFrame::Hello {
-        session_id,
-        issue_id: None,
-        // EXP-90: always the explicit opt-out (an absent key means "public"
-        // to legacy relays).
-        activity_public: Some(false),
-        // #EXP-1415: never evict the run's live publisher.
-        replay: Some(true),
-    }
-    .to_json();
-    ws.send(Message::Text(hello))
-        .await
-        .map_err(|err| format!("hello failed: {err}"))?;
-    // The same frame the live publisher opens with: this replay IS the whole
-    // transcript, so anything a previous replay left in the room's log would
-    // be duplicated in front of it.
-    ws.send(Message::Text(ClientFrame::ActivityReset.to_json()))
-        .await
-        .map_err(|err| format!("activity_reset failed: {err}"))?;
-    for (sent, (seq, event)) in events.iter().enumerate() {
-        if sent > 0 && sent % HISTORY_BATCH_FRAMES == 0 {
-            tokio::time::sleep(HISTORY_BATCH_PAUSE).await;
-        }
-        let framed = ClientFrame::Activity {
-            event: event.clone(),
-            // EXP-783: the replay carries the ORIGINAL sequence, so a viewer
-            // that already holds part of this run splices instead of losing it.
-            seq: *seq,
-        }
-        .to_json();
-        if framed.len() >= RELAY_MAX_PAYLOAD_BYTES {
-            // Same rule as the live publisher: an oversize frame would make
-            // the relay sever the socket, so it is a skip, not a failure.
-            continue;
-        }
-        ws.send(Message::Text(framed))
-            .await
-            .map_err(|err| format!("activity failed: {err}"))?;
-    }
-    let bye = ClientFrame::Bye {
-        outcome: Some(HISTORY_OUTCOME),
-    }
-    .to_json();
-    ws.send(Message::Text(bye))
-        .await
-        .map_err(|err| format!("bye failed: {err}"))?;
-    let _ = ws.close(None).await;
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// The host seam: one relay `history_request`, served end to end
-// ---------------------------------------------------------------------------
-
-/// Sessions this device is replaying right now. A viewer that redials while
-/// the replay is in flight makes the relay ask again, and a SECOND publisher
-/// for the same room would evict the first (`CLOSE_REPLACED`) and restart the
-/// transcript from zero — so an ask for a session already in flight is
-/// dropped. Cheap to clone; one per host.
-#[derive(Clone, Default)]
-pub struct HistoryInFlight(std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>);
-
-impl HistoryInFlight {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn claim(&self, session_id: &str) -> bool {
-        match self.0.lock() {
-            Ok(mut set) => set.insert(session_id.to_string()),
-            Err(_) => false,
-        }
-    }
-
-    fn release(&self, session_id: &str) {
-        if let Ok(mut set) = self.0.lock() {
-            set.remove(session_id);
-        }
-    }
-}
-
-/// The device half of EXP-773, for both hosts (desktop app + CLI daemon):
-/// read the session's journal, mint a publisher ticket for it, and republish
-/// it to the waiting room. Non-blocking — everything happens on the steer
-/// runtime, so the control socket's select loop is never held up.
-///
-/// #EXP-1415: no journal for that id (the run happened on another machine,
-/// or the file was pruned) or an empty one is ANSWERED through `reply` with
-/// [`ClientFrame::HistoryNone`], so the relay tells the viewer at once and
-/// backs the session off. Silent no-ops, both normal: a relay that reports
-/// disabled (or a failed mint) and a replay already in flight.
-pub fn serve_history_request(
-    runtime: &crate::SteerRuntime,
-    tickets: std::sync::Arc<dyn crate::publisher::PublisherTickets>,
-    data_dir: PathBuf,
-    session_id: String,
-    in_flight: HistoryInFlight,
-    reply: crate::control_channel::HistoryPageReply,
-) {
-    // Never republish over a run this machine is still hosting: the relay
-    // would hand the room to the replay and close the live publisher as
-    // REPLACED, which is terminal for it. Reachable whenever the row reads
-    // `ended` while the run is alive (see [`crate::publisher::is_publishing`]).
-    if crate::publisher::is_publishing(&session_id) {
-        log::info!("steer history: {session_id} is running here; not replaying over its publisher");
-        return;
-    }
-    if !in_flight.claim(&session_id) {
-        log::debug!("steer history: replay for {session_id} already in flight");
-        return;
-    }
-    runtime.handle().spawn(async move {
-        if !serve_history_task(tickets, data_dir, &session_id).await {
-            reply(ClientFrame::HistoryNone { session_id: session_id.clone() });
-        }
-        in_flight.release(&session_id);
-    });
-}
-
-/// EXP-796, the other half for both hosts: answer a control-socket
-/// `history_page` with ONE `history_chunk` naming the session. The journal
-/// read runs on a blocking task of the steer runtime; `reply` queues the
-/// frame on the control socket the ask arrived on. No ticket, no publisher —
-/// the relay routes by session id, and the room that asked is a lingering
-/// one this device already replayed into.
-pub fn serve_history_page(
-    runtime: &crate::SteerRuntime,
-    data_dir: PathBuf,
-    ask: crate::control_channel::HistoryPageAsk,
-    reply: crate::control_channel::HistoryPageReply,
-) {
-    runtime.handle().spawn(async move {
-        let read_ask = ask.clone();
-        let page =
-            match tokio::task::spawn_blocking(move || history_page_for(&data_dir, &read_ask)).await
-        {
-            Ok(page) => page,
-            Err(err) => {
-                log::warn!("steer history: page read panicked: {err}");
-                Vec::new()
-            }
-        };
-        log::info!(
-            "steer history: page of {} event(s) for {} below {}",
-            page.len(),
-            ask.session_id,
-            ask.before_seq
-        );
-        let (seqs, events): (Vec<u64>, Vec<ActivityEvent>) = page.into_iter().unzip();
-        reply(ClientFrame::HistoryChunk {
-            session_id: Some(ask.session_id),
-            request_id: ask.request_id,
-            events,
-            seqs,
-            done: true,
-        });
-    });
-}
-
-/// `false` = this device holds no transcript for the session (the caller
-/// answers `history_none`); every other outcome is `true`, failures included
-/// (a mint or a dial that failed may work on the viewer's redial).
-async fn serve_history_task(
-    tickets: std::sync::Arc<dyn crate::publisher::PublisherTickets>,
-    data_dir: PathBuf,
-    session_id: &str,
-) -> bool {
-    let read_dir = data_dir.clone();
-    let read_id = session_id.to_string();
-    let events =
-        match tokio::task::spawn_blocking(move || read_journal_seq(&read_dir, &read_id)).await
-    {
-        Ok(Some(events)) if !events.is_empty() => events,
-        Ok(_) => {
-            log::info!("steer history: no stored transcript for {session_id}");
-            return false;
-        }
-        Err(err) => {
-            log::warn!("steer history: journal read panicked: {err}");
-            return true;
-        }
-    };
-    let minted = match tokio::task::spawn_blocking(move || tickets.mint()).await {
-        Ok(Ok(Some(ticket))) => ticket,
-        Ok(Ok(None)) => {
-            log::info!("steer history: relay disabled; not replaying {session_id}");
-            return true;
-        }
-        Ok(Err(err)) => {
-            log::warn!("steer history: ticket mint for {session_id} failed: {err}");
-            return true;
-        }
-        Err(err) => {
-            log::warn!("steer history: mint task panicked: {err}");
-            return true;
-        }
-    };
-    // #EXP-1415: the run may have come back while the journal was read and
-    // the ticket minted; its live publisher owns the room (the relay refuses
-    // a replay over it too — this only skips the dial).
-    if crate::publisher::is_publishing(session_id) {
-        log::info!("steer history: {session_id} started publishing here; replay dropped");
-        return true;
-    }
-    match publish_history(&minted.url, session_id, &events).await {
-        Ok(()) => log::info!(
-            "steer history: replayed {} event(s) for {session_id}",
-            events.len()
-        ),
-        Err(reason) => log::warn!("steer history: replay of {session_id} failed: {reason}"),
-    }
-    true
 }
 
 #[cfg(test)]
@@ -1062,13 +802,11 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// EXP-796: a control-socket page ask is answered from the same file the
-    /// publisher route reads, bounded, oldest first, naming the session —
-    /// and a session this machine never ran gets an EMPTY done chunk.
+    /// EXP-783: a page ask is answered from the file, bounded, oldest first,
+    /// as ONE done chunk — and a session this machine never ran reads empty.
     #[test]
-    fn a_control_page_ask_is_answered_with_one_named_chunk() {
-        use crate::control_channel::HistoryPageAsk;
-        let dir = temp_dir("control-page");
+    fn a_page_ask_is_answered_with_one_chunk() {
+        let dir = temp_dir("page");
         let mut writer = JournalWriter::open(&dir, "sess-1").unwrap();
         for i in 0..6 {
             writer.append(&ActivityEvent::narration(&format!("row {i}")));
@@ -1076,13 +814,7 @@ mod tests {
         writer.append(&ActivityEvent::diff("state, never a page row"));
         drop(writer);
 
-        let ask = HistoryPageAsk {
-            session_id: "sess-1".to_string(),
-            request_id: "h7".to_string(),
-            before_seq: 5,
-            limit: 2,
-        };
-        let page = history_page_for(&dir, &ask);
+        let page = read_journal_page(&dir, "sess-1", 5, 2).unwrap();
         assert_eq!(
             page,
             vec![
@@ -1091,97 +823,16 @@ mod tests {
             ]
         );
         assert_eq!(
-            history_chunk_frame(Some("sess-1"), "h7", page),
-            r#"{"t":"history_chunk","sessionId":"sess-1","requestId":"h7","events":[{"kind":"narration","text":"row 3"},{"kind":"narration","text":"row 4"}],"seqs":[3,4],"done":true}"#
+            history_chunk_frame("h7", page),
+            r#"{"t":"history_chunk","requestId":"h7","events":[{"kind":"narration","text":"row 3"},{"kind":"narration","text":"row 4"}],"seqs":[3,4],"done":true}"#
         );
-        // The limit is capped at the contract's page max.
-        let wide = HistoryPageAsk { limit: u32::MAX, before_seq: u64::MAX, ..ask.clone() };
-        assert_eq!(history_page_for(&dir, &wide).len(), 6.min(HISTORY_PAGE_MAX as usize));
-        // No journal here: an empty done page, never silence.
-        let missing = HistoryPageAsk { session_id: "sess-elsewhere".to_string(), ..ask };
-        assert_eq!(history_page_for(&dir, &missing), Vec::new());
+        assert_eq!(read_journal_page(&dir, "sess-elsewhere", 5, 2), None);
         assert_eq!(
-            history_chunk_frame(Some("sess-elsewhere"), "h8", Vec::new()),
-            r#"{"t":"history_chunk","sessionId":"sess-elsewhere","requestId":"h8","events":[],"seqs":[],"done":true}"#
+            history_chunk_frame("h8", Vec::new()),
+            r#"{"t":"history_chunk","requestId":"h8","events":[],"seqs":[],"done":true}"#
         );
-
-        // The whole seam: the reply lands ONE frame, off the runtime.
-        let runtime = crate::SteerRuntime::new().unwrap();
-        let (tx, rx) = flume::bounded::<String>(1);
-        serve_history_page(
-            &runtime,
-            dir.clone(),
-            HistoryPageAsk {
-                session_id: "sess-1".to_string(),
-                request_id: "h9".to_string(),
-                before_seq: 1,
-                limit: 10,
-            },
-            Box::new(move |frame| {
-                let _ = tx.send(frame.to_json());
-            }),
-        );
-        let frame = rx.recv_timeout(Duration::from_secs(10)).expect("one chunk");
-        assert_eq!(
-            frame,
-            r#"{"t":"history_chunk","sessionId":"sess-1","requestId":"h9","events":[{"kind":"narration","text":"row 0"}],"seqs":[0],"done":true}"#
-        );
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// #EXP-1415: a history ask for a session this device holds no journal
-    /// for is ANSWERED (`history_none`, down the control socket), never left
-    /// to the relay's 20s timer — and the ticket is never minted for it.
-    #[test]
-    fn a_missing_journal_answers_history_none() {
-        struct NoMint(std::sync::Arc<std::sync::atomic::AtomicBool>);
-        impl crate::publisher::PublisherTickets for NoMint {
-            fn mint(&self) -> Result<Option<api::steer::MintedTicket>, api::error::ApiError> {
-                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-                Ok(None)
-            }
-        }
-        let dir = temp_dir("none");
-        let minted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let runtime = crate::SteerRuntime::new().unwrap();
-        let in_flight = HistoryInFlight::new();
-        let (tx, rx) = flume::bounded::<String>(1);
-        serve_history_request(
-            &runtime,
-            std::sync::Arc::new(NoMint(minted.clone())),
-            dir.clone(),
-            "sess-gone".to_string(),
-            in_flight.clone(),
-            Box::new(move |frame| {
-                let _ = tx.send(frame.to_json());
-            }),
-        );
-        let frame = rx.recv_timeout(Duration::from_secs(10)).expect("an answer");
-        assert_eq!(frame, r#"{"t":"history_none","sessionId":"sess-gone"}"#);
-        assert!(!minted.load(std::sync::atomic::Ordering::SeqCst));
-
-        // A journal that exists but the relay is disabled for: no answer
-        // (the mint ran; a redial may find it enabled).
-        let mut writer = JournalWriter::open(&dir, "sess-here").unwrap();
-        writer.append(&ActivityEvent::narration("kept"));
-        drop(writer);
-        let (tx, rx) = flume::bounded::<String>(1);
-        serve_history_request(
-            &runtime,
-            std::sync::Arc::new(NoMint(minted.clone())),
-            dir.clone(),
-            "sess-here".to_string(),
-            in_flight,
-            Box::new(move |frame| {
-                let _ = tx.send(frame.to_json());
-            }),
-        );
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while !minted.load(std::sync::atomic::Ordering::SeqCst) {
-            assert!(std::time::Instant::now() < deadline, "the mint never ran");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+        assert!(is_state_slot(&ActivityEvent::diff("x")));
+        assert!(!is_state_slot(&ActivityEvent::narration("x")));
         let _ = fs::remove_dir_all(&dir);
     }
 
