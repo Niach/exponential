@@ -93,8 +93,7 @@ final class SessionTreeTests: XCTestCase {
             needsYou: try XCTUnwrap(row["needsYou"] as? Bool),
             unread: (row["unread"] as? Bool) ?? false,
             activityAt: try XCTUnwrap(string(row["activityAt"])),
-            deviceId: string(row["deviceId"]),
-            earlier: row["earlier"] as? Int
+            deviceId: string(row["deviceId"])
         )
     }
 
@@ -287,7 +286,7 @@ final class SessionTreeTests: XCTestCase {
             "key": group.key.rawValue,
             "title": group.title,
             "rows": group.rows.map { row -> [String: Any] in
-                var out: [String: Any] = [
+                [
                     "sessionId": row.sessionId,
                     "teamId": row.teamId,
                     "depth": row.depth,
@@ -300,9 +299,6 @@ final class SessionTreeTests: XCTestCase {
                     "activityAt": row.activityAt,
                     "deviceId": json(row.deviceId),
                 ]
-                // S-3: `earlier` rides ONLY the fold row.
-                if let earlier = row.earlier { out["earlier"] = earlier }
-                return out
             },
         ]
     }
@@ -623,9 +619,8 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(recent["max"] as? Int, SessionTree.ListRules.recentMax)
         XCTAssertNil(fixture["treeState"])
         XCTAssertEqual(fixture["recentChildMinutes"] as? Double, SessionTree.ListRules.recentChildMinutes)
-        let earlier = try XCTUnwrap((fixture["copy"] as? [String: Any])?["earlier"] as? [String: String])
-        XCTAssertEqual(SessionTree.earlierLabel(1), earlier["one"])
-        XCTAssertEqual(SessionTree.earlierLabel(3), earlier["other"]?.replacingOccurrences(of: "{n}", with: "3"))
+        // #EXP-1461: root-only rows, the `earlier` fold row and its copy are gone.
+        XCTAssertNil((fixture["copy"] as? [String: Any])?["earlier"])
     }
 
     /// NEW-1: `recentCases` — expected = the Recent group's ROOT ids in order.

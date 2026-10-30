@@ -177,7 +177,6 @@ struct ChatsView: View {
                 icon: BoardTypeDisplay.iconName(for: bubble.agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
                 color: Color(hex: bubble.agent.color)
                     ?? Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white,
-                ring: bubble.ring == .needsYou ? .needsYou : bubble.ring == .unread ? .unread : .none,
                 assistant: bubble.agent.assistant
             )
         }
@@ -191,16 +190,16 @@ struct ChatsView: View {
         let archivedEntry = view == .list && list.archived > 0 && filter == .all
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                // S-3 (stories.json STORY RING): the rings ride the bubbles
-                // row: a bubble with a ring opens the viewer at it, else the
-                // agent's chat; the other rings follow.
+                // #EXP-1461 (stories.json STORY ROW): ONLY rings, the last
+                // 24 h: a bubble without a ring is not drawn (its agent stays
+                // reachable from the pinned agent rows); nothing = no row.
                 if view == .list {
                     ChatStoriesHost(teamId: teamState.activeTeamId) { stories in
-                        if !bubbles.isEmpty || !stories.rings.isEmpty {
+                        let row = Stories.storyRow(bubbles.map(\.id), stories.rings)
+                        if !row.bubbles.isEmpty || !row.rest.isEmpty {
                             AgentBubbles(
                                 items: bubbles,
                                 rings: stories.rings,
-                                onTap: { agentId in pushRoute(.agentChannel(accountId: accountId, agentId: agentId)) },
                                 onHold: openAgentMenu,
                                 onOpenStory: stories.open
                             ) { ring in
@@ -208,7 +207,7 @@ struct ChatsView: View {
                             }
                             .padding(.horizontal, -16)
                             .padding(.top, 4)
-                            .padding(.bottom, 14)
+                            .padding(.bottom, 10)
                         }
                     }
                 }

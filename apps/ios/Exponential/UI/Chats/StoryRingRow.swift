@@ -11,11 +11,10 @@ struct ChatStories {
     let open: (String) -> Void
 }
 
-/// S-3 STORIES (stories.json STORY RING): the Chats list's story rings and
-/// THE viewer they open (full screen at that ring). The rings ride the agent
-/// bubbles row (chats.json BUBBLES, `AgentBubbles rings`): a bubble wears its
-/// agent's ring, the rest follow it; the host paints no row of its own,
-/// `content` draws the bubbles from `ChatStories`.
+/// S-3 STORIES (stories.json STORY ROW): the Chats list's story rings and
+/// THE viewer they open (full screen at that ring). THE STORY ROW
+/// (`AgentBubbles`, `Stories.storyRow`, #EXP-1461) draws only rings; the host
+/// paints no row of its own, `content` draws it from `ChatStories`.
 struct ChatStoriesHost<Content: View>: View {
     let teamId: String?
     @ViewBuilder let content: (ChatStories) -> Content
@@ -104,7 +103,7 @@ private struct StoryViewerTarget: Identifiable {
     var id: String { key }
 }
 
-/// The rings side by side (THE ring button, the bubbles' metrics): the
+/// The rings side by side (THE ring button, THE STORY ROW's geometry): the
 /// story-ring specimen's row.
 struct StoryRingStrip: View {
     let rings: [Stories.StoryRing]
@@ -113,13 +112,13 @@ struct StoryRingStrip: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: ChatListMetrics.bubbleSpacing) {
+            HStack(alignment: .top, spacing: CGFloat(Stories.Row.gap)) {
                 ForEach(rings) { ring in
                     StoryRingButton(ring: ring, onOpen: onOpen) { StoryRingAvatarView(avatar: avatar(ring)) }
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 2)
+            .padding(.bottom, CGFloat(Stories.Row.padBottom))
         }
     }
 }
