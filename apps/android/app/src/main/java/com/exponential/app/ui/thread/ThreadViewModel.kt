@@ -33,6 +33,8 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.InboxRoute
+import com.exponential.app.domain.ThreadRowAction
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
@@ -318,6 +320,43 @@ class ThreadViewModel @Inject constructor(
     /** Whether [sessionId] is ANOTHER root (an agent channel's
      *  `thread_started` card): it opens as a thread, not a raw session. */
     fun isOtherRoot(sessionId: String): Boolean = sessionId != rootId && sessionId in otherRootIds
+
+    /** #EXP-1464: the sessions the last [view] build knew (the tree + the
+     *  sessions its rows name + their roots), by id. */
+    @Volatile private var knownSessions: Map<String, SessionEntity> = emptyMap()
+
+    /** #EXP-1464 (thread-row-action.json): a watchdog or usage flag stands
+     *  behind [sessionId]'s `needs_you` (it opens, never expands). */
+    fun isBlocked(sessionId: String): Boolean = knownSessions[sessionId]?.blocked != null
+
+    /** #EXP-1464: where a Conversation row's session opens (inbox-route.json
+     *  `sessionTarget`, the S-3 rule); null = not synced. */
+    fun sessionTarget(sessionId: String): InboxRoute.SessionTarget? {
+        val session = knownSessions[sessionId] ?: return null
+        val sessionRoot = session.rootId.ifEmpty { session.id }
+        val root = knownSessions[sessionRoot]
+        return InboxRoute.sessionTarget(
+            id = session.id,
+            rootId = sessionRoot,
+            agentId = root?.agentId ?: session.agentId,
+            userId = root?.userId ?: session.userId,
+            viewerId = currentUserId.value,
+        )
+    }
+
+    /** #EXP-1464: THE question / plan card an expanded session row draws
+     *  ([ThreadRowAction.sessionWaitingCard] over that session's messages);
+     *  null while it has not synced. */
+    fun waitingCard(sessionId: String): Flow<SessionTree.ThreadRow?> =
+        dbFlow.filterNotNull()
+            .flatMapLatest { it.keyedMessages(it.messageDao().observeBySession(sessionId)) }
+            .map { messages ->
+                ThreadRowAction.sessionWaitingCard(sessionId, messages)
+                    ?.let { id -> messages.firstOrNull { it.id == id } }
+                    ?.let(SessionTree::askRow)
+            }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
     private val allIssues = dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }
 
     /** EXP-1334: the `parent` relations a linked sub-issue folds by. */
@@ -356,6 +395,7 @@ class ThreadViewModel @Inject constructor(
         val r = rootRow ?: return@combine null
         otherRootIds = refs.filter { it.isRoot && it.id != rootId }.mapTo(HashSet()) { it.id }
         val sessions = if (refs.isEmpty()) treeRows else (treeRows + refs).distinctBy { it.id }
+        knownSessions = sessions.associateBy { it.id }
         val built = SessionTree.buildSessionThread(
             root = SessionTree.session(r),
             sessions = sessions.map(SessionTree::session),
