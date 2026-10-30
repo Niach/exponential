@@ -1700,6 +1700,7 @@ dependencies = [
  "codemode",
  "dirs",
  "domain",
+ "enet-core",
  "epilot",
  "epilot-screen",
  "etalk",

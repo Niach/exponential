@@ -5,7 +5,9 @@
 //! allowlist = the endpoint ids `installs.list` returns for every team the
 //! user is in (refreshed on start, every [`ALLOWLIST_REFRESH`] and on a team
 //! change). No content travels here yet (#EXP-1458/#EXP-1459): the chat
-//! channel only carries the opt-in [`PING_ENV`] ping.
+//! channel only carries the opt-in [`PING_ENV`] ping. EXP-1458: once
+//! registered the node also runs the install's KEY HOLDER
+//! (`seal_keys.rs`), the process's `coding::sealing` service.
 //!
 //! Identity: 32 secret-key bytes as one lowercase hex line in a 0600 file
 //! (the locked file-store posture of `api::token_store`, never the OS
@@ -26,6 +28,8 @@ use api::error::ApiError;
 use api::installs::{InstallEntry, RegisterInstall};
 use enet_core::{EndpointId, Event, Identity, NetConfig, Node, PushKeypair, RelayChoice, RelayUrl, Ticket};
 use tokio::sync::{watch, Notify};
+
+use crate::seal_keys::KeyHolder;
 
 pub use enet_core::NetConfig as EnetConfig;
 
@@ -212,6 +216,11 @@ pub trait InstallRegistry: Send + Sync + 'static {
     fn register(&self, input: &RegisterInstall) -> Result<String, ApiError>;
     fn list(&self, team_id: &str) -> Result<Vec<InstallEntry>, ApiError>;
     fn revoke(&self, install_id: &str) -> Result<(), ApiError>;
+    /// EXP-1458: the `sessionKeys.*` half, for the install's key holder
+    /// (`seal_keys.rs`); `None` = no holder (tests that only register).
+    fn keys(self: Arc<Self>) -> Option<Arc<dyn crate::seal_keys::KeyApi>> {
+        None
+    }
 }
 
 impl InstallRegistry for api::TrpcClient {
@@ -223,6 +232,9 @@ impl InstallRegistry for api::TrpcClient {
     }
     fn revoke(&self, install_id: &str) -> Result<(), ApiError> {
         api::installs::revoke(self, install_id)
+    }
+    fn keys(self: Arc<Self>) -> Option<Arc<dyn crate::seal_keys::KeyApi>> {
+        Some(self)
     }
 }
 
@@ -285,6 +297,12 @@ struct Inner {
     stopped: AtomicBool,
     /// Counts finished allowlist passes (tests and the live check wait on it).
     passes: watch::Sender<u64>,
+    /// EXP-1458: the key holder, once registered (`seal_keys.rs`).
+    holder: Mutex<Option<KeyHolder>>,
+    holder_wake: Arc<Notify>,
+    /// The last allowlist's entries (the user's other installs a new
+    /// tree's key is wrapped for).
+    entries: Mutex<Vec<InstallEntry>>,
 }
 
 /// One install's running eNet node. Cheap to clone; [`InstallNode::stop`]
@@ -313,6 +331,9 @@ impl InstallNode {
             wake: Notify::new(),
             stopped: AtomicBool::new(false),
             passes,
+            holder: Mutex::new(None),
+            holder_wake: Arc::new(Notify::new()),
+            entries: Mutex::new(Vec::new()),
         });
         runtime.spawn(run(Arc::clone(&inner)));
         InstallNode { inner }
@@ -333,6 +354,34 @@ impl InstallNode {
         lock(&self.inner.install_id).clone()
     }
 
+    /// EXP-1458: the install's key holder (the process's
+    /// `coding::sealing` service), once registered.
+    pub fn key_holder(&self) -> Option<KeyHolder> {
+        lock(&self.inner.holder).clone()
+    }
+
+    /// EXP-1458: `sessions.send {seal}` for a NEW root: a fresh tree key
+    /// wrapped for this install, the user's other installs on the last
+    /// allowlist and the install of `target_device` (the `devices.device_id`
+    /// that will run the root, when known). Holders fill any gap through
+    /// `pending`. [`adopt`] it with the returned root id.
+    ///
+    /// [`adopt`]: coding::sealing::SealService::adopt
+    pub fn new_root_seal(&self, target_device: Option<&str>) -> Result<coding::sealing::NewRootSeal, String> {
+        let node = self.node().ok_or("eNet is not running")?;
+        let install_id = self.install_id().ok_or("this install is not registered yet")?;
+        let push = PushKeypair::derive(node.identity());
+        let readers: Vec<(String, String)> = lock(&self.inner.entries)
+            .iter()
+            .filter(|entry| {
+                entry.user_id == self.inner.spec.user_id
+                    || target_device.is_some_and(|device| entry.device_id.as_deref() == Some(device))
+            })
+            .map(|entry| (entry.install_id.clone(), entry.x25519_public.clone()))
+            .collect();
+        coding::sealing::seal_new_root(&install_id, &push.public(), &readers).map_err(|e| e.to_string())
+    }
+
     /// Waits until at least `n` allowlist passes have finished.
     pub async fn passes_at_least(&self, n: u64) {
         let mut rx = self.inner.passes.subscribe();
@@ -343,6 +392,10 @@ impl InstallNode {
     /// next sign-in of the account reuses it).
     pub fn stop(&self) {
         self.inner.stopped.store(true, Ordering::SeqCst);
+        if let Some(holder) = lock(&self.inner.holder).take() {
+            holder.stop();
+        }
+        self.inner.holder_wake.notify_one();
         self.inner.wake.notify_one();
     }
 
@@ -467,6 +520,9 @@ async fn run(inner: Arc<Inner>) {
         if matches!(registered, Registered::Later) {
             registered = register(&inner, &identity).await;
         }
+        if matches!(registered, Registered::Yes) {
+            start_holder(&inner, &identity);
+        }
         let allowed = refresh_allowlist(&inner, &node, relay.as_ref()).await;
         if ping {
             ping_peers(&node).await;
@@ -491,6 +547,25 @@ async fn run(inner: Arc<Inner>) {
     log::info!("enet: node stopped");
 }
 
+/// EXP-1458: starts the key holder once the install has its registry id
+/// and installs it as the process's seal service. Idempotent.
+fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
+    if lock(&inner.holder).is_some() || inner.stopped.load(Ordering::SeqCst) {
+        return;
+    }
+    let Some(install_id) = lock(&inner.install_id).clone() else { return };
+    let Some(api) = Arc::clone(&inner.registry).keys() else { return };
+    let path = inner.spec.identity_path.with_file_name(match inner.spec.kind {
+        InstallKind::Desktop => "seal-keys",
+        InstallKind::Daemon => "cli-seal-keys",
+    });
+    let holder = KeyHolder::new(install_id, &PushKeypair::derive(identity), api, coding::sealing::Keyring::load(path));
+    coding::sealing::install(Arc::new(holder.clone()));
+    holder.spawn(&tokio::runtime::Handle::current(), Arc::clone(&inner.holder_wake));
+    *lock(&inner.holder) = Some(holder);
+    log::info!("enet: key holder running");
+}
+
 async fn refresh_allowlist(inner: &Arc<Inner>, node: &Arc<Node>, relay: Option<&RelayUrl>) -> usize {
     let teams = Arc::clone(&inner.teams);
     let registry = Arc::clone(&inner.registry);
@@ -512,7 +587,9 @@ async fn refresh_allowlist(inner: &Arc<Inner>, node: &Arc<Node>, relay: Option<&
     else {
         return node.access().allowed_peers().len();
     };
-    apply_allowlist(node, &entries, relay, complete)
+    let allowed = apply_allowlist(node, &entries, relay, complete);
+    *lock(&inner.entries) = entries;
+    allowed
 }
 
 async fn ping_peers(node: &Arc<Node>) {

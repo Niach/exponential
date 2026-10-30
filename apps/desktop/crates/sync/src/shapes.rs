@@ -437,6 +437,10 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "started_by_agent_id",
             "shared",
             "title",
+            // EXP-1458: the tree key (root rows) and the sealed title.
+            "seal_public_key",
+            "seal_epoch",
+            "sealed_title",
             "guide",
             "created_at",
             "updated_at",
@@ -1201,8 +1205,8 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 32);
-        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide"] {
+        assert_eq!(sessions.columns.len(), 35);
+        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "sealed_title"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
         // NEW-8: the legacy columns are never read (the server drops them).

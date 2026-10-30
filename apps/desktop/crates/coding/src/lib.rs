@@ -77,6 +77,7 @@ pub mod reaper;
 pub mod run_cleanup;
 pub mod run_registry;
 pub mod scratch;
+pub mod sealing;
 pub mod scm;
 pub mod wip_save;
 pub mod session_retention;
