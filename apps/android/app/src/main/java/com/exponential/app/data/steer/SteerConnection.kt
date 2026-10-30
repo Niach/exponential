@@ -182,6 +182,9 @@ data class SteerTimings(
     /** Hard cap on a staged replay: a stream that never goes quiet commits
      *  what it has (and then appends normally) rather than staging forever. */
     val replayMaxMs: Long = 3_000,
+    /** VAPP-169: the device-offline ended's redial cadence while it shows
+     *  (fixtures/steer-enet.json `staleMs`). */
+    val offlineRedialMs: Long = SteerEnetTimings().staleMs,
 )
 
 /**
@@ -348,6 +351,11 @@ class SteerConnection internal constructor(
         get() = closed ||
             _phase.value.let { it is AgentPhase.Ended || (it is AgentPhase.Closed && !it.reconnecting) }
 
+    /** VAPP-169: the device-offline ended (an ended row, NO FEED). Finished
+     *  for the reaper (nobody shows it = no timer), revivable for [kick]. */
+    internal val isDeviceOffline: Boolean
+        get() = !closed && _phase.value is AgentPhase.Ended && _history.value == HistoryState.DeviceOffline
+
     fun setDraft(text: String) {
         _draft.value = text
     }
@@ -369,6 +377,7 @@ class SteerConnection internal constructor(
             dialActive = dialActive,
             finished = isFinished,
             socketStale = stale,
+            deviceOffline = isDeviceOffline,
         )
         // sinceFrame is the number the "it reconnects every 30s" reports turn
         // on (EXP-656): a stale verdict is only ever as good as it.
@@ -378,7 +387,8 @@ class SteerConnection internal constructor(
                 "stale=$stale sinceFrame=${sinceFrame}ms -> $action",
         )
         when (action) {
-            SteerRevivalAction.Dial -> connect()
+            // VAPP-169: an offline redial holds the Ended phase.
+            SteerRevivalAction.Dial -> connect(silent = isDeviceOffline)
             SteerRevivalAction.WakeRetry -> wake.trySend(Unit)
             SteerRevivalAction.RedialSilently -> connect(silent = true)
             SteerRevivalAction.Nothing -> Unit
@@ -428,6 +438,15 @@ class SteerConnection internal constructor(
                         setPhase(AgentPhase.Ended(outcome.detail), "ended")
                         return@launch
                     }
+                    DialOutcome.DeviceOffline -> {
+                        // VAPP-169: not terminal. Redial every staleMs while
+                        // the copy shows (a revival cuts it short), holding
+                        // the phase; NO FEED again lands back here.
+                        setPhase(AgentPhase.Ended(), "device offline")
+                        delayOrWake(timings.offlineRedialMs)
+                        if (connectJob !== me) return@launch
+                        quiet = true
+                    }
                     is DialOutcome.Closed -> {
                         if (!outcome.retryable) {
                             setPhase(AgentPhase.Closed(outcome.detail), "terminal")
@@ -457,6 +476,14 @@ class SteerConnection internal constructor(
      * a finished one has nothing to park.
      */
     internal fun park() {
+        if (isDeviceOffline) {
+            // VAPP-169: no stale timer in the background; keep the copy, the
+            // foreground kick redials.
+            Log.i(TAG, "[$sid] park (device offline)")
+            connectJob?.cancel()
+            connectJob = null
+            return
+        }
         if (isFinished) return
         Log.i(TAG, "[$sid] park")
         connectJob?.cancel()
@@ -469,6 +496,22 @@ class SteerConnection internal constructor(
         // the device drops the ask with the viewer, so a new one may go out.
         historyRequest = null
         setPhase(AgentPhase.Idle, "park")
+    }
+
+    /**
+     * VAPP-169: the session device's presence flipped ([online] = it came
+     * back). [steerOfflineRedial] decides: the device-offline ended redials,
+     * a Starting backoff is cut short, the rest stays put.
+     */
+    fun presenceChanged(online: Boolean) {
+        val phase = when {
+            isDeviceOffline -> SteerRedialPhase.Offline
+            _phase.value is AgentPhase.Ended -> SteerRedialPhase.Ended
+            _phase.value == AgentPhase.Starting -> SteerRedialPhase.Starting
+            else -> return
+        }
+        val trigger = if (online) SteerRedialTrigger.PresenceOnline else SteerRedialTrigger.PresenceOffline
+        if (steerOfflineRedial(phase, trigger)) kick("presence-online")
     }
 
     /** Come back to the foreground: whatever state the connection is in, ask
@@ -570,6 +613,9 @@ class SteerConnection internal constructor(
          *  running — auto-retry. */
         data object RetryStarting : DialOutcome
         data class Ended(val detail: String? = null) : DialOutcome
+
+        /** VAPP-169: NO FEED on an ended row, redialed on staleMs. */
+        data object DeviceOffline : DialOutcome
         data class Closed(val detail: String? = null, val retryable: Boolean = true) : DialOutcome
     }
 
@@ -733,8 +779,8 @@ class SteerConnection internal constructor(
      * no `activity_synced` in time) and no relay behind it — the viewer shows
      * its EXISTING states (fixtures/steer-enet.json "NO FEED"). A row still
      * alive = Starting, redialed on its cadence; an ended row = Ended with
-     * the device-offline line ([HistoryState.DeviceOffline]); a row that
-     * vanished = gone.
+     * the device-offline line ([HistoryState.DeviceOffline], VAPP-169:
+     * redialed, not terminal); a row that vanished = gone.
      */
     private fun noFeed(dial: Int): DialOutcome {
         val row = session.value
@@ -743,9 +789,13 @@ class SteerConnection internal constructor(
             row == null && sessionIsOver() -> DialOutcome.Ended(SESSION_GONE_DETAIL)
             row?.isEnded == true -> {
                 _history.value = HistoryState.DeviceOffline
-                DialOutcome.Ended(null)
+                DialOutcome.DeviceOffline
             }
-            else -> DialOutcome.RetryStarting
+            else -> {
+                // A run that came back is not the offline copy any more.
+                _history.value = null
+                DialOutcome.RetryStarting
+            }
         }
     }
 

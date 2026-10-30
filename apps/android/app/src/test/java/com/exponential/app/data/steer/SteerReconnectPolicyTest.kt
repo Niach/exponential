@@ -46,6 +46,21 @@ class SteerReconnectPolicyTest {
     }
 
     @Test
+    fun `the device-offline ended is revived, a bye-ended one is not`() {
+        // VAPP-169: finished for the reaper, yet a revival redials it.
+        val ended = AgentPhase.Ended()
+        assertEquals(
+            SteerRevivalAction.Dial,
+            steerRevivalAction(ended, dialActive = false, finished = true, socketStale = false, deviceOffline = true),
+        )
+        assertEquals(
+            SteerRevivalAction.WakeRetry,
+            steerRevivalAction(ended, dialActive = true, finished = true, socketStale = false, deviceOffline = true),
+        )
+        assertEquals(SteerRevivalAction.Nothing, revival(ended, dialActive = false, finished = true))
+    }
+
+    @Test
     fun `a fresh live socket is left alone`() {
         assertEquals(SteerRevivalAction.Nothing, revival(AgentPhase.Live, dialActive = true))
     }

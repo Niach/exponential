@@ -3,11 +3,14 @@ package com.exponential.app.data.steer
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.TURN_STATE_STARTED
 import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
@@ -97,9 +100,18 @@ class SteerConnectionTest {
         /** Shape the Nth socket (1-based) before the dial gets hold of it. */
         @Volatile var prepare: (Int, FakeSocket) -> Unit = { _, _ -> }
 
-        override suspend fun open(codingSessionId: String): SteerSocket {
+        /** VAPP-169: the Nth dial (1-based) finds NO FEED (no endpoint answers). */
+        @Volatile var noFeed: (Int) -> Boolean = { false }
+        val noFeeds = AtomicInteger(0)
+
+        override suspend fun open(codingSessionId: String): SteerSocket? {
+            val dial = dials.incrementAndGet()
+            if (noFeed(dial)) {
+                noFeeds.incrementAndGet()
+                return null
+            }
             val socket = FakeSocket()
-            prepare(dials.incrementAndGet(), socket)
+            prepare(dial, socket)
             opens.send(socket)
             return socket
         }
@@ -1157,6 +1169,103 @@ class SteerConnectionTest {
             waitUntil("the ended phase") { connection.phase.value is AgentPhase.Ended }
             assertFalse(connection.canLoadEarlier())
             assertFalse(connection.loadEarlier())
+        } finally {
+            connection.close()
+        }
+    }
+
+    // ── VAPP-169: the device-offline ended redials ──────────────────────
+
+    private fun endedRow() = MutableStateFlow<SessionEntity?>(
+        runningRow().copy(status = DomainContract.sessionStatusEnded),
+    )
+
+    /** Every phase the connection passes through, from now on. */
+    private fun CoroutineScope.phasesOf(connection: SteerConnection): MutableList<AgentPhase> {
+        val seen = CopyOnWriteArrayList<AgentPhase>()
+        launch(Dispatchers.Unconfined) { connection.phase.collect { seen += it } }
+        return seen
+    }
+
+    @Test
+    fun theDeviceComingBackRedialsTheOfflineCopyIntoItsTranscript() = runBlocking {
+        val transport = FakeTransport().apply { noFeed = { it == 1 } }
+        // A stale timer far beyond this test: only the presence flip redials.
+        val connection = connection(transport, stagingTimings.copy(offlineRedialMs = 30_000), endedRow())
+        val phases = phasesOf(connection)
+        try {
+            connection.connect()
+            waitUntil("the offline copy") { connection.history.value == HistoryState.DeviceOffline }
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            assertTrue(connection.isDeviceOffline)
+            phases.clear()
+            // The device going offline dials nothing.
+            connection.presenceChanged(online = false)
+            assertNull(withTimeoutOrNull(100) { transport.opens.receive() })
+            connection.presenceChanged(online = true)
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("stored"))
+            socket.emit("""{"t":"activity_synced"}""")
+            socket.emit("""{"t":"bye","outcome":"history"}""")
+            socket.hangUp()
+            waitUntil("the transcript") { connection.activity.value.feed.size == 1 }
+            waitUntil("the plain ended") { connection.isFinished && !connection.isDeviceOffline }
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            assertNull(connection.history.value)
+            // The redial held the phase: no Connecting flash.
+            assertTrue(phases.toString(), phases.none { it == AgentPhase.Connecting })
+            // A bye-ended transcript stays put.
+            connection.presenceChanged(online = true)
+            connection.kick("test")
+            assertNull(withTimeoutOrNull(150) { transport.opens.receive() })
+        } finally {
+            connection.close()
+            coroutineContext.cancelChildren()
+        }
+    }
+
+    @Test
+    fun theOfflineCopyRedialsOnItsStaleTimerAndARunBackGoesLive() = runBlocking {
+        val transport = FakeTransport().apply { noFeed = { it <= 3 } }
+        val row = endedRow()
+        // The run comes back before the 4th tick finds a feed.
+        transport.prepare = { _, _ -> row.value = runningRow() }
+        val connection = connection(transport, stagingTimings.copy(offlineRedialMs = 50), row)
+        val phases = phasesOf(connection)
+        try {
+            connection.connect()
+            // NO FEED again on each tick = the same copy.
+            waitUntil("three offline dials") { transport.noFeeds.get() == 3 }
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            waitUntil("live") { connection.phase.value == AgentPhase.Live }
+            assertNull(connection.history.value)
+            // Ended (offline) straight to Live, never Connecting.
+            assertTrue(phases.toString(), phases.none { it == AgentPhase.Connecting })
+        } finally {
+            connection.close()
+            coroutineContext.cancelChildren()
+        }
+    }
+
+    @Test
+    fun aParkedOfflineCopyKeepsItsPhaseAndTheForegroundRedials() = runBlocking {
+        val transport = FakeTransport().apply { noFeed = { true } }
+        val connection = connection(transport, stagingTimings.copy(offlineRedialMs = 50), endedRow())
+        try {
+            connection.connect()
+            waitUntil("the offline copy") { connection.isDeviceOffline }
+            connection.park()
+            val parkedAt = transport.noFeeds.get()
+            // No stale timer in the background, and the copy stays.
+            delay(200)
+            assertEquals(parkedAt, transport.noFeeds.get())
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
+            assertEquals(HistoryState.DeviceOffline, connection.history.value)
+            connection.resume()
+            waitUntil("the foreground redial") { transport.noFeeds.get() > parkedAt }
+            assertTrue(connection.isDeviceOffline)
         } finally {
             connection.close()
         }

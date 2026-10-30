@@ -964,6 +964,15 @@ class AgentSessionViewModel @AssistedInject constructor(
                 _configurePicks.update { it.dropSettledBy(row) }
             }
         }
+        // VAPP-169: the session device's presence FLIPS reach the connection
+        // (offline → online redials the device-offline ended); unknown is no flip.
+        viewModelScope.launch {
+            var last: Boolean? = null
+            hostDevice.map { it.online }.distinctUntilChanged().collect { online ->
+                if (online != null && last != null && online != last) connection.presenceChanged(online)
+                if (online != null) last = online
+            }
+        }
     }
 
     private val _configureError = MutableStateFlow<String?>(null)
