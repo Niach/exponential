@@ -1,4 +1,4 @@
-//! The `screen` MCP endpoint, the computer crate's topology: streamable
+//! The `screen` MCP endpoint, the epilot crate's topology: streamable
 //! HTTP on loopback answered with plain JSON, one listener per process,
 //! each run admitted by its own bearer token. The one tool is
 //! [`crate::tool`]'s.

@@ -1,5 +1,5 @@
 //! The capture loop (its own thread): every `capture.focusPollMs` one look
-//! at the screen (`computer::screen_view`: the focused window, the work
+//! at the screen (`epilot::screen_view`: the focused window, the work
 //! displays, each display's top window); every `capture.intervalMs` the
 //! work displays (and the focused window's display at once when the app or
 //! title changed), nothing while paused (a denylisted or unknown focus, the
@@ -19,7 +19,7 @@
 //! right after it (the newest reading, MASK's), so a denylisted window that
 //! opened between the poll and the grab is masked. DISPLAY SET: a frame is
 //! taken only with readings of the display epoch current right after its
-//! grab (`computer::visible::display_epoch`), so after a hot-plug no frame
+//! grab (`epilot::visible::display_epoch`), so after a hot-plug no frame
 //! is labelled or masked by the old display numbering.
 //! The retention sweep runs every interval, paused or not.
 
@@ -31,18 +31,18 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use computer::visible::{ScreenLook, VisibleWindow};
-use computer::{FocusedWindow, ScreenView};
+use epilot::visible::{ScreenLook, VisibleWindow};
+use epilot::{FocusedWindow, ScreenView};
 
 use crate::capture::{Capturer, Frame, Want};
 use crate::store::{self, Rect, Row, Store};
 use crate::{fixture, hash, ring, shrink, Status};
 
-/// The screen now (`computer::visible::screen_look`; a fake in tests).
+/// The screen now (`epilot::visible::screen_look`; a fake in tests).
 /// `None` = no window list: paused (fail closed).
 pub(crate) type ViewSource = Box<dyn FnMut() -> Option<ScreenLook> + Send>;
 
-/// The display epoch now (`computer::visible::display_epoch`; a fake in
+/// The display epoch now (`epilot::visible::display_epoch`; a fake in
 /// tests): readings of another epoch number the displays differently.
 pub(crate) type EpochSource = Box<dyn Fn() -> u64 + Send>;
 
@@ -617,7 +617,7 @@ fn lower_priority() {
 
 /// The focused rect within a `width` x `height` frame; `None` when nothing
 /// of it is on the frame.
-fn clip(rect: computer::ScreenRect, width: u32, height: u32) -> Option<Rect> {
+fn clip(rect: epilot::ScreenRect, width: u32, height: u32) -> Option<Rect> {
     let left = i64::from(rect.x).clamp(0, i64::from(width));
     let top = i64::from(rect.y).clamp(0, i64::from(height));
     let right = (i64::from(rect.x) + i64::from(rect.width)).clamp(0, i64::from(width));

@@ -11,7 +11,7 @@ publish = false
 # `describe`: a script the agent writes calls the run's OTHER MCP servers
 # (`exponential`, `computer`, the team's HTTP servers) in bulk and in
 # parallel, and only its output returns to the model. Sibling of
-# `crates/computer`, same topology (per-run bearer, tiny_http, plain JSON).
+# `crates/epilot`, same topology (per-run bearer, tiny_http, plain JSON).
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = "0.4"

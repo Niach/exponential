@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use computer::visible::{ScreenLook, VisibleWindow};
-use computer::{FocusedWindow, ScreenView, TopWindow};
+use epilot::visible::{ScreenLook, VisibleWindow};
+use epilot::{FocusedWindow, ScreenView, TopWindow};
 use serde_json::{json, Value};
 
 use crate::capture::{Capturer, Frame, Want};
@@ -78,7 +78,7 @@ fn window_on(display: u32, app: &str, title: &str) -> FocusedWindow {
         app_id: None,
         title: title.into(),
         display,
-        rect: computer::ScreenRect { x: 10, y: 20, width: 240, height: 210 },
+        rect: epilot::ScreenRect { x: 10, y: 20, width: 240, height: 210 },
     }
 }
 
@@ -634,7 +634,7 @@ impl Capturer for ChangingCapturer {
 
 /// The CPU budget (< 2 % of a core at 1 fps on two displays, also while the
 /// screen changes every second), by part and then end to end:
-/// `cargo test --release -p screen --lib -- --ignored --nocapture cpu_budget`
+/// `cargo test --release -p epilot-screen --lib -- --ignored --nocapture cpu_budget`
 /// (`SCREEN_BENCH_SECONDS`, default 20; `SCREEN_BENCH_PNG=<png>` adds a real
 /// screenshot's parts).
 #[test]
@@ -671,7 +671,7 @@ fn cpu_budget() {
         parts("real", &Frame::rgba(1, shot.width(), shot.height(), shot.into_raw()));
     }
     let view_ms = time(200, Box::new(|| {
-        std::hint::black_box(computer::visible::screen_look());
+        std::hint::black_box(epilot::visible::screen_look());
     }));
     println!("screen view poll {view_ms:.2} ms");
     let seconds: u64 = std::env::var("SCREEN_BENCH_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(20);
@@ -687,13 +687,13 @@ fn cpu_budget() {
                 app_id: None,
                 title: "A long page".into(),
                 display: 1,
-                rect: computer::ScreenRect { x: width as i32 / 10, y: 0, width: width * 8 / 10, height },
+                rect: epilot::ScreenRect { x: width as i32 / 10, y: 0, width: width * 8 / 10, height },
             };
             let memory = Memory::start(
                 &dir.0,
                 Box::new(ChangingCapturer { width, height, variants: variants.clone(), next: 0 }),
                 Box::new(move || {
-                    std::hint::black_box(computer::visible::screen_look());
+                    std::hint::black_box(epilot::visible::screen_look());
                     view(Some(focus.clone()), &[1, 2]).map(|view| ScreenLook { view, windows: Vec::new(), epoch: 0 })
                 }),
                 Box::new(|| 0),
@@ -734,7 +734,7 @@ impl Capturer for StillCapturer {
     }
 }
 
-fn listed(display: u32, app: &str, title: &str, size: u32, rect: computer::ScreenRect) -> VisibleWindow {
+fn listed(display: u32, app: &str, title: &str, size: u32, rect: epilot::ScreenRect) -> VisibleWindow {
     VisibleWindow { display, display_size: (size, size), app: app.into(), app_id: None, title: title.into(), rect }
 }
 
@@ -745,7 +745,7 @@ fn listed(display: u32, app: &str, title: &str, size: u32, rect: computer::Scree
 #[test]
 fn a_denylisted_window_behind_the_focus_is_masked_or_its_display_skipped() {
     let dir = TempDir::new();
-    let quadrant = computer::ScreenRect { x: 0, y: 0, width: 160, height: 160 };
+    let quadrant = epilot::ScreenRect { x: 0, y: 0, width: 160, height: 160 };
     let windows = vec![listed(1, "Zed", "main.rs", SIDE, window("Zed", "main.rs").rect), listed(1, "Bitwarden", "Vault", SIDE, quadrant)];
     let rig = start_listing(&dir, Box::new(StillCapturer { bits: u64::MAX }), view(Some(window("Zed", "main.rs")), &[1]), windows, 40);
     wait_until(|| count(&rig.memory) == 1);
@@ -976,7 +976,7 @@ fn masked_quadrant(bits: u64) -> String {
     hash_of(&blocks(1, masked))
 }
 
-const QUADRANT: computer::ScreenRect = computer::ScreenRect { x: 0, y: 0, width: 160, height: 160 };
+const QUADRANT: epilot::ScreenRect = epilot::ScreenRect { x: 0, y: 0, width: 160, height: 160 };
 
 /// #FEED-164 MASK: a vault that is only in the NEWEST reading (it opened
 /// after the frame's capture time, whose nearest reading lacks it) is

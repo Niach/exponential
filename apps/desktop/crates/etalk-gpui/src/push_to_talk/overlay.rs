@@ -15,7 +15,7 @@
 //!
 //! NEW-59 (`fixtures/work-screen.json` OVERLAY): never on a display with a
 //! fullscreen app. When the window opens, the computer crate's screen state
-//! is read ONCE and `computer::work_screen::overlay_display` picks the
+//! is read ONCE and `epilot::work_screen::overlay_display` picks the
 //! display: the pointer's without one, else the work screen, else the first
 //! free one; none = the window stays hidden (the turn still runs, the reply
 //! is still spoken).
@@ -471,10 +471,10 @@ fn placement(cx: &App) -> Place {
     let primary = cx.primary_display().and_then(|primary| displays.iter().position(|display| display.id() == primary.id()));
     let under = pointer(cx).and_then(|pointer| displays.iter().position(|display| display.bounds().contains(&pointer)));
     let at = |display: &std::rc::Rc<dyn gpui::PlatformDisplay>| Place::At(Some(display.id()), Some(display.visible_bounds()));
-    if let (Some(pointer_ix), Some(state)) = (under.or(primary), computer::screen_state()) {
+    if let (Some(pointer_ix), Some(state)) = (under.or(primary), epilot::screen_state()) {
         let map = display_map(&displays, &state.displays);
         if let Some(Some(pointer)) = map.get(pointer_ix).copied() {
-            let target = computer::work_screen::overlay_display(state.displays.len(), pointer, &state.fullscreen, &state.work);
+            let target = epilot::work_screen::overlay_display(state.displays.len(), pointer, &state.fullscreen, &state.work);
             match target {
                 None => return Place::Hidden,
                 Some(target) => {
@@ -501,8 +501,8 @@ struct Rect {
     height: f32,
 }
 
-impl From<&computer::Display> for Rect {
-    fn from(display: &computer::Display) -> Self {
+impl From<&epilot::Display> for Rect {
+    fn from(display: &epilot::Display) -> Self {
         Rect { x: display.x as f32, y: display.y as f32, width: display.width as f32, height: display.height as f32 }
     }
 }
@@ -511,7 +511,7 @@ impl From<&computer::Display> for Rect {
 /// crate's), index by index ([`map_displays`]). The banner places by it too.
 pub fn display_map(
     displays: &[std::rc::Rc<dyn gpui::PlatformDisplay>],
-    screens: &[computer::Display],
+    screens: &[epilot::Display],
 ) -> Vec<Option<usize>> {
     let rects: Vec<Rect> = displays
         .iter()
@@ -561,9 +561,9 @@ fn map_displays(toolkit: &[Rect], screens: &[Rect]) -> Vec<Option<usize>> {
 #[cfg(target_os = "linux")]
 fn x11_place(cx: &App) -> Option<Place> {
     let primary = cx.primary_display().map(|display| display.id());
-    if let Some(state) = computer::screen_state() {
+    if let Some(state) = epilot::screen_state() {
         if let Some((pointer, scale)) = x11_pointer(cx) {
-            let contains = |display: &computer::Display| {
+            let contains = |display: &epilot::Display| {
                 pointer.0 >= display.x
                     && pointer.0 < display.x + display.width as i32
                     && pointer.1 >= display.y
@@ -576,7 +576,7 @@ fn x11_place(cx: &App) -> Option<Place> {
                 .or_else(|| state.displays.iter().position(|display| display.primary));
             if let Some(under) = under {
                 return Some(
-                    match computer::work_screen::overlay_display(state.displays.len(), under, &state.fullscreen, &state.work) {
+                    match epilot::work_screen::overlay_display(state.displays.len(), under, &state.fullscreen, &state.work) {
                         None => Place::Hidden,
                         Some(target) => {
                             let display = &state.displays[target];

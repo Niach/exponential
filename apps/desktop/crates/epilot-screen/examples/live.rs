@@ -1,5 +1,5 @@
 //! NEW-58 live check: the real capturer + store + endpoint, end to end.
-//! `cargo run -p screen --example live -- <data dir> [seconds]`: captures for
+//! `cargo run -p epilot-screen --example live -- <data dir> [seconds]`: captures for
 //! a few seconds, then calls `get_screenshots` over the loopback endpoint as
 //! the voice agent's run would, prints the text lines and saves the images.
 
@@ -9,10 +9,10 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let dir = std::path::PathBuf::from(args.next().expect("data dir"));
     let seconds: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);
-    screen::set_status_observer(|status| println!("status: {status:?}"));
-    screen::start(dir.clone()).expect("start");
+    epilot_screen::set_status_observer(|status| println!("status: {status:?}"));
+    epilot_screen::start(dir.clone()).expect("start");
     std::thread::sleep(std::time::Duration::from_secs(seconds));
-    let grant = screen::grant("live-run").expect("grant");
+    let grant = epilot_screen::grant("live-run").expect("grant");
     println!("query at {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
     let body = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "get_screenshots", "arguments": {} } }).to_string();
     let url = grant.url.trim_start_matches("http://");
@@ -42,7 +42,7 @@ fn main() {
         }
     }
     println!("frames on disk: {}", walk(&dir.join("screen")));
-    screen::stop(false);
+    epilot_screen::stop(false);
 }
 
 fn walk(dir: &std::path::Path) -> usize {

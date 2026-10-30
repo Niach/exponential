@@ -31,8 +31,8 @@ api = { path = "../api" }
 terminal = { path = "../terminal" }
 steer = { path = "../steer" }
 coding = { path = "../coding" }
-# EXP-1196/1273: the device's computer-use endpoint (see crates/computer).
-computer = { path = "../computer" }
+# EXP-1196/1273: the device's computer-use endpoint (see crates/epilot).
+epilot = { path = "../epilot" }
 # NEW-53: exponentialTalk. `talk` = the speech worker's wire, `voice` = the
 # worker itself (this binary re-run as `__speech-worker`).
 etalk = { path = "../etalk" }

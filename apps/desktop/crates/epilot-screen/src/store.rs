@@ -32,7 +32,7 @@ pub(crate) struct Rect {
 pub(crate) struct Row {
     /// Unix ms.
     pub at: i64,
-    /// 1-based, the computer crate's display order.
+    /// 1-based, the epilot crate's display order.
     pub display: u32,
     pub app: String,
     pub title: String,

@@ -26,7 +26,7 @@
 //! clicked through [`click`] = the tray's own handlers.
 //! NEW-58: the Screen memory switch (`fixtures/screen-memory.json`): device-
 //! local and kept like Mute, default off; while on and this IDE is the voice
-//! device the `screen` crate captures ([`screen::start`]); a sign-out,
+//! device the `screen` crate captures ([`epilot_screen::start`]); a sign-out,
 //! another account or another voice device turns it off and deletes the
 //! buffer; a failed start toasts and flips it back off.
 //! NEW-57 (`fixtures/meeting.json` TRAY): Meeting mode after Wake word
@@ -188,7 +188,7 @@ pub enum TrayEvent {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Hosted(bool),
     /// NEW-58: screen memory went off, active or paused.
-    Screen(screen::Status),
+    Screen(epilot_screen::Status),
 }
 
 /// #NEW-76: two activations closer than this are one (a Windows double-click
@@ -282,7 +282,7 @@ fn save_state(data_dir: &std::path::Path, state: &TrayState) {
 /// touch the disk, so ONE background task runs them, in the order asked: a
 /// start never overtakes the stop before it. #FEED-162: a start runs on its
 /// own thread (the Linux portal's dialog may hold it), so a later stop or
-/// delete does not wait behind it: it cancels it ([`screen::ticket`]).
+/// delete does not wait behind it: it cancels it ([`epilot_screen::ticket`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ScreenOp {
     /// Start capturing; the answer comes back with this generation.
@@ -368,7 +368,7 @@ fn sweeps_leftover(switch_on: bool, available: bool) -> bool {
 /// NEW-58: the Screen memory switch and the capture it drives.
 #[derive(Debug)]
 struct ScreenMemory {
-    /// #FEED-162: this machine can capture ([`screen::available`]: not on
+    /// #FEED-162: this machine can capture ([`epilot_screen::available`]: not on
     /// Wayland, which has no window list): else no row and no start.
     available: bool,
     /// The switch (device-local, kept).
@@ -376,8 +376,8 @@ struct ScreenMemory {
     /// The account that turned it on.
     account: Option<String>,
     /// What the screen crate last reported (the Paused label).
-    status: screen::Status,
-    /// `screen::start` was asked for (and not stopped since).
+    status: epilot_screen::Status,
+    /// `epilot_screen::start` was asked for (and not stopped since).
     running: bool,
     /// Bumped on every start and stop: a slow start that lost the race
     /// stops again.
@@ -392,7 +392,7 @@ struct ScreenMemory {
 impl ScreenMemory {
     /// The switch as this device left it; nothing running yet.
     fn new(on: bool, account: Option<String>, available: bool) -> Self {
-        ScreenMemory { available, on, account, status: screen::Status::Off, running: false, generation: 0, seen_account: false, last_account: None }
+        ScreenMemory { available, on, account, status: epilot_screen::Status::Off, running: false, generation: 0, seen_account: false, last_account: None }
     }
 }
 
@@ -441,7 +441,7 @@ pub(crate) fn install(cx: &mut App) {
     let state = load_state(&data_dir);
     let muted = state.muted;
     let switch_on = state.screen_memory;
-    let screen = ScreenMemory::new(switch_on, state.screen_account, screen::available());
+    let screen = ScreenMemory::new(switch_on, state.screen_account, epilot_screen::available());
     // NEW-58: the stops and deletes join threads: one background task runs
     // them in order; a start's answer comes back to the tray.
     let (screen_ops, ops_rx) = flume::unbounded::<ScreenOp>();
@@ -455,16 +455,16 @@ pub(crate) fn install(cx: &mut App) {
                         ScreenOp::Start(generation) => {
                             // The ticket in queue order: a stop queued after
                             // it cancels it, even mid-dialog.
-                            let (ticket, data_dir, answer) = (screen::ticket(), data_dir.clone(), started_tx.clone());
+                            let (ticket, data_dir, answer) = (epilot_screen::ticket(), data_dir.clone(), started_tx.clone());
                             let spawned = std::thread::Builder::new().name("screen-memory-start".into()).spawn(move || {
-                                let _ = answer.send((generation, screen::start_with(data_dir, ticket)));
+                                let _ = answer.send((generation, epilot_screen::start_with(data_dir, ticket)));
                             });
                             if let Err(err) = spawned {
                                 let _ = started_tx.send((generation, Err(format!("Could not start screen memory: {err}"))));
                             }
                         }
-                        ScreenOp::Stop { forget } => screen::stop(forget),
-                        ScreenOp::Forget => screen::forget(&data_dir),
+                        ScreenOp::Stop { forget } => epilot_screen::stop(forget),
+                        ScreenOp::Forget => epilot_screen::forget(&data_dir),
                     }
                 }
             })
@@ -473,7 +473,7 @@ pub(crate) fn install(cx: &mut App) {
     // A buffer an earlier run left behind with the switch off goes; #FEED-164:
     // so does one on a machine that cannot capture now (Wayland hides the
     // row, so nothing else would ever sweep an earlier X11 session's frames).
-    if sweeps_leftover(switch_on, screen.available) && screen::leftover(&data_dir) {
+    if sweeps_leftover(switch_on, screen.available) && epilot_screen::leftover(&data_dir) {
         let _ = screen_ops.send(ScreenOp::Forget);
     }
     if muted {
@@ -482,7 +482,7 @@ pub(crate) fn install(cx: &mut App) {
     let (tx, rx) = flume::unbounded::<TrayEvent>();
     // NEW-58: the Paused label follows the capture.
     let screen_tx = tx.clone();
-    screen::set_status_observer(move |status| {
+    epilot_screen::set_status_observer(move |status| {
         let _ = screen_tx.send(TrayEvent::Screen(status));
     });
     let entity = cx.new(|cx: &mut Context<VoiceTray>| {
@@ -653,7 +653,7 @@ impl VoiceTray {
     /// NEW-58: a start's answer. A stale one is left alone: the stop or
     /// delete that made it stale is queued behind it.
     fn screen_started(&mut self, generation: u64, result: Result<(), String>, cx: &mut Context<Self>) {
-        if self.screen.generation != generation || result.as_ref().is_err_and(|reason| reason == screen::CANCELLED) {
+        if self.screen.generation != generation || result.as_ref().is_err_and(|reason| reason == epilot_screen::CANCELLED) {
             return;
         }
         if let Err(reason) = result {
@@ -712,7 +712,7 @@ impl VoiceTray {
             shortcut_label: status.trigger(),
             screen_memory: self.screen.available.then_some(ScreenMemoryState {
                 on: self.screen.on,
-                paused: self.screen.status == screen::Status::Paused,
+                paused: self.screen.status == epilot_screen::Status::Paused,
             }),
             meeting: Some(MeetingTrayState { on: meeting_on, who: &who }),
             pause: pausable.then_some(meeting_state.paused),

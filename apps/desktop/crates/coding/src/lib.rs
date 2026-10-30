@@ -95,11 +95,11 @@ pub mod worktree_lifecycle;
 
 /// EXP-1196: the device's computer-use server, re-exported so the hosts
 /// (engine, ui, cli) reach it through the launcher crate they already link.
-pub use computer;
+pub use epilot as computer;
 /// EXP-1236: the device's code-mode server, re-exported for the same reason.
 pub use codemode;
 /// NEW-58: the voice device's screen memory, re-exported for the same reason.
-pub use screen;
+pub use epilot_screen as screen;
 
 pub use agent::{claude_model_alias, CodingAgent, CodingAgentExt};
 pub use argv::{

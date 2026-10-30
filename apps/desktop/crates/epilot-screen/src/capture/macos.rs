@@ -16,7 +16,7 @@
 //! refuses a buffer that arrived before the ask's `since` (STALE: the slot may
 //! hold a frame up to a second old, from before a pause ended).
 //!
-//! The display set (`CGGetActiveDisplayList`: the computer crate's order,
+//! The display set (`CGGetActiveDisplayList`: the epilot crate's order,
 //! with each display's physical pixel size) is read on every grab, a few
 //! microseconds; a change rebuilds only the streams that changed. A stream
 //! the system stopped (display gone, permission revoked) is rebuilt at most
@@ -138,7 +138,7 @@ impl MacCapturer {
         if changed && !self.layout.is_empty() {
             // #FEED-164: a hot-plug: the window list's cached display set
             // (and every reading of it) numbers the displays the old way.
-            computer::visible::displays_changed();
+            epilot::visible::displays_changed();
         }
         let healthy = self.streams.len() == layout.len()
             && self.streams.iter().all(|s| !s.stopped());
@@ -206,7 +206,7 @@ impl MacCapturer {
     }
 }
 
-/// The active displays in CoreGraphics order (the computer crate's
+/// The active displays in CoreGraphics order (the epilot crate's
 /// `CGDisplay::active_displays`), each with its physical pixel size.
 fn active_layout() -> Result<Vec<Layout>, String> {
     let mut ids = [0 as CGDirectDisplayID; 32];
@@ -356,7 +356,7 @@ impl StreamOutput {
 
 struct DisplayStream {
     layout: Layout,
-    /// 1-based, the computer crate's order.
+    /// 1-based, the epilot crate's order.
     number: u32,
     slot: Arc<Mutex<Slot>>,
     stream: Retained<SCStream>,

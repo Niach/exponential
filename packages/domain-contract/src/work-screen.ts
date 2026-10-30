@@ -1,6 +1,6 @@
 // NEW-59: THE work screen — the display coding agents drive with computer
 // use. Pure and byte-locked by `fixtures/work-screen.json`, whose `$comment`
-// holds the rules; this is the reference. Mirrors: desktop computer crate
+// holds the rules; this is the reference. Mirrors: desktop epilot crate
 // `work_screen` (gate, current, overlay) + ui device_settings (options), iOS
 // `ExpCore/Sources/Domain/WorkScreen.swift` and Android
 // `domain/WorkScreen.kt` (copy + options).

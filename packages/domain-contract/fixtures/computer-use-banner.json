@@ -1,5 +1,5 @@
 {
-  "_": "EXP-1273: THE computer-use banner. While a coding session drives this machine's screen (crates/computer, foreground only), the person's keyboard and pointer are held: nothing they press or click reaches a window, and their Esc hands both back and stops the session's turn. The banner says so for exactly as long as the hold lasts. The desktop app draws it (computer_indicator.rs); the web styleguide pictures it; phones and the web app never show it (the screen is the device's).",
+  "_": "EXP-1273: THE computer-use banner. While a coding session drives this machine's screen (crates/epilot, foreground only), the person's keyboard and pointer are held: nothing they press or click reaches a window, and their Esc hands both back and stops the session's turn. The banner says so for exactly as long as the hold lasts. The desktop app draws it (computer_indicator.rs); the web styleguide pictures it; phones and the web app never show it (the screen is the device's).",
   "copy": {
     "title": "Computer use in progress",
     "key": "Esc",

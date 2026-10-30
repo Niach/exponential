@@ -265,7 +265,7 @@ pub enum ComputerState {
 }
 
 impl ComputerState {
-    /// Ask the computer crate, never prompting.
+    /// Ask the epilot crate, never prompting.
     pub fn read() -> ComputerState {
         match crate::computer::readiness() {
             crate::computer::Readiness::Unsupported(reason) => ComputerState::Unsupported(Some(reason)),

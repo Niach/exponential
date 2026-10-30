@@ -6,7 +6,7 @@
 //! session's minimum update interval is the fixture's `capture.intervalMs`.
 //!
 //! Display numbers are 1-based in `EnumDisplayMonitors` order, which is the
-//! computer crate's order (`computer::displays`); `Monitor::enumerate` walks
+//! epilot crate's order (`epilot::displays`); `Monitor::enumerate` walks
 //! the same API. A monitor set change (plug, unplug) rebuilds the sessions on
 //! the next grab; a session that ended (secure desktop, device lost) is
 //! restarted, at most once every `RESTART_BACKOFF`.
@@ -20,7 +20,7 @@
 //! `capture.intervalMs` of the last copy is not copied, only marked, and a
 //! grab that finds a marked monitor with nothing newer reads it live once
 //! (so the end of a burst is not lost). FRESH (a still screen
-//! after a resume, which WGC never delivers again): the computer crate's
+//! after a resume, which WGC never delivers again): the epilot crate's
 //! live GDI read of that monitor.
 
 use std::path::Path;
@@ -296,7 +296,7 @@ impl Wgc {
             if !current.is_empty() {
                 // #FEED-164: a hot-plug: the window list's cached display
                 // set (and every reading of it) numbers the old way.
-                computer::visible::displays_changed();
+                epilot::visible::displays_changed();
             }
             self.sessions.clear();
             self.sessions = monitors.into_iter().map(Session::start).collect();
@@ -347,17 +347,17 @@ impl Capturer for Wgc {
         Ok(session.latest(wanted))
     }
 
-    /// FRESH: the monitor read live (GDI, the computer crate's screenshot;
+    /// FRESH: the monitor read live (GDI, the epilot crate's screenshot;
     /// the same `EnumDisplayMonitors` order).
     fn fresh(&mut self, display: u32) -> Result<Option<Frame>, String> {
         live(display).map(Some)
     }
 }
 
-/// `display` read live (GDI, the computer crate's screenshot; the same
+/// `display` read live (GDI, the epilot crate's screenshot; the same
 /// `EnumDisplayMonitors` order).
 fn live(display: u32) -> Result<Frame, String> {
-    let (width, height, rgba) = computer::visible::screenshot(display)?;
+    let (width, height, rgba) = epilot::visible::screenshot(display)?;
     Ok(Frame::rgba(display, width, height, rgba).stamped(super::wall_ms()))
 }
 

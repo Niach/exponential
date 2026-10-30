@@ -1,4 +1,4 @@
-//! One capturer per OS: the asked displays' pixels, in the computer crate's
+//! One capturer per OS: the asked displays' pixels, in the epilot crate's
 //! display order (1-based numbers), full physical resolution. The ring
 //! (`crate::ring`) decides when to call and what to keep.
 
@@ -19,7 +19,7 @@ use crate::store::Rect;
 /// the ring keeps is ever copied (cut to its window on the encode worker),
 /// so a changing screen costs one hash per grab, not a conversion.
 pub(crate) struct Frame {
-    /// 1-based, the computer crate's order (`computer::displays`).
+    /// 1-based, the epilot crate's order (`epilot::displays`).
     pub display: u32,
     pub width: u32,
     pub height: u32,

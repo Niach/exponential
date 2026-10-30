@@ -1,5 +1,5 @@
 //! Manual probe of the computer-use backend, the way a host runs it:
-//! `cargo run -p computer --example serve -- [TOOL [JSON_ARGS]]...` calls
+//! `cargo run -p epilot --example serve -- [TOOL [JSON_ARGS]]...` calls
 //! each tool through a granted run and prints the result (images elided;
 //! `EXP_SHOT=/path.png` also writes the last screenshot there), then serves
 //! the loopback MCP endpoint until Ctrl-C, printing its URL and token for a
@@ -17,13 +17,13 @@ use serde_json::{json, Value};
 
 fn main() {
     env_logger_lite();
-    println!("readiness: {:?}", computer::readiness());
-    println!("prepare: {:?}", computer::prepare());
-    computer::set_presence_observer(|label| match label {
+    println!("readiness: {:?}", epilot::readiness());
+    println!("prepare: {:?}", epilot::prepare());
+    epilot::set_presence_observer(|label| match label {
         Some(label) => println!("[presence] Computer use in progress · {label} · Esc to abort"),
         None => println!("[presence] released"),
     });
-    let grant = computer::grant("probe", "Probe").expect("grant");
+    let grant = epilot::grant("probe", "Probe").expect("grant");
     println!("url: {}\ntoken: {}", grant.url, grant.token);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut args = args.into_iter().peekable();
@@ -57,7 +57,7 @@ fn env_logger_lite() {
     let _ = log::set_logger(&Stderr).map(|()| log::set_max_level(log::LevelFilter::Debug));
 }
 
-fn post(grant: &computer::Grant, tool: &str, arguments: &str) -> Value {
+fn post(grant: &epilot::Grant, tool: &str, arguments: &str) -> Value {
     use std::io::{Read, Write};
     let addr = grant.url.trim_start_matches("http://").trim_end_matches("/mcp");
     let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": tool, "arguments": serde_json::from_str::<Value>(arguments).expect("JSON args") } }).to_string();

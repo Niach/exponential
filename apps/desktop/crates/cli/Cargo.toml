@@ -48,4 +48,4 @@ log = "0.4"
 # EXP-1196/1273: the device's computer-use endpoint, on every OS (pure-Rust
 # X11 on Linux: a server without a display answers "not available" at
 # runtime, nothing is needed at load time).
-computer = { path = "../computer" }
+epilot = { path = "../epilot" }

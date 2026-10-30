@@ -60,10 +60,6 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "computer@0.14.84",
-      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
-    },
-    {
       "package": "console_error_panic_hook@0.1.7",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
@@ -101,6 +97,14 @@
     },
     {
       "package": "engine@0.14.84",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "epilot-screen@0.14.84",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "epilot@0.14.84",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -342,10 +346,6 @@
     {
       "package": "rustls-platform-verifier-android@0.2.0",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
-      "package": "screen@0.14.84",
-      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
       "package": "screencapturekit-sys@0.2.8",

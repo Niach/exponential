@@ -2,7 +2,7 @@ import Foundation
 
 // NEW-59: THE work screen, the display coding agents drive with computer use.
 // A port of the TS reference `packages/domain-contract/src/work-screen.ts`
-// (desktop computer crate `work_screen`, Android `domain/WorkScreen.kt`),
+// (desktop epilot crate `work_screen`, Android `domain/WorkScreen.kt`),
 // byte-locked by `fixtures/work-screen.json` (`copy`, `testIds` and
 // `optionCases`, replayed by `WorkScreenTests`). The phones only show and edit
 // the device's setting (`launchDefaults.computerUseDisplayId`): the gate and the

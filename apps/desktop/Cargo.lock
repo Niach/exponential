@@ -331,11 +331,11 @@ dependencies = [
  "anyhow",
  "api",
  "coding",
- "computer",
  "core-foundation 0.9.4",
  "dirs",
  "domain",
  "embed-resource",
+ "epilot",
  "etalk",
  "etalk-engine",
  "flume 0.11.1",
@@ -1659,15 +1659,15 @@ dependencies = [
  "api",
  "chrono",
  "codemode",
- "computer",
  "dirs",
  "domain",
+ "epilot",
+ "epilot-screen",
  "etalk",
  "exponential-agent-runtime",
  "flate2",
  "libc",
  "log",
- "screen",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1722,26 +1722,6 @@ name = "compression-core"
 version = "0.4.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
-
-[[package]]
-name = "computer"
-version = "0.14.84"
-dependencies = [
- "core-foundation 0.10.0",
- "core-graphics 0.24.0",
- "foreign-types",
- "image",
- "log",
- "objc2 0.6.4",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "serde",
- "serde_json",
- "tiny_http",
- "uuid",
- "windows-sys 0.59.0",
- "x11rb",
-]
 
 [[package]]
 name = "comrak"
@@ -2789,6 +2769,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "epilot"
+version = "0.14.84"
+dependencies = [
+ "core-foundation 0.10.0",
+ "core-graphics 0.24.0",
+ "foreign-types",
+ "image",
+ "log",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "serde",
+ "serde_json",
+ "tiny_http",
+ "uuid",
+ "windows-sys 0.59.0",
+ "x11rb",
+]
+
+[[package]]
+name = "epilot-screen"
+version = "0.14.84"
+dependencies = [
+ "ashpd",
+ "async-io",
+ "block2 0.6.2",
+ "chrono",
+ "dispatch2",
+ "epilot",
+ "image",
+ "libc",
+ "log",
+ "objc2 0.6.4",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-core-media",
+ "objc2-core-video",
+ "objc2-foundation 0.3.2",
+ "objc2-screen-capture-kit",
+ "pipewire",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tiny_http",
+ "uuid",
+ "webp",
+ "windows-capture",
+ "x11rb",
+]
+
+[[package]]
 name = "equator"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2912,7 +2943,8 @@ dependencies = [
  "async-io",
  "chrono",
  "cocoa 0.26.0",
- "computer",
+ "epilot",
+ "epilot-screen",
  "etalk",
  "exponential-ui",
  "exponential-ui-gpui",
@@ -2926,7 +2958,6 @@ dependencies = [
  "raw-window-handle",
  "resvg 0.45.1",
  "rusqlite",
- "screen",
  "serde",
  "serde_json",
  "theme",
@@ -2975,10 +3006,10 @@ dependencies = [
  "api",
  "chrono",
  "coding",
- "computer",
  "dirs",
  "domain",
  "engine",
+ "epilot",
  "flume 0.11.1",
  "libc",
  "log",
@@ -9119,37 +9150,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "screen"
-version = "0.14.84"
-dependencies = [
- "ashpd",
- "async-io",
- "block2 0.6.2",
- "chrono",
- "computer",
- "dispatch2",
- "image",
- "libc",
- "log",
- "objc2 0.6.4",
- "objc2-core-foundation",
- "objc2-core-graphics",
- "objc2-core-media",
- "objc2-core-video",
- "objc2-foundation 0.3.2",
- "objc2-screen-capture-kit",
- "pipewire",
- "rusqlite",
- "serde",
- "serde_json",
- "tiny_http",
- "uuid",
- "webp",
- "windows-capture",
- "x11rb",
-]
-
-[[package]]
 name = "screencapturekit"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11332,6 +11332,7 @@ dependencies = [
  "dirs",
  "domain",
  "engine",
+ "epilot-screen",
  "etalk",
  "etalk-gpui",
  "exponential-ui",
@@ -11351,7 +11352,6 @@ dependencies = [
  "raw-window-handle",
  "reqwest 0.12.28",
  "ropey",
- "screen",
  "serde",
  "serde_json",
  "sha2 0.10.9",
