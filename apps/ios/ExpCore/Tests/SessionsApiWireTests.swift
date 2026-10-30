@@ -54,6 +54,10 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(message.keys.sorted(), ["agentId", "text"])
         let files = try json(SessionsSendInput.agent(agentId: "ag-1", attachmentIds: ["att-1"]))
         XCTAssertEqual(files.keys.sorted(), ["agentId", "attachmentIds"])
+        // EXP-1450: the composer's issue chips forward onto the agent.
+        let issues = try json(SessionsSendInput.agent(agentId: "ag-1", issueIds: ["i-1"]))
+        XCTAssertEqual(issues.keys.sorted(), ["agentId", "issueIds"])
+        XCTAssertEqual(issues["issueIds"] as? [String], ["i-1"])
 
         let bare = try json(AgentCreateInput(teamId: "t-1", name: "Caretaker", deviceId: "dev-1"))
         XCTAssertEqual(bare.keys.sorted(), ["deviceId", "instructions", "name", "teamId", "triggers"])

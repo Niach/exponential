@@ -87,4 +87,33 @@ class ComposerAgentRowTest {
             assertEquals(case.str("name"), case.str("expected"), ComposerAgentRow.pickForSubject(isLaunch, case.str("current")))
         }
     }
+
+    // `agentRow.pickCases` (TS `subjectAfterPick`, EXP-1450): a tap keeps the
+    // issue chips; only a prompt goes when an agent is picked.
+    @Test
+    fun `pickCases match the fixture`() {
+        val cases = row.getValue("pickCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val subject = fixtureSubject(case["subject"])
+            val after = ComposerAgentRow.subjectAfterPick(subject, case.str("pick")!!) { it is FixtureSubject.Prompt }
+            assertEquals(case.str("name"), fixtureSubject(case["expected"]), after)
+        }
+    }
+}
+
+/** The fixture's `{kind, ids | id}` subject (null = none). */
+internal sealed interface FixtureSubject {
+    data class Issues(val ids: List<String>) : FixtureSubject
+    data class Prompt(val id: String) : FixtureSubject
+}
+
+internal fun fixtureSubject(element: kotlinx.serialization.json.JsonElement?): FixtureSubject? {
+    if (element == null || element is JsonNull) return null
+    val obj = element.jsonObject
+    return when (val kind = obj.getValue("kind").jsonPrimitive.content) {
+        "issues" -> FixtureSubject.Issues(obj.getValue("ids").jsonArray.map { it.jsonPrimitive.content })
+        "prompt" -> FixtureSubject.Prompt(obj.getValue("id").jsonPrimitive.content)
+        else -> error("unknown subject kind $kind")
+    }
 }

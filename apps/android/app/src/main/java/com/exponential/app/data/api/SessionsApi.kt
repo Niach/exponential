@@ -96,10 +96,13 @@ data class SessionsSendInput(
             agentId: String,
             text: String,
             attachmentIds: List<String>? = null,
+            /** EXP-1450: the composer's issue chips, forwarded onto the DM. */
+            issueIds: List<String>? = null,
         ): SessionsSendInput = SessionsSendInput(
             agentId = agentId,
             text = text,
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
+            issueIds = issueIds?.takeIf { it.isNotEmpty() },
         )
 
         /**
