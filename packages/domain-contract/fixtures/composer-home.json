@@ -160,7 +160,7 @@
     }
   ],
   "agentRow": {
-    "$comment": "S-3 (owner 2026-10-28): THE AGENT ROW on the New-chat composer ×4 (web agent home + New session tab, IDE Agent page, iOS + Android Agent tab), styleguide entry `composer-agent-row` (Exponential-specific: NOT an Exponential UI primitive). It stands directly ABOVE the composer card, `rowToCard` px over it, with the LABEL line `labelToRow` px over the circles (left-aligned with the card, the muted small text: `copy.to` with the picked agent's name, or `copy.temporary`). The circles = SINGLE SELECT, left to right: the viewer's Assistant (agent-settings.json `orderedAgents`: first, the brand mark), then the team agents they see (agent icon in its colour), then ONE dotted circle (concept `temporaryIcon`, the muted foreground; NEVER status-backlog) = Temporary session, a normal session. Each circle = the chats.json agent BUBBLE at `size` px (the same disc on bg muted, the same `ringGap` background gap; no name under it, the name is the label and the tooltip / accessibility label); the SELECTED circle wears the foreground ring (`ringWidth`), the others the glass-stroke hairline. A tap selects (tapping the selected circle keeps it: it is never empty); the row scrolls horizontally when it overflows. DEFAULT (`defaultPick`): the Assistant when the viewer has one, else Temporary session; a page mount starts on it again. SEEDED (`seedCases`): a page opened WITH a subject (a start circle / Start chipping an issue, a prompt run, a device seed) starts on Temporary session, so the send is a normal launch with that subject, never a message to the Assistant. SUBJECT SWITCH (`subjectCases`): picking an issue or a prompt afterwards moves the row to Temporary session; any other subject change keeps the pick; tapping an agent afterwards picks it (the last tap wins). Picking an agent hides the + menu's runner and work rows (composer-menu.json: `temporary` false) and the send = `sessions.send({agentId, text, attachmentIds})` into the viewer's conversation with that agent, which the client then opens (its chat, chats.json chat mode); Temporary session = today's launch (device, account, model, repository, work picks in the +).",
+    "$comment": "S-3 (owner 2026-10-28): THE AGENT ROW on the New-chat composer ×4 (web agent home + New session tab, IDE Agent page, iOS + Android Agent tab), styleguide entry `composer-agent-row` (Exponential-specific: NOT an Exponential UI primitive). It stands directly ABOVE the composer card, `rowToCard` px over it, with the LABEL line `labelToRow` px over the circles (left-aligned with the card, the muted small text: `copy.to` with the picked agent's name, or `copy.temporary`). The circles = SINGLE SELECT, left to right: the viewer's Assistant (agent-settings.json `orderedAgents`: first, the brand mark), then the team agents they see (agent icon in its colour), then ONE dotted circle (concept `temporaryIcon`, the muted foreground; NEVER status-backlog) = Temporary session, a normal session. Each circle = the chats.json agent BUBBLE at `size` px (the same disc on bg muted, the same `ringGap` background gap; no name under it, the name is the label and the tooltip / accessibility label); the SELECTED circle wears the foreground ring (`ringWidth`), the others the glass-stroke hairline. A tap selects (tapping the selected circle keeps it: it is never empty); the row scrolls horizontally when it overflows. DEFAULT (`defaultPick`): the Assistant when the viewer has one, else Temporary session; a page mount starts on it again. SEEDED (`seedCases`): a page opened WITH a subject (a start circle / Start chipping an issue, a prompt run, a device seed) starts on Temporary session, so the send is a normal launch with that subject, never a message to the Assistant. EXP-1451: the start-coding DIALOG (web at every width, the IDE's composer dialog) IS this composer with this row, the subject headline over it: a play button's seed starts it on Temporary session (`seedCases`). SUBJECT SWITCH (`subjectCases`): picking an issue or a prompt afterwards moves the row to Temporary session; any other subject change keeps the pick; tapping an agent afterwards picks it (the last tap wins). PICK KEEPS THE SUBJECT (`pickCases`, EXP-1450): a tap on the row NEVER drops the issue chips (a picked agent gets them forwarded as the send's `issueIds`; Temporary session launches on them); only a PROMPT subject is dropped by an agent pick (a prompt starts a new root). CONTROLS KEEP THE SUBJECT (`controlCases`, EXP-1450): switching device, runner agent, account, model, effort, repository, a work toggle or an MCP server never touches the subject (issue chips stay up): every client's composer state keeps its subject apart from its launch options, so no control re-inits it. Picking an agent hides the + menu's runner and work rows (composer-menu.json: `temporary` false) and the send = `sessions.send({agentId, text, attachmentIds, issueIds})` into the viewer's conversation with that agent, which the client then opens (its chat, chats.json chat mode); Temporary session = today's launch (device, account, model, repository, work picks in the +).",
     "size": 40,
     "ringWidth": 2,
     "ringGap": 3,
@@ -462,6 +462,167 @@
         "subject": null,
         "current": null,
         "expected": null
+      }
+    ],
+    "pickCases": [
+      {
+        "name": "an agent picked over issue chips: the issues stay",
+        "subject": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        },
+        "pick": "g-me",
+        "expected": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        }
+      },
+      {
+        "name": "Temporary session picked over issue chips: the issues stay",
+        "subject": {
+          "kind": "issues",
+          "ids": [
+            "i-1",
+            "i-2"
+          ]
+        },
+        "pick": "temporary",
+        "expected": {
+          "kind": "issues",
+          "ids": [
+            "i-1",
+            "i-2"
+          ]
+        }
+      },
+      {
+        "name": "an agent picked over a prompt: the prompt goes",
+        "subject": {
+          "kind": "prompt",
+          "id": "p-1"
+        },
+        "pick": "g-b",
+        "expected": null
+      },
+      {
+        "name": "Temporary session picked over a prompt: the prompt stays",
+        "subject": {
+          "kind": "prompt",
+          "id": "p-1"
+        },
+        "pick": "temporary",
+        "expected": {
+          "kind": "prompt",
+          "id": "p-1"
+        }
+      },
+      {
+        "name": "an agent picked with no subject: still none",
+        "subject": null,
+        "pick": "g-me",
+        "expected": null
+      }
+    ],
+    "controlCases": [
+      {
+        "name": "start coding from an issue, then switch the agent row's pick",
+        "control": "agentRow",
+        "subject": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        },
+        "expected": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        }
+      },
+      {
+        "name": "start coding from an issue, then switch the device",
+        "control": "device",
+        "subject": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        },
+        "expected": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        }
+      },
+      {
+        "name": "start coding from an issue, then switch the runner agent",
+        "control": "agent",
+        "subject": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        },
+        "expected": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        }
+      },
+      {
+        "name": "start coding from an issue, then switch the account",
+        "control": "account",
+        "subject": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        },
+        "expected": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        }
+      },
+      {
+        "name": "start coding from an issue, then switch the model",
+        "control": "model",
+        "subject": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        },
+        "expected": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        }
+      },
+      {
+        "name": "start coding from an issue, then switch the effort",
+        "control": "effort",
+        "subject": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        },
+        "expected": {
+          "kind": "issues",
+          "ids": [
+            "i-1"
+          ]
+        }
       }
     ]
   }
