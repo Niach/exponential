@@ -539,3 +539,75 @@ async fn a_stored_journal_is_replayed_over_enet() {
     teammate.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// VAPP-167: the daemon VIEWS FOR THE CLI. A CLI on a machine whose daemon
+/// holds the install's eNet identity asks the daemon over its local socket;
+/// the daemon joins the session's device over its own node and streams the
+/// replay back as viewer events, through to the stored replay's `bye`.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_daemon_proxies_a_cli_viewer_over_its_local_socket() {
+    use steer::{ViewerEvent, ViewerPhase};
+    let dir = std::env::temp_dir().join(format!("enet-steer-proxy-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = Arc::new(Registry::default());
+    let device = start(&registry, &dir, "fay", InstallKind::Daemon);
+    let daemon = start(&registry, &dir, "fay", InstallKind::Desktop);
+    for install in [&device, &daemon] {
+        tokio::time::timeout(WAIT, install.passes_at_least(1)).await.unwrap();
+    }
+    for install in [&device, &daemon] {
+        install.refresh();
+        tokio::time::timeout(WAIT, install.passes_at_least(2)).await.unwrap();
+    }
+    let d = device.node().unwrap();
+    let v = daemon.node().unwrap();
+    d.add_ticket(&v.ticket());
+    v.add_ticket(&d.ticket());
+
+    let session_id = format!("sess-proxy-{}", std::process::id());
+    let journals = dir.join("data");
+    let mut writer = steer::JournalWriter::open(&journals, &session_id).unwrap();
+    writer.append(&ActivityEvent::narration("done elsewhere"));
+    drop(writer);
+    device.serve_stored(stored(&journals, &session_id, "fay", Arc::new(std::sync::atomic::AtomicBool::new(true))));
+
+    let runtime: &'static SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
+    let source: Arc<dyn steer::EnetViewerSource> = Arc::new(Source {
+        node: Some(Arc::clone(&v)),
+        endpoints: vec![enet::endpoint_hex(&d.endpoint_id())],
+    });
+    let socket = dir.join("cli-daemon.sock");
+    let proxy = steer::viewer_proxy::serve(
+        &socket,
+        Arc::new(move |session_id, events_tx| steer::spawn_viewer(runtime, Some(Arc::clone(&source)), session_id, events_tx)),
+    )
+    .unwrap();
+
+    let (events_tx, events) = flume::unbounded();
+    let cli = steer::viewer_proxy::follow(&socket, &session_id, true, events_tx).unwrap();
+    let mut seen = Vec::new();
+    loop {
+        let event = next_event(&events).await;
+        let done = matches!(event, ViewerEvent::Phase(ViewerPhase::Ended { .. }));
+        seen.push(event);
+        if done {
+            break;
+        }
+    }
+    assert!(seen.iter().any(|event| matches!(
+        event,
+        ViewerEvent::Activity(0, ActivityEvent::Narration { text, .. }) if text == "done elsewhere"
+    )), "{seen:?}");
+    assert!(seen.iter().any(|event| matches!(event, ViewerEvent::Synced { .. })), "{seen:?}");
+    assert_eq!(seen.last(), Some(&ViewerEvent::Phase(ViewerPhase::Ended { outcome: Some("history".into()) })));
+    // The daemon closes the stream after the terminal phase.
+    assert!(tokio::time::timeout(WAIT, events.recv_async()).await.expect("closed in time").is_err());
+
+    cli.shutdown();
+    proxy.stop();
+    device.stop();
+    daemon.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}

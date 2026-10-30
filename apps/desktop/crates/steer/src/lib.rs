@@ -90,6 +90,9 @@ pub mod tool_output;
 pub mod tool_group_summary;
 pub mod trace;
 pub mod viewer;
+/// VAPP-167: the daemon proxies a CLI's viewer over its local socket.
+#[cfg(unix)]
+pub mod viewer_proxy;
 /// EXP-1240: THE Work card model (workflow, task list, subagent).
 pub mod work_card;
 /// EXP-850 §3/§7: the `workflow` payload and the shared caption.

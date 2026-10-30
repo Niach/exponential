@@ -15,7 +15,9 @@
 //! is otherwise a steer VIEWER over eNet (`steer::spawn_viewer`, the
 //! desktop's own client; VAPP-43: the relay carries no session content): the
 //! device answers with the live run or its stored journal, under the
-//! session's access rule (`fixtures/steer-enet.json`).
+//! session's access rule (`fixtures/steer-enet.json`). VAPP-167: while this
+//! machine's daemon runs it holds the install's eNet identity, so the
+//! daemon views for the CLI (`steer::viewer_proxy`).
 //!
 //! Every `<id>` may be a unique prefix of a root session's UUID (the list
 //! prints eight characters; the list tool reads roots only).
@@ -439,15 +441,11 @@ const REPLAY_BUDGET: Duration = Duration::from_secs(45);
 const ENET_START_BUDGET: Duration = Duration::from_secs(15);
 
 /// This CLI install's eNet node, for the viewer. It shares its identity with
-/// the daemon (`cli-enet-identity`), so it refuses while the daemon runs:
-/// two processes on one endpoint id would knock each other off the relay.
-fn viewer_install(ctx: &Ctx, runtime: &steer::SteerRuntime, row: &RemoteSession) -> anyhow::Result<steer::enet::InstallNode> {
+/// the daemon (`cli-enet-identity`) — two processes on one endpoint id
+/// would knock each other off the relay — so it is only started while no
+/// daemon runs ([`Viewer::open`] asks a running one instead).
+fn viewer_install(ctx: &Ctx, runtime: &steer::SteerRuntime, row: &RemoteSession) -> steer::enet::InstallNode {
     use steer::enet::{InstallKind, InstallNode, InstallSpec};
-    if let Some(pid) = super::daemon::daemon_pid(&ctx.data_dir) {
-        bail!(
-            "this session's transcript lives on its device and travels over eNet, whose identity the running daemon (pid {pid}) holds here — open the session in the desktop app, or stop the daemon and retry"
-        );
-    }
     let teams: Vec<String> = row.team_id.iter().cloned().collect();
     let install = InstallNode::start(
         runtime.handle(),
@@ -465,7 +463,63 @@ fn viewer_install(ctx: &Ctx, runtime: &steer::SteerRuntime, row: &RemoteSession)
     if !install.wait_passes_blocking(1, ENET_START_BUDGET) {
         log::debug!("sessions log: the eNet node is not ready yet; joining anyway");
     }
-    Ok(install)
+    install
+}
+
+/// The steer viewer `log` reads: its own eNet node, or (VAPP-167) the
+/// running daemon's, proxied over the daemon's local socket.
+enum Viewer {
+    Own {
+        handle: steer::ViewerHandle,
+        install: steer::enet::InstallNode,
+        _runtime: Arc<steer::SteerRuntime>,
+    },
+    Daemon(steer::viewer_proxy::ProxiedViewer),
+}
+
+impl Viewer {
+    fn open(
+        ctx: &Ctx,
+        row: &RemoteSession,
+        ended: bool,
+        events_tx: flume::Sender<steer::ViewerEvent>,
+    ) -> anyhow::Result<Viewer> {
+        if let Some(pid) = super::daemon::daemon_pid(&ctx.data_dir) {
+            if row.device_id.as_deref() == Some(ctx.device_id().as_str()) {
+                bail!(
+                    "this session runs on this machine's daemon (pid {pid}) — `exponential sessions log {}` prints its journal",
+                    row.id
+                );
+            }
+            let socket = super::daemon::viewer_socket(&ctx.data_dir);
+            return steer::viewer_proxy::follow(&socket, &row.id, ended, events_tx)
+                .map(Viewer::Daemon)
+                .map_err(|err| {
+                    log::debug!("sessions log: the daemon's viewer proxy: {err}");
+                    anyhow!(
+                        "the running daemon (pid {pid}) holds this machine's eNet identity and does not view sessions for the CLI — update it (`exponential update`), or stop it and retry"
+                    )
+                });
+        }
+        let runtime = steer::SteerRuntime::new().context("start the steer runtime")?;
+        let install = viewer_install(ctx, &runtime, row);
+        let enet = Arc::new(steer::InstallViewerSource { install: install.clone(), trpc: Arc::clone(&ctx.trpc) });
+        let handle = steer::spawn_viewer(&runtime, Some(enet), row.id.clone(), events_tx);
+        if ended {
+            handle.note_session_ended();
+        }
+        Ok(Viewer::Own { handle, install, _runtime: runtime })
+    }
+
+    fn shutdown(self) {
+        match self {
+            Viewer::Own { handle, install, .. } => {
+                handle.shutdown();
+                install.stop();
+            }
+            Viewer::Daemon(proxied) => proxied.shutdown(),
+        }
+    }
 }
 
 /// Print a run's transcript. This machine's own journal needs no network
@@ -484,15 +538,8 @@ pub fn stream_transcript(ctx: &Ctx, row: &RemoteSession, follow: bool) -> Comman
             return Ok(ExitCode::SUCCESS);
         }
     }
-    let runtime = steer::SteerRuntime::new().context("start the steer runtime")?;
-    let install = viewer_install(ctx, &runtime, row)?;
     let (events_tx, events_rx) = flume::unbounded();
-    let enet = Arc::new(steer::InstallViewerSource { install: install.clone(), trpc: Arc::clone(&ctx.trpc) });
-    let handle = steer::spawn_viewer(&runtime, Some(enet), row.id.clone(), events_tx);
-    let ended = row.status == "ended";
-    if ended {
-        handle.note_session_ended();
-    }
+    let viewer = Viewer::open(ctx, row, ended, events_tx)?;
     let state = Mutex::new(super::code::AttachState::default());
     let started = Instant::now();
     let mut max_seq = 0u64;
@@ -558,8 +605,7 @@ pub fn stream_transcript(ctx: &Ctx, row: &RemoteSession, follow: bool) -> Comman
             _ => {}
         }
     };
-    handle.shutdown();
-    install.stop();
+    viewer.shutdown();
     outcome
 }
 
