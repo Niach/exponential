@@ -37,13 +37,28 @@ public struct InstallEntry: Decodable, Equatable, Sendable {
     public let kind: String
     public let endpointId: String
     public let x25519Public: String
+    /// The `devices` row a desktop/daemon install is bound to (EXP-1459:
+    /// the writer of a new thread wraps its tree key for the target device).
+    public let deviceId: String?
+    /// Set on `installs.mine` rows this user revoked.
+    public let revokedAt: String?
 
-    public init(installId: String, userId: String?, kind: String, endpointId: String, x25519Public: String) {
+    public init(
+        installId: String,
+        userId: String?,
+        kind: String,
+        endpointId: String,
+        x25519Public: String,
+        deviceId: String? = nil,
+        revokedAt: String? = nil
+    ) {
         self.installId = installId
         self.userId = userId
         self.kind = kind
         self.endpointId = endpointId
         self.x25519Public = x25519Public
+        self.deviceId = deviceId
+        self.revokedAt = revokedAt
     }
 }
 

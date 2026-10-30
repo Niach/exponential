@@ -1030,11 +1030,13 @@ extension Chats {
     /// (a time a kept agent message already stands for is skipped, compared
     /// as instants), and the newest agent time as an event card. The open
     /// chat's transcript, unread marking and pickup keep reading messages.
-    public static func digestMessages(sessionId: String, digest raw: String?) -> [TreeMessage] {
-        digestMessages(sessionId: sessionId, digest: SessionTree.jsonObject(raw))
+    /// EXP-1459: the digest's bodies and cards are sealed like the messages
+    /// they stand for; `rootId` names the tree whose key opens them.
+    public static func digestMessages(sessionId: String, digest raw: String?, rootId: String? = nil) -> [TreeMessage] {
+        digestMessages(sessionId: sessionId, digest: SessionTree.jsonObject(raw), rootId: rootId)
     }
 
-    public static func digestMessages(sessionId: String, digest: [String: Any]?) -> [TreeMessage] {
+    public static func digestMessages(sessionId: String, digest: [String: Any]?, rootId: String? = nil) -> [TreeMessage] {
         guard let digest else { return [] }
         func text(_ value: Any?) -> String? { value as? String }
         func msOr0(_ iso: String) -> Double { SessionTree.ms(iso) ?? 0 }
@@ -1048,18 +1050,20 @@ extension Chats {
             guard seen.insert(id).inserted else { continue }
             let authorKind = text(m["authorKind"]) ?? ""
             let createdAt = text(m["createdAt"]) ?? ""
-            let card = (m["card"] as? [String: Any]).map(TreeMessageCard.init(object:))
+            let opened = SealedMessage.open(body: text(m["body"]) ?? "", card: m["card"] as? [String: Any], rootId: rootId)
+            let card = opened.card.map(TreeMessageCard.init(object:))
             out.append(TreeMessage(
                 id: id,
                 sessionId: sessionId,
                 authorKind: authorKind,
                 authorId: nil,
-                body: text(m["body"]) ?? "",
+                body: opened.body,
                 card: card,
                 answeredAt: text(m["answeredAt"]),
                 consumedAt: nil,
                 createdAt: createdAt,
-                authorSessionId: text(m["authorSessionId"])
+                authorSessionId: text(m["authorSessionId"]),
+                sealStatus: opened.status
             ))
             if authorKind == agent, card?.kind != "event" {
                 counted[msOr0(createdAt), default: 0] += 1

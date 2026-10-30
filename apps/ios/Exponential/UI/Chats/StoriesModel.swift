@@ -110,12 +110,14 @@ final class StoriesModel {
         let issueIds = Array(Set(links.map(\.issueId)))
         let issues = issueIds.isEmpty ? [] : try IssueEntity.filter(issueIds.contains(Column("id"))).fetchAll(db)
         // The chat list's title rung reads the digests, never a transcript.
+        let rootIds = Dictionary(sessions.map { ($0.id, $0.rootId) }, uniquingKeysWith: { first, _ in first })
         let digests = try Row.fetchAll(db, sql: """
             SELECT "session_id", "digest" FROM "conversations"
             WHERE "session_id" IS NOT NULL AND "session_id" <> ''
             """)
             .flatMap { row -> [TreeMessage] in
-                Chats.digestMessages(sessionId: row["session_id"], digest: row["digest"] as String?)
+                let sessionId: String = row["session_id"]
+                return Chats.digestMessages(sessionId: sessionId, digest: row["digest"] as String?, rootId: rootIds[sessionId])
             }
         let trees = sessions.map { TreeSession(sessionRow: $0) }
         let titles = SessionTitle.titles(

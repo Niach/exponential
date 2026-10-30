@@ -79,6 +79,10 @@ final class AppDependencies: @unchecked Sendable {
     /// EXP-1457: this install's eNet node + its registry entry; nil when the
     /// build does not link eNet.
     let installNode: InstallNodeCoordinator?
+    /// EXP-1459: the session-tree keys this install holds (opens sealed
+    /// content, answers other readers' key requests, seals what we write).
+    let treeKeyHolder: TreeKeyHolder
+    let treeKeys: TreeKeyCoordinator
     let notificationDelegate: NotificationDelegate
 
     // EXP-452: best-effort per-account timezone claim (digest send hour).
@@ -214,7 +218,17 @@ final class AppDependencies: @unchecked Sendable {
         let (deviceLabel, devicePlatform) = MainActor.assumeIsolated {
             (UIDevice.current.name, "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)")
         }
-        self.installNode = InstallNodeCoordinator.make(
+        // EXP-1459: tree secrets in the shared keychain group (the NSE opens
+        // sealed pushes with them later); the views open through `shared`.
+        let treeKeyStore = TreeKeyStore()
+        let keyRing = SealedKeyRing(persistence: TreeKeyPersistence(
+            load: { treeKeyStore.load() },
+            save: { treeKeyStore.save(rootId: $0, epoch: $1, secret: $2) },
+            removeAll: { treeKeyStore.removeAll() }
+        ))
+        let opener = SealedOpener(crypto: SealedCryptoFactory.make(), ring: keyRing)
+        SealedOpener.shared = opener
+        let installNode = InstallNodeCoordinator.make(
             trpc: trpc,
             auth: auth,
             db: db,
@@ -224,7 +238,28 @@ final class AppDependencies: @unchecked Sendable {
             ),
             label: deviceLabel,
             platform: devicePlatform,
-            onIdentityRotated: { pushTokenManager.resetRegistrations() }
+            onIdentityRotated: {
+                pushTokenManager.resetRegistrations()
+                // The wraps were for the old key: fetched again for the new one.
+                keyRing.removeAll()
+            }
+        )
+        self.installNode = installNode
+        let treeKeyHolder = TreeKeyHolder(
+            keys: SessionKeysApi(trpc: trpc),
+            installs: InstallsApi(trpc: trpc),
+            crypto: opener.crypto,
+            ring: keyRing,
+            identity: { identityStore.load() },
+            installId: { accountId in await installNode?.installId(accountId: accountId) }
+        )
+        self.treeKeyHolder = treeKeyHolder
+        self.treeKeys = TreeKeyCoordinator(holder: treeKeyHolder, opener: opener, auth: auth, db: db)
+        sessionsApi.sealing.sealer = SessionSealer(
+            holder: treeKeyHolder,
+            opener: opener,
+            db: db,
+            userId: { accountId in auth.accounts.first { $0.id == accountId }?.userId }
         )
         self.notificationDelegate = NotificationDelegate(pushTokenManager: pushTokenManager, deepLinkBus: deepLinkBus)
 
@@ -252,6 +287,7 @@ final class AppDependencies: @unchecked Sendable {
         // Lazy and off the main thread: the node starts on the coordinator's
         // own task once an account is signed in.
         installNode?.start()
+        treeKeys.start()
         // Claim-once loop: stamps the device timezone on accounts that never
         // had one captured (EXP-452 — mobile-only accounts digested in UTC).
         timezoneClaimer.start()

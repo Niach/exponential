@@ -544,6 +544,12 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
     public let createdAt: String
     /// EXP-1323: the session that posted it (nil = none).
     public let authorSessionId: String?
+    /// EXP-1459: `plain` / `opened` = readable; anything else = this install
+    /// can't open it (yet): the body is empty and the card is its clear part.
+    public let sealStatus: SealStatus
+
+    /// The content is sealed and this install can't open it (yet).
+    public var isLocked: Bool { !sealStatus.isReadable }
 
     public init(
         id: String,
@@ -555,9 +561,11 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
         answeredAt: String?,
         consumedAt: String?,
         createdAt: String,
-        authorSessionId: String? = nil
+        authorSessionId: String? = nil,
+        sealStatus: SealStatus = .plain
     ) {
         self.authorSessionId = authorSessionId
+        self.sealStatus = sealStatus
         self.id = id
         self.sessionId = sessionId
         self.authorKind = authorKind
