@@ -111,6 +111,15 @@ jobs:
         env:
           EXPONENTIAL_UI_APPLE_TARGETS: aarch64-apple-ios
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      # EXP-1435: the push-only eNet facade (device slice): the Notification
+      # Service Extension opens the relay's sealed pushes with it. Without it
+      # the app still builds, but every sealed push would show its placeholder.
+      - name: Build the push-only eNet xcframework
+        working-directory: ${{ github.workspace }}
+        env:
+          ENET_PUSH_ONLY: "1"
+          ENET_APPLE_TARGETS: aarch64-apple-ios
+        run: bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
 
       # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
       # fails without this.
@@ -208,8 +217,14 @@ jobs:
             || { echo "::error::APP_ENTITLEMENTS / APPEX_ENTITLEMENTS are empty"; exit 1; }
           # shellcheck disable=SC2086 # the lists split on purpose
           check "$APP" $APP_ENTITLEMENTS
-          # shellcheck disable=SC2086
-          check "$APP"/PlugIns/*.appex $APPEX_ENTITLEMENTS
+          # Every extension (Share + EXP-1435's Notification Service): the NSE
+          # reads the push key from the shared keychain group.
+          for appex in "$APP"/PlugIns/*.appex; do
+            # shellcheck disable=SC2086
+            check "$appex" $APPEX_ENTITLEMENTS
+          done
+          [ -d "$APP/PlugIns/NotificationService.appex" ] \
+            || { echo "::error::NotificationService.appex is not embedded"; fail=1; }
           # aps-environment must be production in an App Store build.
           codesign -d --entitlements :- "$APP" 2>/dev/null | grep -A1 aps-environment | grep -q production \
             || { echo "::error::aps-environment is not production"; fail=1; }

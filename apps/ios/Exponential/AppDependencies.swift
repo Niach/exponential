@@ -1,4 +1,5 @@
 import ExpCore
+import FirebaseMessaging
 import Foundation
 import os
 
@@ -190,7 +191,15 @@ final class AppDependencies: @unchecked Sendable {
         self.widgetsApi = WidgetsApi(trpc: trpc)
 
         // Push notifications
-        let pushTokenManager = PushTokenManager(pushTokensApi: pushTokensApi, auth: auth)
+        // EXP-1435: the APNs device token for the relay install comes from
+        // Firebase (it receives it through its app-delegate proxy before it
+        // mints the FCM token); Firebase stays for the legacy FCM path.
+        let pushTokenManager = PushTokenManager(
+            pushTokensApi: pushTokensApi,
+            auth: auth,
+            keychain: keychain,
+            apnsToken: { Messaging.messaging().apnsToken }
+        )
         self.pushTokenManager = pushTokenManager
         self.notificationDelegate = NotificationDelegate(pushTokenManager: pushTokenManager, deepLinkBus: deepLinkBus)
 
