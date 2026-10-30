@@ -66,8 +66,9 @@ windows-core = "0.61"
 # NEW-57: per-app desktop audio on Linux (`src/apps/linux.rs`): PipeWire app
 # nodes. pipewire 0.9 = the screen crate's / ashpd's pin (MIT); it links
 # libpipewire-0.3 (CI installs libpipewire-0.3-dev). Behind the `pipewire`
-# feature (default on: only the IDE executable links `talk`, and it loads
-# libpipewire through gpui anyway); off = PulseAudio's monitor via `parec`.
+# feature (default on for the IDE crates, which load libpipewire through gpui
+# anyway; `api`, `coding` and `steer` take etalk with default-features = false
+# so the CLI daemon never links it, #EXP-1442); off = PulseAudio's monitor via `parec`.
 [target.'cfg(target_os = "linux")'.dependencies]
 pipewire = { version = "0.9", optional = true }
 

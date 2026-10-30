@@ -12,7 +12,7 @@ libopus = ["etalk-codec/libopus"]
 
 [dependencies]
 # eTalk: the voice, call and meeting state machines (packages/etalk/fixtures).
-etalk = { path = "../etalk" }
+etalk = { path = "../etalk", default-features = false }
 # default-features = false (EXP-403): steer only reads the gpui-free emulator
 # surface (TermHandle/screen_lines) — this keeps the crate linkable from the
 # headless CLI. The desktop re-enables terminal's gpui half via ui/app.
