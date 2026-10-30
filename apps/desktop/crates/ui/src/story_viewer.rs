@@ -405,7 +405,7 @@ pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
     let handlers = PanelHandlers {
         open_session: Some(Rc::new(move |window, cx| {
             close(cx);
-            crate::thread_screen::open_session_card(&session_id, "", window, cx);
+            crate::thread_screen::open_session_card(&session_id, window, cx);
         })),
         close: Some(Rc::new(|_, cx| close(cx))),
         navigate: true,

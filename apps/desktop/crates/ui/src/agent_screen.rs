@@ -742,7 +742,7 @@ impl AgentScreenView {
         } = row
         else {
             let text = crate::thread_screen::ThreadText::team(team_id.as_deref()).answering(answer);
-            return crate::thread_screen::card_row(row, &conversation_id, &text, &self.images, window, cx)
+            return crate::thread_screen::card_row(row, &conversation_id, &self.rows, &text, &self.images, window, cx)
                 .map(|card| div().w_full().pl(px(CARD_INSET)).child(card).into_any_element())
                 .unwrap_or_else(|| div().into_any_element());
         };
@@ -1133,13 +1133,15 @@ impl AgentScreenView {
         let tail = self.conversation.as_ref().is_some_and(|row| !row.is_ended()) && self.composer.is_some();
         let total = self.rows.len();
         let start = self.conv.window.start(total, &self.conv.waiting);
-        let inputs = (self.rows_gen, tail, start);
+        // #EXP-1464: an expanded / collapsed session row re-measures.
+        let inputs = (self.rows_gen ^ crate::thread_screen::thread_row_generation(cx).rotate_left(32), tail, start);
         if self.conv.synced == Some(inputs) {
             return;
         }
         self.conv.synced = Some(inputs);
         self.conv.start = start;
         self.conv.tail = tail;
+        let root_id = self.conversation.as_ref().map(|row| row.id.clone()).unwrap_or_default();
         let mut keys: Vec<RowKey> = self.rows[start..]
             .iter()
             .enumerate()
@@ -1150,7 +1152,8 @@ impl AgentScreenView {
                     }
                     _ => None,
                 };
-                let mut fingerprint = crate::thread_screen::conversation_fingerprint(row, at, 0);
+                let mut fingerprint = crate::thread_screen::conversation_fingerprint(row, at, 0)
+                    ^ crate::thread_screen::row_state_fingerprint(row, &root_id, cx);
                 if offset == 0 && start > 0 {
                     fingerprint = fingerprint.rotate_left(1) ^ 1;
                 }

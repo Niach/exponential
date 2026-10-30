@@ -266,7 +266,11 @@ pub(crate) fn answer_card(input: api::sessions::AnswerInput, cx: &mut App) {
             // The draft goes only now: a refusal (409, 400, the network)
             // re-opens the card with its picks and text intact.
             Ok(_) => {
-                cx.update(|cx| crate::plan_card::drop_draft(&message_id, cx));
+                cx.update(|cx| {
+                    crate::plan_card::drop_draft(&message_id, cx);
+                    // #EXP-1464: an expanded row's card answered = it collapses.
+                    settle_answered_row(&message_id, cx);
+                });
             }
             Err(err) => {
                 log::warn!("[thread] answer the question failed: {err}");
@@ -286,22 +290,263 @@ pub(crate) fn unqueue_message(message_id: String, cx: &mut App) {
     background_write("remove", "the message", cx, move |trpc| api::sessions::unqueue(trpc, &message_id));
 }
 
-/// A session card was clicked: another ROOT thread (an agent channel's
-/// `thread_started` card) opens as its thread, every other session as the
-/// session view.
-pub(crate) fn open_session_card(session_id: &str, current_root: &str, window: &mut Window, cx: &mut App) {
-    let opens_thread = crate::session_data::session(session_id, cx)
-        .is_some_and(|session| session.is_root() && session.is_thread() && session.id != current_root);
-    let screen = if opens_thread {
-        Screen::Thread {
-            session_id: session_id.to_string(),
-        }
-    } else {
-        Screen::Session {
-            session_id: session_id.to_string(),
-        }
-    };
+/// A session card (or a `Report from` / event line) was clicked: #EXP-1464
+/// opens it by inbox-route.json `session_target`
+/// ([`crate::navigation::session_screen_for`]): the viewer's own agent
+/// conversation root = the agent's page, a thread root = its thread, a
+/// thread's child = in its thread (its session view on the thread's tab),
+/// anything else under an agent = its own session screen.
+pub(crate) fn open_session_card(session_id: &str, window: &mut Window, cx: &mut App) {
+    let screen = crate::navigation::session_screen_for(session_id, cx);
     crate::navigation::navigate(window, cx, screen);
+}
+
+// ---------------------------------------------------------------------------
+// #EXP-1464: what a conversation's session rows do (thread-row-action.json)
+// ---------------------------------------------------------------------------
+
+/// The client-held row state: the expanded session cards (keyed by the
+/// conversation's root + the session), the sessions the viewer answered
+/// from an expanded card, and the card each expanded row shows (its message
+/// id → that row) so an answer collapses it.
+#[derive(Default)]
+struct ThreadRowState {
+    expanded: HashSet<(String, String)>,
+    answered: HashSet<String>,
+    showing: HashMap<String, (String, String)>,
+    generation: u64,
+}
+
+impl gpui::Global for ThreadRowState {}
+
+/// Bumped whenever a row expands, collapses or reads `Answered`: the
+/// Conversation lists re-key on it ([`row_state_fingerprint`]).
+pub(crate) fn thread_row_generation(cx: &App) -> u64 {
+    cx.try_global::<ThreadRowState>().map_or(0, |state| state.generation)
+}
+
+fn row_expanded(root_id: &str, session_id: &str, cx: &App) -> bool {
+    cx.try_global::<ThreadRowState>()
+        .is_some_and(|state| state.expanded.contains(&(root_id.to_string(), session_id.to_string())))
+}
+
+fn toggle_row(root_id: &str, session_id: &str, cx: &mut App) {
+    let state = cx.default_global::<ThreadRowState>();
+    let key = (root_id.to_string(), session_id.to_string());
+    if !state.expanded.remove(&key) {
+        state.expanded.insert(key);
+    }
+    state.generation = state.generation.wrapping_add(1);
+    cx.refresh_windows();
+}
+
+/// An answer landed: the expanded row that showed `message_id` collapses
+/// and its session reads `Answered` (thread-row-action.json `answered`).
+fn settle_answered_row(message_id: &str, cx: &mut App) {
+    let Some(state) = cx.try_global::<ThreadRowState>() else {
+        return;
+    };
+    if !state.showing.contains_key(message_id) {
+        return;
+    }
+    let state = cx.default_global::<ThreadRowState>();
+    if let Some(key) = state.showing.remove(message_id) {
+        state.expanded.remove(&key);
+        state.answered.insert(key.1);
+        state.generation = state.generation.wrapping_add(1);
+    }
+    cx.refresh_windows();
+}
+
+/// The session's waiting `question` / `plan` card as its Conversation row
+/// (`session_waiting_card` over its own messages), `None` while unsynced.
+fn waiting_card_row(session_id: &str, cx: &App) -> Option<SessionThreadRow> {
+    let messages = crate::session_data::messages_of_session(session_id, cx);
+    let waiting = domain::thread_row_action::session_waiting_card(
+        session_id,
+        messages.iter().map(|message| domain::thread_row_action::WaitingMessage {
+            id: &message.id,
+            session_id: &message.session_id,
+            created_at: message.created_at.as_deref().unwrap_or_default(),
+            answered_at: message.answered_at.as_deref(),
+            card: message.card.as_ref(),
+        }),
+    )?;
+    let message = messages.iter().find(|message| message.id == waiting)?;
+    domain::session_tree::ask_card_row(message)
+}
+
+/// A session row's action (thread-row-action.json) in the conversation
+/// rooted at `root_id` over its `rows`.
+fn session_row_action(
+    kind: &str,
+    session_id: Option<&str>,
+    root_id: &str,
+    rows: &[SessionThreadRow],
+    cx: &App,
+) -> domain::thread_row_action::ThreadRowAction {
+    let session = session_id.and_then(|id| crate::session_data::session(id, cx));
+    let state = session.as_ref().map(domain::session_tree::session_state);
+    let blocked = session.as_ref().is_some_and(|session| session.blocked.is_some());
+    let inline = session_id.is_some_and(|id| domain::thread_row_action::waiting_card_inline(rows, id));
+    let answered = session_id.is_some_and(|id| {
+        cx.try_global::<ThreadRowState>()
+            .is_some_and(|state| state.answered.contains(id))
+    });
+    domain::thread_row_action::thread_row_action(kind, session_id, root_id, state, blocked, inline, answered)
+}
+
+/// What a row's client state adds to its measure: an expanded session card
+/// carries its waiting card (so a synced / changed card re-measures).
+pub(crate) fn row_state_fingerprint(row: &SessionThreadRow, root_id: &str, cx: &App) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let SessionThreadRow::Session { card, .. } = row else {
+        return 0;
+    };
+    if !row_expanded(root_id, &card.session_id, cx) {
+        return 0;
+    }
+    let mut hasher = std::hash::DefaultHasher::new();
+    serde_json::to_string(&waiting_card_row(&card.session_id, cx)).unwrap_or_default().hash(&mut hasher);
+    hasher.finish() | 1
+}
+
+/// THE session card as a conversation row: `expand` toggles it in place
+/// (chevron down + THE question / plan card under it, `Open chat` in its
+/// label line), `open` opens it, `none` does nothing.
+#[allow(clippy::too_many_arguments)] // the row's facts + the painter's
+fn session_card_row(
+    card: &domain::session_tree::SessionCard,
+    root_id: &str,
+    rows: &[SessionThreadRow],
+    text: &ThreadText,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> AnyElement {
+    use domain::thread_row_action::RowAction;
+    let action = session_row_action("session", Some(&card.session_id), root_id, rows, cx);
+    let mut shown = card.clone();
+    if let Some(word) = &action.kind_word {
+        shown.kind_word = word.clone();
+    }
+    if let Some(tone) = action.tone {
+        shown.tone = tone.to_string();
+    }
+    let session_id = card.session_id.clone();
+    match action.action {
+        RowAction::None => crate::work_card::session_card_row(&shown, None, None, cx),
+        RowAction::Open => crate::work_card::session_card_row(
+            &shown,
+            Some(registry::UI_CHEVRON_RIGHT),
+            Some(Box::new(move |window, cx| open_session_card(&session_id, window, cx))),
+            cx,
+        ),
+        RowAction::Expand => {
+            let expanded = row_expanded(root_id, &card.session_id, cx);
+            let toggle_root = root_id.to_string();
+            let header = crate::work_card::session_card_row(
+                &shown,
+                Some(if expanded { registry::UI_CHEVRON_DOWN } else { registry::UI_CHEVRON_RIGHT }),
+                Some(Box::new(move |_, cx| toggle_row(&toggle_root, &session_id, cx))),
+                cx,
+            );
+            if !expanded {
+                return header;
+            }
+            let waiting = waiting_card_row(&card.session_id, cx);
+            let key = (root_id.to_string(), card.session_id.clone());
+            {
+                let state = cx.default_global::<ThreadRowState>();
+                state.showing.retain(|_, shown| *shown != key);
+                if let Some(row) = &waiting {
+                    state.showing.insert(row.id().to_string(), key);
+                }
+            }
+            let open_id = card.session_id.clone();
+            let open_chat = gpui_component::button::Button::new(SharedString::from(format!(
+                "{}-{}",
+                domain::thread_row_action::test_ids().open_chat,
+                card.session_id
+            )))
+            .link()
+            .cursor_pointer()
+            .xsmall()
+            .label(domain::thread_row_action::copy().open_chat.clone())
+            .on_click(move |_, window, cx| open_session_card(&open_id, window, cx));
+            let body = match &waiting {
+                Some(row) => ask_row_card_with(row, text, images, Some(open_chat.into_any_element()), window, cx),
+                None => None,
+            }
+            .unwrap_or_else(|| {
+                crate::feedback::skeleton_value(
+                    SharedString::from(format!("{}-skeleton-{}", domain::thread_row_action::test_ids().expanded, card.session_id)),
+                    160.,
+                    cx,
+                )
+            });
+            v_flex()
+                .id(SharedString::from(format!(
+                    "{}-{}",
+                    domain::thread_row_action::test_ids().expanded,
+                    card.session_id
+                )))
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .child(header)
+                .child(body)
+                .into_any_element()
+        }
+    }
+}
+
+/// An event line (`… was not picked up`): a button opening the session it
+/// names when its action is not `none`, else the plain muted line.
+fn event_row(
+    id: &str,
+    session_id: Option<&str>,
+    line: &str,
+    root_id: &str,
+    rows: &[SessionThreadRow],
+    cx: &App,
+) -> AnyElement {
+    let action = session_row_action("event", session_id, root_id, rows, cx);
+    match action.session_id {
+        Some(target) if action.chevron => muted_line_button(
+            SharedString::from(format!("{}-{id}", domain::thread_row_action::test_ids().event)),
+            registry::EVENT_STATUS_CHANGED,
+            line.to_string(),
+            move |window, cx| open_session_card(&target, window, cx),
+            cx,
+        ),
+        _ => muted_line(registry::EVENT_STATUS_CHANGED, line.to_string(), cx),
+    }
+}
+
+/// A `Report from` line: THE xref link when it opens, plain otherwise.
+fn report_row(
+    id: &str,
+    session_id: &str,
+    xref: &domain::session_tree::SessionXref,
+    root_id: &str,
+    rows: &[SessionThreadRow],
+    cx: &App,
+) -> AnyElement {
+    let action = session_row_action("report", Some(session_id), root_id, rows, cx);
+    match action.session_id {
+        Some(target) if action.chevron => {
+            let mark = crate::session_xref::xref_mark(xref.agent_id.as_deref(), cx);
+            crate::session_xref::session_xref_with(
+                crate::session_xref::xref_id(id),
+                xref,
+                mark,
+                move |window, cx| open_session_card(&target, window, cx),
+                cx,
+            )
+        }
+        _ => crate::session_xref::session_xref_plain(id, xref, cx),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -950,6 +1195,36 @@ pub(crate) fn muted_line(glyph: crate::icons::ExpIcon, text: String, cx: &App) -
         .into_any_element()
 }
 
+/// #EXP-1464: [`muted_line`] as a button (thread-row-action.json): the
+/// trailing chevron, hover = foreground, press = the pressed wash.
+pub(crate) fn muted_line_button(
+    id: SharedString,
+    glyph: crate::icons::ExpIcon,
+    text: String,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let foreground = cx.theme().foreground;
+    h_flex()
+        .id(id)
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .items_center()
+        .text_xs()
+        .text_color(muted)
+        .cursor_pointer()
+        .rounded(px(theme::tokens::radius::SM))
+        .hover(move |style| style.text_color(foreground))
+        .active(|style| style.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
+        .child(Icon::from(glyph).xsmall().flex_shrink_0().text_color(muted.opacity(0.7)))
+        .child(div().min_w_0().truncate().child(SharedString::from(text)))
+        .child(Icon::new(registry::UI_CHEVRON_RIGHT).xsmall().flex_shrink_0())
+        .on_click(move |_, window, cx| on_click(window, cx))
+        .into_any_element()
+}
+
 /// `plan-card.json` `copy.answering` while the card's answer is on its way.
 pub(crate) fn card_answering(cx: &App) -> AnyElement {
     h_flex()
@@ -983,13 +1258,14 @@ pub(crate) fn question_card(
     question: MarkdownView,
     facts: crate::plan_card::QuestionFacts,
     answer: bool,
+    meta: Option<AnyElement>,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
     let (content, controls) = crate::plan_card::question_parts(&facts, answer, images, window, cx);
     let column = card_column(question, content, controls, cx);
-    crate::steer_viewer::ask_card_chrome(false, None, None, None, column, cx)
+    crate::steer_viewer::ask_card_chrome(false, None, label_meta(meta), None, column, cx)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
         .into_any_element()
 }
@@ -1006,6 +1282,7 @@ pub(crate) fn plan_card(
     plan: MarkdownView,
     facts: crate::plan_card::PlanFacts,
     answer: bool,
+    meta: Option<AnyElement>,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
@@ -1037,9 +1314,15 @@ pub(crate) fn plan_card(
     }
     let (content, controls) = crate::plan_card::plan_parts(&facts, answer, images, window, cx);
     let column = card_column(plan, content, controls, cx);
-    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())), None, None, column, cx)
+    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())), label_meta(meta), None, column, cx)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
         .into_any_element()
+}
+
+/// #EXP-1464: a trailing element of a card's label line (`Open chat`),
+/// pushed to its end.
+fn label_meta(meta: Option<AnyElement>) -> Option<AnyElement> {
+    meta.map(|meta| div().ml_auto().flex_shrink_0().child(meta).into_any_element())
 }
 
 pub(crate) fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::PlanFacts<'a>)> {
@@ -1093,6 +1376,19 @@ pub(crate) fn ask_row_card(
     window: &Window,
     cx: &mut App,
 ) -> Option<AnyElement> {
+    ask_row_card_with(row, text, images, None, window, cx)
+}
+
+/// [`ask_row_card`] with `meta` trailing the card's label line (#EXP-1464:
+/// an expanded session row's `Open chat`).
+pub(crate) fn ask_row_card_with(
+    row: &SessionThreadRow,
+    text: &ThreadText,
+    images: &Entity<ImageCache>,
+    meta: Option<AnyElement>,
+    window: &Window,
+    cx: &mut App,
+) -> Option<AnyElement> {
     if let Some((id, plan, facts)) = plan_facts(row) {
         let markdown = message_markdown(
             SharedString::from(format!("thread-plan-{id}")),
@@ -1100,11 +1396,11 @@ pub(crate) fn ask_row_card(
             text,
             images,
         );
-        return Some(plan_card(markdown, facts, text.answers(), images, window, cx));
+        return Some(plan_card(markdown, facts, text.answers(), meta, images, window, cx));
     }
     let (id, question, facts) = question_facts(row)?;
     let markdown = message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images);
-    Some(question_card(markdown, facts, text.answers(), images, window, cx))
+    Some(question_card(markdown, facts, text.answers(), meta, images, window, cx))
 }
 
 /// N-12: a waiting `question` / `plan` row's sheet (plan-card.json
@@ -1207,7 +1503,7 @@ pub(crate) fn root_dock(
                 // THE sheet is a sheet host: its pickers open inline.
                 let content = crate::dock::sheet_host(|| match rows.iter().find(|row| row.id() == open) {
                     Some(SessionThreadRow::Suggestions { id, start_all, items, .. }) => {
-                        Some(suggestions_sheet(id, *start_all, items, suggestions.unwrap_or_default(), text.team_id(), cx))
+                        Some(suggestions_sheet(id, *start_all, items, text.team_id(), cx))
                     }
                     Some(_) => None,
                     None => composer.update(cx, |composer, cx| composer.render_session_dock_sheet(&dock_row, window, cx)),
@@ -1269,6 +1565,7 @@ pub(crate) fn picture_row(
 pub(crate) fn card_row(
     row: &SessionThreadRow,
     root_id: &str,
+    rows: &[SessionThreadRow],
     text: &ThreadText,
     images: &Entity<ImageCache>,
     window: &Window,
@@ -1277,15 +1574,8 @@ pub(crate) fn card_row(
     let team_id = text.team_id();
     Some(match row {
         SessionThreadRow::Message { .. } => return None,
-        SessionThreadRow::Session { card, .. } => {
-            let session_id = card.session_id.clone();
-            let root_id = root_id.to_string();
-            crate::work_card::session_card(
-                card,
-                move |window, cx| open_session_card(&session_id, &root_id, window, cx),
-                cx,
-            )
-        }
+        // #EXP-1464 (thread-row-action.json): expand / open / nothing.
+        SessionThreadRow::Session { card, .. } => session_card_row(card, root_id, rows, text, images, window, cx),
         SessionThreadRow::Question { .. } | SessionThreadRow::Plan { .. } => {
             return ask_row_card(row, text, images, window, cx);
         }
@@ -1301,12 +1591,14 @@ pub(crate) fn card_row(
         SessionThreadRow::Picture { id, attachment_id, width, height, caption } => {
             picture_row(id, attachment_id, *width, *height, caption.as_deref(), images, cx)
         }
-        SessionThreadRow::Event { text, .. } => muted_line(registry::EVENT_STATUS_CHANGED, text.clone(), cx),
+        SessionThreadRow::Event { id, text, session_id, .. } => {
+            event_row(id, session_id.as_deref(), text, root_id, rows, cx)
+        }
         // S-3: a child's end report = THE link header alone (`Report from
         // <chip> ›`); its summary never repeats.
-        SessionThreadRow::Report { id, xref, .. } => crate::session_xref::session_xref(id, xref, cx),
+        SessionThreadRow::Report { id, session_id, xref, .. } => report_row(id, session_id, xref, root_id, rows, cx),
         SessionThreadRow::Suggestions { id, header, start_all, items, .. } => {
-            suggestions_card(id, header, *start_all, items, root_id, team_id, cx)
+            suggestions_card(id, header, *start_all, items, team_id, cx)
         }
         // Thread 58cb32df (chats.json): `/new` / `/compact` = the divider
         // pill; an agent's preview = THE surface card.
@@ -1477,7 +1769,6 @@ pub(crate) fn suggestions_card(
     header: &str,
     start_all: bool,
     items: &[domain::session_tree::SuggestionRow],
-    root_id: &str,
     team_id: Option<&str>,
     cx: &App,
 ) -> AnyElement {
@@ -1519,7 +1810,7 @@ pub(crate) fn suggestions_card(
         });
     let rows = items
         .iter()
-        .map(|item| suggestion_item_row(message_id, item, root_id, team_id, cx));
+        .map(|item| suggestion_item_row(message_id, item, team_id, cx));
     v_flex()
         .id(SharedString::from(format!("{}-{message_id}", THREAD.test_ids.suggestions)))
         .w_full()
@@ -1545,7 +1836,6 @@ pub(crate) fn suggestions_card(
 fn suggestion_item_row(
     message_id: &str,
     item: &domain::session_tree::SuggestionRow,
-    root_id: &str,
     team_id: Option<&str>,
     cx: &App,
 ) -> AnyElement {
@@ -1558,10 +1848,9 @@ fn suggestion_item_row(
         SuggestionState::Started => match &item.card {
             Some(card) => {
                 let session_id = card.session_id.clone();
-                let root_id = root_id.to_string();
                 crate::work_card::session_card_bare(
                     card,
-                    move |window, cx| open_session_card(&session_id, &root_id, window, cx),
+                    move |window, cx| open_session_card(&session_id, window, cx),
                     cx,
                 )
             }
@@ -1687,7 +1976,6 @@ pub(crate) fn suggestions_sheet(
     message_id: &str,
     start_all: bool,
     items: &[domain::session_tree::SuggestionRow],
-    root_id: &str,
     team_id: Option<&str>,
     cx: &App,
 ) -> crate::dock::SheetContent {
@@ -1697,7 +1985,7 @@ pub(crate) fn suggestions_sheet(
             .w_full()
             .min_w_0()
             .when(index > 0, |row| row.border_t_1().border_color(theme::tokens::glass::STROKE_ROW.to_hsla()))
-            .child(suggestion_item_row(message_id, item, root_id, team_id, cx))
+            .child(suggestion_item_row(message_id, item, team_id, cx))
     });
     let body = div()
         .id(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)))
@@ -2912,7 +3200,7 @@ impl ThreadScreenView {
             };
             return with_xref(id, xref.as_ref(), author, bubble, cx);
         }
-        card_row(row, &self.root_id, &self.text, &self.images, window, cx).unwrap_or_else(|| div().into_any_element())
+        card_row(row, &self.root_id, &model.view.rows, &self.text, &self.images, window, cx).unwrap_or_else(|| div().into_any_element())
     }
 
     /// EXP-1323: keep ONE relay viewer on `live` (the view's
@@ -2964,8 +3252,10 @@ impl ThreadScreenView {
     /// frame. Rows key by POSITION (ids ascend, [`plan_list_sync`]'s rule)
     /// with a content fingerprint, so an append is one splice and a row
     /// that changed (or slid under another) re-measures.
-    fn sync_list(&mut self, model: &ThreadModel, may_message: bool) {
-        let inputs = (self.model_gen, self.chip_gen, may_message, self.tail.is_some());
+    fn sync_list(&mut self, model: &ThreadModel, may_message: bool, cx: &App) {
+        // #EXP-1464: an expanded / collapsed session row re-measures.
+        let row_gen = thread_row_generation(cx);
+        let inputs = (self.model_gen, self.chip_gen ^ row_gen.rotate_left(32), may_message, self.tail.is_some());
         if self.conv.synced != Some(inputs) {
             self.conv.synced = Some(inputs);
             // FEED-140: a waiting plan / question stays inline (with its
@@ -3014,7 +3304,8 @@ impl ThreadScreenView {
                     }
                     _ => None,
                 };
-                let mut fingerprint = conversation_fingerprint(row, at, chip_gen);
+                let mut fingerprint =
+                    conversation_fingerprint(row, at, chip_gen) ^ row_state_fingerprint(row, &model.view.root_id, cx);
                 // The first row carries `Load earlier` while rows hide above.
                 if offset == 0 && start > 0 {
                     fingerprint = fingerprint.rotate_left(1) ^ 1;
@@ -3130,7 +3421,7 @@ impl ThreadScreenView {
         } else {
             (None, None)
         };
-        self.sync_list(model, may_message);
+        self.sync_list(model, may_message, cx);
         let band_height = if may_message { self.dock.read(cx).band_height() } else { 0. };
         let list = gpui::list(
             self.list.clone(),

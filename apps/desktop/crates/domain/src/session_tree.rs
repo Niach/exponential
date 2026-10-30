@@ -1115,8 +1115,15 @@ pub enum SessionThreadRow {
         height: Option<f64>,
         caption: Option<String>,
     },
-    /// One muted line (`Linked EXP-12`, `Merged PR #45`).
-    Event { id: String, event: String, text: String },
+    /// One muted line (`Linked EXP-12`, `Merged PR #45`). #EXP-1464:
+    /// `session_id` = the synced session the line is about (its card's
+    /// `sessionId`), else `None`; thread-row-action.json opens it.
+    Event {
+        id: String,
+        event: String,
+        text: String,
+        session_id: Option<String>,
+    },
     /// Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
     /// painted as the centred divider pill (`at` = the message's createdAt).
     Divider {
@@ -1814,10 +1821,14 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                         .map(|target| session_card(target, title_of(&titles, &target.id), now).name)
                 };
                 if let Some(text) = event_text(card, &issue_map, &pr_map, session_name) {
+                    let about = card_str(card, "sessionId")
+                        .filter(|id| by_id.contains_key(id))
+                        .map(str::to_string);
                     rows.push(SessionThreadRow::Event {
                         id: message.id.clone(),
                         event: js_string(card.get("event")),
                         text,
+                        session_id: about,
                     });
                 }
             }

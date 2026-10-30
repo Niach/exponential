@@ -58,7 +58,7 @@ export function SessionXref({
       data-testid={THREAD_TEST_IDS.xref}
       data-kind={xref.kind}
       aria-label={`${lead} ${xref.name}`}
-      className={cn(base, `text-left outline-none hover:text-foreground focus-visible:text-foreground`)}
+      className={cn(base, `text-left outline-none hover:text-foreground focus-visible:text-foreground active:opacity-70`)}
       onClick={() => onOpen(xref.sessionId)}
     >
       {content}
