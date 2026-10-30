@@ -32,9 +32,10 @@ permissions:
 
 jobs:
   release:
-    # Xcode 26.x requires macOS Tahoe 26.2+, so this must be a macos-26 image
-    # (a RELEASE macOS — the whole point of building here).
-    runs-on: macos-26
+    # GitHub's `xcode-27` image: release macOS 27 with release Xcode 27.1
+    # (the whole point of building here), the same Xcode the MacBook and
+    # test-ios use (.github/scripts/select-xcode.sh).
+    runs-on: xcode-27
     # Clean archive + export + TestFlight upload is ~35 min; past this the
     # build is wedged (a provisioning prompt, a stalled ASC upload), and a
     # release job must not sit on a runner for six hours.
@@ -68,19 +69,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Select the newest RELEASE Xcode 26.x
+      - name: Select Xcode 27.1 (release, the iOS 27 SDK)
         run: |
-          for app in /Applications/Xcode*.app; do
-            sdk="$(ls "$app"/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/ 2>/dev/null | tr '\n' ' ')"
-            echo "$app: $sdk"
-          done
-          XCODE_APP="$(ls -d /Applications/Xcode_26.*.app 2>/dev/null | sort -V | tail -1)"
-          if [ -z "$XCODE_APP" ]; then
-            echo "::error::No release Xcode 26.x on this image" >&2
-            exit 1
-          fi
-          sudo xcode-select -s "$XCODE_APP"
-          xcodebuild -version
+          bash "$GITHUB_WORKSPACE/.github/scripts/select-xcode.sh"
           xcodebuild -showsdks | grep iphoneos
           sw_vers
 

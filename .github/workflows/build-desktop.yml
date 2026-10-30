@@ -41,7 +41,7 @@ jobs:
           # next.exponential.at) × three OSes. Staging builds pass `--features
           # staging` and carry a distinct app id so both can coexist.
           #
-          # macOS = macos-26, the image build-ios.yml already uses (EXP-1196
+          # macOS = macos-26 (EXP-1196
           # needed its Xcode 26 SDK; EXP-1273 no longer does, the image
           # stays). The .app still runs from macOS 13 (Info.plist
           # LSMinimumSystemVersion). EXP-1430: target universal-apple-darwin
