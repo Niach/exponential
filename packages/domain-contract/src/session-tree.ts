@@ -543,7 +543,9 @@ export type ThreadRow =
       height: number | null
       caption: string | null
     }
-  | { type: `event`; id: string; event: string; text: string }
+  /** #EXP-1464: `sessionId` = the synced session the line is about (its
+   *  card's `sessionId`), else null; thread-row-action.json opens it. */
+  | { type: `event`; id: string; event: string; text: string; sessionId: string | null }
   /** Thread 58cb32df (chats.json): a person's `/new` or `/compact` line. */
   | { type: `divider`; id: string; kind: `new` | `compact`; at: string }
   /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
@@ -1050,7 +1052,9 @@ export function buildSessionThread(input: {
           const target = byId.get(id)
           return target ? sessionCard(target, titles.get(target.id) ?? ``, now).name : null
         })
-        if (text) rows.push({ type: `event`, id: message.id, event: String(card.event), text })
+        if (!text) break
+        const about = typeof card.sessionId === `string` && byId.has(card.sessionId) ? card.sessionId : null
+        rows.push({ type: `event`, id: message.id, event: String(card.event), text, sessionId: about })
         break
       }
       // NEW-1: a child's ask mirrored into its parent (`ask`): the child's
