@@ -131,6 +131,55 @@ pub fn mention_user_ids<'a>(text: &str, users: impl IntoIterator<Item = (&'a str
     ids
 }
 
+/// The `#IDENT` issue references in `text` (web `lib/issue-refs.ts`
+/// HASH_REF_SOURCE + REF_TAIL: `#` not glued to a word or `#`, a letter-led
+/// prefix, `-`, digits, then a token boundary), uppercased, unique.
+pub fn issue_refs(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let glued = i > 0 && (word(chars[i - 1]) || chars[i - 1] == '#');
+        if chars[i] != '#' || glued || !chars.get(i + 1).is_some_and(|c| c.is_ascii_alphabetic()) {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 2;
+        while j < chars.len() && chars[j].is_ascii_alphanumeric() {
+            j += 1;
+        }
+        let digits = j + 1;
+        let mut k = digits;
+        while k < chars.len() && chars[k].is_ascii_digit() {
+            k += 1;
+        }
+        let tail_ok = !chars.get(k).is_some_and(|&c| word(c) || c == '-');
+        if chars.get(j) == Some(&'-') && k > digits && tail_ok {
+            let ident: String = chars[i + 1..k].iter().collect::<String>().to_uppercase();
+            if !out.contains(&ident) {
+                out.push(ident);
+            }
+        }
+        i = k.max(i + 1);
+    }
+    out
+}
+
+/// EXP-1458 `refIssueIds`: the referenced issues the writer can see
+/// (`issues`: `(id, identifier)`), unresolved refs dropped.
+pub fn ref_issue_ids<'a>(text: &str, issues: impl IntoIterator<Item = (&'a str, &'a str)> + Clone) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for ident in issue_refs(text) {
+        if let Some((id, _)) = issues.clone().into_iter().find(|(_, known)| known.eq_ignore_ascii_case(&ident)) {
+            if !ids.iter().any(|seen| seen == id) {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    ids
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,6 +190,14 @@ mod tests {
         let text = "ping @ann@example.com and @ANN@example.com, @nobody@example.com, mail bob@example.com";
         assert_eq!(mention_emails(text), vec!["ann@example.com", "nobody@example.com"]);
         assert_eq!(mention_user_ids(text, users.iter().map(|(a, b)| (*a, *b))), vec!["u1"]);
+    }
+
+    #[test]
+    fn issue_refs_follow_the_web_token() {
+        let text = "see #EXP-12, #exp-12 and (#APP-3). not a#EXP-4, ##EXP-5, #EXP-6abc, #EXP-7-2, EXP-8";
+        assert_eq!(issue_refs(text), vec!["EXP-12", "APP-3"]);
+        let issues = [("i1", "EXP-12"), ("i2", "OTHER-1")];
+        assert_eq!(ref_issue_ids(text, issues.iter().map(|(a, b)| (*a, *b))), vec!["i1"]);
     }
 
     #[test]

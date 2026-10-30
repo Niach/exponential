@@ -107,8 +107,9 @@ pub fn init(cx: &mut App) {
 pub enum SealTarget {
     /// An existing tree: seal for its root (its key is created if missing).
     Root(String),
-    /// `sessions.send` creates the root: its key rides inline (`seal`).
-    NewRoot { team_id: String, shared: bool },
+    /// `sessions.send` creates the root: its key rides inline (`seal`),
+    /// wrapped for the executing device's install too (`device_id`).
+    NewRoot { team_id: String, device_id: Option<String>, shared: bool },
     /// Nothing to seal (no text, no name).
     #[default]
     None,
@@ -119,6 +120,8 @@ pub enum SealTarget {
 pub struct SendPlan {
     pub target: SealTarget,
     pub mention_user_ids: Vec<String>,
+    /// `refIssueIds`: the `#IDENT` refs the text makes, resolved here.
+    pub ref_issue_ids: Vec<String>,
 }
 
 /// The tree a send writes into and the users its text mentions.
@@ -135,6 +138,17 @@ pub fn plan_send(input: &SendInput, cx: &App) -> SendPlan {
         })
         .unwrap_or_default();
     let sessions = collections.sessions.read(cx);
+    let team_id = input
+        .team_id
+        .clone()
+        .or_else(|| input.session_id.as_ref().or(input.parent_id.as_ref()).and_then(|id| sessions.get(id)?.team_id.clone()));
+    let ref_issue_ids = match (input.text.as_deref(), team_id.as_deref()) {
+        (Some(text), Some(team_id)) => {
+            let issues = collections.issue_refs_in_team(team_id, cx);
+            domain::sealed::ref_issue_ids(text, issues.iter().map(|issue| (issue.id.as_str(), issue.identifier.as_str())))
+        }
+        _ => Vec::new(),
+    };
     let root_of = |id: &str| {
         sessions
             .get(id)
@@ -151,11 +165,11 @@ pub fn plan_send(input: &SendInput, cx: &App) -> SendPlan {
     } else if let Some(existing) = existing_conversation(input, &sessions.iter().collect::<Vec<_>>(), cx) {
         SealTarget::Root(existing)
     } else if let Some(team_id) = &input.team_id {
-        SealTarget::NewRoot { team_id: team_id.clone(), shared: false }
+        SealTarget::NewRoot { team_id: team_id.clone(), device_id: input.device_id.clone(), shared: false }
     } else {
         SealTarget::None
     };
-    SendPlan { target, mention_user_ids }
+    SendPlan { target, mention_user_ids, ref_issue_ids }
 }
 
 /// An agent / app send without a session id lands in the member's existing
@@ -176,7 +190,12 @@ fn existing_conversation(input: &SendInput, sessions: &[&SessionRow], cx: &App) 
 /// envelopes, a new root's key rides inline. Returns the new root's secret
 /// to adopt once the server names the root. Any failure leaves the content
 /// plaintext.
-fn seal_send(service: &dyn SealService, input: &mut SendInput, plan: &SendPlan) -> Option<[u8; 32]> {
+fn seal_send(
+    service: &dyn SealService,
+    input: &mut SendInput,
+    plan: &SendPlan,
+    device_installs: impl FnOnce(&str, &str) -> Vec<String>,
+) -> Option<[u8; 32]> {
     match &plan.target {
         SealTarget::None => None,
         SealTarget::Root(root_id) => {
@@ -200,10 +219,11 @@ fn seal_send(service: &dyn SealService, input: &mut SendInput, plan: &SendPlan) 
             }
             None
         }
-        SealTarget::NewRoot { team_id, shared } => {
-            // The executing device's install comes from `pending` until
-            // `installs.list` names devices (EXP-1458 server slice).
-            let seal = match service.seal_new_root(team_id, &[], *shared) {
+        SealTarget::NewRoot { team_id, device_id, shared } => {
+            // The executing device's installs read the tree from its first
+            // message on; a gap is filled by any holder (`pending`).
+            let devices = device_id.as_deref().map(|device| device_installs(team_id, device)).unwrap_or_default();
+            let seal = match service.seal_new_root(team_id, &devices, *shared) {
                 Ok(seal) => seal,
                 Err(err) => {
                     log::warn!("[sealing] sending plaintext, no new tree key: {err}");
@@ -240,8 +260,22 @@ pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan)
     if !plan.mention_user_ids.is_empty() {
         input.mention_user_ids = Some(plan.mention_user_ids.clone());
     }
+    if !plan.ref_issue_ids.is_empty() {
+        input.ref_issue_ids = Some(plan.ref_issue_ids.clone());
+    }
+    let device_installs = |team_id: &str, device_id: &str| match api::installs::list(trpc, team_id) {
+        Ok(rows) => rows
+            .into_iter()
+            .filter(|row| row.device_id.as_deref() == Some(device_id))
+            .map(|row| row.install_id)
+            .collect(),
+        Err(err) => {
+            log::warn!("[sealing] installs.list {team_id} failed: {err}");
+            Vec::new()
+        }
+    };
     let service = service();
-    let secret = service.as_deref().and_then(|service| seal_send(service, &mut input, plan));
+    let secret = service.as_deref().and_then(|service| seal_send(service, &mut input, plan, device_installs));
     let out = api::sessions::send(trpc, &input)?;
     if let (Some(service), Some(secret)) = (service, secret) {
         service.adopt(&out.session_id, secret);
@@ -310,6 +344,7 @@ mod tests {
     struct OneTree {
         key: contract::TreeKey,
         adopted: Mutex<Vec<String>>,
+        devices: Mutex<Vec<String>>,
     }
 
     impl SealService for OneTree {
@@ -331,7 +366,8 @@ mod tests {
         fn changed(&self) -> u64 {
             0
         }
-        fn seal_new_root(&self, _team_id: &str, _devices: &[String], _shared: bool) -> Result<NewRootSeal, String> {
+        fn seal_new_root(&self, _team_id: &str, devices: &[String], _shared: bool) -> Result<NewRootSeal, String> {
+            *self.devices.lock().unwrap() = devices.to_vec();
             Ok(NewRootSeal {
                 install_id: "me".into(),
                 public_key: self.key.public_key(),
@@ -346,7 +382,7 @@ mod tests {
     }
 
     fn tree() -> OneTree {
-        OneTree { key: contract::generate_tree_key(), adopted: Mutex::new(Vec::new()) }
+        OneTree { key: contract::generate_tree_key(), adopted: Mutex::new(Vec::new()), devices: Mutex::new(Vec::new()) }
     }
 
     #[test]
@@ -354,8 +390,8 @@ mod tests {
         let service = tree();
         let mut input = SendInput::message("s1", "hello @a@b.co", Vec::new());
         input.name = Some("Title".into());
-        let plan = SendPlan { target: SealTarget::Root("r1".into()), mention_user_ids: vec!["u1".into()] };
-        assert_eq!(seal_send(&service, &mut input, &plan), None);
+        let plan = SendPlan { target: SealTarget::Root("r1".into()), ..SendPlan::default() };
+        assert_eq!(seal_send(&service, &mut input, &plan, |_, _| unreachable!()), None);
         let text = input.text.as_deref().unwrap();
         assert!(text.starts_with("exp-sealed:v1:1:"));
         assert_eq!(service.open_body("r1", text).text.as_deref(), Some("hello @a@b.co"));
@@ -368,8 +404,18 @@ mod tests {
     fn a_new_root_carries_its_key_inline() {
         let service = tree();
         let mut input = SendInput { team_id: Some("t".into()), device_id: Some("d".into()), text: Some("go".into()), ..SendInput::default() };
-        let plan = SendPlan { target: SealTarget::NewRoot { team_id: "t".into(), shared: false }, mention_user_ids: Vec::new() };
-        assert_eq!(seal_send(&service, &mut input, &plan), Some(service.key.secret));
+        let plan = SendPlan {
+            target: SealTarget::NewRoot { team_id: "t".into(), device_id: Some("d".into()), shared: false },
+            ..SendPlan::default()
+        };
+        let mut asked = None;
+        let installs = |team: &str, device: &str| {
+            asked = Some((team.to_string(), device.to_string()));
+            vec!["host-install".to_string()]
+        };
+        assert_eq!(seal_send(&service, &mut input, &plan, installs), Some(service.key.secret));
+        assert_eq!(asked, Some(("t".into(), "d".into())));
+        assert_eq!(service.devices.lock().unwrap().clone(), vec!["host-install".to_string()]);
         let seal = input.seal.clone().unwrap();
         assert_eq!((seal.install_id.as_str(), seal.epoch, seal.public_key), ("me", 1, service.key.public_key()));
         assert_eq!(service.open_body("new", input.text.as_deref().unwrap()).text.as_deref(), Some("go"));

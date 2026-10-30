@@ -100,6 +100,10 @@ pub struct SendInput {
     /// sealed body; the writer resolves `@email`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mention_user_ids: Option<Vec<String>>,
+    /// EXP-1458: the issues `text` references (`#IDENT`), resolved by the
+    /// writer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_issue_ids: Option<Vec<String>>,
     /// EXP-1458: a root without a key gets it inline, in the send's own
     /// transaction (a new thread, agent conversation, app editor).
     #[serde(skip_serializing_if = "Option::is_none")]
