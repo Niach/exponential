@@ -5,7 +5,7 @@
 //! takes one FRESH screenshot of display 1 every tick (its cost after a
 //! resume). Prints the process's CPU share.
 //!
-//! cargo run -p screen --example capture_mac [-- --bench 20]
+//! cargo run -p epilot-screen --example capture_mac [-- --bench 20]
 
 #[cfg(target_os = "macos")]
 #[allow(dead_code)]

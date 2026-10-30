@@ -606,9 +606,9 @@ pub fn state(cx: &App) -> MeetingState {
 }
 
 /// Pause or resume listening (the hotkey and the tray's Pause listening):
-/// every meeting channel and screen memory (`screen::set_hotkey_paused`).
+/// every meeting channel and screen memory (`epilot_screen::set_hotkey_paused`).
 pub fn set_paused(paused: bool, cx: &mut App) {
-    screen::set_hotkey_paused(paused);
+    epilot_screen::set_hotkey_paused(paused);
     if let Some(entity) = host(cx) {
         entity.update(cx, |this, _| {
             this.paused = paused;
@@ -863,7 +863,7 @@ impl MeetingHost {
         // The pause belongs to the meeting (screen memory resumes too).
         if self.paused {
             self.paused = false;
-            screen::set_hotkey_paused(false);
+            epilot_screen::set_hotkey_paused(false);
         }
         cx.notify();
     }

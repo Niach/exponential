@@ -90,15 +90,15 @@ impl ResolvedMcp {
 }
 
 /// EXP-1196: the device's own computer-use server as one more wired entry:
-/// loopback HTTP, the run's token behind [`computer::TOKEN_ENV`] like any
+/// loopback HTTP, the run's token behind [`epilot::TOKEN_ENV`] like any
 /// bearer server (claude expands the header, codex reads
 /// `bearer_token_env_var`). The token joins [`ResolvedMcp::env`], so it
 /// reaches the spawn env and the steer redactor and nothing else.
-pub fn attach_computer(resolved: &mut ResolvedMcp, grant: &computer::Grant) {
-    let var = computer::TOKEN_ENV.to_string();
+pub fn attach_computer(resolved: &mut ResolvedMcp, grant: &epilot::Grant) {
+    let var = epilot::TOKEN_ENV.to_string();
     resolved.servers.push(McpServerWire {
-        id: computer::SERVER_NAME.to_string(),
-        name: computer::SERVER_NAME.to_string(),
+        id: epilot::SERVER_NAME.to_string(),
+        name: epilot::SERVER_NAME.to_string(),
         transport: McpWireTransport::Http { url: grant.url.clone() },
         headers: vec![("Authorization".to_string(), format!("Bearer ${{{var}}}"))],
         token_env: Some(var.clone()),
@@ -127,12 +127,12 @@ pub fn attach_codemode(resolved: &mut ResolvedMcp, grant: &codemode::Grant) {
 
 /// NEW-58: the voice device's screen memory as one more wired entry, the
 /// twin of [`attach_computer`]: loopback HTTP, the run's token behind
-/// [`screen::TOKEN_ENV`].
-pub fn attach_screen(resolved: &mut ResolvedMcp, grant: &screen::Grant) {
-    let var = screen::TOKEN_ENV.to_string();
+/// [`epilot_screen::TOKEN_ENV`].
+pub fn attach_screen(resolved: &mut ResolvedMcp, grant: &epilot_screen::Grant) {
+    let var = epilot_screen::TOKEN_ENV.to_string();
     resolved.servers.push(McpServerWire {
-        id: screen::SERVER_NAME.to_string(),
-        name: screen::SERVER_NAME.to_string(),
+        id: epilot_screen::SERVER_NAME.to_string(),
+        name: epilot_screen::SERVER_NAME.to_string(),
         transport: McpWireTransport::Http { url: grant.url.clone() },
         headers: vec![("Authorization".to_string(), format!("Bearer ${{{var}}}"))],
         token_env: Some(var.clone()),
@@ -314,9 +314,9 @@ pub fn resolve_with(resolution: &McpLaunchResolution, ids: Option<&[String]>) ->
         // (NEW-58).
         let key = McpServerWire::config_key(&server.name);
         if key == RESERVED_CONFIG_KEY
-            || key == computer::SERVER_NAME
+            || key == epilot::SERVER_NAME
             || key == codemode::SERVER_NAME
-            || key == screen::SERVER_NAME
+            || key == epilot_screen::SERVER_NAME
         {
             resolved.warnings.push(format!(
                 "MCP server {}: the name is reserved; starting without it.",
@@ -543,7 +543,7 @@ mod tests {
     #[test]
     fn the_computer_server_is_wired_behind_its_token_env_and_its_key_is_reserved() {
         let mut resolved = ResolvedMcp::default();
-        let grant = computer::Grant {
+        let grant = epilot::Grant {
             url: "http://127.0.0.1:4455/mcp".into(),
             token: "secret-token".into(),
         };
@@ -572,7 +572,7 @@ mod tests {
     #[test]
     fn the_screen_server_is_wired_behind_its_token_env_and_its_key_is_reserved() {
         let mut resolved = ResolvedMcp::default();
-        let grant = screen::Grant { url: "http://127.0.0.1:4477/mcp".into(), token: "screen-token".into() };
+        let grant = epilot_screen::Grant { url: "http://127.0.0.1:4477/mcp".into(), token: "screen-token".into() };
         attach_screen(&mut resolved, &grant);
         let wire = &resolved.servers[0];
         assert_eq!(wire.name, "screen");
@@ -682,7 +682,7 @@ mod tests {
             env: vec![("EXP_MCP_TOKEN_1".into(), "linear-token".into())],
             ..ResolvedMcp::default()
         };
-        attach_computer(&mut resolved, &computer::Grant { url: "http://127.0.0.1:4455/mcp".into(), token: "cu".into() });
+        attach_computer(&mut resolved, &epilot::Grant { url: "http://127.0.0.1:4455/mcp".into(), token: "cu".into() });
         let agent_mcp = crate::argv::AgentMcp::ClaudeInline {
             url: "https://app.example.com/api/mcp".into(),
             session_id: Some("run-1".into()),

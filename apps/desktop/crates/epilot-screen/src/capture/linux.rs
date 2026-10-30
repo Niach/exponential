@@ -4,14 +4,14 @@
 //!   every monitor, `persist_mode` 2, the restore token in a file under
 //!   `state_dir` so the portal asks once.
 //! - X11 without a portal (missing or declined): the root window read per
-//!   RandR monitor, like the computer crate's screenshots: only the asked
+//!   RandR monitor, like the epilot crate's screenshots: only the asked
 //!   (work) displays, each at most once per `capture.intervalMs` (a focus
 //!   change within it waits for the tick), the common 32-bit BGRX image lent
 //!   as BGRA without a conversion.
 //! - Wayland without a portal: `Err`, nothing else can read the screen.
 //!
-//! Display numbers are the computer crate's (`computer::displays`, the RandR
-//! monitors' order). On pure Wayland the computer crate has no displays, so
+//! Display numbers are the epilot crate's (`epilot::displays`, the RandR
+//! monitors' order). On pure Wayland the epilot crate has no displays, so
 //! the portal's streams are numbered by position (left to right).
 
 #[cfg(feature = "portal")]
@@ -62,27 +62,27 @@ fn wayland() -> bool {
         || std::env::var("XDG_SESSION_TYPE").is_ok_and(|kind| kind == "wayland")
 }
 
-/// `computer::displays()`, re-read at most every [`DISPLAYS_TTL`] and
+/// `epilot::displays()`, re-read at most every [`DISPLAYS_TTL`] and
 /// whenever the display epoch moved (#FEED-164: the window list saw a
 /// hot-plug first); a re-read that finds another set bumps the epoch.
 #[derive(Default)]
 struct DisplayCache {
     read_at: Option<Instant>,
     epoch: u64,
-    displays: Vec<computer::Display>,
+    displays: Vec<epilot::Display>,
 }
 
 impl DisplayCache {
-    fn get(&mut self) -> &[computer::Display] {
-        let epoch = computer::visible::display_epoch();
+    fn get(&mut self) -> &[epilot::Display] {
+        let epoch = epilot::visible::display_epoch();
         if self.read_at.is_none_or(|at| at.elapsed() >= DISPLAYS_TTL) || epoch != self.epoch {
-            let displays = computer::displays();
+            let displays = epilot::displays();
             if self.read_at.is_some() && epoch == self.epoch && displays != self.displays {
-                computer::visible::displays_changed();
+                epilot::visible::displays_changed();
             }
             self.displays = displays;
             self.read_at = Some(Instant::now());
-            self.epoch = computer::visible::display_epoch();
+            self.epoch = epilot::visible::display_epoch();
         }
         &self.displays
     }
@@ -109,7 +109,7 @@ impl RootReader {
     }
 
     /// The display rects (number, x, y, width, height); the whole root as
-    /// display 1 when the computer crate reports none.
+    /// display 1 when the epilot crate reports none.
     fn rects(&mut self) -> Result<Vec<Rect>, String> {
         let rects: Vec<_> = self
             .displays
@@ -217,7 +217,7 @@ impl Capturer for RootReader {
     }
 }
 
-/// A Z-pixmap of `count` pixels → RGBA8 (the computer crate's conversion:
+/// A Z-pixmap of `count` pixels → RGBA8 (the epilot crate's conversion:
 /// a straight copy for the common 32-bit BGRX little-endian screen, the
 /// visual's masks otherwise).
 fn x_pixels_to_rgba(data: &[u8], bytes: usize, little: bool, masks: (u32, u32, u32), count: usize) -> Result<Vec<u8>, String> {
@@ -267,14 +267,14 @@ struct StreamRect {
     size: Option<(i32, i32)>,
 }
 
-/// The display number of each portal stream. With the computer crate's
+/// The display number of each portal stream. With the epilot crate's
 /// displays (X11): the display the stream's rect overlaps most (an exact
 /// rect wins), each display once; a stream left over takes the next free
 /// display in position order, then numbers past the last display. Without
 /// them (pure Wayland): 1.. by position, left to right then top to bottom,
 /// position-less streams last in the portal's order.
 #[cfg_attr(not(feature = "portal"), allow(dead_code))]
-fn number_streams(streams: &[StreamRect], displays: &[computer::Display]) -> Vec<u32> {
+fn number_streams(streams: &[StreamRect], displays: &[epilot::Display]) -> Vec<u32> {
     let mut numbers: Vec<Option<u32>> = vec![None; streams.len()];
     let mut taken = vec![false; displays.len()];
     let mut pairs = Vec::new();
@@ -323,8 +323,8 @@ fn number_streams(streams: &[StreamRect], displays: &[computer::Display]) -> Vec
 mod tests {
     use super::*;
 
-    fn display(number: u32, x: i32, y: i32, width: u32, height: u32) -> computer::Display {
-        computer::Display { id: format!("output:{number}"), number, x, y, width, height, primary: number == 1 }
+    fn display(number: u32, x: i32, y: i32, width: u32, height: u32) -> epilot::Display {
+        epilot::Display { id: format!("output:{number}"), number, x, y, width, height, primary: number == 1 }
     }
 
     fn stream(x: i32, y: i32, width: i32, height: i32) -> StreamRect {

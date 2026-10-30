@@ -2,7 +2,7 @@
 //! `packages/domain-contract/src/work-screen.ts` (`copy` + `options` + the
 //! picker keys), locked by `fixtures/work-screen.json` (`optionCases`,
 //! `pickerKeyCases` replay below). The gate and
-//! the overlay rule live in the desktop `computer` crate.
+//! the overlay rule live in the desktop `epilot` crate.
 
 use std::sync::LazyLock;
 

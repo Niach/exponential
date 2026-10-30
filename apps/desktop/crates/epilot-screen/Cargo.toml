@@ -1,8 +1,17 @@
 [package]
-name = "screen"
+name = "epilot-screen"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ePilot screen memory: the last minutes of the screen as deduplicated, denylist-masked WebP frames in SQLite, served to an agent as a get_screenshots loopback MCP tool."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+keywords = ["screen-capture", "mcp", "screenshot", "perceptual-hash", "agent"]
+categories = ["os", "multimedia::images"]
+# EXP-1425: consumed outside the monorepo as a GIT dependency on a tag
+# `epilot-v<version>` (README "Consuming"), never crates.io: the specs are
+# compiled in with include_str! from packages/domain-contract/fixtures, which
+# a crates.io package would not carry.
 publish = false
 
 [dependencies]
@@ -10,7 +19,7 @@ publish = false
 # 1 fps + focus-change capture of every display, a 64x64 perceptual-hash
 # dedupe, WebP frames in hour directories indexed in SQLite, 10 minutes of
 # retention, a denylist pause, and the `get_screenshots` tool on a loopback
-# MCP endpoint of its own (the `computer` crate's topology: per-run bearer,
+# MCP endpoint of its own (the `epilot` crate's topology: per-run bearer,
 # tiny_http, plain JSON). gpui-free.
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -21,7 +30,7 @@ image = { workspace = true, features = ["png"] }
 rusqlite = { workspace = true }
 # The focused window (app, title, rect) and the display order: the computer
 # crate's backend, so frame numbers match `doctor.displays`.
-computer = { path = "../computer" }
+epilot = { path = "../epilot" }
 # Lossy WebP for the stored frames (`store.webpQuality`): `image`'s encoder
 # is lossless only. libwebp-sys builds libwebp (BSD-3-Clause) from bundled C
 # through cc on every OS, no system library; `img` off (its own image pin).
@@ -43,7 +52,7 @@ windows-capture = "1.5.0"
 # CAPTURE on macOS = ScreenCaptureKit: one SCStream per display at
 # minimumFrameInterval = intervalMs, the IDE's own app excluded, BGRA
 # CVPixelBuffers read under a read-only lock. objc2's framework bindings (the
-# objc2 0.6 family already in the tree via the computer crate and gpui) over
+# objc2 0.6 family already in the tree via the epilot crate and gpui) over
 # the `screencapturekit` 0.2 wrapper, whose callbacks can panic across FFI.
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSError", "NSString"] }

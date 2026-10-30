@@ -18,8 +18,8 @@ exponential-ui = { path = "../exponential-ui" }
 exponential-ui-gpui = { path = "../exponential-ui-gpui" }
 # ePilot: the overlay never covers a fullscreen app (NEW-59) and the tray's
 # Screen memory (NEW-58), whose capture the pause hotkey pauses too.
-computer = { path = "../computer" }
-screen = { path = "../screen" }
+epilot = { path = "../epilot" }
+epilot-screen = { path = "../epilot-screen" }
 gpui.workspace = true
 gpui-component.workspace = true
 flume = { workspace = true }

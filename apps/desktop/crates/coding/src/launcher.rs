@@ -1310,8 +1310,8 @@ fn attach_computer_use(
     }
     // NEW-59: the run drives the device's Work screen as of its start (the
     // hosts also set it whenever the converged value moves).
-    computer::set_work_display(deps.settings.computer_use_display_id.clone());
-    match computer::grant(session_id, label) {
+    epilot::set_work_display(deps.settings.computer_use_display_id.clone());
+    match epilot::grant(session_id, label) {
         Ok(grant) => {
             crate::mcp_servers::attach_computer(team_mcp, &grant);
             true
@@ -1335,7 +1335,7 @@ fn screen_memory_allowed(req: &SessionLaunchRequest) -> bool {
 
 /// NEW-58: give the member's private voice conversation
 /// ([`screen_memory_allowed`]) this device's screen memory while the IDE
-/// captures here; [`screen::grant`] refuses while it is off (another device,
+/// captures here; [`epilot_screen::grant`] refuses while it is off (another device,
 /// the CLI daemon), so such a run launches without. Wired AFTER code mode so
 /// a script never reaches the screenshots. The engine revokes the grant when
 /// the run ends.
@@ -1343,7 +1343,7 @@ fn attach_screen_memory(allowed: bool, team_mcp: &mut ResolvedMcp, session_id: &
     if !allowed {
         return false;
     }
-    match screen::grant(session_id) {
+    match epilot_screen::grant(session_id) {
         Ok(grant) => {
             crate::mcp_servers::attach_screen(team_mcp, &grant);
             true

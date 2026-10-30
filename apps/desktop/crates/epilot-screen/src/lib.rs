@@ -81,7 +81,7 @@ fn live() -> Result<&'static Live, String> {
             let store = RUNNING.lock().unwrap().as_ref().map(|memory| memory.store.clone());
             // Only frames of a display that is a work display NOW go out.
             let work = match store {
-                Some(_) => computer::screen_view().map(|view| view.work).unwrap_or_default(),
+                Some(_) => epilot::screen_view().map(|view| view.work).unwrap_or_default(),
                 None => Vec::new(),
             };
             tool::call(store.as_deref(), name, arguments, engine::now_ms(), &work)
@@ -99,7 +99,7 @@ fn live() -> Result<&'static Live, String> {
 /// crate's window list (PAUSE fails closed without one), which Wayland and
 /// a display-less session lack, so the Screen memory row hides there.
 pub fn available() -> bool {
-    cfg!(any(target_os = "macos", target_os = "linux", target_os = "windows")) && computer::visible::window_list_supported()
+    cfg!(any(target_os = "macos", target_os = "linux", target_os = "windows")) && epilot::visible::window_list_supported()
 }
 
 /// Bumped by every stop: a start asked for before it is cancelled.
@@ -133,7 +133,7 @@ pub fn start(data_dir: PathBuf) -> Result<(), String> {
 /// dialog) does not wait for it: the capturer, once open, is closed at once.
 pub fn start_with(data_dir: PathBuf, ticket: Ticket) -> Result<(), String> {
     let state_dir = data_dir.clone();
-    start_inner(data_dir, ticket, move || capture::open(&state_dir), Box::new(computer::visible::screen_look), Box::new(computer::visible::display_epoch))
+    start_inner(data_dir, ticket, move || capture::open(&state_dir), Box::new(epilot::visible::screen_look), Box::new(epilot::visible::display_epoch))
 }
 
 pub(crate) fn start_inner(

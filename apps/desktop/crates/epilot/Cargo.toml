@@ -1,8 +1,17 @@
 [package]
-name = "computer"
+name = "epilot"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ePilot: computer use as a library. A loopback MCP endpoint whose tools drive the real pointer and keyboard (XTest, CGEvent, SendInput) from fitted screenshots, with the person's input locked and Esc as the abort."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+keywords = ["computer-use", "mcp", "automation", "screenshot", "input"]
+categories = ["accessibility", "os"]
+# EXP-1425: consumed outside the monorepo as a GIT dependency on a tag
+# `epilot-v<version>` (README "Consuming"), never crates.io: the specs are
+# compiled in with include_str! from packages/domain-contract/fixtures, which
+# a crates.io package would not carry.
 publish = false
 
 [dependencies]

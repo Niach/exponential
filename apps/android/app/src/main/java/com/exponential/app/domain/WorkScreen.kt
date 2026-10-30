@@ -2,7 +2,7 @@ package com.exponential.app.domain
 
 // NEW-59: THE work screen, the display coding agents drive with computer use.
 // Android mirrors `copy`, `options` and the picker keys only (the gate lives in the desktop
-// computer crate). A pure mirror of `packages/domain-contract/src/work-screen.ts`
+// epilot crate). A pure mirror of `packages/domain-contract/src/work-screen.ts`
 // (`workScreenOptions`), byte-locked by `fixtures/work-screen.json`
 // (`optionCases`, replayed by WorkScreenTest). The fixture's `$comment` holds
 // the rules.

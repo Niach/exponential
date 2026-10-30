@@ -20,7 +20,7 @@ terminal = { path = "../terminal" }
 coding = { path = "../coding" }
 # NEW-58: the IDE turns on the Linux ScreenCast portal + PipeWire capturer
 # (the CLI daemon, which links `screen` through `coding`, never does).
-screen = { path = "../screen", features = ["portal"] }
+epilot-screen = { path = "../epilot-screen", features = ["portal"] }
 steer = { path = "../steer" }
 # NEW-53: the speech worker's wire and the voice/call/meeting state machines.
 etalk = { path = "../etalk" }

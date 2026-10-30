@@ -171,7 +171,7 @@ impl Render for Banner {
 /// Where the lock's thread leaves what it saw; the foreground loop drains it.
 static PRESENCE: OnceLock<Mutex<std::sync::mpsc::Receiver<Option<String>>>> = OnceLock::new();
 
-/// NEW-59: the toolkit display the computer crate's `target` is (`None` =
+/// NEW-59: the toolkit display the epilot crate's `target` is (`None` =
 /// no counterpart, e.g. X11's one whole-screen display).
 fn toolkit_display(target: &coding::computer::Display, cx: &App) -> Option<std::rc::Rc<dyn gpui::PlatformDisplay>> {
     let screens = coding::computer::displays();
