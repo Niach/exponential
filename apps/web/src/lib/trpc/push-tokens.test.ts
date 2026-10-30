@@ -65,3 +65,16 @@ describe(`pushTokens.register`, () => {
     expect(db.rows(`fcm_tokens`)).toHaveLength(0)
   })
 })
+
+describe(`pushTokens.relay`, () => {
+  it(`hands the devices the public relay URL, or null without a relay`, async () => {
+    vi.stubEnv(`PUSH_RELAY_URL`, ``)
+    vi.stubEnv(`PUSH_RELAY_PUBLIC_URL`, ``)
+    expect(await caller().relay()).toEqual({ url: null })
+    vi.stubEnv(`PUSH_RELAY_URL`, `http://push-relay:4001`)
+    expect(await caller().relay()).toEqual({ url: `http://push-relay:4001` })
+    vi.stubEnv(`PUSH_RELAY_PUBLIC_URL`, `https://push.exponential.at/`)
+    expect(await caller().relay()).toEqual({ url: `https://push.exponential.at` })
+    vi.unstubAllEnvs()
+  })
+})

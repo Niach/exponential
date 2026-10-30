@@ -1,0 +1,76 @@
+{
+  "$comment": "EXP-1435: the sealed push payload format v1 (eNet push.rs `push_seal`/`push_open`, byte format in apps/push-relay/README.md), ONE set of vectors replayed by every implementation: the Rust core (exponential-net push.rs tests), the web sealer (apps/web/src/lib/push-seal.test.ts), and the natives through the push-only UniFFI binding (iOS ExpCore PushSealFixtureTests, Android PushSealFixtureTest). Keys and bytes are lowercase hex. `recipient.public` = X25519 base-point multiple of `recipient.secret` (clamped). `vector`: sealing `vector.plaintext` (UTF-8) to `recipient.public` with the fixed ephemeral secret `vector.ephemeralSecret` gives exactly `vector.sealed` (only test code may fix the ephemeral key; production seals draw a fresh one per message), and opening `vector.sealed` with `recipient.secret` gives the plaintext back. `vector.opened` = that plaintext parsed: the JSON `{title, body, data}` the web server seals per device (data = string map, the same keys the /send shim carried: userId, notificationId, type, issueId, sessionId\u2026), which the natives show exactly like a plaintext push. `rustSealed`: a payload sealed by Rust with a random ephemeral key; every implementation opens it to `plaintext`. `derive`: PushKeypair::derive_from_identity_bytes (HKDF-SHA256, no salt, info `exp/enet/push-x25519/1`) of the 32 identity bytes gives `secret`, whose public is `public`. `refused`: every case must FAIL to open with its `secret` (unknown version, any tampered byte, truncation, shorter than the 49-byte overhead, empty, wrong key, a low-order ephemeral key = all-zero shared secret); a receiver drops such a push silently. `lowOrderPublic`: sealing to it must fail.",
+  "recipient": {
+    "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "public": "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c"
+  },
+  "vector": {
+    "ephemeralSecret": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+    "plaintext": "{\"title\":\"Hello\",\"body\":\"World\",\"data\":{\"userId\":\"u1\"}}",
+    "sealed": "01493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d2e644e142a277df71d0d69c6ed885dc581701b86040561c808cccd027100eeedf02ae302fffde8b091315b8377c7cb14645ecf8615fca2de8fd6263ebd9d49726edb0b90ccd2e4",
+    "opened": {
+      "title": "Hello",
+      "body": "World",
+      "data": {
+        "userId": "u1"
+      }
+    }
+  },
+  "rustSealed": {
+    "sealed": "01b47474edd575050ba7eb926ba31ca5ce7a6a4b3b67b69c804505406ecf1f4a695ce01e126391e8394cac225f83134bda4d04a059e4083d9554",
+    "plaintext": "from rust"
+  },
+  "derive": {
+    "identity": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+    "secret": "f35913970e90c2c413e67e2fa02aeb434558159516a55b0ddd788e59f3f3214b",
+    "public": "e87565467e5fd8e7a09e8ea94c29d110f243088467aa301f1a88536bbaff950f"
+  },
+  "refused": [
+    {
+      "name": "unknown version",
+      "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "sealed": "02493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d2e644e142a277df71d0d69c6ed885dc581701b86040561c808cccd027100eeedf02ae302fffde8b091315b8377c7cb14645ecf8615fca2de8fd6263ebd9d49726edb0b90ccd2e4"
+    },
+    {
+      "name": "ephemeral key tampered",
+      "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "sealed": "01483e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d2e644e142a277df71d0d69c6ed885dc581701b86040561c808cccd027100eeedf02ae302fffde8b091315b8377c7cb14645ecf8615fca2de8fd6263ebd9d49726edb0b90ccd2e4"
+    },
+    {
+      "name": "ciphertext tampered",
+      "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "sealed": "01493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d2f644e142a277df71d0d69c6ed885dc581701b86040561c808cccd027100eeedf02ae302fffde8b091315b8377c7cb14645ecf8615fca2de8fd6263ebd9d49726edb0b90ccd2e4"
+    },
+    {
+      "name": "tag tampered",
+      "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "sealed": "01493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d2e644e142a277df71d0d69c6ed885dc581701b86040561c808cccd027100eeedf02ae302fffde8b091315b8377c7cb14645ecf8615fca2de8fd6263ebd9d49726edb0b90ccd2e5"
+    },
+    {
+      "name": "truncated",
+      "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "sealed": "01493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d2e644e142a277df71d0d69c6ed885dc581701b86040561c808cccd027100eeedf02ae302fffde8b091315b8377c7cb14645ecf8615fca2de8fd6263ebd9d49726edb0b90ccd2"
+    },
+    {
+      "name": "shorter than the overhead",
+      "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "sealed": "01493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d2e644e142a277df71d0d69c6ed885d"
+    },
+    {
+      "name": "empty",
+      "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "sealed": ""
+    },
+    {
+      "name": "wrong recipient secret",
+      "secret": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+      "sealed": "01493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d2e644e142a277df71d0d69c6ed885dc581701b86040561c808cccd027100eeedf02ae302fffde8b091315b8377c7cb14645ecf8615fca2de8fd6263ebd9d49726edb0b90ccd2e4"
+    },
+    {
+      "name": "low-order ephemeral key",
+      "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "sealed": "0100000000000000000000000000000000000000000000000000000000000000002e644e142a277df71d0d69c6ed885dc581701b86040561c808cccd027100eeedf02ae302fffde8b091315b8377c7cb14645ecf8615fca2de8fd6263ebd9d49726edb0b90ccd2e4"
+    }
+  ],
+  "lowOrderPublic": "0000000000000000000000000000000000000000000000000000000000000000"
+}

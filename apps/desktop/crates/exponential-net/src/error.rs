@@ -30,6 +30,7 @@ pub enum NetError {
 
 pub type Result<T, E = NetError> = std::result::Result<T, E>;
 
+#[cfg(feature = "node")]
 pub(crate) fn transport(e: impl std::fmt::Display) -> NetError {
     NetError::Transport(e.to_string())
 }

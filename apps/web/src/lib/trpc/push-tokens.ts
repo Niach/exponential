@@ -7,7 +7,18 @@ import { fcmTokens } from "@/db/schema"
 // significant bits, so it is one of [AEIMQUYcgkosw048].
 const PUSH_PUBLIC_KEY_RE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/
 
+/** The relay base URL a DEVICE registers its install with (EXP-1435):
+ * PUSH_RELAY_PUBLIC_URL when the web app reaches the relay on an internal
+ * address, else PUSH_RELAY_URL; null = no relay (self-hosted without push),
+ * and the apps register their bare token as before. */
+export function pushRelayPublicUrl(): string | null {
+  const url = process.env.PUSH_RELAY_PUBLIC_URL || process.env.PUSH_RELAY_URL
+  return url ? url.replace(/\/+$/, ``) : null
+}
+
 export const pushTokensRouter = router({
+  relay: authedProcedure.query(() => ({ url: pushRelayPublicUrl() })),
+
   register: authedProcedure
     .input(
       z

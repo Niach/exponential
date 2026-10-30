@@ -25,10 +25,9 @@ use curve25519_dalek::montgomery::MontgomeryPoint;
 use hkdf::Hkdf;
 use sha2::Sha256;
 
-use crate::{
-    error::{NetError, Result},
-    identity::Identity,
-};
+use crate::error::{NetError, Result};
+#[cfg(feature = "node")]
+use crate::identity::Identity;
 
 /// The current format's version byte.
 pub const PUSH_VERSION: u8 = 1;
@@ -51,11 +50,17 @@ impl std::fmt::Debug for PushKeypair {
 
 impl PushKeypair {
     pub fn generate() -> Self {
-        Self { secret: crate::util::random_bytes::<32>() }
+        Self { secret: random_bytes() }
     }
     /// Deterministic from the node identity (same identity = same keypair).
+    #[cfg(feature = "node")]
     pub fn derive(identity: &Identity) -> Self {
-        let hk = Hkdf::<Sha256>::new(None, &identity.to_bytes());
+        Self::derive_from_identity_bytes(&identity.to_bytes())
+    }
+    /// [`PushKeypair::derive`] from the identity's 32 secret bytes (no iroh
+    /// needed, so push-only builds have it too).
+    pub fn derive_from_identity_bytes(identity: &[u8; 32]) -> Self {
+        let hk = Hkdf::<Sha256>::new(None, identity);
         let mut secret = [0u8; 32];
         hk.expand(DERIVE_INFO, &mut secret).expect("32 bytes is a valid HKDF length");
         Self { secret }
@@ -84,6 +89,12 @@ fn derive_key(shared: &MontgomeryPoint, eph_pub: &[u8; 32], recipient_pub: &[u8;
     Ok(ChaChaKey { key: okm[..32].try_into().unwrap(), nonce: okm[32..].try_into().unwrap() })
 }
 
+fn random_bytes() -> [u8; 32] {
+    let mut b = [0u8; 32];
+    getrandom::fill(&mut b).expect("system randomness");
+    b
+}
+
 struct ChaChaKey {
     key: [u8; 32],
     nonce: [u8; 12],
@@ -92,7 +103,12 @@ struct ChaChaKey {
 /// Seals `plaintext` to `recipient_public` (X25519). See the module docs for
 /// the exact byte format.
 pub fn push_seal(recipient_public: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
-    let eph = crate::util::random_bytes::<32>();
+    push_seal_with(random_bytes(), recipient_public, plaintext)
+}
+
+/// [`push_seal`] with a caller-chosen ephemeral secret: test vectors only
+/// (a reused ephemeral key reuses the nonce).
+fn push_seal_with(eph: [u8; 32], recipient_public: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
     let eph_pub = MontgomeryPoint::mul_base_clamped(eph).to_bytes();
     let shared = MontgomeryPoint(*recipient_public).mul_clamped(eph);
     let k = derive_key(&shared, &eph_pub, recipient_public)?;
@@ -148,6 +164,7 @@ mod tests {
         assert_ne!(push_seal(&kp.public(), b"x").unwrap(), push_seal(&kp.public(), b"x").unwrap());
     }
 
+    #[cfg(feature = "node")]
     #[test]
     fn derive_is_deterministic() {
         let id = Identity::generate();
@@ -158,5 +175,37 @@ mod tests {
     #[test]
     fn low_order_key_refused() {
         assert!(push_seal(&[0u8; 32], b"x").is_err());
+    }
+
+    /// The shared vectors every implementation replays (web, Swift, Kotlin).
+    #[test]
+    fn replays_the_push_seal_fixture() {
+        let fx: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/push-seal.json")).unwrap();
+        let hex = |v: &serde_json::Value| data_encoding::HEXLOWER.decode(v.as_str().unwrap().as_bytes()).unwrap();
+        let key = |v: &serde_json::Value| -> [u8; 32] { hex(v).try_into().unwrap() };
+        let secret = key(&fx["recipient"]["secret"]);
+        assert_eq!(PushKeypair::from_secret(secret).public(), key(&fx["recipient"]["public"]));
+
+        let v = &fx["vector"];
+        let plaintext = v["plaintext"].as_str().unwrap().as_bytes();
+        let sealed = push_seal_with(key(&v["ephemeralSecret"]), &key(&fx["recipient"]["public"]), plaintext).unwrap();
+        assert_eq!(sealed, hex(&v["sealed"]));
+        let opened = push_open(&secret, &sealed).unwrap();
+        assert_eq!(opened, plaintext);
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&opened).unwrap(), v["opened"]);
+
+        let r = &fx["rustSealed"];
+        assert_eq!(push_open(&secret, &hex(&r["sealed"])).unwrap(), r["plaintext"].as_str().unwrap().as_bytes());
+
+        let d = &fx["derive"];
+        let kp = PushKeypair::derive_from_identity_bytes(&key(&d["identity"]));
+        assert_eq!(kp.secret(), key(&d["secret"]));
+        assert_eq!(kp.public(), key(&d["public"]));
+
+        for case in fx["refused"].as_array().unwrap() {
+            assert!(push_open(&key(&case["secret"]), &hex(&case["sealed"])).is_err(), "{} opened", case["name"]);
+        }
+        assert!(push_seal(&key(&fx["lowOrderPublic"]), b"x").is_err());
     }
 }

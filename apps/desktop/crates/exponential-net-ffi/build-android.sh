@@ -9,6 +9,8 @@
 #   ABIS="arm64-v8a"   the ABIs to build (default: all three)
 #   SKIP_BINDINGS=1    keep the committed Kotlin binding; skip the host build + bindgen
 #   ENET_FEATURES=""   `--no-default-features --features <list>` (empty = no fs-store)
+#   ENET_PUSH_ONLY=1   the push-only facade (no iroh, no tokio) with bindings/push/kotlin,
+#                      into out/push/jniLibs (what apps/android links, EXP-1435)
 # The .so is built as ONE crate type (`cargo rustc --crate-type cdylib`) so the
 # `mobile` profile's LTO applies; `strip = true` on the profile strips it.
 # ring (iroh's TLS crypto) compiles C/asm: cargo-ndk points CC at the NDK clang.
@@ -18,6 +20,8 @@ DESKTOP="$(cd "$HERE/../.." && pwd)"
 cd "$DESKTOP"
 TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
 export CARGO_TARGET_DIR="$TARGET"
+OUT="$HERE/out"
+if [ "${ENET_PUSH_ONLY:-}" = "1" ]; then OUT="$HERE/out/push"; ENET_FEATURES=""; fi
 SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 NDK_DIR="${ANDROID_NDK_HOME:-$(ls -d "$SDK_DIR"/ndk/* 2>/dev/null | sort | tail -1)}"
 export ANDROID_NDK_HOME="$NDK_DIR"
@@ -47,5 +51,5 @@ fi
 echo "== android .so (profile mobile: LTO, stripped)"
 FEATURE_ARGS=()
 if [ -n "${ENET_FEATURES+x}" ]; then FEATURE_ARGS=(--no-default-features --features "$ENET_FEATURES"); fi
-cargo ndk "${NDK_TARGETS[@]}" -o "$HERE/out/jniLibs" rustc -p exponential-net-ffi --profile mobile --crate-type cdylib ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"}
-for abi in ${ABIS//,/ }; do ls -la "$HERE/out/jniLibs/$abi/"; done
+cargo ndk "${NDK_TARGETS[@]}" -o "$OUT/jniLibs" rustc -p exponential-net-ffi --profile mobile --crate-type cdylib ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"}
+for abi in ${ABIS//,/ }; do ls -la "$OUT/jniLibs/$abi/"; done

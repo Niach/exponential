@@ -465,6 +465,27 @@ uint64_t uniffi_exponential_net_ffi_fn_method_enetnode_start_call(uint64_t ptr, 
 RustBuffer uniffi_exponential_net_ffi_fn_method_enetnode_ticket(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_DERIVE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_DERIVE
+RustBuffer uniffi_exponential_net_ffi_fn_func_push_keypair_derive(RustBuffer identity, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_GENERATE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_GENERATE
+RustBuffer uniffi_exponential_net_ffi_fn_func_push_keypair_generate(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_OPEN
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_OPEN
+RustBuffer uniffi_exponential_net_ffi_fn_func_push_open(RustBuffer recipient_secret, RustBuffer sealed, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_SEAL
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_SEAL
+RustBuffer uniffi_exponential_net_ffi_fn_func_push_seal(RustBuffer recipient_public, RustBuffer plaintext, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_DEFAULT_CONFIG
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_DEFAULT_CONFIG
 RustBuffer uniffi_exponential_net_ffi_fn_func_default_config(RustCallStatus *_Nonnull out_status
@@ -485,27 +506,6 @@ RustBuffer uniffi_exponential_net_ffi_fn_func_generate_identity(RustCallStatus *
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PARSE_TICKET
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PARSE_TICKET
 RustBuffer uniffi_exponential_net_ffi_fn_func_parse_ticket(RustBuffer ticket, RustCallStatus *_Nonnull out_status
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_DERIVE
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_DERIVE
-RustBuffer uniffi_exponential_net_ffi_fn_func_push_keypair_derive(RustBuffer identity, RustCallStatus *_Nonnull out_status
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_GENERATE
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_GENERATE
-RustBuffer uniffi_exponential_net_ffi_fn_func_push_keypair_generate(RustCallStatus *_Nonnull out_status
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_OPEN
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_OPEN
-RustBuffer uniffi_exponential_net_ffi_fn_func_push_open(RustBuffer recipient_secret, RustBuffer sealed, RustCallStatus *_Nonnull out_status
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_SEAL
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_SEAL
-RustBuffer uniffi_exponential_net_ffi_fn_func_push_seal(RustBuffer recipient_public, RustBuffer plaintext, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_EXPONENTIAL_NET_FFI_RUSTBUFFER_ALLOC
@@ -768,30 +768,6 @@ void ffi_exponential_net_ffi_rust_future_free_void(uint64_t handle
 void ffi_exponential_net_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_DEFAULT_CONFIG
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_DEFAULT_CONFIG
-uint16_t uniffi_exponential_net_ffi_checksum_func_default_config(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ENDPOINT_ID_OF
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ENDPOINT_ID_OF
-uint16_t uniffi_exponential_net_ffi_checksum_func_endpoint_id_of(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_GENERATE_IDENTITY
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_GENERATE_IDENTITY
-uint16_t uniffi_exponential_net_ffi_checksum_func_generate_identity(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PARSE_TICKET
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PARSE_TICKET
-uint16_t uniffi_exponential_net_ffi_checksum_func_parse_ticket(void
-    
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PUSH_KEYPAIR_DERIVE
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PUSH_KEYPAIR_DERIVE
 uint16_t uniffi_exponential_net_ffi_checksum_func_push_keypair_derive(void
@@ -813,6 +789,30 @@ uint16_t uniffi_exponential_net_ffi_checksum_func_push_open(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PUSH_SEAL
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PUSH_SEAL
 uint16_t uniffi_exponential_net_ffi_checksum_func_push_seal(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_DEFAULT_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_DEFAULT_CONFIG
+uint16_t uniffi_exponential_net_ffi_checksum_func_default_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ENDPOINT_ID_OF
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ENDPOINT_ID_OF
+uint16_t uniffi_exponential_net_ffi_checksum_func_endpoint_id_of(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_GENERATE_IDENTITY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_GENERATE_IDENTITY
+uint16_t uniffi_exponential_net_ffi_checksum_func_generate_identity(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PARSE_TICKET
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PARSE_TICKET
+uint16_t uniffi_exponential_net_ffi_checksum_func_parse_ticket(void
     
 );
 #endif
