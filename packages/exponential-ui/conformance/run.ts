@@ -81,7 +81,7 @@ if (web && baseline) {
 const desktopPath = arg(`desktop`) ?? join(outDir, `desktop.json`)
 if (!flag(`skip-desktop`)) {
   if (!arg(`desktop`)) {
-    const args = [`run`, `-q`, `-p`, `exponential-ui-gpui`, `--example`, `conformance_dump`, `--`, `--out`, desktopPath]
+    const args = [`run`, `-q`, `-p`, `eui-gpui`, `--example`, `conformance_dump`, `--`, `--out`, desktopPath]
     if (only) args.push(`--only`, only)
     if (process.platform !== `linux` && process.platform !== `freebsd`) console.error(`desktop dump: Linux/FreeBSD only for now — skipped`)
     else if (!run(`cargo`, args, join(repoRoot, `apps/desktop`))) console.error(`desktop dump FAILED`)

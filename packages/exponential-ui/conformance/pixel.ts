@@ -135,7 +135,7 @@ export async function pixelStep(repoRoot: string, outDir: string, keys: string[]
   const missing = [`xvfb-run`, `xdotool`, `import`].filter((c) => !has(c))
   const canDesktop = (process.platform === `linux` || process.platform === `freebsd`) && missing.length === 0
   let built = false
-  if (canDesktop) built = spawnSync(`cargo`, [`build`, `-q`, `-p`, `exponential-ui-gpui`, `--example`, `conformance_dump`], { cwd: join(repoRoot, `apps/desktop`), stdio: [`ignore`, `inherit`, `inherit`] }).status === 0
+  if (canDesktop) built = spawnSync(`cargo`, [`build`, `-q`, `-p`, `eui-gpui`, `--example`, `conformance_dump`], { cwd: join(repoRoot, `apps/desktop`), stdio: [`ignore`, `inherit`, `inherit`] }).status === 0
   const conf = canDesktop ? fontconfigDir(repoRoot, join(dir, `fontconfig`)) : ``
   const rows: PixelRow[] = []
   for (const key of keys) {

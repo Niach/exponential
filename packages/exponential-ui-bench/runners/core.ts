@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { fragmentPath, readFragment, REPO_ROOT, writeFragment } from "../src/results"
 
 const out = fragmentPath(`core`)
-const r = spawnSync(`cargo`, [`run`, `--release`, `-p`, `exponential-ui`, `--example`, `bench_suite`, `--`, ...process.argv.slice(2)], {
+const r = spawnSync(`cargo`, [`run`, `--release`, `-p`, `eui-core`, `--example`, `bench_suite`, `--`, ...process.argv.slice(2)], {
   cwd: join(REPO_ROOT, `apps`, `desktop`),
   stdio: [`ignore`, `ignore`, `inherit`],
   env: { ...process.env, EXPONENTIAL_UI_BENCH_OUT: out },

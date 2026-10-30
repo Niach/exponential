@@ -29,7 +29,7 @@ const run = (cmd: string, cwd: string) => {
 run(`bun pm pack --destination ${dir}`, join(repoRoot, `packages/exponential-ui`))
 run(`bun pm pack --destination ${dir}`, join(repoRoot, `packages/exponential-ui-react`))
 const tarballs = readdirSync(dir).filter((f) => f.endsWith(`.tgz`))
-const ui = tarballs.find((f) => f.startsWith(`exponential_app-ui-`) && !f.includes(`ui-react`))
+const ui = tarballs.find((f) => f.startsWith(`exponential_app-eui-`) && !f.includes(`eui-react`))
 const uiReact = tarballs.find((f) => f.includes(`ui-react`))
 if (!ui || !uiReact) throw new Error(`tarballs missing: ${tarballs.join(`, `)}`)
 

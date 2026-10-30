@@ -98,10 +98,10 @@ async function tarballs(): Promise<Tarballs> {
   temps.push(dir)
   for (const staged of await prepareNpm(VERSION, join(dir, `stage`))) run(`npm pack --silent --pack-destination ${dir}`, staged)
   const files = readdirSync(dir).filter((f) => f.endsWith(`.tgz`))
-  const ui = files.find((f) => f === `exponential_app-ui-${VERSION}.tgz`)
-  const uiReact = files.find((f) => f === `exponential_app-ui-react-${VERSION}.tgz`)
-  const uiSolid = files.find((f) => f === `exponential_app-ui-solid-${VERSION}.tgz`)
-  const uiElement = files.find((f) => f === `exponential_app-ui-element-${VERSION}.tgz`)
+  const ui = files.find((f) => f === `exponential_app-eui-${VERSION}.tgz`)
+  const uiReact = files.find((f) => f === `exponential_app-eui-react-${VERSION}.tgz`)
+  const uiSolid = files.find((f) => f === `exponential_app-eui-solid-${VERSION}.tgz`)
+  const uiElement = files.find((f) => f === `exponential_app-eui-element-${VERSION}.tgz`)
   if (!ui || !uiReact || !uiSolid || !uiElement) throw new Error(`tarballs missing in ${dir}: ${files.join(`, `)}`)
   packed = { ui: join(dir, ui), uiReact: join(dir, uiReact), uiSolid: join(dir, uiSolid), uiElement: join(dir, uiElement) }
   return packed

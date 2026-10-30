@@ -13,7 +13,7 @@ if (process.platform !== `linux`) {
   process.exit(0)
 }
 const out = fragmentPath(`gpui`)
-const r = spawnSync(`cargo`, [`run`, `--release`, `-p`, `exponential-ui-gpui`, `--example`, `bench_suite`, `--`, ...process.argv.slice(2)], {
+const r = spawnSync(`cargo`, [`run`, `--release`, `-p`, `eui-gpui`, `--example`, `bench_suite`, `--`, ...process.argv.slice(2)], {
   cwd: join(REPO_ROOT, `apps`, `desktop`),
   stdio: [`ignore`, `ignore`, `inherit`],
   env: { ...process.env, EXPONENTIAL_UI_BENCH_OUT: out },
