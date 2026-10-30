@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import {
   CORE_CATALOG_ID,
   reduceNested,
@@ -24,7 +24,7 @@ import { generateTxId } from "@/lib/trpc"
 import { askText, busAsk, closeAskMirrors } from "@/lib/sessions/bus"
 import { isAssistantConversation, statusCardTarget } from "@/lib/agents/assistant-chat"
 import { notifyAssistantDecision } from "@/lib/integrations/notifications"
-import { insertMessage, pendingInput, postOwnAskCard } from "@/lib/sessions/messages"
+import { insertMessage, postOwnAskCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
 import {
@@ -317,25 +317,18 @@ type ShowCard = Extract<MessageCard, { kind: `surface` | `plan` | `question` }>
 const isAsk = (card: { kind: string }) => card.kind === `plan` || card.kind === `question`
 
 /**
- * S-3 `exponential_show {replace: true}`: the session's own card of the
- * CURRENT turn (newer than WHEN the device delivered its last input: a
- * message still queued mid-turn is the next turn's, F29) is
- * edited in place: the same row, so every client's card updates instead of
- * a new one landing. A card a person already answered is final (refused);
- * a card of the other family (a plain surface vs an ask/plan) or none this
- * turn = a new card. → the edited row, or null to insert.
+ * S-3 `exponential_show {replace: true}`: the session's latest own card of
+ * the same family (a plain surface vs an ask/plan), whatever the turn or
+ * title (#EXP-1446), is edited in place and moved to the bottom: the same
+ * row, so every client's card updates instead of a new one landing. A card a person already
+ * answered is final (refused); none of the family = a new card. → the
+ * edited row, or null to insert.
  */
 export async function replaceTarget(
   tx: Tx,
   sessionId: string,
   card: ShowCard
 ): Promise<{ id: string; card: MessageCard } | null> {
-  const [input] = await tx
-    .select({ at: messages.consumedAt })
-    .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), pendingInput(), isNotNull(messages.consumedAt)))
-    .orderBy(desc(messages.consumedAt))
-    .limit(1)
   const [row] = await tx
     .select({ id: messages.id, card: messages.card, answeredAt: messages.answeredAt })
     .from(messages)
@@ -343,8 +336,9 @@ export async function replaceTarget(
       and(
         eq(messages.sessionId, sessionId),
         eq(messages.authorSessionId, sessionId),
-        sql`${messages.card}->>'kind' IN ('surface', 'question', 'plan')`,
-        ...(input?.at ? [gt(messages.createdAt, input.at)] : [])
+        isAsk(card)
+          ? sql`${messages.card}->>'kind' IN ('question', 'plan')`
+          : sql`${messages.card}->>'kind' = 'surface'`
       )
     )
     .orderBy(desc(messages.createdAt))
@@ -357,7 +351,6 @@ export async function replaceTarget(
       message: `Your latest card was already answered and is final: post a new one (replace: false).`,
     })
   }
-  if (isAsk(row.card) !== isAsk(card)) return null
   return { id: row.id, card: row.card }
 }
 
@@ -380,7 +373,7 @@ export function carryPictures(before: MessageCard, card: ShowCard): ShowCard {
 }
 
 /** S-3: THE show path (`exponential_show`): a plain surface, a question or
- *  a plan card on the caller's own session; `replace` edits this turn's
+ *  a plan card on the caller's own session; `replace` edits the latest
  *  card in place (`replaceTarget`), else a new card lands (an ask/plan the
  *  way `postAskCard` posts it). */
 export async function postShowCard(args: {
@@ -398,7 +391,9 @@ export async function postShowCard(args: {
     .where(eq(sessions.id, args.sessionId))
     .limit(1)
   const assistant = owner ? await isAssistantConversation(db, owner) : false
-  const status = assistant && args.card.kind === `surface`
+  // An explicit replace edits the latest card (`replaceTarget`), never only
+  // the status card since the member last wrote (#EXP-1446).
+  const status = assistant && args.card.kind === `surface` && !args.replace
   const replaced = args.replace || status
     ? await db.transaction(async (tx) => {
         const [session] = await tx
@@ -416,7 +411,13 @@ export async function postShowCard(args: {
         await generateTxId(tx)
         const now = new Date()
         const card = carryPictures(target.card, args.card)
-        await tx.update(messages).set({ card, updatedAt: now }).where(eq(messages.id, target.id))
+        // Edited AND moved to the bottom (#EXP-1446): every client orders a
+        // chat by created_at (ties by id) and re-sorts on a synced update.
+        // The DB clock, so it lands after every row its `now()` stamped.
+        await tx
+          .update(messages)
+          .set({ card, createdAt: sql`clock_timestamp()`, updatedAt: now })
+          .where(eq(messages.id, target.id))
         if (isAsk(args.card)) {
           // The parent's / watchers' ask mirrors keep pointing at the row;
           // their text follows (a neutral private line stays as it is).
