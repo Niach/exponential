@@ -9,21 +9,32 @@ import UIKit
 // has its ONE pull request (`guidePullRequest`): the Stack band + THE
 // StackRail when it sits in a linear open stack, then ONE Changes row
 // opening THE review page (the complete diff, back row `‹ Stories`). Then
-// THE tiles (`Stories.storyTab`); a tap opens THE viewer on the tab's ring
-// at that story (a thumbnail: at that picture).
+// the stories INLINE (`Stories.storyTab`, #EXP-1462: the Guide's way, never
+// a list of title rows); a tap on a story's line opens THE viewer on the
+// tab's ring at that story (a picture: at that picture).
 
 /// The waiting tint (ask-dock: plan primary, question yellow).
 private func storyTint(_ story: Stories.Story) -> Color {
     (story.kind == .question ? Dock.Tint.question : Dock.Tint.plan).color
 }
 
-/// THE Stories tab body: `lead` (the PR block), then the tiles in fold order
-/// `tile.listGap` apart, else THE EmptyState. A pure painter: the styleguide
-/// specimen draws it over `tabCases[1]`.
+/// How a story's body draws in place (absent = the line alone).
+struct StoryBodyRenderers {
+    /// The story's raw card (its surface), nil = none.
+    var card: (String) -> TreeMessageCard? = { _ in nil }
+    /// A surface press's reply text (THE chat's `surfaceReply`), sent to the
+    /// story's session; nil = the surface takes no input.
+    var onSurfaceReply: ((Stories.Story, String) -> Void)?
+}
+
+/// THE Stories tab body: `lead` (the PR block), then the stories INLINE in
+/// fold order `tile.listGap` apart, else THE EmptyState. A pure painter: the
+/// styleguide specimen draws it over `tabCases[1]`.
 struct StoryTabView: View {
     let ring: Stories.StoryRing?
     var lead: AnyView?
-    /// A tap on a tile (picture 0) or a thumbnail (its index).
+    var renderers = StoryBodyRenderers()
+    /// A tap on a story's line (picture 0) or a picture (its index).
     var onOpen: (Stories.Story, Int) -> Void = { _, _ in }
 
     var body: some View {
@@ -37,7 +48,7 @@ struct StoryTabView: View {
             } else {
                 VStack(alignment: .leading, spacing: CGFloat(Stories.Tab.Tile.listGap)) {
                     ForEach(stories) { story in
-                        StoryTile(story: story, onOpen: onOpen)
+                        StoryTile(story: story, renderers: renderers, onOpen: onOpen)
                     }
                 }
             }
@@ -48,36 +59,55 @@ struct StoryTabView: View {
     }
 }
 
-/// One tile: line 1 = the title (one line; none = the kind word) with
-/// `meta` muted at the end (a waiting tile leads with the tint dot and tints
-/// its meta), then ONE sideways row of thumbnails, a muted caption-or-label
-/// line under each.
+/// One story's SECTION (#EXP-1462): line 1 = the title (one line; none = the
+/// kind word) with `meta` muted at the end (a waiting one leads with the
+/// tint dot and tints its meta); the description (muted, wrapping)
+/// `tile.textGap` under it; then its body `tile.gap` under that, by the
+/// frame rule: ONE sideways row of pictures (a muted caption-or-label line
+/// under each), else THE surface card inline (no title over it, presses
+/// reply like the chat), else the plan markdown, else nothing.
 struct StoryTile: View {
     let story: Stories.Story
+    var renderers = StoryBodyRenderers()
     let onOpen: (Stories.Story, Int) -> Void
+
+    @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
         let gap = CGFloat(Stories.Tab.Tile.gap)
+        // The frame rule: pictures win, else the surface, else the plan text.
+        let surface = story.pictures.isEmpty && story.surface ? renderers.card(story.id)?.surface : nil
+        let text = story.pictures.isEmpty && surface == nil ? story.text : nil
         VStack(alignment: .leading, spacing: gap) {
             Button { onOpen(story, 0) } label: {
-                HStack(spacing: 8) {
-                    if story.waiting {
-                        Circle()
-                            .fill(storyTint(story))
-                            .frame(width: 6, height: 6)
-                            .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: CGFloat(Stories.Tab.Tile.textGap)) {
+                    HStack(spacing: 8) {
+                        if story.waiting {
+                            Circle()
+                                .fill(storyTint(story))
+                                .frame(width: 6, height: 6)
+                                .accessibilityHidden(true)
+                        }
+                        Text(story.title ?? Stories.Copy.kind(story.kind))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(story.meta)
+                            .font(.system(size: 12))
+                            .foregroundStyle(story.waiting ? storyTint(story) : DesignTokens.Palette.mutedForeground)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
-                    Text(story.title ?? Stories.Copy.kind(story.kind))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(story.meta)
-                        .font(.system(size: 12))
-                        .foregroundStyle(story.waiting ? storyTint(story) : DesignTokens.Palette.mutedForeground)
-                        .lineLimit(1)
-                        .fixedSize()
+                    if let description = story.description, !description.isEmpty {
+                        Text(description)
+                            .font(.system(size: 14))
+                            .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
                 .contentShape(Rectangle())
             }
@@ -94,10 +124,42 @@ struct StoryTile: View {
                     }
                 }
                 .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            } else if let surface {
+                let reply = renderers.onSurfaceReply.map { send in { (text: String) in send(story, text) } }
+                SurfaceCardFrame(title: nil, animate: false) {
+                    PlanCardSurfaceView(
+                        surface: surface, handle: handle, editable: reply != nil, onReply: reply, bare: true
+                    )
+                }
+                .accessibilityIdentifier("story-tile-surface")
+            } else if let text {
+                StoryTileText(text: text)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Stories.Tab.TestIds.tile)
+    }
+}
+
+/// A plan story's text in place: THE markdown renderer at the body size.
+private struct StoryTileText: View {
+    let text: String
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+
+    var body: some View {
+        AgentMarkdownText(
+            text: PlanCard.renderableMarkdown(text),
+            context: AgentMarkdownContext(
+                baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                accountId: accountId,
+                httpClient: deps.httpClient
+            ),
+            options: [.hardLineBreaks]
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("story-tile-text")
     }
 }
 
@@ -188,7 +250,14 @@ struct ThreadStoriesPage: View {
                 reviewPage(files)
             } else {
                 ScrollView {
-                    StoryTabView(ring: ring, lead: lead) { story, picture in
+                    StoryTabView(
+                        ring: ring,
+                        lead: lead,
+                        renderers: StoryBodyRenderers(
+                            card: { stories.card($0) },
+                            onSurfaceReply: canEdit ? { story, text in reply(text, to: story) } : nil
+                        )
+                    ) { story, picture in
                         opened = StoryTabTarget(storyId: story.id, picture: picture)
                     }
                     .padding(.horizontal, 16)
@@ -413,6 +482,24 @@ struct ThreadStoriesPage: View {
             threadId: story.rootId,
             child: story.sessionId == story.rootId ? nil : .session(story.sessionId)
         ))
+    }
+
+    /// An inline surface's reply press: THE chat's, sent to the story's
+    /// session (`sessions.send`); a refusal toasts.
+    private func reply(_ text: String, to story: Stories.Story) {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let toaster = toaster
+        Task {
+            do {
+                _ = try await api.send(accountId: accountId, .message(sessionId: story.sessionId, text: text))
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "send", thing: "the message"),
+                    description: error.userFacingMessage
+                )
+            }
+        }
     }
 
     private func markSeen(_ story: Stories.Story) {

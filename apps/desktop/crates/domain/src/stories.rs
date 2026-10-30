@@ -17,8 +17,8 @@ const STORIES_JSON: &str = include_str!("../../../../../packages/domain-contract
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoriesConstants {
-    pub seen_hours: i64,
-    pub unseen_hours: i64,
+    /// #EXP-1461: a ring keeps a story younger than this, waiting or not.
+    pub window_hours: i64,
     pub auto_advance_ms: u64,
 }
 
@@ -62,6 +62,29 @@ pub struct StoryViewerSpec {
     pub scrim_height: f32,
     /// …fading to clear over its last `scrim_fade` px.
     pub scrim_fade: f32,
+    /// #EXP-1463: the wide modal's room to the viewport edge (x each side,
+    /// y top and bottom).
+    pub inset: StoryViewerInset,
+    /// #EXP-1463: a picture frame's modal is at least this wide.
+    pub min_width: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct StoryViewerInset {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// #EXP-1461 THE STORY ROW of the chats header (`row`).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryRowSpec {
+    /// Every item is EXACTLY this wide (never shrunk by its neighbours).
+    pub item_width: f32,
+    pub gap: f32,
+    /// The name under the ring.
+    pub label_gap: f32,
+    pub pad_bottom: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -108,6 +131,8 @@ pub struct StoryTileSpec {
     pub thumb_height: FormFactorLength,
     pub thumb_max_width: FormFactorLength,
     pub gap: f32,
+    /// #EXP-1462: line 1 → the description.
+    pub text_gap: f32,
     pub radius: f32,
     pub list_gap: f32,
     pub lead_gap: f32,
@@ -137,6 +162,7 @@ pub struct StoriesSpec {
     pub ring: StoryRingSpec,
     pub progress: StoryProgressSpec,
     pub viewer: StoryViewerSpec,
+    pub row: StoryRowSpec,
     pub test_ids: StoriesTestIds,
     pub tab: StoryTabSpec,
 }
@@ -481,11 +507,9 @@ pub fn stories(input: &StoriesInput) -> Vec<StoryRing> {
     for message in &input.messages {
         // A settled plan/question leaves the ring (the Stories tab keeps it).
         let Some((story, root, None)) = story_of(message, &sessions, &marks, input.now) else { continue };
-        if story.kind == StoryKind::Result {
-            let keep = if story.seen { STORIES.constants.seen_hours } else { STORIES.constants.unseen_hours };
-            if input.now - story.created_at >= keep * HOUR {
-                continue;
-            }
+        // EXP-1461: a ring holds the last `windowHours` only, waiting or not.
+        if input.now - story.created_at >= STORIES.constants.window_hours * HOUR {
+            continue;
         }
         let ring = empty_ring(root, &agents);
         match rings.iter_mut().find(|existing| existing.key == ring.key) {
@@ -673,19 +697,28 @@ pub fn story_previous(rings: &[StoryRing], (ring, story): StoryPosition) -> Stor
         .unwrap_or((ring, story))
 }
 
-/// The chats header row (chats.json BUBBLES + STORY RING): each agent
-/// bubble wears its agent's ring (`by_agent`, keyed by agent id, the first
-/// wins); `rest` = the rings no bubble wears (the root rings, an agent ring
-/// with no bubble), in ring order, painted after the bubbles in the same row.
+/// THE STORY ROW of the chats header (#EXP-1461, `rowCases`): ONLY rings.
+/// `bubbles` = the agent bubbles (chats.json BUBBLES, in listAgents order)
+/// whose agent has a ring, each wearing it (`by_agent`, the first wins);
+/// `rest` = the rings no bubble wears (the root rings, an agent ring with no
+/// bubble), in ring order. A bubble without a ring is not drawn; both empty
+/// = no row at all.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct BubbleRings {
+pub struct StoryRow {
+    pub bubbles: Vec<String>,
     pub by_agent: HashMap<String, StoryRing>,
     pub rest: Vec<StoryRing>,
 }
 
-/// web `bubbleRings`.
-pub fn bubble_rings(bubble_agent_ids: &[&str], rings: &[StoryRing]) -> BubbleRings {
-    let mut out = BubbleRings::default();
+impl StoryRow {
+    pub fn is_empty(&self) -> bool {
+        self.bubbles.is_empty() && self.rest.is_empty()
+    }
+}
+
+/// web `storyRow`.
+pub fn story_row(bubble_agent_ids: &[&str], rings: &[StoryRing]) -> StoryRow {
+    let mut out = StoryRow::default();
     for ring in rings {
         match ring.agent_id.as_deref() {
             Some(agent) if bubble_agent_ids.contains(&agent) && !out.by_agent.contains_key(agent) => {
@@ -694,7 +727,51 @@ pub fn bubble_rings(bubble_agent_ids: &[&str], rings: &[StoryRing]) -> BubbleRin
             _ => out.rest.push(ring.clone()),
         }
     }
+    for id in bubble_agent_ids {
+        if out.by_agent.contains_key(*id) && !out.bubbles.iter().any(|seen| seen == id) {
+            out.bubbles.push((*id).to_string());
+        }
+    }
     out
+}
+
+/// A wide viewer modal's size in px.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoryViewerSize {
+    pub width: i64,
+    pub height: i64,
+}
+
+/// THE wide viewer's modal size (#EXP-1463, `sizeCases`; web
+/// `storyViewerSize`): a picture with a known size = fitted (contain) into
+/// the viewport less `viewer.inset`, at least `viewer.minWidth` wide; any
+/// other frame = `viewer.width` x `viewer.height`, each capped by the same
+/// box. Whole px.
+pub fn story_viewer_size(picture: Option<(Option<f64>, Option<f64>)>, viewport: (f64, f64)) -> StoryViewerSize {
+    let viewer = &STORIES.viewer;
+    let box_width = (viewport.0 - 2.0 * viewer.inset.x as f64).max(0.0);
+    let box_height = (viewport.1 - 2.0 * viewer.inset.y as f64).max(0.0);
+    let sized = picture.and_then(|(w, h)| match (w, h) {
+        (Some(w), Some(h)) if w > 0.0 && h > 0.0 => Some((w, h)),
+        _ => None,
+    });
+    let Some((w, h)) = sized else {
+        return StoryViewerSize {
+            width: js_round((viewer.width as f64).min(box_width)),
+            height: js_round((viewer.height as f64).min(box_height)),
+        };
+    };
+    let scale = (box_width / w).min(box_height / h);
+    let width = js_round(w * scale) as f64;
+    StoryViewerSize {
+        width: js_round(box_width.min((viewer.min_width as f64).max(width))),
+        height: js_round(h * scale),
+    }
+}
+
+/// JS `Math.round` (half up, towards +inf).
+fn js_round(value: f64) -> i64 {
+    (value + 0.5).floor() as i64
 }
 
 /// THE styleguide specimen of the Stories tab ×4 (`tab.specimen`): the
@@ -733,8 +810,11 @@ mod tests {
     #[test]
     fn tab_spec_parses() {
         assert_eq!(STORIES.tab.copy.label, "Stories");
-        assert_eq!(STORIES.tab.tile.thumb_height.wide, 260.0);
-        assert_eq!(STORIES.tab.tile.thumb_max_width.wide, 560.0);
+        assert_eq!(STORIES.tab.tile.thumb_height.wide, 400.0);
+        assert_eq!(STORIES.tab.tile.thumb_max_width.wide, 720.0);
+        assert_eq!(STORIES.tab.tile.text_gap, 4.0);
+        assert_eq!(STORIES.row.item_width, 72.0);
+        assert_eq!(STORIES.constants.window_hours, 24);
         assert_eq!(STORIES.tab.test_ids.tab, "thread-stories-tab");
     }
 
@@ -791,18 +871,54 @@ mod tests {
         assert_eq!(story_next(&rings, (rings.len() - 1, 0)), None);
     }
 
-    /// The specimen's agent rings ride the bubbles they match; the chat
-    /// rings and an unmatched agent ring follow in ring order.
     #[test]
-    fn bubbles_wear_their_agent_rings() {
+    fn story_row_matches_the_fixture() {
         let fixture: Value = serde_json::from_str(STORIES_JSON).unwrap();
-        let input: StoriesInput = serde_json::from_value(fixture["specimen"]["input"].clone()).unwrap();
-        let rings = stories(&input);
-        let split = bubble_rings(&["as", "ag1", "ag3"], &rings);
-        assert_eq!(split.by_agent.len(), 1);
-        assert_eq!(split.by_agent["ag1"].title, "Triage");
-        let rest: Vec<&str> = split.rest.iter().map(|ring| ring.title.as_str()).collect();
-        assert_eq!(rest, ["Board header polish", "Designer", "Ship the launch checklist"]);
-        assert_eq!(bubble_rings(&[], &rings).rest, rings);
+        let cases = fixture["rowCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let ids: Vec<&str> =
+                case["input"]["bubbleAgentIds"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            let rings: Vec<StoryRing> = case["input"]["rings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|ring| StoryRing {
+                    key: ring["key"].as_str().unwrap().to_string(),
+                    agent_id: ring["agentId"].as_str().map(str::to_string),
+                    root_id: None,
+                    title: String::new(),
+                    assistant: false,
+                    waiting: 0,
+                    unseen: false,
+                    stories: Vec::new(),
+                })
+                .collect();
+            let row = story_row(&ids, &rings);
+            let actual = serde_json::json!({
+                "bubbles": row.bubbles,
+                "rest": row.rest.iter().map(|ring| ring.key.clone()).collect::<Vec<_>>(),
+            });
+            assert_eq!(actual, case["expected"], "{}", case["name"]);
+            assert_eq!(row.is_empty(), row.bubbles.is_empty() && row.rest.is_empty());
+        }
+    }
+
+    #[test]
+    fn story_viewer_size_matches_the_fixture() {
+        let fixture: Value = serde_json::from_str(STORIES_JSON).unwrap();
+        let cases = fixture["sizeCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let picture = if input["picture"].is_null() {
+                None
+            } else {
+                Some((input["picture"]["width"].as_f64(), input["picture"]["height"].as_f64()))
+            };
+            let viewport = (input["viewport"]["width"].as_f64().unwrap(), input["viewport"]["height"].as_f64().unwrap());
+            let actual = serde_json::to_value(story_viewer_size(picture, viewport)).unwrap();
+            assert_eq!(actual, case["expected"], "{}", case["name"]);
+        }
     }
 }

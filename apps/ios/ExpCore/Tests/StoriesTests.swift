@@ -65,8 +65,8 @@ final class StoriesTests: XCTestCase {
     func testConstantsMatchTheFixture() throws {
         let f = try fixture()
         let constants = try XCTUnwrap(f["constants"] as? [String: NSNumber])
-        XCTAssertEqual(constants["seenHours"]?.doubleValue, Stories.Constants.seenHours)
-        XCTAssertEqual(constants["unseenHours"]?.doubleValue, Stories.Constants.unseenHours)
+        XCTAssertEqual(constants.keys.sorted(), ["autoAdvanceMs", "windowHours"])
+        XCTAssertEqual(constants["windowHours"]?.doubleValue, Stories.Constants.windowHours)
         XCTAssertEqual(constants["autoAdvanceMs"]?.doubleValue, Stories.Constants.autoAdvanceMs)
         XCTAssertEqual(f["copy"] as? [String: String], [
             "plan": Stories.Copy.plan, "question": Stories.Copy.question, "result": Stories.Copy.result,
@@ -81,9 +81,18 @@ final class StoriesTests: XCTestCase {
                 "storyGap": Stories.Progress.storyGap,
             ]
         )
-        XCTAssertEqual(f["viewer"] as? [String: Double], [
-            "width": Stories.Viewer.width, "height": Stories.Viewer.height, "radius": Stories.Viewer.radius,
-            "scrimHeight": Stories.Viewer.scrimHeight, "scrimFade": Stories.Viewer.scrimFade,
+        let viewer = try XCTUnwrap(f["viewer"] as? [String: Any])
+        XCTAssertEqual(viewer.keys.sorted(), ["height", "inset", "minWidth", "radius", "scrimFade", "scrimHeight", "width"])
+        XCTAssertEqual(num(viewer["width"]), Stories.Viewer.width)
+        XCTAssertEqual(num(viewer["height"]), Stories.Viewer.height)
+        XCTAssertEqual(num(viewer["radius"]), Stories.Viewer.radius)
+        XCTAssertEqual(num(viewer["scrimHeight"]), Stories.Viewer.scrimHeight)
+        XCTAssertEqual(num(viewer["scrimFade"]), Stories.Viewer.scrimFade)
+        XCTAssertEqual(viewer["inset"] as? [String: Double], ["x": Stories.Viewer.insetX, "y": Stories.Viewer.insetY])
+        XCTAssertEqual(num(viewer["minWidth"]), Stories.Viewer.minWidth)
+        XCTAssertEqual(f["row"] as? [String: Double], [
+            "itemWidth": Stories.Row.itemWidth, "gap": Stories.Row.gap,
+            "labelGap": Stories.Row.labelGap, "padBottom": Stories.Row.padBottom,
         ])
         XCTAssertEqual(f["testIds"] as? [String: String], [
             "ring": Stories.TestIds.ring, "viewer": Stories.TestIds.viewer, "progress": Stories.TestIds.progress,
@@ -156,16 +165,17 @@ final class StoriesTests: XCTestCase {
         XCTAssertEqual((tile["thumbHeight"] as? [String: Double])?["phone"], Stories.Tab.Tile.thumbHeight)
         XCTAssertEqual((tile["thumbMaxWidth"] as? [String: Double])?["phone"], Stories.Tab.Tile.thumbMaxWidth)
         XCTAssertEqual(num(tile["gap"]), Stories.Tab.Tile.gap)
+        XCTAssertEqual(num(tile["textGap"]), Stories.Tab.Tile.textGap)
         XCTAssertEqual(num(tile["radius"]), Stories.Tab.Tile.radius)
         XCTAssertEqual(num(tile["listGap"]), Stories.Tab.Tile.listGap)
         XCTAssertEqual(num(tile["leadGap"]), Stories.Tab.Tile.leadGap)
         XCTAssertEqual(
             num((tab["specimen"] as? [String: Any])?["case"]).map(Int.init), Stories.Tab.specimenCase
         )
-        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: 1600, height: 1000), 224)
-        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: 1179, height: 2556), 65)
-        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: 4000, height: 1000), 280)
-        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: nil, height: nil), 187)
+        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: 1000, height: 1000), 240)
+        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: 1179, height: 2556), 111)
+        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: 4000, height: 1000), 320)
+        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: nil, height: nil), 320)
     }
 
     /// `storyTab(input + rootId)` over every `tabCases` entry, the WHOLE ring.
@@ -274,18 +284,41 @@ final class StoriesTests: XCTestCase {
         XCTAssertEqual(Stories.frameIndex([], storyId: "x"), -1)
     }
 
-    /// chats.json BUBBLES + STORY RING (TS `bubbleRings`): the specimen's
-    /// agent rings ride bubbleCases[0]'s bubbles, the chat rings follow.
-    func testBubbleRings() throws {
-        let specimen = try XCTUnwrap(try fixture()["specimen"] as? [String: Any])
-        let rings = try fold(try XCTUnwrap(specimen["input"] as? [String: Any]), "specimen")
-        let all = Stories.bubbleRings(["as", "ag1", "ag2", "ag3"], rings)
-        XCTAssertEqual(all.byAgent.keys.sorted(), ["ag1", "ag2"])
-        XCTAssertEqual(all.byAgent["ag1"]?.key, "agent:ag1")
-        XCTAssertEqual(all.rest.map(\.key), rings.filter { $0.agentId == nil }.map(\.key))
-        // An agent ring with no bubble follows in ring order.
-        let one = Stories.bubbleRings(["ag2"], rings)
-        XCTAssertEqual(Array(one.byAgent.keys), ["ag2"])
-        XCTAssertEqual(one.rest.map(\.key), rings.filter { $0.agentId != "ag2" }.map(\.key))
+    /// #EXP-1461 THE STORY ROW (TS `storyRow`): every `rowCases` entry,
+    /// `bubbles` and the `rest` keys.
+    func testRowCases() throws {
+        let cases = try XCTUnwrap(try fixture()["rowCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let name = entry["name"] as? String ?? "?"
+            let input = try XCTUnwrap(entry["input"] as? [String: Any], name)
+            let rings = try XCTUnwrap(input["rings"] as? [[String: Any]], name).map { raw in
+                Stories.StoryRing(
+                    key: raw["key"] as? String ?? "", agentId: raw["agentId"] as? String, rootId: nil,
+                    title: "", assistant: false, waiting: 0, unseen: false, stories: []
+                )
+            }
+            let row = Stories.storyRow(try XCTUnwrap(input["bubbleAgentIds"] as? [String], name), rings)
+            let actual: [String: Any] = ["bubbles": row.bubbles, "rest": row.rest.map(\.key)]
+            let expected = try XCTUnwrap(entry["expected"] as? [String: Any], name)
+            XCTAssertTrue(NSDictionary(dictionary: actual).isEqual(to: expected), "\(name)\nactual: \(actual)")
+            for id in row.bubbles { XCTAssertEqual(row.byAgent[id]?.agentId, id, name) }
+        }
+    }
+
+    /// #EXP-1463 (TS `storyViewerSize`): every `sizeCases` entry.
+    func testSizeCases() throws {
+        let cases = try XCTUnwrap(try fixture()["sizeCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let name = entry["name"] as? String ?? "?"
+            let input = try XCTUnwrap(entry["input"] as? [String: Any], name)
+            let viewport = try XCTUnwrap(input["viewport"] as? [String: Double], name)
+            let picture = (input["picture"] as? [String: Any]).map { (width: num($0["width"]), height: num($0["height"])) }
+            let size = Stories.viewerSize(
+                picture: picture, viewport: (width: viewport["width"] ?? 0, height: viewport["height"] ?? 0)
+            )
+            XCTAssertEqual(["width": size.width, "height": size.height], entry["expected"] as? [String: Double], name)
+        }
     }
 }

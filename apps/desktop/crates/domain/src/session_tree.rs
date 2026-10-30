@@ -255,15 +255,6 @@ pub struct ThreadsListCopy {
     pub rail: String,
     /// EXP-1318: the trailing words.
     pub words: ThreadRowWords,
-    /// S-3: the fold row's label ([`earlier_label`]).
-    pub earlier: EarlierCopy,
-}
-
-/// S-3: `threads-list.json` `copy.earlier` (`{n}` slot).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct EarlierCopy {
-    pub one: String,
-    pub other: String,
 }
 
 /// `threads-list.json` `copy.words`. `deny_unknown_fields`: a word key
@@ -848,7 +839,7 @@ pub struct CardSurface {
 
 /// A card's surface (tolerant read): an object with a `root` object, else
 /// `None`; `data` only when it is an object.
-fn card_surface(raw: Option<&Value>) -> Option<CardSurface> {
+pub fn card_surface(raw: Option<&Value>) -> Option<CardSurface> {
     let surface = raw?.as_object()?;
     let root = surface.get("root").filter(|root| root.is_object())?;
     Some(CardSurface {
@@ -1929,8 +1920,8 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
 pub struct ThreadsListRow {
     pub session_id: String,
     pub team_id: String,
-    /// EXP-1323: 0 = the thread (opens the thread), >0 = a nested child
-    /// (opens that session); `parent_id` `None` on a root.
+    /// EXP-1323: 0 = the thread; #EXP-1461 every list row is a root, so
+    /// always 0 with `parent_id` `None`.
     #[serde(default)]
     pub depth: usize,
     #[serde(default)]
@@ -1944,27 +1935,12 @@ pub struct ThreadsListRow {
     pub device_id: Option<String>,
     pub busy: bool,
     pub needs_you: bool,
-    /// EXP-1323: bold title (a root: the tree's newest agent message is
-    /// newer than the viewer's read of the root; a child: its own).
+    /// EXP-1323: bold title (the tree's newest agent message is newer than
+    /// the viewer's read of the root).
     #[serde(default)]
     pub unread: bool,
-    /// The tree's newest `updated_at` (the sort key), verbatim; a child's
-    /// own `updated_at`.
+    /// The tree's newest `updated_at` (the sort key), verbatim.
     pub activity_at: String,
-    /// S-3: set ONLY on a tree's fold row (`<rootId>:earlier`, depth 1, the
-    /// muted list-item row; opens the thread) = how many sub-sessions it
-    /// hides.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub earlier: Option<usize>,
-}
-
-/// S-3: the fold row's id suffix ([`ThreadsListRow::earlier`]).
-pub const EARLIER_SUFFIX: &str = ":earlier";
-
-/// S-3: the fold row's label (`copy.earlier`, `{n}` slot).
-pub fn earlier_label(count: usize) -> String {
-    let copy = &THREADS_LIST.copy.earlier;
-    (if count == 1 { &copy.one } else { &copy.other }).replace("{n}", &count.to_string())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -2052,15 +2028,12 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         .collect();
     let root_of: HashMap<&str, &str> =
         input.sessions.iter().map(|session| (session.id.as_str(), session.root_id_or_self())).collect();
-    let mut newest_agent: HashMap<&str, i64> = HashMap::new();
     let mut newest_agent_in_tree: HashMap<&str, i64> = HashMap::new();
     for message in input.messages {
         if message.author_kind.as_deref() != Some(MESSAGE_AUTHOR_KIND_AGENT) {
             continue;
         }
         let at = ms_or_zero(message.created_at.as_deref());
-        let own = newest_agent.entry(message.session_id.as_str()).or_insert(at);
-        *own = (*own).max(at);
         if let Some(root) = root_of.get(message.session_id.as_str()) {
             let tree = newest_agent_in_tree.entry(root).or_insert(at);
             *tree = (*tree).max(at);
@@ -2073,7 +2046,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
     for session in input.sessions {
         by_root.entry(session.root_id_or_self()).or_default().push(session);
     }
-    let mut buckets: HashMap<ThreadsListKey, Vec<(ThreadsListRow, Vec<ThreadsListRow>)>> = HashMap::new();
+    let mut buckets: HashMap<ThreadsListKey, Vec<ThreadsListRow>> = HashMap::new();
     for root in input.sessions.iter().copied().filter(|session| {
         is_root(session)
             // NEW-2: an agent's conversation (a root with `agent_id`) is no
@@ -2115,86 +2088,17 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
             needs_you,
             unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
             activity_at: activity,
-            earlier: None,
         };
-        // A live tree nests its VISIBLE children (S-3 [`visible_tree`]:
-        // working, needs you or active within `recentChildMinutes`;
-        // depth-first, creation order), the rest fold into ONE `earlier`
-        // row; Recent collapses to the root.
-        let mut children = Vec::new();
-        if key != ThreadsListKey::Recent {
-            let ordered = tree_order(tree);
-            let below: Vec<&SessionRow> =
-                ordered.iter().copied().filter(|session| session.id != root.id).collect();
-            let shown = visible_tree(&below, input.now_ms);
-            fn walk<'s>(
-                parent_id: &str,
-                depth: usize,
-                ordered: &[&'s SessionRow],
-                shown: &HashSet<&str>,
-                visit: &mut dyn FnMut(&'s SessionRow, &str, usize),
-            ) {
-                for child in ordered.iter().copied() {
-                    if child.parent_id.as_deref() != Some(parent_id) || !shown.contains(child.id.as_str()) {
-                        continue;
-                    }
-                    visit(child, parent_id, depth);
-                    walk(&child.id, depth + 1, ordered, shown, visit);
-                }
-            }
-            walk(&root.id, 1, &ordered, &shown, &mut |child, parent_id, depth| {
-                let card = session_card(
-                    child,
-                    &session_title(child, input.session_issues, input.issues, input.messages),
-                    0,
-                );
-                children.push(ThreadsListRow {
-                    session_id: child.id.clone(),
-                    team_id: child.team_id.clone().unwrap_or_default(),
-                    depth,
-                    parent_id: Some(parent_id.to_string()),
-                    root_id: root.id.clone(),
-                    title: card.name,
-                    device_id: child.device_id.clone(),
-                    busy: !child.is_ended() && child.busy,
-                    needs_you: !child.is_ended() && child.needs_input,
-                    unread: unread_at(newest_agent.get(child.id.as_str()), &child.id),
-                    activity_at: child.updated_at.clone().unwrap_or_default(),
-                    earlier: None,
-                });
-            });
-            let hidden: Vec<&SessionRow> =
-                below.iter().copied().filter(|session| !shown.contains(session.id.as_str())).collect();
-            if let Some(first) = hidden.first() {
-                let mut newest = first.updated_at.clone().unwrap_or_default();
-                for session in &hidden {
-                    if ms_or_zero(session.updated_at.as_deref()) > ms_or_zero(Some(&newest)) {
-                        newest = session.updated_at.clone().unwrap_or_default();
-                    }
-                }
-                children.push(ThreadsListRow {
-                    session_id: format!("{}{EARLIER_SUFFIX}", root.id),
-                    team_id: root.team_id.clone().unwrap_or_default(),
-                    depth: 1,
-                    parent_id: Some(root.id.clone()),
-                    root_id: root.id.clone(),
-                    title: earlier_label(hidden.len()),
-                    device_id: None,
-                    busy: false,
-                    needs_you: false,
-                    unread: false,
-                    activity_at: newest,
-                    earlier: Some(hidden.len()),
-                });
-            }
-        }
-        buckets.entry(key).or_default().push((row, children));
+        // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
+        // child sessions, only the root ones'): a row is a ROOT, never a
+        // child; the tree's state (needs you, working, unread) rolls up into it.
+        buckets.entry(key).or_default().push(row);
     }
     ThreadsListKey::ALL
         .into_iter()
         .filter_map(|key| {
-            let mut entries = buckets.remove(&key)?;
-            entries.sort_by(|(a, _), (b, _)| {
+            let mut rows = buckets.remove(&key)?;
+            rows.sort_by(|a, b| {
                 ms_or_zero(Some(&b.activity_at))
                     .cmp(&ms_or_zero(Some(&a.activity_at)))
                     .then_with(|| a.session_id.cmp(&b.session_id))
@@ -2204,22 +2108,18 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                 // up to the last `recent.max` by activity.
                 let rules = THREADS_LIST.recent;
                 let window = rules.hours * 60 * 60 * 1000;
-                entries = entries
+                rows = rows
                     .into_iter()
                     .enumerate()
-                    .filter(|(index, (row, _))| {
+                    .filter(|(index, row)| {
                         *index < rules.max
                             || input
                                 .now_ms
                                 .is_some_and(|at| at - ms_or_zero(Some(&row.activity_at)) <= window)
                     })
-                    .map(|(_, entry)| entry)
+                    .map(|(_, row)| row)
                     .collect();
             }
-            let rows: Vec<ThreadsListRow> = entries
-                .into_iter()
-                .flat_map(|(row, children)| std::iter::once(row).chain(children))
-                .collect();
             Some(ThreadsListGroup {
                 key,
                 title: key.title().to_string(),
@@ -2679,8 +2579,6 @@ mod tests {
         assert_eq!(THREADS_LIST.agent_defaults.icon, "bot");
         assert_eq!(THREADS_LIST.recent, RecentRules { hours: 24, max: 20 });
         assert_eq!(THREADS_LIST.recent_child_minutes, 120);
-        assert_eq!(earlier_label(1), "1 earlier sub-session");
-        assert_eq!(earlier_label(3), "3 earlier sub-sessions");
         assert_eq!(SESSION_CARD.copy.blocked_kinds.get("rate_limit").map(String::as_str), Some("Usage limit"));
         // S-3: device_offline / restarted are invisible (no word).
         for kind in crate::contract::CODING_SESSION_BLOCKED_KINDS {

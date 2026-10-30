@@ -579,20 +579,19 @@ fun ChatFilterChips(
 }
 
 /**
- * The Chats header's agent BUBBLES (`agentBubbles`): a 66 circle each (the
- * agent's icon in its colour on bg muted inside a 3px background gap) with
- * the name under it; the ring = amber while the viewer's conversation needs
- * them, foreground while it has unread news, else a hairline. A tap opens the
- * agent's chat, a long-press its agent menu. The row scrolls sideways. S-3
- * (stories.json STORY RING): a bubble whose agent has a story ring wears
- * THAT ring instead and a tap opens the viewer at it ([onOpenStory]); the
- * rings no bubble wears follow in the same row ([Stories.bubbleRings]).
+ * THE STORY ROW of the Chats header (stories.json STORY ROW, #EXP-1461):
+ * ONLY rings ([Stories.storyRow]). A bubble whose agent has a ring (the last
+ * 24 h) wears it, in listAgents order (the agent's icon in its colour, its
+ * name under it, medium while unseen; a tap opens the viewer at the ring, a
+ * long-press its agent menu); a bubble without one is not drawn; the rings
+ * no bubble wears follow in ring order. Nothing = no row (no height). Each
+ * item is exactly `row.itemWidth` wide, `row.gap` apart, from the chips'
+ * leading edge; the row scrolls sideways.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AgentBubbles(
     bubbles: List<Chats.AgentBubble>,
-    onOpen: (SessionTree.AgentRow) -> Unit,
     onLongPress: ((SessionTree.AgentRow) -> Unit)?,
     modifier: Modifier = Modifier,
     /** The story rings ([Stories.rings], ring order). */
@@ -601,32 +600,27 @@ fun AgentBubbles(
     ringAvatar: (Stories.StoryRing) -> StoryAvatar = { StoryAvatar(null, null) },
     onOpenStory: (key: String) -> Unit = {},
 ) {
-    val split = remember(bubbles, rings) { Stories.bubbleRings(bubbles.map { it.agent.agentId }, rings) }
-    if (bubbles.isEmpty() && split.rest.isEmpty()) return
+    val row = remember(bubbles, rings) { Stories.storyRow(bubbles.map { it.agent.agentId }, rings) }
+    if (row.isEmpty) return
+    val worn = remember(bubbles, row) { bubbles.filter { it.agent.agentId in row.byAgent } }
     val haptics = LocalHapticFeedback.current
     Row(
         modifier = modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = Stories.Row.PAD_BOTTOM.dp),
+        horizontalArrangement = Arrangement.spacedBy(Stories.Row.GAP.dp),
     ) {
-        bubbles.forEach { bubble ->
+        worn.forEach { bubble ->
             val agent = bubble.agent
-            val story = split.byAgent[agent.agentId]
-            val ring = when (bubble.ring) {
-                Chats.AgentRing.NeedsYou -> NeedsInputAmber
-                Chats.AgentRing.Unread -> MaterialTheme.colorScheme.onSurface
-                null -> GlassTokens.StrokeCard
-            }
-            val ringWidth = if (bubble.ring == null) GlassTokens.Hairline else Chats.Shell.BUBBLE_RING.dp
+            val story = row.byAgent.getValue(agent.agentId)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .width(Chats.Shell.BUBBLE.dp + 8.dp)
+                    .width(Stories.Row.ITEM_WIDTH.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .combinedClickable(
-                        onClick = { if (story != null) onOpenStory(story.key) else onOpen(agent) },
+                        onClick = { onOpenStory(story.key) },
                         onLongClick = onLongPress?.let { long ->
                             {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -636,42 +630,27 @@ fun AgentBubbles(
                     )
                     .testTag(Chats.TestIds.AGENT_BUBBLE),
             ) {
-                if (story != null) {
-                    // THE story ring at the bubble size; its inner muted
-                    // disc carries the bubble's avatar / working mark.
-                    StoryRing(stories = story.stories, size = Chats.Shell.BUBBLE.dp) {
-                        AgentBubbleDisc(
-                            icon = agent.icon,
-                            color = agent.color,
-                            assistant = agent.assistant,
-                            size = Chats.Shell.BUBBLE.dp - (Stories.Ring.WIDTH.dp + Chats.Shell.BUBBLE_RING.dp) * 2,
-                            ring = Color.Transparent,
-                            ringWidth = 0.dp,
-                            ringGap = 0.dp,
-                            glyph = 26.dp,
-                            busy = agent.busy,
-                        )
-                    }
-                } else {
+                // THE story ring at the bubble size; its inner muted disc
+                // carries the bubble's avatar / working mark.
+                StoryRing(stories = story.stories, size = Chats.Shell.BUBBLE.dp) {
                     AgentBubbleDisc(
                         icon = agent.icon,
                         color = agent.color,
                         assistant = agent.assistant,
-                        size = Chats.Shell.BUBBLE.dp,
-                        ring = ring,
-                        ringWidth = ringWidth,
-                        ringGap = Chats.Shell.BUBBLE_RING.dp,
+                        size = Chats.Shell.BUBBLE.dp - (Stories.Ring.WIDTH.dp + Chats.Shell.BUBBLE_RING.dp) * 2,
+                        ring = Color.Transparent,
+                        ringWidth = 0.dp,
+                        ringGap = 0.dp,
                         glyph = 26.dp,
                         busy = agent.busy,
                     )
                 }
-                val strong = bubble.ring != null || story?.unseen == true
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(Stories.Row.LABEL_GAP.dp))
                 Text(
                     agent.name,
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (strong) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (strong) {
+                    fontWeight = if (story.unseen) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (story.unseen) {
                         MaterialTheme.colorScheme.onSurface
                     } else {
                         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -681,7 +660,7 @@ fun AgentBubbles(
                 )
             }
         }
-        split.rest.forEach { ring -> StoryRingButton(ring = ring, avatar = ringAvatar(ring), onOpen = onOpenStory) }
+        row.rest.forEach { ring -> StoryRingButton(ring = ring, avatar = ringAvatar(ring), onOpen = onOpenStory) }
     }
 }
 

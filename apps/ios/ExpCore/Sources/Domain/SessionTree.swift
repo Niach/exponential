@@ -1131,12 +1131,9 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     /// EXP-1316: the ROOT's device (the row's trailing device glyph,
     /// resolved against the synced devices rows); nil = none.
     public let deviceId: String?
-    /// EXP-1323: bold title (a root: the tree's newest agent message is
-    /// newer than the viewer's read of the root; a child: its own).
+    /// EXP-1323: bold title (the tree's newest agent message is newer than
+    /// the viewer's read of the root).
     public let unread: Bool
-    /// S-3: set ONLY on a tree's fold row (`<rootId>:earlier`, depth 1, the
-    /// muted list-item row; opens the thread) = how many sub-sessions it hides.
-    public let earlier: Int?
 
     public var id: String { sessionId }
 
@@ -1151,11 +1148,9 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         needsYou: Bool,
         unread: Bool = false,
         activityAt: String,
-        deviceId: String? = nil,
-        earlier: Int? = nil
+        deviceId: String? = nil
     ) {
         self.deviceId = deviceId
-        self.earlier = earlier
         self.depth = depth
         self.parentId = parentId
         self.rootId = rootId ?? sessionId
@@ -1955,18 +1950,15 @@ public enum SessionTree {
         reads: [TreeSessionRead] = [],
         now: String? = nil
     ) -> [ThreadsListGroup] {
-        // EXP-1323: unread = the newest agent-authored message (a root: any
-        // session of its tree; a child: its own) is newer than the viewer's
-        // read of that session.
+        // EXP-1323: unread = the tree's newest agent-authored message is
+        // newer than the viewer's read of the root.
         var readAt: [String: Double] = [:]
         for read in reads { readAt[read.sessionId] = ms(read.readAt) ?? 0 }
         var rootOf: [String: String] = [:]
         for session in sessions { rootOf[session.id] = session.rootId }
-        var newestAgent: [String: Double] = [:]
         var newestAgentInTree: [String: Double] = [:]
         for message in messages where message.authorKind == "agent" {
             let at = ms(message.createdAt) ?? 0
-            newestAgent[message.sessionId] = max(newestAgent[message.sessionId] ?? 0, at)
             if let rootId = rootOf[message.sessionId] {
                 newestAgentInTree[rootId] = max(newestAgentInTree[rootId] ?? 0, at)
             }
@@ -1988,8 +1980,7 @@ public enum SessionTree {
         let titleIndex = SessionTitle.index(sessionIssues: sessionIssues, issues: issues, messages: messages)
         var updatedMs: [String: Double] = [:]
         for session in sessions { updatedMs[session.id] = ms(session.updatedAt) ?? 0 }
-        let nowDate = ms(now).map { Date(timeIntervalSince1970: $0 / 1000) }
-        var buckets: [ThreadsListGroup.Key: [(row: ThreadsListRow, children: [ThreadsListRow], activityMs: Double)]] = [:]
+        var buckets: [ThreadsListGroup.Key: [(row: ThreadsListRow, activityMs: Double)]] = [:]
         for root in roots {
             let tree = byRoot[root.id] ?? [root]
             let live = tree.filter { $0.status != "ended" }
@@ -2015,58 +2006,10 @@ public enum SessionTree {
                 activityAt: activity,
                 deviceId: root.deviceId
             )
+            // #EXP-1461 (owner 2026-10-30: 'only the root ones'): a row is a
+            // ROOT, never a child; the tree's state rolls up into it.
             let key: ThreadsListGroup.Key = needsYou ? .needsYou : running ? .running : .recent
-            // A live tree nests its VISIBLE children (S-3 `visibleTree`:
-            // working, needs you or active within `recentChildMinutes`;
-            // depth-first, creation order), the rest fold into ONE `earlier`
-            // row; Recent collapses to the root.
-            var children: [ThreadsListRow] = []
-            if key != .recent {
-                let ordered = treeOrder(tree)
-                let shown = visibleTree(ordered.filter { $0.id != root.id }, now: nowDate)
-                func walk(_ parentId: String, _ depth: Int) {
-                    for child in ordered where child.parentId == parentId && shown.contains(child.id) {
-                        let ended = child.status == "ended"
-                        children.append(ThreadsListRow(
-                            sessionId: child.id,
-                            teamId: child.teamId,
-                            depth: depth,
-                            parentId: parentId,
-                            rootId: root.id,
-                            title: SessionTitle.title(SessionTitle.Session(child), index: titleIndex),
-                            busy: !ended && child.busy,
-                            needsYou: !ended && child.needsInput,
-                            unread: unread(newestAgent[child.id], child.id),
-                            activityAt: child.updatedAt,
-                            deviceId: child.deviceId
-                        ))
-                        walk(child.id, depth + 1)
-                    }
-                }
-                walk(root.id, 1)
-                let hidden = ordered.filter { $0.id != root.id && !shown.contains($0.id) }
-                if let first = hidden.first {
-                    var hiddenActivity = first.updatedAt
-                    for session in hidden where (updatedMs[session.id] ?? 0) > (ms(hiddenActivity) ?? 0) {
-                        hiddenActivity = session.updatedAt
-                    }
-                    children.append(ThreadsListRow(
-                        sessionId: "\(root.id)\(earlierSuffix)",
-                        teamId: root.teamId,
-                        depth: 1,
-                        parentId: root.id,
-                        rootId: root.id,
-                        title: earlierLabel(hidden.count),
-                        busy: false,
-                        needsYou: false,
-                        unread: false,
-                        activityAt: hiddenActivity,
-                        deviceId: nil,
-                        earlier: hidden.count
-                    ))
-                }
-            }
-            buckets[key, default: []].append((row, children, activityMs))
+            buckets[key, default: []].append((row, activityMs))
         }
         // NEW-1: Recent = every tree active in the last `recent.hours`,
         // filled up to the last `recent.max` by activity (no clock = the
@@ -2083,7 +2026,7 @@ public enum SessionTree {
                         || (at.map { $0 - entry.activityMs <= ListRules.recentHours * 60 * 60 * 1000 } ?? false)
                 }.map(\.element)
             }
-            let rows = entries.flatMap { [$0.row] + $0.children }
+            let rows = entries.map(\.row)
             return rows.isEmpty ? nil : ThreadsListGroup(key: key, title: key.title, rows: rows)
         }
     }
@@ -2093,12 +2036,6 @@ public enum SessionTree {
         public static let recentHours: Double = 24
         public static let recentMax = 20
         public static let recentChildMinutes: Double = 120
-    }
-
-    /// S-3: the fold row's id suffix and its label (`copy.earlier`).
-    public static let earlierSuffix = ":earlier"
-    public static func earlierLabel(_ count: Int) -> String {
-        count == 1 ? "1 earlier sub-session" : "\(count) earlier sub-sessions"
     }
 
     /// S-3: a tree's display state = the session's four (`SessionState`).

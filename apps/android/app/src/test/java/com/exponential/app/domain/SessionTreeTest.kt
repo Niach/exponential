@@ -402,8 +402,6 @@ class SessionTreeTest {
                         put("parentId", nullable(row.parentId))
                         put("rootId", row.rootId)
                         put("unread", row.unread)
-                        // S-3: only the fold row carries `earlier`.
-                        row.earlier?.let { put("earlier", it) }
                     }
                 },
             ),
@@ -842,11 +840,7 @@ class SessionTreeTest {
         assertEquals(recent.getValue("max").jsonPrimitive.int, SessionTree.ListCopy.RECENT_MAX)
         assertTrue("treeState.staleHours is gone (S-3)", "treeState" !in listFixture)
         assertEquals(listFixture.getValue("recentChildMinutes").jsonPrimitive.int, SessionTree.ListCopy.RECENT_CHILD_MINUTES)
-        val earlier = copy.getValue("earlier").jsonObject
-        assertEquals(earlier.str("one"), SessionTree.ListCopy.EARLIER_ONE)
-        assertEquals(earlier.str("other"), SessionTree.ListCopy.EARLIER_OTHER)
-        assertEquals("1 earlier sub-session", SessionTree.earlierLabel(1))
-        assertEquals("3 earlier sub-sessions", SessionTree.earlierLabel(3))
+        assertTrue("copy.earlier is gone (#EXP-1461)", "earlier" !in copy)
     }
 
     // NEW-1 / S-3 (TS `sessionKindWord`, session-card.json `copy.blockedKinds`):

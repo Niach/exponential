@@ -85,8 +85,8 @@ class StoriesTest {
     @Test
     fun `constants match the fixture`() {
         val constants = fixture.getValue("constants").jsonObject
-        assertEquals(constants.long("seenHours"), Stories.Constants.SEEN_HOURS)
-        assertEquals(constants.long("unseenHours"), Stories.Constants.UNSEEN_HOURS)
+        assertEquals(setOf("windowHours", "autoAdvanceMs"), constants.keys)
+        assertEquals(constants.long("windowHours"), Stories.Constants.WINDOW_HOURS)
         assertEquals(constants.long("autoAdvanceMs"), Stories.Constants.AUTO_ADVANCE_MS)
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(
@@ -111,6 +111,14 @@ class StoriesTest {
         assertEquals(viewer.str("radius")!!.toFloat(), Stories.Viewer.RADIUS)
         assertEquals(viewer.str("scrimHeight")!!.toFloat(), Stories.Viewer.SCRIM_HEIGHT)
         assertEquals(viewer.str("scrimFade")!!.toFloat(), Stories.Viewer.SCRIM_FADE)
+        assertEquals(viewer.getValue("inset").jsonObject.str("x")!!.toFloat(), Stories.Viewer.INSET_X)
+        assertEquals(viewer.getValue("inset").jsonObject.str("y")!!.toFloat(), Stories.Viewer.INSET_Y)
+        assertEquals(viewer.str("minWidth")!!.toFloat(), Stories.Viewer.MIN_WIDTH)
+        val row = fixture.getValue("row").jsonObject
+        assertEquals(row.str("itemWidth")!!.toFloat(), Stories.Row.ITEM_WIDTH)
+        assertEquals(row.str("gap")!!.toFloat(), Stories.Row.GAP)
+        assertEquals(row.str("labelGap")!!.toFloat(), Stories.Row.LABEL_GAP)
+        assertEquals(row.str("padBottom")!!.toFloat(), Stories.Row.PAD_BOTTOM)
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(
             mapOf(
@@ -218,6 +226,7 @@ class StoriesTest {
             Stories.Tab.Tile.THUMB_MAX_WIDTH,
         )
         assertEquals(tile.str("gap")!!.toFloat(), Stories.Tab.Tile.GAP)
+        assertEquals(tile.str("textGap")!!.toFloat(), Stories.Tab.Tile.TEXT_GAP)
         assertEquals(tile.str("radius")!!.toFloat(), Stories.Tab.Tile.RADIUS)
         assertEquals(tile.str("listGap")!!.toFloat(), Stories.Tab.Tile.LIST_GAP)
         assertEquals(tile.str("leadGap")!!.toFloat(), Stories.Tab.Tile.LEAD_GAP)

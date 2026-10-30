@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
 import type { AgentBubble, AgentChatRow, ChatRow as ChatRowModel } from "@exp/domain-contract/chats"
+import { STORIES_TEST_IDS } from "@exp/domain-contract/stories"
 import { AgentBubbles, CHAT_AGENT_ROW_TEST_ID, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 
@@ -103,16 +104,22 @@ describe(`ChatList`, () => {
   })
 })
 
-describe(`AgentBubbles`, () => {
-  it(`rings amber for needs you, white for unread, none for read`, () => {
-    const onOpen = vi.fn()
-    render(<AgentBubbles bubbles={bubbles} onOpen={onOpen} />)
+describe(`AgentBubbles (stories.json STORY ROW)`, () => {
+  const ring = (key: string, agentId: string | null) =>
+    ({ key, agentId, rootId: agentId ? null : key, title: key, assistant: false, waiting: 0, unseen: true, stories: [] }) as never
+  it(`draws only the bubbles wearing a ring, then the rest; a tap opens the viewer`, () => {
+    const onOpenStory = vi.fn()
+    render(<AgentBubbles bubbles={bubbles} rings={[ring(`root:t1`, null), ring(`agent:ag2`, `ag2`)]} onOpenStory={onOpenStory} />)
     const painted = screen.getAllByTestId(ids.agentBubble)
-    expect(painted.map((b) => b.getAttribute(`data-ring`))).toEqual([`none`, `needs_you`, `unread`, `none`])
-    expect(painted.map((b) => b.getAttribute(`data-menu`))).toEqual([`agent`, `agent`, `agent`, `agent`])
-    expect(painted[1]!.getAttribute(`data-menu-id`)).toBe(`ag1`)
-    fireEvent.click(painted[2]!)
-    expect(onOpen).toHaveBeenCalledWith(`ag2`)
+    expect(painted.map((b) => b.getAttribute(`data-story`))).toEqual([`agent:ag2`])
+    expect(painted[0]!.getAttribute(`data-menu`)).toBe(`agent`)
+    expect(screen.getAllByTestId(STORIES_TEST_IDS.ring).map((r) => r.getAttribute(`data-key`))).toEqual([`root:t1`])
+    fireEvent.click(painted[0]!)
+    expect(onOpenStory).toHaveBeenCalledWith(`agent:ag2`)
+  })
+  it(`nobody has a story: no row at all`, () => {
+    const { container } = render(<AgentBubbles bubbles={bubbles} rings={[]} />)
+    expect(container.querySelector(`[data-slot=agent-bubbles]`)).toBeNull()
   })
 })
 

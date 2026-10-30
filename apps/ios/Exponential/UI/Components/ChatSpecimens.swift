@@ -41,23 +41,23 @@ struct ChatListSpecimens: View {
 
     private static let counts: [Chats.ChatFilter: Int] = [.needsYou: 1, .running: 1, .unread: 1]
 
-    /// chats.json `bubbleCases[0].expected`: the viewer's Assistant first
-    /// (the brand mark), amber = needs you, white = unread, a hairline = read.
+    /// chats.json `bubbleCases[0].expected`'s agents, the viewer's
+    /// Assistant first (the brand mark). #EXP-1461: only the ones with a
+    /// story ring are drawn.
     private static let bubbles = [
-        bubble("as", "Assistant", "bot", "#6366f1", .none, assistant: true),
-        bubble("ag1", "Triage", "bug", "#a855f7", .needsYou),
-        bubble("ag2", "Designer", "bot", "#6366f1", .unread),
-        bubble("ag3", "Release", "package", "#22c55e", .none),
+        bubble("as", "Assistant", "bot", "#6366f1", assistant: true),
+        bubble("ag1", "Triage", "bug", "#a855f7"),
+        bubble("ag2", "Designer", "bot", "#6366f1"),
+        bubble("ag3", "Release", "package", "#22c55e"),
     ]
 
     private static func bubble(
-        _ id: String, _ name: String, _ icon: String, _ color: String, _ ring: AgentBubbleItem.Ring,
-        assistant: Bool = false
+        _ id: String, _ name: String, _ icon: String, _ color: String, assistant: Bool = false
     ) -> AgentBubbleItem {
         AgentBubbleItem(
             id: id, name: name,
             icon: BoardTypeDisplay.iconName(for: icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-            color: Color(hex: color) ?? .white, ring: ring, assistant: assistant
+            color: Color(hex: color) ?? .white, assistant: assistant
         )
     }
 
@@ -138,12 +138,12 @@ struct ChatListSpecimens: View {
                 AppBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        // S-3 (stories.json specimen): Triage + Designer wear
-                        // their rings, the two chat rings follow.
+                        // #EXP-1461 THE STORY ROW (stories.json specimen):
+                        // Triage + Designer wear their rings, the two chat
+                        // rings follow; Assistant and Release have none.
                         AgentBubbles(
                             items: Self.bubbles,
                             rings: StorySpecimensScreen.rings,
-                            onTap: { _ in },
                             onHold: { _ in },
                             onOpenStory: { _ in }
                         ) { ring in
@@ -151,7 +151,7 @@ struct ChatListSpecimens: View {
                         }
                         .padding(.horizontal, -16)
                         .padding(.top, 4)
-                        .padding(.bottom, 14)
+                        .padding(.bottom, 10)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(Chats.filters, id: \.self) { option in

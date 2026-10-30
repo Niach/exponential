@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { additionsLabel, deletionsLabel, type DiffFile } from "@exp/domain-contract/diff"
-import { STORY_TAB } from "@exp/domain-contract/stories"
+import { STORY_TAB, type Story } from "@exp/domain-contract/stories"
+import { cardSurface } from "@exp/domain-contract/session-tree"
 import {
   Button,
   conceptIcon,
@@ -195,6 +196,7 @@ export function ThreadStories({
   onReview,
   here,
   back,
+  onSurfaceReply,
 }: {
   /** `useStoryTab` of the root (the screen holds it: the chip's dot). */
   stories: StoryTabState
@@ -211,6 +213,8 @@ export function ThreadStories({
   /** The session on show (the viewer's header pushes the back stack). */
   here: string
   back: string | undefined
+  /** An inline surface's reply press (THE chat's), sent to the story's session. */
+  onSurfaceReply?: (story: Story, text: string) => void
 }) {
   const isMobile = useIsMobile()
   const files = usePullRequestFiles(pullRequest?.id ?? null)
@@ -245,6 +249,9 @@ export function ThreadStories({
           size={isMobile ? `phone` : `wide`}
           lead={lead}
           onOpen={(story, picture) => setOpen({ storyId: story.id, picture })}
+          surfaceFor={(story) => cardSurface((tab.cardFor(story) as { surface?: unknown } | null)?.surface)}
+          onSurfaceReply={onSurfaceReply}
+          renderText={renderThreadText}
         />
       )}
       <StoryViewer

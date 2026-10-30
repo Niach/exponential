@@ -12,6 +12,7 @@ export const STORIES_CONSTANTS = fixture.constants
 export const STORY_RING = fixture.ring
 export const STORY_PROGRESS = fixture.progress
 export const STORY_VIEWER = fixture.viewer
+export const STORY_ROW = fixture.row
 export const STORIES_TEST_IDS = fixture.testIds
 export const STORY_TAB = fixture.tab
 
@@ -256,10 +257,8 @@ export function stories(input: StoriesInput): StoryRing[] {
     // A settled plan/question leaves the ring (the Stories tab keeps it).
     if (!built || built.resolution !== null) continue
     const { story, root } = built
-    if (story.kind === `result`) {
-      const keep = story.seen ? fixture.constants.seenHours : fixture.constants.unseenHours
-      if (input.now - story.createdAt >= keep * HOUR) continue
-    }
+    // EXP-1461: a ring holds the last `windowHours` only, waiting or not.
+    if (input.now - story.createdAt >= fixture.constants.windowHours * HOUR) continue
     const ring = emptyRing(root, agents)
     const existing = rings.get(ring.key)
     if (existing) existing.stories.push(story)
@@ -339,14 +338,16 @@ export function storyFrameIndex(frames: readonly StoryFrame[], storyId: string, 
   return hit >= 0 ? hit : first
 }
 
-/** The chats header row (chats.json BUBBLES + STORY RING): each agent
- *  bubble wears its agent's ring (`byAgent`, keyed by agentId); `rest` = the
- *  rings no bubble wears (the root rings, an agent ring with no bubble), in
- *  ring order, painted after the bubbles in the same row. */
-export function bubbleRings(
+/** THE STORY ROW of the chats header (EXP-1461, `rowCases`): ONLY rings.
+ *  `bubbles` = the agent bubbles (chats.json BUBBLES, `bubbleAgentIds` in
+ *  listAgents order) whose agent has a ring, each wearing it (`byAgent`);
+ *  `rest` = the rings no bubble wears (the root rings, an agent ring with no
+ *  bubble), in ring order. A bubble without a ring is not drawn; both empty
+ *  = no row at all. */
+export function storyRow(
   bubbleAgentIds: readonly string[],
   rings: readonly StoryRing[]
-): { byAgent: Map<string, StoryRing>; rest: StoryRing[] } {
+): { bubbles: string[]; byAgent: Map<string, StoryRing>; rest: StoryRing[] } {
   const ids = new Set(bubbleAgentIds)
   const byAgent = new Map<string, StoryRing>()
   const rest: StoryRing[] = []
@@ -354,11 +355,38 @@ export function bubbleRings(
     if (ring.agentId && ids.has(ring.agentId) && !byAgent.has(ring.agentId)) byAgent.set(ring.agentId, ring)
     else rest.push(ring)
   }
-  return { byAgent, rest }
+  const bubbles = [...new Set(bubbleAgentIds)].filter((id) => byAgent.has(id))
+  return { bubbles, byAgent, rest }
+}
+
+export interface StoryViewerSize {
+  width: number
+  height: number
+}
+
+/** THE wide viewer's modal size (EXP-1463, `sizeCases`): a picture frame
+ *  with a known size = the picture fitted (contain) into the viewport less
+ *  `viewer.inset` on each side, its width at least `viewer.minWidth` (the
+ *  picture letterboxed on black inside); any other frame (or an unknown
+ *  size) = `viewer.width` x `viewer.height`, each capped by the same box.
+ *  Rounded to whole px. Phones never call it (full screen). */
+export function storyViewerSize(
+  picture: { width: number | null; height: number | null } | null,
+  viewport: StoryViewerSize
+): StoryViewerSize {
+  const { inset, minWidth } = fixture.viewer
+  const boxWidth = Math.max(0, viewport.width - 2 * inset.x)
+  const boxHeight = Math.max(0, viewport.height - 2 * inset.y)
+  if (!picture?.width || !picture.height) {
+    return { width: Math.min(fixture.viewer.width, boxWidth), height: Math.min(fixture.viewer.height, boxHeight) }
+  }
+  const scale = Math.min(boxWidth / picture.width, boxHeight / picture.height)
+  const width = Math.round(picture.width * scale)
+  return { width: Math.min(boxWidth, Math.max(minWidth, width)), height: Math.round(picture.height * scale) }
 }
 
 /** THE Stories tab of a session screen (stories.json `tab`): every story the
- *  root's tree ever posted, never expiring; settled plans/questions stay
+ *  root's tree ever posted, never expiring (no `windowHours` cut); settled plans/questions stay
  *  (footer none, `meta` names the outcome), a superseded plan drops. Waiting
  *  first (oldest first), then the rest newest first. ONE ring (the root's,
  *  as `stories` keys it) so the viewer opens on it; null = the empty state.

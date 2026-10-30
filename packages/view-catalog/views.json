@@ -6292,7 +6292,7 @@
       "id": "story-viewer",
       "group": "coding",
       "title": "Story viewer",
-      "blurb": "THE story viewer ×4 (S-3, stories.json): the progress segments, the header (avatar, session, kind · age, close), the draft as an Exponential UI surface and its choices in the footer; phones full screen, wide a centered modal.",
+      "blurb": "THE story viewer ×4 (S-3, stories.json): the progress segments, the header (avatar, session, kind · age, close), the draft as an Exponential UI surface and its choices in the footer; phones full screen, wide a centered modal sized by its frame (#EXP-1463: a picture's own aspect).",
       "order": 48,
       "web": {
         "route": "/t/$teamSlug/agent?dev=story-viewer",
@@ -6368,7 +6368,7 @@
       "id": "thread-stories",
       "group": "coding",
       "title": "Thread · Stories",
-      "blurb": "A thread on its Stories tab (stories.json STORIES TAB, the Guide's successor): the Stack band + THE StackRail and ONE Changes row over its pull request, then every story the thread posted (a waiting draft, a result with web + iOS pictures, an approved plan), pictures first, one line of text each.",
+      "blurb": "A thread on its Stories tab (stories.json STORIES TAB, the Guide's successor): the Stack band + THE StackRail and ONE Changes row over its pull request, then every story the thread posted INLINE (#EXP-1462: a waiting draft drawn as its surface, a result with its description and web + iOS pictures, an approved plan's text), never a list of title rows.",
       "order": 52,
       "web": {
         "route": "/t/$teamSlug/threads/$diffThreadId?tab=stories",
