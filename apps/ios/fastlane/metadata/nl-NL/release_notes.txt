@@ -1,3 +1,2 @@
-- Stories spelen beeld voor beeld op volledig scherm, elk met een eigen voortgangsbalk
-- Meldingen openen op je telefoon en tonen het volledige bericht
-- Het +-menu van de editor toont de prompts van je team; de Assistent-pagina heeft geen instructieveld meer
+- Een grijze belknop vertelt nu wat er ontbreekt en waar je het oplost
+- Kaarten die een agent bijwerkt, worden ter plekke aangepast en verschuiven naar onderaan de chat

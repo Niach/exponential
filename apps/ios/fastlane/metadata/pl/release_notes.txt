@@ -1,3 +1,2 @@
-- Relacje odtwarzają się obraz po obrazie na pełnym ekranie, każdy z własnym paskiem postępu
-- Powiadomienia otwierają się na telefonie i pokazują całą wiadomość
-- Menu + w edytorze pokazuje prompty twojego zespołu; strona Asystenta nie ma już pola instrukcji
+- Wyszarzony przycisk połączenia mówi teraz, czego brakuje i gdzie to naprawić
+- Karty aktualizowane przez agenta są edytowane na miejscu i przenoszone na dół czatu

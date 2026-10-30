@@ -1,3 +1,2 @@
-- Stories spelas bild för bild i helskärm, var och en med sin egen förloppsindikator
-- Notiser öppnas på din telefon och visar hela meddelandet
-- Redigerarens +-meny visar ditt teams prompter; Assistent-sidan har inte längre något instruktionsfält
+- En grå samtalsknapp säger nu vad som saknas och var du fixar det
+- Kort som en agent uppdaterar redigeras på plats och flyttas längst ner i chatten

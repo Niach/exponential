@@ -1,0 +1,2 @@
+- A greyed-out call button now says what's missing and where to fix it
+- Cards an agent updates are edited in place and move to the bottom of the chat

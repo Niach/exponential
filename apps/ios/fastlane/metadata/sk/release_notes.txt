@@ -1,3 +1,2 @@
-- Príbehy bežia obrázok po obrázku na celej obrazovke, každý s vlastným ukazovateľom priebehu
-- Upozornenia sa otvoria priamo v telefóne a ukážu celú správu
-- Ponuka + v editore zobrazuje prompty tvojho tímu; stránka Asistenta už nemá pole s pokynmi
+- Sivé tlačidlo hovoru teraz povie, čo chýba a kde to opraviť
+- Karty, ktoré agent aktualizuje, sa upravia na mieste a presunú sa na koniec chatu

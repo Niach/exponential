@@ -1,3 +1,2 @@
-- A történetek képről képre, teljes képernyőn futnak, mindegyik saját folyamatjelzővel
-- Az értesítések a telefonodon nyílnak meg, és a teljes üzenetet mutatják
-- A szerkesztő + menüje a csapatod promptjait listázza; az Asszisztens oldalán már nincs utasítás mező
+- A szürke hívásgomb most megmondja, mi hiányzik, és hol javíthatod
+- Az ügynök által frissített kártyák helyben módosulnak, és a csevegés aljára kerülnek
