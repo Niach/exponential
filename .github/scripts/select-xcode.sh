@@ -46,13 +46,16 @@ if sudo -n true 2>/dev/null; then sudo xcode-select -s "$app"; fi
 
 [ "${1:-}" = "--simulator" ] || exit 0
 
-# The newest iOS 27.x runtime this Xcode sees.
-runtime="$(xcrun simctl list runtimes available -j | jq -r --arg m "$IOS_MAJOR" '
-  [.runtimes[] | select(.platform == "iOS" and (.version | startswith($m + ".")))]
+# The newest iOS 27.x runtime that runs the device. iOS 27.1 ships only for
+# iPhone Duo (its profile's restrictedToDeviceTypes), so on Xcode 27.1 the
+# iPhone 17 Pro Max runs on iOS 27.0 (24A434).
+runtime="$(xcrun simctl list runtimes available -j | jq -r --arg m "$IOS_MAJOR" --arg n "$SIM_NAME" '
+  [.runtimes[] | select(.platform == "iOS" and (.version | startswith($m + "."))
+                        and any(.supportedDeviceTypes[]?; .name == $n))]
   | sort_by(.version | split(".") | map(tonumber)) | last // empty | "\(.identifier) \(.version)"')"
 if [ -z "$runtime" ]; then
   xcrun simctl list runtimes
-  echo "::error::No iOS $IOS_MAJOR simulator runtime installed" >&2
+  echo "::error::No iOS $IOS_MAJOR simulator runtime that runs $SIM_NAME" >&2
   exit 1
 fi
 runtime_id="${runtime% *}"
