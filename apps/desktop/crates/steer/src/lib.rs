@@ -101,7 +101,6 @@ pub mod workflow;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::Deserialize;
 
 pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig};
 pub use control_channel::{
@@ -137,10 +136,10 @@ pub use frames::{
     ContextSegmentKey, ContextSegmentSource, QueuedMessage, CONTEXT_SEGMENT_DETAIL_MAX, QUEUE_MAX,
     QUEUE_TEXT_MAX,
     ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame,
-    SteerRole, SubagentStatus, ToolKind, ToolPreview,
+    SubagentStatus, ToolKind, ToolPreview,
     TaskListEntry, TaskListStatus, ThoughtState, ToolUpdateStatus, TurnState,
-    ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, TASK_LIST_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
-    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX, EntityRef, TOOL_PREVIEW_MAX_REFS,
+    ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, TASK_LIST_MAX, CLOSE_REPLACED,
+    TOOL_PREVIEW_TEXT_MAX, EntityRef, TOOL_PREVIEW_MAX_REFS,
 };
 pub use workflow::{
     workflow_caption, WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowState,
@@ -212,81 +211,6 @@ impl SteerRuntime {
 /// replace-on-reconnect evict the stale socket (`CLOSE_REPLACED`) instead of
 /// accumulating ghost devices in the phone picker.
 pub use api::device_identity::device_id as persistent_device_id;
-
-// ---------------------------------------------------------------------------
-// Ticket claims — consume only (§8.2)
-// ---------------------------------------------------------------------------
-
-/// Mirror of `packages/steer-ticket` `SteerTicketClaims` — deserialize-only,
-/// for logging/telemetry and §8.7 skew checks. The desktop NEVER verifies the
-/// HMAC (that is the relay's job; we lack — and must never hold — the secret).
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SteerTicketClaims {
-    pub sub: String,
-    /// teamId the ticket is scoped to (empty string for control tickets).
-    pub team: String,
-    #[serde(default)]
-    pub device_label: Option<String>,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    /// EXP-773: the deviceId a VIEWER ticket names — the machine that holds
-    /// the session's stored transcript. The desktop never reads it (the relay
-    /// routes on it); the mirror carries it so the claim set stays honest.
-    #[serde(default)]
-    pub device_id: Option<String>,
-    /// EXP-432: the account that device is registered under, when it is not
-    /// `sub` (a run hosted on someone else's shared machine). Relay-routing
-    /// only, same as `device_id`.
-    #[serde(default)]
-    pub device_owner_id: Option<String>,
-    pub role: SteerRole,
-    /// Unix seconds.
-    pub iat: i64,
-    /// Unix seconds — the ~60s connect window; the socket outlives it.
-    pub exp: i64,
-}
-
-/// Parse the claims half of a `base64url(json).base64url(hmac)` ticket.
-/// Signature is deliberately NOT checked (§8.2).
-pub fn parse_ticket_claims(ticket: &str) -> Option<SteerTicketClaims> {
-    let (payload, _sig) = ticket.split_once('.')?;
-    let json = base64url_decode(payload)?;
-    serde_json::from_slice(&json).ok()
-}
-
-/// Minimal RFC 4648 base64url (no padding) decoder — avoids a crypto/base64
-/// dependency for a read-only claims peek.
-fn base64url_decode(input: &str) -> Option<Vec<u8>> {
-    fn value(byte: u8) -> Option<u32> {
-        match byte {
-            b'A'..=b'Z' => Some((byte - b'A') as u32),
-            b'a'..=b'z' => Some((byte - b'a' + 26) as u32),
-            b'0'..=b'9' => Some((byte - b'0' + 52) as u32),
-            b'-' => Some(62),
-            b'_' => Some(63),
-            _ => None,
-        }
-    }
-    let bytes = input.trim_end_matches('=').as_bytes();
-    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
-    for chunk in bytes.chunks(4) {
-        if chunk.len() == 1 {
-            return None; // 6 bits cannot encode a byte
-        }
-        let mut acc: u32 = 0;
-        for &byte in chunk {
-            acc = (acc << 6) | value(byte)?;
-        }
-        let bits = chunk.len() * 6;
-        acc <<= 24 - bits;
-        let produced = (bits - 6) / 8 + usize::from(bits % 8 != 0 && bits > 8);
-        let produced = produced.min(3).max((chunk.len() * 6) / 8);
-        let full = acc.to_be_bytes();
-        out.extend_from_slice(&full[1..1 + produced]);
-    }
-    Some(out)
-}
 
 // ---------------------------------------------------------------------------
 // Backoff (shared by control channel + publisher)
@@ -514,35 +438,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_ticket_claims_without_verifying() {
-        // A real ticket shape: base64url(JSON claims) + "." + base64url(sig).
-        // Signature is garbage on purpose — parse must not care.
-        let claims_json = r#"{"sub":"user-1","team":"team-1","sessionId":"sess-1","role":"publisher","iat":1751500000,"exp":1751500060}"#;
-        let payload = base64url_encode_for_test(claims_json.as_bytes());
-        let ticket = format!("{payload}.AAAA");
-        let claims = parse_ticket_claims(&ticket).unwrap();
-        assert_eq!(claims.sub, "user-1");
-        assert_eq!(claims.session_id.as_deref(), Some("sess-1"));
-        assert_eq!(claims.role, SteerRole::Publisher);
-        assert_eq!(claims.exp - claims.iat, 60);
-        assert_eq!(parse_ticket_claims("no-dot"), None);
-        assert_eq!(parse_ticket_claims("!!!.sig"), None);
-    }
-
-    #[test]
-    fn base64url_decodes_all_lengths() {
-        for input in [&b""[..], b"f", b"fo", b"foo", b"foob", b"fooba", b"foobar"] {
-            let encoded = base64url_encode_for_test(input);
-            assert_eq!(
-                base64url_decode(&encoded).as_deref(),
-                Some(input),
-                "round-trip {input:?}"
-            );
-        }
-        assert_eq!(base64url_decode("A"), None, "lone sextet is malformed");
-    }
-
-    #[test]
     fn redacts_tickets_from_error_text() {
         assert_eq!(
             redact_ticket("connect ws://relay.lan/ws?ticket=abc.def failed"),
@@ -551,27 +446,4 @@ mod tests {
         assert_eq!(redact_ticket("plain error"), "plain error");
     }
 
-    /// Test-only base64url encoder (prod code never encodes tickets).
-    fn base64url_encode_for_test(input: &[u8]) -> String {
-        const ALPHABET: &[u8; 64] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-        let mut out = String::new();
-        for chunk in input.chunks(3) {
-            let mut acc: u32 = 0;
-            for (i, &byte) in chunk.iter().enumerate() {
-                acc |= (byte as u32) << (16 - i * 8);
-            }
-            let sextets = [
-                (acc >> 18) & 0x3f,
-                (acc >> 12) & 0x3f,
-                (acc >> 6) & 0x3f,
-                acc & 0x3f,
-            ];
-            let keep = 1 + chunk.len() * 8 / 6;
-            for &sextet in sextets.iter().take(keep) {
-                out.push(ALPHABET[sextet as usize] as char);
-            }
-        }
-        out
-    }
 }

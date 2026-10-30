@@ -47,20 +47,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Close codes (protocol.ts). Handle each distinctly (§8.6).
-pub const CLOSE_SESSION_ENDED: u16 = 4001;
+/// The control socket's replace-on-reconnect close code (protocol.ts).
 pub const CLOSE_REPLACED: u16 = 4002;
-pub const CLOSE_UNAUTHORIZED: u16 = 4003;
-pub const CLOSE_SLOW_CONSUMER: u16 = 4008;
-
-/// `control` | `publisher` | `viewer` — mirrors `SteerRole`.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum SteerRole {
-    Control,
-    Publisher,
-    Viewer,
-}
 
 // ── Client → relay (TEXT frames, JSON `{t, …}`) ─────────────────────────────
 

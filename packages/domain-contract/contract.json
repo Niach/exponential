@@ -395,7 +395,7 @@
     "values": ["user", "agent", "system"]
   },
   "conversationKind": {
-    "$comment": "NEW-3: conversations.kind. Every session owns ONE conversation of kind `session` (messages.conversation_id; messages.session_id stays as the step-1 read shim). `dm` and `channel` = people talking (step 2, NEW-8); an agent DM is the agent's conversation SESSION for that member.",
+    "$comment": "NEW-3: conversations.kind. Every session owns ONE conversation of kind `session` (messages.conversation_id). `dm` and `channel` = people talking (step 2, NEW-8); an agent DM is the agent's conversation SESSION for that member.",
     "values": ["dm", "channel", "session"]
   },
   "planCard": {

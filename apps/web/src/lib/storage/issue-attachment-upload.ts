@@ -156,19 +156,7 @@ export async function storeAttachmentUpload(
   const file = formData.get(`file`)
 
   if (!(file instanceof File)) {
-    // Bun's multipart parser mangles a part whose Content-Disposition uses
-    // the RFC-legal UNQUOTED token form (`name=file; filename=...` → key
-    // "file; filename=", value decoded as a lossy STRING — the bytes are
-    // unrecoverable here). Ktor's MultiPartFormDataContent emits exactly
-    // that form, so every Android build before the EXP-61 fix lands in this
-    // branch. Name the failure instead of a bare "Missing file".
-    const mangled = [...formData.keys()].some((key) => key.startsWith(`file;`))
-    throw new TRPCError({
-      code: `BAD_REQUEST`,
-      message: mangled
-        ? `Unsupported multipart encoding (unquoted disposition). Update the app.`
-        : `Missing file`,
-    })
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `Missing file` })
   }
 
   // Canonicalized before any classification: picker-/provider-supplied types
