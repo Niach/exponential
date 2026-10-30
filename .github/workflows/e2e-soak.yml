@@ -1,0 +1,54 @@
+name: e2e-soak (EXP-1443, temporary)
+on:
+  push:
+    branches: ['exp/EXP-1443']
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3, 4, 5, 6]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      DATABASE_URL: postgresql://postgres:password@localhost:54321/exponential
+      ELECTRIC_URL: http://localhost:30000
+      BETTER_AUTH_SECRET: ci-only-e2e-secret-0123456789abcdef0123456789
+      S3_ENDPOINT: http://localhost:3900
+      S3_BUCKET: exponential-attachments
+      S3_REGION: garage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Dev stack (Postgres, Electric, Garage, Caddy)
+        run: |
+          cp Caddyfile.example Caddyfile
+          openssl rand -hex 32 > infra/garage/secrets/rpc_secret
+          openssl rand -base64 32 > infra/garage/secrets/admin_token
+          chmod 600 infra/garage/secrets/rpc_secret infra/garage/secrets/admin_token
+          docker compose up -d --wait postgres electric garage caddy
+      - name: Garage bucket + app key
+        run: |
+          bun run storage:init | tee /tmp/garage-init.txt
+          echo "S3_ACCESS_KEY=$(grep -oE 'GK[0-9a-f]+' /tmp/garage-init.txt | head -1)" >> "$GITHUB_ENV"
+          echo "S3_SECRET_KEY=$(awk -F': *' '/^Secret key/ {print $2; exit}' /tmp/garage-init.txt)" >> "$GITHUB_ENV"
+      - name: Migrations + custom triggers
+        run: |
+          bun run migrate
+          docker compose exec -T postgres psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0001_triggers.sql
+      - name: Build the widget (the spec loads public/widget/v1)
+        run: bun run build:widget
+      - name: Playwright browser
+        run: cd apps/web && bunx playwright install --with-deps chromium
+      - name: Feedback widget e2e
+        run: |
+          free -m
+          cd apps/web && DEBUG=pw:browser bunx playwright test tests/e2e/feedback-widget.spec.ts
+      - name: Diagnostics
+        if: always()
+        run: |
+          free -m
+          sudo dmesg | grep -iE 'oom|killed process' || echo "no oom in dmesg"
+          docker compose logs --tail 50 caddy || true
