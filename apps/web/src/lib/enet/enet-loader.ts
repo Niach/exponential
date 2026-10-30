@@ -20,7 +20,9 @@ let loading: Promise<EnetModule> | undefined
 
 export function loadEnet(): Promise<EnetModule> {
   loading ??= (async () => {
-    const wasm = (await import(/* @vite-ignore */ ENET_JS)) as WasmBindings
+    // Absolute: the dev server rewrites a root-relative dynamic import to
+    // `?import` and refuses it for a public/ file (EXP-1459 live check).
+    const wasm = (await import(/* @vite-ignore */ new URL(ENET_JS, globalThis.location.origin).href)) as WasmBindings
     await wasm.default()
     return {
       generateIdentity: wasm.generateIdentity,
