@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-sealed-content`,
+    date: `2026-10-30`,
+    title: `Sealed session content`,
+    summary: `Messages, cards and titles in your sessions are sealed on your devices, so the server stores them without being able to read them.`,
+    body: `- **Sealed on your devices**: what you, your agents and your Assistant write in a session (messages, cards, answers and titles) is sealed with that session's key before it leaves the device, on web, desktop, iOS and Android. The server stores and syncs it but can't read it.
+- **Keys arrive by themselves**: a new browser, phone or teammate on a shared session gets the key from one of your devices that's online, with no approval step. Until then the row shows "Waiting for the key" and opens on its own.
+- **Agents talk device to device**: a message from one agent to another goes straight to the target device over eNet; the server keeps only a sealed copy.
+- **Update required**: older apps can't open sealed content, so this release raises the minimum version on every platform.
+- **Also**: calls keep working when you switch between speaker, headphones and Bluetooth on your phone, and web apps load their records only when you open them.`,
+  },
+  {
     id: `2026-10-30-stories-tidied`,
     date: `2026-10-30`,
     title: `Stories, tidied`,
