@@ -278,6 +278,25 @@ mod tests {
         }
     }
 
+    /// EXP-1459: `placeholder.messageCases`: {locked, body, card} per case.
+    #[test]
+    fn replays_the_placeholder_message_cases() {
+        let fx = fixture();
+        for case in fx["placeholder"]["messageCases"].as_array().unwrap() {
+            let keys = case["keys"].as_object().unwrap().iter().map(|(k, v)| (k.parse().unwrap(), hex32(v))).collect();
+            let opener = Opener::new(Arc::new(FixtureKeys(keys)));
+            let m = &case["message"];
+            let mut row = message(m["body"].as_str().unwrap(), m.get("card").filter(|c| !c.is_null()).cloned());
+            opener.open_message(&mut row);
+            let actual = serde_json::json!({
+                "locked": row.locked(),
+                "body": row.body.clone().unwrap_or_default(),
+                "card": row.card.clone(),
+            });
+            assert_eq!(actual, case["expected"], "{}", case["name"]);
+        }
+    }
+
     /// A row of another tree never opens with this tree's keys.
     #[test]
     fn keys_belong_to_their_root() {

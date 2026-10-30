@@ -998,6 +998,11 @@ pub struct SessionReadRow {
 }
 
 impl MessageRow {
+    /// EXP-1459: why this row's sealed content stays locked here.
+    pub fn locked(&self) -> Option<crate::sealed::LockedReason> {
+        crate::sealed::locked_reason(self.seal)
+    }
+
     /// The card's `kind` (`question`, `plan`, `session`, …); `None` for a
     /// plain message (or a card without a string kind).
     pub fn card_kind(&self) -> Option<&str> {

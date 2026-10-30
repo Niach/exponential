@@ -640,6 +640,8 @@ pub enum ChatPreviewKind {
     New,
     Compact,
     Empty,
+    /// EXP-1459: the previewed message is sealed and does not open here.
+    Locked,
 }
 
 /// A row's preview line: the whole line as painted (prefix included).
@@ -768,6 +770,12 @@ pub fn ask_preview(message: &MessageRow, visible: Option<&HashSet<&str>>) -> Cha
 /// The root conversation's preview line (`previewCases`). `messages` may
 /// hold other sessions' rows: only `root_id`'s own count. `visible` = the
 /// viewer's synced session ids (`None` = no check, #EXP-1399 review).
+/// EXP-1459: a sealed message that does not open here
+/// (sealed-content.json `placeholder`).
+fn locked_preview(reason: crate::sealed::LockedReason) -> ChatPreview {
+    ChatPreview { kind: ChatPreviewKind::Locked, text: crate::sealed::PLACEHOLDER.text(reason).to_string() }
+}
+
 pub fn chat_preview(
     root_id: &str,
     messages: &[&MessageRow],
@@ -780,7 +788,7 @@ pub fn chat_preview(
         .iter()
         .copied()
         .filter(|m| m.session_id == root_id && (is_author(m, "user") || is_author(m, "agent")))
-        .filter(|m| match m.card.as_ref() {
+        .filter(|m| m.locked().is_some() || match m.card.as_ref() {
             Some(_) => card_kind(m).is_some_and(|kind| PREVIEW_CARDS.contains(&kind)),
             None => !m.body.as_deref().unwrap_or_default().trim().is_empty(),
         })
@@ -798,7 +806,10 @@ pub fn chat_preview(
             m.answered_at.is_none() && matches!(card_kind(m), Some("question" | "plan" | "ask"))
         });
         if let Some(waiting) = waiting {
-            return asked(waiting);
+            return match waiting.locked() {
+                Some(reason) => locked_preview(reason),
+                None => asked(waiting),
+            };
         }
     }
     if busy {
@@ -807,6 +818,9 @@ pub fn chat_preview(
     let Some(newest) = own.first() else {
         return ChatPreview { kind: ChatPreviewKind::Empty, text: copy.empty.clone() };
     };
+    if let Some(reason) = newest.locked() {
+        return locked_preview(reason);
+    }
     let body = newest.body.as_deref().unwrap_or_default();
     if is_author(newest, "user") {
         return match command_divider(body) {
@@ -1455,6 +1469,36 @@ mod tests {
 
     fn fixture() -> Value {
         serde_json::from_str(CHATS_JSON).unwrap()
+    }
+
+    /// EXP-1459: sealed-content.json `placeholder.previewCases`.
+    #[test]
+    fn locked_preview_cases_match_the_fixture() {
+        let sealed: Value = serde_json::from_str(crate::sealed::SEALED_CONTENT_JSON).unwrap();
+        for case in sealed["placeholder"]["previewCases"].as_array().unwrap() {
+            let rows: Vec<MessageRow> = case["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| MessageRow {
+                    id: m["id"].as_str().unwrap().into(),
+                    session_id: "r".into(),
+                    author_kind: m["authorKind"].as_str().map(str::to_string),
+                    body: m["body"].as_str().map(str::to_string),
+                    card: m.get("card").filter(|c| !c.is_null()).cloned(),
+                    created_at: m["createdAt"].as_str().map(str::to_string),
+                    seal: match m["locked"].as_str() {
+                        Some("noKey") => Some(crate::sealed::SealState::Locked),
+                        Some(_) => Some(crate::sealed::SealState::Unreadable),
+                        None => None,
+                    },
+                    ..MessageRow::default()
+                })
+                .collect();
+            let refs: Vec<&MessageRow> = rows.iter().collect();
+            let preview = chat_preview("r", &refs, case["needsYou"].as_bool().unwrap(), case["busy"].as_bool().unwrap(), None);
+            assert_eq!(serde_json::to_value(&preview).unwrap(), case["expected"], "{}", case["name"]);
+        }
     }
 
     #[test]

@@ -1315,6 +1315,8 @@ pub(crate) fn card_row(
         // Thread 58cb32df (chats.json): `/new` / `/compact` = the divider
         // pill; an agent's preview = THE surface card.
         SessionThreadRow::Divider { id, kind, at } => crate::surface_card::divider_row(id, *kind, at, cx),
+        // EXP-1459: sealed content this install cannot open (yet).
+        SessionThreadRow::Locked { id, reason, .. } => crate::surface_card::locked_pill(id, *reason, cx),
         SessionThreadRow::Surface { id, session_id, title, surface } => {
             crate::surface_card::surface_row(id, session_id, title.as_deref(), surface, window, cx)
         }

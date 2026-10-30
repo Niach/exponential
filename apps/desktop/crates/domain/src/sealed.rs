@@ -3,7 +3,9 @@
 //! `sync::sealed` opens rows at ingest and stamps this state; the renderers
 //! branch on it (the locked row).
 
-use serde::Deserialize;
+use std::sync::LazyLock;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +34,63 @@ impl SealState {
     pub fn is_closed(self) -> bool {
         self != Self::Opened
     }
+}
+
+impl SealState {
+    /// Why the content stays locked (`placeholder.reasons`); `None` = opened.
+    pub fn locked_reason(self) -> Option<LockedReason> {
+        match self {
+            Self::Opened => None,
+            Self::Locked => Some(LockedReason::NoKey),
+            Self::Unreadable => Some(LockedReason::Unreadable),
+        }
+    }
+}
+
+/// `sealed-content.json` `placeholder`: why content stays locked here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LockedReason {
+    /// Waiting for a holder's wrap: it opens by itself.
+    NoKey,
+    /// Unsupported, malformed or refused: it never opens here.
+    Unreadable,
+}
+
+/// The locked state's icon concept and copy (`placeholder`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct Placeholder {
+    pub icon: String,
+    pub copy: PlaceholderCopy,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaceholderCopy {
+    pub no_key: String,
+    pub unreadable: String,
+}
+
+impl Placeholder {
+    pub fn text(&self, reason: LockedReason) -> &str {
+        match reason {
+            LockedReason::NoKey => &self.copy.no_key,
+            LockedReason::Unreadable => &self.copy.unreadable,
+        }
+    }
+}
+
+pub(crate) const SEALED_CONTENT_JSON: &str =
+    include_str!("../../../../../packages/domain-contract/fixtures/sealed-content.json");
+
+pub static PLACEHOLDER: LazyLock<Placeholder> = LazyLock::new(|| {
+    let fixture: serde_json::Value = serde_json::from_str(SEALED_CONTENT_JSON).expect("sealed-content.json parses");
+    serde_json::from_value(fixture["placeholder"].clone()).expect("sealed-content.json placeholder")
+});
+
+/// A row's locked reason (`None` = plaintext or opened).
+pub fn locked_reason(state: Option<SealState>) -> Option<LockedReason> {
+    state.and_then(SealState::locked_reason)
 }
 
 /// `true` when a row's sealed content could not be opened here.

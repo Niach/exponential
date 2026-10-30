@@ -1124,6 +1124,13 @@ pub enum SessionThreadRow {
         kind: crate::chats::DividerKind,
         at: String,
     },
+    /// EXP-1459 (sealed-content.json `placeholder`): content this install
+    /// cannot open (yet), whatever its kind: THE transcript pill.
+    Locked {
+        id: String,
+        reason: crate::sealed::LockedReason,
+        author: String,
+    },
     /// Thread 58cb32df (chats.json): an agent's inline Exponential UI preview.
     Surface {
         id: String,
@@ -1147,6 +1154,7 @@ impl SessionThreadRow {
             | Self::Picture { id, .. }
             | Self::Event { id, .. }
             | Self::Divider { id, .. }
+            | Self::Locked { id, .. }
             | Self::Surface { id, .. } => id,
         }
     }
@@ -1722,6 +1730,15 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
         input.messages.iter().map(|message| (message.id.as_str(), *message)).collect();
     let mut escalated: HashSet<&str> = HashSet::new();
     for message in conversation {
+        if let Some(reason) = message.locked() {
+            let author = match message.author_kind.as_deref() {
+                Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
+                Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
+                _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
+            };
+            rows.push(SessionThreadRow::Locked { id: message.id.clone(), reason, author: author.to_string() });
+            continue;
+        }
         let Some(card) = message.card.as_ref() else {
             let author = match message.author_kind.as_deref() {
                 Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
