@@ -1419,6 +1419,8 @@ fn dial_control(
     let check_in = Arc::clone(check_in);
     let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
         check_in.store(true, Ordering::SeqCst);
+        // EXP-1472: a new install may be waiting for its tree keys.
+        coding::sealing::wake_holder();
     });
     let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(Arc::clone(&ctx.trpc)));
     Some(steer::spawn_control_channel(

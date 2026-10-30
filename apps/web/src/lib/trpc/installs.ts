@@ -11,10 +11,11 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { devices, installs, teamMembers } from "@/db/schema"
+import { devices, installs, sessionKeys, sessions, teamMembers } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import { loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
+import { nudgeDevice } from "@/lib/trpc/devices"
 
 export const INSTALL_KINDS = [`desktop`, `daemon`, `ios`, `android`, `web`] as const
 /** At most this many non-revoked installs per user. */
@@ -74,6 +75,26 @@ function signatureRefusal(endpointId: string, message: string, signature: string
   }
 }
 
+/** EXP-1472: the machines whose installs hold a current tree key a new
+ *  install of `userId` reads (its own trees, and the shared trees of its
+ *  teams): each gets a `check_in` nudge, which runs its key holder's pass. */
+async function nudgeKeyHolders(database: typeof import("@/db/connection").db, userId: string): Promise<void> {
+  const rows = await database
+    .selectDistinct({ userId: devices.userId, deviceId: devices.deviceId })
+    .from(sessionKeys)
+    .innerJoin(sessions, and(eq(sessions.id, sessionKeys.rootId), eq(sessions.sealEpoch, sessionKeys.epoch)))
+    .innerJoin(installs, eq(installs.id, sessionKeys.installId))
+    .innerJoin(devices, eq(devices.id, installs.deviceId))
+    .where(
+      and(
+        isNull(installs.revokedAt),
+        sql`(${sessions.userId} = ${userId} OR (${sessions.shared} AND ${sessions.teamId} IN (SELECT ${teamMembers.teamId} FROM ${teamMembers} WHERE ${teamMembers.userId} = ${userId})))`
+      )
+    )
+    .limit(50)
+  for (const row of rows) nudgeDevice(row.userId, row.deviceId)
+}
+
 export const installsRouter = router({
   register: authedProcedure
     .input(
@@ -128,7 +149,7 @@ export const installsRouter = router({
       }
 
       try {
-        return await ctx.db.transaction(async (tx) => {
+        const registered = await ctx.db.transaction(async (tx) => {
           // Serializes one user's registrations, so the cap holds under races.
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`installs:${userId}`}))`)
           const [existing] = await tx
@@ -147,7 +168,7 @@ export const installsRouter = router({
               .update(installs)
               .set({ ...fields, lastSeenAt: new Date() })
               .where(eq(installs.id, existing.id))
-            return { installId: existing.id }
+            return { installId: existing.id, fresh: false }
           }
 
           const live = (
@@ -163,8 +184,12 @@ export const installsRouter = router({
             .insert(installs)
             .values({ ...fields, userId, endpointId: input.endpointId })
             .returning({ id: installs.id })
-          return { installId: row!.id }
+          return { installId: row!.id, fresh: true }
         })
+        // EXP-1472: a new install reads its trees once a holder wraps their
+        // keys for it; nudge the holders now instead of their next pass.
+        if (registered.fresh) void nudgeKeyHolders(ctx.db, userId).catch(() => {})
+        return { installId: registered.installId }
       } catch (err) {
         // Another account registered the endpoint concurrently.
         if (isUniqueViolation(err)) {

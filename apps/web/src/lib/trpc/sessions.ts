@@ -75,6 +75,7 @@ import {
 import { issuesRouter } from "@/lib/trpc/issues"
 import { yoloEdge } from "@/lib/yolo-edge"
 import {
+  assertNotPlainInSealedTree,
   effectiveCli,
   isRunnerModel,
   sendSession,
@@ -933,6 +934,11 @@ export const sessionsRouter = router({
       }
       if (!card && !input.body.trim()) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `A reply needs a body or a card` })
+      }
+      // EXP-1472: a keyed tree takes sealed replies only (the device seals
+      // every body and card; one in clear failed open).
+      if ((input.body.trim() && !isSealedBody(input.body)) || (card && !sealedCard)) {
+        await assertNotPlainInSealedTree(ctx.db, session.rootId)
       }
       const asks = card?.kind === `question` || card?.kind === `plan`
       // #EXP-1439 (agent-settings.json `assistant.chat`): an Assistant's
