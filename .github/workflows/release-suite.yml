@@ -432,16 +432,16 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: 'platforms;android-36 build-tools;35.0.0'
-      # EXP-1435: PushSealFixtureTest loads the eNet push-only facade's host
-      # build through JNA.
+      # EXP-1435 / EXP-1457: the eNet facade's host build, loaded through JNA by
+      # PushSealFixtureTest and the eNet install tests (real nodes on localhost).
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
-      - name: Build the eNet push-only facade for the JVM unit tests
+      - name: Build the eNet facade for the JVM unit tests
         working-directory: apps/desktop
-        run: cargo build -p exponential-net-ffi --release --no-default-features --features cli
+        run: cargo build -p exponential-net-ffi --release --features cli
       - name: Cache Gradle packages
         if: runner.environment == 'github-hosted'
         uses: actions/cache@v4

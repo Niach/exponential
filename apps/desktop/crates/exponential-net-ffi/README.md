@@ -60,10 +60,13 @@ bash apps/desktop/crates/exponential-net-ffi/run-binding-tests.sh  # the Swift s
 `ENET_PUSH_ONLY=1` on any of the three scripts builds the facade with
 `--no-default-features`: `enet-core` without its `node` feature, so
 only `pushOpen`, `pushSeal`, `pushKeypairGenerate`/`Derive` and `EnetError`
-remain, on RustCrypto alone (no iroh, no tokio). It is what the Exponential
-apps link (the iOS Notification Service Extension has a ~24 MB memory cap):
-bindings under `bindings/push/{swift,kotlin}` (committed), artifacts under
-`out/push/` (`ExponentialNetFFI.xcframework`, `jniLibs/<abi>/libexponential_net_ffi.so`).
+remain, on RustCrypto alone (no iroh, no tokio). It is what the iOS
+Notification Service Extension links (~24 MB memory cap): bindings under
+`bindings/push/swift` (committed), artifacts under `out/push/`
+(`ExponentialNetFFI.xcframework`, `jniLibs/<abi>/libexponential_net_ffi.so`).
+Android links the FULL node instead (VAPP-40): its FCM service runs in the
+app process, so one `.so` serves both the nodes and `pushOpen`; the app's
+`buildEnetFfi` gradle task runs `build-android.sh` before `merge*JniLibFolders`.
 Same module/package/library names as the full build, so an app links one or
 the other, never both. `tests/push_fixture.rs` replays
 `packages/domain-contract/fixtures/push-seal.json` in both builds

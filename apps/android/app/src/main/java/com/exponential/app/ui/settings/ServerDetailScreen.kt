@@ -51,6 +51,7 @@ import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.electric.SyncManager
+import com.exponential.app.data.enet.EnetNodeManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
@@ -80,6 +81,7 @@ class ServerDetailViewModel @Inject constructor(
     private val syncManager: SyncManager,
     private val usersApi: UsersApi,
     private val pushTokenManager: PushTokenManager,
+    private val enetNodeManager: EnetNodeManager,
     private val authApi: AuthApi,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
@@ -154,7 +156,8 @@ class ServerDetailViewModel @Inject constructor(
                 return@launch
             }
             // No push-token unregister here: deleting the user server-side
-            // cascades their fcm_tokens rows away.
+            // cascades their fcm_tokens rows away (and their installs).
+            enetNodeManager.signOut(accountId, revoke = false, forget = true)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             databaseHolder.deleteFiles(accountId)
@@ -173,6 +176,7 @@ class ServerDetailViewModel @Inject constructor(
             // Awaited before removeAccount drops the credentials the
             // unregister request authenticates with.
             pushTokenManager.unregisterToken(accountId)
+            enetNodeManager.signOut(accountId, revoke = true)
             // Revoke the server session AFTER the unregister (which needs it
             // live) and BEFORE the token drops locally (REV2-15).
             if (instanceUrl != null && token != null) authApi.signOut(instanceUrl, token)
@@ -398,6 +402,7 @@ class ServerDetailViewModel @Inject constructor(
             val instanceUrl = account?.instanceUrl
             val token = account?.token
             pushTokenManager.unregisterToken(accountId)
+            enetNodeManager.signOut(accountId, revoke = true)
             // Revoke the server session AFTER the unregister (which needs it
             // live) and BEFORE the token drops locally (REV2-15).
             if (instanceUrl != null && token != null) authApi.signOut(instanceUrl, token)

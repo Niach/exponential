@@ -2,8 +2,14 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="exponential_secure_prefs.xml" />
+        <!-- Keystore-sealed install secrets (EXP-1435, EXP-1457): never leave the device. -->
+        <exclude domain="sharedpref" path="exp_push_key.xml" />
+        <exclude domain="sharedpref" path="exp_enet_identity.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="exponential_secure_prefs.xml" />
+        <!-- Keystore-sealed install secrets (EXP-1435, EXP-1457): never leave the device. -->
+        <exclude domain="sharedpref" path="exp_push_key.xml" />
+        <exclude domain="sharedpref" path="exp_enet_identity.xml" />
     </device-transfer>
 </data-extraction-rules>

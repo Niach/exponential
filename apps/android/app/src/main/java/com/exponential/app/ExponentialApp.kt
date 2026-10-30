@@ -15,6 +15,7 @@ import com.exponential.app.data.auth.TimezoneClaimer
 import com.exponential.app.data.auth.legacyDbIdToWipe
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.electric.SyncManager
+import com.exponential.app.data.enet.EnetNodeManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.data.steer.SteerConnectionStore
 import dagger.hilt.android.HiltAndroidApp
@@ -26,6 +27,7 @@ private const val KEY_PERUSER_DB_CLEANUP = "peruser_db_cleanup_v1"
 class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var syncManager: SyncManager
     @Inject lateinit var pushTokenManager: PushTokenManager
+    @Inject lateinit var enetNodeManager: EnetNodeManager
     @Inject lateinit var timezoneClaimer: TimezoneClaimer
     @Inject lateinit var imageLoader: ImageLoader
     @Inject lateinit var auth: AuthRepository
@@ -52,6 +54,9 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         }
         syncManager.start()
         pushTokenManager.start()
+        // EXP-1457: one eNet node per signed-in account, started lazily on
+        // Dispatchers.IO (JNA + the .so never load on the main thread).
+        enetNodeManager.start()
         // Claim-once loop: stamps the device timezone on accounts that never
         // had one captured (EXP-452 — mobile-only accounts digested in UTC).
         timezoneClaimer.start()
