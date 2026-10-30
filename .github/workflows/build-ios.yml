@@ -40,6 +40,26 @@ jobs:
     # release job must not sit on a runner for six hours.
     timeout-minutes: 90
 
+    # EXP-1430: the app-specific bits; a second app (spezl) copying this job
+    # changes these, the steps stay. The entitlement lists ARE the EXP-405
+    # gate: every key listed must be in the signed ipa, so list what the
+    # app's .entitlements files declare (space-separated).
+    env:
+      APPLE_TEAM_ID: V6W7BVCSM8
+      XC_WORKSPACE: Exponential.xcworkspace
+      XC_SCHEME: Exponential
+      XC_ARCHIVE: Exponential.xcarchive
+      IPA_NAME: Exponential.ipa
+      APP_ENTITLEMENTS: >-
+        keychain-access-groups
+        com.apple.security.application-groups
+        aps-environment
+        com.apple.developer.applesignin
+        com.apple.developer.associated-domains
+      APPEX_ENTITLEMENTS: >-
+        keychain-access-groups
+        com.apple.security.application-groups
+
     defaults:
       run:
         working-directory: apps/ios
@@ -99,23 +119,12 @@ jobs:
 
       # Local signing identities (Apple Development for the archive, Apple
       # Distribution for the export) in an unlocked temp keychain.
+      # EXP-1430: shared with spezl as .github/actions/apple-signing.
       - name: Import signing certificates
-        env:
-          IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
-          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
-        run: |
-          KEYCHAIN="$RUNNER_TEMP/ci.keychain-db"
-          KEYCHAIN_PW="$(uuidgen)"
-          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
-          echo "$IOS_DIST_CERT_P12" | base64 -d > "$RUNNER_TEMP/signing.p12"
-          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" \
-            -P "$IOS_DIST_CERT_PASSWORD" -A -t cert -f pkcs12
-          rm "$RUNNER_TEMP/signing.p12"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PW" "$KEYCHAIN"
-          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
-          security find-identity -v -p codesigning "$KEYCHAIN"
+        uses: ./.github/actions/apple-signing
+        with:
+          p12: ${{ secrets.IOS_DIST_CERT_P12 }}
+          password: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
 
       - name: Write ASC API key
         env:
@@ -136,9 +145,9 @@ jobs:
         run: |
           tuist generate --no-open
           set -o pipefail
-          xcodebuild -workspace Exponential.xcworkspace -scheme Exponential \
+          xcodebuild -workspace "$XC_WORKSPACE" -scheme "$XC_SCHEME" \
             -configuration Release -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/Exponential.xcarchive" \
+            -archivePath "$RUNNER_TEMP/$XC_ARCHIVE" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
@@ -150,20 +159,20 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          cat > "$RUNNER_TEMP/exportOptions.plist" <<'EOF'
+          cat > "$RUNNER_TEMP/exportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>method</key><string>app-store-connect</string>
-            <key>teamID</key><string>V6W7BVCSM8</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
             <key>signingStyle</key><string>automatic</string>
             <key>destination</key><string>export</string>
           </dict>
           </plist>
           EOF
           xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/Exponential.xcarchive" \
+            -archivePath "$RUNNER_TEMP/$XC_ARCHIVE" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist "$RUNNER_TEMP/exportOptions.plist" \
             -allowProvisioningUpdates \
@@ -179,7 +188,7 @@ jobs:
         run: |
           cd "$RUNNER_TEMP"
           rm -rf ipa-check && mkdir ipa-check && cd ipa-check
-          unzip -q ../export/Exponential.ipa
+          unzip -q "../export/$IPA_NAME"
           APP="$(ls -d Payload/*.app)"
           fail=0
           check() {
@@ -194,40 +203,32 @@ jobs:
             done
             echo "--- $target entitlements OK for: $*"
           }
-          check "$APP" \
-            keychain-access-groups \
-            com.apple.security.application-groups \
-            aps-environment \
-            com.apple.developer.applesignin \
-            com.apple.developer.associated-domains
-          check "$APP"/PlugIns/*.appex \
-            keychain-access-groups \
-            com.apple.security.application-groups
+          # EXP-1430: an emptied list must never pass the gate silently.
+          [ -n "$APP_ENTITLEMENTS" ] && [ -n "$APPEX_ENTITLEMENTS" ] \
+            || { echo "::error::APP_ENTITLEMENTS / APPEX_ENTITLEMENTS are empty"; exit 1; }
+          # shellcheck disable=SC2086 # the lists split on purpose
+          check "$APP" $APP_ENTITLEMENTS
+          # shellcheck disable=SC2086
+          check "$APP"/PlugIns/*.appex $APPEX_ENTITLEMENTS
           # aps-environment must be production in an App Store build.
           codesign -d --entitlements :- "$APP" 2>/dev/null | grep -A1 aps-environment | grep -q production \
             || { echo "::error::aps-environment is not production"; fail=1; }
           codesign --verify --deep --strict -v "$APP"
           exit $fail
 
+      # EXP-1430: shared with spezl as .github/actions/testflight-upload.
       - name: Upload to TestFlight (internal)
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        run: |
-          jq -n --arg key_id "$ASC_KEY_ID" --arg issuer_id "$ASC_ISSUER_ID" \
-            --rawfile key "$RUNNER_TEMP/asc.p8" \
-            '{key_id: $key_id, issuer_id: $issuer_id, key: $key, in_house: false}' \
-            > "$RUNNER_TEMP/asc_key.json"
-          fastlane pilot upload \
-            --ipa "$RUNNER_TEMP/export/Exponential.ipa" \
-            --api_key_path "$RUNNER_TEMP/asc_key.json" \
-            --skip_waiting_for_build_processing true \
-            --distribute_external false
+        uses: ./.github/actions/testflight-upload
+        with:
+          ipa: ${{ runner.temp }}/export/${{ env.IPA_NAME }}
+          asc-key-id: ${{ secrets.ASC_KEY_ID }}
+          asc-issuer-id: ${{ secrets.ASC_ISSUER_ID }}
+          asc-key-content: ${{ secrets.ASC_KEY_CONTENT }}
 
       - name: Upload the archive artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xcarchive
-          path: ${{ runner.temp }}/Exponential.xcarchive
+          path: ${{ runner.temp }}/${{ env.XC_ARCHIVE }}
           retention-days: 3

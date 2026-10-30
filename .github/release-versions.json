@@ -1,0 +1,35 @@
+{
+  "$comment": "EXP-1430: Exponential's release versions for .github/actions/bump-versions (schema in its README). Each pattern matches exactly once unless \"all\": true; (?<value>…) is the rewritten span. iOS build +2: prod and staging each take one (stagingBuildVersion = build+1). web lives only in its v* tags.",
+  "products": {
+    "desktop": {
+      "tags": ["desktop-v{version}", "cli-v{version}"],
+      "fields": [
+        { "file": "apps/desktop/Cargo.toml", "pattern": "^\\[workspace\\.package\\]\\n(?:(?!\\[)[^\\n]*\\n)*?version = \"(?<value>[^\"]+)\"$" },
+        {
+          "file": "packages/licenses/inventory/rust-excluded.json",
+          "pattern": "\"package\": \"[^\"@]+@(?<value>{current})\",\\n\\s*\"reason\": \"workspace member",
+          "all": true
+        }
+      ],
+      "cargoLock": "apps/desktop/Cargo.lock"
+    },
+    "android": {
+      "tags": ["android-v{version}"],
+      "fields": [
+        { "file": "apps/android/app/build.gradle.kts", "pattern": "^\\s*versionName = \"(?<value>[^\"]+)\"$" },
+        { "file": "apps/android/app/build.gradle.kts", "pattern": "^\\s*versionCode = (?<value>\\d+)$", "kind": "build", "name": "versionCode", "step": 1 }
+      ]
+    },
+    "ios": {
+      "tags": ["ios-v{version}"],
+      "fields": [
+        { "file": "apps/ios/Project.swift", "pattern": "^let appMarketingVersion = \"(?<value>[^\"]+)\"$" },
+        { "file": "apps/ios/Project.swift", "pattern": "^let appBuildVersion = \"(?<value>\\d+)\"$", "kind": "build", "name": "appBuildVersion", "step": 2 }
+      ]
+    },
+    "web": {
+      "tags": ["v{version}"],
+      "versionFromTags": "v"
+    }
+  }
+}

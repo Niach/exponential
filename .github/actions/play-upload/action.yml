@@ -1,0 +1,81 @@
+name: play-upload
+description: Upload a signed .aab to a Google Play track (EXP-1430). No service account = warning + skip.
+
+# EXP-1430: shared by Exponential (build-android.yml) and spezl
+# (Niach/spezl, `uses: Niach/exponential/.github/actions/play-upload@<sha>`).
+# The upload itself is r0adkll/upload-google-play pinned by SHA: a node action
+# runs the same on GitHub-hosted ubuntu and the Docker Mint runner, where
+# fastlane supply would first need a Ruby toolchain (setup-ruby does not
+# support that runner's toolcache). The fastlane changelog layout
+# (metadata/android/<locale>/changelogs/<versionCode>.txt) is translated to
+# the action's whatsnew-<locale> files here. Never promotes to production:
+# the `production` track is refused.
+
+inputs:
+  service-account-json:
+    description: Play service-account key, raw JSON or base64. Empty = skip with a warning.
+    required: false
+    default: ''
+  package-name:
+    description: applicationId of the Play app record (must already exist in the Play Console).
+    required: true
+  aab:
+    description: Path to the SIGNED .aab.
+    required: true
+  track:
+    description: Play track (alpha = the default closed track, beta, internal, or a custom closed track name).
+    required: false
+    default: alpha
+  status:
+    description: Release status, completed or draft.
+    required: false
+    default: completed
+  version-code:
+    description: versionCode of the bundle; picks changelogs/<versionCode>.txt. Required with changelog-dir.
+    required: false
+    default: ''
+  changelog-dir:
+    description: fastlane metadata dir holding <locale>/changelogs/<versionCode>.txt (e.g. apps/android/fastlane/metadata/android).
+    required: false
+    default: ''
+  mapping-file:
+    description: R8 mapping.txt to attach (skip when the mapping already rides the AAB).
+    required: false
+    default: ''
+
+outputs:
+  uploaded:
+    description: true when the bundle went to Play.
+    value: ${{ steps.prep.outputs.upload }}
+
+runs:
+  using: composite
+  steps:
+    - id: prep
+      shell: bash
+      env:
+        SA_JSON: ${{ inputs.service-account-json }}
+        AAB: ${{ inputs.aab }}
+        TRACK: ${{ inputs.track }}
+        STATUS: ${{ inputs.status }}
+        VERSION_CODE: ${{ inputs.version-code }}
+        CHANGELOG_DIR: ${{ inputs.changelog-dir }}
+        MAPPING: ${{ inputs.mapping-file }}
+      run: bash "$GITHUB_ACTION_PATH/prepare.sh"
+
+    - if: steps.prep.outputs.upload == 'true'
+      uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+      with:
+        serviceAccountJson: ${{ steps.prep.outputs.sa-path }}
+        packageName: ${{ inputs.package-name }}
+        releaseFiles: ${{ inputs.aab }}
+        track: ${{ inputs.track }}
+        status: ${{ inputs.status }}
+        whatsNewDirectory: ${{ steps.prep.outputs.whatsnew-dir }}
+        mappingFile: ${{ steps.prep.outputs.mapping }}
+
+    - if: always() && steps.prep.outputs.sa-path != ''
+      shell: bash
+      env:
+        SA_PATH: ${{ steps.prep.outputs.sa-path }}
+      run: rm -f "$SA_PATH"

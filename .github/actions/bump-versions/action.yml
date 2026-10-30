@@ -1,0 +1,48 @@
+# EXP-1430: bump the committed release versions from a config (README.md beside
+# this file). Rewrites files in the checkout; never commits, tags or releases.
+name: bump-versions
+description: Bump marketing versions + build numbers from a release-versions.json config and print the resulting tags.
+
+inputs:
+  config:
+    description: Config path, relative to the repo root.
+    default: .github/release-versions.json
+  bumps:
+    description: "Space-separated product=patch|minor|major|x.y.z (product=none is skipped), e.g. `desktop=patch ios=0.15.0`."
+    required: true
+  dry-run:
+    description: "`true` prints the plan and tags without writing."
+    default: 'false'
+  root:
+    description: Repo root the config's file paths are relative to.
+    default: .
+
+outputs:
+  tags:
+    description: The tags to push after the bump merges, one per line.
+    value: ${{ steps.bump.outputs.tags }}
+  versions:
+    description: 'JSON {product: {version, <build field>: n}}.'
+    value: ${{ steps.bump.outputs.versions }}
+  files:
+    description: Space-separated files the bump rewrote.
+    value: ${{ steps.bump.outputs.files }}
+
+runs:
+  using: composite
+  steps:
+    - id: bump
+      shell: bash
+      # Inputs through env, never interpolated into the script.
+      env:
+        BUMP_CONFIG: ${{ inputs.config }}
+        BUMP_ARGS: ${{ inputs.bumps }}
+        BUMP_DRY_RUN: ${{ inputs.dry-run }}
+        BUMP_ROOT: ${{ inputs.root }}
+        BUMP_SCRIPT: ${{ github.action_path }}/bump.mjs
+      run: |
+        set -euo pipefail
+        args=(--config "$BUMP_CONFIG" --root "$BUMP_ROOT")
+        if [ "$BUMP_DRY_RUN" = true ]; then args+=(--dry-run); fi
+        read -r -a bumps <<< "$BUMP_ARGS"
+        node "$BUMP_SCRIPT" "${args[@]}" "${bumps[@]}"

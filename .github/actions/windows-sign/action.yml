@@ -1,0 +1,107 @@
+name: windows-sign
+description: >-
+  EXP-1430: Authenticode-sign Windows files with Azure Artifact Signing
+  (formerly Trusted Signing) and verify them with `signtool verify /pa`.
+  No Azure credentials → a warning and the files stay unsigned.
+
+inputs:
+  files:
+    description: Files to sign, one per line (relative to the workspace or absolute).
+    required: true
+  endpoint:
+    description: The Artifact Signing account's regional endpoint, e.g. https://weu.codesigning.azure.net/.
+    default: ""
+  account-name:
+    description: The Artifact Signing account name.
+    default: ""
+  certificate-profile:
+    description: The certificate profile name.
+    default: ""
+  azure-tenant-id:
+    description: SECRET — the app registration's tenant id.
+    default: ""
+  azure-client-id:
+    description: SECRET — the app registration's client id (role "Artifact Signing Certificate Profile Signer").
+    default: ""
+  azure-client-secret:
+    description: SECRET — the app registration's client secret.
+    default: ""
+
+outputs:
+  signed:
+    description: "`true` when the files were signed and verified, `false` when skipped."
+    value: ${{ steps.gate.outputs.enabled }}
+
+runs:
+  using: composite
+  steps:
+    # Secrets can't drive `if:` directly. Every credential + account input
+    # present → sign; none → skip with a warning; a partial set is a config
+    # error and fails loudly instead of shipping unsigned by accident.
+    - id: gate
+      shell: bash
+      env:
+        TENANT: ${{ inputs.azure-tenant-id }}
+        CLIENT: ${{ inputs.azure-client-id }}
+        SECRET: ${{ inputs.azure-client-secret }}
+        ENDPOINT: ${{ inputs.endpoint }}
+        ACCOUNT: ${{ inputs.account-name }}
+        PROFILE: ${{ inputs.certificate-profile }}
+        FILES: ${{ inputs.files }}
+      run: |
+        set -euo pipefail
+        set_count=0
+        for v in "$TENANT" "$CLIENT" "$SECRET" "$ENDPOINT" "$ACCOUNT" "$PROFILE"; do
+          [ -n "$v" ] && set_count=$((set_count + 1))
+        done
+        if [ "$set_count" = 0 ] || { [ -z "$TENANT" ] && [ -z "$CLIENT" ] && [ -z "$SECRET" ]; }; then
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::windows-sign: Azure Artifact Signing credentials absent — shipping UNSIGNED"
+          exit 0
+        fi
+        if [ "$set_count" != 6 ]; then
+          echo "::error::windows-sign: partial config — need azure-tenant-id, azure-client-id, azure-client-secret, endpoint, account-name and certificate-profile"
+          exit 1
+        fi
+        # Absolute, comma-free paths for the signing action's `files` input.
+        abs=""
+        while IFS= read -r f; do
+          [ -n "$f" ] || continue
+          [ -f "$f" ] || { echo "::error::windows-sign: $f not found"; exit 1; }
+          p="$(cygpath -w "$(cd "$(dirname "$f")" && pwd)/$(basename "$f")")"
+          abs="${abs:+$abs,}$p"
+        done <<<"$FILES"
+        echo "enabled=true" >> "$GITHUB_OUTPUT"
+        echo "files=$abs" >> "$GITHUB_OUTPUT"
+
+    - if: steps.gate.outputs.enabled == 'true'
+      # v2.0.0 (the renamed azure/trusted-signing-action), pinned: it handles the client secret.
+      uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82
+      with:
+        azure-tenant-id: ${{ inputs.azure-tenant-id }}
+        azure-client-id: ${{ inputs.azure-client-id }}
+        azure-client-secret: ${{ inputs.azure-client-secret }}
+        endpoint: ${{ inputs.endpoint }}
+        signing-account-name: ${{ inputs.account-name }}
+        certificate-profile-name: ${{ inputs.certificate-profile }}
+        files: ${{ steps.gate.outputs.files }}
+        file-digest: SHA256
+        timestamp-rfc3161: http://timestamp.acs.microsoft.com
+        timestamp-digest: SHA256
+        # Service principal via EnvironmentCredential: skip the az CLI probe
+        # (the other probes are off by default).
+        exclude-azure-cli-credential: true
+
+    - if: steps.gate.outputs.enabled == 'true'
+      shell: pwsh
+      env:
+        FILES: ${{ steps.gate.outputs.files }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+          Sort-Object FullName -Descending | Select-Object -First 1
+        if (-not $signtool) { throw "signtool.exe not found" }
+        foreach ($f in $env:FILES.Split(',')) {
+          & $signtool.FullName verify /pa /v $f
+          if ($LASTEXITCODE -ne 0) { throw "signtool verify failed for $f" }
+        }

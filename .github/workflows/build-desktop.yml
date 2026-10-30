@@ -44,15 +44,18 @@ jobs:
           # macOS = macos-26, the image build-ios.yml already uses (EXP-1196
           # needed its Xcode 26 SDK; EXP-1273 no longer does, the image
           # stays). The .app still runs from macOS 13 (Info.plist
-          # LSMinimumSystemVersion).
+          # LSMinimumSystemVersion). EXP-1430: target universal-apple-darwin
+          # = arm64 + x86_64 slices lipo'd into one .app (Intel Macs, no
+          # voice there); still the one Exponential-<channel>.dmg asset.
+          # aarch64-apple-darwin here = an arm64-only build.
           #
           # Linux = ubuntu-24.04: the runner's glibc (2.39) is the AppImage's
           # compatibility floor (forward-compatible only); the fleet's Linux
           # desktops are 24.04-based (Mint 22). Computer use is pure-Rust X11
           # since EXP-1273: nothing system-side at build or load time.
           all='[
-            {"os":"macos-26","target":"aarch64-apple-darwin","channel":"production"},
-            {"os":"macos-26","target":"aarch64-apple-darwin","channel":"staging"},
+            {"os":"macos-26","target":"universal-apple-darwin","channel":"production"},
+            {"os":"macos-26","target":"universal-apple-darwin","channel":"staging"},
             {"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu","channel":"production"},
             {"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu","channel":"staging"},
             {"os":"windows-latest","target":"x86_64-pc-windows-msvc","channel":"production"},
@@ -177,7 +180,7 @@ jobs:
       # Release page is the only route by which a Windows user receives the
       # Apache-2.0 License text (section 4(a)) and our NOTICE (section 4(d)).
       # Placed before the checksum step so they land in SHA256SUMS.txt too.
-      - name: Check out the licence files
+      - name: Check out the licence files and the feed action
         uses: actions/checkout@v4
         with:
           path: repo
@@ -185,19 +188,22 @@ jobs:
             LICENSE
             NOTICE
             apps/desktop/assets/licenses/NOTICES.txt
+            .github/actions/updater-feed
           sparse-checkout-cone-mode: false
       - name: Add LICENSE, NOTICE and NOTICES.txt to the release
         run: |
           set -euo pipefail
           cp repo/LICENSE repo/NOTICE dist/
           cp repo/apps/desktop/assets/licenses/NOTICES.txt dist/
-          rm -rf repo
-      - name: Checksums
-        working-directory: dist
-        run: |
-          ls -la
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+      # EXP-1430: SHA256SUMS.txt + its minisign signature. A pinned public key
+      # (vars.UPDATE_SIGNING_PUBKEY, compiled into the clients) without the
+      # secret FAILS here: every pinned client would refuse the release.
+      - name: Signed checksums
+        uses: ./repo/.github/actions/updater-feed
+        with:
+          dir: dist
+          signing-key: ${{ secrets.UPDATE_SIGNING_KEY }}
+          public-key: ${{ vars.UPDATE_SIGNING_PUBKEY }}
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -227,17 +233,46 @@ jobs:
         with:
           name: exp-desktop-production-x86_64-pc-windows-msvc
           path: dist
-      - name: Attach it to the release
+      - name: Fetch the published checksums
+        id: sums
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          exe=dist/Exponential-production-x86_64-windows.exe
-          if [ "${{ steps.dl.outcome }}" != success ] || [ ! -f "$exe" ]; then
+          if [ "${{ steps.dl.outcome }}" != success ] || [ ! -f dist/Exponential-production-x86_64-windows.exe ]; then
             echo "::warning::no production Windows .exe — the release stays without it"
             exit 0
           fi
-          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D sums
-          (cd dist && sha256sum "$(basename "$exe")") >> sums/SHA256SUMS.txt
-          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber "$exe" sums/SHA256SUMS.txt
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D dist
+          echo "attach=true" >> "$GITHUB_OUTPUT"
+      - name: Check out the feed action
+        if: steps.sums.outputs.attach == 'true'
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          sparse-checkout: .github/actions/updater-feed
+          sparse-checkout-cone-mode: false
+      # EXP-1430: the .exe line joins the sums, and the WHOLE file is re-signed.
+      - name: Append the .exe and re-sign
+        id: feed
+        if: steps.sums.outputs.attach == 'true'
+        uses: ./repo/.github/actions/updater-feed
+        with:
+          dir: dist
+          append: Exponential-production-x86_64-windows.exe
+          signing-key: ${{ secrets.UPDATE_SIGNING_KEY }}
+          public-key: ${{ vars.UPDATE_SIGNING_PUBKEY }}
+      # The .exe first, then sums + signature in one call: a client racing the
+      # gap sees either the old pair or a refused mismatch, never a bad .exe.
+      - name: Attach it to the release
+        if: steps.sums.outputs.attach == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber dist/Exponential-production-x86_64-windows.exe
+          feed=(dist/SHA256SUMS.txt)
+          [ "${{ steps.feed.outputs.signed }}" = true ] && feed+=(dist/SHA256SUMS.txt.minisig)
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber "${feed[@]}"
