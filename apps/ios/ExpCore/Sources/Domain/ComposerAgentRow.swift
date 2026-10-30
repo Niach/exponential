@@ -93,4 +93,19 @@ public enum ComposerAgentRow {
         default: current
         }
     }
+    /// The composer's subject as the pick rules read it (TS
+    /// `ComposerSubjectValue`): issue chips, or one prompt; nil = none.
+    public enum SubjectValue: Equatable, Sendable {
+        case issues([String])
+        case prompt(String)
+    }
+
+    /// The subject after a tap on the row (`agentRow.pickCases`, EXP-1450):
+    /// a pick NEVER drops issue chips (a picked agent gets them forwarded as
+    /// the send's `issueIds`); only a prompt goes when an AGENT is picked (a
+    /// prompt starts a new root).
+    public static func subjectAfterPick(_ subject: SubjectValue?, pick: String) -> SubjectValue? {
+        if pick != temporaryPick, case .prompt? = subject { return nil }
+        return subject
+    }
 }

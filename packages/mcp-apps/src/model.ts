@@ -106,7 +106,8 @@ export interface RunDetail {
   issueId?: string | null
   issueIdentifier?: string | null
   issueTitle?: string | null
-  actionName?: string | null
+  /** The session's derived title (session-title.json). */
+  title?: string | null
   agent?: string | null
   status: string
   branch?: string | null
@@ -243,12 +244,12 @@ export function runIsWorking(run: RunDetail): boolean {
   return run.status !== `ended` && Boolean(run.agentBusy) && !run.needsInput
 }
 
-/** What a run is about: its issue, its action, or a chat. */
+/** What a run is about: its issue, its title, or a chat. */
 export function runSubject(run: RunDetail): string {
   if (run.issueIdentifier) {
     return `${run.issueIdentifier} ${run.issueTitle ?? ``}`.trim()
   }
-  return run.actionName || `Chat`
+  return run.title || `Chat`
 }
 
 const RUN_GROUPS = [

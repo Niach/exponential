@@ -5,9 +5,10 @@ import { db } from "@/db/connection"
 import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
 import { pruneEvents } from "@/lib/events"
+import { purgeTrashedAppRecords } from "@/lib/app-records-purge"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
 import { hostRowCondition, hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
-import { pendingInput } from "@/lib/sessions/messages"
+import { pendingInput, sessionConversation } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -47,6 +48,8 @@ export interface WatchdogRun {
   meetingPruned: number
   /** NEW-57: meetings stopped by `autoStop` this tick. */
   meetingsStopped: number
+  /** VAPP-159: trashed app records hard-deleted this tick. */
+  recordsPurged: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -101,7 +104,7 @@ export async function clearBlockedInTx(
       blocked: null,
       // Any open question/plan card still waits: the device's (`sessions.reply`)
       // or the session's own MCP one (same count as `stampAnsweredCardInTx`).
-      needsInput: sql`EXISTS (SELECT 1 FROM ${messages} m WHERE m.session_id = ${sessions.id} AND m.answered_at IS NULL AND m.card->>'kind' IN ('question', 'plan'))`,
+      needsInput: sql`EXISTS (SELECT 1 FROM ${messages} m WHERE m.conversation_id = ${sessionConversation(sessions.id)} AND m.answered_at IS NULL AND m.card->>'kind' IN ('question', 'plan'))`,
       updatedAt: new Date(),
     })
     .where(
@@ -160,7 +163,7 @@ async function nudgeStalled(now: Date): Promise<number> {
         // NULL-safe: an unblocked row has no kind at all.
         sql`(${sessions.blocked} ->> 'kind') IS DISTINCT FROM 'device_offline'`,
         // `pendingInput()` names the messages table itself: no alias here.
-        sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${messages.sessionId} = ${sessions.id} AND ${messages.consumedAt} IS NULL AND ${messages.createdAt} < ${cutoff} AND (${pendingInput()}))`
+        sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${messages.conversationId} = ${sessionConversation(sessions.id)} AND ${messages.consumedAt} IS NULL AND ${messages.createdAt} < ${cutoff} AND (${pendingInput()}))`
       )
     )
   const seen = new Set<string>()
@@ -549,6 +552,8 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     pruned: await pruneEvents(now),
     meetingPruned: await pruneExpiredMessages(now),
     meetingsStopped: await stopExpiredMeetings(now),
+    // VAPP-159: app records trashed past the retention (app-records.json `purge`).
+    recordsPurged: await purgeTrashedAppRecords(now),
   }
 }
 
@@ -626,7 +631,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged`,
         })
       )
       .catch((error: unknown) => {

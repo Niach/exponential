@@ -24,14 +24,15 @@ use crate::navigation::{self, ChatSeed};
 /// The dialog's content width — Home's own composer column, so the
 /// card is the same width in both presentations.
 const DIALOG_W: f32 = 640.;
-/// Its opening height: the title bar, the headline, the card, the options row
+/// Its opening height: the title bar, the headline, the agent row (EXP-1451:
+/// its label line, the circles and `rowToCard`), the card, the options row
 /// and one line of room for a note — the compact first frame. EXP-1155: from
 /// there the window FOLLOWS its content (`ChatScreenView::fit_dialog`): an
 /// action's typed input rows or an image strip grow
 /// it downward instead of hiding behind a scrollbar, up to
 /// [`DIALOG_MAX_FRACTION`] of the opener; past that only the parameter bands
 /// (issue chips, action inputs) scroll.
-const DIALOG_H: f32 = 258.;
+const DIALOG_H: f32 = 338.;
 /// EXP-1155: the content-height cap, as a share of the opener's height.
 const DIALOG_MAX_FRACTION: f32 = 0.85;
 /// EXP-1155: the window's top edge, as a share of the opener's height — a

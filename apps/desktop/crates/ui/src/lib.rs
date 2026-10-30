@@ -200,6 +200,7 @@ mod code_block;
 // EXP-1005: the account-rotation wall beat.
 mod account_rotation_host;
 pub mod steer_wiring;
+pub mod enet_wiring;
 // The shared styleguide's section index, mirrored here so the IDE's entry ids
 // and owners cannot drift from the page that draws them. The styleguide is
 // its OWN app (`apps/styleguide`, styleguide.exponential.at); this module

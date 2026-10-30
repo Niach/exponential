@@ -205,13 +205,45 @@ enum Subject {
 /// once `subject` became the subject: issues or a prompt = a launch, so
 /// Temporary session; no subject keeps `current`.
 fn agent_pick_after_subject(subject: &Subject, current: Option<&str>) -> Option<String> {
-    use domain::composer_agent_row::{pick_for_subject, ComposerSubjectKind as K};
-    let kind = match subject {
+    domain::composer_agent_row::pick_for_subject(row_subject_kind(subject), current)
+}
+
+/// The subject as the agent row's rules read it.
+fn row_subject_kind(subject: &Subject) -> domain::composer_agent_row::ComposerSubjectKind {
+    use domain::composer_agent_row::ComposerSubjectKind as K;
+    match subject {
         Subject::Issues(_) => K::Issues,
         Subject::Action(_) => K::Prompt,
         Subject::None => K::Other,
-    };
-    pick_for_subject(kind, current)
+    }
+}
+
+/// EXP-1450 (`agentRow.pickCases`): a tap on the agent row. It moves ONLY
+/// the pick: issue chips always stay (a picked agent gets them forwarded as
+/// the send's `issueIds`); a prompt subject goes when an AGENT is picked (a
+/// prompt starts a new root, never a message to an agent). Returns whether
+/// the subject was dropped.
+fn apply_row_pick(subject: &mut Subject, agent_pick: &mut Option<String>, pick: String) -> bool {
+    let keeps = domain::composer_agent_row::pick_keeps_subject(row_subject_kind(subject), &pick);
+    *agent_pick = Some(pick);
+    if !keeps {
+        *subject = Subject::None;
+    }
+    !keeps
+}
+
+/// EXP-1450: the issue ids a to-agent send forwards (`issueIds`, the web
+/// `buildSendInput` agent arm), in the picker's order.
+fn forwarded_issue_ids(subject: &Subject) -> Vec<String> {
+    match subject {
+        Subject::Issues(issues) => issues
+            .rows
+            .iter()
+            .filter(|row| issues.checked.contains(&row.issue_id))
+            .map(|row| row.issue_id.clone())
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// EXP-696: the machine the run starts on.
@@ -1071,7 +1103,10 @@ impl ChatScreenView {
 
     /// A tap on the agent row (tapping the selected circle keeps it).
     pub(crate) fn pick_agent(&mut self, pick: String, cx: &mut gpui::Context<Self>) {
-        self.agent_pick = Some(pick);
+        if apply_row_pick(&mut self.subject, &mut self.agent_pick, pick) {
+            // A dropped prompt: stale probes must not land (`clear_subject`).
+            self.probe_generation += 1;
+        }
         cx.notify();
     }
 
@@ -1421,6 +1456,11 @@ impl ChatScreenView {
         // NEW-3: a DM runs on the agent's own device and login: the
         // composer's machine and its readiness never gate it.
         if self.to_agent(cx) {
+            // EXP-1450: chipped issues ride as the message's `issueIds`, so
+            // they are a message on their own (web: only the subject gates).
+            if let Subject::Issues(issues) = &self.subject {
+                return chat_launch::issue_count_blocker(issues.checked.len()).map(Into::into);
+            }
             let text = self.input.read(cx).value().to_string();
             return chat_launch::text_blocker(&SubjectKind::Agent, &text, self.images.len())
                 .map(Into::into);
@@ -1603,25 +1643,11 @@ impl ChatScreenView {
             return;
         };
         // S-3: an agent picked in the row = ONE sessions.send({agentId})
-        // into the viewer's conversation with it; picked issues ride as
-        // `#IDENT` references.
+        // into the viewer's conversation with it; EXP-1450: the chipped
+        // issues are forwarded as its `issueIds` (web `buildSendInput`).
         if let Some(agent) = self.selected_agent(cx) {
-            let mut text = text;
-            if let Subject::Issues(issues) = &self.subject {
-                let refs: Vec<String> = issues
-                    .rows
-                    .iter()
-                    .filter(|row| issues.checked.contains(&row.issue_id))
-                    .map(|row| format!("#{}", row.identifier))
-                    .collect();
-                if !refs.is_empty() {
-                    if !text.trim().is_empty() {
-                        text.push_str("\n\n");
-                    }
-                    text.push_str(&refs.join(" "));
-                }
-            }
-            self.send_to_agent(team_id, agent.id, text, attachment_ids, window, cx);
+            let issue_ids = forwarded_issue_ids(&self.subject);
+            self.send_to_agent(team_id, agent.id, text, attachment_ids, issue_ids, window, cx);
             return;
         }
         let Some(device_id) = self.selected_device().map(|device| device.device_id.clone()) else {
@@ -1723,6 +1749,7 @@ impl ChatScreenView {
         agent_id: String,
         text: String,
         attachment_ids: Vec<String>,
+        issue_ids: Vec<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -1730,7 +1757,8 @@ impl ChatScreenView {
             self.message_failed(Some("Sign in and wait for sync before sending.".to_string()), cx);
             return;
         };
-        let input = chat_launch::agent_send_input(&team_id, &agent_id, &text, attachment_ids);
+        let mut input = chat_launch::agent_send_input(&team_id, &agent_id, &text, attachment_ids);
+        input.issue_ids = Some(issue_ids).filter(|ids| !ids.is_empty());
         let generation = self.begin_starting(window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -2427,9 +2455,10 @@ impl ChatScreenView {
             // verb plus the subject's chips, with the card (and its muted
             // placeholder) reading as the secondary one under it.
             .children(headline)
-            // S-3: the agent row stands directly above the card (the page
-            // only: a play button's dialog always starts a session).
-            .children((!self.in_dialog()).then(|| self.render_agent_row(cx)))
+            // S-3: the agent row stands directly above the card, under the
+            // headline. EXP-1451: in the start-coding dialog too (the SAME
+            // composer; a play button's seed starts it on Temporary session).
+            .child(self.render_agent_row(cx))
             .child(
                 crate::composer::glass_composer(composer)
                     .capture_action(cx.listener(Self::on_paste)),
@@ -3590,6 +3619,111 @@ mod tests {
         assert_eq!(agent_pick_after_subject(&prompt, Some("g-b")), temporary);
         assert_eq!(agent_pick_after_subject(&Subject::None, Some("g-me")).as_deref(), Some("g-me"));
         assert_eq!(agent_pick_after_subject(&Subject::None, None), None);
+    }
+
+    fn issue_subject(ids: &[&str]) -> Subject {
+        let rows: Vec<IssueRow> = ids
+            .iter()
+            .map(|id| IssueRow {
+                issue_id: id.to_string(),
+                board_id: "b".to_string(),
+                identifier: format!("APP-{id}"),
+                title: "t".to_string(),
+                description: None,
+                created_at: None,
+                updated_at: None,
+                status: domain::enums::IssueStatus::Backlog,
+                priority: domain::enums::IssuePriority::None,
+                resolved: domain::statuses::constructed_default(domain::enums::IssueStatus::Backlog),
+                state_hint: None,
+            })
+            .collect();
+        Subject::Issues(IssueSubject {
+            rows: Rc::new(rows),
+            checked: ids.iter().map(|id| id.to_string()).collect(),
+            repos: HashMap::new(),
+        })
+    }
+
+    fn fixture_subject(value: &serde_json::Value) -> Subject {
+        match value["kind"].as_str() {
+            Some("issues") => {
+                let ids: Vec<&str> = value["ids"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+                issue_subject(&ids)
+            }
+            Some("prompt") => Subject::Action(ActionSubject { action_id: value["id"].as_str().unwrap().to_string() }),
+            _ => Subject::None,
+        }
+    }
+
+    fn subject_value(subject: &Subject) -> serde_json::Value {
+        match subject {
+            Subject::None => serde_json::Value::Null,
+            Subject::Issues(_) => serde_json::json!({ "kind": "issues", "ids": forwarded_issue_ids(subject) }),
+            Subject::Action(action) => serde_json::json!({ "kind": "prompt", "id": action.action_id }),
+        }
+    }
+
+    fn agent_row_fixture(block: &str) -> Vec<serde_json::Value> {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/composer-home.json"
+        ))
+        .unwrap();
+        let cases = fixture["agentRow"][block].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        cases
+    }
+
+    /// EXP-1450 — composer-home.json `agentRow.pickCases`, through the
+    /// composer's own pick (`pick_agent` → [`apply_row_pick`]): issue chips
+    /// survive any tap; only a prompt goes, and only for an agent.
+    #[test]
+    fn a_row_pick_keeps_the_issue_subject() {
+        for case in agent_row_fixture("pickCases") {
+            let mut subject = fixture_subject(&case["subject"]);
+            let mut pick = None;
+            let pick_id = case["pick"].as_str().unwrap().to_string();
+            apply_row_pick(&mut subject, &mut pick, pick_id.clone());
+            assert_eq!(subject_value(&subject), case["expected"], "{}", case["name"]);
+            assert_eq!(pick, Some(pick_id), "{}", case["name"]);
+        }
+    }
+
+    /// EXP-1450 — `agentRow.controlCases`: start coding from an issue, then
+    /// switch a control. The agent row is replayed through the composer's
+    /// pick (every circle, tapped in turn, then back); every other control
+    /// is launch state (`DevicePick`, `LaunchOptionsSection`) that holds no
+    /// subject, so the subject must come out of the whole sequence intact.
+    #[test]
+    fn the_controls_keep_the_issue_subject() {
+        for case in agent_row_fixture("controlCases") {
+            let mut subject = fixture_subject(&case["subject"]);
+            // The seed (`apply_seed`): issues start the row on Temporary session.
+            let mut pick = agent_pick_after_subject(&subject, None);
+            assert_eq!(pick.as_deref(), Some("temporary"), "{}", case["name"]);
+            match case["control"].as_str().unwrap() {
+                "agentRow" => {
+                    for circle in ["g-me", "g-b", "temporary", "g-me"] {
+                        apply_row_pick(&mut subject, &mut pick, circle.to_string());
+                        assert_eq!(subject_value(&subject), case["expected"], "{} ({circle})", case["name"]);
+                    }
+                }
+                "device" | "agent" | "account" | "model" | "effort" | "repository" | "work" | "mcp" => {}
+                other => panic!("controlCases names an unknown control `{other}`: wire it here"),
+            }
+            assert_eq!(subject_value(&subject), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    /// EXP-1450: a picked agent gets the chipped issues forwarded as the
+    /// send's `issueIds` (web `buildSendInput`), in the picker's order.
+    #[test]
+    fn a_to_agent_send_forwards_the_issue_ids() {
+        let subject = issue_subject(&["i-2", "i-1"]);
+        assert_eq!(forwarded_issue_ids(&subject), vec!["i-2".to_string(), "i-1".to_string()]);
+        assert!(forwarded_issue_ids(&Subject::None).is_empty());
+        let prompt = Subject::Action(ActionSubject { action_id: "p-1".into() });
+        assert!(forwarded_issue_ids(&prompt).is_empty());
     }
 
     #[test]

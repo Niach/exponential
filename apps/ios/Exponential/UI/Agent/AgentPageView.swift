@@ -82,6 +82,8 @@ struct AgentPageView: View {
                         // (`HomeDawn.gap`).
                         // S-3: an agent pick is the agent row's, never a
                         // headline: the dawn stands on the row + card.
+                        // EXP-1450: issue chips stay headlined with an
+                        // agent picked (`subject` stays `.issues`).
                         let headlined = composer.subject != AgentComposerPrompt.Subject.none
                             && composer.subject != AgentComposerPrompt.Subject.agent
                         VStack(alignment: .leading, spacing: headlined ? 12 : HomeDawn.gap) {
@@ -226,7 +228,14 @@ struct AgentPageView: View {
         // A send (or a rebuilt composer) clears the model's agent: the row
         // keeps its pick, so put it back; an issue or prompt subject picked
         // in the + menu is a launch: the row follows to Temporary session.
-        .onChange(of: composer?.subject) { _, subject in
+        // EXP-1450: the RAW subject (the picked ids, like web's), so the
+        // issue pool syncing in late never reads as a fresh issue pick.
+        .onChange(of: composer?.subjectState.value) { _, value in
+            let subject: AgentComposerPrompt.Subject? = switch value {
+            case let .issues(ids)?: .issues(count: ids.count)
+            case .prompt?: .prompt
+            default: nil
+            }
             let next = ComposerAgentRow.pickForSubject(subject, current: agentPick)
             if next != agentPick { agentPick = next } else { syncAgentPick() }
         }
@@ -284,9 +293,11 @@ struct AgentPageView: View {
         guard let composer, !composer.isStartInFlight else { return }
         let want = agentRowState(composer).agent?.id
         guard composer.agentId != want else { return }
+        // EXP-1450: neither touches the issue chips (`agentRow.pickCases`),
+        // so the subject onChange below never bounces the pick back.
         if let want {
             composer.pickAgent(want)
-        } else if composer.subject == AgentComposerPrompt.Subject.agent {
+        } else {
             composer.clearAgent()
         }
     }

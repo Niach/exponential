@@ -57,8 +57,8 @@ describe.skipIf(!ready.ok)(`conversation digest: SQL = TS on long bodies`, () =>
         ]
         for (const m of rows) {
           await tx.execute(sql`
-            INSERT INTO messages (id, session_id, root_id, team_id, conversation_id, author_kind, author_id, body, card, created_at)
-            VALUES (${m.id}, ${sessionId}, ${sessionId}, ${teamId}, ${conversationId}, ${m.authorKind}, ${m.authorId}, ${m.body},
+            INSERT INTO messages (id, root_id, team_id, conversation_id, author_kind, author_id, body, card, created_at)
+            VALUES (${m.id}, ${sessionId}, ${teamId}, ${conversationId}, ${m.authorKind}, ${m.authorId}, ${m.body},
               ${m.card ? JSON.stringify(m.card) : null}::jsonb, ${m.createdAt}::timestamptz)`)
         }
         const read = await tx.execute<{ digest: ConversationDigest }>(sql`SELECT digest FROM conversations WHERE id = ${conversationId}`)

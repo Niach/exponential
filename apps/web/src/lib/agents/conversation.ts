@@ -10,8 +10,7 @@ import type { Tx } from "@/lib/sessions/tx"
 // member) = that member's private DM with it, on the agent's device and
 // login, never ending (session-kind.json: persistent). Created on first
 // use (a message, a trigger firing into the owner's); a message resumes
-// the same row. The row mirrors the agent's name/icon/color and `kind =
-// agent` for the shipped clients (legacy read shims, NEW-8 drops them).
+// the same row. Name, icon and color live on the agent only.
 
 /** The agent, when the caller is a member of its team (an Assistant: its owner). */
 export async function loadAgentForUser(userId: string, agentId: string): Promise<Agent> {
@@ -36,12 +35,6 @@ export async function findConversation(
     .where(and(eq(sessions.agentId, agentId), eq(sessions.userId, userId), isNull(sessions.parentId)))
     .limit(1)
   return row ?? null
-}
-
-/** The legacy mirror columns a conversation session carries for the
- *  shipped clients (re-stamped by `agents.update`). */
-export function agentMirror(agent: Pick<Agent, `name` | `icon` | `color`>) {
-  return { kind: `agent` as const, name: agent.name, icon: agent.icon, color: agent.color }
 }
 
 /**
@@ -69,7 +62,6 @@ export async function conversationInTx(
       rootId: id,
       depth: 0,
       agentId: agent.id,
-      ...agentMirror(agent),
       userId,
       deviceId: agent.deviceId,
       cli: agent.cli,

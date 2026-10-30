@@ -109,7 +109,7 @@ describe(`runs`, () => {
 
   it(`names the subject`, () => {
     expect(runSubject(run(`a`, `running`, { issueIdentifier: `EXP-1`, issueTitle: `Fix` }))).toBe(`EXP-1 Fix`)
-    expect(runSubject(run(`a`, `running`, { actionName: `Tidy up` }))).toBe(`Tidy up`)
+    expect(runSubject(run(`a`, `running`, { title: `Tidy up` }))).toBe(`Tidy up`)
     expect(runSubject(run(`a`, `running`))).toBe(`Chat`)
   })
 })

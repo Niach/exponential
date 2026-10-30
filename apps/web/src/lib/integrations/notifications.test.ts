@@ -235,8 +235,6 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     id: `sess-1`,
     rootId: `sess-1`,
     title: null,
-    actionName: null,
-    name: null,
     userId: `owner`,
     teamId: `team-1`,
     teamSlug: `acme`,
@@ -274,7 +272,6 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
         sessionId: `sess-1`,
         issueId: `i-12`,
         sortOrder: 1,
-        assignedSessionId: null,
         id: `i-12`,
         identifier: `EXP-12`,
         title: `Login bug`,
@@ -315,7 +312,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
   // account) per owner per hour. The throttle query returns the owner's
   // recent session_blocked rows with their runs' profiles.
   describe(`the per-profile hourly throttle`, () => {
-    const walled = { ...session, actionName: `Triage inbox` }
+    const walled = { ...session }
     const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000)
 
     function expectDelivered() {

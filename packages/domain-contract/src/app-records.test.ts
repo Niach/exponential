@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/app-records.json" with { type: "json" }
-import { monthDays, parseRecordsQuery, recordsSourceParams, recordsCountLabel, recordsValue, shiftMonth } from "./app-records"
+import { appRecordPurgeDue, monthDays, parseRecordsQuery, recordsSourceParams, recordsCountLabel, recordsValue, shiftMonth } from "./app-records"
 import type { AppRecordRow } from "./app-records"
 
 // The SDK's parseSource, inlined (domain-contract does not depend on the SDK).
@@ -16,6 +16,11 @@ describe(`app records (VAPP-122)`, () => {
   test.each(fixture.sourceCases)(`recordsSourceParams: $name`, (c) => {
     const params = recordsSourceParams(parseSource(c.source))
     expect(params ? parseRecordsQuery(params) : null).toEqual(c.expected as never)
+  })
+  test.each(fixture.purge.cases)(`appRecordPurgeDue: $name`, (c) => {
+    const now = new Date(`2026-10-30T12:00:00.000Z`)
+    const ago = (days: number | null) => (days === null ? null : new Date(now.getTime() - days * 24 * 60 * 60 * 1000))
+    expect(appRecordPurgeDue(ago(c.deletedAt), ago(c.appDeletedAt), now)).toBe(c.purged)
   })
   test.each(fixture.valueCases)(`recordsValue: $name`, (c) => {
     const value = recordsValue(c.rows as AppRecordRow[], parseRecordsQuery(c.params), { me: c.me, now: c.now, names: c.names })

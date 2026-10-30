@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { issues, messages, pullRequestIssues, pullRequests, sessionIssues, sessions } from "@/db/schema"
 import { extractIssueRefs } from "@/lib/issue-refs"
+import { inSession } from "@/lib/sessions/messages"
 
 // EXP-1334/NEW-1: the issues a PR closes when `pr_open` names none. A
 // session's issues are the rows it HOLDS; the PR belongs to ONE session of
@@ -89,7 +90,7 @@ export async function prDefaultIssueIds(
     const [start] = await database
       .select({ body: messages.body })
       .from(messages)
-      .where(and(eq(messages.sessionId, opts.sessionId), isNull(messages.card)))
+      .where(and(inSession(opts.sessionId), isNull(messages.card)))
       .orderBy(asc(messages.createdAt))
       .limit(1)
     startText = start?.body ?? null

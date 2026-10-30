@@ -249,3 +249,15 @@ export function recordsCountLabel(count: number, max: number | null): string {
   if (max === null) return count === 1 ? APPS_COPY.recordsOne : APPS_COPY.records.replace(`{n}`, n)
   return APPS_COPY.recordsOf.replace(`{n}`, n).replace(`{max}`, max.toLocaleString(`en-US`))
 }
+
+/** VAPP-159 PURGE: how long a deleted record (or a trashed app's record)
+ *  stays before the server hard-deletes it, and the rows per sweep. */
+export const APP_RECORDS_PURGE = { retentionDays: fixture.purge.retentionDays, batch: fixture.purge.batch }
+const RETENTION_MS = APP_RECORDS_PURGE.retentionDays * 24 * 60 * 60 * 1000
+
+/** A record is due for the purge once its own `deleted_at` or its app's
+ *  trash stamp (`app_deleted_at`) is older than the retention. */
+export function appRecordPurgeDue(deletedAt: Date | null, appDeletedAt: Date | null, now: Date): boolean {
+  const cutoff = now.getTime() - RETENTION_MS
+  return (deletedAt !== null && deletedAt.getTime() < cutoff) || (appDeletedAt !== null && appDeletedAt.getTime() < cutoff)
+}

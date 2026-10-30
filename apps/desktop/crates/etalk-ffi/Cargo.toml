@@ -1,0 +1,33 @@
+[package]
+name = "etalk-ffi"
+version = "0.2.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "The UniFFI facade over eTalk for Swift and Kotlin: the call's Opus codec (PCM in, packets out) and the shared call state machine (the ring, the warm-up, the agent speaks first). Audio I/O and transport stay outside."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+exclude = ["tests/", "bindings/", "out/", "*.sh"]
+
+[lib]
+name = "etalk_ffi"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["cli"]
+
+[features]
+cli = ["uniffi/cli"]
+
+[dependencies]
+# #EXP-1441: the call machine (`etalk::call`, fixture-locked by
+# packages/etalk/fixtures/voice-call.json) and the codec. gpui-free, engine-free;
+# without `pipewire` (a Linux desktop capture backend the phones never use).
+etalk = { path = "../etalk", default-features = false }
+etalk-codec = { path = "../etalk-codec" }
+# The version already in apps/desktop/Cargo.lock (eUI's and eNet's facades): ONE uniffi in the tree.
+uniffi = { version = "0.31" }
+# An incoming `call_event` is JSON text.
+serde_json = { workspace = true }

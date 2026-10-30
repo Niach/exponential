@@ -30,6 +30,8 @@ import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
+import android.os.Build
+import androidx.annotation.RequiresApi
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellableContinuation
@@ -700,6 +702,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_generate_identity(
     ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_identity_sign(
+    ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_parse_ticket(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow(
@@ -871,6 +875,8 @@ external fun uniffi_exponential_net_ffi_fn_func_default_config(uniffi_out_err: U
 external fun uniffi_exponential_net_ffi_fn_func_endpoint_id_of(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_generate_identity(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_identity_sign(`identity`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_parse_ticket(`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1192,28 +1198,28 @@ private class UniffiJnaCleanable(
 // using Android or not.
 // There are further runtime checks to chose the correct implementation
 // of the cleaner.
+
+
 private fun UniffiCleaner.Companion.create(): UniffiCleaner =
-    try {
-        // For safety's sake: if the library hasn't been run in android_cleaner = true
-        // mode, but is being run on Android, then we still need to think about
-        // Android API versions.
-        // So we check if java.lang.ref.Cleaner is there, and use that…
-        java.lang.Class.forName("java.lang.ref.Cleaner")
-        JavaLangRefCleaner()
-    } catch (e: ClassNotFoundException) {
-        // … otherwise, fallback to the JNA cleaner.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        AndroidSystemCleaner()
+    } else {
         UniffiJnaCleaner()
     }
 
-private class JavaLangRefCleaner : UniffiCleaner {
-    val cleaner = java.lang.ref.Cleaner.create()
+// The SystemCleaner, available from API Level 33.
+// Some API Level 33 OSes do not support using it, so we require API Level 34.
+@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+private class AndroidSystemCleaner : UniffiCleaner {
+    val cleaner = android.system.SystemCleaner.cleaner()
 
     override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
-        JavaLangRefCleanable(cleaner.register(value, cleanUpTask))
+        AndroidSystemCleanable(cleaner.register(value, cleanUpTask))
 }
 
-private class JavaLangRefCleanable(
-    val cleanable: java.lang.ref.Cleaner.Cleanable
+@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+private class AndroidSystemCleanable(
+    private val cleanable: java.lang.ref.Cleaner.Cleanable,
 ) : UniffiCleaner.Cleanable {
     override fun clean() = cleanable.clean()
 }
@@ -3990,6 +3996,21 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     UniffiLib.uniffi_exponential_net_ffi_fn_func_generate_identity(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * The identity's 64-byte ed25519 signature over `message` (verifiable
+         * against its endpoint id), e.g. the `exp-install-v1` registration string.
+         */
+    @Throws(EnetException::class) fun `identitySign`(`identity`: kotlin.ByteArray, `message`: kotlin.ByteArray): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_identity_sign(
+    
+        FfiConverterByteArray.lower(`identity`),FfiConverterByteArray.lower(`message`),_status)
 }
     )
     }

@@ -18,7 +18,7 @@ const composerState = vi.hoisted(() => ({
 }))
 const remoteCalls = vi.hoisted(() => [] as Record<string, unknown>[])
 const composerCalls = vi.hoisted(
-  () => [] as { teamId: string; seed: unknown }[]
+  () => [] as { teamId: string; seed: unknown; agentRow?: boolean; me?: string | null }[]
 )
 
 vi.mock(`@/hooks/use-steer-config`, () => ({
@@ -44,8 +44,10 @@ vi.mock(`@/hooks/use-launch-composer`, () => ({
     teamId: string
     seed: unknown
     onStarted?: (sessionId: string) => void
+    agentRow?: boolean
+    me?: string | null
   }) => {
-    composerCalls.push({ teamId: args.teamId, seed: args.seed })
+    composerCalls.push({ teamId: args.teamId, seed: args.seed, agentRow: args.agentRow, me: args.me })
     composerState.onStarted = args.onStarted
     return {
       subject: { kind: `issues`, ids: [`i1`] },
@@ -57,6 +59,7 @@ vi.mock(`@/hooks/use-launch-composer`, () => ({
     } as unknown as LaunchComposerModel
   },
 }))
+vi.mock(`@/hooks/use-ensure-assistant`, () => ({ useEnsureAssistant: () => undefined }))
 // The composer is stubbed: the shell's job is to mount it, not to redraw it.
 vi.mock(`@/components/launch-composer`, () => ({
   LaunchComposer: () => <div data-testid="agent-composer" />,
@@ -94,6 +97,12 @@ describe(`LaunchDialogHost`, () => {
     // The accessible name is the headline, not a generic title.
     expect(screen.getByText(`Implement APP-3`)).toBeTruthy()
     expect(composerCalls[0]?.seed).toEqual({ issueIds: [`i1`] })
+  })
+
+  it(`EXP-1451: is the home's composer, agent row and all`, () => {
+    render(<LaunchDialogHost team={team} />)
+    act(() => requestLaunchDialog({ issueIds: [`i1`] }))
+    expect(composerCalls[0]).toMatchObject({ agentRow: true, me: `u1` })
   })
 
   it(`shuts once the session started, not at send time`, () => {

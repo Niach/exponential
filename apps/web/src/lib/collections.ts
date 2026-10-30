@@ -48,34 +48,6 @@ const baseUrl =
 
 const columnMapper = snakeCamelMapper()
 
-// NEW-8: the legacy columns the server drops in step 4. The shapes still
-// stream them today; the client schemas leave them out so no reader can
-// depend on them (synced rows are never validated, so present or absent
-// both decode).
-const syncedSessionSchema = selectSyncedSessionSchema.omit({
-  kind: true,
-  dispatch: true,
-  moveToDeviceId: true,
-  handoffRestoredAt: true,
-  caption: true,
-  aside: true,
-  actionId: true,
-  actionName: true,
-  actionInputs: true,
-  spawnedBySessionId: true,
-  name: true,
-  icon: true,
-  color: true,
-  triggers: true,
-  sortOrder: true,
-})
-const syncedSessionIssueSchema = selectSyncedSessionIssueSchema.omit({
-  assignedSessionId: true,
-})
-// A pin of kind `action` never resolves (actions are gone), and its
-// `actionId` is never read.
-const syncedPinSchema = selectPinSchema.omit({ actionId: true })
-
 function getShapeUrl(path: string) {
   return new URL(path, baseUrl).toString()
 }
@@ -228,10 +200,14 @@ export const appVersionCollection = createCollection(
   })
 )
 // VAPP-122: the apps' records (their own data; `exp:records` resolves over
-// it, the app settings page counts it).
+// it, the app settings page counts it). VAPP-159: ON DEMAND like
+// `messages` (#EXP-1380): a browser loads the records of the apps it opens
+// as Electric subsets, never the team's whole shape. Every query on this
+// collection MUST narrow by `appId`.
 export const appRecordCollection = createCollection(
   electricCollectionOptions({
     id: `app_records`,
+    syncMode: `on-demand`,
     shapeOptions: shapeOptions(`/api/shapes/app-records`),
     schema: selectSyncedAppRecordSchema,
     getKey: (item) => item.id,
@@ -326,7 +302,7 @@ export const pinCollection = createCollection(
   electricCollectionOptions({
     id: `pins`,
     shapeOptions: shapeOptions(`/api/shapes/pins`),
-    schema: syncedPinSchema,
+    schema: selectPinSchema,
     getKey: (item) => item.id,
   })
 )
@@ -385,7 +361,7 @@ export const sessionCollection = createCollection(
   electricCollectionOptions({
     id: `sessions`,
     shapeOptions: shapeOptions(`/api/shapes/sessions`),
-    schema: syncedSessionSchema,
+    schema: selectSyncedSessionSchema,
     getKey: (item) => item.id,
   })
 )
@@ -394,7 +370,7 @@ export const sessionIssueCollection = createCollection(
   electricCollectionOptions({
     id: `session_issues`,
     shapeOptions: shapeOptions(`/api/shapes/session-issues`),
-    schema: syncedSessionIssueSchema,
+    schema: selectSyncedSessionIssueSchema,
     getKey: (item) => item.id,
   })
 )
@@ -422,9 +398,8 @@ export const messageCollection = createCollection(
     id: `messages`,
     syncMode: `on-demand`,
     shapeOptions: shapeOptions(`/api/shapes/messages`),
-    // NEW-8: a message is keyed through its conversation; the legacy
-    // `session_id` the server still serves is optional and never read here.
-    schema: selectSyncedMessageSchema.partial({ sessionId: true }),
+    // NEW-8: a message is keyed through its conversation.
+    schema: selectSyncedMessageSchema,
     getKey: (item) => item.id,
   })
 )

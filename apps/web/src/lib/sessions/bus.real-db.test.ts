@@ -4,6 +4,7 @@ import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { boards, devices, messages, repositories, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { inSession, messageWithSession } from "@/lib/sessions/messages"
 
 // NEW-1: THE server bus against the REAL migrated Postgres. Every
 // transition of a session reaches its PARENT's conversation and every live
@@ -103,7 +104,7 @@ const fromChild = (sessionId: string, from: string) =>
   db
     .select()
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.authorSessionId, from)))
+    .where(and(inSession(sessionId), eq(messages.authorSessionId, from)))
     .orderBy(asc(messages.createdAt), asc(messages.id))
 
 const cardKind = (m: { card: unknown }) => (m.card as { kind?: string } | null)?.kind ?? null
@@ -116,7 +117,7 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
     await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
     const reply = await w.host.reply({ sessionId: childId, body: `  Found the bug.  ` })
     // The child keeps its own row (no author_session_id: never input to it).
-    const [own] = await db.select().from(messages).where(eq(messages.id, reply.messageId))
+    const [own] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, reply.messageId))
     expect(own).toMatchObject({ sessionId: childId, authorKind: `agent`, authorSessionId: null, body: `  Found the bug.  ` })
     const relayed = (await fromChild(rootId, childId)).filter((m) => m.card === null)
     expect(relayed).toMatchObject([
@@ -319,7 +320,7 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
     // A root nobody watches: its claim needs no line at all…
     await w.host.claim({ sessionId: rootId, deviceId: w.deviceId })
     const ownLines = async (event: string) =>
-      (await db.select().from(messages).where(eq(messages.sessionId, rootId))).filter(
+      (await db.select().from(messages).where(inSession(rootId))).filter(
         (m) => (m.card as { event?: string } | null)?.event === event && m.authorSessionId !== childId
       )
     expect(await ownLines(`session_claimed`)).toEqual([])
@@ -403,7 +404,7 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
     })
     expect(await row(spawned.sessionId)).toMatchObject({ parentId: null, rootId: spawned.sessionId })
     expect((await row(starter)).wakeOn).toEqual([spawned.sessionId])
-    const cards = (await db.select().from(messages).where(eq(messages.sessionId, starter))).map((m) => m.card)
+    const cards = (await db.select().from(messages).where(inSession(starter))).map((m) => m.card)
     expect(cards).toContainEqual({ kind: `thread_started`, sessionId: spawned.sessionId })
     await endSession({ userId: w.owner, sessionId: spawned.sessionId, summary: `Nothing there.` })
     expect((await fromChild(starter, spawned.sessionId)).filter((m) => cardKind(m) === `report`)).toHaveLength(1)

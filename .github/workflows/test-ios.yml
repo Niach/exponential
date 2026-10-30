@@ -123,6 +123,18 @@ jobs:
           git diff --exit-code -- apps/desktop/crates/exponential-net-ffi/bindings/push/swift \
             || { echo "::error::bindings/push/swift drifted from the Rust facade: regenerate and commit"; exit 1; }
 
+      # VAPP-40 / EXP-1457: the FULL eNet node ExpCore links (Project.swift
+      # links it only when it exists); without it EnetInstallNodesTests (two
+      # real nodes over loopback) compile out. Same drift gate on bindings/swift.
+      - name: Build the full eNet xcframework
+        working-directory: ${{ github.workspace }}
+        env:
+          ENET_APPLE_TARGETS: aarch64-apple-ios aarch64-apple-ios-sim
+        run: |
+          bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
+          git diff --exit-code -- apps/desktop/crates/exponential-net-ffi/bindings/swift \
+            || { echo "::error::bindings/swift drifted from the Rust facade: regenerate and commit"; exit 1; }
+
       # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
       # exits 1 without this.
       - name: Resolve SPM dependencies

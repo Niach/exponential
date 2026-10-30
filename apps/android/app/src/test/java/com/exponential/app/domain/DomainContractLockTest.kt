@@ -160,17 +160,8 @@ class DomainContractLockTest {
         )
     }
 
-    /**
-     * EXP-825 retired the free-text input types: what the requester types is
-     * the start's `prompt`, so only the four PICK types remain. The composer
-     * blocks a def of any other type as "needs a newer app version", which is
-     * exactly what an old `text`/`textarea` row must read as.
-     */
     @Test
-    fun actionInputTypesAreTheFourPickTypes() {
-        assertEquals(listOf("repo", "board", "pr", "issue"), DomainContract.actionInputTypeValues)
-        assertTrue("text" !in DomainContract.actionInputTypeValues)
-        assertTrue("textarea" !in DomainContract.actionInputTypeValues)
+    fun startPromptCaps() {
         // The start prompt caps the composer reads (web MAX_START_PROMPT / MAX_STEER_IMAGES).
         assertEquals(16384, DomainContract.startPromptMaxLength)
         assertEquals(4, DomainContract.startPromptMaxImages)

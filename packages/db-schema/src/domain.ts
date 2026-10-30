@@ -529,9 +529,9 @@ export const subscriberSourceValues = [
 ] as const
 
 // EXP-778: what a personal pin points at (pins.kind, pg enum). One nullable
-// target column per kind (issue_id / session_id / action_id) with an FK
-// cascade, so a pin dies with its target instead of dangling.
-export const pinKindValues = [`issue`, `session`, `action`] as const
+// target column per kind (issue_id / session_id) with an FK cascade, so a
+// pin dies with its target instead of dangling.
+export const pinKindValues = [`issue`, `session`] as const
 
 // Activity-log event kinds (issue_events.type, pg enum). Drives the
 // Linear-style timeline on every client.
@@ -635,24 +635,6 @@ export const issueRelationSourceSchema = z.enum(issueRelationSourceValues)
 export type IssueRelationType = (typeof issueRelationTypeValues)[number]
 export type IssueRelationSource = (typeof issueRelationSourceValues)[number]
 
-// ── Action inputs (EXP-257) ──────────────────────────────────────────────────
-// Typed inputs an action may declare: members fill them in the run dialog and
-// the resolved values are injected into the prompt at launch. `repo`/`board`
-// values are the picked ids (resolved to display names server-side); `pr`
-// (EXP-259) values are the representative ISSUE id of an issue-linked open
-// pull request (a batch PR's picker rows dedupe by prUrl); `icon` (EXP-273)
-// values are a curated icon NAME from the shared registry — the one input kind
-// whose value is not an id, so it validates against the contract enum instead
-// of a team-scoped lookup.
-
-// EXP-825: every input is a PICK. The free-text kinds (`text`, EXP-530's
-// `textarea`) are retired — whatever the requester types beside a subject
-// rides the start as `prompt` (see MAX_START_PROMPT) and reaches the run as
-// an "Additional instructions" section, so an action never declares a field
-// for it.
-export const actionInputTypeValues = [`repo`, `board`, `pr`, `issue`] as const
-export type ActionInputType = (typeof actionInputTypeValues)[number]
-
 // EXP-792: team MCP servers (server-only `mcp_servers` rows, never synced).
 // `transport` = how the agent reaches the server; `auth` = how a MEMBER
 // authenticates to it: `none`, an OAuth sign-in the server runs (hosted
@@ -707,19 +689,6 @@ export const mcpEnvNameSchema = mcpVariableNameSchema.refine(
   { error: (issue) => `${String(issue.input)} is reserved and cannot be set by an MCP server` }
 )
 
-export const MAX_ACTION_INPUTS = 10
-export const MAX_ACTION_INPUT_KEY = 32
-export const MAX_ACTION_INPUT_LABEL = 100
-export const MAX_ACTION_INPUT_PLACEHOLDER = 200
-/** EXP-825: the composer's field hint while the action is picked. */
-export const MAX_ACTION_PROMPT_PLACEHOLDER = 200
-export const actionPromptPlaceholderSchema = z
-  .string()
-  .trim()
-  .max(MAX_ACTION_PROMPT_PLACEHOLDER)
-/** Max chars a filled input VALUE may carry (ids and icon names in practice; the cap is contract-locked). */
-export const MAX_ACTION_INPUT_TEXT = 4096
-
 /**
  * EXP-825: the free text a start carries beside its subject — the chat
  * prompt, or additional instructions for an issue/batch/action run — in the
@@ -733,36 +702,6 @@ export const startPromptSchema = z
   .string()
   .max(MAX_START_PROMPT)
   .refine((value) => !value.includes(`\u0000`), `contains NUL bytes`)
-
-// snake_case identifier — the stable key prompt injection and run values use.
-const actionInputKeySchema = z
-  .string()
-  .regex(/^[a-z][a-z0-9_]{0,31}$/, `keys are snake_case, ≤32 chars`)
-
-export const actionInputDefSchema = z.object({
-  key: actionInputKeySchema,
-  label: z.string().trim().min(1).max(MAX_ACTION_INPUT_LABEL),
-  type: z.enum(actionInputTypeValues),
-  required: z.boolean().default(false),
-  placeholder: z.string().trim().max(MAX_ACTION_INPUT_PLACEHOLDER).optional(),
-})
-export type ActionInputDef = z.infer<typeof actionInputDefSchema>
-
-export const actionInputsSchema = z
-  .array(actionInputDefSchema)
-  .max(MAX_ACTION_INPUTS)
-  .superRefine((defs, ctx) => {
-    const seen = new Set<string>()
-    for (const def of defs) {
-      if (seen.has(def.key)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `Duplicate input key "${def.key}"`,
-        })
-      }
-      seen.add(def.key)
-    }
-  })
 
 // ── Agent triggers (NEW-2: on the `agents` definition rows) ───────────────
 // A trigger is only its WHEN plus `id` + `enabled`: the agent itself is the
@@ -931,7 +870,7 @@ export const UUID_RE =
 // REV-30: descriptions ride the issues Electric shape to every member's
 // clients and feed the idx_issues_fts tsvector expression, which Postgres
 // hard-caps at ~1MB — an uncapped multi-MB paste bricks writes and bloats
-// every fresh snapshot. 64KB matches MAX_ACTION_BODY, far below either limit.
+// every fresh snapshot. 64KB matches a prompt body, far below either limit.
 export const MAX_ISSUE_DESCRIPTION = 64 * 1024
 
 export const issueDescriptionSchema = z.string().max(MAX_ISSUE_DESCRIPTION)

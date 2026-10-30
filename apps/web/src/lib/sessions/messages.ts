@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm"
+import { and, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm"
 import type { MessageAuthorKind, MessageCard } from "@exp/db-schema/domain"
 import { conversations, messages, sessions, type Session } from "@/db/schema"
 import type { Tx } from "@/lib/sessions/tx"
@@ -40,6 +40,41 @@ export async function sessionConversationId(tx: Tx, sessionId: string): Promise<
   return row.id
 }
 
+// NEW-8: a message names only its conversation; its session is the
+// conversation's (`conversations.session_id`, kind `session`, one each; a
+// dm/channel conversation has none). Both directions are scalar subqueries
+// on a unique key, so a session filter still walks
+// `idx_messages_conversation_created`.
+
+/** The session's conversation id (a scalar subquery). */
+export function sessionConversation(sessionId: string | AnyColumn | SQL): SQL<string> {
+  return sql<string>`(SELECT ${conversations.id} FROM ${conversations} WHERE ${conversations.sessionId} = ${sessionId})`
+}
+
+/** Messages of one session. */
+export function inSession(sessionId: string | AnyColumn | SQL): SQL {
+  return eq(messages.conversationId, sessionConversation(sessionId))
+}
+
+/** Messages of any of these sessions (none = matches nothing). */
+export function inSessions(sessionIds: readonly string[]): SQL {
+  return inArray(
+    messages.conversationId,
+    sql`(SELECT ${conversations.id} FROM ${conversations} WHERE ${inArray(conversations.sessionId, [...sessionIds])})`
+  )
+}
+
+/** A message's session (its conversation's; NULL only in a sessionless
+ *  dm/channel conversation, which never carries session cards). */
+export function messageSessionId(): SQL<string> {
+  return sql<string>`(SELECT ${conversations.sessionId} FROM ${conversations} WHERE ${conversations.id} = ${messages.conversationId})`
+}
+
+/** A full message row plus its session (`messageSessionId`). */
+export function messageWithSession() {
+  return { ...getTableColumns(messages), sessionId: messageSessionId() }
+}
+
 export async function insertMessage(
   tx: Tx,
   session: string | SessionMirror,
@@ -61,7 +96,6 @@ export async function insertMessage(
     .insert(messages)
     .values({
       conversationId: await sessionConversationId(tx, mirror.id),
-      sessionId: mirror.id,
       rootId: mirror.rootId,
       teamId: mirror.teamId,
       shared: mirror.shared,
@@ -126,7 +160,7 @@ export async function editAgentTurnText(
   const [delivered] = await tx
     .select({ at: messages.consumedAt })
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), pendingInput(), isNotNull(messages.consumedAt)))
+    .where(and(inSession(sessionId), pendingInput(), isNotNull(messages.consumedAt)))
     .orderBy(desc(messages.consumedAt))
     .limit(1)
   const [text] = await tx
@@ -134,7 +168,7 @@ export async function editAgentTurnText(
     .from(messages)
     .where(
       and(
-        eq(messages.sessionId, sessionId),
+        inSession(sessionId),
         eq(messages.authorKind, `agent`),
         isNull(messages.card),
         isNull(messages.authorSessionId),
@@ -197,7 +231,7 @@ export function postSessionInput(
 export function pendingInput(): SQL {
   return or(
     eq(messages.authorKind, `user`),
-    and(isNotNull(messages.authorSessionId), ne(messages.authorSessionId, messages.sessionId))
+    and(isNotNull(messages.authorSessionId), ne(messages.authorSessionId, messageSessionId()))
   )!
 }
 
@@ -205,7 +239,7 @@ export function pendingInput(): SQL {
  *  person answered it: the device delivers the answer text, then consumes it. */
 export function answeredOwnCard(): SQL {
   return and(
-    eq(messages.authorSessionId, messages.sessionId),
+    eq(messages.authorSessionId, messageSessionId()),
     isNotNull(messages.answeredAt),
     sql`${messages.card}->>'kind' IN ('question', 'plan')`
   )!

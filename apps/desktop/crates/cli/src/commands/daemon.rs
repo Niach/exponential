@@ -428,6 +428,30 @@ fn run_daemon(args: &[String]) -> CommandResult {
         &mut registration,
     );
     device_worker.send(DeviceWork::ReportWorktrees).ok();
+    // EXP-1457: this install's eNet node, registered after the devices row
+    // it names; the allowlist reads the synced `teams` rows.
+    let enet = runtime.as_ref().map(|runtime| {
+        let teams = Arc::clone(&pickup);
+        steer::enet::InstallNode::start(
+            runtime.handle(),
+            steer::enet::InstallSpec {
+                kind: steer::enet::InstallKind::Daemon,
+                user_id: ctx.account.user_id.clone(),
+                device_id: Some(device_id.clone()),
+                label: Some(device_label.clone()),
+                identity_path: steer::enet::identity_path(
+                    &ctx.data_dir,
+                    &ctx.account.id,
+                    steer::enet::InstallKind::Daemon,
+                ),
+                net: steer::enet::EnetConfig::default(),
+            },
+            Arc::clone(&ctx.trpc) as Arc<dyn steer::enet::InstallRegistry>,
+            Arc::new(move || synced_team_ids(&teams)),
+        )
+    });
+    let mut enet_teams = synced_team_ids(&pickup);
+    let mut last_team_check = Instant::now();
     // `register` only SEEDS the label (it never stomps a rename); an
     // explicit --label is an intentional write and goes through `rename` —
     // but only when its VALUE changed since the last applied one, so a
@@ -515,6 +539,18 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // The 1 Hz loop: starts and messages arrive on the worker (shape
         // deltas), never here.
         std::thread::sleep(Duration::from_secs(1));
+
+        // EXP-1457: a team joined or left re-reads the eNet allowlist.
+        if let Some(enet) = &enet {
+            if last_team_check.elapsed() >= TEAM_CHECK {
+                last_team_check = Instant::now();
+                let teams = synced_team_ids(&pickup);
+                if teams != enet_teams {
+                    enet_teams = teams;
+                    enet.refresh();
+                }
+            }
+        }
 
         // EXP-637 → NEW-5: a finished RUN's worktree ends
         // ([`coding::finish_session_worktree`]): removed, its unpushed work
@@ -1078,6 +1114,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // --- Quit sweep (desktop parity): hang up, kill live children (their
     // supervisors end the rows), reap PTY escapees, drop the pidfile. ------
     log::info!("daemon stopping");
+    if let Some(enet) = &enet {
+        enet.stop();
+    }
     if let Some(handle) = control.take() {
         handle.stop();
     }
@@ -2492,6 +2531,8 @@ fn report_worktrees(
 /// headless daemon has no views to hydrate. A name the sync crate has no
 /// spec for is skipped by the pipeline (the v2 specs land with #EXP-1294).
 const DAEMON_SHAPES: &[&str] = &[
+    // EXP-1457: the eNet allowlist = the installs of these teams.
+    "teams",
     "sessions",
     "messages",
     // NEW-8: a message's session is its conversation's.
@@ -2502,6 +2543,28 @@ const DAEMON_SHAPES: &[&str] = &[
     // S-4: the worktree sweep's merged-PR rule (`coding::open_branches`).
     "pull_requests",
 ];
+
+/// EXP-1457: how often the 1Hz loop looks for a team change.
+const TEAM_CHECK: Duration = Duration::from_secs(30);
+
+#[derive(serde::Deserialize)]
+struct TeamIdRow {
+    id: String,
+}
+
+/// The synced `teams` rows (the shape is member-only: every row is a team
+/// this account is in), sorted.
+fn synced_team_ids(pickup: &DaemonPickup) -> Vec<String> {
+    let Some(store) = pickup.store() else {
+        return Vec::new();
+    };
+    let mut ids: Vec<String> = read_shape_rows::<TeamIdRow>(&store, "teams")
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
+    ids.sort();
+    ids
+}
 
 /// S-4: the shapes the worktree sweep reads before it may run.
 const SWEEP_SHAPES: &[&str] = &["sessions", "pull_requests"];

@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { boards, devices, messages, repositories, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { inSession } from "@/lib/sessions/messages"
 
 // #EXP-1391 + #EXP-1408 against the REAL migrated Postgres (harness from
 // bus-private.real-db.test.ts): a refused merge posts ONE waking
@@ -100,7 +101,7 @@ const refusals = (sessionId: string) =>
   db
     .select()
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), sql`${messages.card}->>'event' = 'pr_merge_refused'`))
+    .where(and(inSession(sessionId), sql`${messages.card}->>'event' = 'pr_merge_refused'`))
 
 const refusal = () => new MergeRefusal({ kind: `checks`, message: `Required status check "gate" is failing.` })
 
@@ -143,14 +144,14 @@ describe.skipIf(!ready.ok)(`#EXP-1391: a refused merge goes into the thread`, ()
     expect((await refusals(w.thread))[0]!.card).toMatchObject({ headSha: `sha-1` })
     // The root read it and ended its turn: the next pass stays quiet, even
     // when GitHub words it differently (#EXP-1413).
-    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, w.thread))
+    await db.update(messages).set({ consumedAt: new Date() }).where(inSession(w.thread))
     expect(await auto(new MergeRefusal({ kind: `checks`, message: `Required status check "gate" is expected.` }), `sha-1`)).toBe(false)
     expect(await refusals(w.thread)).toHaveLength(1)
     // A push (a new head) is news.
     expect(await auto(new MergeRefusal({ kind: `conflict`, message: `Conflicts in a.ts` }), `sha-2`)).toBe(true)
     expect(await refusals(w.thread)).toHaveLength(2)
     // An unreadable head: any earlier refusal of the PR counts as seen.
-    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, w.thread))
+    await db.update(messages).set({ consumedAt: new Date() }).where(inSession(w.thread))
     expect(await auto(refusal(), null)).toBe(false)
     expect(await refusals(w.thread)).toHaveLength(2)
   })

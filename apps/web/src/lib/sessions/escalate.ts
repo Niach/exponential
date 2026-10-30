@@ -4,7 +4,7 @@ import type { MessageCard } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { messages, sessions, type Session } from "@/db/schema"
 import { askHidden, askHiddenText, askText } from "@/lib/sessions/bus"
-import { insertMessage } from "@/lib/sessions/messages"
+import { insertMessage, inSession, messageWithSession } from "@/lib/sessions/messages"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import type { Tx } from "@/lib/sessions/tx"
 
@@ -64,11 +64,11 @@ export async function escalateCard(input: {
   caller: Pick<Session, `id` | `rootId`>
   messageId: string
 }): Promise<{ messageId: string; sessionId: string; escalated: boolean }> {
-  let [message] = await db.select().from(messages).where(eq(messages.id, input.messageId)).limit(1)
+  let [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, input.messageId)).limit(1)
   // An `ask` mirror (the bus's, in a parent) escalates its origin card.
   const mirrored = message?.card as { kind?: unknown; messageId?: unknown } | null | undefined
   if (message && mirrored?.kind === `ask` && typeof mirrored.messageId === `string`) {
-    ;[message] = await db.select().from(messages).where(eq(messages.id, mirrored.messageId)).limit(1)
+    ;[message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, mirrored.messageId)).limit(1)
   }
   if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
   const origin = await loadSessionForUser(input.userId, message.sessionId)
@@ -101,7 +101,7 @@ export async function escalateCard(input: {
       .from(messages)
       .where(
         and(
-          eq(messages.sessionId, target.id),
+          inSession(target.id),
           sql`${messages.card}->>'kind' = 'ask'`,
           sql`${messages.card}->>'messageId' = ${message.id}`
         )

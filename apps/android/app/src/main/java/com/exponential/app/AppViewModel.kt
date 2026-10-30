@@ -20,6 +20,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.electric.SyncHealth
 import com.exponential.app.data.electric.SyncHealthTracker
 import com.exponential.app.data.electric.SyncManager
+import com.exponential.app.data.enet.EnetNodeManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.defaultTeamId
@@ -62,6 +63,7 @@ class AppViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val syncManager: SyncManager,
     private val pushTokenManager: PushTokenManager,
+    private val enetNodeManager: EnetNodeManager,
     private val databaseHolder: DatabaseHolder,
     private val teamSelection: TeamSelection,
     private val updateGate: UpdateGate,
@@ -338,7 +340,10 @@ class AppViewModel @Inject constructor(
             val active = activeAccount()
             // Awaited before the credentials drop — the unregister request
             // needs the bearer token that clearInstanceUrl removes.
-            auth.activeAccountId.value?.let { pushTokenManager.unregisterToken(it) }
+            auth.activeAccountId.value?.let {
+                pushTokenManager.unregisterToken(it)
+                enetNodeManager.signOut(it, revoke = true)
+            }
             // Revoke the server session AFTER the unregister (which needs it
             // live) and BEFORE the token drops locally (REV2-15).
             revokeSession(active)
@@ -353,7 +358,10 @@ class AppViewModel @Inject constructor(
             // EXP-1275 (D8.5): signing out runs behind the blocking overlay.
             Blocking.whileBlocking(FeedbackStates.BLOCKING_SIGN_OUT) {
                 val active = activeAccount()
-                auth.activeAccountId.value?.let { pushTokenManager.unregisterToken(it) }
+                auth.activeAccountId.value?.let {
+                    pushTokenManager.unregisterToken(it)
+                    enetNodeManager.signOut(it, revoke = true)
+                }
                 revokeSession(active)
                 syncManager.signOut()
                 steerConnectionStore.closeAll()
@@ -399,6 +407,7 @@ class AppViewModel @Inject constructor(
     private suspend fun removeAccountAwaiting(id: String) {
         val account = auth.accounts.value.firstOrNull { it.id == id }
         pushTokenManager.unregisterToken(id)
+        enetNodeManager.signOut(id, revoke = true)
         revokeSession(account)
         steerConnectionStore.closeAll()
         auth.removeAccount(id)

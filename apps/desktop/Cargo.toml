@@ -172,6 +172,14 @@ lto = true
 codegen-units = 1
 strip = true
 
+# EXP-1457: the browser's eNet node (`exponential-net-wasm`, built by
+# scripts/build-enet-wasm.sh): small over fast, it downloads after sign-in.
+[profile.wasm]
+inherits = "release"
+lto = true
+codegen-units = 1
+opt-level = "s"
+
 [profile.dev]
 debug = "line-tables-only"
 

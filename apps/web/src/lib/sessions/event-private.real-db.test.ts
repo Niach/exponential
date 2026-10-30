@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { readFileSync } from "node:fs"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { agents, boards, devices, events, messages, repositories, sessions, teamMembers, teams } from "@/db/schema"
 import { inRollback, probeRealDb } from "@/test/real-db"
+import { inSession, messageWithSession } from "@/lib/sessions/messages"
 
 // #EXP-1409 against the REAL migrated Postgres (harness as in
 // bus-private.real-db.test.ts): a PRIVATE session's `session.ended` event
@@ -13,7 +13,9 @@ import { inRollback, probeRealDb } from "@/test/real-db"
 // readers may see the session (`askHidden`), a visible session keeps it
 // all; moving an agent to a shared device neutralises what its private
 // trees held in full; a private listener of ANOTHER member gets neutral
-// bus lines; and the 0200 scrub of rows written before.
+// bus lines. NEW-8: the 0200 scrub's replay left with
+// `messages.session_id` (a one-shot migration, its SQL names the dropped
+// column).
 
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
@@ -40,7 +42,6 @@ if (!ready.ok) console.info(`[event-private.real-db] skipped: ${ready.reason}`)
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { endSession } = await import(`@/lib/sessions/lifecycle`)
 const { privateText, askHiddenText } = await import(`@/lib/sessions/bus`)
-const { insertMessage } = await import(`@/lib/sessions/messages`)
 const { hidePrivateLinesInTx } = await import(`@/lib/sessions/private-lines`)
 const { TRIGGER_COPY } = await import(`@/lib/agents/triggers`)
 const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
@@ -131,7 +132,7 @@ const endedEvents = (sessionId: string) =>
 /** The trigger firings posted for `agentId` (into its owner's conversation). */
 const firings = (agentId: string) =>
   db
-    .select()
+    .select(messageWithSession())
     .from(messages)
     .where(sql`${messages.card}->>'event' = 'trigger_fired' AND ${messages.card}->>'agentId' = ${agentId}`)
     .orderBy(asc(messages.createdAt))
@@ -210,7 +211,7 @@ describe.skipIf(!ready.ok)(`#EXP-1409: a private listener owned by a different m
     const lines = await db
       .select()
       .from(messages)
-      .where(and(eq(messages.sessionId, listener), eq(messages.authorSessionId, thread)))
+      .where(and(inSession(listener), eq(messages.authorSessionId, thread)))
     const kinds = lines.map((m) => (m.card as { kind?: string } | null)?.kind ?? null)
     expect(kinds).toEqual(expect.arrayContaining([null, `ask`, `report`]))
     expect(lines.find((m) => m.card === null)!.body).toBe(privateText({ id: thread }, PRIVATE_REPLY_LEAD))
@@ -318,81 +319,9 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
     await endSession({ userId: w.owner, sessionId: thread, summary: SECRET })
     await agentsRouter.createCaller(ctx(w.owner)).update({ id: agent.id, deviceId: otherDev })
     expect((await row(conversation)).shared).toBe(false)
-    const report = (await db.select().from(messages).where(eq(messages.sessionId, conversation))).find(
+    const report = (await db.select().from(messages).where(inSession(conversation))).find(
       (m) => (m.card as { kind?: string } | null)?.kind === `report`
     )
     expect(report).toMatchObject({ body: SECRET })
-  })
-})
-
-describe.skipIf(!ready.ok)(`0200 migration: session.ended payloads from before lose a private session's title`, () => {
-  const scrub = readFileSync(new URL(`../../db/out/0200_exp1409_private_event_payloads.sql`, import.meta.url), `utf8`)
-    .split(`--> statement-breakpoint`)
-    .map((statement) => statement.trim())
-    .filter(Boolean)
-
-  it(`private (or gone) rows keep ids only, their hidden firings follow; visible rows and the owner's own firing stay`, async () => {
-    const w = await world()
-    const privateThread = await w.thread(w.owner, w.ownerDev)
-    const sharedThread = await w.thread(w.owner, w.teamDev)
-    const gone = crypto.randomUUID()
-    const legacy = async (sessionId: string) =>
-      (
-        await db
-          .insert(events)
-          .values({
-            teamId: w.teamId,
-            name: `session.ended`,
-            payload: { sessionId, rootId: sessionId, title: SECRET, branch: BRANCH },
-            emittedBy: `server`,
-          })
-          .returning()
-      )[0]!
-    const privateEvent = await legacy(privateThread)
-    const sharedEvent = await legacy(sharedThread)
-    const goneEvent = await legacy(gone)
-    // A custom event of the same name an emitter published: theirs.
-    const [custom] = await db
-      .insert(events)
-      .values({ teamId: w.teamId, name: `session.ended`, payload: { sessionId: privateThread, title: `mine` }, emittedBy: `user`, userId: w.owner })
-      .returning()
-    const conversationOf = async (ownerId: string, deviceId: string) => {
-      const agent = await w.agent(ownerId, deviceId, [])
-      return (await sendSession({ userId: ownerId, input: { agentId: agent.id, text: `hi` } })).sessionId
-    }
-    const mateConv = await conversationOf(w.mate, w.mateDev)
-    const sharedConv = await conversationOf(w.owner, w.teamDev)
-    const ownConv = await conversationOf(w.owner, w.ownerDev)
-    const fire = (sessionId: string, event: typeof privateEvent) =>
-      db.transaction((tx) =>
-        insertMessage(tx, sessionId, {
-          authorKind: `user`,
-          authorId: w.owner,
-          body: TRIGGER_COPY.event(event),
-          card: { kind: `event`, event: `trigger_fired`, agentId: crypto.randomUUID(), triggerId: null, eventId: event.id, name: event.name },
-        })
-      )
-    const hidden = [await fire(mateConv, privateEvent), await fire(sharedConv, privateEvent), await fire(ownConv, goneEvent)]
-    const kept = [await fire(ownConv, privateEvent), await fire(mateConv, sharedEvent)]
-    await inRollback(async (tx) => {
-      for (const statement of scrub) await tx.execute(sql.raw(statement))
-      const eventById = async (id: string) => (await tx.select().from(events).where(eq(events.id, id)))[0]!
-      const messageById = async (id: string) => (await tx.select().from(messages).where(eq(messages.id, id)))[0]!
-      const scrubbed = await eventById(privateEvent.id)
-      expect(scrubbed.payload).toEqual({ sessionId: privateThread, rootId: privateThread })
-      expect((await eventById(goneEvent.id)).payload).toEqual({ sessionId: gone, rootId: gone })
-      expect((await eventById(sharedEvent.id)).payload).toEqual(sharedEvent.payload)
-      expect((await eventById(custom!.id)).payload).toEqual({ sessionId: privateThread, title: `mine` })
-      // Exactly the live copy of the ids-only row.
-      expect((await messageById(hidden[0]!)).body).toBe(TRIGGER_COPY.event(scrubbed))
-      expect((await messageById(hidden[1]!)).body).toBe(TRIGGER_COPY.event(scrubbed))
-      expect((await messageById(hidden[2]!)).body).toBe(TRIGGER_COPY.event(await eventById(goneEvent.id)))
-      for (const id of kept) expect((await messageById(id)).body).toContain(BRANCH)
-      // Idempotent: a second run rewrites nothing.
-      for (const statement of scrub) {
-        const again = await tx.execute(sql.raw(statement))
-        expect((again as unknown as { rowCount: number }).rowCount).toBe(0)
-      }
-    })
   })
 })

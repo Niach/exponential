@@ -31,7 +31,7 @@ object DomainContract {
     val toolKindValues: List<String> = listOf("read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "script", "other")
     val toolKindEditValues: List<String> = listOf("edit", "delete", "move")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
-    val pinKindValues: List<String> = listOf("issue", "session", "action")
+    val pinKindValues: List<String> = listOf("issue", "session")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed", "estimate_changed", "title_changed")
     val issueRelationTypeValues: List<String> = listOf("blocks", "parent", "duplicate", "related")
     val issueRelationTypeForwardLabels: List<String> = listOf("blocks", "parent of", "duplicate of", "related to")
@@ -48,7 +48,6 @@ object DomainContract {
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
     val codexModelValues: List<String> = listOf("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
     val codexEffortValues: List<String> = listOf("minimal", "low", "medium", "high", "xhigh")
-    val actionInputTypeValues: List<String> = listOf("repo", "board", "pr", "issue")
     val mcpTransportValues: List<String> = listOf("http", "stdio")
     val mcpAuthValues: List<String> = listOf("none", "oauth", "secret")
     val agentTriggerKindValues: List<String> = listOf("schedule", "event")
@@ -120,8 +119,6 @@ object DomainContract {
     const val deviceAgentDefaultsCodexModel: String = "gpt-5.6-sol"
     const val deviceAgentDefaultsCodexThreadModel: String = "gpt-5.6-luna"
     const val deviceComputerUseDefaultsModel: String = "haiku"
-    const val actionInputsMax: Int = 10
-    const val actionInputTextMax: Int = 4096
     const val startPromptMaxLength: Int = 16384
     const val startPromptMaxImages: Int = 4
     const val agentTriggerMaxPerAgent: Int = 10
@@ -220,7 +217,6 @@ object DomainContract {
     const val subscriberSourceWidgetReporter: String = "widget_reporter"
     const val pinKindIssue: String = "issue"
     const val pinKindSession: String = "session"
-    const val pinKindAction: String = "action"
     const val issueEventTypeStatusChanged: String = "status_changed"
     const val issueEventTypeAssigneeChanged: String = "assignee_changed"
     const val issueEventTypeLabelAdded: String = "label_added"

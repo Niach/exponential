@@ -429,6 +429,13 @@ pub fn endpoint_id_of(identity: Vec<u8>) -> Result<String, EnetError> {
     Ok(net::Identity::from_slice(&identity)?.endpoint_id().to_string())
 }
 
+/// The identity's 64-byte ed25519 signature over `message` (verifiable
+/// against its endpoint id), e.g. the `exp-install-v1` registration string.
+#[uniffi::export]
+pub fn identity_sign(identity: Vec<u8>, message: Vec<u8>) -> Result<Vec<u8>, EnetError> {
+    Ok(net::Identity::from_slice(&identity)?.sign(&message).to_vec())
+}
+
 /// Parses (validates) an `enet1…` ticket.
 #[uniffi::export]
 pub fn parse_ticket(ticket: String) -> Result<EnetTicket, EnetError> {

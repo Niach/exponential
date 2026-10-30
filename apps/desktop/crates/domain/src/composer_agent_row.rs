@@ -134,6 +134,38 @@ pub fn pick_for_subject(subject: ComposerSubjectKind, current: Option<&str>) -> 
     }
 }
 
+/// Whether a tap on the row keeps the composer's subject (TS
+/// `subjectAfterPick`, `agentRow.pickCases`, EXP-1450): a pick NEVER drops
+/// issue chips (a picked agent gets them forwarded as the send's
+/// `issueIds`); only a prompt goes when an AGENT is picked (a prompt starts
+/// a new root).
+pub fn pick_keeps_subject(subject: ComposerSubjectKind, pick: &str) -> bool {
+    !(subject == ComposerSubjectKind::Prompt && pick != COMPOSER_AGENT_ROW.temporary_id)
+}
+
+/// The composer's subject as the pick rules read it (TS
+/// `ComposerSubjectValue`; `None` = no subject).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ComposerSubjectValue {
+    Issues(Vec<String>),
+    Prompt(String),
+}
+
+impl ComposerSubjectValue {
+    pub fn kind(&self) -> ComposerSubjectKind {
+        match self {
+            Self::Issues(_) => ComposerSubjectKind::Issues,
+            Self::Prompt(_) => ComposerSubjectKind::Prompt,
+        }
+    }
+}
+
+/// The subject after a tap on the row (TS `subjectAfterPick`): see
+/// [`pick_keeps_subject`].
+pub fn subject_after_pick(subject: Option<ComposerSubjectValue>, pick: &str) -> Option<ComposerSubjectValue> {
+    subject.filter(|subject| pick_keeps_subject(subject.kind(), pick))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +232,27 @@ mod tests {
             };
             let pick = pick_for_subject(subject, case["current"].as_str());
             assert_eq!(pick.as_deref(), case["expected"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    fn subject_value(value: &Value) -> Option<ComposerSubjectValue> {
+        match value["kind"].as_str()? {
+            "issues" => Some(ComposerSubjectValue::Issues(
+                value["ids"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_string()).collect(),
+            )),
+            "prompt" => Some(ComposerSubjectValue::Prompt(value["id"].as_str().unwrap().to_string())),
+            other => panic!("unknown subject kind {other}"),
+        }
+    }
+
+    #[test]
+    fn agent_row_pick_cases_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(COMPOSER_HOME_JSON).unwrap();
+        let cases = fixture["agentRow"]["pickCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let after = subject_after_pick(subject_value(&case["subject"]), case["pick"].as_str().unwrap());
+            assert_eq!(after, subject_value(&case["expected"]), "{}", case["name"]);
         }
     }
 }

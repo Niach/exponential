@@ -73,18 +73,15 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
           SKIP_BINDINGS: '1'
         run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
-      # EXP-1435: the app opens sealed pushes with the eNet push-only facade
-      # (RustCrypto only): its `.so` for every shipped ABI, and the host build
-      # PushSealFixtureTest loads through JNA in the unit tests below.
-      - name: Build the eNet push-only facade for Android
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
-          ENET_PUSH_ONLY: '1'
-          SKIP_BINDINGS: '1'
-        run: bash apps/desktop/crates/exponential-net-ffi/build-android.sh
-      - name: Build the eNet push-only facade for the JVM unit tests
+      # VAPP-40 / EXP-1457: the app links the FULL eNet node (`exponential-net-ffi`,
+      # also what FcmService opens sealed pushes with). Its `.so` per ABI is built
+      # by the app's `buildEnetFfi` gradle task (cargo-ndk before merge*JniLibs,
+      # needs ANDROID_NDK_HOME); the host build below is what the JVM unit tests
+      # (PushSealFixtureTest, InstallRegistrationTest, InstallNodeEnetTest) load
+      # through JNA.
+      - name: Build the eNet facade for the JVM unit tests
         working-directory: apps/desktop
-        run: cargo build -p exponential-net-ffi --release --no-default-features --features cli
+        run: cargo build -p exponential-net-ffi --release --features cli
 
       - name: Cache Gradle packages
         if: runner.environment == 'github-hosted'
@@ -135,6 +132,8 @@ jobs:
         # Signed when the RELEASE_* / ANDROID_KEYSTORE_B64 secrets are present,
         # otherwise unsigned (keeps CI green pre-keystore).
         env:
+          # buildEnetFfi (cargo-ndk) runs before merge*JniLibFolders.
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}

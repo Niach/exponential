@@ -5,6 +5,7 @@ import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import { boards, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { inSession, sessionConversation } from "@/lib/sessions/messages"
 
 // NEW-1: the server watchdog against the REAL migrated Postgres. What
 // stalls is flagged on the row (`blocked.kind`), lands under Needs you
@@ -159,7 +160,7 @@ const backdateDevice = (deviceId: string, at: Date) =>
 
 /** The bus's watchdog lines about `about` in `sessionId`. */
 const lines = async (sessionId: string, event: string, about: string) =>
-  (await db.select().from(messages).where(eq(messages.sessionId, sessionId))).filter((m) => {
+  (await db.select().from(messages).where(inSession(sessionId))).filter((m) => {
     const card = m.card as { event?: string; sessionId?: string } | null
     return card?.event === event && card.sessionId === about
   })
@@ -228,7 +229,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     const nudgedRows = await db
       .select()
       .from(messages)
-      .where(and(eq(messages.sessionId, rootId), eq(messages.authorKind, `system`)))
+      .where(and(inSession(rootId), eq(messages.authorKind, `system`)))
     expect(nudgedRows.filter((m) => (m.card as { event?: string } | null)?.event?.startsWith(`session_un`))).toEqual([])
 
     // Consumed: nothing pending, no nudge.
@@ -905,14 +906,14 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     const silent = await w.root(`ended silently`)
     await w.host.claim({ sessionId: silent, deviceId: w.deviceId })
     const brief = async () =>
-      (await db.select().from(messages).where(and(eq(messages.sessionId, silent), eq(messages.authorKind, `user`))))[0]!
+      (await db.select().from(messages).where(and(inSession(silent), eq(messages.authorKind, `user`))))[0]!
     await w.host.report({ sessionId: silent, busy: true })
     await w.host.report({ sessionId: silent, status: `idle`, busy: false })
     const at = ago((watchdog.nudgeMinutes + 5) * MIN).toISOString()
     await backdate(
       () => sql`UPDATE sessions SET status = 'idle', busy = false, started_at = ${at}, updated_at = ${at} WHERE id = ${silent}`
     )
-    await backdate(() => sql`UPDATE messages SET consumed_at = ${at} WHERE session_id = ${silent} AND author_kind = 'user'`)
+    await backdate(() => sql`UPDATE messages SET consumed_at = ${at} WHERE conversation_id = ${sessionConversation(silent)} AND author_kind = 'user'`)
 
     relay.on = true
     await runWatchdog(NOW)

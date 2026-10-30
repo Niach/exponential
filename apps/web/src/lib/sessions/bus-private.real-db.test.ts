@@ -1,18 +1,19 @@
 // @vitest-environment node
-import { readFileSync } from "node:fs"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { agents, boards, conversations, devices, messages, repositories, sessions, teamMembers, teams } from "@/db/schema"
-import { inRollback, probeRealDb } from "@/test/real-db"
+import { agents, boards, devices, messages, repositories, sessions, teamMembers, teams } from "@/db/schema"
+import { probeRealDb } from "@/test/real-db"
+import { inSession } from "@/lib/sessions/messages"
 
 // #EXP-1408 against the REAL migrated Postgres (harness copied from
 // escalate.real-db.test.ts): a PRIVATE chat's bus lines (its turn replies,
 // its end report, its PR line) never carry its text into a conversation
 // whose readers may not see it (`askHidden`), only the neutral
 // `privateText` naming the session id; a visible origin keeps its text.
-// Also the read paths: the Chats preview, MCP `sessions get` (the tree)
-// and the 0199 scrub of rows written before.
+// Also the read paths: the Chats preview and MCP `sessions get` (the
+// tree). NEW-8: the 0199 scrub's replay left with `messages.session_id`
+// (a one-shot migration, its SQL names the dropped column).
 
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
@@ -39,11 +40,10 @@ if (!ready.ok) console.info(`[bus-private.real-db] skipped: ${ready.reason}`)
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { endSession } = await import(`@/lib/sessions/lifecycle`)
 const { BUS_COPY, busLine, privateText } = await import(`@/lib/sessions/bus`)
-const { insertMessage } = await import(`@/lib/sessions/messages`)
 const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
 const { getSessionTree } = await import(`@/lib/sessions/tree`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
-const { PRIVATE_PR_LEAD, PRIVATE_REPLY_LEAD, PRIVATE_REPORT_LEAD } = await import(
+const { PRIVATE_PR_LEAD, PRIVATE_REPORT_LEAD } = await import(
   `@exp/domain-contract/chats`
 )
 
@@ -133,7 +133,7 @@ const fromSession = (sessionId: string, from: string) =>
   db
     .select()
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.authorSessionId, from)))
+    .where(and(inSession(sessionId), eq(messages.authorSessionId, from)))
     .orderBy(asc(messages.createdAt), asc(messages.id))
 
 const kindOf = (m: { card: unknown }) => (m.card as { kind?: string } | null)?.kind ?? null
@@ -192,7 +192,7 @@ describe.skipIf(!ready.ok)(`#EXP-1408: a private chat's bus lines into a shared 
     // The child's report into the private thread keeps its text.
     const [childReport] = (await fromSession(w.thread, w.childId)).filter((m) => kindOf(m) === `report`)
     expect(childReport!.card).toMatchObject({ kind: `report`, summary: expect.not.stringContaining(PRIVATE_REPORT_LEAD) })
-    const all = await db.select().from(messages).where(eq(messages.sessionId, w.conversation))
+    const all = await db.select().from(messages).where(inSession(w.conversation))
     expect(JSON.stringify(all)).not.toContain(`xyz-123`)
   })
 
@@ -252,70 +252,6 @@ describe.skipIf(!ready.ok)(`#EXP-1408: a visible origin keeps its text`, () => {
     expect(rows.find((m) => eventOf(m) === `pr_opened`)).toMatchObject({
       body: BUS_COPY.pr_opened(13, pr.url),
       card: { pullRequestId: pr.id },
-    })
-  })
-})
-
-describe.skipIf(!ready.ok)(`0199 migration: private bus lines from before lose their text`, () => {
-  const scrub = readFileSync(new URL(`../../db/out/0199_exp1408_private_bus_lines.sql`, import.meta.url), `utf8`)
-    .split(`--> statement-breakpoint`)
-    .map((statement) => statement.trim())
-    .filter(Boolean)
-
-  it(`relays, reports and PR lines in a shared conversation become neutral; sends and visible rows stay`, async () => {
-    const shared = await managed(true)
-    const visible = await managed(false)
-    // What master's bus wrote: the text, in plaintext (the reply's own row
-    // and its relay in one transaction, so one instant).
-    const legacy = async (w: Awaited<ReturnType<typeof managed>>) =>
-      db.transaction(async (tx) => {
-        await insertMessage(tx, w.thread, { authorKind: `agent`, body: SECRET })
-        const reply = await insertMessage(tx, w.conversation, { authorKind: `agent`, authorSessionId: w.thread, body: SECRET })
-        const report = await insertMessage(tx, w.conversation, {
-          authorKind: `agent`,
-          authorSessionId: w.thread,
-          body: SECRET,
-          card: { kind: `report`, sessionId: w.thread, summary: SECRET, final: true },
-        })
-        const pr = await insertMessage(tx, w.conversation, {
-          authorKind: `system`,
-          authorSessionId: w.thread,
-          body: `Opened PR #9: https://github.com/o/secret/pull/9`,
-          card: { kind: `event`, event: `pr_opened`, sessionId: w.thread, pullRequestId: crypto.randomUUID() },
-        })
-        return { reply, report, pr }
-      })
-    const hidden = await legacy(shared)
-    const kept = await legacy(visible)
-    // A session's own send into the conversation (another instant): its author wrote it there.
-    const send = await db.transaction((tx) =>
-      insertMessage(tx, shared.conversation, { authorKind: `agent`, authorSessionId: shared.thread, body: `Sent on purpose.` })
-    )
-    await inRollback(async (tx) => {
-      for (const statement of scrub) await tx.execute(sql.raw(statement))
-      const byId = async (id: string) => (await tx.select().from(messages).where(eq(messages.id, id)))[0]!
-      expect(await byId(hidden.reply)).toMatchObject({ body: privateText({ id: shared.thread }, PRIVATE_REPLY_LEAD) })
-      expect(await byId(hidden.report)).toMatchObject({
-        body: privateText({ id: shared.thread }, PRIVATE_REPORT_LEAD),
-        card: { kind: `report`, sessionId: shared.thread, summary: PRIVATE_REPORT_LEAD, final: true },
-      })
-      expect(await byId(hidden.pr)).toMatchObject({
-        body: privateText({ id: shared.thread }, PRIVATE_PR_LEAD),
-        card: { kind: `event`, event: `pr_opened`, sessionId: shared.thread },
-      })
-      expect((await byId(hidden.pr)).card).not.toHaveProperty(`pullRequestId`)
-      expect(await byId(send)).toMatchObject({ body: `Sent on purpose.` })
-      for (const id of Object.values(kept)) expect((await byId(id)).body).not.toContain(`A private chat`)
-      const [conv] = await tx
-        .select({ digest: conversations.digest })
-        .from(conversations)
-        .where(eq(conversations.sessionId, shared.conversation))
-      expect(JSON.stringify(conv!.digest)).not.toContain(`xyz-123`)
-      // Idempotent: a second run rewrites nothing.
-      for (const statement of scrub) {
-        const again = await tx.execute(sql.raw(statement))
-        expect((again as unknown as { rowCount: number }).rowCount).toBe(0)
-      }
     })
   })
 })

@@ -32,6 +32,14 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: `- **Decisions open from the inbox**: an inbox item like "Your Assistant needs a decision" now opens your Assistant with the question waiting in its chat, on web, desktop, iOS and Android; mentions in a chat open that chat too, and so does the push.`,
   },
   {
+    id: `2026-10-30-start-coding-keeps-issue`,
+    date: `2026-10-30`,
+    title: `Start coding keeps your issue`,
+    summary: `Picking an agent in the Start coding composer no longer drops the issue, and the dialog has the same agent row as the Agent page.`,
+    body: `- **Your issue stays attached**: switching the agent, device, account, model or effort in the Start coding composer keeps the issue you started from, and a picked agent gets the issue with your message.
+- **One composer**: the Start coding dialog on web and desktop is the Agent page's composer, with the agent row above the text field.`,
+  },
+  {
     id: `2026-10-30-call-reasons`,
     date: `2026-10-30`,
     title: `Calls say what's missing`,

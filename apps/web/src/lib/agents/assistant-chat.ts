@@ -2,7 +2,7 @@ import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "driz
 import { ASSISTANT } from "@exp/domain-contract/agent-settings"
 import type { MessageCard } from "@exp/db-schema/domain"
 import { agents, messages, sessions } from "@/db/schema"
-import { pendingInput } from "@/lib/sessions/messages"
+import { pendingInput, inSession } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 
 // #EXP-1439 (agent-settings.json `assistant.chat`, the spec): the Assistant's
@@ -66,14 +66,14 @@ export async function turnHasMemberInput(tx: Pick<Tx, `select`>, sessionId: stri
   const [delivered] = await tx
     .select({ at: messages.consumedAt })
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), pendingInput(), isNotNull(messages.consumedAt)))
+    .where(and(inSession(sessionId), pendingInput(), isNotNull(messages.consumedAt)))
     .orderBy(desc(messages.consumedAt))
     .limit(1)
   if (!delivered?.at) return false
   const [mine] = await tx
     .select({ id: messages.id })
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.consumedAt, delivered.at), memberInput(sessionId)))
+    .where(and(inSession(sessionId), eq(messages.consumedAt, delivered.at), memberInput(sessionId)))
     .limit(1)
   return !!mine
 }
@@ -87,7 +87,7 @@ export async function statusCardTarget(
   const [last] = await tx
     .select({ at: messages.createdAt })
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), memberInput(sessionId)))
+    .where(and(inSession(sessionId), memberInput(sessionId)))
     .orderBy(desc(messages.createdAt))
     .limit(1)
   const [row] = await tx
@@ -95,7 +95,7 @@ export async function statusCardTarget(
     .from(messages)
     .where(
       and(
-        eq(messages.sessionId, sessionId),
+        inSession(sessionId),
         eq(messages.authorSessionId, sessionId),
         sql`${messages.card}->>'kind' = 'surface'`,
         ...(last ? [gt(messages.createdAt, last.at)] : [])

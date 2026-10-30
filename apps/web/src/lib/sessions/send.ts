@@ -10,6 +10,7 @@ import {
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import {
+  conversations,
   agents,
   apps,
   attachments,
@@ -704,7 +705,8 @@ async function clientMessageResult(
   const [row] = await db
     .select({ messageId: messages.id, sessionId: sessions.id, status: sessions.status })
     .from(messages)
-    .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .innerJoin(sessions, eq(sessions.id, conversations.sessionId))
     .where(and(eq(messages.clientMessageId, clientMessageId), inArray(messages.authorId, authorIds)))
     .limit(1)
   if (!row) return null
@@ -1267,7 +1269,6 @@ async function continueSession(
     parentId,
     rootId: root.id,
     depth,
-    kind: `thread`,
     branch: ended.branch,
     title: ended.title,
     userId,
@@ -1356,7 +1357,6 @@ async function startChild(
       parentId: parent.id,
       rootId: parent.rootId,
       depth: parent.depth + 1,
-      kind: `thread`,
       userId,
       deviceId,
       ...runnerFields(input, parent),
@@ -1478,7 +1478,6 @@ async function startRoot(
       parentId: null,
       rootId: id,
       depth: 0,
-      kind: `thread`,
       userId,
       deviceId,
       startedByAgentId,

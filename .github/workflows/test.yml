@@ -4,8 +4,9 @@ name: test
 # Only the cheap checks that catch real breakage run here: the typecheck, the
 # web unit tests (four shards), the migration chain against a real Postgres
 # (order, drift, custom triggers), and `cargo check` of the desktop workspace
-# when the PR touches it. Everything heavy (the Exponential UI renderers,
-# conformance + bench, iOS, Android, the full desktop cargo test, marketing,
+# when the PR touches it, plus the eUI conformance pass (`eui`, below) when
+# it touches eUI. Everything heavy (the rest of the eUI suite: unit suites,
+# parity, guides, benches, Simulator + emulator; iOS, Android, the full desktop cargo test, marketing,
 # shots:check, the package suites, the real-DB suites, image smoke builds)
 # runs in release-suite.yml: on release tags and on workflow_dispatch.
 #
@@ -28,13 +29,14 @@ jobs:
     uses: ./.github/workflows/pick-runner.yml
     secrets: inherit
 
-  # The desktop check runs only when the PR touches what it builds;
-  # workflow_dispatch runs it always.
+  # The desktop check and the eUI conformance pass run only when the PR
+  # touches what they build; workflow_dispatch runs them always.
   changes:
     needs: pick
     runs-on: ubuntu-latest
     outputs:
       desktop: ${{ steps.f.outputs.desktop }}
+      eui: ${{ steps.f.outputs.eui }}
     steps:
       - id: f
         env:
@@ -42,10 +44,13 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          if [ -z "$PR" ]; then echo "desktop=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
           desktop='^(apps/desktop/|packages/(domain-contract|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
+          eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
+          echo "eui=$(grep -qE "$eui" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: pick
@@ -126,6 +131,17 @@ jobs:
         # floating zed git deps).
         run: cargo check --workspace --locked
 
+  # T1 eUI parity (2026-10-30): every renderer's conformance runner + the
+  # `conformant` check on every PR that touches eUI (exponential-ui.yml with
+  # conformance_only; the full suite stays in release-suite.yml).
+  eui:
+    needs: [pick, changes]
+    if: needs.changes.outputs.eui == 'true'
+    uses: ./.github/workflows/exponential-ui.yml
+    with:
+      conformance_only: true
+    secrets: inherit
+
   # EXP-1429: the gpui revision policy (zed + gpui-component revs, the
   # ztracing patch, the toolchain) agrees across the desktop workspace, the
   # painter's README, the gpui guide app and its install snippet. Text only,
@@ -142,7 +158,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, migrations, desktop, gpui-revs]
+    needs: [pick, changes, web, migrations, desktop, eui, gpui-revs]
     if: always()
     runs-on: ubuntu-latest
     steps:

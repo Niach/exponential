@@ -41,7 +41,9 @@ export function buildSecurityHeaders(
   return {
     "Content-Security-Policy": [
       `default-src 'self'`,
-      `script-src 'self' 'unsafe-inline'`,
+      // 'wasm-unsafe-eval': the eNet node (EXP-1457) is WebAssembly; it
+      // allows compiling wasm, not JS eval.
+      `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'`,
       `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
       // Avatars come from wherever the IdP hosts them (Google, an OIDC
       // provider, Gravatar), so any https image is allowed.

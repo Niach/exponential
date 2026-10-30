@@ -239,22 +239,14 @@ fun AgentScreen(
     var agentPick by remember { mutableStateOf(ComposerAgentRow.seedPick(viewModel.seed)) }
     val agentRow = remember(agents, me, agentPick) { composerAgentRowState(agents, me, agentPick) }
     val pickedAgentId = agentRow.agent?.agentId
-    // The model's agent follows the row (a tap; a send clearing the subject
-    // gets the row's agent back) ...
-    fun syncAgentPick() {
-        when {
-            pickedAgentId != null && (subject as? ComposerSubject.Agent)?.id != pickedAgentId ->
-                viewModel.pickAgent(pickedAgentId)
-            pickedAgentId == null -> viewModel.clearAgent()
-        }
-    }
-    LaunchedEffect(pickedAgentId) { syncAgentPick() }
+    // The model's recipient follows the row. EXP-1450: the recipient is NOT
+    // a subject, so the issue chips stay beside a picked agent ...
+    LaunchedEffect(pickedAgentId) { viewModel.setRecipient(pickedAgentId) }
     // ... and an issue or prompt subject picked after mount is a launch: the
     // row follows to Temporary session (iOS `onChange(of: subject)`).
     LaunchedEffect(subject) {
         val launch = subject is ComposerSubject.Issues || subject is ComposerSubject.Prompt
-        val next = ComposerAgentRow.pickForSubject(launch, agentPick)
-        if (next != agentPick) agentPick = next else syncAgentPick()
+        agentPick = ComposerAgentRow.pickForSubject(launch, agentPick)
     }
     // S-3: the composer home makes sure the viewer has an Assistant.
     LaunchedEffect(teamId) { viewModel.ensureAssistant() }
@@ -270,9 +262,10 @@ fun AgentScreen(
     // ── Subject resolution ──────────────────────────────────────────────────
     val actionSubject = subject as? ComposerSubject.Prompt
     val issueSubject = subject as? ComposerSubject.Issues
-    // NEW-3: the picked agent's row (its chip); the send goes into my DM.
-    val agentSubject = subject as? ComposerSubject.Agent
-    val selectedAgent = agentSubject?.let { picked -> agents.firstOrNull { it.agentId == picked.id } }
+    // NEW-3: the agent row's pick; the send goes into my DM (EXP-1450: with
+    // the issue chips forwarded).
+    val recipientId by viewModel.recipient.collectAsStateWithLifecycle()
+    val recipientAgent = recipientId?.let { picked -> agents.firstOrNull { it.agentId == picked } }
     // NEW-2: the picked saved prompt's synced row (its chip).
     val selectedAction = actionSubject?.let { picked ->
         actionsState.actions?.firstOrNull { it.id == picked.id }
@@ -324,25 +317,26 @@ fun AgentScreen(
         null -> hasText || images.isNotEmpty()
         is ComposerSubject.Issues -> checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
         is ComposerSubject.Prompt -> selectedAction != null
-        // NEW-3: a DM runs on the agent's own device: something to say.
-        is ComposerSubject.Agent -> selectedAgent != null && (hasText || images.isNotEmpty())
     }
     val busy = sending || starting != null || runState is ActionRunState.Sending
-    val canSubmit = (agentSubject != null || (device != null && !agentNotReady)) && !busy && subjectOk &&
+    val canSubmit = (recipientAgent != null || (device != null && !agentNotReady)) && !busy && subjectOk &&
         AgentComposerPrompt.withinLimit(
             draft,
             images.count { it.isImage },
             images.filter { !it.isImage }.map { it.filename },
         )
     // The ONE pure place the subject turns into copy: the submit's contract
-    // label and (EXP-1038) the headline verb above the field.
+    // label and (EXP-1038) the headline verb above the field. EXP-1450: a
+    // picked agent changes only the submit ("Send"); the issue headline and
+    // chips stay up beside it.
     val promptSubject = when {
-        agentSubject != null -> AgentComposerPrompt.Subject.Agent
         actionSubject != null -> AgentComposerPrompt.Subject.Action
         checkedCount > 0 -> AgentComposerPrompt.Subject.Issues(checkedCount)
         else -> AgentComposerPrompt.Subject.None
     }
-    val submitLabel = AgentComposerPrompt.submitTitle(promptSubject)
+    val submitLabel = AgentComposerPrompt.submitTitle(
+        if (recipientAgent != null) AgentComposerPrompt.Subject.Agent else promptSubject,
+    )
     val headline = AgentComposerPrompt.headline(promptSubject)
     // The reason the composer cannot start right now (iOS `blocker` parity);
     // null when it can, or when the only thing missing is the message itself.
@@ -352,7 +346,7 @@ fun AgentScreen(
     val blocker: String? = when {
         teamId == null -> "Pick a team first."
         // NEW-3: a DM needs no device of mine (the agent's runs it).
-        agentSubject != null -> null
+        recipientAgent != null -> null
         // The pool is still resolving (steer config / the devices shape's
         // first snapshot): no verdict yet, so no "no desktop" note either.
         device == null && candidateDevices == null -> null
@@ -490,7 +484,7 @@ fun AgentScreen(
     LaunchedEffect(runState) {
         val failed = runState as? ActionRunState.Failed ?: return@LaunchedEffect
         val toastId = toaster.error(
-            if (agentSubject != null) {
+            if (recipientAgent != null) {
                 FeedbackStates.errorTitle("send", "the message")
             } else {
                 FeedbackStates.errorTitle("start", "the session")
@@ -552,8 +546,8 @@ fun AgentScreen(
 
     AgentPageFrame(
         onBack = onBack,
-        // S-3: an agent picked in the agent row is no subject headline.
-        dawn = promptSubject == AgentComposerPrompt.Subject.None || agentSubject != null,
+        // EXP-1450: the subject headline stays up with an agent picked.
+        dawn = promptSubject == AgentComposerPrompt.Subject.None,
         // EXP-1316 (1f): a board-less team's Getting started block sits
         // ABOVE the dawn (the column stands on the bottom).
         lead = {
@@ -603,7 +597,7 @@ fun AgentScreen(
                     // (web `LaunchHeadline` returns null, ×4): the field's
                     // placeholder already says "Ask the agent…", and the same
                     // sentence twice is not a heading.
-                    if (promptSubject != AgentComposerPrompt.Subject.None && agentSubject == null) {
+                    if (promptSubject != AgentComposerPrompt.Subject.None) {
                         item(key = "__composer_headline__") {
                             AgentComposerHeadline(
                                 headline = headline,
@@ -618,7 +612,12 @@ fun AgentScreen(
                     item(key = "__agent_row__") {
                         ComposerAgentRowView(
                             state = agentRow,
-                            onPick = { id -> agentPick = id },
+                            // EXP-1450 (`pickCases`): a tap keeps the issue
+                            // chips; only a prompt goes for an agent.
+                            onPick = { id ->
+                                agentPick = id
+                                viewModel.applyRowPick(id)
+                            },
                             modifier = Modifier.padding(bottom = (ComposerAgentRow.ROW_TO_CARD - 6).dp.coerceAtLeast(0.dp)),
                         )
                     }
@@ -670,7 +669,7 @@ fun AgentScreen(
                             // The field's prompt per subject — a chat asks for
                             // the message, anything else what is optional
                             // next to it.
-                            placeholder = composerPlaceholder(subject, home = true),
+                            placeholder = composerPlaceholder(subject, home = true, recipient = recipientAgent != null),
                             pendingImages = images,
                             imageError = imageError,
                             sending = sending || starting != null,
@@ -769,7 +768,7 @@ fun AgentScreen(
         val claude = launch.agent == DEFAULT_AGENT
         // S-3: Temporary session = today's launch (runner + work rows); an
         // agent picked runs on its definition (add-file and Issue only).
-        val temporary = agentSubject == null
+        val temporary = recipientAgent == null
         val accountOptions = accountOptionsFor(device, availableAgentsFor(device))
         val account = accountOptions.firstOrNull { it.key == launch.accountKey } ?: accountOptions.firstOrNull()
         // #EXP-1434: Prompts › = the `/` menu's prompts, in its order.

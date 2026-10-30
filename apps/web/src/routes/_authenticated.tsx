@@ -6,6 +6,7 @@ import {
   hasFirstTouchParams,
 } from "@/lib/conversion/first-touch"
 import { trpc } from "@/lib/trpc-client"
+import { useWebInstall } from "@/lib/enet/use-web-install"
 
 export const Route = createFileRoute(`/_authenticated`)({
   ssr: false,
@@ -35,6 +36,9 @@ let attributionClaimed = false
 let timezoneClaimed = false
 
 function AuthenticatedLayout() {
+  // EXP-1457: this browser install's eNet node (lazy wasm, relay-only).
+  useWebInstall(Route.useRouteContext().user.id)
+
   // Cookieless signup attribution (EXP-362): ref/utm params ride URLs from
   // the marketing site through the auth flow; the first authenticated load
   // claims them for the account. Fire-and-forget and once per page load —

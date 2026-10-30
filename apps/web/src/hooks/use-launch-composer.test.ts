@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import fixture from "@exp/domain-contract/fixtures/composer-home.json" with { type: "json" }
 import type { SteerDevice } from "@/lib/steer-devices"
 
 // EXP-825 / EXP-1293: the composer's model: swap rules, submit labels, the
@@ -333,7 +334,7 @@ describe(`useLaunchComposer subject`, () => {
     expect(result.current.blocked).toBe(true)
   })
 
-  it(`S-3: without the agent row (the launch dialog) it is a temporary session`, () => {
+  it(`S-3: without the agent row it is a temporary session`, () => {
     const { result } = mount()
     expect(result.current.agentRow).toBeNull()
     expect(result.current.recipient).toBeNull()
@@ -365,6 +366,40 @@ describe(`useLaunchComposer subject`, () => {
     expect(result.current.agentRow?.selected).toBe(`temporary`)
     expect(result.current.subject).toEqual({ kind: `prompt`, id: `pr-1` })
   })
+
+  // EXP-1450 (composer-home.json `agentRow.pickCases`): a tap on the row
+  // never drops the issue chips; only a prompt goes when an agent is picked.
+  for (const c of fixture.agentRow.pickCases) {
+    it(`pickCases: ${c.name}`, () => {
+      const { result } = mount(null, [device], true)
+      const subject = c.subject as { kind: string; ids?: string[]; id?: string } | null
+      if (subject?.kind === `issues`) for (const id of subject.ids ?? []) act(() => result.current.toggleIssue(id))
+      if (subject?.kind === `prompt`) act(() => result.current.pickPrompt(subject.id ?? ``))
+      act(() => result.current.pickRecipient(c.pick === `g-me` ? `ag-me` : c.pick === `g-b` ? `ag-1` : c.pick))
+      expect(result.current.subject).toEqual(c.expected)
+    })
+  }
+
+  // EXP-1450 (composer-home.json `agentRow.controlCases`): start coding from
+  // an issue, switch a control: the issue stays attached.
+  for (const c of fixture.agentRow.controlCases) {
+    it(`controlCases: ${c.name}`, () => {
+      const other: SteerDevice = { ...device, rowId: `row-2`, deviceId: `dev-2`, agents: [`claude`, `codex`] }
+      const { result } = mount({ issueIds: [`i1`] }, [device, other], true)
+      expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i1`] })
+      act(() => {
+        const launch = result.current.launch
+        if (c.control === `agentRow`) result.current.pickRecipient(`ag-1`)
+        if (c.control === `device`) launch.setDeviceId(`dev-2`)
+        if (c.control === `agent`) launch.switchAgent(`codex`)
+        if (c.control === `account`) launch.setAccountKey(`codex:ambient`)
+        if (c.control === `model`) launch.setModel(`opus`)
+        if (c.control === `effort`) launch.setEffortValue(`high`)
+      })
+      expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i1`] })
+      expect(result.current.checkedIssues.map((row) => row.id)).toEqual([`i1`])
+    })
+  }
 
   it(`consumes a seed once: issues, text only into an empty draft`, () => {
     const { result, onSeedConsumed } = mount({ issueIds: [`i1`, `i1`], text: `do it` })

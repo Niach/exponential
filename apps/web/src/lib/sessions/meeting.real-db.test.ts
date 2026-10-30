@@ -6,6 +6,7 @@ import { db } from "@/db/connection"
 import { agents, conversations, devices, messages, sessions, teamMembers, teams, userVoiceSettings } from "@/db/schema"
 import { stopNote } from "@exp/etalk/meeting"
 import { probeRealDb } from "@/test/real-db"
+import { inSession } from "@/lib/sessions/messages"
 
 // NEW-57 (meeting.json RESIDENCY) against the REAL migrated Postgres:
 // `sessions.send {meeting: true}` stamps `messages.expires_at` only on the
@@ -181,7 +182,7 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
       sendSession({ userId: w.owner, input: { sessionId: hello.sessionId, text: `batch` }, meeting: true })
     ).rejects.toMatchObject(sharedRefused)
     expect(
-      (await db.select({ id: messages.id }).from(messages).where(eq(messages.sessionId, hello.sessionId))).length
+      (await db.select({ id: messages.id }).from(messages).where(inSession(hello.sessionId))).length
     ).toBe(1)
 
     // Unsharing the box later: the conversation was stamped shared, still refused.
@@ -266,7 +267,7 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
     expect(await stopExpiredMeetings(NOW)).toBe(1)
     // A second sweep (or a racing device stop) finds nothing to clear.
     expect(await stopExpiredMeetings(NOW)).toBe(0)
-    const notes = await db.select().from(messages).where(and(eq(messages.sessionId, convo.sessionId), eq(messages.authorKind, `system`)))
+    const notes = await db.select().from(messages).where(and(inSession(convo.sessionId), eq(messages.authorKind, `system`)))
     expect(notes.map((note) => note.body)).toEqual([stopNote(`autoStop`, 1)])
     expect(notes[0]!.consumedAt).not.toBeNull()
     expect(notes[0]!.card).toBeNull()
@@ -281,7 +282,7 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
     await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: w.ops, voiceDeviceId: w.deviceId, meetingAutoStopHours: 2 })
     const convo = await sendSession({ userId: w.owner, input: { agentId: w.ops, text: `hello` } })
     const notes = async () =>
-      (await db.select().from(messages).where(and(eq(messages.sessionId, convo.sessionId), eq(messages.authorKind, `system`))).orderBy(asc(messages.createdAt), asc(messages.id))).map((note) => note.body)
+      (await db.select().from(messages).where(and(inSession(convo.sessionId), eq(messages.authorKind, `system`))).orderBy(asc(messages.createdAt), asc(messages.id))).map((note) => note.body)
 
     // The device's auto-stop on an expired stamp (it already reads as none).
     const old = new Date(Date.now() - 3 * 60 * 60 * 1000 - 123)

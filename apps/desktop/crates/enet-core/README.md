@@ -39,8 +39,10 @@ node.send_chat(peer_id, b"hi".to_vec()).await?;   // acked by the peer
   peer is allowed (`allow`/`revoke`), or the app's hook `(peer, alpn) -> bool`
   says yes. Refusal happens right after the TLS handshake (so the peer id is
   authenticated), closes with QUIC application code 403, raises
-  `Event::PeerRefused`, and the dialer gets `NetError::Refused`. Outgoing
-  connections are not gated.
+  `Event::PeerRefused`, and the dialer gets `NetError::Refused`. `revoke` and
+  `set_open(false)` also close the connections already let in whose peer is no
+  longer allowed (same code 403), so a cached link cannot outlive its access.
+  Outgoing connections are not gated.
 
 ## Channels
 

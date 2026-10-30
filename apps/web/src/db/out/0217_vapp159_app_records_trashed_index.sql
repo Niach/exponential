@@ -1,0 +1,1 @@
+CREATE INDEX "idx_app_records_trashed" ON "app_records" USING btree (least("deleted_at", "app_deleted_at")) WHERE least("app_records"."deleted_at", "app_records"."app_deleted_at") IS NOT NULL;

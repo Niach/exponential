@@ -119,6 +119,7 @@ impl EndpointHooks for AccessHook {
                 let _ = self.events.send(Event::PeerRefused { peer, alpn: conn.alpn().to_vec() });
                 return AfterHandshakeOutcome::Reject { error_code: NOT_ALLOWED_CODE.into(), reason: b"not allowed".to_vec() };
             }
+            self.access.admitted(conn);
         }
         AfterHandshakeOutcome::Accept
     }

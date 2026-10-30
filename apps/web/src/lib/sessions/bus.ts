@@ -12,7 +12,7 @@ import {
   PRIVATE_REPORT_LEAD,
 } from "@exp/domain-contract/chats"
 import { messages, sessions, type Session } from "@/db/schema"
-import { insertMessage } from "@/lib/sessions/messages"
+import { insertMessage, inSession } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 
 // NEW-1: THE server bus. Every transition of a session S is posted into
@@ -393,7 +393,7 @@ export async function reportSummary(
       .from(messages)
       .where(
         and(
-          eq(messages.sessionId, child.id),
+          inSession(child.id),
           eq(messages.authorKind, `agent`),
           isNull(messages.card),
           isNull(messages.authorSessionId)

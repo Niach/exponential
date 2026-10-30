@@ -12,6 +12,7 @@ import {
   issueDrafts,
   issues,
   messages,
+  pins,
   prompts,
   pullRequestIssues,
   pullRequests,
@@ -80,7 +81,14 @@ describe(`shape column allowlists`, () => {
 })
 
 describe(`sessions allowlist`, () => {
-  it(`syncs none of the legacy NEW-8 columns, nor the server-only ones`, () => {
+  it(`keeps the bus columns server-only`, () => {
+    expect(SESSION_COLUMNS).not.toContain(`wake_on`)
+    expect(SESSION_COLUMNS).not.toContain(`mcp_server_ids`)
+    expect(SESSION_COLUMNS).toContain(`agent_id`)
+  })
+  it(`the NEW-8 legacy columns are gone from the tables`, () => {
+    const names = (table: Parameters<typeof getTableColumns>[0]) =>
+      Object.values(getTableColumns(table)).map((column) => column.name)
     for (const legacy of [
       `kind`,
       `dispatch`,
@@ -97,14 +105,11 @@ describe(`sessions allowlist`, () => {
       `action_id`,
       `action_name`,
       `action_inputs`,
-      `wake_on`,
-      `mcp_server_ids`,
     ]) {
-      expect(SESSION_COLUMNS).not.toContain(legacy)
+      expect(names(sessions)).not.toContain(legacy)
     }
-    expect(SESSION_ISSUE_COLUMNS).not.toContain(`assigned_session_id`)
-    expect(MESSAGE_COLUMNS).not.toContain(`session_id`)
-    expect(SESSION_COLUMNS).toContain(`agent_id`)
+    expect(names(sessionIssues)).not.toContain(`assigned_session_id`)
+    expect(names(pins)).not.toContain(`action_id`)
   })
   it(`keeps an agent's instructions and trigger bookkeeping server-only`, () => {
     expect(AGENT_COLUMNS).not.toContain(`instructions`)

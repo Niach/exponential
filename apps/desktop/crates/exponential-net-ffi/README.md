@@ -33,7 +33,9 @@ bindings. License: MIT OR Apache-2.0.
 - Calls: `startCall(peer)` → call id, `acceptCall`, `sendFrame(call, opus)` →
   seq, `hangUp`.
 - `shutdown()`.
-- Free functions: `generateIdentity`, `endpointIdOf`, `parseTicket`,
+- Free functions: `generateIdentity`, `endpointIdOf`, `identitySign(identity,
+  message)` (64-byte ed25519; the install registration signature, vector in
+  `packages/domain-contract/fixtures/install-register.json`), `parseTicket`,
   `pushKeypairDerive(identity)` / `pushKeypairGenerate` (`{secret, public}`),
   `pushSeal(recipientPublic, plaintext)`, and **`pushOpen(recipientSecret,
   sealed)`** for the iOS Notification Service Extension / the Android FCM
@@ -58,12 +60,19 @@ bash apps/desktop/crates/exponential-net-ffi/run-binding-tests.sh  # the Swift s
 `ENET_PUSH_ONLY=1` on any of the three scripts builds the facade with
 `--no-default-features`: `enet-core` without its `node` feature, so
 only `pushOpen`, `pushSeal`, `pushKeypairGenerate`/`Derive` and `EnetError`
-remain, on RustCrypto alone (no iroh, no tokio). It is what the Exponential
-apps link (the iOS Notification Service Extension has a ~24 MB memory cap):
-bindings under `bindings/push/{swift,kotlin}` (committed), artifacts under
-`out/push/` (`ExponentialNetFFI.xcframework`, `jniLibs/<abi>/libexponential_net_ffi.so`).
-Same module/package/library names as the full build, so an app links one or
-the other, never both. `tests/push_fixture.rs` replays
+remain, on RustCrypto alone (no iroh, no tokio). It is what the iOS
+Notification Service Extension links (~24 MB memory cap): bindings under
+`bindings/push/swift` (committed), artifacts under `out/push/`
+(`ExponentialNetPush.xcframework`). Android links the FULL node instead
+(VAPP-40): its FCM service runs in the app process, so one `.so` serves both
+the nodes and `pushOpen`; the app's `buildEnetFfi` gradle task runs
+`build-android.sh` before `merge*JniLibFolders`. The push build's Swift names
+differ from the full build's (`uniffi-push.toml`): module `ExponentialNetPush`,
+C module `ExponentialNetPushFFI`, library `libexponential_net_push.a`, so the
+iOS app links both side by side (VAPP-40: `ExpCore`, a dynamic framework,
+holds the full node; the Notification Service Extension and `ExpPush` the push
+build) without two xcframeworks writing the same build product.
+`tests/push_fixture.rs` replays
 `packages/domain-contract/fixtures/push-seal.json` in both builds
 (`cargo test -p exponential-net-ffi --no-default-features`).
 

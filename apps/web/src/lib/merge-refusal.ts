@@ -3,7 +3,7 @@ import { db } from "@/db/connection"
 import { messages, pullRequests, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { askHidden } from "@/lib/sessions/bus"
-import { insertMessage } from "@/lib/sessions/messages"
+import { insertMessage, inSession } from "@/lib/sessions/messages"
 import {
   isMergeRefusal,
   MERGE_REFUSAL_COPY,
@@ -87,7 +87,7 @@ export async function postMergeRefusal(args: {
       const live = target.status !== `ended`
       const body = mergeRefusalText(pr.number, refusal.message, refusal.kind)
       const ofThisPr = and(
-        eq(messages.sessionId, target.id),
+        inSession(target.id),
         sql`${messages.card}->>'event' = 'pr_merge_refused'`,
         sql`${messages.card}->>'pullRequestId' = ${args.pullRequestId}`
       )

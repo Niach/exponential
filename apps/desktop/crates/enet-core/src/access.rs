@@ -1,12 +1,14 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     },
 };
 
-use iroh::EndpointId;
+use iroh::{endpoint::Connection, EndpointId};
+
+use crate::node::NOT_ALLOWED_CODE;
 
 type Hook = Arc<dyn Fn(EndpointId, &[u8]) -> bool + Send + Sync>;
 
@@ -16,6 +18,11 @@ type Hook = Arc<dyn Fn(EndpointId, &[u8]) -> bool + Send + Sync>;
 /// the TLS handshake (so the refusal is authenticated) and an
 /// [`crate::Event::PeerRefused`] is raised. Outgoing connections are not
 /// gated: dialing a peer is the app's own decision.
+///
+/// Taking access away also ends what was already let in: [`Access::revoke`]
+/// and `set_open(false)` close every admitted connection whose peer is no
+/// longer allowed on its channel (close code 403, so the peer sees
+/// `Refused`), instead of letting a cached link keep talking.
 #[derive(Clone, Default)]
 pub struct Access {
     inner: Arc<Inner>,
@@ -26,6 +33,8 @@ struct Inner {
     open: AtomicBool,
     allowed: RwLock<HashSet<EndpointId>>,
     hook: RwLock<Option<Hook>>,
+    /// Incoming connections let in, per peer (pruned as they close).
+    live: Mutex<HashMap<EndpointId, Vec<Connection>>>,
 }
 
 impl std::fmt::Debug for Access {
@@ -43,12 +52,16 @@ impl Access {
     }
     pub fn revoke(&self, peer: &EndpointId) {
         self.inner.allowed.write().expect("access lock").remove(peer);
+        self.enforce(Some(peer));
     }
     pub fn allowed_peers(&self) -> Vec<EndpointId> {
         self.inner.allowed.read().expect("access lock").iter().copied().collect()
     }
     pub fn set_open(&self, open: bool) {
         self.inner.open.store(open, Ordering::SeqCst);
+        if !open {
+            self.enforce(None);
+        }
     }
     pub fn is_open(&self) -> bool {
         self.inner.open.load(Ordering::SeqCst)
@@ -64,5 +77,32 @@ impl Access {
         }
         let hook = self.inner.hook.read().expect("access lock").clone();
         hook.is_some_and(|h| h(*peer, alpn))
+    }
+
+    /// Remembers an incoming connection the policy let in.
+    pub(crate) fn admitted(&self, conn: &Connection) {
+        let mut live = self.inner.live.lock().expect("access lock");
+        live.retain(|_, conns| {
+            conns.retain(|c| c.close_reason().is_none());
+            !conns.is_empty()
+        });
+        live.entry(conn.remote_id()).or_default().push(conn.clone());
+    }
+
+    /// Closes the admitted connections (of `peer`, or of everyone) whose
+    /// peer the policy no longer allows on that channel.
+    fn enforce(&self, peer: Option<&EndpointId>) {
+        let candidates: Vec<Connection> = {
+            let live = self.inner.live.lock().expect("access lock");
+            match peer {
+                Some(p) => live.get(p).cloned().unwrap_or_default(),
+                None => live.values().flatten().cloned().collect(),
+            }
+        };
+        for conn in candidates {
+            if !self.is_allowed(&conn.remote_id(), conn.alpn()) {
+                conn.close(NOT_ALLOWED_CODE.into(), b"not allowed");
+            }
+        }
     }
 }

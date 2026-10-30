@@ -1,5 +1,5 @@
-module ExponentialNetFFIFFI {
-    header "ExponentialNetFFIFFI.h"
+module ExponentialNetPushFFI {
+    header "ExponentialNetPushFFI.h"
     export *
     use "Darwin"
     use "_Builtin_stdbool"
