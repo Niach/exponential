@@ -181,9 +181,78 @@ class SealedContentFixtureTest {
         val opened = Json.parseToJsonElement(SealedContent.conversation(row, root, mapOf(root to keys)).digest!!).jsonObject
         assertEquals(body.str("text"), opened.obj("first").str("body"))
         assertEquals(split.obj("card"), opened.obj("waiting").obj("card"))
-        // Without a key (or a root) the digest stays as synced.
-        assertEquals(digest, SealedContent.conversation(row, root, emptyMap()).digest)
+        // Without a key each slot is LOCKED (empty body, the card's clear part, the reason).
+        val locked = Json.parseToJsonElement(SealedContent.conversation(row, root, emptyMap()).digest!!).jsonObject
+        assertEquals("noKey", locked.obj("first").str("locked"))
+        assertEquals("", locked.obj("first").str("body"))
+        assertEquals(split.obj("clear"), locked.obj("waiting").obj("card"))
+        // Without a root the digest stays as synced.
         assertEquals(digest, SealedContent.conversation(row, null, mapOf(root to keys)).digest)
+        // Chats reads the reason back.
+        val messages = com.exponential.app.domain.Chats.digestMessages(root, locked)
+        assertEquals(listOf("noKey", "noKey"), messages.mapNotNull { it.locked })
+    }
+
+    // ── placeholder (the locked state) ──────────────────────────────────────
+
+    private val placeholder get() = fixture.obj("placeholder")
+
+    @Test
+    fun thePlaceholderCopyAndIconAreTheFixtures() {
+        assertEquals(placeholder.str("icon"), com.exponential.app.domain.SealedPlaceholder.ICON)
+        assertEquals(placeholder.obj("copy").str("noKey"), com.exponential.app.domain.SealedPlaceholder.COPY_NO_KEY)
+        assertEquals(placeholder.obj("copy").str("unreadable"), com.exponential.app.domain.SealedPlaceholder.COPY_UNREADABLE)
+        for ((status, reason) in placeholder.obj("reasons")) {
+            val sealStatus = SealStatus.entries.single { it.wire == status }
+            assertEquals(status, reason.jsonPrimitive.content, SealedContent.lockedReason(sealStatus))
+        }
+        assertEquals(null, SealedContent.lockedReason(SealStatus.Plain))
+        assertEquals(null, SealedContent.lockedReason(SealStatus.Opened))
+    }
+
+    @Test
+    fun everyMessageCaseOpensToItsLockedBodyAndCard() {
+        for (case in placeholder["messageCases"]!!.jsonArray.map { it.jsonObject }) {
+            val name = case.str("name")
+            SealedContent.clearCache()
+            val caseKeys = case.obj("keys").entries.associate { (epoch, secret) -> epoch.toInt() to secret.jsonPrimitive.content.hexBytes() }
+            val message = case.obj("message")
+            val card = (message["card"] as? JsonObject)?.toString()
+            val opened = SealedContent.openMessage(root, message.str("body"), card, mapOf(root to caseKeys))
+            val expected = case.obj("expected")
+            assertEquals(name, (expected["locked"] as? JsonPrimitive)?.takeIf { it.isString }?.content, opened.locked)
+            assertEquals(name, expected.str("body"), opened.body)
+            assertEquals(name, expected["card"], opened.cardJson?.let(Json::parseToJsonElement) ?: JsonNull)
+        }
+    }
+
+    @Test
+    fun everyPreviewCaseReadsTheLockedCopy() {
+        for (case in placeholder["previewCases"]!!.jsonArray.map { it.jsonObject }) {
+            val messages = case["messages"]!!.jsonArray.map { it.jsonObject }.map { m ->
+                com.exponential.app.domain.SessionTree.Message(
+                    id = m.str("id"),
+                    sessionId = "r",
+                    authorKind = m.str("authorKind"),
+                    authorId = null,
+                    body = m.str("body"),
+                    card = m["card"] as? JsonObject,
+                    answeredAt = null,
+                    consumedAt = null,
+                    createdAt = m.str("createdAt"),
+                    locked = (m["locked"] as? JsonPrimitive)?.content,
+                )
+            }
+            val preview = com.exponential.app.domain.Chats.chatPreview(
+                rootId = "r",
+                messages = messages,
+                needsYou = case["needsYou"]!!.jsonPrimitive.content.toBoolean(),
+                busy = case["busy"]!!.jsonPrimitive.content.toBoolean(),
+            )
+            val expected = case.obj("expected")
+            assertEquals(case.str("name"), expected.str("kind"), preview.kind)
+            assertEquals(case.str("name"), expected.str("text"), preview.text)
+        }
     }
 
     @Test

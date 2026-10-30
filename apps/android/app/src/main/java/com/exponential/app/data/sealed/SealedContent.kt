@@ -44,41 +44,78 @@ object SealedContent {
     fun isSealedCard(card: JsonObject?): Boolean = card?.containsKey(CARD_SEALED) == true
 
     /** [body] opened with [rootId]'s keys, or itself (plaintext, or not openable here). */
-    fun openBody(rootId: String, body: String, keys: TreeKeys = SealedKeys.keys.value): String {
-        if (!isSealedBody(body)) return body
+    fun openBody(rootId: String, body: String, keys: TreeKeys = SealedKeys.keys.value): String = bodyResult(rootId, body, keys).first
+
+    /** A card's JSON opened (the sealed card with the clear fields over it), or itself. */
+    fun openCardJson(rootId: String, cardJson: String, keys: TreeKeys = SealedKeys.keys.value): String {
+        val (json, status) = cardResult(rootId, cardJson, keys)
+        return if (status == SealStatus.Opened) json else cardJson
+    }
+
+    /** The text (or the body itself when it does not open) and the open status. */
+    private fun bodyResult(rootId: String, body: String, keys: TreeKeys): Pair<String, SealStatus> {
+        if (!isSealedBody(body)) return body to SealStatus.Plain
         val cacheKey = "b|$rootId|$body"
         // Only while the tree's keys are held (a signed-out account's are dropped).
-        if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return it }
+        if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return it to SealStatus.Opened }
         val opened = try {
             crypto.openBody(body, keys[rootId].orEmpty())
         } catch (err: Throwable) {
             Log.w(TAG, "open body failed: ${err.javaClass.simpleName}")
-            return body
+            return body to SealStatus.Malformed
         }
         return when (opened.status) {
-            SealStatus.Opened, SealStatus.Plain -> (opened.text ?: body).also { synchronized(cache) { cache[cacheKey] = it } }
-            SealStatus.NoKey -> body.also { askFor(rootId, opened.epoch) }
-            else -> body
+            SealStatus.Opened, SealStatus.Plain -> (opened.text ?: body).also { synchronized(cache) { cache[cacheKey] = it } } to SealStatus.Opened
+            SealStatus.NoKey -> body.also { askFor(rootId, opened.epoch) } to SealStatus.NoKey
+            else -> body to opened.status
         }
     }
 
-    /** A card's JSON opened (the sealed card with the clear fields over it), or itself. */
-    fun openCardJson(rootId: String, cardJson: String, keys: TreeKeys = SealedKeys.keys.value): String {
-        if (!cardJson.contains("\"$CARD_SEALED\"")) return cardJson
+    /** The opened card JSON, or its clear part when it does not open, and the open status. */
+    private fun cardResult(rootId: String, cardJson: String, keys: TreeKeys): Pair<String, SealStatus> {
+        if (!cardJson.contains("\"$CARD_SEALED\"")) return cardJson to SealStatus.Plain
         val cacheKey = "c|$rootId|$cardJson"
-        if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return it }
+        if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return it to SealStatus.Opened }
         val opened = try {
             crypto.openCard(cardJson, keys[rootId].orEmpty())
         } catch (err: Throwable) {
             Log.w(TAG, "open card failed: ${err.javaClass.simpleName}")
-            return cardJson
+            return clearPart(cardJson) to SealStatus.Malformed
         }
         return when (opened.status) {
-            SealStatus.Opened -> opened.cardJson.also { synchronized(cache) { cache[cacheKey] = it } }
-            SealStatus.Plain -> cardJson
-            SealStatus.NoKey -> cardJson.also { askFor(rootId, opened.epoch) }
-            else -> cardJson
+            SealStatus.Opened -> opened.cardJson.also { synchronized(cache) { cache[cacheKey] = it } } to SealStatus.Opened
+            SealStatus.Plain -> cardJson to SealStatus.Plain
+            SealStatus.NoKey -> opened.cardJson.also { askFor(rootId, opened.epoch) } to SealStatus.NoKey
+            else -> opened.cardJson to opened.status
         }
+    }
+
+    private fun clearPart(cardJson: String): String =
+        runCatching { JsonObject((Json.parseToJsonElement(cardJson) as JsonObject) - CARD_SEALED).toString() }.getOrDefault("{}")
+
+    /** sealed-content.json `placeholder.reasons`: null = opened (or plaintext). */
+    fun lockedReason(status: SealStatus): String? = when (status) {
+        SealStatus.Plain, SealStatus.Opened -> null
+        SealStatus.NoKey -> LOCKED_NO_KEY
+        SealStatus.Unsupported, SealStatus.Malformed, SealStatus.Refused -> LOCKED_UNREADABLE
+    }
+
+    const val LOCKED_NO_KEY = "noKey"
+    const val LOCKED_UNREADABLE = "unreadable"
+
+    /** A message opened (the TS reference `openMessage`): when the body or card stays sealed it is [OpenedMessage.locked], with an empty body and the card's clear part. */
+    data class OpenedMessage(val body: String, val cardJson: String?, val locked: String?)
+
+    fun openMessage(rootId: String, body: String, cardJson: String?, keys: TreeKeys = SealedKeys.keys.value): OpenedMessage {
+        val (text, bodyStatus) = bodyResult(rootId, body, keys)
+        val card = cardJson?.let { cardResult(rootId, it, keys) }
+        val reasons = listOfNotNull(lockedReason(bodyStatus), card?.let { lockedReason(it.second) })
+        val locked = when {
+            LOCKED_NO_KEY in reasons -> LOCKED_NO_KEY
+            LOCKED_UNREADABLE in reasons -> LOCKED_UNREADABLE
+            else -> null
+        }
+        return OpenedMessage(body = if (locked != null) "" else text, cardJson = card?.first, locked = locked)
     }
 
     fun openCard(rootId: String, card: JsonObject, keys: TreeKeys = SealedKeys.keys.value): JsonObject {
@@ -116,16 +153,14 @@ object SealedContent {
         for (slot in DIGEST_SLOTS) {
             val message = root[slot] as? JsonObject ?: continue
             val out = message.toMutableMap()
-            val body = (message["body"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-            if (body != null && isSealedBody(body)) {
-                val text = openBody(rootId, body, keys)
-                if (text !== body) out["body"] = JsonPrimitive(text)
-            }
+            val body = (message["body"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
             val card = message["card"] as? JsonObject
-            if (card != null && isSealedCard(card)) {
-                val opened = openCard(rootId, card, keys)
-                if (opened !== card) out["card"] = opened
-            }
+            if (!isSealedBody(body) && !isSealedCard(card)) continue
+            val opened = openMessage(rootId, body, card?.toString(), keys)
+            out["body"] = JsonPrimitive(opened.body)
+            opened.cardJson?.let { json -> runCatching { Json.parseToJsonElement(json) }.getOrNull()?.let { out["card"] = it } }
+            // The locked reason rides the slot (Chats.digestMessages reads it).
+            opened.locked?.let { out["locked"] = JsonPrimitive(it) }
             if (out != message) {
                 next[slot] = JsonObject(out)
                 changed = true

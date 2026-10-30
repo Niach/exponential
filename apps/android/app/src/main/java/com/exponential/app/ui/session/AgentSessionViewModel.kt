@@ -802,7 +802,11 @@ class AgentSessionViewModel @AssistedInject constructor(
         auth.userId,
     ) { rows, me ->
         rows.filter { me != null && it.authorId == me }
-            .map { QueuedMessage(id = it.id, text = it.body) }
+            .map { row ->
+                // EXP-1459: a queued message this install cannot open reads the locked copy.
+                val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row.rootId, row.body, row.card)
+                QueuedMessage(id = row.id, text = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body)
+            }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The composer's typed text — held by the connection, so it survives a
