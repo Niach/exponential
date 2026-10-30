@@ -904,7 +904,7 @@ mod tests {
     fn setup(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| {
             gpui_component::init(cx);
-            theme::init(cx);
+            gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
             install(cx);
         });
     }

@@ -6,7 +6,8 @@ license.workspace = true
 description = "The single-account agent core shared by Exponential and spezl: spawn the user's own unmodified claude/codex, stream, session history, the login PTY, MCP wiring. No server."
 repository = "https://github.com/Niach/exponential"
 readme = "README.md"
-# EXP-1426: not published yet (EXP-1430 owns the release pipeline).
+# EXP-1420: a git dependency on `agent-runtime-v<version>` tags
+# (release-agent-runtime.yml, docs/libraries.md), never crates.io.
 publish = false
 
 # THE RULE (gated by `tests/dependency_gate.rs`): this crate depends on no

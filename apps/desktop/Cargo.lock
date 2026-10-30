@@ -3046,7 +3046,6 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "theme",
  "tray-icon",
  "uuid",
  "windows-sys 0.59.0",
