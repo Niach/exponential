@@ -278,6 +278,27 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `assistant runsOnCases`() {
+        val cases = assistant.getValue("runsOnCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val devices = case.getValue("devices").jsonArray.map {
+                val d = it.jsonObject
+                AgentSettings.RunsOnDevice(d.str("deviceId")!!, d.str("kind"))
+            }
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                AgentSettings.runsOnDeviceIds(
+                    devices,
+                    case.str("boundId"),
+                    case.getValue("assistant").jsonPrimitive.boolean,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun `assistant modelValueCases`() {
         val cases = assistant.getValue("modelValueCases").jsonArray.map { it.jsonObject }
         assertTrue(cases.isNotEmpty())

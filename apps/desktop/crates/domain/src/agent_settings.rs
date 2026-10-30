@@ -334,6 +334,22 @@ pub fn assistant_model_value(model: Option<&str>, cli: Option<&str>) -> String {
     }
 }
 
+/// TS `runsOnDeviceIds` (NEW-99, `runsOnCases`): the Runs on device
+/// picker's devices, as `(device_id, kind)` pairs in order. An Assistant's
+/// device is the member's voice device, so it lists desktops only (a bound
+/// non-desktop stays, naming itself); a team agent keeps all.
+pub fn runs_on_device_ids<'a>(
+    devices: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+    bound_id: Option<&str>,
+    assistant: bool,
+) -> Vec<&'a str> {
+    devices
+        .into_iter()
+        .filter(|(device_id, kind)| !assistant || *kind == Some("desktop") || Some(*device_id) == bound_id)
+        .map(|(device_id, _)| device_id)
+        .collect()
+}
+
 /// TS `assistantScheduleOf`: the preset id stored triggers stand for
 /// (`off` = none or a paused preset); None = not an Assistant's (an event,
 /// a custom cron, more than one) and `agents.update` refuses it.
@@ -563,6 +579,28 @@ mod tests {
             assert_eq!(
                 assistant_model_value(input["model"].as_str(), input["cli"].as_str()),
                 case["expected"].as_str().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
+    fn assistant_runs_on_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["runsOnCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let devices = case["devices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|device| (device["deviceId"].as_str().unwrap(), device["kind"].as_str()));
+            let expected: Vec<&str> =
+                case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(
+                runs_on_device_ids(devices, case["boundId"].as_str(), case["assistant"].as_bool().unwrap()),
+                expected,
                 "{}",
                 case["name"]
             );

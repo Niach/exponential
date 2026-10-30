@@ -605,6 +605,9 @@ pub enum SpeechState {
     Downloading,
     /// No usable GPU: replies are shown, never spoken.
     NoGpu,
+    /// NEW-99: the voice failed to load (the download failed before any
+    /// voice was known, or the worker crashed three times in a row).
+    Failed,
 }
 
 /// NEW-55: append the voice group's `speech` row (pure). The IDE calls it
@@ -616,6 +619,7 @@ pub fn add_speech(doctor: &mut DeviceDoctor, state: SpeechState) {
         SpeechState::Ready => row(DoctorState::Ok).detail(READY),
         SpeechState::Downloading => row(DoctorState::Off).detail(DOWNLOADING),
         SpeechState::NoGpu => row(DoctorState::Missing).detail(NO_USABLE_GPU),
+        SpeechState::Failed => row(DoctorState::Error).detail(DOWNLOAD_FAILED),
     });
 }
 
@@ -1056,6 +1060,24 @@ mod tests {
             ]
         );
         assert_eq!(label(KEY_WAKE), "Wake word");
+    }
+
+    #[test]
+    fn speech_row_states() {
+        let cases = [
+            (SpeechState::Ready, DoctorState::Ok, "Ready"),
+            (SpeechState::Downloading, DoctorState::Off, "Downloading…"),
+            (SpeechState::NoGpu, DoctorState::Missing, "No usable GPU"),
+            // NEW-99: a dead voice reads error · Download failed (voice-call.json `voiceFailed`).
+            (SpeechState::Failed, DoctorState::Error, "Download failed"),
+        ];
+        for (state, expect, detail) in cases {
+            let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+            add_speech(&mut doctor, state);
+            let row = &doctor.items[0];
+            assert_eq!((row.key.as_str(), row.group, row.state), (KEY_SPEECH, DoctorGroup::Voice, expect));
+            assert_eq!((row.detail.as_deref(), row.action), (Some(detail), None));
+        }
     }
 
     #[test]

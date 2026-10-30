@@ -14,9 +14,21 @@ export const VOICE_CALL_PILL = fixture.pill
 
 export type CallPlatform = `desktop` | `phone` | `web`
 /** The voice device's doctor row `speech` as a caller reads it. */
-export type CallSpeech = `ok` | `preparing` | `noGpu`
+export type CallSpeech = `ok` | `preparing` | `noGpu` | `failed`
+
+/** NEW-99 (`speechCases`): the voice device's doctor row `speech` (group
+ *  voice) state as a caller reads it; null = no row yet. */
+export function callSpeechOf(state: string | null | undefined): CallSpeech | null {
+  if (state === null || state === undefined) return null
+  if (state === `ok`) return `ok`
+  if (state === `missing`) return `noGpu`
+  if (state === `error`) return `failed`
+  return `preparing`
+}
 
 export interface CallAvailabilityInput {
+  /** NEW-99: the member has a voice Assistant (`voice.get` agentId). */
+  agent: boolean
   platform: CallPlatform
   /** The voice device's name; null = none picked. */
   device: string | null
@@ -44,11 +56,13 @@ export function callAvailability(input: CallAvailabilityInput): CallAvailability
     enabled: false,
     reason: reason.replace(`{device}`, input.device ?? ``),
   })
+  if (!input.agent) return off(reasons.noAgent)
   if (input.device === null) return off(reasons.noVoiceDevice)
   if (!input.online) return off(reasons.offline)
   if (input.meeting) return off(reasons.meeting)
   if (input.platform === `desktop` && !input.here) return off(reasons.notHere)
   if (input.speech === null) return off(reasons.preparing)
+  if (input.speech === `failed`) return off(reasons.voiceFailed)
   if (input.speech === `noGpu`) return off(reasons.noGpu)
   if (input.busy) return off(reasons.busy)
   return { enabled: true, reason: null }

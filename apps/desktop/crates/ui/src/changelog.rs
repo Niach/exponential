@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-call-reasons",
+    date: "2026-10-30",
+    title: "Calls say what's missing",
+    summary: "A greyed-out call button now names the real cause and where to fix it, and the Assistant only runs on devices that can speak.",
+    body: r#"- **Calls say what's missing**: when the call button is off, its reason names the real cause and where to fix it: set up your Assistant, run it on a desktop in Settings → Assistant, or restart Exponential on a device whose voice failed to load. It no longer reads "getting its voice ready" forever.
+- **Assistant devices**: the Assistant's Runs on picker lists only your desktops, because servers and CLI daemons can't speak."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_115: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-stories-frames",
     date: "2026-10-30",
     title: "Stories step through every picture, and a steadier desktop",

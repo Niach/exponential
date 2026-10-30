@@ -5,24 +5,28 @@
 // The server's `voice.startCall` reads the same row through the same
 // `callSpeechOf`, so the telephone and the refusal never disagree.
 
-import { callAvailability, type CallAvailability, type CallAvailabilityInput, type CallSpeech } from "@exp/etalk/voice-call"
+import {
+  callAvailability,
+  callSpeechOf as speechOfState,
+  type CallAvailability,
+  type CallAvailabilityInput,
+  type CallSpeech,
+} from "@exp/etalk/voice-call"
 
 import type { DeviceDoctor } from "@/db/schema"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 
 /** The voice device's doctor row `speech` (group voice) as a caller reads
- *  it: `ok` speaks, `missing` = no usable GPU, anything else (absent, off,
- *  still downloading) = getting its voice ready. */
+ *  it (voice-call.json `speechCases`; no row = null). */
 export function callSpeechOf(doctor: DeviceDoctor | null | undefined): CallSpeech | null {
   const row = doctor?.items.find((item) => item.key === `speech` && item.group === `voice`)
-  if (!row) return null
-  if (row.state === `ok`) return `ok`
-  if (row.state === `missing`) return `noGpu`
-  return `preparing`
+  return speechOfState(row?.state ?? null)
 }
 
 export interface CallSettingsLike {
   voiceDeviceId: string | null
+  /** NEW-99: the member's voice Assistant (null = none yet). */
+  agentId: string | null
   /** The member's voice language (the call's greeting). */
   language?: string
   /** #NEW-57: a meeting runs on the voice device (the telephone is off). */
@@ -38,7 +42,8 @@ export interface CallDeviceRowLike {
 
 /** The availability input of a web caller: never the voice device itself
  *  (`here` false), and `busy` is the relay's to say on dial. A voice device
- *  whose row is gone reads as none picked, as on the server. */
+ *  whose row is gone reads as none picked, as on the server; settings not
+ *  loaded yet read as no Assistant. */
 export function webCallInput(
   settings: CallSettingsLike | null,
   device: CallDeviceRowLike | null,
@@ -46,6 +51,7 @@ export function webCallInput(
 ): CallAvailabilityInput {
   const row = settings?.voiceDeviceId && device?.deviceId === settings.voiceDeviceId ? device : null
   return {
+    agent: Boolean(settings?.agentId),
     platform: `web`,
     device: row ? row.label : null,
     online: row ? deviceRowIsOnline(row.lastSeenAt, now) : false,

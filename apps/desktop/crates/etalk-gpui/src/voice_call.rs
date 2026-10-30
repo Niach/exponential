@@ -40,7 +40,7 @@ use gpui::{
 };
 
 use etalk::call::{
-    call_ring_ms, call_ring_random, call_step, call_timer, call_unavailable, call_view, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
+    call_ring_ms, call_ring_random, call_speech_of, call_step, call_timer, call_unavailable, call_view, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
     VOICE_CALL,
 };
 
@@ -212,17 +212,21 @@ fn voice_device(cx: &App) -> (Option<String>, bool, bool) {
     (Some(name), online, here)
 }
 
+/// NEW-99: the member has a voice Assistant (`voice.get` agentId).
+fn has_agent(cx: &App) -> bool {
+    crate::speak_replies::settings(cx).agent_id.is_some()
+}
+
 /// None = the telephone is enabled; Some = disabled, with the reason
 /// (voice-call.json `availabilityCases`, the desktop's view). S-3: a voice
 /// still downloading rings until it is ready.
 pub fn unavailable(cx: &App) -> Option<String> {
     let (device, online, here) = voice_device(cx);
-    let speech = crate::speak_replies::speech_state(cx).map(|state| match state {
-        SpeechState::Ready => CallSpeech::Ok,
-        SpeechState::Downloading => CallSpeech::Preparing,
-        SpeechState::NoGpu => CallSpeech::NoGpu,
-    });
+    // NEW-99: the voice device's doctor row `speech` (this machine's own,
+    // the only one a desktop call reads past `notHere`) through the one mapper.
+    let speech = call_speech_of(crate::speak_replies::speech_state(cx).map(SpeechState::doctor_state));
     call_unavailable(&CallAvailabilityInput {
+        agent: has_agent(cx),
         platform: CallPlatform::Desktop,
         device: device.as_deref(),
         online,
@@ -375,6 +379,7 @@ pub fn settings_changed(cx: &mut App) {
 fn unavailable_ignoring_busy(cx: &App) -> Option<String> {
     let (device, online, here) = voice_device(cx);
     call_unavailable(&CallAvailabilityInput {
+        agent: has_agent(cx),
         platform: CallPlatform::Desktop,
         device: device.as_deref(),
         online,

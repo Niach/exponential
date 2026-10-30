@@ -70,10 +70,12 @@ class VoiceCallTest {
         assertEquals(copy.getValue("greeting").jsonObject.strings(), c.greeting)
         flat.forEach { (key, value) -> assertEquals(key, copy.str(key), value) }
         val reasons = mapOf(
+            "noAgent" to VoiceCall.Copy.Reasons.NO_AGENT,
             "noVoiceDevice" to VoiceCall.Copy.Reasons.NO_VOICE_DEVICE,
             "offline" to VoiceCall.Copy.Reasons.OFFLINE,
             "notHere" to VoiceCall.Copy.Reasons.NOT_HERE,
             "preparing" to VoiceCall.Copy.Reasons.PREPARING,
+            "voiceFailed" to VoiceCall.Copy.Reasons.VOICE_FAILED,
             "noGpu" to VoiceCall.Copy.Reasons.NO_GPU,
             "busy" to VoiceCall.Copy.Reasons.BUSY,
             "meeting" to VoiceCall.Copy.Reasons.MEETING,
@@ -169,6 +171,7 @@ class VoiceCallTest {
             val input = case.getValue("input").jsonObject
             val got = VoiceCall.callAvailability(
                 VoiceCall.AvailabilityInput(
+                    agent = input.getValue("agent").jsonPrimitive.boolean,
                     platform = VoiceCall.Platform.entries.single { it.wire == input.str("platform") },
                     device = input.str("device"),
                     online = input.getValue("online").jsonPrimitive.boolean,
@@ -384,5 +387,16 @@ class VoiceCallTest {
         assertEquals(VoiceCall.Speech.NoGpu, VoiceCall.callSpeech(doctor(DeviceDoctorItem(key = "speech", group = "voice", state = "missing"))))
         assertEquals(VoiceCall.Speech.Preparing, VoiceCall.callSpeech(doctor(DeviceDoctorItem(key = "speech", group = "voice", state = "unchecked"))))
         assertEquals(VoiceCall.Speech.Preparing, VoiceCall.callSpeech(doctor(DeviceDoctorItem(key = "speech", group = "voice", state = "downloading"))))
+        assertEquals(VoiceCall.Speech.Failed, VoiceCall.callSpeech(doctor(DeviceDoctorItem(key = "speech", group = "voice", state = "error"))))
+    }
+
+    @Test
+    fun `every speech case matches the fixture`() {
+        val rows = cases("speechCases")
+        assertTrue(rows.isNotEmpty())
+        for (case in rows) {
+            val expected = case.str("expected")?.let { e -> VoiceCall.Speech.entries.single { it.wire == e } }
+            assertEquals(case.str("name"), expected, VoiceCall.callSpeechOf(case.str("state")))
+        }
     }
 }

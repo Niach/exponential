@@ -439,6 +439,7 @@ export const voiceRouter = router({
             .limit(1)
         : []
       const availability = callAvailability({
+        agent: settings.agentId !== null,
         platform: input.platform,
         // A voice device whose row is gone reads as none picked.
         device: device ? device.label : null,

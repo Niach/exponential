@@ -6,6 +6,7 @@ import {
   CALL_IDLE,
   callAnswerMs,
   callAvailability,
+  callSpeechOf,
   callRingMs,
   callRingToneOn,
   callStep,
@@ -15,6 +16,14 @@ import {
   type CallAvailabilityInput,
   type CallEvent,
 } from "./voice-call"
+
+describe(`callSpeechOf`, () => {
+  for (const entry of fixture.speechCases) {
+    test(entry.name, () => {
+      expect(callSpeechOf(entry.state)).toBe(entry.expected as ReturnType<typeof callSpeechOf>)
+    })
+  }
+})
 
 describe(`callAvailability`, () => {
   for (const entry of fixture.availabilityCases) {

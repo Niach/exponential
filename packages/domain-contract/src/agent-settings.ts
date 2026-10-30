@@ -167,6 +167,19 @@ export function assistantModelValue(input: { model?: string | null; cli?: string
   return input.cli === `codex` ? defaults.codexThreadModel : defaults.threadModel
 }
 
+/** NEW-99 (`runsOnCases`): the Runs on device picker's devices. An
+ *  Assistant's device is the member's voice device, so it lists desktops
+ *  only (a bound non-desktop stays, naming itself); a team agent keeps all. */
+export function runsOnDeviceIds(
+  devices: readonly { deviceId: string; kind?: string | null }[],
+  boundId: string | null,
+  assistant: boolean
+): string[] {
+  return devices
+    .filter((device) => !assistant || device.kind === `desktop` || device.deviceId === boundId)
+    .map((device) => device.deviceId)
+}
+
 export interface AgentRoleLike {
   role?: string | null
   ownerId: string

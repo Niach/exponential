@@ -11,6 +11,7 @@ import {
   assistantScheduleTriggers,
   issueActor,
   orderedAgents,
+  runsOnDeviceIds,
   triggerSummary,
   validateAgentForm,
   visibleAgent,
@@ -61,6 +62,11 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.modelValueCases) {
     it(`modelValueCases: ${c.name}`, () => {
       expect(assistantModelValue(c.input)).toBe(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.runsOnCases) {
+    it(`runsOnCases: ${c.name}`, () => {
+      expect(runsOnDeviceIds(c.devices, c.boundId, c.assistant)).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.visibleCases) {

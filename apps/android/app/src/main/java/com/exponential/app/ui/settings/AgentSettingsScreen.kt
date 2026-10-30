@@ -356,6 +356,16 @@ fun AgentSettingsScreen(
     val me by viewModel.me.collectAsStateWithLifecycle()
     val assistant = agent?.isAssistant == true
     val editable = if (assistant) agent?.ownerId == me else isOwner
+    // NEW-99 (`runsOnCases`): an Assistant's Runs on lists desktops only
+    // (its device is the voice device); a bound non-desktop stays listed.
+    val pickerDevices = remember(deviceList, deviceId, assistant) {
+        val ids = AgentSettings.runsOnDeviceIds(
+            deviceList.map { AgentSettings.RunsOnDevice(it.deviceId, it.kind) },
+            deviceId,
+            assistant,
+        ).toSet()
+        deviceList.filter { it.deviceId in ids }.map { it.toPickerDevice(startGate = false) }
+    }
 
     // The Triggers sheet: null = closed; -1 = a new trigger, else its index.
     var triggerSheet by remember { mutableStateOf<Int?>(null) }
@@ -412,7 +422,7 @@ fun AgentSettingsScreen(
                 color = it
                 patch(UpdateAgentPatch(color = it))
             },
-            devices = deviceList.map { it.toPickerDevice(startGate = false) },
+            devices = pickerDevices,
             deviceId = deviceId,
             onDeviceChange = {
                 if (it != deviceId) {
