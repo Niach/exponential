@@ -122,6 +122,7 @@ fn idle_close_4001_reconnects_and_never_fires_the_kill_hook() {
             issue_id: None,
             journal_dir: None,
             embeds: steer::ImageEmbeds::default(),
+            audience: None,
         },
         Arc::new(CountingTickets {
             url: format!("ws://127.0.0.1:{port}/session"),

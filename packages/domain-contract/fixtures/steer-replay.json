@@ -1,0 +1,173 @@
+{
+  "$comment": "VAPP-33: the steer JOIN REPLAY, replayed by BOTH holders of a session's activity history: the relay's room (apps/steer-relay/src/hub.ts, replay-fixture.test.ts) and the device's journal (apps/desktop/crates/steer/src/journal.rs ActivityJournal, the source of an eNet `activity_synced`). The relay is the truth; a device that disagrees is wrong. INPUT: `events` = the publisher's activity events in order; an item with `repeat` is a generator: `repeat` copies of `event`, in each string value `{i}` = the copy's 0-based index and `{i%N}` = that index mod N, then `padTo` {field: length} right-pads that string field with `x` to exactly that length. SEQ: the expanded list is numbered `startSeq` (default 0), +1 per event, latest-wins events included (they consume a seq like any other). RULES: (1) LATEST-WINS kinds never enter the log: `config_state`, `usage`, `context_layout`, `rate_limit`, `turn`, `queue`, `background_tasks`, `task_list`, `diff` keep ONE slot each (the newest replaces it) and `workflow` keeps one slot PER ID (`workflow:{id}`, an update replaces it in place, keeping its first-appearance position); at most 16 workflow slots, a NEW id past that evicts the oldest-appearing one. Slots are outside both log budgets. (2) Every other kind is a LOG row. A `tool`, `narration`, `thought` or `api_error` with a non-empty `subagentId` is SECOND-CLASS: one subagent holds at most 50 of them (its 51st evicts its own oldest), and past the count cap of 2000 rows the oldest second-class row (any subagent) goes before any main-line row; with none left the head goes. Bytes: past 4 MiB (4194304) of logged bytes the head goes (oldest first, whatever it is), never the last row; a row weighs its wire frame `{\"t\":\"activity\",\"event\":<event JSON>,\"seq\":<seq>}` in UTF-8 bytes. (3) REPLAY = the log oldest first, then the slots in LATEST_REPLAY_ORDER: config_state, usage, context_layout, rate_limit, turn, queue, every workflow (first-appearance order), background_tasks, task_list, diff. (4) SPAN (`activity_synced`): firstSeq/lastSeq = the first/last LOG row's seq, 0/0 when the log is empty (slots alone name no span); truncated = the log evicted a row (either tier, either budget; a workflow slot eviction is not a log eviction) OR firstSeq > 0 (so a log whose first row follows a slot reads as a tail: the relay's rule, kept). EXPECT: `replay` = the replay's seqs in order, an item `{from, to}` = that inclusive run; `kinds` (when present) = the replay's kinds, `workflow:{id}` for a workflow. Out of scope (device-only, deliberate): an unresolved `question` is pinned against eviction and a re-emitted one replaces its card in place; no case here carries a question.",
+  "cases": [
+    {
+      "name": "empty",
+      "events": [],
+      "expect": { "replay": [], "firstSeq": 0, "lastSeq": 0, "truncated": false }
+    },
+    {
+      "name": "log_in_publication_order",
+      "events": [
+        { "kind": "narration", "text": "one" },
+        { "kind": "tool", "name": "Edit", "detail": "a.rs", "id": "t1", "toolKind": "edit" },
+        { "kind": "user_message", "text": "go" }
+      ],
+      "expect": {
+        "replay": [0, 1, 2],
+        "kinds": ["narration", "tool", "user_message"],
+        "firstSeq": 0,
+        "lastSeq": 2,
+        "truncated": false
+      }
+    },
+    {
+      "name": "latest_wins_slots_replay_after_the_log_in_order",
+      "events": [
+        { "kind": "narration", "text": "start" },
+        { "kind": "diff", "diff": "--- v1" },
+        { "kind": "task_list", "entries": [{ "content": "a", "status": "pending" }] },
+        { "kind": "background_tasks", "tasks": [{ "id": "b1", "kind": "shell", "description": "dev" }] },
+        { "kind": "workflow", "id": "wf-1", "name": "w", "status": "running", "phases": [], "agents": [] },
+        { "kind": "queue", "messages": [{ "id": "q1", "text": "later" }] },
+        { "kind": "turn", "state": "started" },
+        { "kind": "rate_limit", "status": "allowed_warning" },
+        { "kind": "context_layout", "segments": [{ "key": "base", "tokens": 21000, "source": "measured" }] },
+        { "kind": "usage", "contextUsed": 10, "contextSize": 200 },
+        { "kind": "config_state", "options": [{ "id": "model", "label": "Model", "value": "opus" }] },
+        { "kind": "narration", "text": "between" },
+        { "kind": "usage", "contextUsed": 20, "contextSize": 200 },
+        { "kind": "diff", "diff": "--- v2" },
+        { "kind": "workflow", "id": "wf-2", "name": "w", "status": "running", "phases": [], "agents": [] },
+        { "kind": "turn", "state": "ended" }
+      ],
+      "expect": {
+        "replay": [0, 11, 10, 12, 8, 7, 15, 5, 4, 14, 3, 2, 13],
+        "kinds": [
+          "narration",
+          "narration",
+          "config_state",
+          "usage",
+          "context_layout",
+          "rate_limit",
+          "turn",
+          "queue",
+          "workflow:wf-1",
+          "workflow:wf-2",
+          "background_tasks",
+          "task_list",
+          "diff"
+        ],
+        "firstSeq": 0,
+        "lastSeq": 11,
+        "truncated": false
+      }
+    },
+    {
+      "name": "slots_only_name_no_span",
+      "events": [
+        { "kind": "config_state", "options": [] },
+        { "kind": "turn", "state": "started" }
+      ],
+      "expect": { "replay": [0, 1], "firstSeq": 0, "lastSeq": 0, "truncated": false }
+    },
+    {
+      "name": "a_log_that_starts_after_a_slot_reads_as_a_tail",
+      "events": [
+        { "kind": "config_state", "options": [] },
+        { "kind": "narration", "text": "hi" }
+      ],
+      "expect": { "replay": [1, 0], "firstSeq": 1, "lastSeq": 1, "truncated": true }
+    },
+    {
+      "name": "a_replay_starting_above_zero_is_a_tail",
+      "startSeq": 100,
+      "events": [{ "repeat": 3, "event": { "kind": "narration", "text": "line {i}" } }],
+      "expect": { "replay": [{ "from": 100, "to": 102 }], "firstSeq": 100, "lastSeq": 102, "truncated": true }
+    },
+    {
+      "name": "a_workflow_is_replaced_in_place_by_id",
+      "events": [
+        { "kind": "workflow", "id": "wf-1", "name": "w", "status": "running", "phases": [], "agents": [] },
+        { "kind": "workflow", "id": "wf-2", "name": "w", "status": "running", "phases": [], "agents": [] },
+        { "kind": "workflow", "id": "wf-1", "name": "w", "status": "completed", "phases": [], "agents": [] }
+      ],
+      "expect": {
+        "replay": [2, 1],
+        "kinds": ["workflow:wf-1", "workflow:wf-2"],
+        "firstSeq": 0,
+        "lastSeq": 0,
+        "truncated": false
+      }
+    },
+    {
+      "name": "workflow_slots_cap_at_sixteen_oldest_appearance_first",
+      "events": [
+        { "repeat": 16, "event": { "kind": "workflow", "id": "wf-{i}", "name": "w", "status": "running", "phases": [], "agents": [] } },
+        { "kind": "workflow", "id": "wf-0", "name": "w", "status": "completed", "phases": [], "agents": [] },
+        { "kind": "workflow", "id": "wf-16", "name": "w", "status": "running", "phases": [], "agents": [] },
+        { "kind": "workflow", "id": "wf-17", "name": "w", "status": "running", "phases": [], "agents": [] }
+      ],
+      "expect": {
+        "replay": [{ "from": 2, "to": 15 }, 17, 18],
+        "firstSeq": 0,
+        "lastSeq": 0,
+        "truncated": false
+      }
+    },
+    {
+      "name": "count_cap_drops_the_head",
+      "events": [
+        { "kind": "config_state", "options": [] },
+        { "repeat": 2005, "event": { "kind": "narration", "text": "line {i}" } }
+      ],
+      "expect": { "replay": [{ "from": 6, "to": 2005 }, 0], "firstSeq": 6, "lastSeq": 2005, "truncated": true }
+    },
+    {
+      "name": "one_subagent_keeps_at_most_fifty",
+      "events": [
+        { "kind": "narration", "text": "main" },
+        { "repeat": 60, "event": { "kind": "tool", "name": "Read", "detail": "call {i}", "id": "t{i}", "toolKind": "read", "subagentId": "a1" } }
+      ],
+      "expect": { "replay": [0, { "from": 11, "to": 60 }], "firstSeq": 0, "lastSeq": 60, "truncated": true }
+    },
+    {
+      "name": "subagent_prose_thoughts_and_errors_share_the_cap",
+      "events": [
+        { "repeat": 30, "event": { "kind": "tool", "name": "Read", "id": "t{i}", "toolKind": "read", "subagentId": "a1" } },
+        { "repeat": 10, "event": { "kind": "thought", "id": "th{i}", "state": "started", "subagentId": "a1" } },
+        { "repeat": 10, "event": { "kind": "narration", "text": "sub {i}", "subagentId": "a1" } },
+        { "kind": "api_error", "message": "overloaded", "subagentId": "a1" },
+        { "kind": "tool", "name": "Read", "id": "main", "toolKind": "read" },
+        { "kind": "narration", "text": "empty id is main line", "subagentId": "" }
+      ],
+      "expect": { "replay": [{ "from": 1, "to": 52 }], "firstSeq": 1, "lastSeq": 52, "truncated": true }
+    },
+    {
+      "name": "past_the_count_cap_subagent_rows_go_before_the_main_line",
+      "events": [
+        { "repeat": 10, "event": { "kind": "narration", "text": "line {i}" } },
+        { "repeat": 2000, "event": { "kind": "tool", "name": "Read", "id": "t{i}", "toolKind": "read", "subagentId": "a{i%41}" } }
+      ],
+      "expect": {
+        "replay": [{ "from": 0, "to": 9 }, { "from": 20, "to": 2009 }],
+        "firstSeq": 0,
+        "lastSeq": 2009,
+        "truncated": true
+      }
+    },
+    {
+      "name": "main_line_eviction_resumes_once_no_subagent_rows_remain",
+      "events": [
+        { "repeat": 40, "event": { "kind": "tool", "name": "Read", "id": "t{i}", "toolKind": "read", "subagentId": "a1" } },
+        { "repeat": 2060, "event": { "kind": "narration", "text": "line {i}" } }
+      ],
+      "expect": { "replay": [{ "from": 100, "to": 2099 }], "firstSeq": 100, "lastSeq": 2099, "truncated": true }
+    },
+    {
+      "name": "byte_cap_weighs_the_wire_frame",
+      "events": [{ "repeat": 400, "event": { "kind": "narration", "text": "" }, "padTo": { "text": 15965 } }],
+      "expect": { "replay": [{ "from": 139, "to": 399 }], "firstSeq": 139, "lastSeq": 399, "truncated": true }
+    }
+  ]
+}

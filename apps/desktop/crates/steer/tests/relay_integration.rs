@@ -519,6 +519,7 @@ fn full_protocol_flow_against_the_real_relay() {
             issue_id: Some("issue-int-1".to_string()),
             journal_dir: None,
             embeds: steer::ImageEmbeds::default(),
+            audience: None,
         },
         Arc::new(BunTickets {
             relay_port: relay.port,
@@ -697,6 +698,7 @@ fn publisher_reconnects_and_resumes_the_room_after_a_socket_drop() {
             issue_id: Some("issue-int-2".to_string()),
             journal_dir: None,
             embeds: steer::ImageEmbeds::default(),
+            audience: None,
         },
         Arc::new(BunTickets {
             relay_port: relay.port,
@@ -782,6 +784,7 @@ fn the_production_viewer_watches_and_steers_a_real_room() {
             issue_id: None,
             journal_dir: None,
             embeds: steer::ImageEmbeds::default(),
+            audience: None,
         },
         Arc::new(BunTickets {
             relay_port: relay.port,
@@ -1270,6 +1273,7 @@ fn a_journal_replay_never_evicts_the_live_publisher() {
             issue_id: None,
             journal_dir: None,
             embeds: steer::ImageEmbeds::default(),
+            audience: None,
         },
         Arc::new(BunTicketsFor {
             relay_port: relay.port,

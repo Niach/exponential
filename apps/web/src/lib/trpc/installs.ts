@@ -14,6 +14,7 @@ import { router, authedProcedure } from "@/lib/trpc"
 import { devices, installs, teamMembers } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
+import { loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 
 export const INSTALL_KINDS = [`desktop`, `daemon`, `ios`, `android`, `web`] as const
 /** At most this many non-revoked installs per user. */
@@ -202,6 +203,40 @@ export const installsRouter = router({
           x25519Public: row.x25519Public,
           lastSeenAt: row.lastSeenAt,
         }))
+    }),
+
+  // VAPP-33 (fixtures/steer-enet.json DISCOVERY): the installs a viewer
+  // dials to steer a session over eNet = the live desktop/daemon installs
+  // of the account RUNNING it on the session's machine, newest first. Only
+  // for a caller who can see the session (NOT_FOUND otherwise).
+  forSession: authedProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const session = await loadSessionForUser(ctx.session.user.id, input.sessionId, ctx.db)
+      const owner = await sessionDeviceOwner(session, ctx.db)
+      const machines = await ctx.db
+        .select({ id: devices.id })
+        .from(devices)
+        .where(and(eq(devices.userId, owner), eq(devices.deviceId, session.deviceId)))
+      if (machines.length === 0) return []
+      const rows = await ctx.db
+        .select()
+        .from(installs)
+        .where(
+          and(
+            eq(installs.userId, owner),
+            inArray(
+              installs.deviceId,
+              machines.map((machine) => machine.id)
+            ),
+            inArray(installs.kind, [`desktop`, `daemon`]),
+            isNull(installs.revokedAt)
+          )
+        )
+      return rows
+        .filter((row) => !row.revokedAt)
+        .sort((a, b) => (b.lastSeenAt?.getTime() ?? 0) - (a.lastSeenAt?.getTime() ?? 0))
+        .map((row) => ({ endpointId: row.endpointId, kind: row.kind }))
     }),
 
   mine: authedProcedure.query(async ({ ctx }) => {

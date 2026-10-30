@@ -18,7 +18,7 @@
 //! the same split as `device-id`/`cli-device-id`). Never synced, never
 //! uploaded: only the public endpoint id and the derived X25519 key leave.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -392,6 +392,9 @@ struct Inner {
     /// The last allowlist's entries (the user's other installs a new
     /// tree's key is wrapped for).
     entries: Mutex<Vec<InstallEntry>>,
+    /// VAPP-33: the same entries per team (a steer room admits only the
+    /// endpoints its session's team lists).
+    team_entries: Mutex<HashMap<String, Vec<InstallEntry>>>,
 }
 
 /// One install's running eNet node. Cheap to clone; [`InstallNode::stop`]
@@ -423,6 +426,7 @@ impl InstallNode {
             holder: Mutex::new(None),
             holder_wake: Arc::new(Notify::new()),
             entries: Mutex::new(Vec::new()),
+            team_entries: Mutex::new(HashMap::new()),
         });
         runtime.spawn(run(Arc::clone(&inner)));
         InstallNode { inner }
@@ -469,6 +473,12 @@ impl InstallNode {
             .map(|entry| (entry.install_id.clone(), entry.x25519_public.clone()))
             .collect();
         coding::sealing::seal_new_root(&install_id, &push.public(), &readers).map_err(|e| e.to_string())
+    }
+
+    /// VAPP-33: the user `endpoint` belongs to in `team_id`'s registry list
+    /// (as of the last allowlist pass).
+    pub fn user_in_team(&self, team_id: &str, endpoint: &EndpointId) -> Option<String> {
+        user_in_team(&self.inner, team_id, endpoint)
     }
 
     /// Waits until at least `n` allowlist passes have finished.
@@ -706,12 +716,29 @@ async fn send_direct(inner: Weak<Inner>, peer: EndpointId, message_id: String, b
     }
 }
 
+fn user_in_team(inner: &Inner, team_id: &str, endpoint: &EndpointId) -> Option<String> {
+    let hex = endpoint_hex(endpoint);
+    lock(&inner.team_entries)
+        .get(team_id)?
+        .iter()
+        .find(|entry| entry.endpoint_id == hex)
+        .map(|entry| entry.user_id.clone())
+}
+
 /// EXP-1458: an agent-to-agent message from an allowed peer goes into the
-/// process's direct inbox (still sealed); anything else is only logged.
+/// process's direct inbox (still sealed); VAPP-33: a steer envelope goes to
+/// `enet_steer` (a live room here, or a viewer's subscription); anything
+/// else is only logged.
 fn receive_chat(inner: &Inner, from: &EndpointId, body: &[u8]) {
     if body == PING_BODY {
         log::info!("enet: ping from {} (acked)", endpoint_hex(from));
         return;
+    }
+    if let Some(node) = lock(&inner.node).clone() {
+        let lookup = |team_id: &str, endpoint: &EndpointId| user_in_team(inner, team_id, endpoint);
+        if crate::enet_steer::receive(&node, *from, body, &lookup) {
+            return;
+        }
     }
     let Some(row) = parse_direct_payload(body) else {
         log::info!("enet: chat from {} ({} bytes, acked)", endpoint_hex(from), body.len());
@@ -729,19 +756,23 @@ fn receive_chat(inner: &Inner, from: &EndpointId, body: &[u8]) {
 async fn refresh_allowlist(inner: &Arc<Inner>, node: &Arc<Node>, relay: Option<&RelayUrl>) -> usize {
     let teams = Arc::clone(&inner.teams);
     let registry = Arc::clone(&inner.registry);
-    let Some((entries, complete)) = blocking(move || {
+    let Some((entries, by_team, complete)) = blocking(move || {
         let mut entries = Vec::new();
+        let mut by_team = HashMap::new();
         let mut complete = true;
         for team_id in teams() {
             match registry.list(&team_id) {
-                Ok(rows) => entries.extend(rows),
+                Ok(rows) => {
+                    entries.extend(rows.iter().cloned());
+                    by_team.insert(team_id, rows);
+                }
                 Err(err) => {
                     log::warn!("enet: installs.list {team_id} failed: {err}");
                     complete = false;
                 }
             }
         }
-        (entries, complete)
+        (entries, by_team, complete)
     })
     .await
     else {
@@ -749,6 +780,14 @@ async fn refresh_allowlist(inner: &Arc<Inner>, node: &Arc<Node>, relay: Option<&
     };
     let allowed = apply_allowlist(node, &entries, relay, complete);
     *lock(&inner.entries) = entries;
+    // A failed team keeps its last list (never locks a teammate out); a
+    // complete pass forgets the teams the user left.
+    let mut team_entries = lock(&inner.team_entries);
+    if complete {
+        *team_entries = by_team;
+    } else {
+        team_entries.extend(by_team);
+    }
     allowed
 }
 

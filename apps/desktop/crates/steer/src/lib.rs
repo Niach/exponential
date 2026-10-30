@@ -65,6 +65,7 @@ pub use exponential_agent_runtime::codex_login_picker;
 pub mod commands;
 pub mod control_channel;
 pub mod enet;
+pub mod enet_steer;
 /// EXP-846: the contract's `expToolDisplay` lookup (our MCP tools' rows).
 pub mod exp_tool;
 /// EXP-948: the rule that keeps a run of OUR calls visible, and its caption.
@@ -168,8 +169,8 @@ pub use publisher::{
     PublisherTickets, TrpcPublisherTickets,
 };
 pub use viewer::{
-    chunk_input, spawn_viewer, spawn_viewer_with, TrpcViewerTickets, ViewerEvent, ViewerHandle,
-    ViewerPhase, ViewerTickets, ViewerTimings, INPUT_CHUNK_UTF16,
+    chunk_input, spawn_viewer, spawn_viewer_over, spawn_viewer_with, EnetViewerSource, TrpcViewerTickets,
+    ViewerEvent, ViewerHandle, ViewerPhase, ViewerTickets, ViewerTimings, INPUT_CHUNK_UTF16,
 };
 
 // ---------------------------------------------------------------------------

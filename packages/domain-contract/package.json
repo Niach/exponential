@@ -54,6 +54,7 @@
     "./app-actions": "./src/app-actions.ts",
     "./app-export": "./src/app-export.ts",
     "./sealed-content": "./src/sealed-content.ts",
+    "./steer-enet": "./src/steer-enet.ts",
     "./fixtures/*": "./fixtures/*"
   }
 }

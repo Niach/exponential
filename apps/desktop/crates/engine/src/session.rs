@@ -211,6 +211,7 @@ impl EngineSession {
             conversation: None,
             attachments: None,
             embeds: steer::ImageEmbeds::default(),
+            audience: None,
         }));
         let session = SessionSpec {
             session_id,
@@ -372,6 +373,7 @@ where
         conversation: parts.conversation,
         attachments: Some(hook),
         embeds,
+        audience: prepared.audience.clone(),
     }));
     let session = SessionSpec {
         session_id: prepared.session_id.clone(),

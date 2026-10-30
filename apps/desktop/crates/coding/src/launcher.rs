@@ -881,6 +881,29 @@ pub struct PreparedLaunch {
     /// ([`ResolvedMcp::pick`]): the baseline a live run's between-turn check
     /// compares `sessions.mcpPicks` against. `None` = unknown.
     pub mcp_pick: Option<Vec<String>>,
+    /// VAPP-33: who may steer this run over eNet (`fixtures/steer-enet.json`
+    /// ACCESS), off the synced row. `None` = unknown: nobody can.
+    pub audience: Option<SteerAudience>,
+}
+
+/// VAPP-33: the session row's half of the eNet steer access rule: its team
+/// (whose registry list names the viewer), its starter, and `shared`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SteerAudience {
+    pub team_id: String,
+    pub starter_user_id: String,
+    pub shared: bool,
+}
+
+impl SteerAudience {
+    /// The audience of `row`, when the row names its team and starter.
+    pub fn of(row: &domain::rows::SessionRow) -> Option<SteerAudience> {
+        Some(SteerAudience {
+            team_id: row.team_id.clone().filter(|id| !id.is_empty())?,
+            starter_user_id: row.user_id.clone().filter(|id| !id.is_empty())?,
+            shared: row.shared,
+        })
+    }
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -2177,6 +2200,7 @@ fn prepare_session(
         codex_resume_id: None,
         launch_hold,
         mcp_pick: team_mcp.pick.clone(),
+        audience: SteerAudience::of(row),
     }))
 }
 
@@ -2807,6 +2831,7 @@ fn prepare_resume(
         codex_resume_id,
         launch_hold,
         mcp_pick: team_mcp.pick.clone(),
+        audience: SteerAudience::of(row),
     }))
 }
 

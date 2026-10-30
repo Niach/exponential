@@ -79,6 +79,21 @@ struct TeamInput<'a> {
     team_id: &'a str,
 }
 
+/// VAPP-33: one row of `installs.forSession`: an install a viewer dials to
+/// steer the session over eNet (newest first).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInstall {
+    pub endpoint_id: String,
+    pub kind: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionInput<'a> {
+    session_id: &'a str,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InstallInput<'a> {
@@ -95,6 +110,13 @@ pub fn register(trpc: &TrpcClient, input: &RegisterInstall) -> Result<Registered
 /// `installs.list {teamId}`: the team members' installs that aren't revoked.
 pub fn list(trpc: &TrpcClient, team_id: &str) -> Result<Vec<InstallEntry>, ApiError> {
     trpc.query_with_input("installs.list", &TeamInput { team_id })
+}
+
+/// VAPP-33 `installs.forSession {sessionId}`: the live desktop/daemon
+/// installs of the machine running the session (`fixtures/steer-enet.json`
+/// DISCOVERY). NOT_FOUND (404) when the caller cannot see the session.
+pub fn for_session(trpc: &TrpcClient, session_id: &str) -> Result<Vec<SessionInstall>, ApiError> {
+    trpc.query_with_input("installs.forSession", &SessionInput { session_id })
 }
 
 /// `installs.mine`: the caller's own installs.

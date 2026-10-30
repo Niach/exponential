@@ -40,6 +40,11 @@
 //! entries, and once the journal is over its count cap the OLDEST subagent
 //! tool entry goes before any main-line row does. The byte budget stays the
 //! plain oldest-first hard bound underneath both.
+//!
+//! VAPP-33: `fixtures/steer-replay.json` (domain-contract) is the spec both
+//! this journal and the relay's room replay, so the two provably agree —
+//! including the span [`ActivityJournal::synced_span`] an `activity_synced`
+//! names. The relay is the truth there; a disagreement is fixed HERE.
 
 use std::collections::HashMap;
 
@@ -47,7 +52,8 @@ use crate::frames::ActivityEvent;
 
 /// Event-count cap — mirrors the relay's `ACTIVITY_LOG_CAP`.
 pub const JOURNAL_EVENT_CAP: usize = 2000;
-/// Byte budget over the serialized events — mirrors `ACTIVITY_BYTE_CAP`.
+/// Byte budget over the events' wire frames — mirrors `ACTIVITY_BYTE_CAP`,
+/// measured the relay's way (see [`frame_bytes`]).
 pub const JOURNAL_BYTE_CAP: usize = 4 * 1024 * 1024;
 /// How many tool entries ONE subagent may hold — mirrors the relay's
 /// `SUBAGENT_TOOL_CAP` (EXP-748). Past it the subagent drops its own oldest
@@ -143,6 +149,10 @@ pub struct ActivityJournal {
     /// Scan hint: an index at or below the OLDEST subagent tool entry, so a
     /// long main-line head is not re-walked on every eviction.
     subagent_scan_from: usize,
+    /// VAPP-33: the log has EVICTED a row (either tier, either budget) —
+    /// the relay's `room.activityTruncated`. Workflow slot evictions are not
+    /// log evictions and never set it.
+    truncated: bool,
     /// The sequence the test-only [`ActivityJournal::push`] hands out next.
     #[cfg(test)]
     test_seq: u64,
@@ -211,7 +221,7 @@ impl ActivityJournal {
             _ => None,
         };
         if let Some(pos) = re_emitted {
-            let bytes = serialized_bytes(&event);
+            let bytes = frame_bytes(seq, &event);
             self.bytes = self.bytes + bytes - self.entries[pos].bytes;
             let pinned_question = self.entries[pos].pinned_question.clone();
             self.entries[pos] = Entry {
@@ -224,17 +234,24 @@ impl ActivityJournal {
             self.evict();
             return;
         }
-        let bytes = serialized_bytes(&event);
+        let bytes = frame_bytes(seq, &event);
         let pinned_question = match &event {
             ActivityEvent::Question { id, .. } => Some(id.clone()),
             _ => None,
         };
         // EXP-748: a tool call the agent attributed to a subagent — the only
-        // kind of entry the two-tier rule may drop early.
+        // kind of entry the two-tier rule may drop early. VAPP-33: whatever
+        // its `id`/`toolKind` (every live publisher sends both; matching only
+        // the bare pre-EXP-785 shape exempted every live call), exactly the
+        // relay's `entryFor`.
         let subagent_tool = match &event {
             ActivityEvent::Tool {
-                id: None,
-                tool_kind: None,
+                subagent_id: Some(id),
+                ..
+            }
+            // VAPP-33: a subagent's thought edges sit inside its card too
+            // (the relay tags `thought` alongside `narration`).
+            | ActivityEvent::Thought {
                 subagent_id: Some(id),
                 ..
             }
@@ -331,6 +348,17 @@ impl ActivityJournal {
             .chain(tail)
     }
 
+    /// VAPP-33: the span an `activity_synced` names, the relay's
+    /// `activitySyncedFrame` rule: `(firstSeq, lastSeq, truncated)` where
+    /// first/last are the first/last LOG row's seq (`(0, 0)` while the log is
+    /// empty — slots alone name no span) and `truncated` = the log evicted a
+    /// row OR `firstSeq > 0` (a journal seeded above zero is a tail).
+    pub fn synced_span(&self) -> (u64, u64, bool) {
+        let first = self.entries.first().map_or(0, |entry| entry.seq);
+        let last = self.entries.last().map_or(0, |entry| entry.seq);
+        (first, last, self.truncated || first > 0)
+    }
+
     /// EXP-850 §3: how many workflow cards this journal holds (observability
     /// and the cap's test).
     pub fn workflow_slots(&self) -> usize {
@@ -376,6 +404,7 @@ impl ActivityJournal {
     fn remove_entry(&mut self, pos: usize) {
         let entry = self.entries.remove(pos);
         self.bytes -= entry.bytes;
+        self.truncated = true;
         if let Some(subagent_id) = entry.subagent_tool {
             self.subagent_tool_entries -= 1;
             if let Some(held) = self.subagent_tool_counts.get_mut(&subagent_id) {
@@ -442,9 +471,14 @@ impl ActivityJournal {
     }
 }
 
-/// The event's size on the wire — what the relay's byte budget measures.
-fn serialized_bytes(event: &ActivityEvent) -> usize {
-    serde_json::to_string(event).map(|json| json.len()).unwrap_or(0)
+/// The event's size on the wire — what the relay's byte budget measures:
+/// its whole `{"t":"activity","event":…,"seq":N}` frame (hub.ts `entryFor`),
+/// not the bare event (VAPP-33: the bare event let the journal keep one row
+/// more than the relay at the 4 MiB edge).
+fn frame_bytes(seq: u64, event: &ActivityEvent) -> usize {
+    const ENVELOPE: usize = r#"{"t":"activity","event":,"seq":}"#.len();
+    let event = serde_json::to_string(event).map(|json| json.len()).unwrap_or(0);
+    event + ENVELOPE + seq.to_string().len()
 }
 
 #[cfg(test)]
@@ -484,7 +518,7 @@ mod tests {
         journal
             .entries
             .iter()
-            .map(|entry| serialized_bytes(&entry.event))
+            .map(|entry| frame_bytes(entry.seq, &entry.event))
             .sum()
     }
 
@@ -1071,5 +1105,130 @@ mod exp850_tests {
             journal.replay().next(),
             Some(ActivityEvent::UserMessage { .. })
         ));
+    }
+}
+
+/// VAPP-33: `fixtures/steer-replay.json`, the join replay the relay's
+/// `replay-fixture.test.ts` replays too — the device's rules equal the
+/// relay's case for case.
+#[cfg(test)]
+mod replay_fixture_tests {
+    use super::*;
+    use serde_json::Value;
+
+    const FIXTURE: &str =
+        include_str!("../../../../../packages/domain-contract/fixtures/steer-replay.json");
+
+    fn fill(value: &Value, i: usize) -> Value {
+        match value {
+            Value::String(text) => {
+                let mut out = String::new();
+                let mut rest = text.as_str();
+                while let Some(start) = rest.find("{i") {
+                    let Some(len) = rest[start..].find('}') else { break };
+                    let token = &rest[start + 2..start + len];
+                    out.push_str(&rest[..start]);
+                    match token.strip_prefix('%') {
+                        Some(modulo) => {
+                            out.push_str(&(i % modulo.parse::<usize>().unwrap()).to_string())
+                        }
+                        None if token.is_empty() => out.push_str(&i.to_string()),
+                        None => out.push_str(&rest[start..=start + len]),
+                    }
+                    rest = &rest[start + len + 1..];
+                }
+                out.push_str(rest);
+                Value::String(out)
+            }
+            Value::Array(items) => Value::Array(items.iter().map(|v| fill(v, i)).collect()),
+            Value::Object(map) => Value::Object(
+                map.iter().map(|(k, v)| (k.clone(), fill(v, i))).collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+
+    fn expand_events(items: &[Value]) -> Vec<ActivityEvent> {
+        let mut out = Vec::new();
+        for item in items {
+            let Some(repeat) = item.get("repeat").and_then(Value::as_u64) else {
+                out.push(serde_json::from_value(item.clone()).expect("fixture event"));
+                continue;
+            };
+            for i in 0..repeat as usize {
+                let mut event = fill(&item["event"], i);
+                if let Some(pad) = item.get("padTo").and_then(Value::as_object) {
+                    for (field, length) in pad {
+                        let length = length.as_u64().unwrap() as usize;
+                        let mut text = event[field].as_str().unwrap_or("").to_string();
+                        while text.len() < length {
+                            text.push('x');
+                        }
+                        event[field] = Value::String(text);
+                    }
+                }
+                out.push(serde_json::from_value(event).expect("fixture event"));
+            }
+        }
+        out
+    }
+
+    fn expand_seqs(replay: &[Value]) -> Vec<u64> {
+        replay
+            .iter()
+            .flat_map(|item| match item.as_u64() {
+                Some(seq) => vec![seq],
+                None => (item["from"].as_u64().unwrap()..=item["to"].as_u64().unwrap()).collect(),
+            })
+            .collect()
+    }
+
+    fn kind_key(event: &ActivityEvent) -> String {
+        match event {
+            ActivityEvent::Workflow(workflow) => format!("workflow:{}", workflow.id),
+            other => serde_json::to_value(other).unwrap()["kind"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        }
+    }
+
+    #[test]
+    fn the_journal_replays_the_relay_fixture() {
+        let fixture: Value = serde_json::from_str(FIXTURE).expect("fixture parses");
+        let cases = fixture["cases"].as_array().expect("cases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let mut journal = ActivityJournal::new();
+            let mut seq = case.get("startSeq").and_then(Value::as_u64).unwrap_or(0);
+            for event in expand_events(case["events"].as_array().unwrap()) {
+                journal.push_seq(seq, event);
+                seq += 1;
+            }
+            let expect = &case["expect"];
+            let replay: Vec<(u64, &ActivityEvent)> = journal.replay_seq().collect();
+            assert_eq!(
+                replay.iter().map(|(seq, _)| *seq).collect::<Vec<_>>(),
+                expand_seqs(expect["replay"].as_array().unwrap()),
+                "{name}: replay seqs"
+            );
+            if let Some(kinds) = expect.get("kinds").and_then(Value::as_array) {
+                assert_eq!(
+                    replay.iter().map(|(_, event)| kind_key(event)).collect::<Vec<_>>(),
+                    kinds.iter().map(|k| k.as_str().unwrap().to_string()).collect::<Vec<_>>(),
+                    "{name}: replay kinds"
+                );
+            }
+            assert_eq!(
+                journal.synced_span(),
+                (
+                    expect["firstSeq"].as_u64().unwrap(),
+                    expect["lastSeq"].as_u64().unwrap(),
+                    expect["truncated"].as_bool().unwrap(),
+                ),
+                "{name}: synced span"
+            );
+        }
     }
 }
