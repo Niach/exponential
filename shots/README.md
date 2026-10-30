@@ -125,6 +125,11 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   for the whole machine — once the web lane has spent it the desktop lane
   photographs a 403. Any token with public-repo read makes the lane
   deterministic.
+- The steering views' feed (`steering`, `session`, `work-card`, `script-card`,
+  `comment-call-card`) is served over eNet since VAPP-43: the stub
+  (`screenshots:desktop`) builds and runs `cargo run -p steer --example
+  enet_feed_stub`, a real eNet node registered as the demo machine's install,
+  so it needs `cargo` and a route to `relay.exponential.at` (VAPP-168).
 - The native STYLEGUIDE lanes need the relay stub running too
   (`cd apps/web && bun run screenshots:desktop`, or let `bun run shots` start
   it): `sg_machine-settings` and the `sg_start-coding-*` shots render off the
