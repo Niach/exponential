@@ -10,6 +10,7 @@ import {
   ALLOWLIST_REFRESH_MS,
   ENET_RELAY_URL,
   WebInstall,
+  type EnetEvent,
   type EnetModule,
   type EnetNode,
   type InstallsApi,
@@ -31,14 +32,29 @@ function memoryStore(): IdentityStore & { map: Map<string, SealedIdentity> } {
 
 let counter = 0
 function fakeEnet() {
-  const nodes: Array<EnetNode & { allowed: Set<string>; down: boolean; identity: string; relay: string }> = []
+  const nodes: Array<
+    EnetNode & {
+      allowed: Set<string>
+      down: boolean
+      identity: string
+      relay: string
+      sent: Array<[string, string]>
+      emit: (event: EnetEvent) => void
+    }
+  > = []
   const enet: EnetModule = {
     generateIdentity: () => new Uint8Array(32).fill(++counter),
     pushPublicKey: () => new Uint8Array(32).fill(7),
     identitySign: () => new Uint8Array(64).fill(9),
     startNode: async (relay, identity) => {
       const allowed = new Set<string>()
+      let callback: ((event: EnetEvent) => void) | undefined
+      const sent: Array<[string, string]> = []
       const node = {
+        sent,
+        emit: (event: EnetEvent) => callback?.(event),
+        onEvent: (cb: (event: EnetEvent) => void) => void (callback = cb),
+        sendChat: async (to: string, body: Uint8Array) => void sent.push([to, new TextDecoder().decode(body)]),
         endpointId: Buffer.from(identity).toString(`hex`),
         identity: Buffer.from(identity).toString(`hex`),
         relay,
@@ -203,5 +219,39 @@ describe(`WebInstall`, () => {
     await install.setTeams([`A`])
     await install.start()
     expect(nodes[0]!.allowed.size).toBe(0)
+  })
+
+  it(`VAPP-33: chat reaches onChat listeners, sendChat acks, a pin outlives the team lists`, async () => {
+    const { enet, nodes } = fakeEnet()
+    const teams: Record<string, string[]> = { A: [`a1`, `dev`] }
+    const install = new WebInstall(`u1`, { loadEnet: async () => enet, api: fakeApi(teams), store: memoryStore() })
+    await expect(install.sendChat(`dev`, new Uint8Array())).rejects.toThrow()
+    await install.setTeams([`A`])
+    await install.start()
+    const node = nodes[0]!
+    const heard: Array<[string, string]> = []
+    const off = install.onChat((from, body) => heard.push([from, new TextDecoder().decode(body)]))
+    node.emit({ kind: `chat`, from: `dev`, id: new Uint8Array(), timestampMs: 1, body: new TextEncoder().encode(`hi`) })
+    node.emit({ kind: `record` })
+    off()
+    node.emit({ kind: `chat`, from: `dev`, id: new Uint8Array(), timestampMs: 2, body: new TextEncoder().encode(`late`) })
+    expect(heard).toEqual([[`dev`, `hi`]])
+    await install.sendChat(`dev`, new TextEncoder().encode(`yo`))
+    expect(node.sent).toEqual([[`dev`, `yo`]])
+
+    const releaseA = install.pin(`dev`)
+    const releaseB = install.pin(`dev`)
+    teams.A = [`a1`]
+    await install.refresh()
+    expect(node.allowed.has(`dev`)).toBe(true)
+    releaseA()
+    releaseA()
+    expect(node.allowed.has(`dev`)).toBe(true)
+    releaseB()
+    expect(node.allowed.has(`dev`)).toBe(false)
+    const releaseA1 = install.pin(`a1`)
+    releaseA1()
+    expect(node.allowed.has(`a1`)).toBe(true)
+    await install.stop()
   })
 })

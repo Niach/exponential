@@ -15,6 +15,8 @@ import {
 } from "@/lib/agent-feed"
 import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import { TRPCClientError } from "@trpc/client"
+import { encodeSteerEnvelope, parseSteerEnvelope, type SteerFrame } from "@exp/domain-contract/steer-enet"
+import { CLOSE_ENET_LOST, openEnetSteer, type SteerCarrier } from "@/lib/enet/steer-enet-viewer"
 
 // The store never reaches the real client in tests — every store gets fake
 // deps — but the module imports it at load, so keep the import inert.
@@ -3268,3 +3270,124 @@ describe(`wait tool rows (§1)`, () => {
     store.dispose()
   })
 })
+
+// VAPP-33: the transport choice. eNet first (the real viewer transport over
+// a fake carrier), the relay socket when eNet gives nothing.
+describe(`steer over eNet`, () => {
+  function enetStore(answer: (frames: SteerFrame[]) => SteerFrame[] | `fail` | null) {
+    const listeners = new Set<(from: string, body: Uint8Array) => void>()
+    const sent: SteerFrame[][] = []
+    const hear = (frames: SteerFrame[]) => {
+      const body = encodeSteerEnvelope(`session-1`, frames)
+      for (const listener of [...listeners]) listener(`dev`, body)
+    }
+    const carrier: SteerCarrier = {
+      send: async (_to, body) => {
+        const frames = parseSteerEnvelope(body)!.frames
+        sent.push(frames)
+        const reply = answer(frames)
+        if (reply === `fail`) throw new Error(`unreachable`)
+        if (reply) setTimeout(() => hear(reply), 1)
+      },
+      allow: () => () => {},
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => void listeners.delete(listener)
+      },
+    }
+    const mint = vi.fn(() => Promise.resolve({ ticket: `t`, url: `wss://relay/ws?ticket=t` }))
+    const sockets: FakeSocket[] = []
+    const store = createSteerSessionStore(`session-1`, {
+      mintTicket: mint,
+      createSocket: () => {
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+      openEnet: async (id) =>
+        (await openEnetSteer(id, {
+          carrier: async () => carrier,
+          forSession: async () => [{ endpointId: `dev`, kind: `desktop` }],
+        })) as unknown as WebSocket | null,
+    })
+    return { store, sent, hear, mint, sockets }
+  }
+  const replay: SteerFrame[] = [
+    { t: `activity_reset` },
+    { t: `activity`, seq: 0, event: { kind: `narration`, text: `over enet` } },
+    { t: `activity_synced`, firstSeq: 0, lastSeq: 0 },
+  ]
+  const live = (frames: SteerFrame[]) => (frames[0]?.t === `join` ? replay : null)
+
+  it(`a joined device feeds the same store; no ticket is minted; sends go over eNet`, async () => {
+    const { store, sent, hear, mint } = enetStore(live)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(REPLAY_QUIET_MS)
+    expect(mint).not.toHaveBeenCalled()
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().connected).toBe(true)
+    expect(store.getSnapshot().feed.map((row) => (row as { text?: string }).text)).toEqual([`over enet`])
+
+    hear([{ t: `activity`, seq: 1, event: { kind: `narration`, text: `live` } }])
+    await vi.advanceTimersByTimeAsync(REPLAY_QUIET_MS)
+    expect(store.getSnapshot().feed).toHaveLength(2)
+
+    expect(store.sendMessage(`hello`)).toBe(true)
+    expect(store.setMode(`plan`)).toBe(true)
+    expect(store.interrupt()).toBe(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sent.slice(1)).toEqual([
+      [
+        { t: `input`, data: `hello` },
+        { t: `input`, data: `\r` },
+        { t: `set_mode`, id: `plan` },
+        { t: `interrupt` },
+      ],
+    ])
+    store.dispose()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sent.at(-1)).toEqual([{ t: `leave` }])
+  })
+
+  it(`a device that runs no such session = the relay, exactly as before`, async () => {
+    const { store, mint, sockets } = enetStore(() => [{ t: `error`, code: `no_such_session` }])
+    store.connect()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(mint).toHaveBeenCalledTimes(1)
+    sockets[0].open()
+    expect(sockets[0].sent[0]).toBe(JSON.stringify({ t: `join`, channel: `activity` }))
+    sockets[0].frame({ t: `activity_reset` })
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    store.dispose()
+  })
+
+  it(`no activity_synced within joinTimeoutMs = the relay`, async () => {
+    const { store, mint } = enetStore(() => null)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(7_000)
+    expect(mint).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1_100)
+    expect(mint).toHaveBeenCalledTimes(1)
+    store.dispose()
+  })
+
+  it(`a lost eNet feed redials silently (phase and feed hold)`, async () => {
+    let joins = 0
+    const { store, mint } = enetStore((frames) => (frames[0]?.t === `join` && ++joins === 1 ? replay : null))
+    store.connect()
+    await vi.advanceTimersByTimeAsync(10 + REPLAY_QUIET_MS)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    // Silence past staleMs, then a re-join nobody answers.
+    await vi.advanceTimersByTimeAsync(75_000 + 8_000 + 10)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().connected).toBe(false)
+    expect(CLOSE_ENET_LOST).toBe(4901)
+    // The redial tries eNet again (refused now) and falls back to the relay.
+    await vi.advanceTimersByTimeAsync(3_100 + 8_000 + 10)
+    expect(mint).toHaveBeenCalledTimes(1)
+    store.dispose()
+  })
+})
+

@@ -2,13 +2,15 @@
 // signed in (mounted by the _authenticated layout). One node per browser
 // profile: tabs share the identity, and two nodes with one endpoint id would
 // fight over the relay, so only the tab holding the Web Lock runs it; when
-// that tab closes the next one takes over.
+// that tab closes the next one takes over. VAPP-33: that tab also carries
+// steer over eNet for itself and, through the bridge, for the other tabs.
 
 import { useEffect, useMemo, useRef } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { teamMemberCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { loadEnet } from "./enet-loader"
+import { serveSteerBridge, setLocalSteerCarrier, STEER_BRIDGE_CHANNEL, type BridgeChannel } from "./steer-bridge"
 import { setKeyLeader } from "./use-key-holder"
 import { WebInstall, type InstallsApi } from "./web-install"
 
@@ -58,11 +60,20 @@ export function useWebInstall(userId: string | undefined) {
         current = install
         // EXP-1459: this tab also answers pending tree-key wraps.
         setKeyLeader(true)
+        let bridge: ReturnType<typeof serveSteerBridge> | undefined
         try {
           await install.start()
+          if (install.running && typeof BroadcastChannel !== `undefined`) {
+            bridge = serveSteerBridge(install, new BroadcastChannel(STEER_BRIDGE_CHANNEL) as unknown as BridgeChannel)
+            setLocalSteerCarrier(bridge.carrier)
+          }
           // Hold the lock until this effect ends.
           await new Promise<void>((resolve) => abort.signal.addEventListener(`abort`, () => resolve()))
         } finally {
+          if (bridge) {
+            setLocalSteerCarrier(undefined)
+            bridge.stop()
+          }
           setKeyLeader(false)
         }
       })
