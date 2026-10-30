@@ -1,14 +1,14 @@
 // Round 1 review: the reference half of fixtures/interactions-round1.json
 // (NumberField stepping/rounding/text, Form check semantics, the unbound
 // Table sort). The Rust core replays the same file in
-// apps/desktop/crates/exponential-ui/tests/interactions_fixture.rs, so gpui
+// apps/desktop/crates/eui-core/tests/interactions_fixture.rs, so gpui
 // and the natives (through the FFI) behave like this renderer.
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/ui"
-import type { NestedNode } from "@exponential_app/ui"
-import fixture from "@exponential_app/ui/fixtures/interactions-round1.json"
+import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
+import type { NestedNode } from "@exponential_app/eui"
+import fixture from "@exponential_app/eui/fixtures/interactions-round1.json"
 import { ExponentialSurface } from "./surface"
 import { sortRows, type TableColumn } from "./natives/table"
 import type { SurfaceActionEvent } from "./host"

@@ -17,7 +17,7 @@
 // the root's arrow handler here, the content = `createCollapsibleContent`).
 
 import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
-import type { UiNode } from "@exponential_app/ui"
+import type { UiNode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -25,7 +25,7 @@ import { NodeView } from "../node-view"
 import { createBoundState } from "./bound"
 import { bool, BuiltinIcon, css, num, objects, parts, str, type PartFn } from "./shared"
 import { createCollapsibleContent, createRovingGroup } from "../behaviors"
-import { segmentedBadge } from "@exponential_app/ui/web"
+import { segmentedBadge } from "@exponential_app/eui/web"
 
 interface Tab {
   label: string

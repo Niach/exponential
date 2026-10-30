@@ -3,7 +3,7 @@
 // Solid's JSX settings) with nothing changed. Every component's props
 // autocomplete from the catalog; a wrong prop is a type error, a wrong value
 // a validator issue. `node src/defined.ts` prints the JSONL a host consumes.
-import { bind, call, defineSurface, event, run, ui } from "@exponential_app/ui"
+import { bind, call, defineSurface, event, run, ui } from "@exponential_app/eui"
 
 const entries = ui.Stack({ gap: `md` }, [
   ui.Section({ title: `Entries`, icon: `ui-clock`, count: 2 }),

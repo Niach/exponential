@@ -3,7 +3,7 @@ name = "exponential-net-wasm"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "The wasm-bindgen facade over exponential-net (eNet) for the browser: relay-only, still end-to-end encrypted."
+description = "The wasm-bindgen facade over enet-core (eNet) for the browser: relay-only, still end-to-end encrypted."
 repository = "https://github.com/Niach/exponential"
 readme = "README.md"
 keywords = ["iroh", "wasm", "p2p"]
@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # No `fs-store` in a browser: blobs live in memory.
-exponential-net = { path = "../exponential-net", version = "0.1.0", default-features = false, features = ["node"] }
+enet-core = { path = "../enet-core", version = "0.1.0", default-features = false, features = ["node"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

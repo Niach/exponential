@@ -1,1 +1,1 @@
-export * from "@exponential_app/ui-react/primitives/code-block"
+export * from "@exponential_app/eui-react/primitives/code-block"

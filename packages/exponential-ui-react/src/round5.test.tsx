@@ -7,9 +7,9 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, qrMatrix, reduceNested } from "@exponential_app/ui"
-import type { NestedNode } from "@exponential_app/ui"
-import voiceWaveFixture from "@exponential_app/ui/fixtures/voice-wave.json"
+import { CORE_CATALOG_ID, qrMatrix, reduceNested } from "@exponential_app/eui"
+import type { NestedNode } from "@exponential_app/eui"
+import voiceWaveFixture from "@exponential_app/eui/fixtures/voice-wave.json"
 import { ExponentialSurface } from "./surface"
 import type { SurfaceActionEvent } from "./host"
 

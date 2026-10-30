@@ -8,7 +8,7 @@
 //       [--shots <dir>]          also a PNG of the surface per case
 //       [--write-baseline]       (re)write fixtures/conformance-baseline.json
 //
-// `bun run --filter @exponential_app/ui conformance` calls this, then the
+// `bun run --filter @exponential_app/eui conformance` calls this, then the
 // desktop dump, then the comparator.
 
 import { launchChromium } from "../../exponential-ui/conformance/browser-page"

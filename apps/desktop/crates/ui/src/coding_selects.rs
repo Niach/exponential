@@ -190,7 +190,7 @@ pub(crate) fn claude_writing_frame(delta: f32) -> usize {
 /// faces are STEPPED (`with_stepped_animation`): the spark repaints only
 /// when its 90 ms frame changes, the pulse at the smooth step.
 pub(crate) fn agent_working_mark(agent: Option<coding::CodingAgent>, size: f32) -> gpui::Div {
-    use exponential_ui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
+    use eui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
     let slot = div().flex_shrink_0().size(px(size));
     match agent {
         Some(coding::CodingAgent::Claude) => slot.child(

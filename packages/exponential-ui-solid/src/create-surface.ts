@@ -6,10 +6,10 @@
 // `<ExponentialSurface surface={…}>`.
 
 import { createMemo, createSignal } from "solid-js"
-import { CORE_CATALOG_ID, reduceNested, reduceSurface } from "@exponential_app/ui"
-import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential_app/ui"
-import { setPointer } from "@exponential_app/ui/web"
-import type { DataModel } from "@exponential_app/ui/web"
+import { CORE_CATALOG_ID, reduceNested, reduceSurface } from "@exponential_app/eui"
+import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential_app/eui"
+import { setPointer } from "@exponential_app/eui/web"
+import type { DataModel } from "@exponential_app/eui/web"
 
 export interface A2uiMessage {
   version?: string

@@ -1,6 +1,6 @@
 import { Show, createContext, createSignal, onMount, splitProps, untrack, useContext, type Accessor, type ComponentProps, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { POPOVER_CLASSES } from "@exponential_app/ui/web/primitives"
+import { POPOVER_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { LayerContext, Popper, createFocusScope, createLayer, createPresence, popperContentStyle, useFocusGuards, useModalEffects, type Align, type OutsideEvent, type Side } from "../behaviors"
 import { DialogPortalPart, layerMountedThisTask, layerPointerEvents, noteLayerMount, callHandler, callRef, composeHandlers, createId, createOpenState, mergeRefs, stateOf, styleObject, type AsProps } from "../behaviors/dialog"

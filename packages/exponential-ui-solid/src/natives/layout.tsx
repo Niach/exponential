@@ -4,8 +4,8 @@
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
 import { For, Show, createEffect, createMemo, onCleanup, untrack, type Accessor, type JSX } from "solid-js"
-import { listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/ui"
-import { getPointer, LITERAL_ROWS_ROOT, setPointer } from "@exponential_app/ui/web"
+import { listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
+import { getPointer, LITERAL_ROWS_ROOT, setPointer } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
 import { WindowedList, type WindowedListHandle } from "../list"
 import { NodeView, TemplateItemView, latest, mergeStyle, templateItems, type NativeProps } from "../node-view"

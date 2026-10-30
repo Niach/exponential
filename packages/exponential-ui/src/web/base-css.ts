@@ -12,7 +12,7 @@
 // never needs to (recipes carry only visuals, sizes and spacing).
 
 import { QR_SCANNER } from "./round5"
-import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TEXT_SHIMMER, keyframesCss } from "@exponential_app/ui"
+import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
 
 /** EXP-1324: the Text `shimmer` (catalog/style.json `textShimmer`, shadcn's
  *  `shimmer` utility): the glyphs clip a gradient of the text colour that

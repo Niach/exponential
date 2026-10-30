@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Label as LabelPrimitive } from "radix-ui"
-import { LABEL_CLASSES } from "@exponential_app/ui/web/primitives"
+import { LABEL_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

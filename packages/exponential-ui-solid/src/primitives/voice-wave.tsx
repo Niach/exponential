@@ -1,5 +1,5 @@
 import { Index, Show, children as resolveChildren, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
-import { voiceWave, voiceWaveChildBox, voiceWavePath } from "@exponential_app/ui"
+import { voiceWave, voiceWaveChildBox, voiceWavePath } from "@exponential_app/eui"
 import {
   VOICE_WAVE_CLASSES,
   VOICE_WAVE_SIZE_PX,
@@ -10,12 +10,12 @@ import {
   voiceWaveQuiet,
   type VoiceWaveActivity,
   type VoiceWaveSize,
-} from "@exponential_app/ui/web/primitives"
+} from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 import { createMediaQuery } from "./use-media-query"
 
-export type { VoiceWaveActivity, VoiceWaveSize } from "@exponential_app/ui/web/primitives"
+export type { VoiceWaveActivity, VoiceWaveSize } from "@exponential_app/eui/web/primitives"
 
 export interface VoiceWaveProps {
   activity?: VoiceWaveActivity

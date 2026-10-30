@@ -20,7 +20,7 @@ const PLATFORM_ROOTS: readonly [string, UiPlatform][] = [
   [`apps/ios/`, `ios`],
   [`apps/android/`, `android`],
   [`apps/desktop/crates/ui/`, `desktop`],
-  [`apps/desktop/crates/exponential-ui-gpui/`, `desktop`],
+  [`apps/desktop/crates/eui-gpui/`, `desktop`],
 ]
 
 /** The UI platforms a diff touches, in `UI_PLATFORMS` order. */

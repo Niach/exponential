@@ -1,0 +1,108 @@
+name: release-enet
+
+# EXP-1438: publishes eNet (p2p end-to-end encrypted networking on iroh) on `enet-v<semver>` tags, the
+# eUI pattern (release-eui.yml): one tag = one version of every crate below,
+# checked against their Cargo.toml first. Crates: enet-core.
+# crates.io: enet-core (CARGO_REGISTRY_TOKEN, gated like eUI); the other crates ride the tag as git dependencies.
+# A dispatched dry run tests and stops before publishing anything.
+
+on:
+  push:
+    tags: ["enet-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (semver, must match the crates)"
+        required: true
+      dry_run:
+        description: "Dry run: test, publish nothing, create no release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  VERSION: ${{ github.event.inputs.version || '' }}
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+
+jobs:
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          v="${VERSION:-${GITHUB_REF_NAME#enet-v}}"
+          echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "not a semver version: $v"; exit 1; }
+          for c in enet-core; do
+            crate=$(grep -m1 '^version' "apps/desktop/crates/$c/Cargo.toml" | cut -d'"' -f2)
+            [ "$crate" = "$v" ] || { echo "apps/desktop/crates/$c/Cargo.toml is $crate, the tag says $v: bump it first"; exit 1; }
+          done
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: [version, pick]
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps
+        if: runner.environment == 'github-hosted'
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libssl-dev libfontconfig1-dev pkg-config \
+            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
+            libasound2-dev libopus-dev cmake
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
+      - name: Cargo tests (eNet)
+        working-directory: apps/desktop
+        run: cargo test --no-fail-fast --locked -p enet-core
+
+  crates:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish enet-core (or dry-run)
+        working-directory: apps/desktop
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -n "$CARGO_REGISTRY_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then cargo publish --locked -p enet-core; \
+          else cargo publish --locked -p enet-core --dry-run; [ "$DRY_RUN" = "true" ] && echo "::notice::dry run: cargo publish --dry-run only" || echo "::warning::CARGO_REGISTRY_TOKEN is not set: dry run only"; fi
+
+  release:
+    needs: [version, test, crates]
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release notes
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          printf '%s\n\n' "eNet $V. Install: cargo add enet-core@$V." > notes.md
+          printf '```toml\n%b\n```\n' "enet-core = { git = \"https://github.com/Niach/exponential\", tag = \"enet-v$V\" }" >> notes.md
+          cat notes.md
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: enet-v${{ needs.version.outputs.version }}
+          name: eNet ${{ needs.version.outputs.version }}
+          make_latest: false
+          body_path: notes.md
+          files: |
+            LICENSE
+            NOTICE

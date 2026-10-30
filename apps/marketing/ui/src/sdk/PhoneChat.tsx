@@ -8,7 +8,7 @@
    The surface is fixtures/demo-surface.json (= specimen exponential-ui-demo). */
 import type { ComponentProps, ReactNode } from "react"
 import { DETAIL_EDGE_BOTTOM_CLASS, MobileWorkCapsule, PageHeader, ThreadConversation, TooltipProvider } from "@exp/ui"
-import demo from "@exponential_app/ui/fixtures/demo-surface.json"
+import demo from "@exponential_app/eui/fixtures/demo-surface.json"
 
 type Row = ComponentProps<typeof ThreadConversation>[`rows`][number]
 type Rows = Row[]

@@ -70,27 +70,27 @@ const gz = (text: string | Uint8Array) => gzipSync(text, { level: 9 }).length
 
 /** The packages `build-npm.ts` ships, by directory. */
 const NPM_PACKAGES: Record<string, string> = {
-  "@exponential_app/ui": `packages/exponential-ui`,
-  "@exponential_app/ui-react": `packages/exponential-ui-react`,
-  "@exponential_app/ui-solid": `packages/exponential-ui-solid`,
-  "@exponential_app/ui-element": `packages/exponential-ui-element`,
+  "@exponential_app/eui": `packages/exponential-ui`,
+  "@exponential_app/eui-react": `packages/exponential-ui-react`,
+  "@exponential_app/eui-solid": `packages/exponential-ui-solid`,
+  "@exponential_app/eui-element": `packages/exponential-ui-element`,
 }
 
 /** The entries a RENDERER loads: the root (the runtime catalog, the reducer,
  *  the themes), the host API, the shared web layer and its primitives'
  *  recipes, and both web renderers' entries. */
 export const RENDERER_ENTRIES: readonly string[] = [
-  `@exponential_app/ui/index`,
-  `@exponential_app/ui/host`,
-  `@exponential_app/ui/web`,
-  `@exponential_app/ui/web/primitives`,
-  `@exponential_app/ui-react/index`,
-  `@exponential_app/ui-react/primitives`,
-  `@exponential_app/ui-solid/index`,
-  `@exponential_app/ui-solid/primitives`,
-  `@exponential_app/ui-element/index`,
-  `@exponential_app/ui-element/define`,
-  `@exponential_app/ui-element/standalone.js`,
+  `@exponential_app/eui/index`,
+  `@exponential_app/eui/host`,
+  `@exponential_app/eui/web`,
+  `@exponential_app/eui/web/primitives`,
+  `@exponential_app/eui-react/index`,
+  `@exponential_app/eui-react/primitives`,
+  `@exponential_app/eui-solid/index`,
+  `@exponential_app/eui-solid/primitives`,
+  `@exponential_app/eui-element/index`,
+  `@exponential_app/eui-element/define`,
+  `@exponential_app/eui-element/standalone.js`,
 ]
 
 /** What a renderer entry must never carry (VAPP-106, the root-entry split):
@@ -243,7 +243,7 @@ export function measureCrate(): Record<string, Measure> {
   const targetDir = process.env.CARGO_TARGET_DIR ?? join(DESKTOP, `target`)
   let bloat = ``
   try {
-    bloat = execSync(`cargo bloat --release -p exponential-ui --example bench --crates -n 15`, { cwd: DESKTOP, encoding: `utf8`, stdio: [`ignore`, `pipe`, `pipe`] })
+    bloat = execSync(`cargo bloat --release -p eui-core --example bench --crates -n 15`, { cwd: DESKTOP, encoding: `utf8`, stdio: [`ignore`, `pipe`, `pipe`] })
   } catch (e) {
     console.warn(`cargo bloat is not available (cargo install cargo-bloat): ${(e as Error).message.split(`\n`)[0]}`)
   }
@@ -252,7 +252,7 @@ export function measureCrate(): Record<string, Measure> {
   let text = 0
   let file = 0
   for (const line of bloat.split(`\n`)) {
-    // " 43.2%  72.6%   1.7MiB exponential_ui" / "59.5% 100.0%  2.4MiB .text section size, the file size is 4.0MiB"
+    // " 43.2%  72.6%   1.7MiB eui_core" / "59.5% 100.0%  2.4MiB .text section size, the file size is 4.0MiB"
     const m = /^\s*([\d.]+)%\s+([\d.]+)%\s+([\d.]+)(B|KiB|MiB)\s+(.+?)\s*$/.exec(line)
     if (!m) continue
     const n = Math.round(Number(m[3]) * unit[m[4]]!)

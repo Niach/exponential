@@ -9,13 +9,13 @@
 // at no less than the idle width.
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
-import { PENDING_DELAY_MS } from "@exponential_app/ui"
+import { PENDING_DELAY_MS } from "@exponential_app/eui"
 import { Toggle as TogglePrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
 import { useForm } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useBoundState } from "./bound"
-import { ButtonHold, linkHref } from "@exponential_app/ui/web"
+import { ButtonHold, linkHref } from "@exponential_app/eui/web"
 import type { NativeProps } from "../node-view"
 import { bool, str, useParts } from "./shared"
 
@@ -108,7 +108,7 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
   )
 }
 
-/** THE hold machine (`@exponential_app/ui/web` ButtonHold) wired to a
+/** THE hold machine (`@exponential_app/eui/web` ButtonHold) wired to a
  *  button's DOM events: the pointer is captured on down (a long-press or a
  *  scroll never steals it), the slop is measured against the button's box,
  *  Space/Enter hold from key down to key up, Escape and blur cancel. */

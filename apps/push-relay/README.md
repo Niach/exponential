@@ -145,7 +145,7 @@ What goes on the wire:
 
 `sealed` is an opaque blob the **sender** builds for the **recipient install's X25519 public key**. The recipient app hands that key out together with the capability (out of band: the pairing QR, the p2p channel, or its own registration call to a server such as Exponential's); the relay never sees keys or plaintext. It checks only that `sealed` is base64url and at most 3072 bytes decoded.
 
-Format v1, exactly as `push_seal` / `push_open` in `apps/desktop/crates/exponential-net/src/push.rs`:
+Format v1, exactly as `push_seal` / `push_open` in `apps/desktop/crates/enet-core/src/push.rs`:
 
 ```text
 sealed     = 0x01 ‖ eph_pub[32] ‖ ciphertext ‖ tag[16]          (49 bytes of overhead)

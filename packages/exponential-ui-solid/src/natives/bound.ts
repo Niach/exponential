@@ -6,8 +6,8 @@
 // bound path (relative paths against the node's scope).
 
 import { createComputed, createMemo, createSignal, on, untrack, type Accessor } from "solid-js"
-import { boundPath } from "@exponential_app/ui/web"
-import type { UiNode } from "@exponential_app/ui"
+import { boundPath } from "@exponential_app/eui/web"
+import type { UiNode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 
 export function createBoundState<T>(node: Accessor<UiNode>, scope: Accessor<string>, prop: string, external: Accessor<T>, key: (v: T) => string = (v) => JSON.stringify(v) ?? ``): [Accessor<T>, (next: T, written?: unknown) => void, Accessor<string | undefined>] {

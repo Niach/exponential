@@ -1,1 +1,1 @@
-export { useMediaQuery } from "@exponential_app/ui-react/primitives"
+export { useMediaQuery } from "@exponential_app/eui-react/primitives"

@@ -1,6 +1,6 @@
 import { Show, children as resolveChildren, createContext, createEffect, createSignal, createUniqueId, on, onCleanup, onMount, splitProps, useContext, type ComponentProps, type JSX } from "solid-js"
 import { CircleX, Search } from "lucide-solid"
-import { COMMAND_CLASSES, COMMAND_LABEL_STYLE, COMMAND_SELECT_EVENT, commandItemValue, createCommandStore, observeCommandListHeight, type CommandFilter, type CommandStore } from "@exponential_app/ui/web/primitives"
+import { COMMAND_CLASSES, COMMAND_LABEL_STYLE, COMMAND_SELECT_EVENT, commandItemValue, createCommandStore, observeCommandListHeight, type CommandFilter, type CommandStore } from "@exponential_app/eui/web/primitives"
 
 import { PaintIcon } from "../icons"
 import { css } from "../style"

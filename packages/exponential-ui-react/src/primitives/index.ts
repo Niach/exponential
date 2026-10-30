@@ -1,4 +1,4 @@
-// @exponential_app/ui-react/primitives: the shadcn set + the generic
+// @exponential_app/eui-react/primitives: the shadcn set + the generic
 // primitives the Exponential app shares (VAPP-87). The app's own modules
 // (glass-rows, typeahead, composer, trace, pill, segmented-bar) live in
 // @exp/ui. Every module, one line each; intra-package imports stay RELATIVE

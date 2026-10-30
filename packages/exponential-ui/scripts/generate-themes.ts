@@ -386,8 +386,8 @@ export function renderThemesRust(themes: ResolvedTheme[]): string {
   const r = nativeRows(themes)
   const arr = (name: string, values: readonly string[]) => `pub const ${name}: &[&str] = &[${values.map((v) => JSON.stringify(v)).join(`, `)}];`
   return `// ${THEME_HEADER.split(`\n`).join(`\n// `)}
-// Consumed by apps/desktop/crates/exponential-ui (VAPP-86): the generator copies this file to
-// apps/desktop/crates/exponential-ui/src/generated/themes.rs (drift-gated there) so the crate packages standalone.
+// Consumed by apps/desktop/crates/eui-core (VAPP-86): the generator copies this file to
+// apps/desktop/crates/eui-core/src/generated/themes.rs (drift-gated there) so the crate packages standalone.
 
 pub const THEME_SCHEMA_ID: &str = ${JSON.stringify(THEME_SCHEMA_ID)};
 pub const DEFAULT_THEME_ID: &str = "exponential";

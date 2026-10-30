@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// VAPP-105: `bun run --filter @exponential_app/ui-bench ratchet <fragment.json | results/<machine>.json>… [--machine <id>] [--write]`
+// VAPP-105: `bun run --filter @exponential_app/eui-bench ratchet <fragment.json | results/<machine>.json>… [--machine <id>] [--write]`
 // Checks every fragment against budgets.json (src/ratchet.ts says the rules);
 // exit 1 when a metric is worse than its budget or a deterministic one got
 // better without its budget. `--write` rewrites budgets.json from the

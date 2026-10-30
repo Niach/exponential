@@ -1,1 +1,1 @@
-export * from "@exponential_app/ui-react/primitives/meter"
+export * from "@exponential_app/eui-react/primitives/meter"

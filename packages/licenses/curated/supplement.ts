@@ -189,11 +189,11 @@ export const VENDORED: CuratedEntry[] = [
     ],
   },
   // VAPP-87: the web app bundles the Exponential UI catalog package
-  // (`@exponential_app/ui`, through `@exponential_app/ui-react` on the kitchen
+  // (`@exponential_app/eui`, through `@exponential_app/eui-react` on the kitchen
   // sink route): the vendored A2UI v0.9 schemas and the json-render wording
   // now reach a client build, so the two Apache-2.0 sources get their rows
   // (docs/third-party-licences.md, VAPP-85 section). VAPP-90: the desktop
-  // app links the Rust core (`exponential-ui`, which EMBEDS the generated
+  // app links the Rust core (`eui-core`, which EMBEDS the generated
   // catalog — json-render-derived descriptions included — and the resolved
   // themes in the binary), so `desktop` joins. VAPP-88: the iOS painter
   // (`packages/exponential-ui-swift`) ships the same Rust core inside its

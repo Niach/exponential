@@ -3,7 +3,7 @@
 // {id, component, part, parent, x, y, w, h, text?, lines?, lh?}, positions
 // relative to the surface's root node, in CSS px. Produced by the React
 // renderer in headless Chromium (conformance/dom.ts, real fonts) and by the
-// gpui painter headless (apps/desktop/crates/exponential-ui-gpui/examples/
+// gpui painter headless (apps/desktop/crates/eui-gpui/examples/
 // conformance_dump.rs, gpui's cosmic-text system with the same font files);
 // conformance/compare.ts diffs two of them. The case matrix and the fixtures
 // live in fixtures/conformance-cases.json, the font set in conformance/fonts.json.

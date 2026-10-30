@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// VAPP-105: the gpui painter's runner (apps/desktop/crates/exponential-ui-gpui/examples/bench_suite.rs),
+// VAPP-105: the gpui painter's runner (apps/desktop/crates/eui-gpui/examples/bench_suite.rs),
 // headless on Linux only (gpui's cosmic-text system with the conformance
 // fonts): `bun run runners/gpui.ts [--scenario <id>] [--repeat <n>]` writes
 // the `gpui` fragment to `fragmentPath("gpui")`. Elsewhere it exits 0 with
@@ -13,7 +13,7 @@ if (process.platform !== `linux`) {
   process.exit(0)
 }
 const out = fragmentPath(`gpui`)
-const r = spawnSync(`cargo`, [`run`, `--release`, `-p`, `exponential-ui-gpui`, `--example`, `bench_suite`, `--`, ...process.argv.slice(2)], {
+const r = spawnSync(`cargo`, [`run`, `--release`, `-p`, `eui-gpui`, `--example`, `bench_suite`, `--`, ...process.argv.slice(2)], {
   cwd: join(REPO_ROOT, `apps`, `desktop`),
   stdio: [`ignore`, `ignore`, `inherit`],
   env: { ...process.env, EXPONENTIAL_UI_BENCH_OUT: out },

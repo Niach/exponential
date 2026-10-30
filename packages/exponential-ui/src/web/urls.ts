@@ -10,7 +10,7 @@
 // and every other private host stay denied. Shared by React and Solid
 // (FEED-128): one filter, both renderers.
 
-import { DEFAULT_MEDIA_SCHEMES, decideUrl, isPrivateHost, mediaRequest, safeHref, type MediaRequest, type UrlPolicy } from "@exponential_app/ui"
+import { DEFAULT_MEDIA_SCHEMES, decideUrl, isPrivateHost, mediaRequest, safeHref, type MediaRequest, type UrlPolicy } from "@exponential_app/eui"
 import type { AnyHostPlugin as HostPlugin } from "./host-types"
 
 const documentBase = (): string | undefined => (typeof document !== `undefined` && document.baseURI ? document.baseURI : undefined)

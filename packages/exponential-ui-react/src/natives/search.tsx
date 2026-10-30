@@ -12,7 +12,7 @@
 // compares the same boxes.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
-import { elementScale } from "@exponential_app/ui/web"
+import { elementScale } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
 import { IconGlyph } from "../icons"

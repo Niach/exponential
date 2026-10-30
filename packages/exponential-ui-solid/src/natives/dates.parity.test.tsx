@@ -6,8 +6,8 @@
 
 import { describe, expect, it } from "vitest"
 import { act } from "react"
-import fixture from "@exponential_app/ui/fixtures/catalog-components.json"
-import type { NestedNode } from "@exponential_app/ui"
+import fixture from "@exponential_app/eui/fixtures/catalog-components.json"
+import type { NestedNode } from "@exponential_app/eui"
 import { renderReact, renderSolidSurface, serializeDom, type ParityCase } from "../test/parity"
 
 const COMPONENTS = new Set([`DatePicker`, `DateRangePicker`, `TimePicker`])

@@ -1,5 +1,5 @@
 import { splitProps, type ComponentProps } from "solid-js"
-import { CARD_CLASSES } from "@exponential_app/ui/web/primitives"
+import { CARD_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

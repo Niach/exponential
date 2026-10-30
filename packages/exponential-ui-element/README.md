@@ -1,9 +1,9 @@
-# `@exponential_app/ui-element`: Exponential UI as a custom element
+# `@exponential_app/eui-element`: Exponential UI as a custom element
 
 `<exponential-surface>` paints an A2UI surface in the core catalog
-(`@exponential_app/ui`) in any page, with no framework (FEED-130). It does not
+(`@exponential_app/eui`) in any page, with no framework (FEED-130). It does not
 have a painter of its own. It mounts the Solid renderer
-(`@exponential_app/ui-solid`) inside itself, so you get one painter with two
+(`@exponential_app/eui-solid`) inside itself, so you get one painter with two
 entry points. The element uses light DOM and is `display: contents` through
 one shared zero-specificity rule `define()` installs (`:where(exponential-surface){display:contents}`,
 so any rule of yours wins), so the surface's `.xui-surface` root is THE box,
@@ -15,12 +15,12 @@ together: the first at once, the rest in a microtask inside one batch.
 For every surface, the element paints exactly what the React renderer
 paints: the same elements, attributes, `<style data-xui-style>` sheets,
 layers and runtime themes. `src/parity.test.ts` compares the element's
-`.xui-surface` subtree against `@exponential_app/ui-react` in jsdom, using
+`.xui-surface` subtree against `@exponential_app/eui-react` in jsdom, using
 the Solid package's `serializeDom` and `renderReact`.
 
 ```html
 <script type="module">
-  import "@exponential_app/ui-element/define"   // or the self-contained ./standalone bundle
+  import "@exponential_app/eui-element/define"   // or the self-contained ./standalone bundle
 </script>
 
 <exponential-surface theme="orange" mode="system" src="/ui/stream" post="/ui/events"></exponential-surface>
@@ -163,7 +163,7 @@ never connect. A `ws:`/`wss:` url is decided as its http(s) twin. A denied
 ## Extensions
 
 ```js
-import { defineElementExtension } from "@exponential_app/ui-element"
+import { defineElementExtension } from "@exponential_app/eui-element"
 
 el.extensions = [defineElementExtension({
   catalog,                                    // defineExtension(...) or its JSON
@@ -213,9 +213,9 @@ and `javascript:` links are stripped anyway.
 
 | entry | what |
 |---|---|
-| `@exponential_app/ui-element` | No side effects: the class, `TAG`, `define(tag?)`, the helpers, and re-exports of `createSurface`, `registerExtension` and `defineSolidExtension` |
-| `@exponential_app/ui-element/define` | Calls `define()` on import (idempotent; a tag taken by another class throws; another tag gets its own subclass) |
-| `@exponential_app/ui-element/standalone` | The same, bundled self-contained (Solid and the renderer inlined) into one ES module |
+| `@exponential_app/eui-element` | No side effects: the class, `TAG`, `define(tag?)`, the helpers, and re-exports of `createSurface`, `registerExtension` and `defineSolidExtension` |
+| `@exponential_app/eui-element/define` | Calls `define()` on import (idempotent; a tag taken by another class throws; another tag gets its own subclass) |
+| `@exponential_app/eui-element/standalone` | The same, bundled self-contained (Solid and the renderer inlined) into one ES module |
 
 ## Layout
 
@@ -232,6 +232,6 @@ and `javascript:` links are stripped anyway.
 ## Commands
 
 ```bash
-bun run --filter @exponential_app/ui-element typecheck
-bun run --filter @exponential_app/ui-element test
+bun run --filter @exponential_app/eui-element typecheck
+bun run --filter @exponential_app/eui-element test
 ```

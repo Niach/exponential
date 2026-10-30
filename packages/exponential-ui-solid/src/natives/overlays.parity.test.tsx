@@ -10,9 +10,9 @@
 // before the other one paints.
 
 import { describe, expect, it } from "vitest"
-import type { NestedNode } from "@exponential_app/ui"
-import componentsFixture from "@exponential_app/ui/fixtures/catalog-components.json"
-import round4 from "@exponential_app/ui/fixtures/round4-contract.json"
+import type { NestedNode } from "@exponential_app/eui"
+import componentsFixture from "@exponential_app/eui/fixtures/catalog-components.json"
+import round4 from "@exponential_app/eui/fixtures/round4-contract.json"
 import { renderReact, renderSolidSurface, serializeDom, type ParityCase } from "../test/parity"
 import { PENDING_NATIVES } from "./index"
 

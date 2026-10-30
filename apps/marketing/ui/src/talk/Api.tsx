@@ -45,8 +45,8 @@ export default function Api({ path }: PageProps) {
           <DocsCallout kind="note">
             <p>
               The crates live in the Exponential repo and are <code>publish = false</code>: an app takes them as a git dependency
-              on an <code>etalk-v&lt;version&gt;</code> tag, because the fixtures in <code>packages/etalk</code> are compiled in. No
-              tag is cut yet.
+              on an <code>etalk-v&lt;version&gt;</code> tag, because the fixtures in <code>packages/etalk</code> are compiled in. The
+              first is <code>etalk-v0.1.0</code>.
             </p>
           </DocsCallout>
         </DocsSection>

@@ -7,10 +7,10 @@
 //            of the tarballs, `tsc --noEmit`, `vite build`, then the extension
 //            (defineExtension + its macro reduced) and the app (validatePackage)
 //            checked at runtime against the packed package
-//   solid    the same as react with `@exponential_app/ui-solid` (Vite + vite-plugin-solid),
+//   solid    the same as react with `@exponential_app/eui-solid` (Vite + vite-plugin-solid),
 //            plus the typed DSL from the Solid project (VAPP-108: src/defined.ts run by
 //            node must print a valid surface; src/Defined.tsx feeds it to the renderer)
-//   element  the same as react with @exponential_app/ui-element (plain Vite, no framework),
+//   element  the same as react with @exponential_app/eui-element (plain Vite, no framework),
 //            plus the typed DSL from the plain project (src/defined.ts; src/mount-defined.ts
 //            feeds it to <exponential-surface>)
 //   agent    the same tarballs, `tsc --noEmit`, then the server started and asked
@@ -98,10 +98,10 @@ async function tarballs(): Promise<Tarballs> {
   temps.push(dir)
   for (const staged of await prepareNpm(VERSION, join(dir, `stage`))) run(`npm pack --silent --pack-destination ${dir}`, staged)
   const files = readdirSync(dir).filter((f) => f.endsWith(`.tgz`))
-  const ui = files.find((f) => f === `exponential_app-ui-${VERSION}.tgz`)
-  const uiReact = files.find((f) => f === `exponential_app-ui-react-${VERSION}.tgz`)
-  const uiSolid = files.find((f) => f === `exponential_app-ui-solid-${VERSION}.tgz`)
-  const uiElement = files.find((f) => f === `exponential_app-ui-element-${VERSION}.tgz`)
+  const ui = files.find((f) => f === `exponential_app-eui-${VERSION}.tgz`)
+  const uiReact = files.find((f) => f === `exponential_app-eui-react-${VERSION}.tgz`)
+  const uiSolid = files.find((f) => f === `exponential_app-eui-solid-${VERSION}.tgz`)
+  const uiElement = files.find((f) => f === `exponential_app-eui-element-${VERSION}.tgz`)
   if (!ui || !uiReact || !uiSolid || !uiElement) throw new Error(`tarballs missing in ${dir}: ${files.join(`, `)}`)
   packed = { ui: join(dir, ui), uiReact: join(dir, uiReact), uiSolid: join(dir, uiSolid), uiElement: join(dir, uiElement) }
   return packed
@@ -112,10 +112,10 @@ async function tarballs(): Promise<Tarballs> {
 function useTarballs(dir: string, t: Tarballs): void {
   const path = join(dir, `package.json`)
   const pkg = JSON.parse(readFileSync(path, `utf8`)) as { dependencies: Record<string, string>; overrides?: Record<string, string> }
-  for (const [name, file] of [[`@exponential_app/ui`, t.ui], [`@exponential_app/ui-react`, t.uiReact], [`@exponential_app/ui-solid`, t.uiSolid], [`@exponential_app/ui-element`, t.uiElement]] as const)
+  for (const [name, file] of [[`@exponential_app/eui`, t.ui], [`@exponential_app/eui-react`, t.uiReact], [`@exponential_app/eui-solid`, t.uiSolid], [`@exponential_app/eui-element`, t.uiElement]] as const)
     if (pkg.dependencies[name]) pkg.dependencies[name] = `file:${file}`
   // The element depends on ui-solid: one copy of each, the local tarballs.
-  pkg.overrides = { "@exponential_app/ui": `file:${t.ui}`, "@exponential_app/ui-solid": `file:${t.uiSolid}` }
+  pkg.overrides = { "@exponential_app/eui": `file:${t.ui}`, "@exponential_app/eui-solid": `file:${t.uiSolid}` }
   writeFileSync(path, JSON.stringify(pkg, null, 2))
 }
 
@@ -134,7 +134,7 @@ async function webGuide(guide: `react` | `solid` | `element`): Promise<void> {
   writeFileSync(
     join(dir, `runtime-check.mjs`),
     `import { readFileSync } from "node:fs"
-import { CORE_CATALOG_ID, defineExtension, reduceSurface, validatePackage } from "@exponential_app/ui"
+import { CORE_CATALOG_ID, defineExtension, reduceSurface, validatePackage } from "@exponential_app/eui"
 const json = (f) => JSON.parse(readFileSync(new URL(f, import.meta.url), "utf8"))
 const problems = []
 const ext = defineExtension(json("./src/trendline.extension.json"))

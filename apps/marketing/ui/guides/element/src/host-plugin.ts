@@ -1,7 +1,7 @@
 // A host plugin = what your app lends a surface: functions it may call,
 // sources its data model may follow, and the policy that gates both.
-import { ExponentialHost, decideUrl, parseSource } from "@exponential_app/ui"
-import type { HostFunction, HostPolicy, SourceResolvers, Transport } from "@exponential_app/ui"
+import { ExponentialHost, decideUrl, parseSource } from "@exponential_app/eui"
+import type { HostFunction, HostPolicy, SourceResolvers, Transport } from "@exponential_app/eui"
 
 // 1. Functions: `on: {press: {functionCall: {call: "cart.add", args: {sku: "A1"}}}}`.
 const functions: Record<string, HostFunction> = {

@@ -1,1 +1,1 @@
-export * from "@exponential_app/ui-react/primitives/textarea"
+export * from "@exponential_app/eui-react/primitives/textarea"

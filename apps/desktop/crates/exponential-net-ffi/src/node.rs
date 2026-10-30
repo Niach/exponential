@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use exponential_net as net;
+use enet_core as net;
 use net::{EndpointId, Node};
 use tokio::sync::mpsc::UnboundedReceiver;
 

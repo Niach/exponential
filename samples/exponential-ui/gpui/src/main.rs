@@ -12,14 +12,14 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use exponential_ui::extension::parse_extension;
-use exponential_ui::measure::LeafRequest;
-use exponential_ui::theme::Mode;
-use exponential_ui::themes::theme_or_default;
-use exponential_ui_gpui::extension::{ExtensionPainter, PaintContext};
-use exponential_ui_gpui::paint::color::parse_hex;
-use exponential_ui_gpui::runtime::{ExponentialHost, HostOptions};
-use exponential_ui_gpui::transport::{HttpTransportOptions, JsonlStreamTransport};
+use eui_core::extension::parse_extension;
+use eui_core::measure::LeafRequest;
+use eui_core::theme::Mode;
+use eui_core::themes::theme_or_default;
+use eui_gpui::extension::{ExtensionPainter, PaintContext};
+use eui_gpui::paint::color::parse_hex;
+use eui_gpui::runtime::{ExponentialHost, HostOptions};
+use eui_gpui::transport::{HttpTransportOptions, JsonlStreamTransport};
 use gpui::{canvas, div, point, prelude::*, px, size, AnyElement, App, Bounds, Entity, Hsla, PathBuilder, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions};
 use serde_json::Value;
 

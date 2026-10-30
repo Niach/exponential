@@ -8,8 +8,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { join } from "node:path"
 import type { Browser } from "playwright"
-import { placeOverlay } from "@exponential_app/ui"
-import overlays from "@exponential_app/ui/fixtures/overlay-geometry.json"
+import { placeOverlay } from "@exponential_app/eui"
+import overlays from "@exponential_app/eui/fixtures/overlay-geometry.json"
 import { bunHarness, launchChromium, openPage, type RunningHarness } from "../../exponential-ui/conformance/browser-page"
 
 type Case = { name: string; anchor: { x: number; y: number; width: number; height: number }; size: { width: number; height: number }; viewport: { width: number; height: number }; side: `top` | `right` | `bottom` | `left`; expected: { x: number; y: number; side: string; flipped: boolean } }

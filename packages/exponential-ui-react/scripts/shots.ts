@@ -6,7 +6,7 @@
 // app route `/exponential-ui-kitchen-sink` is what `bun run shots` captures
 // once the dev stack runs; this is the stack-free door.
 //
-//   bun run --filter @exponential_app/ui-react shots [--theme exponential] [--mode dark] [--out <dir>]
+//   bun run --filter @exponential_app/eui-react shots [--theme exponential] [--mode dark] [--out <dir>]
 
 import { chromium } from "playwright"
 import { spawn } from "node:child_process"

@@ -4,7 +4,7 @@
 // through `hostPlugin(host)`. Nothing here knows a transport or a backend.
 
 import { Show, createEffect, createMemo, createSignal, onCleanup, splitProps, type Accessor, type JSX } from "solid-js"
-import type { ExponentialHost, SurfaceStore, TransportStatus } from "@exponential_app/ui"
+import type { ExponentialHost, SurfaceStore, TransportStatus } from "@exponential_app/eui"
 import type { HostPlugin } from "./host"
 import type { SurfaceState } from "./create-surface"
 import { ExponentialSurface, type ExponentialSurfaceProps } from "./surface"

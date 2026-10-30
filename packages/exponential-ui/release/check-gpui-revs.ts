@@ -2,7 +2,7 @@
 // gpui-component rev, written in five places that must agree:
 //   apps/desktop/Cargo.toml + Cargo.lock        (the workspace the painter builds in)
 //   apps/desktop/crates/app/tests/pinned_revs.rs (the cargo-side lock gate)
-//   apps/desktop/crates/exponential-ui-gpui/README.md (the consumer policy table)
+//   apps/desktop/crates/eui-gpui/README.md (the consumer policy table)
 //   apps/marketing/ui/guides/gpui/Cargo.toml + Cargo.lock (the third-party guide app)
 //   apps/marketing/ui/src/pages/Guide.tsx       (the install snippet on exponential.at/ui)
 // plus the rust toolchain of both,
@@ -24,7 +24,7 @@ const read = (path: string) => readFileSync(join(REPO, path), `utf8`)
 const fail = (path: string, message: string) => errors.push(`${path}: ${message}`)
 
 // The README's policy table is the source of truth: `| zed … | \`<sha>\` |`.
-const README = `apps/desktop/crates/exponential-ui-gpui/README.md`
+const README = `apps/desktop/crates/eui-gpui/README.md`
 function tableRev(name: string): string {
   const row = read(README)
     .split(`\n`)

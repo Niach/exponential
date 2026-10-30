@@ -9,10 +9,10 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render } from "@solidjs/testing-library"
-import { CORE_CATALOG_ID, qrMatrix, reduceNested } from "@exponential_app/ui"
-import type { NestedNode } from "@exponential_app/ui"
-import voiceWaveFixture from "@exponential_app/ui/fixtures/voice-wave.json"
-import fixture from "@exponential_app/ui/fixtures/interactions-round1.json"
+import { CORE_CATALOG_ID, qrMatrix, reduceNested } from "@exponential_app/eui"
+import type { NestedNode } from "@exponential_app/eui"
+import voiceWaveFixture from "@exponential_app/eui/fixtures/voice-wave.json"
+import fixture from "@exponential_app/eui/fixtures/interactions-round1.json"
 import { ExponentialSurface } from "./surface"
 import type { SurfaceActionEvent } from "./host"
 

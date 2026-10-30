@@ -6,11 +6,11 @@
    URL (the state deflated into the hash); the system prompt the catalog
    generates for a model, with an optional extension catalog. */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
-import { BUILTIN_THEMES, builtinTheme, tryLoadTheme, validateExtension } from "@exponential_app/ui"
-import { catalogPrompt, estimateTokens } from "@exponential_app/ui/prompt"
-import type { ExtensionDef, ReduceIssue, ResolvedTheme } from "@exponential_app/ui"
-import type { SurfaceActionEvent } from "@exponential_app/ui-react"
-import extensionFixture from "@exponential_app/ui/fixtures/catalog-extension.json"
+import { BUILTIN_THEMES, builtinTheme, tryLoadTheme, validateExtension } from "@exponential_app/eui"
+import { catalogPrompt, estimateTokens } from "@exponential_app/eui/prompt"
+import type { ExtensionDef, ReduceIssue, ResolvedTheme } from "@exponential_app/eui"
+import type { SurfaceActionEvent } from "@exponential_app/eui-react"
+import extensionFixture from "@exponential_app/eui/fixtures/catalog-extension.json"
 import { DocsCode } from "@exp/site-shell"
 import { parseInput, surfaceIds, type Message } from "./a2ui"
 import { loadRuntime, type SdkRuntime } from "./Island"

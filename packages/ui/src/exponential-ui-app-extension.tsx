@@ -8,8 +8,8 @@
 // DecisionCard, ChoiceDialog, ResultTile, Diff) render the renderer's
 // extension note; VAPP-83 adds them as the dogfood screens need them.
 
-import { defineExtension, type ExtensionDef } from "@exponential_app/ui"
-import { defineReactExtension, type ExtensionComponentProps } from "@exponential_app/ui-react"
+import { defineExtension, type ExtensionDef } from "@exponential_app/eui"
+import { defineReactExtension, type ExtensionComponentProps } from "@exponential_app/eui-react"
 import type { IconConcept, IconName } from "@exp/icons"
 import { SEMANTIC_ICONS } from "@exp/icons"
 import extensionJson from "../exponential-ui/extension.json"

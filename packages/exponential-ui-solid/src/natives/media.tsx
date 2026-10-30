@@ -6,8 +6,8 @@
 // paint its own attributes.
 
 import { For, Show, createComputed, createRenderEffect, createEffect, createMemo, createSignal, on, onCleanup, type Component, type JSX } from "solid-js"
-import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/ui"
-import type { UiNode } from "@exponential_app/ui"
+import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
+import type { UiNode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { createMediaSource, createMediaSrc } from "../media"

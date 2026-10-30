@@ -37,7 +37,7 @@ kotlin {
 dependencies {
     // The SDK: the painter + host runtime (its POM brings the primitives,
     // Compose, coroutines and JNA with the native core).
-    implementation("at.exponential:ui-compose:0.2.0")
+    implementation("at.exponential:eui-compose:0.2.0")
 
     implementation("androidx.activity:activity-compose:1.12.4")
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))

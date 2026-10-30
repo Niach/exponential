@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Avatar as AvatarPrimitive } from "radix-ui"
-import { AVATAR_CLASSES, avatarFallbackColors, avatarFallbackHue } from "@exponential_app/ui/web/primitives"
+import { AVATAR_CLASSES, avatarFallbackColors, avatarFallbackHue } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

@@ -1,7 +1,7 @@
 # `ExponentialUI`: the SwiftUI painter
 
 The iOS + macOS renderer of the Exponential UI SDK (VAPP-88). The Rust core
-[`exponential-ui`](../../apps/desktop/crates/exponential-ui) reduces an
+[`eui-core`](../../apps/desktop/crates/eui-core) reduces an
 A2UI surface, resolves the theme and lays the tree out with taffy; this
 package measures text for it in batches and paints the result in SwiftUI
 at the frames the core computed. iOS 17 and macOS 14. No HTML, no web
@@ -192,7 +192,7 @@ ScrollView { HostSurface(host: host, surfaceId: "main") { ProgressView() } }
 `ConformanceTests` replays every suite of
 `packages/exponential-ui/conformance/manifest.json` through the painter and
 writes `.conformance/exponential-ui-swift.json` (`bun run --filter
-@exponential_app/ui conformance:check <report>`).
+@exponential_app/eui conformance:check <report>`).
 
 ## Publishing (SwiftPM)
 

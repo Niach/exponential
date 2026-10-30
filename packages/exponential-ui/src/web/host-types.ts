@@ -7,7 +7,7 @@
 // icon registry name maps to, `Markdown` = a richer markdown renderer), so
 // React and Solid share ONE plugin shape.
 
-import type { FunctionCallInfo, MediaOptions, MediaRequest, ThemeIssue, UiNode, UrlPolicy } from "@exponential_app/ui"
+import type { FunctionCallInfo, MediaOptions, MediaRequest, ThemeIssue, UiNode, UrlPolicy } from "@exponential_app/eui"
 import type { ClientFunction } from "./data"
 import type { QrScannerHost } from "./round5"
 

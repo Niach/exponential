@@ -1,9 +1,9 @@
 import type { ComponentProps } from "react"
-import { CHECKBOX_CLASSES } from "@exponential_app/ui/web/primitives"
+import { CHECKBOX_CLASSES } from "@exponential_app/eui/web/primitives"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
 
-export * from "@exponential_app/ui-react/primitives/checkbox"
+export * from "@exponential_app/eui-react/primitives/checkbox"
 
 const CheckIcon = conceptIcon(`ui-check`)
 const MinusIcon = conceptIcon(`ui-minus`)

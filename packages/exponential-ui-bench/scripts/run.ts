@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// VAPP-105: `bun run --filter @exponential_app/ui-bench bench [--renderers all|react,solid,element,core,gpui,swift,swift-ios,compose-jvm,compose-android] [--scenario <id>] [--repeat <n>] [--machine <id>] [--no-merge]`
+// VAPP-105: `bun run --filter @exponential_app/eui-bench bench [--renderers all|react,solid,element,core,gpui,swift,swift-ios,compose-jvm,compose-android] [--scenario <id>] [--repeat <n>] [--machine <id>] [--no-merge]`
 // Runs every runner this machine can (default: React, Solid, the element + the core everywhere,
 // gpui on Linux, SwiftUI + the iPhone Simulator on macOS, Compose on the
 // JVM when an Android SDK is around, Compose on a device when `adb devices`

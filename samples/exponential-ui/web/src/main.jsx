@@ -5,8 +5,8 @@
 // API only (`ExponentialHost` + a transport + `<HostSurface>`).
 import { createRoot } from "react-dom/client"
 import { useEffect, useMemo, useState } from "react"
-import { ExponentialHost, JsonlStreamTransport, defineExtension } from "@exponential_app/ui"
-import { HostSurface, defineReactExtension, useHostStatus } from "@exponential_app/ui-react"
+import { ExponentialHost, JsonlStreamTransport, defineExtension } from "@exponential_app/eui"
+import { HostSurface, defineReactExtension, useHostStatus } from "@exponential_app/eui-react"
 
 const params = new URLSearchParams(location.search)
 const SERVER = params.get(`server`) ?? `http://localhost:4190`

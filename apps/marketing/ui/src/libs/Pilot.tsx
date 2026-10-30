@@ -62,7 +62,7 @@ export default function Pilot({ path }: PageProps) {
             rows={[
               [<strong key="p">Computer use</strong>, `Coding sessions on the desktop app and the CLI daemon`, <StatusChip key="s" status="in-progress">in the app</StatusChip>],
               [<strong key="p">Screen memory</strong>, `The voice device, for your Assistant`, <StatusChip key="s" status="in-progress">in the app</StatusChip>],
-              [<strong key="p">The library</strong>, <span key="w"><code>epilot</code> and <code>epilot-screen</code>, a git dependency</span>, <StatusChip key="s" status="planned">no release yet</StatusChip>],
+              [<strong key="p">The library</strong>, <span key="w"><code>epilot</code> and <code>epilot-screen</code>, a git dependency</span>, <StatusChip key="s" status="shipped">0.1.0</StatusChip>],
             ]}
           />
         </DocsSection>
@@ -141,8 +141,8 @@ export default function Pilot({ path }: PageProps) {
             ]}
           />
           <DocsCode language="toml">{`[dependencies]
-epilot = { git = "https://github.com/Niach/exponential", tag = "epilot-v<version>" }
-epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v<version>" }`}</DocsCode>
+epilot = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.1.0" }
+epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.1.0" }`}</DocsCode>
         </DocsSection>
       </DocsLayout>
     </>

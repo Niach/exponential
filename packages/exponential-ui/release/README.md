@@ -1,30 +1,30 @@
-# Releasing Exponential UI
+# Releasing eUI (Exponential UI)
 
-One tag, every registry: push `ui-v<semver>` and
-`.github/workflows/release-ui.yml` builds, verifies and publishes. Each
+One tag, every registry: push `eui-v<semver>` and
+`.github/workflows/release-eui.yml` builds, verifies and publishes. Each
 registry step is gated on its secret; without it the job still runs and
 uploads what it would have published as a workflow artifact.
 
 | registry | what | secret(s) | first-time setup |
 |---|---|---|---|
-| npm | `@exponential_app/ui`, `@exponential_app/ui-react`, `@exponential_app/ui-solid`, `@exponential_app/ui-element` | `NPM_TOKEN` (automation token) | create the `@exponential_app` org on npmjs.com |
-| crates.io | `exponential-ui` | `CARGO_REGISTRY_TOKEN` | claim the crate name with the first publish |
+| npm | `@exponential_app/eui`, `@exponential_app/eui-react`, `@exponential_app/eui-solid`, `@exponential_app/eui-element` | `NPM_TOKEN` (automation token) | create the `@exponential_app` org on npmjs.com |
+| crates.io | `eui-core` | `CARGO_REGISTRY_TOKEN` | claim the crate name with the first publish |
 | SwiftPM | `ExponentialUI` (the xcframework zip on the GitHub release + the tagged repo `Niach/exponential-ui-swift`) | `SWIFT_DIST_TOKEN` (contents:write on that repo) | create the empty public repo |
-| Maven Central | `at.exponential:ui-compose`, `:ui-compose-primitives` | `MAVEN_CENTRAL_USERNAME` + `MAVEN_CENTRAL_PASSWORD` (a Central Portal user token), `SIGNING_KEY` (ASCII-armoured GPG private key) + `SIGNING_PASSWORD` | verify the `at.exponential` namespace (DNS TXT on exponential.at) |
+| Maven Central | `at.exponential:eui-compose`, `:eui-compose-primitives` | `MAVEN_CENTRAL_USERNAME` + `MAVEN_CENTRAL_PASSWORD` (a Central Portal user token), `SIGNING_KEY` (ASCII-armoured GPG private key) + `SIGNING_PASSWORD` | verify the `at.exponential` namespace (DNS TXT on exponential.at) |
 
 Not published: `exponential-ui-ffi` (it ships INSIDE the Swift and Kotlin
-artifacts) and `exponential-ui-gpui` (`publish = false`: gpui and
+artifacts) and `eui-gpui` (`publish = false`: gpui and
 gpui-component are git dependencies, which crates.io refuses, and neither
-pinned rev has a crates.io release). The painter ships as the `ui-v<semver>`
+pinned rev has a crates.io release). The painter ships as the `eui-v<semver>`
 tag itself: apps take it with `git = "https://github.com/Niach/exponential",
-tag = "ui-v<semver>"` and copy the gpui pins and the ztracing patch from its
+tag = "eui-v<semver>"` and copy the gpui pins and the ztracing patch from its
 README's "gpui revisions" (the policy, the bump recipe and the gate
 `check-gpui-revs.ts`).
 
 ## Cutting a release
 
 1. Bump the version everywhere it is written: `packages/exponential-ui*/package.json`,
-   `apps/desktop/crates/exponential-ui{,-ffi,-gpui}/Cargo.toml` (the workflow
+   `apps/desktop/crates/{eui-core,eui-gpui,exponential-ui-ffi}/Cargo.toml` (the workflow
    refuses a tag that does not match the core crate), and move each package's
    `CHANGELOG.md` `Unreleased` section under the version. The Compose
    artifacts need no bump: the workflow passes the tag's version as
@@ -33,11 +33,11 @@ README's "gpui revisions" (the policy, the bump recipe and the gate
    local default. The Swift distribution package is generated per release.
 2. Green: `.github/workflows/exponential-ui.yml` (all six renderers
    conformant, Solid and the web component at parity with React) on the release commit.
-3. `git tag ui-v0.2.0 && git push origin ui-v0.2.0` (one tag per push, see the
+3. `git tag eui-v0.2.0 && git push origin eui-v0.2.0` (one tag per push, see the
    repo's release notes on tag pushes).
 
-Dry run first: Actions → release-ui → Run workflow with the version and
-`dry_run` ticked (the default; `gh workflow run release-ui.yml -f version=0.2.0 -f dry_run=true`).
+Dry run first: Actions → release-eui → Run workflow with the version and
+`dry_run` ticked (the default; `gh workflow run release-eui.yml -f version=0.2.0 -f dry_run=true`).
 Every job builds, verifies and uploads its artifact (`npm`, `swift`, `maven`,
 `release-files`), the Maven bundle is signed when `SIGNING_KEY` is set,
 and nothing is published, no release or tag is created, whatever secrets
@@ -52,12 +52,12 @@ exist. Only a tag push (or a dispatch with `dry_run` off) publishes.
   element's `dist/standalone.js` through its `scripts/build-standalone.ts`) and stages a
   PUBLISHABLE package.json (no `private`, entry points on `dist/`, `workspace:*` pinned to the version, LICENSE + NOTICE).
   The workspace package.json files stay private with `main` on the sources.
-  Entries: `@exponential_app/ui` `.`, `./web`, `./web/primitives` (the
-  primitives' class recipes, FEED-131); `@exponential_app/ui-react` and
-  `@exponential_app/ui-solid` each `.`, `./primitives` and `./styles.css` (the
+  Entries: `@exponential_app/eui` `.`, `./web`, `./web/primitives` (the
+  primitives' class recipes, FEED-131); `@exponential_app/eui-react` and
+  `@exponential_app/eui-solid` each `.`, `./primitives` and `./styles.css` (the
   compiled primitives sheet, byte-identical in both).
   Locally: `bun samples/exponential-ui/pack-local.ts` packs the same tarballs.
-- **crates**: `cargo publish -p exponential-ui` (`--dry-run` without the token).
+- **crates**: `cargo publish -p eui-core` (`--dry-run` without the token).
 - **swift**: `build-ios.sh` (device arm64, simulator arm64 + x86_64, macOS
   arm64 + x86_64, all profile `mobile`) → `packages/exponential-ui-swift/release/zip-xcframework.sh`
   (zip + `swift package compute-checksum`) → `make-release-package.sh`
@@ -67,7 +67,7 @@ exist. Only a tag push (or a dispatch with `dry_run` off) publishes.
 - **maven**: `build-android.sh` (three ABIs) → `packages/exponential-ui-compose/release/central-bundle.sh`
   (signed when the key is set, `.md5`/`.sha1` per file, zipped Maven layout)
   → `POST central.sonatype.com/api/v1/publisher/upload`.
-- **release**: the GitHub release `ui-v<version>` (never `latest`: the desktop
+- **release**: the GitHub release `eui-v<version>` (never `latest`: the desktop
   owns that) with the xcframework zip, the Maven bundle, the npm tarballs,
   LICENSE, NOTICE and `SHA256SUMS`.
 
@@ -78,13 +78,13 @@ NOTICES; `docs/third-party-licences.md` is the policy).
 
 ## Sizes (VAPP-106)
 
-`bun run --filter @exponential_app/ui size` (= `bun packages/exponential-ui/release/size.ts`)
+`bun run --filter @exponential_app/eui size` (= `bun packages/exponential-ui/release/size.ts`)
 measures what the SDK ships and `release/sizes.json` is the number on
 record; `release/size-budget.json` is the gate: `size.ts <section> --check`
 fails anything over its budget, and `exponential-ui.yml` runs it per job on
 what that job built (`npm` in the React job, `xcframework` in the Swift
 job, the x86_64 `.so` in the Compose emulator job, `cargo bloat` in the
-Rust job; `release-ui.yml` gates every ABI and every slice before
+Rust job; `release-eui.yml` gates every ABI and every slice before
 publishing).
 
 | section | what | how |
@@ -103,7 +103,7 @@ stripped by the profile. The crate's `builtin-themes` (default on) and
 `descriptions` (off) features gate the embedded data; the device builds keep
 the defaults (the Swift and Compose conformance suites paint `playful`).
 
-The root-entry split (VAPP-106): `@exponential_app/ui` ships the runtime
+The root-entry split (VAPP-106): `@exponential_app/eui` ships the runtime
 catalog (`generated/core.runtime.json`, no descriptions or examples); the
 prompt, the schema emitters (+ the vendored A2UI basic catalog), the
 conformance suite (+ every fixture) and the host API are `./prompt`,

@@ -37,7 +37,7 @@ apps/web/public/mcp-apps/
 /.shots-raw/
 .conformance/
 
-# VAPP-108: the ergonomics eval's web renders (regenerate with `bun run --filter @exponential_app/ui eval:render`)
+# VAPP-108: the ergonomics eval's web renders (regenerate with `bun run --filter @exponential_app/eui eval:render`)
 /packages/exponential-ui/eval/out/
 .bench/
 packages/exponential-ui-swift/Tests/ExponentialUITests/Resources/bench/*.json

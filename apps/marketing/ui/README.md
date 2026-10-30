@@ -7,7 +7,7 @@ section of exponential.at (`apps/marketing`, EXP-1392; `ui.exponential.at`
 answers 301 to the same path here): Vite + React, prerendered to static HTML,
 indexed, ONE header with the rest of the site (the main menu's UI SDK link
 steps into this section's level, the back button steps out). Wherever it shows
-components it renders them with the SDK itself (`@exponential_app/ui-react`).
+components it renders them with the SDK itself (`@exponential_app/eui-react`).
 
 ## Commands
 
@@ -47,7 +47,7 @@ client entry loads each page type as its own chunk through `src/lib/pages.ts`
 | `/ui/guides/`, `/ui/guides/<slug>/` | `Guides.tsx`, `Guide.tsx` | the guides hub; every guide by slug (`src/lib/guides.ts`) |
 | `/ui/playground/` | `Playground.tsx` | paste A2UI, render it in any theme, read the catalog prompt (prerendered) |
 | `/ui/conformance/` | `Conformance.tsx` | the suites (from the manifest), reports, the real-font harness |
-| `/ui/numbers/` | `Numbers.tsx` | the benchmark suite (VAPP-105): what a pass is per renderer, the scenarios (from `@exponential_app/ui-bench`'s manifest), the numbers per machine, weak points, the ratchet |
+| `/ui/numbers/` | `Numbers.tsx` | the benchmark suite (VAPP-105): what a pass is per renderer, the scenarios (from `@exponential_app/eui-bench`'s manifest), the numbers per machine, weak points, the ratchet |
 
 The component pages are generated: a catalog component appears with its page,
 specimen, variants and embed code without a change here.

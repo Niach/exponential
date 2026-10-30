@@ -10,7 +10,7 @@
 // written; `change {sizes}` fires after every drag end or key.
 
 import { For, Show, createMemo, createSignal, untrack, type Component, type JSX } from "solid-js"
-import { dragDelta, keyboardResize, normalizeSizes, resizePanels, RESIZE_HANDLE_HIT, type PanelLimits, type UiNode } from "@exponential_app/ui"
+import { dragDelta, keyboardResize, normalizeSizes, resizePanels, RESIZE_HANDLE_HIT, type PanelLimits, type UiNode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"

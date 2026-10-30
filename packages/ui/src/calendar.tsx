@@ -1,1 +1,1 @@
-export * from "@exponential_app/ui-react/primitives/calendar"
+export * from "@exponential_app/eui-react/primitives/calendar"

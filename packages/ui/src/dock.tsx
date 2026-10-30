@@ -27,9 +27,9 @@ import {
   DOCK_CARD_CLASSES,
   DockCard as PrimitiveDockCard,
   DockPile as PrimitiveDockPile,
-} from "@exponential_app/ui-react/primitives/dock-card"
+} from "@exponential_app/eui-react/primitives/dock-card"
 import { conceptIcon } from "./icons.generated"
-import { DialogPresentationContext } from "@exponential_app/ui-react/primitives/dialog"
+import { DialogPresentationContext } from "@exponential_app/eui-react/primitives/dialog"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet"
 import { useMediaQuery } from "./use-media-query"
 import { useIsMobile } from "./use-mobile"
@@ -167,7 +167,7 @@ export function Dock({
   )
 }
 
-/** The pile: THE Dock pile primitive (`DockPile`, @exponential_app/ui-react
+/** The pile: THE Dock pile primitive (`DockPile`, @exponential_app/eui-react
  *  primitives: the toast's stack geometry with the Dock's numbers, anchored
  *  at the bottom), the front card last; collapsed = the older cards peek
  *  out above it, their words hidden; a hover-capable pointer fans it on
@@ -217,7 +217,7 @@ export function DockPile({
   )
 }
 
-/** A DockCard collapsed = THE DockCard primitive (@exponential_app/ui-react
+/** A DockCard collapsed = THE DockCard primitive (@exponential_app/eui-react
  *  primitives `DockCard`, its Solid twin paints the same): the kind glyph,
  *  the tinted label, the muted caption, the trailing meta, the one title
  *  line and the open chevron (an expandable card) or the banner's action.

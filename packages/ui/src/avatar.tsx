@@ -1,1 +1,1 @@
-export * from "@exponential_app/ui-react/primitives/avatar"
+export * from "@exponential_app/eui-react/primitives/avatar"

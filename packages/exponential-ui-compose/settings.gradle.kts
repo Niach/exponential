@@ -1,5 +1,5 @@
-// VAPP-89: the Exponential UI Compose painter (`at.exponential:ui-compose`),
-// its platform-free primitives (`at.exponential:ui-compose-primitives`) and
+// VAPP-89: the Exponential UI Compose painter (`at.exponential:eui-compose`),
+// its platform-free primitives (`at.exponential:eui-compose-primitives`) and
 // the kitchen-sink example app (a blank Android project that adds the
 // library as a local module, what the android shot is captured from).
 pluginManagement {

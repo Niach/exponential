@@ -585,7 +585,7 @@ const DESKTOP_CONTROLS = `apps/desktop/crates/ui/src/controls.rs`
 // VAPP-90 converged the IDE's generic controls into the Exponential UI gpui
 // painter crate (`exponential-ui-gpui/src/controls/*`); the rows below name
 // them there.
-const DESKTOP_GPUI_PILLS = `apps/desktop/crates/exponential-ui-gpui/src/controls/pills.rs`
+const DESKTOP_GPUI_PILLS = `apps/desktop/crates/eui-gpui/src/controls/pills.rs`
 const ANDROID_GLASS = `apps/android/app/src/main/java/com/exponential/app/ui/theme/Glass.kt`
 const ANDROID_COMPONENTS = `apps/android/app/src/main/java/com/exponential/app/ui/components`
 

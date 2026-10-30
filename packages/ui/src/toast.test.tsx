@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { toast as sonnerToast } from "sonner"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/toast-stack.json"
-import sdkFixture from "@exponential_app/ui/fixtures/toast-stack.json"
+import sdkFixture from "@exponential_app/eui/fixtures/toast-stack.json"
 
 import { conceptIcon } from "./icons.generated"
 import {

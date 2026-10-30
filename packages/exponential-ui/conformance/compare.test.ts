@@ -1,7 +1,7 @@
 // The conformance harness's pure parts: the matrix, the font set, the
 // comparator's tolerance/origin rules, the baseline codec and the committed
 // baseline + ratchet covering exactly the matrix. The tolerance cases are
-// mirrored by `compare_rules` in apps/desktop/crates/exponential-ui-gpui/
+// mirrored by `compare_rules` in apps/desktop/crates/eui-gpui/
 // tests/conformance.rs (the Rust port of compareCase).
 
 import { describe, expect, it } from "bun:test"

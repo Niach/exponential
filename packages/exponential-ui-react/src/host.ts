@@ -1,18 +1,18 @@
 // VAPP-87: what an EMBEDDING APP provides (the host plugin) and what the
 // renderer sends it. The plugin knows no transport: actions and input edits
 // are plain objects the host forwards wherever it likes. VAPP-91: the host
-// API (`@exponential_app/ui` `ExponentialHost`: transport, functions,
+// API (`@exponential_app/eui` `ExponentialHost`: transport, functions,
 // bindings, negotiation, policy) plugs in through `hostPlugin(host)` /
 // `<HostSurface>` (host-surface.tsx).
 
 import type { ComponentType, SVGProps } from "react"
-import type { UiNode, ResolvedTheme, ModeName } from "@exponential_app/ui"
-import type { HostPlugin as WebHostPlugin, IconMap as WebIconMap } from "@exponential_app/ui/web"
+import type { UiNode, ResolvedTheme, ModeName } from "@exponential_app/eui"
+import type { HostPlugin as WebHostPlugin, IconMap as WebIconMap } from "@exponential_app/eui/web"
 
 // FEED-128: the framework-free half (events, paint errors, source options,
-// the plugin shape) lives in `@exponential_app/ui/web` (host-types.ts); React
+// the plugin shape) lives in `@exponential_app/eui/web` (host-types.ts); React
 // pins its component types.
-export type { SurfaceActionEvent, SurfaceInputEvent, PaintError, SourceOption } from "@exponential_app/ui/web"
+export type { SurfaceActionEvent, SurfaceInputEvent, PaintError, SourceOption } from "@exponential_app/eui/web"
 
 /** An icon component the host maps a registry name to (`lucide-react`'s
  *  `LucideIcon` shape fits). */

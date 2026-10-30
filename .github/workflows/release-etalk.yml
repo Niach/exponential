@@ -1,0 +1,94 @@
+name: release-etalk
+
+# EXP-1438: publishes eTalk (voice, calls, wake word) on `etalk-v<semver>` tags, the
+# eUI pattern (release-eui.yml): one tag = one version of every crate below,
+# checked against their Cargo.toml first. Crates: etalk etalk-codec etalk-engine etalk-crispasr etalk-wakeword etalk-gpui.
+# Not on crates.io (publish = false): consumers depend on the tag with git = + tag =.
+# A dispatched dry run tests and stops before publishing anything.
+
+on:
+  push:
+    tags: ["etalk-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (semver, must match the crates)"
+        required: true
+      dry_run:
+        description: "Dry run: test, publish nothing, create no release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  VERSION: ${{ github.event.inputs.version || '' }}
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+
+jobs:
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          v="${VERSION:-${GITHUB_REF_NAME#etalk-v}}"
+          echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "not a semver version: $v"; exit 1; }
+          for c in etalk etalk-codec etalk-engine etalk-crispasr etalk-wakeword etalk-gpui; do
+            crate=$(grep -m1 '^version' "apps/desktop/crates/$c/Cargo.toml" | cut -d'"' -f2)
+            [ "$crate" = "$v" ] || { echo "apps/desktop/crates/$c/Cargo.toml is $crate, the tag says $v: bump it first"; exit 1; }
+          done
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: [version, pick]
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps
+        if: runner.environment == 'github-hosted'
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libssl-dev libfontconfig1-dev pkg-config \
+            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
+            libasound2-dev libopus-dev cmake
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
+      - name: Cargo tests (eTalk)
+        working-directory: apps/desktop
+        run: cargo test --no-fail-fast --locked -p etalk -p etalk-codec -p etalk-engine -p etalk-crispasr -p etalk-wakeword -p etalk-gpui
+
+  release:
+    needs: [version, test]
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release notes
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          printf '%s\n\n' "eTalk $V. Install: a git dependency (not on crates.io: the crates compile repo fixtures in with include_str!)." > notes.md
+          printf '```toml\n%b\n```\n' "etalk = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-codec = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-engine = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-crispasr = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-wakeword = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }\netalk-gpui = { git = \"https://github.com/Niach/exponential\", tag = \"etalk-v$V\" }" >> notes.md
+          cat notes.md
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: etalk-v${{ needs.version.outputs.version }}
+          name: eTalk ${{ needs.version.outputs.version }}
+          make_latest: false
+          body_path: notes.md
+          files: |
+            LICENSE
+            NOTICE

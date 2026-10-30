@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Tooltip as TooltipPrimitive } from "radix-ui"
-import { TOOLTIP_CLASSES } from "@exponential_app/ui/web/primitives"
+import { TOOLTIP_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

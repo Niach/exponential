@@ -36,11 +36,11 @@ use gpui::{
     ContentMask, Div, ElementId, Global, Hsla, InteractiveElement as _, IntoElement,
     ParentElement as _, Pixels, SharedString, Styled, Window,
 };
-use exponential_ui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
+use eui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use gpui_component::button::Button;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, ElementExt as _, Icon};
 
-use exponential_ui_gpui::chrome::Chrome;
+use eui_gpui::chrome::Chrome;
 
 // ---------------------------------------------------------------------------
 // The fixture's numbers and copy (locked by the tests below)
@@ -190,7 +190,7 @@ pub(crate) fn remote_start_title(name: &str) -> String {
 /// chrome's refresh glyph spinning) in `color`. The EXP-1274 band spinner
 /// (`controls::band_loading_glyph`) IS the inline one below.
 pub(crate) fn spinner_colored(size: f32, color: Hsla, cx: &App) -> AnyElement {
-    exponential_ui_gpui::controls::spinner(size, color, cx)
+    eui_gpui::controls::spinner(size, color, cx)
 }
 
 /// [`spinner_colored`] in the muted foreground.
@@ -723,7 +723,7 @@ mod tests {
     fn numbers_and_copy_are_the_fixture() {
         let f = fixture();
         assert_eq!(num(&f["inline"]["spinner"]) as f32, INLINE_SPINNER_PX);
-        assert_eq!(INLINE_SPINNER_PX, exponential_ui_gpui::controls::INLINE_SPINNER_PX);
+        assert_eq!(INLINE_SPINNER_PX, eui_gpui::controls::INLINE_SPINNER_PX);
         assert_eq!(num(&f["inline"]["gap"]) as f32, INLINE_GAP_PX);
         assert_eq!(s(&f["inline"]["words"]["saving"]), WORD_SAVING);
         assert_eq!(s(&f["inline"]["words"]["saved"]), WORD_SAVED);

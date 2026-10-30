@@ -1,6 +1,6 @@
 import * as React from "react"
 import type { LucideIcon } from "lucide-react"
-import { SEGMENTED_CONTROL_CLASSES } from "@exponential_app/ui/web/primitives"
+import { SEGMENTED_CONTROL_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 import { Tabs, TabsList, TabsTrigger } from "./tabs"

@@ -13,7 +13,7 @@
 // attached `files` (bindable) are listed, each removable (`remove {name}`).
 
 import { For, Show, createMemo, createSignal, createUniqueId, untrack, type Component, type JSX } from "solid-js"
-import { acceptsFile, linkHref, partClass } from "@exponential_app/ui/web"
+import { acceptsFile, linkHref, partClass } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField, joinIds } from "../form"
 import type { NativeProps } from "../node-view"

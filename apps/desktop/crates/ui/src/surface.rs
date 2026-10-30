@@ -9,7 +9,7 @@
 //! their hairlines, the form rows, the property row, the bulk bar, the pill
 //! and its Button twins, the dots, the count badge, the markdown styles, the
 //! edge-fade shapes) live in the Exponential UI SDK's
-//! `exponential_ui_gpui::controls`, keyed on a host-installed `Chrome`. This
+//! `eui_gpui::controls`, keyed on a host-installed `Chrome`. This
 //! module re-exports them under their old names; the few whose SDK twin takes
 //! the `&Chrome` explicitly (they have no `cx` to read it from) or a host
 //! value (the edge fades' window-ramp fill) are one-line wrappers that pass
@@ -17,7 +17,7 @@
 //! ramp sampling (`panel_fill_at`, [`scrim_ground`]) and the rich tab, which
 //! carries app types (`coding::CodingAgent`, the run lead).
 
-use exponential_ui_gpui::controls as sdk;
+use eui_gpui::controls as sdk;
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, Div, ElementId, Hsla, InteractiveElement as _,
     ParentElement as _, SharedString, Stateful, Styled,
@@ -26,7 +26,7 @@ use gpui_component::{text::TextViewStyle, ActiveTheme as _};
 use theme::tokens as t;
 
 #[allow(unused_imports)] // the shared API; not every recipe has an IDE caller today
-pub(crate) use exponential_ui_gpui::controls::{
+pub(crate) use eui_gpui::controls::{
     bare_code_markdown_style, count_badge, custom_variant_fill, glass_bar,
     glass_input_row, glass_picker_row, glass_picker_select, glass_pill, glass_pill_button,
     glass_pill_button_primary, glass_row_input, glass_row_shell, glass_section_band,
@@ -414,7 +414,7 @@ pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use exponential_ui_gpui::controls::CUSTOM_VARIANT_ALPHA_FACTOR;
+    use eui_gpui::controls::CUSTOM_VARIANT_ALPHA_FACTOR;
 
     /// EXP-698: the two pill rungs ARE the token ladder's control rungs — no
     /// hand-typed 20/26/28 heights, which is how the app ended up with six

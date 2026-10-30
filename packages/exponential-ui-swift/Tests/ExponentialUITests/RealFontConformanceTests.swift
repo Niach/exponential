@@ -13,7 +13,7 @@ import ExponentialUICore
 /// system font and unmapped families to the `default` one), dumped in the
 /// shared frame-dump format (`conformance/dump.ts`, `xui-frame-dump/1`,
 /// renderer `swiftui-coretext`) exactly as gpui's producer does
-/// (`apps/desktop/crates/exponential-ui-gpui/examples/conformance_dump.rs`).
+/// (`apps/desktop/crates/eui-gpui/examples/conformance_dump.rs`).
 ///
 /// The gate is a RATCHET (gpui's `tests/conformance.rs`, ported): each case
 /// is compared with the committed WEB baseline under the matrix tolerance;
@@ -66,7 +66,7 @@ final class RealFontConformanceTests: XCTestCase {
         var totals = (size: 0, position: 0, wrap: 0, onlyRef: 0, onlyCand: 0, origins: 0)
         for c in cases {
             guard let ref = baseline[c.key] else {
-                XCTFail("\(c.key): not in the baseline (rewrite it: bun run --filter @exponential_app/ui conformance -- --write-baseline)")
+                XCTFail("\(c.key): not in the baseline (rewrite it: bun run --filter @exponential_app/eui conformance -- --write-baseline)")
                 continue
             }
             let cand = dump.cases[c.key]!

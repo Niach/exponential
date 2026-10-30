@@ -1,8 +1,8 @@
-import { PROGRESS_RING_CLASSES, RING_RADIUS, RING_SIZE, RING_STROKE, progressRingPercent, ringGeometry } from "@exponential_app/ui/web/primitives"
+import { PROGRESS_RING_CLASSES, RING_RADIUS, RING_SIZE, RING_STROKE, progressRingPercent, ringGeometry } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 
-export { progressRingPercent } from "@exponential_app/ui/web/primitives"
+export { progressRingPercent } from "@exponential_app/eui/web/primitives"
 
 export function ProgressRing({
   done,

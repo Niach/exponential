@@ -6,7 +6,7 @@
 // contract, drift-tested from packages/ui).
 //
 // VAPP-106: the constants are WRITTEN here, not imported from the fixture:
-// a renderer entry (`@exponential_app/ui/web/primitives`) ships no fixture
+// a renderer entry (`@exponential_app/eui/web/primitives`) ships no fixture
 // (release/size.ts gates it); toast.test.ts holds them equal to
 // fixtures/toast-stack.json `constants`.
 

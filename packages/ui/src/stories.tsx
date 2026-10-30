@@ -12,9 +12,9 @@ import {
   type TouchEvent,
 } from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/ui"
-import { ExponentialSurface, useSurface } from "@exponential_app/ui-react"
-import { DIALOG_CLASSES } from "@exponential_app/ui/web/primitives"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
+import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
+import { DIALOG_CLASSES } from "@exponential_app/eui/web/primitives"
 import { CHATS_SHELL } from "@exp/domain-contract/chats"
 import { joinAnswers, PLAN_CARD_COPY, type CardSurface } from "@exp/domain-contract/plan-card"
 import { PLAN_OPTIONS } from "@exp/domain-contract/ask-dock"

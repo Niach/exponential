@@ -5,7 +5,7 @@
       "at": "2026-10-26",
       "host": "linux-x64",
       "entries": {
-        "@exponential_app/ui/index": {
+        "@exponential_app/eui/index": {
           "bytes": 407379,
           "gzip": 116089,
           "parts": {
@@ -16,7 +16,7 @@
             "chunks/index-sncw8nb9.js": 81183
           }
         },
-        "@exponential_app/ui-react/index": {
+        "@exponential_app/eui-react/index": {
           "bytes": 141683,
           "gzip": 49533,
           "parts": {
@@ -24,7 +24,7 @@
             "chunks/index-gtejaxjh.js": 2989
           }
         },
-        "@exponential_app/ui-react/primitives": {
+        "@exponential_app/eui-react/primitives": {
           "bytes": 56668,
           "gzip": 16218,
           "parts": {
@@ -32,11 +32,11 @@
             "chunks/index-gtejaxjh.js": 2989
           }
         },
-        "@exponential_app/ui-react/styles.css": {
+        "@exponential_app/eui-react/styles.css": {
           "bytes": 87204,
           "gzip": 13884
         },
-        "@exponential_app/ui/prompt": {
+        "@exponential_app/eui/prompt": {
           "bytes": 134859,
           "gzip": 34032,
           "parts": {
@@ -45,7 +45,7 @@
             "chunks/index-sncw8nb9.js": 81183
           }
         },
-        "@exponential_app/ui/schema": {
+        "@exponential_app/eui/schema": {
           "bytes": 173784,
           "gzip": 42785,
           "parts": {
@@ -55,7 +55,7 @@
             "chunks/index-zzbgpkgw.js": 13456
           }
         },
-        "@exponential_app/ui/conformance": {
+        "@exponential_app/eui/conformance": {
           "bytes": 2056551,
           "gzip": 182111,
           "parts": {
@@ -65,7 +65,7 @@
             "chunks/index-sncw8nb9.js": 81183
           }
         },
-        "@exponential_app/ui/host": {
+        "@exponential_app/eui/host": {
           "bytes": 333237,
           "gzip": 88369,
           "parts": {
@@ -76,21 +76,21 @@
             "chunks/index-sncw8nb9.js": 81183
           }
         },
-        "@exponential_app/ui/web": {
+        "@exponential_app/eui/web": {
           "bytes": 83292,
           "gzip": 23404,
           "parts": {
             "web/index.js": 83292
           }
         },
-        "@exponential_app/ui/web/primitives": {
+        "@exponential_app/eui/web/primitives": {
           "bytes": 55136,
           "gzip": 15251,
           "parts": {
             "web/primitives/index.js": 55136
           }
         },
-        "@exponential_app/ui-solid/index": {
+        "@exponential_app/eui-solid/index": {
           "bytes": 361314,
           "gzip": 89648,
           "parts": {
@@ -98,7 +98,7 @@
             "chunks/image-loading-status-BT-W_qP3.js": 43988
           }
         },
-        "@exponential_app/ui-solid/primitives": {
+        "@exponential_app/eui-solid/primitives": {
           "bytes": 258325,
           "gzip": 63818,
           "parts": {
@@ -106,11 +106,11 @@
             "chunks/image-loading-status-BT-W_qP3.js": 43988
           }
         },
-        "@exponential_app/ui-solid/styles.css": {
+        "@exponential_app/eui-solid/styles.css": {
           "bytes": 87204,
           "gzip": 13884
         },
-        "@exponential_app/ui-element/index": {
+        "@exponential_app/eui-element/index": {
           "bytes": 15283,
           "gzip": 5752,
           "parts": {
@@ -118,7 +118,7 @@
             "chunks/index-nqfnepbw.js": 14867
           }
         },
-        "@exponential_app/ui-element/define": {
+        "@exponential_app/eui-element/define": {
           "bytes": 15372,
           "gzip": 5788,
           "parts": {
@@ -126,7 +126,7 @@
             "chunks/index-nqfnepbw.js": 14867
           }
         },
-        "@exponential_app/ui-element/standalone.js": {
+        "@exponential_app/eui-element/standalone.js": {
           "bytes": 673005,
           "gzip": 187192
         }
@@ -178,7 +178,7 @@
           "bytes": 4116824,
           "parts": {
             ".text": 2516582,
-            "exponential_ui": 1782579,
+            "eui_core": 1782579,
             "std": 409907,
             "taffy": 132506,
             "serde_json": 81203,

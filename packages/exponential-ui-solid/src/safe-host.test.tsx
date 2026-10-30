@@ -7,13 +7,13 @@
 // page's own private origin is), `schemes: ["https"]` is https only for
 // hrefs and srcs alike, and the video/audio whole-fetch fallback keeps the
 // byte cap and a total timeout. The filter is the shared web layer's
-// (`@exponential_app/ui/web` urls.ts / media.ts): one code path, both
+// (`@exponential_app/eui/web` urls.ts / media.ts): one code path, both
 // renderers, locked here through the Solid natives.
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, render } from "@solidjs/testing-library"
-import { CORE_CATALOG_ID, MEDIA_LIMITS, reduceNested } from "@exponential_app/ui"
-import type { NestedNode } from "@exponential_app/ui"
+import { CORE_CATALOG_ID, MEDIA_LIMITS, reduceNested } from "@exponential_app/eui"
+import type { NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface } from "./surface"
 import { renderMarkdown } from "./markdown"
 import { clearMediaCache, fetchLimited, fetchStream } from "./media"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { signPackageFile } from "@exponential_app/ui"
+import { signPackageFile } from "@exponential_app/eui"
 import { buildAppExport, appExportText } from "@exp/domain-contract/app-export"
 import { checkAppImport } from "@/lib/trpc/apps"
 

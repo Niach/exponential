@@ -1,7 +1,7 @@
 import * as React from "react"
 import type { VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
-import { buttonVariants } from "@exponential_app/ui/web/primitives"
+import { buttonVariants } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

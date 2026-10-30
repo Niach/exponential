@@ -1,6 +1,6 @@
 //! VAPP-91: the IDE as an Exponential UI HOST, the desktop twin of the web
 //! app's `lib/exponential-ui-host.tsx`. Everything goes through the SDK's
-//! PUBLIC gpui host API (`exponential_ui_gpui::runtime::ExponentialHost`),
+//! PUBLIC gpui host API (`eui_gpui::runtime::ExponentialHost`),
 //! like a third party's host would; no private hook:
 //!
 //! - functions: `harness.toast` (the IDE toast stack), `harness.openIssue`
@@ -43,14 +43,14 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::time::Duration;
 
-use exponential_ui::extension::parse_extension;
-use exponential_ui::host::{FunctionPolicy, MediaOptions, ParsedSource, UrlPolicy};
-use exponential_ui::measure::LeafRequest;
-use exponential_ui::surface::PlacedNode;
-use exponential_ui::theme::{Mode, ResolvedTheme};
-use exponential_ui_gpui::extension::{ExtensionPainter, PaintContext};
-use exponential_ui_gpui::host::HostPlugin;
-use exponential_ui_gpui::runtime::{
+use eui_core::extension::parse_extension;
+use eui_core::host::{FunctionPolicy, MediaOptions, ParsedSource, UrlPolicy};
+use eui_core::measure::LeafRequest;
+use eui_core::surface::PlacedNode;
+use eui_core::theme::{Mode, ResolvedTheme};
+use eui_gpui::extension::{ExtensionPainter, PaintContext};
+use eui_gpui::host::HostPlugin;
+use eui_gpui::runtime::{
     ConsentHook, Emit, ExponentialHost, FunctionCallInfo, HostFunction, HostOptions, HostPolicy,
     SourceResolver,
 };
@@ -599,7 +599,7 @@ fn arg_str(args: &Value, key: &str) -> String {
 }
 
 fn toast_fn() -> HostFunction {
-    exponential_ui_gpui::runtime::sync_function(|args, _, cx| {
+    eui_gpui::runtime::sync_function(|args, _, cx| {
         let text = arg_str(&args, "message");
         let toast = if args.get("tone").and_then(Value::as_str) == Some("error") {
             Toast::error(text)
@@ -612,7 +612,7 @@ fn toast_fn() -> HostFunction {
 }
 
 fn open_issue_fn() -> HostFunction {
-    exponential_ui_gpui::runtime::sync_function(|args, _, cx| {
+    eui_gpui::runtime::sync_function(|args, _, cx| {
         let identifier = arg_str(&args, "identifier");
         let hit = sync::Store::try_global(cx).and_then(|store| {
             store
@@ -639,7 +639,7 @@ fn open_issue_fn() -> HostFunction {
 }
 
 fn open_device_fn() -> HostFunction {
-    exponential_ui_gpui::runtime::sync_function(|args, _, cx| {
+    eui_gpui::runtime::sync_function(|args, _, cx| {
         let id = arg_str(&args, "id");
         let me = crate::queries::active_account(cx).map(|a| a.user_id);
         // The settings dialog edits OWN rows only (the machines menu never
@@ -869,7 +869,7 @@ pub(crate) fn own_private_hosts(instance_url: &str) -> Vec<String> {
     url::Url::parse(instance_url)
         .ok()
         .and_then(|u| u.host_str().map(str::to_lowercase))
-        .filter(|h| exponential_ui::host::is_private_host(h))
+        .filter(|h| eui_core::host::is_private_host(h))
         .into_iter()
         .collect()
 }
@@ -1024,7 +1024,7 @@ fn theme_color(theme: Option<&Arc<ResolvedTheme>>, mode: Mode, key: &str) -> Opt
         .get(mode)
         .color
         .get(key)
-        .and_then(|hex| exponential_ui_gpui::paint::color::parse_hex(hex))
+        .and_then(|hex| eui_gpui::paint::color::parse_hex(hex))
 }
 
 fn prop_str<'a>(node: &'a PlacedNode, key: &str) -> Option<&'a str> {
@@ -1076,7 +1076,7 @@ pub(crate) struct LiveDotPainter;
 
 impl ExtensionPainter for LiveDotPainter {
     fn measure(&self, _: &LeafRequest, _: Option<f32>, _: &mut Window, _: &mut App) -> Option<(f32, f32)> {
-        let size = exponential_ui_gpui::controls::LIVE_DOT_PX;
+        let size = eui_gpui::controls::LIVE_DOT_PX;
         Some((size, size))
     }
 
@@ -1097,7 +1097,7 @@ impl ExtensionPainter for LiveDotPainter {
             .flex()
             .items_center()
             .justify_center()
-            .child(exponential_ui_gpui::controls::live_dot(tone, ping))
+            .child(eui_gpui::controls::live_dot(tone, ping))
             .into_any_element()
     }
 }
@@ -1237,8 +1237,8 @@ impl IdeHost {
                 }),
             },
             theme: theme_id
-                .and_then(exponential_ui::themes::builtin_theme)
-                .or_else(|| exponential_ui::themes::builtin_theme(THEME_ID)),
+                .and_then(eui_core::themes::builtin_theme)
+                .or_else(|| eui_core::themes::builtin_theme(THEME_ID)),
             mode,
             plugin: Rc::new(IdePlugin { media_origin }),
             ..HostOptions::default()
@@ -1321,7 +1321,7 @@ mod tests {
         let got = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
         let sink = got.clone();
         let emit: Emit = Arc::new(move |v| sink.lock().unwrap().push(v));
-        let parse = |s: &str| exponential_ui::host::parse_source(s).unwrap();
+        let parse = |s: &str| eui_core::host::parse_source(s).unwrap();
         let cancel = resolver(parse("exp:devices"), emit.clone());
         assert_eq!(got.lock().unwrap().len(), 1);
         // A move re-emits; an unchanged publish does not.
@@ -1367,7 +1367,7 @@ mod tests {
     #[test]
     fn records_read_the_scoped_app() {
         let feed = records_feed();
-        let query = |s: &str| match query_of(&exponential_ui::host::parse_source(s).unwrap()) {
+        let query = |s: &str| match query_of(&eui_core::host::parse_source(s).unwrap()) {
             Some(Query::Records(q)) => q,
             other => panic!("{other:?}"),
         };
@@ -1387,7 +1387,7 @@ mod tests {
         assert_eq!(records_feed_value(&unscoped, &query("exp:records?kind=entry"), now)["count"], 0);
         // VAPP-161: the neutral spelling is the same binding (the name wins over `kind`).
         assert_eq!(query("records:entry?sum=hours&kind=other"), query("exp:records?kind=entry&sum=hours"));
-        assert!(query_of(&exponential_ui::host::parse_source("other:records?kind=entry").unwrap()).is_none());
+        assert!(query_of(&eui_core::host::parse_source("other:records?kind=entry").unwrap()).is_none());
     }
 
     #[test]
@@ -1398,7 +1398,7 @@ mod tests {
         let got = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
         let sink = got.clone();
         let emit: Emit = Arc::new(move |v| sink.lock().unwrap().push(v));
-        let _cancel = resolver(exponential_ui::host::parse_source("exp:records?kind=entry").unwrap(), emit);
+        let _cancel = resolver(eui_core::host::parse_source("exp:records?kind=entry").unwrap(), emit);
         assert_eq!(got.lock().unwrap()[0]["count"], 1);
         feeds.borrow_mut().publish();
         assert_eq!(got.lock().unwrap().len(), 1);
@@ -1475,7 +1475,7 @@ mod tests {
             let got = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
             let sink = got.clone();
             let emit: Emit = Arc::new(move |v: Value| sink.lock().unwrap().push(v));
-            let cancel = resolver(exponential_ui::host::parse_source(uri).unwrap(), emit);
+            let cancel = resolver(eui_core::host::parse_source(uri).unwrap(), emit);
             (got, cancel)
         };
         let (members, _m) = bind("exp:members");
@@ -1519,7 +1519,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let params = |uri: &str| exponential_ui::host::parse_source(uri).unwrap().params;
+        let params = |uri: &str| eui_core::host::parse_source(uri).unwrap().params;
         let members_now = members.lock().unwrap().last().cloned().unwrap();
         assert_eq!(members_now, src::source_value("members", &params("exp:members"), &expected, None));
         assert_eq!(members_now["count"], 2, "the scope team's members only");
@@ -1561,7 +1561,7 @@ mod tests {
         std::mem::forget(ide);
     }
 
-    struct Holder(Entity<exponential_ui_gpui::view::SurfaceView>);
+    struct Holder(Entity<eui_gpui::view::SurfaceView>);
     impl gpui::Render for Holder {
         fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
             div().w(px(600.)).child(self.0.clone())
@@ -1581,7 +1581,7 @@ mod tests {
             ide.host.update(cx, |h, _| {
                 h.register_function(
                     "harness.openDevice",
-                    exponential_ui_gpui::runtime::sync_function(move |args, _, _| {
+                    eui_gpui::runtime::sync_function(move |args, _, _| {
                         c.borrow_mut().push(args);
                         Ok(Value::Null)
                     }),

@@ -4,7 +4,7 @@
 // platform.ts). Listeners are removed when the owner is disposed.
 
 import { createEffect, createSignal, getOwner, onCleanup, type Accessor } from "solid-js"
-import { layoutSize } from "@exponential_app/ui/web"
+import { layoutSize } from "@exponential_app/eui/web"
 
 /** `matchMedia(query).matches`, live; `fallback` without `matchMedia`
  *  (SSR, jsdom). */

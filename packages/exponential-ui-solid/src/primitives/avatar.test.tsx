@@ -1,7 +1,7 @@
 // FEED-131: the Solid Avatar's Radix image-loading behaviour.
 import { describe, expect, it } from "vitest"
 import { render } from "@solidjs/testing-library"
-import { avatarFallbackHue } from "@exponential_app/ui/web/primitives"
+import { avatarFallbackHue } from "@exponential_app/eui/web/primitives"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 
 describe(`Avatar`, () => {

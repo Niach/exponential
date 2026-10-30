@@ -10,7 +10,7 @@
 // renderedItems (items alive after the jump). The jsdom half: `XUI_BENCH=1 vitest run src/bench.test.tsx`.
 
 import { chromium } from "playwright"
-import bench from "@exponential_app/ui/fixtures/bench-list.json"
+import bench from "@exponential_app/eui/fixtures/bench-list.json"
 import { bundleHarness } from "../harness/serve"
 
 const js = await bundleHarness()

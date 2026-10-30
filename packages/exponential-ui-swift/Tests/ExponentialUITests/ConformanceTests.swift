@@ -11,7 +11,7 @@ import ExponentialUICore
 /// through this package's bindings (`ExponentialUICore`). Writes the report
 /// (`conformance/report.schema.json`) to `$EXPONENTIAL_UI_CONFORMANCE_REPORT`,
 /// default `<repo>/.conformance/exponential-ui-swift.json`; check it with
-/// `bun run --filter @exponential_app/ui conformance:check <report>`.
+/// `bun run --filter @exponential_app/eui conformance:check <report>`.
 @MainActor
 final class ConformanceTests: XCTestCase {
     typealias Case = (name: String, error: String?)

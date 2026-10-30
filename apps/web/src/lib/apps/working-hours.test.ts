@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { resolveDynamic, sourceWithParams } from "@exponential_app/ui"
-import { parseSource } from "@exponential_app/ui"
+import { resolveDynamic, sourceWithParams } from "@exponential_app/eui"
+import { parseSource } from "@exponential_app/eui"
 import { parseRecordsQuery } from "@exp/domain-contract/app-records"
 import template from "@exp/ui/exponential-ui/templates/working-hours.json"
 import { validateAppPackage } from "@/lib/apps/package"

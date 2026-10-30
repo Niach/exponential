@@ -2,11 +2,11 @@
    compiles from a fresh project (guides/**, guides/check.ts), shown through
    guideSource(), never pasted. */
 import type { ReactNode } from "react"
-import promptBudget from "@exponential_app/ui/fixtures/prompt-budget.json"
+import promptBudget from "@exponential_app/eui/fixtures/prompt-budget.json"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection } from "@exp/site-shell"
 import { DocsTable, IcArrow } from "../components/Content"
 import { GuideFile } from "../components/GuideFile"
-import { LIMITS, MEDIA_LIMITS } from "@exponential_app/ui"
+import { LIMITS, MEDIA_LIMITS } from "@exponential_app/eui"
 import { CORE_CATALOG as CATALOG_ID, FUNCTION_COUNT } from "../lib/catalog-facts"
 import { CHECK_DIR, GUIDE_CHECK, GUIDES_NAV } from "../lib/content"
 import { GUIDES, guidePath } from "../lib/guides"
@@ -25,11 +25,11 @@ const GUIDE_SECTIONS: Record<string, Section[]> = {
       body: (
         <>
           <p>
-            Two packages: <code>@exponential_app/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
-            <code>@exponential_app/ui-react</code> (the renderer). React 19; the renderer ships its own styles,
+            Two packages: <code>@exponential_app/eui</code> (the catalog, themes, reducer and host runtime) and{` `}
+            <code>@exponential_app/eui-react</code> (the renderer). React 19; the renderer ships its own styles,
             so there is no stylesheet or Tailwind setup.
           </p>
-          <DocsCode>{`npm install @exponential_app/ui @exponential_app/ui-react`}</DocsCode>
+          <DocsCode>{`npm install @exponential_app/eui @exponential_app/eui-react`}</DocsCode>
           <GuideFile path="react/package.json" caption="the whole dependency list" />
         </>
       ),
@@ -80,16 +80,16 @@ return <ExponentialSurface surface={surface} theme="neutral" mode="light" host={
       body: (
         <>
           <p>
-            The app around a surface can use the same components: <code>@exponential_app/ui-react/primitives</code>{` `}
+            The app around a surface can use the same components: <code>@exponential_app/eui-react/primitives</code>{` `}
             is the shadcn set on Radix (button, dialog, select, table, command, toast, calendar…). Import its compiled
             stylesheet once. Inside a surface they wear its theme; outside one,{` `}
-            <code>globalsCss(theme)</code> from <code>@exponential_app/ui/web</code> writes the theme as shadcn
+            <code>globalsCss(theme)</code> from <code>@exponential_app/eui/web</code> writes the theme as shadcn
             variables.
           </p>
-          <DocsCode language="tsx">{`import "@exponential_app/ui-react/styles.css"
-import { builtinTheme } from "@exponential_app/ui"
-import { globalsCss } from "@exponential_app/ui/web"
-import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential_app/ui-react/primitives"
+          <DocsCode language="tsx">{`import "@exponential_app/eui-react/styles.css"
+import { builtinTheme } from "@exponential_app/eui"
+import { globalsCss } from "@exponential_app/eui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential_app/eui-react/primitives"
 
 const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
 <Dialog>
@@ -110,11 +110,11 @@ const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in
       body: (
         <>
           <p>
-            Two packages: <code>@exponential_app/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
-            <code>@exponential_app/ui-solid</code> (the renderer). Solid 1.9 with{` `}
+            Two packages: <code>@exponential_app/eui</code> (the catalog, themes, reducer and host runtime) and{` `}
+            <code>@exponential_app/eui-solid</code> (the renderer). Solid 1.9 with{` `}
             <code>vite-plugin-solid</code>; the surface injects its own styles, so there is no stylesheet setup.
           </p>
-          <DocsCode>{`npm install @exponential_app/ui @exponential_app/ui-solid solid-js`}</DocsCode>
+          <DocsCode>{`npm install @exponential_app/eui @exponential_app/eui-solid solid-js`}</DocsCode>
           <GuideFile path="solid/package.json" caption="the whole dependency list" />
           <GuideFile path="solid/vite.config.ts" />
         </>
@@ -166,7 +166,7 @@ return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Wai
       body: (
         <>
           <p>
-            <code>defineSurface</code> from <code>@exponential_app/ui</code> works unchanged in a Solid project: the
+            <code>defineSurface</code> from <code>@exponential_app/eui</code> works unchanged in a Solid project: the
             typed tree becomes the same messages an agent sends, and <code>createSurface</code> applies them. Nothing
             Solid-specific is needed; the file compiles under this project&apos;s tsconfig and runs under Node.
           </p>
@@ -181,17 +181,17 @@ return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Wai
       body: (
         <>
           <p>
-            <code>@exponential_app/ui-solid/primitives</code> is the React primitive set on Solid, module for module, with the same DOM and
+            <code>@exponential_app/eui-solid/primitives</code> is the React primitive set on Solid, module for module, with the same DOM and
             classes (one set of recipes, checked against React in headless Chromium).{` `}
-            <code>@exponential_app/ui-solid/styles.css</code> is the same stylesheet as React's;{` `}
-            <code>globalsCss(theme)</code> from <code>@exponential_app/ui/web</code> themes them outside a surface.
+            <code>@exponential_app/eui-solid/styles.css</code> is the same stylesheet as React's;{` `}
+            <code>globalsCss(theme)</code> from <code>@exponential_app/eui/web</code> themes them outside a surface.
             The names differ in three ways: <code>class</code> for <code>className</code>, <code>as</code> for{` `}
             <code>asChild</code>, and <code>create*</code> for the <code>use*</code> hooks.
           </p>
-          <DocsCode language="tsx">{`import "@exponential_app/ui-solid/styles.css"
-import { builtinTheme } from "@exponential_app/ui"
-import { globalsCss } from "@exponential_app/ui/web"
-import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential_app/ui-solid/primitives"
+          <DocsCode language="tsx">{`import "@exponential_app/eui-solid/styles.css"
+import { builtinTheme } from "@exponential_app/eui"
+import { globalsCss } from "@exponential_app/eui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential_app/eui-solid/primitives"
 
 const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
 <Dialog>
@@ -212,16 +212,16 @@ const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in
       body: (
         <>
           <p>
-            Two packages: <code>@exponential_app/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
-            <code>@exponential_app/ui-element</code> (the custom element <code>{`<exponential-surface>`}</code>). No
+            Two packages: <code>@exponential_app/eui</code> (the catalog, themes, reducer and host runtime) and{` `}
+            <code>@exponential_app/eui-element</code> (the custom element <code>{`<exponential-surface>`}</code>). No
             framework in the page and no framework plugin in Vite; the element brings the Solid painter and its own
             styles.
           </p>
-          <DocsCode>{`npm install @exponential_app/ui @exponential_app/ui-element`}</DocsCode>
+          <DocsCode>{`npm install @exponential_app/eui @exponential_app/eui-element`}</DocsCode>
           <GuideFile path="element/package.json" caption="the whole dependency list" />
           <GuideFile path="element/vite.config.ts" />
           <p>
-            Without a bundler, <code>@exponential_app/ui-element/standalone</code> is one self-contained ES module:
+            Without a bundler, <code>@exponential_app/eui-element/standalone</code> is one self-contained ES module:
           </p>
           <DocsCode language="html">{`<script type="module" src="/vendor/exponential-ui-element/standalone.js"></script>`}</DocsCode>
         </>
@@ -233,7 +233,7 @@ const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in
       body: (
         <>
           <p>
-            Importing <code>@exponential_app/ui-element/define</code> registers the element. Its attributes are the
+            Importing <code>@exponential_app/eui-element/define</code> registers the element. Its attributes are the
             surface's options (<code>theme</code>, <code>mode</code>, <code>density</code>, <code>locale</code>,{` `}
             <code>direction</code>, <code>width</code>, <code>surface-id</code>); the host box is{` `}
             <code>display: contents</code>, so the surface root is the box.
@@ -289,7 +289,7 @@ el.plugin = { icons: iconsFromSvg((name) => svgFor(name)), openUrl: (url) => win
       body: (
         <>
           <p>
-            <code>defineSurface</code> from <code>@exponential_app/ui</code> works unchanged in a plain Vite project:
+            <code>defineSurface</code> from <code>@exponential_app/eui</code> works unchanged in a plain Vite project:
             the typed tree becomes the same messages an agent sends, and <code>apply()</code> on the element takes
             them. Nothing element-specific is needed; the file compiles under this project&apos;s tsconfig and runs
             under Node.
@@ -310,11 +310,11 @@ el.plugin = { icons: iconsFromSvg((name) => svgFor(name)), openUrl: (url) => win
           <p>
             The Swift package <code>ExponentialUI</code> (iOS 17, macOS 14) carries the painter and the Rust core as
             an xcframework, so your app never builds Rust. It is a SwiftPM dependency on{` `}
-            <code>github.com/Niach/exponential-ui-swift</code>, whose tag <code>0.1.1</code> pins the xcframework of
+            <code>github.com/Niach/exponential-ui-swift</code>, whose tag <code>0.2.0</code> pins the xcframework of
             that release by checksum:
           </p>
           <DocsCode language="swift">{`dependencies: [
-    .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.1.1"),
+    .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.2.0"),
 ],
 targets: [
     .executableTarget(name: "App", dependencies: [.product(name: "ExponentialUI", package: "exponential-ui-swift")]),
@@ -379,12 +379,12 @@ targets: [
       body: (
         <>
           <p>
-            One Maven artifact, <code>at.exponential:ui-compose</code> (minSdk 26). Its POM brings the primitives,
+            One Maven artifact, <code>at.exponential:eui-compose</code> (minSdk 26). Its POM brings the primitives,
             Compose, coroutines and JNA, and the AAR carries the Rust core for arm64-v8a, armeabi-v7a and x86_64. R8
             needs no extra rules.
           </p>
           <DocsCode language="kotlin">{`dependencies {
-    implementation("at.exponential:ui-compose:0.1.1")
+    implementation("at.exponential:eui-compose:0.2.0")
 }`}</DocsCode>
           <p>
             It resolves from <code>mavenCentral()</code>; the whole dependency block of the guide's app:
@@ -433,22 +433,22 @@ targets: [
       body: (
         <>
           <p>
-            Two crates: <code>exponential-ui</code> (the core) and <code>exponential-ui-gpui</code> (the painter and
+            Two crates: <code>eui-core</code> (the core) and <code>eui-gpui</code> (the painter and
             host runtime). The painter depends on gpui and gpui-component as git dependencies, which crates.io
             refuses, so an app takes both crates from the release tag. Your app links the same gpui as the painter:
             the same gpui-component rev, zed locked at the SDK's rev and the ztracing patch, all copied from one tag
-            (the {SDK_README(`apps/desktop/crates/exponential-ui-gpui/README.md`, `gpui revision policy`)}). gpui
+            (the {SDK_README(`apps/desktop/crates/eui-gpui/README.md`, `gpui revision policy`)}). gpui
             needs Rust 1.96: pin it in <code>rust-toolchain.toml</code>.
           </p>
           <DocsCode language="toml">{`[dependencies]
-exponential-ui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
-exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
+eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
 gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
 
 [patch."https://github.com/zed-industries/zed"]
-ztracing = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
-ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }`}</DocsCode>
+ztracing = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
+ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }`}</DocsCode>
           <DocsCode language="sh">{`cargo update gpui --precise cc053a4a6fa2fd0e8793201ed9099466af1be0b1`}</DocsCode>
           <GuideFile path="gpui/Cargo.toml" caption="path dependencies standing in for the git ones" />
         </>
@@ -476,7 +476,7 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.
             Underneath, a <code>SurfaceView</code> takes a <code>HostPlugin</code> implementation: catalog icon names
             to SVG asset paths, font families, actions and input. Register the theme's fonts with the text system
             before the first frame, and extension natives with <code>register_painter</code>. Details in the{` `}
-            {SDK_README(`apps/desktop/crates/exponential-ui-gpui/README.md`, `gpui painter's README`)}.
+            {SDK_README(`apps/desktop/crates/eui-gpui/README.md`, `gpui painter's README`)}.
           </p>
         </>
       ),
@@ -559,7 +559,7 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.
               [`TypeScript`, <code key="c">{`validateTheme(json) · loadTheme(json, { themes: BUILTIN_THEMES })`}</code>],
               [`SwiftUI`, <code key="c">{`ThemeHandle.load(json:) · model.setTheme(…)`}</code>],
               [`Compose`, <code key="c">{`ThemeHandle.load(json, parents) · model.setTheme(…)`}</code>],
-              [`gpui / Rust`, <code key="c">{`exponential_ui::theme::load_theme(&json, &options)`}</code>],
+              [`gpui / Rust`, <code key="c">{`eui_core::theme::load_theme(&json, &options)`}</code>],
             ]}
           />
         </>
@@ -878,7 +878,7 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.
           <p>
             Every renderer replays the same fixtures, so what a surface can and cannot do is identical on React,
             SolidJS, the <code>{`<exponential-surface>`}</code> web component, SwiftUI, Compose and gpui. The web
-            renderers share one URL and media filter (the web layer of <code>@exponential_app/ui</code>); the web
+            renderers share one URL and media filter (the web layer of <code>@exponential_app/eui</code>); the web
             component's <code>src</code> and <code>post</code> pass it too, before a transport exists, and its
             standalone bundle carries it. The Rust core behind the three native painters is fuzzed nightly; the
             TypeScript reference runs property tests on the same modules.

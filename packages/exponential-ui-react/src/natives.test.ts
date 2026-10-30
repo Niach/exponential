@@ -6,8 +6,8 @@
 import { describe, expect, it } from "vitest"
 import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
-import { coreCatalog, DEFAULT_STRINGS } from "@exponential_app/ui"
-import { CUSTOM_ICON_NODES } from "@exponential_app/ui/web"
+import { coreCatalog, DEFAULT_STRINGS } from "@exponential_app/eui"
+import { CUSTOM_ICON_NODES } from "@exponential_app/eui/web"
 import { NATIVES } from "./natives"
 import { FALLBACK_ICONS } from "./icons"
 

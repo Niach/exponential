@@ -16,7 +16,7 @@
 //! disclosure header, the text button, the sizing traits and `CTL_*` rungs,
 //! the empty state, the glass/ghost icon buttons, the switch, the segmented
 //! capsule, the textarea, the skeleton, the checkbox, the alert) live in the
-//! Exponential UI SDK's `exponential_ui_gpui::controls`; this module
+//! Exponential UI SDK's `eui_gpui::controls`; this module
 //! re-exports them under their old names, so no call site changed, and keeps
 //! the IDE-only controls (jump-to-bottom, the back glyph, the right-click
 //! claim, the danger menu item, the typeahead menu). The SDK reads its token
@@ -25,7 +25,7 @@
 
 use std::sync::LazyLock;
 
-use exponential_ui_gpui::chrome::{Chrome, ChromeIcons};
+use eui_gpui::chrome::{Chrome, ChromeIcons};
 use gpui::{
     anchored, deferred, div, point, prelude::FluentBuilder as _, px, Anchor, Animation,
     AnimationExt as _, AnyElement, App, Div, ElementId, InteractiveElement, IntoElement,
@@ -36,7 +36,7 @@ use gpui_component::{menu::PopupMenuItem, v_flex, ActiveTheme as _, Icon, IconNa
 use theme::tokens as t;
 
 #[allow(unused_imports)] // the shared API; not every control has an IDE caller today
-pub(crate) use exponential_ui_gpui::controls::{
+pub(crate) use eui_gpui::controls::{
     alert, alert_title, checkbox, choice_tiles, disclosure_header, empty_state, empty_state_actions,
     empty_state_list, ghost_icon_button,
     glass_icon_button, glass_input, kbd, kbd_group, search_field, segmented, segmented_item, skeleton,
@@ -71,7 +71,7 @@ pub(crate) fn ide_chrome() -> &'static Chrome {
             fill_section: t::glass::FILL_SECTION.to_hsla(),
             fill_row: t::glass::FILL_ROW.to_hsla(),
             fill_card: t::glass::FILL_CARD.to_hsla(),
-            fill_card_opaque: exponential_ui_gpui::chrome::composite(
+            fill_card_opaque: eui_gpui::chrome::composite(
                 t::POPOVER.to_hsla(),
                 t::glass::FILL_CARD.to_hsla(),
             ),
@@ -1776,7 +1776,7 @@ mod tests {
     /// the same scan).
     ///
     /// VAPP-90: the one allowed constructor now lives in the SDK
-    /// (`exponential_ui_gpui::controls::web_switch`, outside this crate's
+    /// (`eui_gpui::controls::web_switch`, outside this crate's
     /// sources) and this module re-exports it, so the rule reads the same —
     /// construct through `controls::…`. This module is still the one file the
     /// scan skips: its docs spell the needles.
@@ -1881,7 +1881,7 @@ mod tests {
     /// gpui-component's bundled set).
     #[test]
     fn ide_chrome_is_the_sdk_default() {
-        use exponential_ui_gpui::chrome::Chrome;
+        use eui_gpui::chrome::Chrome;
         let ide = super::ide_chrome();
         let default = Chrome {
             icons: ide.icons.clone(),

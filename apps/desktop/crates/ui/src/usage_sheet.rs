@@ -194,7 +194,7 @@ pub(crate) fn render_usage_sheet(
 /// caller's check ([`crate::usage_bar::context_percent`] is `None`).
 ///
 /// VAPP-90: the ring itself is the SDK's
-/// `exponential_ui_gpui::controls::context_ring` (tone + tooltip in); the
+/// `eui_gpui::controls::context_ring` (tone + tooltip in); the
 /// severity tone and the tooltip's `steer::SessionUsage` wording stay here.
 pub(crate) fn context_ring(
     id: impl Into<gpui::ElementId>,
@@ -203,7 +203,7 @@ pub(crate) fn context_ring(
     cx: &App,
 ) -> Button {
     let tone = crate::usage_bar::severity_color(crate::usage_bar::severity(percent), cx);
-    exponential_ui_gpui::controls::context_ring(
+    eui_gpui::controls::context_ring(
         id,
         percent,
         tone,

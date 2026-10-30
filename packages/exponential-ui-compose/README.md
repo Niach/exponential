@@ -3,7 +3,7 @@
 This is the Android renderer of the Exponential UI SDK (VAPP-89), the Compose twin of the SwiftUI painter
 [`packages/exponential-ui-swift`](../exponential-ui-swift).
 
-The Rust core [`exponential-ui`](../../apps/desktop/crates/exponential-ui) does three jobs:
+The Rust core [`eui-core`](../../apps/desktop/crates/eui-core) does three jobs:
 - reduces an A2UI surface,
 - resolves the theme,
 - lays the tree out with taffy.
@@ -14,8 +14,8 @@ Android 8+ (minSdk 26). No WebView, no downloaded code, nothing from the Exponen
 
 | module | artifact | what | depends on |
 |---|---|---|---|
-| `:ui-compose` (`ui-compose/`) | `at.exponential:ui-compose` | The painter: `SurfaceModel` + `ExponentialSurface`, the host plugin, extension painters. | The UniFFI facade [`exponential-ui-ffi`](../../apps/desktop/crates/exponential-ui-ffi) (the generated Kotlin binding compiled in; the generated catalog object `at.exponential.ui.ExponentialUICatalog` from `packages/exponential-ui/generated`; `libexponential_ui_ffi.so` for arm64-v8a, armeabi-v7a and x86_64; JNA 5.17 `@aar`), `:ui-compose-primitives` |
-| `:ui-compose-primitives` (`primitives/`) | `at.exponential:ui-compose-primitives` | The generic Compose primitives the catalog natives are painted with, themed by `PrimitiveTokens`: pill, segmented control, field chrome, drawn switch, avatar, meter track, ring, the markdown model + `MarkdownView`, empty state, disclosure header. | nothing (pure Compose) |
+| `:ui-compose` (`ui-compose/`) | `at.exponential:eui-compose` | The painter: `SurfaceModel` + `ExponentialSurface`, the host plugin, extension painters. | The UniFFI facade [`exponential-ui-ffi`](../../apps/desktop/crates/exponential-ui-ffi) (the generated Kotlin binding compiled in; the generated catalog object `at.exponential.ui.ExponentialUICatalog` from `packages/exponential-ui/generated`; `libexponential_ui_ffi.so` for arm64-v8a, armeabi-v7a and x86_64; JNA 5.17 `@aar`), `:ui-compose-primitives` |
+| `:ui-compose-primitives` (`primitives/`) | `at.exponential:eui-compose-primitives` | The generic Compose primitives the catalog natives are painted with, themed by `PrimitiveTokens`: pill, segmented control, field chrome, drawn switch, avatar, meter track, ring, the markdown model + `MarkdownView`, empty state, disclosure header. | nothing (pure Compose) |
 | `:example` (`example/`) | (app `at.exponential.ui.kitchensink`) | The kitchen-sink app. | `:ui-compose` only |
 
 The Exponential Android app includes `:ui-compose-primitives` by path (the SLOP-18 convergence) without linking the core. That is why the primitives use literal dependency coordinates.
@@ -36,7 +36,7 @@ cd packages/exponential-ui-compose
 ### In a blank project
 
 A blank Android Studio project (Compose template, AGP 8.10, Kotlin 2.4, minSdk 26) needs only
-`mavenCentral()` in its repositories and `implementation("at.exponential:ui-compose:0.1.1")`;
+`mavenCentral()` in its repositories and `implementation("at.exponential:eui-compose:0.2.0")`;
 the POM brings the primitives, Compose,
 coroutines and JNA (`@aar`). Ten lines of `MainActivity` (a `SurfaceModel`, `setNested` with the
 kitchen sink from `assets/`, `ExponentialSurface` in a `verticalScroll`) render the kitchen sink
@@ -283,9 +283,9 @@ HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
 
 ## Publishing
 
-Both modules publish as `at.exponential:ui-compose` and `at.exponential:ui-compose-primitives`.
+Both modules publish as `at.exponential:eui-compose` and `at.exponential:eui-compose-primitives`.
 - Each artifact has the AAR, a full POM (Apache-2.0; developer `Exponential` <hello@exponential.at>; scm `github.com/Niach/exponential`), and sources and javadoc jars.
-- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-ui.yml passes the tag's version, the `0.2.0` default lives in each module's `build.gradle.kts`).
+- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-eui.yml passes the tag's version, the `0.2.0` default lives in each module's `build.gradle.kts`).
 - Signing is applied ONLY when `ORG_GRADLE_PROJECT_signingInMemoryKey` (+ `…Password`) is set. The root `build.gradle.kts` holds the shared POM, signing and repository setup.
 
 ```bash
@@ -309,7 +309,7 @@ bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.2.0
     - The painted suites run THROUGH this painter: catalog and replay composed by `ExponentialSurface`, control geometry from `SurfaceMeasurer`.
     - `format` runs through the painter's `IcuFormatter` (en-US, UTC); the animation timings and the leaves' direction come from a live surface's visuals.
     - The pure suites run through the bindings.
-    - The report goes to `$EXPONENTIAL_UI_CONFORMANCE_REPORT`, default `<repo>/.conformance/exponential-ui-compose.json`. Check it with `bun run --filter @exponential_app/ui conformance:check "$PWD/.conformance/exponential-ui-compose.json"`.
+    - The report goes to `$EXPONENTIAL_UI_CONFORMANCE_REPORT`, default `<repo>/.conformance/exponential-ui-compose.json`. Check it with `bun run --filter @exponential_app/eui conformance:check "$PWD/.conformance/exponential-ui-compose.json"`.
 
   - `Round2InteractionTest`: settings + the ICU formatter, strings, copy / focus / announce / file picks, toast timers, Resizable drags and keys, scroll containers + sticky pins, `scrollToIndex`, keys, animations, direction.
   - `RealFontConformanceTest`: the real-font harness (`packages/exponential-ui/conformance`, round 2 §8). Every case of `fixtures/conformance-cases.json` laid out with ONLY the conformance fonts (Robolectric's native text, density 3) is dumped to `build/conformance/compose.json` (the `xui-frame-dump/1` format) and compared with the web baseline by the rules of `compare.ts`. The gate is a ratchet over `src/test/conformance-known.json`: a worse case fails, and so does a better one until its budget is lowered. `onlyRef` (nodes the web places that Compose does not emit) is budgeted per case; the run prints the total. `build/conformance/report.txt` lists every origin. Rewrite the budget after a fix or a baseline rewrite: `EXP_UI_WRITE_FIXTURES=1 ./gradlew :ui-compose:testDebugUnitTest --tests '*RealFontConformanceTest'`.

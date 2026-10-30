@@ -5,7 +5,7 @@
 // SURFACE, never the window).
 
 import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react"
-import { layoutSize } from "@exponential_app/ui/web"
+import { layoutSize } from "@exponential_app/eui/web"
 
 const useIsoLayoutEffect = typeof window === `undefined` ? useEffect : useLayoutEffect
 

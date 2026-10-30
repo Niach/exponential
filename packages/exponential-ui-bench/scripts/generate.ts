@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // VAPP-105: writes scenarios/manifest.json and scenarios/<id>.json from
-// src/scenarios.ts. `bun run --filter @exponential_app/ui-bench generate`;
+// src/scenarios.ts. `bun run --filter @exponential_app/eui-bench generate`;
 // src/generate.test.ts fails on committed drift.
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"

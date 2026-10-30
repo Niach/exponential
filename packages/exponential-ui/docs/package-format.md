@@ -8,7 +8,7 @@ its synced store, spezl from a p2p store over eNet). `catalog/host.json`
 `package` is the machine-readable contract; this page is the prose spec other
 docs link to (spezl `docs/spec/blocks.md`). The TS reference is `src/host/`
 (`package.ts`, `records.ts`, `record-store.ts`, `tools.ts`, `signature.ts`);
-the Rust core (`apps/desktop/crates/exponential-ui/src/host/`) mirrors every
+the Rust core (`apps/desktop/crates/eui-core/src/host/`) mirrors every
 pure rule. Fixtures: `fixtures/host-router.json` (package validation, replayed
 by every renderer through the core) and `fixtures/host-package.json` (records
 queries and values, tool consent, extension compatibility, canonical JSON,

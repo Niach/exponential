@@ -1,1 +1,1 @@
-export * from "@exponential_app/ui-react/primitives/context-ring"
+export * from "@exponential_app/eui-react/primitives/context-ring"

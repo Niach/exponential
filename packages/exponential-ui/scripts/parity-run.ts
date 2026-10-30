@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// FEED-128: `bun run --filter @exponential_app/ui conformance:parity [-- options]`
+// FEED-128: `bun run --filter @exponential_app/eui conformance:parity [-- options]`
 // — the web parity run (conformance/parity.ts) of a CANDIDATE web renderer's
 // harness against the REFERENCE (the React harness), report to `--out`.
 //

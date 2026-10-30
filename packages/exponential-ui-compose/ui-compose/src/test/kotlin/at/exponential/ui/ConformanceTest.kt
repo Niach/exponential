@@ -65,7 +65,7 @@ import kotlin.math.abs
 
 /**
  * VAPP-91: the Compose painter's Exponential UI conformance runner
- * (renderer `at.exponential:ui-compose`, platform `android`). Replays
+ * (renderer `at.exponential:eui-compose`, platform `android`). Replays
  * EVERY suite of `packages/exponential-ui/conformance/manifest.json`,
  * counting cases as the manifest's `unit` says (`src/conformance.ts`):
  * the painted suites THROUGH THIS PAINTER (catalog + replay composed by
@@ -74,7 +74,7 @@ import kotlin.math.abs
  * and overlays the frames the painter places), the pure ones through the
  * facade bindings. Writes the report to `$EXPONENTIAL_UI_CONFORMANCE_REPORT`,
  * default `<repo>/.conformance/exponential-ui-compose.json`; check it with
- * `bun run --filter @exponential_app/ui conformance:check <report>`.
+ * `bun run --filter @exponential_app/eui conformance:check <report>`.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w390dp-h800dp-mdpi")
@@ -591,7 +591,7 @@ class ConformanceTest {
         }
         val report = JsonValue.Obj(
             mapOf(
-                "renderer" to JsonValue.Str("at.exponential:ui-compose"),
+                "renderer" to JsonValue.Str("at.exponential:eui-compose"),
                 "platform" to JsonValue.Str("android"),
                 "version" to JsonValue.Str(System.getProperty("exponential.ui.version") ?: "0.1.0"),
                 "conformanceVersion" to manifest["version"]!!,

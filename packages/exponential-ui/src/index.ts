@@ -1,4 +1,4 @@
-// @exponential_app/ui — the Exponential UI catalog package (VAPP-85).
+// @exponential_app/eui — the Exponential UI catalog package (VAPP-85).
 export * from "./types"
 export {
   CORE_CATALOG_ID,
@@ -87,7 +87,7 @@ export { reduceSurface, reduceNested, preorder, RESERVED_KEYS, validVisible, slo
 export type { ReduceOptions, ReduceResult } from "./reducer"
 export { defineExtension, validateExtension } from "./extension"
 // VAPP-106: NOT here, each its own entry so the root stays what a renderer
-// needs: `@exponential_app/ui/prompt` (catalogPrompt, estimateTokens,
+// needs: `@exponential_app/eui/prompt` (catalogPrompt, estimateTokens,
 // PROMPT_RULES, the described catalog), `./schema` (coreSchema,
 // extensionSchema + the vendored A2UI basic catalog), `./conformance` (the
 // suite + every fixture), `./host` (the host API, also re-exported below).

@@ -13,8 +13,8 @@
 // "on|off"`): Kobalte's ToggleButton writes `data-pressed` instead.
 
 import { Show, createEffect, createMemo, createSignal, onCleanup, type Accessor, type Component, type JSX } from "solid-js"
-import { PENDING_DELAY_MS } from "@exponential_app/ui"
-import { ButtonHold, linkHref } from "@exponential_app/ui/web"
+import { PENDING_DELAY_MS } from "@exponential_app/eui"
+import { ButtonHold, linkHref } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { useForm } from "../form"
 import { CHROME, IconGlyph, PaintIcon } from "../icons"
@@ -132,7 +132,7 @@ export function ButtonNative(props: NativeProps): JSX.Element {
   )
 }
 
-/** THE hold machine (`@exponential_app/ui/web` ButtonHold, React's
+/** THE hold machine (`@exponential_app/eui/web` ButtonHold, React's
  *  `useHold`) wired to a button's DOM events: the pointer is captured on
  *  down (a long-press or a scroll never steals it), the slop is measured
  *  against the button's box, Space/Enter hold from key down to key up,

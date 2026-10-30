@@ -16,8 +16,8 @@
 // matches.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
-import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/ui"
-import { boundPath } from "@exponential_app/ui/web"
+import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
+import { boundPath } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, createField, type FieldState } from "../form"

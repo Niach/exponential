@@ -1,7 +1,7 @@
 // A declarative app = templates + data + bindings + the functions it may
 // call. Data, never code: validate it, then run it in any host.
-import { createAppHost, validatePackage } from "@exponential_app/ui"
-import type { AppPackage } from "@exponential_app/ui"
+import { createAppHost, validatePackage } from "@exponential_app/eui"
+import type { AppPackage } from "@exponential_app/eui"
 import pkg from "./hello.app.json"
 
 const issues = validatePackage(pkg)

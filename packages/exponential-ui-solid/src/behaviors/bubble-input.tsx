@@ -4,7 +4,7 @@
 // so <form> listeners see it.
 
 import { For, createEffect, createSignal, on, onMount, untrack, type Accessor, type JSX } from "solid-js"
-import { bool, str } from "@exponential_app/ui/web"
+import { bool, str } from "@exponential_app/eui/web"
 import { css } from "../style"
 import { createElementSize } from "./element-size"
 

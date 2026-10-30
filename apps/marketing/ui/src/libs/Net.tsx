@@ -1,9 +1,9 @@
 /* EXP-1421: exponential.at/net/, eNet's one docs page. The decisions of
    2026-10-29 (iroh, no WebRTC; relay-only in the browser; the channels);
    the package names are docs/libraries.md's. EXP-1427 built the core, the
-   UniFFI and wasm facades and push sealing (apps/desktop/crates/exponential-net*);
-   EXP-1435 ships the push-only build in the mobile apps. Nothing is
-   published yet, so the packages say planned. */
+   UniFFI and wasm facades and push sealing (apps/desktop/crates/enet-core*);
+   EXP-1435 ships the push-only build in the mobile apps. EXP-1438 published
+   the core (enet-core 0.1.0, tag enet-v0.1.0); the bindings say planned. */
 import { DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { StatusChip } from "../../../src/components/blog/StatusChip"
 import { DocsTable, PageHero } from "../components/Content"
@@ -20,6 +20,7 @@ const SECTIONS: DocsSectionType[] = [
 ]
 
 const PLANNED = <StatusChip status="planned">planned</StatusChip>
+const PUBLISHED = <StatusChip status="shipped">0.1.0</StatusChip>
 const BUILT = <StatusChip status="in-progress">built</StatusChip>
 const IN_APP = <StatusChip status="in-progress">in the app</StatusChip>
 
@@ -77,16 +78,16 @@ export default function Net({ path }: PageProps) {
         <DocsSection id="packages" num="06" label="Packages">
           <h2>Packages</h2>
           <p>
-            One per platform, built from one Rust core: the crates <code>exponential-net</code>,{` `}
+            One per platform, built from one Rust core: the crates <code>enet-core</code>,{` `}
             <code>exponential-net-ffi</code> and <code>exponential-net-wasm</code> in the Exponential repo. MIT or Apache-2.0.
-            None is published yet.
+            The core is on crates.io (<code>cargo add enet-core</code>); the bindings come next.
           </p>
           <DocsTable
             head={[`Package`, `Registry`, `What`, ``]}
             rows={[
-              [<code key="n">exponential-net</code>, `crates.io`, `The Rust core`, PLANNED],
-              [<code key="n">@exponential_app/net</code>, `npm`, `The WebAssembly build, relay only`, PLANNED],
-              [<code key="n">at.exponential:net</code>, `Maven Central`, `Android, through UniFFI`, PLANNED],
+              [<code key="n">enet-core</code>, `crates.io`, `The Rust core`, PUBLISHED],
+              [<code key="n">@exponential_app/enet</code>, `npm`, `The WebAssembly build, relay only`, PLANNED],
+              [<code key="n">at.exponential:enet</code>, `Maven Central`, `Android, through UniFFI`, PLANNED],
               [<code key="n">ExponentialNet</code>, `SwiftPM`, `iOS and macOS, through UniFFI`, PLANNED],
             ]}
           />

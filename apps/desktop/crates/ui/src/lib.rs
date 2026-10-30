@@ -252,7 +252,7 @@ pub fn init(cx: &mut App) {
     #[cfg(target_os = "macos")]
     theme::motion::set_reduce_motion_probe(macos_reduce_motion);
     // VAPP-90: the SDK's generic controls read the IDE's token values.
-    exponential_ui_gpui::chrome::install(cx, controls::ide_chrome().clone());
+    eui_gpui::chrome::install(cx, controls::ide_chrome().clone());
     navigation::init(cx);
     // EXP-105: quit-time sweep ending every `sessions` row this process
     // launched — without it a closed IDE ghosts the "coding now" badge on

@@ -1,17 +1,17 @@
-# `@exponential_app/ui-react` — the Exponential UI React renderer
+# `@exponential_app/eui-react` — the Exponential UI React renderer
 
 The REFERENCE renderer of Exponential UI (VAPP-84): an A2UI surface in the
-core catalog (`@exponential_app/ui`) painted with real CSS on shadcn/Radix.
+core catalog (`@exponential_app/eui`) painted with real CSS on shadcn/Radix.
 Themes load at runtime, extensions register their own components, overlays
 ride Radix portals, inputs are host-owned, and the layout is the one the
 Rust core computes (the geometry fixture holds the browser to taffy's
 frames within a pixel). Published to npm from `release/` (VAPP-91); the
 workspace package.json stays private on the sources.
-Its SolidJS twin, `@exponential_app/ui-solid` (`packages/exponential-ui-solid`),
+Its SolidJS twin, `@exponential_app/eui-solid` (`packages/exponential-ui-solid`),
 paints the identical DOM, renderer and primitives, and is gated against this
-renderer by the web-parity check (`@exponential_app/ui/conformance/parity.ts`).
+renderer by the web-parity check (`@exponential_app/eui/conformance/parity.ts`).
 
-It depends on `@exponential_app/ui`, React 19 (React 18 would keep
+It depends on `@exponential_app/eui`, React 19 (React 18 would keep
 `javascript:` hrefs clickable), `radix-ui` and
 `lucide-react` (its own chrome glyphs) — nothing from the Exponential app, no
 TanStack, no Electric, no tRPC. Tailwind is an internal build detail of the
@@ -19,7 +19,7 @@ primitive set (below); the renderer itself ships no stylesheet an embedder
 has to wire up.
 
 ```tsx
-import { ExponentialSurface, useSurface } from "@exponential_app/ui-react"
+import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 
 function Chat({ messages }) {
   const surface = useSurface({ surfaceId: "main" })
@@ -42,7 +42,7 @@ function Chat({ messages }) {
 
 ## Layout
 
-The stylesheet and the bind pass come from the core's web layer, `@exponential_app/ui/web` (FEED-128: `compileTheme`, `BASE_CSS`, the node sheet, `bindTree`, the URL/media policy, the natives' pure helpers), so every web renderer paints with byte-identical CSS; this package re-exports those names (`compileTheme`, `BASE_CSS`, `bindTree`, `linkHref`…) and keeps only the React half.
+The stylesheet and the bind pass come from the core's web layer, `@exponential_app/eui/web` (FEED-128: `compileTheme`, `BASE_CSS`, the node sheet, `bindTree`, the URL/media policy, the natives' pure helpers), so every web renderer paints with byte-identical CSS; this package re-exports those names (`compileTheme`, `BASE_CSS`, `bindTree`, `linkHref`…) and keeps only the React half.
 
 | path | what |
 |---|---|
@@ -55,7 +55,7 @@ The stylesheet and the bind pass come from the core's web layer, `@exponential_a
 | `src/inputs.ts` | `useHostOwnedValue`: the hook around the web layer's `HostOwnedController` (150 ms debounce, revisions, echo rule) |
 | `src/list.tsx` | `WindowedList`: one axis, item key, estimated extent, gap + dividers, overscan, sticky rows, one ResizeObserver, `scrollToIndex` |
 | `src/extensions.ts` | `registerExtension` / `defineReactExtension` |
-| `src/primitives/` | the shadcn set (moved from `@exp/ui`, which re-exports it) as thin React wrappers over the class recipes of `@exponential_app/ui/web/primitives` (FEED-131: no class literal here, the Solid twin reads the same recipes) + `tailwind.css` (scans the recipes too); `bun run build:css` → `dist/exponential-ui-react.css` |
+| `src/primitives/` | the shadcn set (moved from `@exp/ui`, which re-exports it) as thin React wrappers over the class recipes of `@exponential_app/eui/web/primitives` (FEED-131: no class literal here, the Solid twin reads the same recipes) + `tailwind.css` (scans the recipes too); `bun run build:css` → `dist/exponential-ui-react.css` |
 | `harness/` | the browser harness the Chromium suites and the screenshot script drive (`dev:harness` → :4181; views kitchen-sink, geometry, overlay, catalog, conditions, tree, round2, bench) |
 | `browser/` | the headless-Chromium suites: geometry, overlays, typing, round 1 (conditions, overlays × breakpoints, kitchen sink × themes × widths, keyboard) (`test:browser`) |
 | `fixtures/kitchen-sink.data.json` | the data model the kitchen sink renders against (harness + the app's view) |
@@ -189,7 +189,7 @@ interface HostPlugin {
 
 ### The host API (VAPP-91)
 
-An `ExponentialHost` from `@exponential_app/ui` (transport, router, sources,
+An `ExponentialHost` from `@exponential_app/eui` (transport, router, sources,
 functions, policy; see that package's README) feeds `<HostSurface host
 surfaceId plugin? …ExponentialSurface props>`; `hostPlugin(host, base)`
 routes actions to A2UI client messages, `functionCall`s to
@@ -216,7 +216,7 @@ container does not trap `position: fixed`. Toasts portal into the TOAST layer
 above it (bottom-centre below `md`, bottom-end from `md`, newest at the edge,
 three visible; the duration pauses on hover/focus). Enter/exit animate on the
 theme's motion and easing tokens. Placement follows the core's
-rule (`placeOverlay` in `@exponential_app/ui`: `OVERLAY_OFFSET` 4 px, centred,
+rule (`placeOverlay` in `@exponential_app/eui`: `OVERLAY_OFFSET` 4 px, centred,
 flip when the preferred side lacks room, shift `OVERLAY_PADDING` 8 px inside
 the viewport); `browser/overlay.test.ts` holds Radix's popper to
 `fixtures/overlay-geometry.json` within 2 px, same side and flip. A trigger
@@ -248,7 +248,7 @@ copy comes from the string table.
 ## Extensions
 
 ```ts
-import { registerExtension } from "@exponential_app/ui-react"
+import { registerExtension } from "@exponential_app/eui-react"
 registerExtension({ catalog: myExtensionJson, components: { TrendLine } })   // page-wide
 <ExponentialSurface extensions={[defineReactExtension({ catalog, components })]} />  // per surface
 ```
@@ -335,24 +335,24 @@ kbd, scroll-area), themed only through the surface's variables; the catalog's
 natives own Radix directly. The Exponential app's own components (the glass
 rows, typeahead, composer, trace, pill, segmented bar) live in `@exp/ui`, not
 here. Their class strings and pure helpers live in
-`@exponential_app/ui/web/primitives` (FEED-131), shared with the Solid twin
-(`@exponential_app/ui-solid/primitives`, the same module set). `@exp/ui` re-exports every one
+`@exponential_app/eui/web/primitives` (FEED-131), shared with the Solid twin
+(`@exponential_app/eui-solid/primitives`, the same module set). `@exp/ui` re-exports every one
 (its old paths are one-line shims), and its `styles.css` scans this directory
 so the app's Tailwind build still emits their classes. An embedder without
 Tailwind takes the compiled `dist/exponential-ui-react.css`
-(`bun run --filter @exponential_app/ui-react build:css`).
+(`bun run --filter @exponential_app/eui-react build:css`).
 
 ## Commands
 
 ```bash
-bun run --filter @exponential_app/ui-react test            # jsdom: fixtures → DOM, bind-time, round 1, inputs, data, theme css, primitives (LANG=en_US.UTF-8)
-bun run --filter @exponential_app/ui-react test:browser    # headless Chromium: geometry, overlays, typing, rounds 1–2, conformance
-bun run --filter @exponential_app/ui-react bench:list      # the 100,000-row list bench in Chromium
-bun run --filter @exponential_app/ui-react typecheck
-bun run --filter @exponential_app/ui-react dev:harness     # http://localhost:4181/?view=kitchen-sink&theme=playful
-bun run --filter @exponential_app/ui-react shots           # shots/exponential-ui-kitchen-sink/{web,web-mobile}.webp
-bun run --filter @exponential_app/ui-react build:css
-bun run --filter @exponential_app/ui-react smoke:pack      # packs both packages, builds a plain Vite app on them, renders the sink
+bun run --filter @exponential_app/eui-react test            # jsdom: fixtures → DOM, bind-time, round 1, inputs, data, theme css, primitives (LANG=en_US.UTF-8)
+bun run --filter @exponential_app/eui-react test:browser    # headless Chromium: geometry, overlays, typing, rounds 1–2, conformance
+bun run --filter @exponential_app/eui-react bench:list      # the 100,000-row list bench in Chromium
+bun run --filter @exponential_app/eui-react typecheck
+bun run --filter @exponential_app/eui-react dev:harness     # http://localhost:4181/?view=kitchen-sink&theme=playful
+bun run --filter @exponential_app/eui-react shots           # shots/exponential-ui-kitchen-sink/{web,web-mobile}.webp
+bun run --filter @exponential_app/eui-react build:css
+bun run --filter @exponential_app/eui-react smoke:pack      # packs both packages, builds a plain Vite app on them, renders the sink
 ```
 
 The app's `/exponential-ui-kitchen-sink` route (view `exponential-ui-kitchen-sink`)

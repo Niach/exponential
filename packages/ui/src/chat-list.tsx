@@ -18,7 +18,7 @@ import { THREAD_ROW_WORDS, THREADS_LIST_COPY } from "@exp/domain-contract/sessio
 import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
 import { ExponentialLogo } from "./exponential-logo"
-import { CHECKBOX_CLASSES } from "@exponential_app/ui/web/primitives"
+import { CHECKBOX_CLASSES } from "@exponential_app/eui/web/primitives"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
 import { PageHeader } from "./page-header"

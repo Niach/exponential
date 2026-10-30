@@ -1,7 +1,7 @@
 /* Conformance: what it means, the suites (rendered from the generated
    manifest), how a third-party renderer runs them and checks its report,
    our six runners and CI (+ the Solid and web-component web-parity checks), and the real-font harness. */
-import manifest from "@exponential_app/ui/conformance/manifest.json"
+import manifest from "@exponential_app/eui/conformance/manifest.json"
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
 import { LEARN_NAV } from "../lib/content"
@@ -39,39 +39,39 @@ const REPORT = `{
 
 const RUNNERS = [
   {
-    renderer: `exponential-ui (Rust core)`,
-    runner: `apps/desktop/crates/exponential-ui/tests/conformance.rs`,
-    command: `cargo test -p exponential-ui --test conformance`,
+    renderer: `eui-core (Rust core)`,
+    runner: `apps/desktop/crates/eui-core/tests/conformance.rs`,
+    command: `cargo test -p eui-core --test conformance`,
   },
   {
-    renderer: `@exponential_app/ui-react`,
+    renderer: `@exponential_app/eui-react`,
     runner: `packages/exponential-ui-react/browser/suites.test.ts`,
-    command: `bun run --filter @exponential_app/ui-react test:conformance`,
+    command: `bun run --filter @exponential_app/eui-react test:conformance`,
   },
   {
-    renderer: `@exponential_app/ui-solid`,
+    renderer: `@exponential_app/eui-solid`,
     runner: `packages/exponential-ui-solid/browser/suites.test.ts`,
-    command: `bun run --filter @exponential_app/ui-solid test:conformance`,
+    command: `bun run --filter @exponential_app/eui-solid test:conformance`,
   },
   {
-    renderer: `@exponential_app/ui-solid (web parity vs React: renderer + primitives)`,
+    renderer: `@exponential_app/eui-solid (web parity vs React: renderer + primitives)`,
     runner: `packages/exponential-ui-solid/browser/parity.test.ts`,
-    command: `bun run --filter @exponential_app/ui-solid test:parity`,
+    command: `bun run --filter @exponential_app/eui-solid test:parity`,
   },
   {
-    renderer: `@exponential_app/ui-element`,
+    renderer: `@exponential_app/eui-element`,
     runner: `packages/exponential-ui-element/browser/suites.test.ts`,
-    command: `bun run --filter @exponential_app/ui-element test:conformance`,
+    command: `bun run --filter @exponential_app/eui-element test:conformance`,
   },
   {
-    renderer: `@exponential_app/ui-element (web parity vs React)`,
+    renderer: `@exponential_app/eui-element (web parity vs React)`,
     runner: `packages/exponential-ui-element/browser/parity.test.ts`,
-    command: `bun run --filter @exponential_app/ui-element test:parity`,
+    command: `bun run --filter @exponential_app/eui-element test:parity`,
   },
   {
-    renderer: `exponential-ui-gpui`,
-    runner: `apps/desktop/crates/exponential-ui-gpui/tests/suites.rs`,
-    command: `cargo test -p exponential-ui-gpui --test suites`,
+    renderer: `eui-gpui`,
+    runner: `apps/desktop/crates/eui-gpui/tests/suites.rs`,
+    command: `cargo test -p eui-gpui --test suites`,
   },
   {
     renderer: `ExponentialUI (SwiftUI)`,
@@ -79,7 +79,7 @@ const RUNNERS = [
     command: `swift test`,
   },
   {
-    renderer: `at.exponential:ui-compose`,
+    renderer: `at.exponential:eui-compose`,
     runner: `packages/exponential-ui-compose/ui-compose/src/test`,
     label: `ConformanceTest.kt`,
     command: `./gradlew :ui-compose:testDebugUnitTest`,
@@ -109,7 +109,7 @@ export default function ConformancePage({ path }: PageProps) {
             The fixtures in <a href={LINKS.source(`packages/exponential-ui/fixtures`)}>fixtures/</a> are the contract.
             The TypeScript reference generated their expected values, and the Rust core replays them byte for byte.
             A renderer built on the Rust core gets the pure suites through its bindings, one built on the TypeScript
-            package gets them from <code>@exponential_app/ui</code>, and anything else implements the reducer and{` `}
+            package gets them from <code>@exponential_app/eui</code>, and anything else implements the reducer and{` `}
             <a href={fixtureLink(`catalog/host.json`)}>host.json</a> itself.
           </p>
         </DocsSection>
@@ -146,7 +146,7 @@ export default function ConformancePage({ path }: PageProps) {
           <ol>
             <li>
               <strong>Read the manifest.</strong> It lists each suite's fixture files, the unit and the case count.
-              It ships in the npm package as <code>@exponential_app/ui/conformance/manifest.json</code>, next to the
+              It ships in the npm package as <code>@exponential_app/eui/conformance/manifest.json</code>, next to the
               fixtures.
             </li>
             <li>
@@ -161,10 +161,10 @@ export default function ConformancePage({ path }: PageProps) {
               <strong>Check it.</strong> The checker compares the report with the manifest and prints the verdict:
             </li>
           </ol>
-          <DocsCode>{`bun run --filter @exponential_app/ui conformance:check path/to/report.json
+          <DocsCode>{`bun run --filter @exponential_app/eui conformance:check path/to/report.json
 # CONFORMANT  my-renderer (flutter 0.3.0): ${TOTAL} cases passed in ${manifest.suites.length} suites`}</DocsCode>
           <p>
-            Outside the monorepo, <code>checkReport()</code> from <code>@exponential_app/ui</code> gives the same
+            Outside the monorepo, <code>checkReport()</code> from <code>@exponential_app/eui</code> gives the same
             verdict in code. A report with a missing suite, a short case count or a skipped case is not conformant.
           </p>
         </DocsSection>
@@ -237,7 +237,7 @@ export default function ConformancePage({ path }: PageProps) {
               [<strong key="s">Pixel step</strong>, `The web surface beside a real gpui window: pixel ratio and SSIM. Reported, never gating.`],
             ]}
           />
-          <DocsCode>{`bun run --filter @exponential_app/ui conformance -- --only kitchen-sink/playful/dark/390/ltr`}</DocsCode>
+          <DocsCode>{`bun run --filter @exponential_app/eui conformance -- --only kitchen-sink/playful/dark/390/ltr`}</DocsCode>
         </DocsSection>
       </DocsLayout>
     </>

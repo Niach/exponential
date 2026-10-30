@@ -38,21 +38,21 @@ export const RENDERERS: readonly Renderer[] = [
   {
     platform: `Web`,
     framework: `React`,
-    pkg: `@exponential_app/ui-react`,
+    pkg: `@exponential_app/eui-react`,
     source: `packages/exponential-ui-react`,
     guide: `react`,
   },
   {
     platform: `Web`,
     framework: `SolidJS`,
-    pkg: `@exponential_app/ui-solid`,
+    pkg: `@exponential_app/eui-solid`,
     source: `packages/exponential-ui-solid`,
     guide: `solid`,
   },
   {
     platform: `Web`,
     framework: `Web Components`,
-    pkg: `@exponential_app/ui-element`,
+    pkg: `@exponential_app/eui-element`,
     source: `packages/exponential-ui-element`,
     guide: `element`,
   },
@@ -66,15 +66,15 @@ export const RENDERERS: readonly Renderer[] = [
   {
     platform: `Android`,
     framework: `Jetpack Compose`,
-    pkg: `at.exponential:ui-compose`,
+    pkg: `at.exponential:eui-compose`,
     source: `packages/exponential-ui-compose`,
     guide: `compose`,
   },
   {
     platform: `Desktop`,
     framework: `gpui`,
-    pkg: `exponential-ui-gpui`,
-    source: `apps/desktop/crates/exponential-ui-gpui`,
+    pkg: `eui-gpui`,
+    source: `apps/desktop/crates/eui-gpui`,
     guide: `gpui`,
   },
 ]
@@ -83,40 +83,40 @@ export interface PackageRow {
   name: string
   registry: string
   what: string
-  /** The one-line install from its registry (every package publishes together from a `ui-v*` tag). */
+  /** The one-line install from its registry (every package publishes together from a `eui-v*` tag). */
   install: string
 }
 
 export const PACKAGES: readonly PackageRow[] = [
   {
-    name: `@exponential_app/ui`,
+    name: `@exponential_app/eui`,
     registry: `npm`,
     what: `The catalog, themes, TypeScript reducer, host API and conformance suite.`,
-    install: `npm install @exponential_app/ui`,
+    install: `npm install @exponential_app/eui`,
   },
   {
-    name: `@exponential_app/ui-react`,
+    name: `@exponential_app/eui-react`,
     registry: `npm`,
     what: `The React renderer and its shadcn primitive set, with a compiled stylesheet.`,
-    install: `npm install @exponential_app/ui-react`,
+    install: `npm install @exponential_app/eui-react`,
   },
   {
-    name: `@exponential_app/ui-solid`,
+    name: `@exponential_app/eui-solid`,
     registry: `npm`,
     what: `The SolidJS renderer and the same primitives, with the same DOM and stylesheet as React.`,
-    install: `npm install @exponential_app/ui-solid`,
+    install: `npm install @exponential_app/eui-solid`,
   },
   {
-    name: `@exponential_app/ui-element`,
+    name: `@exponential_app/eui-element`,
     registry: `npm`,
     what: `The custom element <exponential-surface>: the Solid painter inside a web component, no framework in the page.`,
-    install: `npm install @exponential_app/ui-element`,
+    install: `npm install @exponential_app/eui-element`,
   },
   {
-    name: `exponential-ui`,
+    name: `eui-core`,
     registry: `crates.io`,
     what: `The Rust core: reducer, themes, taffy layout, layers, lists.`,
-    install: `cargo add exponential-ui`,
+    install: `cargo add eui-core`,
   },
   {
     name: `exponential-ui-ffi`,
@@ -125,7 +125,7 @@ export const PACKAGES: readonly PackageRow[] = [
     install: `nothing to install`,
   },
   {
-    name: `exponential-ui-gpui`,
+    name: `eui-gpui`,
     registry: `git`,
     what: `The gpui painter. It stays a git dependency until gpui itself is on crates.io.`,
     install: `a git dependency on github.com/Niach/exponential`,
@@ -134,13 +134,13 @@ export const PACKAGES: readonly PackageRow[] = [
     name: `ExponentialUI`,
     registry: `SwiftPM`,
     what: `The SwiftUI painter (iOS 17, macOS 14), from github.com/Niach/exponential-ui-swift.`,
-    install: `.package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.1.1")`,
+    install: `.package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.2.0")`,
   },
   {
-    name: `at.exponential:ui-compose`,
+    name: `at.exponential:eui-compose`,
     registry: `Maven Central`,
     what: `The Compose painter (minSdk 26), with ui-compose-primitives.`,
-    install: `implementation("at.exponential:ui-compose:0.1.1")`,
+    install: `implementation("at.exponential:eui-compose:0.2.0")`,
   },
 ]
 

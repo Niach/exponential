@@ -1,11 +1,11 @@
 import { Show, splitProps } from "solid-js"
-import { CONTEXT_RING_CLASSES, RING_RADIUS, RING_SIZE, RING_STROKE, RING_TONE_CLASS, ringGeometry, type RingTone } from "@exponential_app/ui/web/primitives"
+import { CONTEXT_RING_CLASSES, RING_RADIUS, RING_SIZE, RING_STROKE, RING_TONE_CLASS, ringGeometry, type RingTone } from "@exponential_app/eui/web/primitives"
 
 import { Button, type ButtonProps } from "./button"
 import { cn } from "./cn"
 
-export { RING_RADIUS, RING_SIZE, RING_STROKE, RING_TONE_CLASS, ringGeometry } from "@exponential_app/ui/web/primitives"
-export type { RingGeometry, RingTone } from "@exponential_app/ui/web/primitives"
+export { RING_RADIUS, RING_SIZE, RING_STROKE, RING_TONE_CLASS, ringGeometry } from "@exponential_app/eui/web/primitives"
+export type { RingGeometry, RingTone } from "@exponential_app/eui/web/primitives"
 
 export interface ContextRingProps extends ButtonProps {
   /** How full the context window is — null while nothing measured it. */

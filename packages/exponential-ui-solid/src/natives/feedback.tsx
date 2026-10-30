@@ -3,9 +3,9 @@
 // recipes (`resolveRecipe`), exactly as React reads them.
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
-import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
-import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/ui"
-import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/ui/web"
+import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/eui"
+import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/eui"
+import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/eui/web"
 import type { Component } from "solid-js"
 import { useSurfaceContext, type SurfaceContextValue } from "../context"
 import { CHROME, PaintIcon } from "../icons"

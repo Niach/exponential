@@ -1,4 +1,4 @@
-// VAPP-89: `at.exponential:ui-compose`, the Compose painter of the Exponential
+// VAPP-89: `at.exponential:eui-compose`, the Compose painter of the Exponential
 // UI SDK. One AAR = the UniFFI facade `exponential-ui-ffi` (its `.so` for
 // arm64-v8a, armeabi-v7a and x86_64, built by
 // apps/desktop/crates/exponential-ui-ffi/build-android.sh) + the generated
@@ -199,7 +199,7 @@ publishing {
     publications {
         register<MavenPublication>("release") {
             groupId = "at.exponential"
-            artifactId = "ui-compose"
+            artifactId = "eui-compose"
             version = project.version.toString()
             afterEvaluate { from(components["release"]) }
             // The rest of the POM (url, licence, developers, scm): the root build script.

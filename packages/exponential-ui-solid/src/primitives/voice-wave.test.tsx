@@ -1,7 +1,7 @@
 import { render } from "@solidjs/testing-library"
 import { createSignal } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { voiceWave, voiceWavePath } from "@exponential_app/ui"
+import { voiceWave, voiceWavePath } from "@exponential_app/eui"
 import { VoiceWave, type VoiceWaveActivity, type VoiceWaveSize } from "./voice-wave"
 
 // NEW-77: the VoiceWave primitive (React's voice-wave.test.tsx).

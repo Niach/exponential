@@ -45,7 +45,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::rows::glass_section_header",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/rows.rs",
         "note": "a loading flag = the trailing spinner. Emoji picker category headers stay uppercase on purpose (shared exception)."
       },
       "ios": {
@@ -78,7 +78,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::rows::disclosure_header",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/rows.rs",
         "note": "the steer feed's tool groups and Exponential runs fold on it (lanes moved into the Work card)"
       },
       "ios": {
@@ -304,7 +304,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::rows::glass_row_shell",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/rows.rs"
       },
       "ios": {
         "status": "ok",
@@ -335,7 +335,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::rows::glass_picker_row",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/rows.rs"
       },
       "ios": {
         "status": "ok",
@@ -366,7 +366,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::rows::glass_input_row",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/rows.rs"
       },
       "ios": {
         "status": "n/a",
@@ -427,7 +427,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::rows::glass_tabs_row",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/rows.rs"
       },
       "ios": {
         "status": "ok",
@@ -458,7 +458,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::rows::segmented",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/rows.rs"
       },
       "ios": {
         "status": "ok",
@@ -518,7 +518,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::buttons::ghost_icon_button",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/buttons.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/buttons.rs"
       },
       "ios": {
         "status": "ok",
@@ -550,7 +550,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::pills::glass_pill_button_primary",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/pills.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/pills.rs"
       },
       "ios": {
         "status": "ok",
@@ -613,7 +613,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::pills::glass_pill",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/pills.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/pills.rs"
       },
       "ios": {
         "status": "ok",
@@ -642,7 +642,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::pills::count_badge",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/pills.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/pills.rs",
         "note": "RailBadge::Count hangs it on the rail's Drafts entry"
       },
       "ios": {
@@ -737,7 +737,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::inputs::glass_input",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/inputs.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/inputs.rs",
         "note": "focus swaps the stroke to strokeActive, no ring; the corner is radius.lg"
       },
       "ios": {
@@ -768,7 +768,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::inputs::web_textarea",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/inputs.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/inputs.rs"
       },
       "ios": {
         "status": "ok",
@@ -979,7 +979,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::inputs::checkbox",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/inputs.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/inputs.rs",
         "note": "glass box (row fill, strong stroke, 4px corner), primary when checked, ui-check / ui-minus; bulk-select, task items, multi choices"
       },
       "ios": {
@@ -1010,7 +1010,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::buttons::web_switch",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/buttons.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/buttons.rs",
         "note": "a lint (only_controls_constructs_switches) refuses Switch::new anywhere else"
       },
       "ios": {
@@ -1043,7 +1043,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::rows::glass_picker_select",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs"
+        "file": "apps/desktop/crates/eui-gpui/src/controls/rows.rs"
       },
       "ios": {
         "status": "n/a",
@@ -1098,7 +1098,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::feedback::empty_state",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/feedback.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/feedback.rs",
         "note": "empty_state_list = the list size"
       },
       "ios": {
@@ -1405,7 +1405,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::inputs::search_field",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/inputs.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/inputs.rs",
         "note": "SearchFieldSize::Md 36 / Sm 28; the diff pane filter, every picker query and the search dialog draw it"
       },
       "ios": {
@@ -1469,7 +1469,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::feedback::alert / alert_title",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/feedback.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/feedback.rs",
         "note": "default and destructive on the glass tokens, a glyph column only when one is passed; the repository dialog banner is one"
       },
       "ios": {
@@ -1565,7 +1565,7 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::feedback::empty_state_list",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/feedback.rs",
+        "file": "apps/desktop/crates/eui-gpui/src/controls/feedback.rs",
         "note": "with no icon; pickers::empty_picker_row is the picker's CommandEmpty row"
       },
       "ios": {

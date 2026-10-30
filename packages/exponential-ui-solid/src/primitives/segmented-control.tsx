@@ -1,5 +1,5 @@
 import { For, Show, type JSX } from "solid-js"
-import { SEGMENTED_CONTROL_CLASSES } from "@exponential_app/ui/web/primitives"
+import { SEGMENTED_CONTROL_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import type { IconComponent } from "../host"
 import { PaintIcon } from "../icons"

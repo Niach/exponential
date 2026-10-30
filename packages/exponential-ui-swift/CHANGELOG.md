@@ -1,7 +1,7 @@
 # Changelog: `ExponentialUI` (SwiftUI)
 
 All notable changes to this package. The SDK packages share one version and
-release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
+release together from a `eui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
 ## Unreleased
 

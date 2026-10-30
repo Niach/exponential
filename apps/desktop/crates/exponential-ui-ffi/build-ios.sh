@@ -14,7 +14,7 @@
 # needs the device slice alone; five LTO builds were 16 of its 29 minutes).
 # Knob: EXPONENTIAL_UI_FEATURES="descriptions" builds the facade with
 # `--no-default-features --features <list>` (an empty list drops the
-# non-default themes; see crates/exponential-ui/Cargo.toml).
+# non-default themes; see crates/eui-core/Cargo.toml).
 # Outputs (the xcframework is gitignored; the Swift binding source is COMMITTED
 # under bindings/swift AND inside the Swift package so the contract is
 # reviewable without a toolchain):

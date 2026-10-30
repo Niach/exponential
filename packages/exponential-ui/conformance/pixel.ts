@@ -135,7 +135,7 @@ export async function pixelStep(repoRoot: string, outDir: string, keys: string[]
   const missing = [`xvfb-run`, `xdotool`, `import`].filter((c) => !has(c))
   const canDesktop = (process.platform === `linux` || process.platform === `freebsd`) && missing.length === 0
   let built = false
-  if (canDesktop) built = spawnSync(`cargo`, [`build`, `-q`, `-p`, `exponential-ui-gpui`, `--example`, `conformance_dump`], { cwd: join(repoRoot, `apps/desktop`), stdio: [`ignore`, `inherit`, `inherit`] }).status === 0
+  if (canDesktop) built = spawnSync(`cargo`, [`build`, `-q`, `-p`, `eui-gpui`, `--example`, `conformance_dump`], { cwd: join(repoRoot, `apps/desktop`), stdio: [`ignore`, `inherit`, `inherit`] }).status === 0
   const conf = canDesktop ? fontconfigDir(repoRoot, join(dir, `fontconfig`)) : ``
   const rows: PixelRow[] = []
   for (const key of keys) {
@@ -159,7 +159,7 @@ export async function pixelStep(repoRoot: string, outDir: string, keys: string[]
     rmSync(deskPng, { force: true })
     // The window presents its first frame on input: move the pointer once.
     const script = [
-      `cargo run -q -p exponential-ui-gpui --example conformance_dump -- --window '${key}' --height ${height} & P=$!`,
+      `cargo run -q -p eui-gpui --example conformance_dump -- --window '${key}' --height ${height} & P=$!`,
       `for i in $(seq 1 240); do W=$(xdotool search --name '^xui-conformance$' 2>/dev/null | head -1); [ -n "$W" ] && break; sleep 0.5; done`,
       `sleep 3; xdotool mousemove ${width + 5} 5; sleep 1; xdotool mousemove ${width + 6} 6; sleep 2`,
       `[ -n "$W" ] && import -window "$W" '${deskPng}'`,

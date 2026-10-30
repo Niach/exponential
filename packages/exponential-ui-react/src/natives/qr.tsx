@@ -14,8 +14,8 @@
 // unavailable`; `disabled` stops the camera and dims the chrome.
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { nativeRecipeProps, resolveRecipe } from "@exponential_app/ui"
-import { QR_CORNERS, QR_SCANNER, qrCornerPath, qrFeedColour, qrPaint, qrScanFormats, qrScanReporter } from "@exponential_app/ui/web"
+import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
+import { QR_CORNERS, QR_SCANNER, qrCornerPath, qrFeedColour, qrPaint, qrScanFormats, qrScanReporter } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"

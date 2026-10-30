@@ -1,6 +1,6 @@
 [package]
 name = "etalk-gpui"
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish = false
@@ -16,8 +16,8 @@ readme = "README.md"
 etalk = { path = "../etalk" }
 theme = { path = "../theme" }
 # The SDK: the glass bar, pills, call buttons and the voice wave.
-exponential-ui = { path = "../exponential-ui" }
-exponential-ui-gpui = { path = "../exponential-ui-gpui" }
+eui-core = { path = "../eui-core" }
+eui-gpui = { path = "../eui-gpui" }
 # ePilot: the overlay never covers a fullscreen app (NEW-59) and the tray's
 # Screen memory (NEW-58), whose capture the pause hotkey pauses too.
 epilot = { path = "../epilot" }

@@ -1,6 +1,6 @@
 import { shortcutLabel, VOICE_SHORTCUT_GRAMMAR } from "@exp/etalk/voice"
 
-import { Kbd, KbdGroup } from "@exponential_app/ui-react/primitives/kbd"
+import { Kbd, KbdGroup } from "@exponential_app/eui-react/primitives/kbd"
 import { cn } from "./cn"
 
 // The keycap (the Exponential UI Kbd primitive) and S-3's push-to-talk

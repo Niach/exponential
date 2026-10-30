@@ -4,7 +4,7 @@
 // the shots pipeline's one encoder. It writes to /tmp/feed128/solid-shots/
 // by default, NEVER into shots/: the view catalog's `web` slot is React's.
 //
-//   bun run --filter @exponential_app/ui-solid shots [--theme orange] [--mode dark] [--out <dir>]
+//   bun run --filter @exponential_app/eui-solid shots [--theme orange] [--mode dark] [--out <dir>]
 
 import { chromium } from "playwright"
 import { spawn } from "node:child_process"

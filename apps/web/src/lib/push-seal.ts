@@ -1,6 +1,6 @@
 // Sealed push payloads for the push relay's accountless mode (EXP-1428).
 // Byte-exact with `push_seal` / `push_open` in
-// apps/desktop/crates/exponential-net/src/push.rs (format v1):
+// apps/desktop/crates/enet-core/src/push.rs (format v1):
 //
 //   sealed = 0x01 ‖ eph_pub[32] ‖ ciphertext ‖ tag[16]
 //   shared = X25519(eph_secret, recipient_pub)          (all-zero = refused)

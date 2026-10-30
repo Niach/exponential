@@ -1,6 +1,6 @@
 import * as React from "react"
 import { HoverCard as HoverCardPrimitive } from "radix-ui"
-import { HOVER_CARD_CLASSES, HOVER_CARD_DELAYS } from "@exponential_app/ui/web/primitives"
+import { HOVER_CARD_CLASSES, HOVER_CARD_DELAYS } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

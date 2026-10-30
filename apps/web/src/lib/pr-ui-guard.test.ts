@@ -10,7 +10,7 @@ describe(`uiPlatformsOfPaths`, () => {
   it(`maps every UI root onto its platform, in platform order`, () => {
     expect(
       uiPlatformsOfPaths([
-        `apps/desktop/crates/exponential-ui-gpui/src/lib.rs`,
+        `apps/desktop/crates/eui-gpui/src/lib.rs`,
         `apps/android/app/src/main/kotlin/A.kt`,
         `packages/exponential-ui-react/src/button.tsx`,
         `apps/ios/Sources/A.swift`,

@@ -773,7 +773,7 @@ impl Render for FileTreeView {
                     .child(crate::feedback::skeleton_rows(
                         "file-tree-skeleton",
                         crate::feedback::SKELETON_ROWS,
-                        exponential_ui_gpui::controls::FLAT_ROW_COMPACT_H,
+                        eui_gpui::controls::FLAT_ROW_COMPACT_H,
                         cx,
                     ))
                     .into_any_element()

@@ -9,7 +9,7 @@ It is a standalone Cargo project with its own `[workspace]`, so it is not
 part of `apps/desktop`'s build graph. It uses the SDK the way a third party
 does:
 
-- `exponential-ui` (the core) and `exponential-ui-gpui` (the painter + host
+- `eui-core` (the core) and `eui-gpui` (the painter + host
   runtime) as path dependencies. These stand in for crates.io until gpui and
   gpui-component are published there.
 - gpui + gpui-component as git dependencies at the SDK's revisions.
@@ -32,7 +32,7 @@ EXP_SAMPLE_SERVER=http://host:4190 cargo run
 
 It mirrors `../web/src/main.jsx`:
 
-1. Fetches `/theme.json`, loads it with `exponential_ui::theme::load_theme`
+1. Fetches `/theme.json`, loads it with `eui_core::theme::load_theme`
    over the built-ins (`extends: neutral`), and fetches `/extension.json`
    (`parse_extension`).
 2. Builds an `ExponentialHost`:

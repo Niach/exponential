@@ -21,7 +21,7 @@
 //! - A Rust panic never crosses the FFI: async work runs in spawned tasks
 //!   (a panic = `EnetError.Panic`), and the sync methods are trivial.
 
-use exponential_net as net;
+use enet_core as net;
 use net::NetError;
 
 uniffi::setup_scaffolding!();

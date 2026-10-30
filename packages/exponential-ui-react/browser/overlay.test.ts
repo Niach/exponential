@@ -3,8 +3,8 @@
 // result, position within tolerance.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { placeOverlay } from "@exponential_app/ui"
-import overlays from "@exponential_app/ui/fixtures/overlay-geometry.json"
+import { placeOverlay } from "@exponential_app/eui"
+import overlays from "@exponential_app/eui/fixtures/overlay-geometry.json"
 import { openPage, startHarness, type Harness } from "./support"
 
 type Case = { name: string; anchor: { x: number; y: number; width: number; height: number }; size: { width: number; height: number }; viewport: { width: number; height: number }; side: `top` | `right` | `bottom` | `left`; expected: { x: number; y: number; side: string; flipped: boolean } }

@@ -9,7 +9,7 @@
 // without its escapes.
 
 import { Index, Show, createMemo, createSignal, onCleanup, type Component, type JSX } from "solid-js"
-import { codeText, tokenizeCode } from "@exponential_app/ui"
+import { codeText, tokenizeCode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { arr, bool, BuiltinIcon, css, num, parts, str } from "./shared"

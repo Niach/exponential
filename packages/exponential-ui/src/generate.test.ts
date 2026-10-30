@@ -1,6 +1,6 @@
 // VAPP-85: the drift gate. Every generated file is re-rendered in memory and
 // byte-compared with what is committed, so an edit to catalog/*.json without
-// `bun run --filter @exponential_app/ui generate` fails here (the
+// `bun run --filter @exponential_app/eui generate` fails here (the
 // domain-contract / icons pattern).
 
 import { describe, expect, test } from "bun:test"
@@ -15,9 +15,9 @@ describe(`generated outputs (VAPP-85)`, () => {
 
   test(`renders the fifty outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix)`, () => {
     expect(Object.keys(files).sort()).toEqual([
-      `../../apps/desktop/crates/exponential-ui/src/generated/catalog.rs`,
-      `../../apps/desktop/crates/exponential-ui/src/generated/descriptions.rs`,
-      `../../apps/desktop/crates/exponential-ui/src/generated/themes.rs`,
+      `../../apps/desktop/crates/eui-core/src/generated/catalog.rs`,
+      `../../apps/desktop/crates/eui-core/src/generated/descriptions.rs`,
+      `../../apps/desktop/crates/eui-core/src/generated/themes.rs`,
       `catalog/core.schema.json`,
       `catalog/theme.schema.json`,
       `conformance/manifest.json`,

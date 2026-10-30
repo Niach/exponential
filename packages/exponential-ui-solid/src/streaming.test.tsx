@@ -3,7 +3,7 @@
 // the nodes it changed, and a changed node still paints its new props.
 import { describe, expect, it } from "vitest"
 import { render } from "@solidjs/testing-library"
-import type { FlatComponent } from "@exponential_app/ui"
+import type { FlatComponent } from "@exponential_app/eui"
 import { ExponentialSurface } from "./surface"
 import { createSurface } from "./create-surface"
 

@@ -1,6 +1,6 @@
 # `exponential-net-ffi`: eNet for Swift and Kotlin
 
-The UniFFI 0.31 facade over [`exponential-net`](../exponential-net) for iOS,
+The UniFFI 0.31 facade over [`enet-core`](../enet-core) for iOS,
 macOS and Android: an xcframework / an Android `.so` plus the generated
 bindings. License: MIT OR Apache-2.0.
 
@@ -56,7 +56,7 @@ bash apps/desktop/crates/exponential-net-ffi/run-binding-tests.sh  # the Swift s
 ### Push-only build (EXP-1435)
 
 `ENET_PUSH_ONLY=1` on any of the three scripts builds the facade with
-`--no-default-features`: `exponential-net` without its `node` feature, so
+`--no-default-features`: `enet-core` without its `node` feature, so
 only `pushOpen`, `pushSeal`, `pushKeypairGenerate`/`Derive` and `EnetError`
 remain, on RustCrypto alone (no iroh, no tokio). It is what the Exponential
 apps link (the iOS Notification Service Extension has a ~24 MB memory cap):

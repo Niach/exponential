@@ -4,7 +4,7 @@
 
 import type { JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { displayString } from "@exponential_app/ui"
+import { displayString } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"

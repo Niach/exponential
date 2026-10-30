@@ -1,8 +1,8 @@
 // FEED-130: shared test helpers: a mounted element, a reduced fixture, a
 // flush of microtasks + timers.
 
-import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/ui"
-import type { NestedNode } from "@exponential_app/ui"
+import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
+import type { NestedNode } from "@exponential_app/eui"
 import { define } from "../index"
 import type { ExponentialSurfaceElement } from "../element"
 

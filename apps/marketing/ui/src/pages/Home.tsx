@@ -3,8 +3,8 @@
    beside the same surface's native shots) sits in the hero; the rest is the
    pitch, the six renderers, the entry points and the packages. The header's
    "eUI" link opens this page (NEW-15). */
-import manifest from "@exponential_app/ui/conformance/manifest.json"
-import promptBudget from "@exponential_app/ui/fixtures/prompt-budget.json"
+import manifest from "@exponential_app/eui/conformance/manifest.json"
+import promptBudget from "@exponential_app/eui/fixtures/prompt-budget.json"
 import { CardGrid, DocsTable, IcArrow } from "../components/Content"
 import { COMPONENT_COUNT } from "../lib/catalog-facts"
 import { PACKAGES, RENDERERS } from "../lib/content"

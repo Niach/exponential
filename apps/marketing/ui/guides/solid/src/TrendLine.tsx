@@ -1,10 +1,10 @@
 // An extension = a catalog (JSON: what the model may use) + one painter per
 // NATIVE component. `Metric` is a macro: it expands into Card + Text +
 // TrendLine in the reducer and needs no painter on any platform.
-import { defineExtension } from "@exponential_app/ui"
-import type { ExtensionDef } from "@exponential_app/ui"
-import { defineSolidExtension } from "@exponential_app/ui-solid"
-import type { ExtensionComponentProps } from "@exponential_app/ui-solid"
+import { defineExtension } from "@exponential_app/eui"
+import type { ExtensionDef } from "@exponential_app/eui"
+import { defineSolidExtension } from "@exponential_app/eui-solid"
+import type { ExtensionComponentProps } from "@exponential_app/eui-solid"
 import catalog from "./trendline.extension.json"
 
 // JSON imports widen literals, hence the cast; defineExtension checks it and throws listing every problem.

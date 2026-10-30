@@ -4,7 +4,7 @@ Round 3 folds the catalog onto the vocabulary the Exponential app settled on
 in its UI cleanup (EXP-1248, EXP-1249, EXP-1251): ONE row, ONE section band,
 ONE chip, ONE segmented control, ONE menu. The catalog had split each of
 these several ways; the app has one of each. This file is the CONTRACT half:
-what changed in `@exponential_app/ui` and what each renderer implements to
+what changed in `@exponential_app/eui` and what each renderer implements to
 match. Everything here is locked by a fixture or a test.
 
 Read §0, the sections you own, then §6 (your checklist).

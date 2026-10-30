@@ -8,7 +8,7 @@
 import { act, createElement as h, Fragment } from "react"
 import { expectElementParity, renderReactElement, renderSolidElement, serializeBody } from "../test/parity"
 
-const reactModule = async (name: string): Promise<Record<string, any>> => (await import(/* @vite-ignore */ `@exponential_app/ui-react/primitives/${name}`)) as Record<string, any>
+const reactModule = async (name: string): Promise<Record<string, any>> => (await import(/* @vite-ignore */ `@exponential_app/eui-react/primitives/${name}`)) as Record<string, any>
 
 // ── checkbox · switch · tabs · segmented-control · collapsible · scroll-area · avatar ──
 

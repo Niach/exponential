@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // FEED-130: the custom element's Exponential UI conformance run through the
-// SHARED web runner (@exponential_app/ui/conformance/browser-suites.ts): the
+// SHARED web runner (@exponential_app/eui/conformance/browser-suites.ts): the
 // element harness (harness/serve.ts: every surface an
 // `<exponential-surface>`), the Solid painter's own logic (template keying,
 // the action runner: the element paints with it), the report
@@ -12,7 +12,7 @@
 import { expect, it } from "vitest"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { checkReport } from "@exponential_app/ui/conformance"
+import { checkReport } from "@exponential_app/eui/conformance"
 import { runBrowserSuites } from "../../exponential-ui/conformance/browser-suites"
 import { bunHarness } from "../../exponential-ui/conformance/browser-page"
 import { itemInstance, runNodeAction, templateItems } from "../../exponential-ui-solid/src/node-view"
@@ -20,7 +20,7 @@ import type { SurfaceContextValue } from "../../exponential-ui-solid/src/context
 
 const pkg = JSON.parse(readFileSync(join(import.meta.dirname, `..`, `package.json`), `utf8`)) as { name: string; version: string }
 
-it(`Exponential UI conformance: @exponential_app/ui-element`, async () => {
+it(`Exponential UI conformance: @exponential_app/eui-element`, async () => {
   const { report, failures } = await runBrowserSuites<SurfaceContextValue>({
     renderer: { name: pkg.name, platform: `web`, version: pkg.version },
     harness: bunHarness(join(import.meta.dirname, `..`, `harness`, `serve.ts`)),

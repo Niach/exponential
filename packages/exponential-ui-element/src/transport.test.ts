@@ -4,8 +4,8 @@
 // on detach and rebuild when they change.
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { CORE_CATALOG_ID, ExponentialHost, JsonlStreamTransport, MemoryTransport, SseTransport, WebSocketTransport } from "@exponential_app/ui"
-import type { ClientMessage, FlatComponent } from "@exponential_app/ui"
+import { CORE_CATALOG_ID, ExponentialHost, JsonlStreamTransport, MemoryTransport, SseTransport, WebSocketTransport } from "@exponential_app/eui"
+import type { ClientMessage, FlatComponent } from "@exponential_app/eui"
 import { createHost, createTransport, decideTransport, transportKind, transportSchemes } from "./transport"
 import type { StatusDetail, SurfaceActionDetail } from "./index"
 import { cleanup, mount, surfaceOf, tick } from "./test/helpers"

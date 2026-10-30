@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // VAPP-85: emits everything derived from catalog/*.json. Run from the repo
-// root with `bun run --filter @exponential_app/ui generate`; generate.test.ts
+// root with `bun run --filter @exponential_app/eui generate`; generate.test.ts
 // re-renders in memory and fails on any committed drift.
 //
 // Outputs (all committed):
@@ -421,8 +421,8 @@ pub const CORE_CATALOG_DESCRIPTIONS_JSON: &str = ${rustJson(catalogSplit.descrip
 function renderRust(icons: string[]): string {
   const arr = (name: string, values: readonly string[]) => `pub const ${screaming(name)}: &[&str] = &[${values.map((v) => JSON.stringify(v)).join(`, `)}];`
   return `// ${HEADER.split(`\n`).join(`\n// `)}
-// Consumed by apps/desktop/crates/exponential-ui (VAPP-86): the generator copies this file to
-// apps/desktop/crates/exponential-ui/src/generated/catalog.rs (drift-gated there) so the crate packages standalone.
+// Consumed by apps/desktop/crates/eui-core (VAPP-86): the generator copies this file to
+// apps/desktop/crates/eui-core/src/generated/catalog.rs (drift-gated there) so the crate packages standalone.
 
 ${scalars.map(([k, v]) => `pub const ${screaming(k)}: &str = ${JSON.stringify(v)};`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
@@ -1234,15 +1234,15 @@ function renderFiles(): Record<string, string> {
     "generated/core.runtime.json": json(catalogSplit.runtime),
     "generated/core.descriptions.json": json(catalogSplit.descriptions),
     "generated/catalog.descriptions.generated.rs": rustDescriptions,
-    "../../apps/desktop/crates/exponential-ui/src/generated/descriptions.rs": rustDescriptions,
+    "../../apps/desktop/crates/eui-core/src/generated/descriptions.rs": rustDescriptions,
     "src/catalog.generated.ts": renderTs(icons),
     "generated/ExponentialUICatalog.generated.swift": renderSwift(),
     "generated/ExponentialUICatalog.generated.kt": renderKotlin(),
     "generated/catalog.generated.rs": rust,
     // VAPP-86: the Rust core's copies (a published crate cannot include! a file
     // outside its own directory); src/generate.test.ts gates them like the rest.
-    "../../apps/desktop/crates/exponential-ui/src/generated/catalog.rs": rust,
-    "../../apps/desktop/crates/exponential-ui/src/generated/themes.rs": themeOutputs[`generated/catalog.themes.generated.rs`],
+    "../../apps/desktop/crates/eui-core/src/generated/catalog.rs": rust,
+    "../../apps/desktop/crates/eui-core/src/generated/themes.rs": themeOutputs[`generated/catalog.themes.generated.rs`],
     "docs/components.generated.json": json(renderDocs()),
     "fixtures/catalog-components.json": json({
       $comment: `${HEADER} Every visible component × its example × every enum value of every enum prop × both values of every boolean prop, then its state cases (a prop that only shows in a state: a pending Button's pendingLabel). Each case validates against core.schema.json; a renderer suite paints each case once.`,

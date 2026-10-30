@@ -25,7 +25,7 @@ on:
       - 'android-v*'
       - 'ios-v*'
       - 'cli-v*'
-      - 'ui-v*'
+      - 'eui-v*'
       - 'v*.*.*'
   workflow_dispatch: {}
 
@@ -83,7 +83,7 @@ jobs:
       - name: Push relay tests
         run: bun run test:push-relay
       - name: Package unit tests (contract, the Exponential UI catalog, @exp/ui, MCP apps)
-        run: bun --filter @exp/domain-contract test && bun --filter @exp/etalk test && bun --filter @exponential_app/ui test && bun --filter @exp/ui --filter @exp/mcp-apps test
+        run: bun --filter @exp/domain-contract test && bun --filter @exp/etalk test && bun --filter @exponential_app/eui test && bun --filter @exp/ui --filter @exp/mcp-apps test
 
   ios:
     needs: dedupe

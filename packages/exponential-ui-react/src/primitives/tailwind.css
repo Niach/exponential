@@ -2,8 +2,8 @@
    build detail of this package: scripts/build-css.ts compiles this file
    against the primitives' sources into dist/exponential-ui-react.css (the
    @source lines below: FEED-131 moved their class strings into
-   @exponential_app/ui/web/primitives, shared with the Solid twin), so a
-   consumer imports `@exponential_app/ui-react/styles.css` and never runs
+   @exponential_app/eui/web/primitives, shared with the Solid twin), so a
+   consumer imports `@exponential_app/eui-react/styles.css` and never runs
    Tailwind. (The Exponential app does NOT use this file: its own
    packages/ui/src/styles.css scans this directory instead.)
 

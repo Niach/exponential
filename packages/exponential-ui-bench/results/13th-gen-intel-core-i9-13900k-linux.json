@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential UI benchmark results (VAPP-105) on ONE machine, written by `bun run --filter @exponential_app/ui-bench bench`: one run per renderer, every scenario's metrics (scenarios/manifest.json says what each is; ms unless named otherwise). Commit a rerun whole, never edit a number.",
+  "$comment": "Exponential UI benchmark results (VAPP-105) on ONE machine, written by `bun run --filter @exponential_app/eui-bench bench`: one run per renderer, every scenario's metrics (scenarios/manifest.json says what each is; ms unless named otherwise). Commit a rerun whole, never edit a number.",
   "machine": {
     "id": "13th-gen-intel-core-i9-13900k-linux",
     "cpu": "13th Gen Intel(R) Core(TM) i9-13900K",
