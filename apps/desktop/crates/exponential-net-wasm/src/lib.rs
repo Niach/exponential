@@ -258,6 +258,13 @@ pub fn generate_identity() -> Vec<u8> {
     net::Identity::generate().to_bytes().to_vec()
 }
 
+/// The identity's ed25519 signature (64 bytes) over `message`: what the web
+/// app's `installs.register` carries (EXP-1457).
+#[wasm_bindgen(js_name = identitySign)]
+pub fn identity_sign(identity: Vec<u8>, message: Vec<u8>) -> Result<Vec<u8>, JsValue> {
+    Ok(net::Identity::from_slice(&identity).map_err(err)?.sign(&message).to_vec())
+}
+
 /// The X25519 push public key derived from an identity (register it with the push relay).
 #[wasm_bindgen(js_name = pushPublicKey)]
 pub fn push_public_key(identity: Vec<u8>) -> Result<Vec<u8>, JsValue> {

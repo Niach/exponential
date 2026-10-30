@@ -33,10 +33,41 @@ env:
   IMAGE: ghcr.io/niach/exponential-web
 
 jobs:
+  # EXP-1457: the browser's eNet node (exponential-net-wasm), built ONCE here
+  # and handed to both image legs: the Dockerfile copies it with the rest of
+  # the context (`COPY . .` -> apps/web/public/enet/), so the image build
+  # needs no Rust. scripts/build-enet-wasm.sh pins wasm-bindgen-cli to
+  # Cargo.lock's wasm-bindgen.
+  enet-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: wasm toolchain
+        working-directory: apps/desktop
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add llvm-tools
+          echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+          key: enet-wasm
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
+      - run: scripts/build-enet-wasm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enet-wasm
+          path: apps/web/public/enet
+          if-no-files-found: error
+          retention-days: 1
+
   # EXP-1364: no test gate here any more. Every change reaches master through
   # a pull request whose `test / gate` check is REQUIRED (branch protection),
   # so this run only builds: ~6 minutes instead of a second full test pass.
   build:
+    needs: enet-wasm
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +83,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download the eNet wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: enet-wasm
+          path: apps/web/public/enet
 
       - name: Prepare platform slug
         run: |

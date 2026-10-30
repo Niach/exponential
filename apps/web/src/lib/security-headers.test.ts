@@ -22,6 +22,10 @@ describe(`buildSecurityHeaders`, () => {
     expect(csp({})).toContain(`img-src 'self' data: blob: https:`)
   })
 
+  it(`lets the eNet node compile WebAssembly, not eval JS`, () => {
+    expect(csp({})).toContain(`script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'`)
+  })
+
   it(`adds ws: to connect-src only on a plain-http base`, () => {
     expect(csp({ BETTER_AUTH_URL: `http://192.168.1.20` })).toContain(
       `connect-src 'self' https: wss: ws:`
