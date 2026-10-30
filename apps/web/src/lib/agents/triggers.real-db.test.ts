@@ -109,7 +109,7 @@ describe.skipIf(!ready.ok)(`agent schedules (NEW-2)`, () => {
     // created queued on the agent's device, the owner as author.
     await fireScheduledTriggers(new Date(`2020-01-01T09:31:00Z`))
     const convo = (await conversation(bot.id, w.owner))!
-    expect(convo).toMatchObject({ agentId: bot.id, deviceId: w.deviceId, status: `queued`, kind: `agent`, name: `Bot`, title: `Bot` })
+    expect(convo).toMatchObject({ agentId: bot.id, deviceId: w.deviceId, status: `queued`, title: `Bot` })
     let fired = await firings(convo.id)
     expect(fired).toHaveLength(1)
     expect(fired[0]).toMatchObject({ authorId: w.owner, consumedAt: null })

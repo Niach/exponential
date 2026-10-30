@@ -1534,6 +1534,13 @@
       "when": 1793365332047,
       "tag": "0218_exp1457_installs",
       "breakpoints": true
+    },
+    {
+      "idx": 219,
+      "version": "7",
+      "when": 1793366353322,
+      "tag": "0219_new8_drop_legacy_session_columns_actions",
+      "breakpoints": true
     }
   ]
 }

@@ -169,8 +169,8 @@ export function sessionDeviceMoveRows(
 }
 
 /** What a pick does: `move` (another device) or null (the current one).
- *  NEW-8: nothing is pending on the row (the server never writes
- *  `move_to_device_id`), so there is no target to show and nothing to cancel. */
+ *  A move is immediate: nothing is pending on the row, so there is no target
+ *  to show and nothing to cancel. */
 export function deviceMovePick(
   picked: string,
   session: { deviceId: string | null }

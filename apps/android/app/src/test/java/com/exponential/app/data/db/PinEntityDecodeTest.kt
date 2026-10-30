@@ -84,7 +84,7 @@ class PinEntityDecodeTest {
             }
         """.trimIndent()
         val actionPin = json.decodeFromString(PinEntity.serializer(), action)
-        assertEquals(DomainContract.pinKindAction, actionPin.kind)
+        assertEquals("action", actionPin.kind)
         assertNull(actionPin.sessionId)
         assertNull(actionPin.issueId)
         assertTrue(sessionPin.isKept)
@@ -113,9 +113,9 @@ class PinEntityDecodeTest {
     }
 
     @Test
-    fun `every contract kind decodes (action stays in the contract until the server drops it)`() {
+    fun `every contract kind decodes`() {
         assertEquals(
-            listOf(DomainContract.pinKindIssue, DomainContract.pinKindSession, DomainContract.pinKindAction),
+            listOf(DomainContract.pinKindIssue, DomainContract.pinKindSession),
             DomainContract.pinKindValues,
         )
     }

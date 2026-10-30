@@ -730,7 +730,6 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       `kind`,
       `issue_id`,
       `session_id`,
-      `action_id`,
       `sort_order`,
       `created_at`,
       `updated_at`,
