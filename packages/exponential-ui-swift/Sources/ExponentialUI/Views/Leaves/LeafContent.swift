@@ -232,9 +232,10 @@ struct MeasuredLabel: View {
     let text: String
     let ts: TextStyle
     let color: Color
+    var underline = false
 
     var body: some View {
-        TextLabel(text, ts, color: color, lines: 1)
+        TextLabel(text, ts, color: color, lines: 1, underline: underline)
             .frame(maxWidth: TextShaper.width(ts.shown(text), ts))
             .frame(height: ts.lineHeight)
     }
@@ -333,7 +334,7 @@ struct LinkLeaf: View {
     var body: some View {
         let label = cx.props.str("label").isEmpty ? cx.props.str("href") : cx.props.str("label")
         let allowed = cx.model.linkHref(cx.props.str("href")) != nil
-        Text(label).font(cx.font).underline(allowed).foregroundStyle(cx.ink).lineLimit(1)
+        MeasuredLabel(text: label, ts: cx.textStyle, color: cx.ink, underline: allowed)
             .frame(width: cx.inner.width, height: cx.inner.height)
             .offset(x: cx.inner.minX, y: cx.inner.minY)
     }
