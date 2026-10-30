@@ -7,8 +7,10 @@
 // node; an explicit sign-out also revokes this install and forgets its
 // identity. VAPP-33: the node's chat messages (steer over eNet) reach
 // `onChat` listeners; `pin` keeps a peer allowed past the team lists.
+// EXP-1471: every allowed peer is also taught its address on our relay.
 
 import { buildRegistration, type InstallCrypto, type InstallRegistration } from "./install-registration"
+import { relayTicket } from "./relay-ticket"
 import { forgetIdentity, loadOrCreateIdentity, type IdentityStore } from "./identity-store"
 
 export const ENET_RELAY_URL = `https://relay.exponential.at`
@@ -20,6 +22,8 @@ export type EnetEvent = { kind: `chat`; from: string; id: Uint8Array; timestampM
 /** The slice of a running exponential-net-wasm `WasmNode` this module uses. */
 export type EnetNode = {
   readonly endpointId: string
+  /** Learns a peer's address from its `enet1…` ticket. */
+  addTicket: (ticket: string) => unknown
   allowPeer: (id: string) => void
   revokePeer: (id: string) => void
   /** Calls `callback` for every event until shutdown (one consumer per node). */
@@ -86,6 +90,7 @@ export class WebInstall {
       return
     }
     this.node = node
+    for (const id of this.pins.keys()) this.allowPeer(node, id)
     node.onEvent((event) => {
       if (event.kind !== `chat`) return
       const { from, body } = event as Extract<EnetEvent, { kind: `chat` }>
@@ -123,7 +128,7 @@ export class WebInstall {
   /** Allows `id` until the release runs, whatever the team lists say. */
   pin(id: string): () => void {
     this.pins.set(id, (this.pins.get(id) ?? 0) + 1)
-    this.node?.allowPeer(id)
+    if (this.node) this.allowPeer(this.node, id)
     let released = false
     return () => {
       if (released) return
@@ -156,8 +161,15 @@ export class WebInstall {
     const next = new Set(lists.flat().map((row) => row.endpointId))
     next.delete(node.endpointId)
     for (const id of this.allowed) if (!next.has(id) && !this.pins.has(id)) node.revokePeer(id)
-    for (const id of next) if (!this.allowed.has(id)) node.allowPeer(id)
+    for (const id of next) if (!this.allowed.has(id)) this.allowPeer(node, id)
     this.allowed = next
+  }
+
+  /** Allows `id` and teaches the node to reach it through our relay. */
+  private allowPeer(node: EnetNode, id: string) {
+    node.allowPeer(id)
+    const ticket = relayTicket(id, this.deps.relayUrl ?? ENET_RELAY_URL)
+    if (ticket) node.addTicket(ticket)
   }
 
   /** Stops the node; `revoke` (explicit sign-out) also retires this install. */
