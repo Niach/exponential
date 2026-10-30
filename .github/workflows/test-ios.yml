@@ -41,7 +41,7 @@ jobs:
   compile:
     needs: pick
     # GitHub-hosted: the same `xcode-27` image as build-ios.yml. Both
-    # environments build with Xcode 27.1 on an iOS 27 simulator
+    # environments build with the newest release Xcode 27.x on an iOS 27 simulator
     # (.github/scripts/select-xcode.sh); the MacBook uses its own Homebrew
     # tuist; the signed release stays on GitHub.
     runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
@@ -57,7 +57,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Select Xcode 27.1 + the iOS 27 simulator
+      - name: Select Xcode 27 + the iOS 27 simulator
         run: bash "$GITHUB_WORKSPACE/.github/scripts/select-xcode.sh" --simulator
 
       - name: Install tuist

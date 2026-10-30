@@ -115,7 +115,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 27.1
+      - name: Select Xcode 27
         run: bash .github/scripts/select-xcode.sh
       - uses: dtolnay/rust-toolchain@stable
         with:

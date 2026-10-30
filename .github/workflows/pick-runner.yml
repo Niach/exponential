@@ -23,7 +23,7 @@ on:
         default: ubuntu-latest
       mac-fallback:
         type: string
-        # The only GitHub image with Xcode 27.1 + the iOS 27 runtime.
+        # The only GitHub image with release Xcode 27 + the iOS 27 runtime.
         default: xcode-27
     secrets:
       RUNNER_STATUS_TOKEN:

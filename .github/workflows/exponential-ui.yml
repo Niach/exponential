@@ -299,7 +299,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 27.1
+      - name: Select Xcode 27
         run: bash .github/scripts/select-xcode.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -365,7 +365,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 27.1 + the iOS 27 simulator
+      - name: Select Xcode 27 + the iOS 27 simulator
         run: bash .github/scripts/select-xcode.sh --simulator
       - uses: actions/download-artifact@v4
         with:
