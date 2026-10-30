@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import type { IconConcept } from "@exp/icons"
 import {
-  AccountOptionLabel,
+  AccountOptionRow,
   Button,
   ComposerTool,
   Menu,
@@ -10,7 +10,9 @@ import {
   choicePickerItems,
   conceptIcon,
   devicePickerItems,
+  getActionIcon,
   repositoryPickerItems,
+  useIsMobile,
   type AccountPickerOption,
   type DevicePickerDevice,
   type MenuEntry,
@@ -36,6 +38,7 @@ import { McpServerMenuRows } from "@/components/launch-dialog/mcp-server-picker"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { accountOptionKey } from "@/lib/accounts/account-option"
 import { ISSUE_SEARCH_NO_RESULTS, ISSUE_SEARCH_PLACEHOLDER } from "@/lib/issue-search"
+import { filterSlashPrompts, promptSlashName, type SlashPrompt } from "@/lib/steer-commands"
 import {
   COMPOSER_MENU_TEST_IDS,
   COMPOSER_PLUS_LABEL,
@@ -49,7 +52,9 @@ import {
 // EXP-1249 / S-3: EVERY composer's ONE "+" (composer-menu.json, the launch
 // composer, a session's and an agent chat's: `surface`), its only tool: Photo
 // or file, Issue › (launch: the implement subject; session/agent: THE issue
-// search list, a pick inserts `#IDENT` at the caret), the RUNNER submenus
+// search list, a pick inserts `#IDENT` at the caret), Prompts › (#EXP-1434:
+// THE search list over the team's prompts, a pick = the `/` menu's pick), the
+// RUNNER submenus
 // over THE existing pickers' rows (Device ›, Account ›, Model ›, Repository ›;
 // each a search list, value = the picked label) and, on a Temporary-session
 // launch, the work picks (Effort ›, Ultracode, MCP servers ›, Computer use),
@@ -130,6 +135,13 @@ export type ComposerIssueBinding =
       onPick: (identifier: string) => void
     }
 
+/** Prompts › (#EXP-1434): the team's prompts in the `/` menu's order; a
+ *  pick does what picking it in that composer's `/` menu does. */
+export interface ComposerPromptsBinding {
+  prompts: readonly SlashPrompt[]
+  onPick: (prompt: SlashPrompt) => void
+}
+
 /** THE "+" of every composer ×4. */
 export function ComposerOptionsMenu({
   surface,
@@ -138,6 +150,7 @@ export function ComposerOptionsMenu({
   options,
   runner = {},
   issues,
+  prompts,
   onAttach,
   disabled,
   rowsDisabled,
@@ -152,6 +165,8 @@ export function ComposerOptionsMenu({
   options?: ComposerOptionsBinding
   runner?: ComposerRunnerBinding
   issues?: ComposerIssueBinding
+  /** Prompts ›, shown while the team has a prompt. */
+  prompts?: ComposerPromptsBinding
   /** Opens the file chooser (the composer owns the hidden input). */
   onAttach: () => void
   disabled?: boolean
@@ -188,6 +203,7 @@ export function ComposerOptionsMenu({
     ultracode: work && agentSupportsUltracode(agent),
     mcp: work && options.mcpServers.length > 0,
     computerUse: work && options.computerUseAvailable,
+    prompts: (prompts?.prompts.length ?? 0) > 0,
   })
 
   const pick =
@@ -247,6 +263,15 @@ export function ComposerOptionsMenu({
             />
           ),
         }
+      case `prompts`:
+        if (!prompts) return null
+        return {
+          ...base,
+          kind: `submenu`,
+          disabled: rowsDisabled,
+          contentClassName: SUBMENU_PICKER_CLASS,
+          body: <PromptList prompts={prompts.prompts} onPick={pick(prompts.onPick)} />,
+        }
       case `device`: {
         const binding = runner.device
         if (!binding) return null
@@ -276,8 +301,8 @@ export function ComposerOptionsMenu({
           disabled: rowsDisabled,
           contentClassName: SUBMENU_PICKER_CLASS,
           body: (
-            <SubmenuSearchList
-              items={accountItems(binding.options)}
+            <AccountList
+              options={binding.options}
               value={binding.value}
               onChange={pick(binding.onChange)}
             />
@@ -441,14 +466,90 @@ function SubmenuSearchList({
   )
 }
 
-/** THE account picker's rows (brand mark + email + the health hint). */
-function accountItems(options: readonly AccountPickerOption[]): PickerItem[] {
-  return options.map((option) => ({
-    value: option.key,
-    label: <AccountOptionLabel option={option} />,
-    keywords: [option.email, option.agent],
-    disabled: option.disabled,
+/** Account ›: THE account picker's rows (brand mark + email + the health
+ *  hint) with its EXP-992 usage preview (#EXP-1434): a hover card beside the
+ *  hovered row on a pointer, the bars inline under the email on touch. */
+function AccountList({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly AccountPickerOption[]
+  value: string | null
+  onChange: (key: string) => void
+}) {
+  const touch = useIsMobile()
+  const byKey = useMemo(
+    () => new Map(options.map((option) => [option.key, option])),
+    [options]
+  )
+  const items = useMemo<PickerItem[]>(
+    () =>
+      options.map((option) => ({
+        value: option.key,
+        label: option.email,
+        keywords: [option.email, option.agent],
+        disabled: option.disabled,
+      })),
+    [options]
+  )
+  return (
+    <div className="flex max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height,24rem))] min-h-0 flex-col">
+      <SearchList
+        mode="single"
+        items={items}
+        value={value}
+        onChange={onChange}
+        inputTestId={COMPOSER_MENU_TEST_IDS.submenuSearch}
+        // Touch: the bars sit inline under the email, a taller row.
+        rowClassName={touch ? `h-auto min-h-11 py-1.5` : undefined}
+        renderItem={(item) => {
+          const option = byKey.get(item.value)
+          return option ? (
+            <AccountOptionRow option={option} touch={touch} />
+          ) : null
+        }}
+      />
+    </div>
+  )
+}
+
+/** Prompts ›: THE search list over the team's prompts (the `/` menu's
+ *  order and name filter); a row = the prompt's icon + its name. */
+function PromptList({
+  prompts,
+  onPick,
+}: {
+  prompts: readonly SlashPrompt[]
+  onPick: (prompt: SlashPrompt) => void
+}) {
+  const [query, setQuery] = useState(``)
+  const visible = filterSlashPrompts(prompts, promptSlashName(query))
+  const items: PickerItem[] = visible.map((prompt) => ({
+    value: prompt.id,
+    label: prompt.name,
+    icon: getActionIcon(prompt),
   }))
+  return (
+    <div
+      data-testid="agent-composer-prompts-picker"
+      className="flex max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height,24rem))] min-h-0 flex-col"
+    >
+      <SearchList
+        mode="single"
+        items={items}
+        value={null}
+        query={query}
+        onQueryChange={setQuery}
+        shouldFilter={false}
+        onChange={(id) => {
+          const prompt = prompts.find((candidate) => candidate.id === id)
+          if (prompt) onPick(prompt)
+        }}
+        inputTestId={COMPOSER_MENU_TEST_IDS.submenuSearch}
+      />
+    </div>
+  )
 }
 
 /** Issue › in a session or an agent chat: THE `#` search list over the
@@ -577,6 +678,8 @@ export function ComposerPlusMenu({
       }}
       runner={runner}
       issues={issues}
+      // The `/` menu's pick: the prompt becomes the new session's subject.
+      prompts={{ prompts: model.prompts, onPick: (prompt) => model.pickPrompt(prompt.id) }}
       onAttach={onAttach}
       disabled={disabled}
       highlighted={subject !== null || model.images.length > 0}

@@ -105,6 +105,9 @@ interface SearchListBase<T extends string> {
   leading?: React.ReactNode
   /** Replaces the row BODY; the selection check stays the list's. */
   renderItem?: (item: PickerItem<T>, state: { selected: boolean }) => React.ReactNode
+  /** Extra classes on every row (a `renderItem` body taller than one row,
+   *  the account rows' inline usage bars on touch). */
+  rowClassName?: string
   /** The muted result count in the input row once a query is typed. */
   showCount?: boolean
   /** At most this many rows visible before the list scrolls; `null` = the
@@ -165,6 +168,7 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
     footer,
     leading,
     renderItem,
+    rowClassName,
     showCount = true,
     maxVisibleRows = spec.maxVisibleRows,
     density: densityProp,
@@ -316,7 +320,7 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
                     aria-pressed={selection.multiple ? selected : undefined}
                     data-testid={spec.testIds.row}
                     data-picked={selected ? `true` : undefined}
-                    className={cn(`min-h-0 py-0`, ROW_CLASS[density])}
+                    className={cn(`min-h-0 py-0`, ROW_CLASS[density], rowClassName)}
                     onSelect={() => selection.pick(item)}
                   >
                     {renderItem ? (

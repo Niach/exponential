@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { SessionRow } from "@/lib/session-tree"
 
@@ -276,6 +276,29 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     expect(click).not.toHaveBeenCalled()
     expect(rowIds()).toEqual([`add-file`, `implement-issue`, `model`])
     click.mockRestore()
+  })
+
+  // #EXP-1434: Prompts › while the team has one; a pick inserts the body
+  // at the caret (the `/` menu's pick, without a `/name` to replace).
+  it(`Prompts › inserts the picked prompt's body at the caret`, async () => {
+    mocks.prompts = [{ id: `p1`, name: `Release train`, icon: null, sortOrder: 1 }]
+    mocks.promptGet.mockResolvedValue({ prompt: { id: `p1`, body: `Cut the release.` } })
+    const field = renderComposer()
+    type(field, `Then: `)
+    openPlus()
+    expect(rowIds()).toEqual([`add-file`, `implement-issue`, `prompts`, `model`])
+    act(() => {
+      fireEvent.click(screen.getByTestId(`agent-composer-menu-prompts`))
+    })
+    act(() => {
+      fireEvent.click(
+        within(screen.getByTestId(`agent-composer-prompts-picker`)).getByText(`Release train`)
+      )
+    })
+    expect(screen.queryByTestId(`agent-composer-menu`)).toBeNull()
+    await waitFor(() => expect(field.value).toBe(`Then: Cut the release.`))
+    expect(mocks.promptGet).toHaveBeenCalledWith({ id: `p1` })
+    expect(mocks.send).not.toHaveBeenCalled()
   })
 
   it(`the "+" is the only tool: no inline tools, no device or model pin in the card`, () => {

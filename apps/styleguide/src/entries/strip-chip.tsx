@@ -36,7 +36,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `StripChip / StripOverflowButton`,
       file: `packages/ui/src/strip-chip.tsx`,
-      note: `the thread header binds it as ThreadIssueTab / ThreadSessionTab (session-thread-view.tsx); the work tab strip as its tabs`,
+      note: `the thread header binds it as ThreadIssueTab / ThreadStripGroup (session-thread-view.tsx); the work tab strip as its tabs`,
     },
     desktop: {
       state: `ok`,

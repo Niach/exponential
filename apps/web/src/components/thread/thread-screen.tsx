@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import {
-  AgentRunMark,
   conceptIcon,
   FloatingComposer,
   JumpToBottomButton,
@@ -14,25 +13,18 @@ import {
   Menu,
   MenuGestureHost,
   menuProps,
-  sessionTabRunMark,
   SkeletonRows,
-  StatusGlyph,
   threadLeadPrState,
-  ThreadChipSubtree,
   ThreadDock,
   threadDockedIds,
   ThreadConversation,
-  ThreadIssueTab,
-  ThreadIssueTree,
-  ThreadSessionTab,
-  ThreadSessionTree,
   ThreadTabs,
   useIsMobile,
   userMessageCaption,
   userMessageTime,
   type MenuSessionProps,
-  type ThreadIssueTreeRow,
-  type ThreadStripItem,
+  type ThreadStripIssue,
+  type ThreadStripOpen,
   type ThreadTreeRow,
 } from "@exp/ui"
 import type { Issue, User } from "@/db/schema"
@@ -88,7 +80,7 @@ import {
   type SessionRow,
   type SessionThreadView,
 } from "@/lib/session-tree"
-import { threadChatMode } from "@exp/domain-contract/session-tree"
+import { threadChatMode, threadStripMode } from "@exp/domain-contract/session-tree"
 
 // EXP-1293 Threads v2 / S-3: THE thread screen (fixture session-thread.json
 // ×4): the header (title + ONE tab strip), the Conversation (THE Dock, the
@@ -274,28 +266,7 @@ export function ThreadScreen({
     here: tab.kind === `session` ? tab.sessionId : root.id,
     back: search.back,
   })
-  // EXP-1343: phones page through every strip tab (swipe AND tap, in strip
-  // order); a tap slides the new page in from the side it sits on.
-  const pages = useMemo(() => threadPages(view.tabs), [view.tabs])
-  const page = threadPageOf(tab)
-  const showPage = (next: ThreadPage) => {
-    if (isMobile) primeTabEnter(pages, page, next)
-    go(threadPageSearch(next))
-  }
-  const swipe = useFaceSwipe(pages, page, showPage)
-  /** A chip's pick swaps the tab in place (a page on phones). */
-  const pickSession = (sessionId: string) => showPage(`session:${sessionId}`)
-  const pickIssue = (issueId: string) => showPage(`issue:${issueId}`)
-
-  const firstIssue = issueTabs[0] ? issuesById.get(issueTabs[0].issueId) : undefined
-  const menu = useThreadMenu({
-    rootId: root.id,
-    teamSlug,
-    issueIds,
-    newIssueBoardId: firstIssue?.boardId,
-    canEdit: permissions.isMember,
-  })
-
+  // EXP-1334: the linked issues' statuses (the strip's chip / group rows).
   // S-3: the status resolves through the team's statuses (statusId first);
   // an issue row that has not synced draws NO glyph, never a Backlog one.
   const issueStatus = (issue: Issue | undefined) => {
@@ -308,87 +279,26 @@ export function ThreadScreen({
     }
   }
 
-  // EXP-1334: the issue chips = the TOP-LEVEL linked issues; a chip with
-  // sub-issues wears the chevron and a CLICK opens its subtree (THE Menu,
-  // the bottom sheet on phones); active while it or a nested one is open,
-  // reading `<chip> › <open one>`.
-  const issueItems: ThreadStripItem[] = issueTabs.flatMap((entry) => {
-    const issue = issuesById.get(entry.issueId)
-    if (!issue) return []
-    const openId = tab.kind === `issue` ? tab.issueId : null
-    const openNested = entry.nested.find((nested) => nested.issueId === openId) ?? null
-    const active = openId === entry.issueId || openNested !== null
-    const folded = entry.nested.length > 0
-    const status = issueStatus(issue)!
-    const subtree: ThreadIssueTreeRow[] = [
-      { issueId: entry.issueId, identifier: entry.identifier, title: issue.title, status, depth: 0 },
-      ...entry.nested.map((nested) => {
-        const row = issuesById.get(nested.issueId)
-        return {
-          issueId: nested.issueId,
-          identifier: nested.identifier,
-          title: row?.title ?? ``,
-          status: issueStatus(row),
-          depth: nested.depth,
-        }
-      }),
-    ]
-    return [
-      {
-        key: entry.issueId,
-        active,
-        entry: {
-          kind: `item` as const,
-          id: entry.issueId,
-          icon: <StatusGlyph {...status} className="size-3.5" />,
-          label: (
-            <>
-              <span className="mr-1.5 font-mono text-xs text-muted-foreground">
-                {entry.identifier}
-              </span>
-              {issue.title}
-            </>
-          ),
-          onSelect: () => pickIssue(entry.issueId),
+  // #EXP-1433: the strip's issues = every linked issue (a chip's sub-issues
+  // after it) that has synced; the issue context menu rides the chip.
+  const stripIssues: ThreadStripIssue[] = issueTabs.flatMap((entry) =>
+    [{ issueId: entry.issueId, identifier: entry.identifier }, ...entry.nested].flatMap((ref) => {
+      const issue = issuesById.get(ref.issueId)
+      if (!issue) return []
+      return [
+        {
+          issueId: ref.issueId,
+          identifier: ref.identifier,
+          title: issue.title,
+          status: issueStatus(issue),
+          boxProps: { ...menuProps(THREAD_ISSUE_MENU, ref.issueId) },
         },
-        render: ({ short, measure }) => {
-          const chip = (
-            <ThreadIssueTab
-              identifier={entry.identifier}
-              title={issue.title}
-              status={status}
-              active={active}
-              short={short}
-              path={openNested?.identifier ?? null}
-              chevron={folded}
-              data-testid={measure ? undefined : `thread-tab-${entry.identifier}`}
-              boxProps={measure ? undefined : { ...menuProps(THREAD_ISSUE_MENU, entry.issueId) }}
-              onSelect={measure || folded ? undefined : () => pickIssue(entry.issueId)}
-            />
-          )
-          if (measure || !folded) return chip
-          return (
-            <ThreadChipSubtree title={entry.identifier} trigger={chip} testId="thread-issue-subtree">
-              {(close) => (
-                <ThreadIssueTree
-                  menu
-                  rows={subtree}
-                  activeId={openId}
-                  onOpen={(issueId) => {
-                    close()
-                    pickIssue(issueId)
-                  }}
-                />
-              )}
-            </ThreadChipSubtree>
-          )
-        },
-      },
-    ]
-  })
+      ]
+    })
+  )
 
-  // EXP-1334: the session chips = the dispatcher's DIRECT children; deeper
-  // sessions fold under their chip (SessionRow small + the tree guides).
+  // #EXP-1433: the strip's sessions = THE tree rows of every session under
+  // the dispatcher (its children and theirs), SessionRow small + the guides.
   const treeRows = useMemo<ThreadTreeRow[]>(() => {
     const nowIso = new Date().toISOString()
     return treeOrder(rows.map(toTreeSession)).map((session) => {
@@ -404,69 +314,50 @@ export function ThreadScreen({
       }
     })
   }, [rows, rowsById, titles])
-  const treeRowsById = useMemo(
-    () => new Map(treeRows.map((row) => [row.sessionId, row])),
-    [treeRows]
+  const stripSessionIds = new Set(
+    sessionTabs.flatMap((entry) => [entry.sessionId, ...entry.nested.map((nested) => nested.sessionId)])
   )
-  const sessionItems: ThreadStripItem[] = sessionTabs.map((entry) => {
-    const openId = tab.kind === `session` ? tab.sessionId : null
-    const openNested = entry.nested.find((nested) => nested.sessionId === openId) ?? null
-    const active = openId === entry.sessionId || openNested !== null
-    const folded = entry.nested.length > 0
-    const agent = rowsById.get(entry.sessionId)?.cli ?? null
-    const ids = new Set([entry.sessionId, ...entry.nested.map((nested) => nested.sessionId)])
-    const subtree = treeRows
-      .filter((row) => ids.has(row.sessionId))
-      .map((row) => (row.sessionId === entry.sessionId ? { ...row, parentId: null } : row))
-    return {
-      key: entry.sessionId,
-      active,
-      entry: {
-        kind: `item` as const,
-        id: entry.sessionId,
-        icon: (
-          <AgentRunMark
-            agent={agent}
-            state={sessionTabRunMark(entry.markState)}
-            ringClassName="ring-popover"
-            className="size-3.5"
-          />
-        ),
-        label: entry.name,
-        value: treeRowsById.get(entry.sessionId)?.stateWord,
-        onSelect: () => pickSession(entry.sessionId),
-      },
-      render: ({ measure }) => {
-        const chip = (
-          <ThreadSessionTab
-            agent={agent}
-            markState={entry.markState}
-            name={entry.name}
-            active={active}
-            path={openNested?.name ?? null}
-            chevron={folded}
-            data-testid={measure ? undefined : `thread-tab-session`}
-            onSelect={measure || folded ? undefined : () => pickSession(entry.sessionId)}
-          />
-        )
-        if (measure || !folded) return chip
-        return (
-          <ThreadChipSubtree title={entry.name} trigger={chip} testId="thread-session-subtree">
-            {(close) => (
-              <ThreadSessionTree
-                menu
-                rows={subtree}
-                activeId={openId}
-                onOpen={(sessionId) => {
-                  close()
-                  pickSession(sessionId)
-                }}
-              />
-            )}
-          </ThreadChipSubtree>
-        )
-      },
+  const stripSessions = treeRows.filter((row) => stripSessionIds.has(row.sessionId))
+
+  // What the strip has open in place (the main session = the Conversation).
+  const stripOpen: ThreadStripOpen =
+    tab.kind === `issue`
+      ? { kind: `issue`, id: tab.issueId }
+      : tab.kind === `session` && tab.sessionId !== mainSession?.id
+        ? { kind: `session`, id: tab.sessionId }
+        : null
+  const { mode: stripMode } = threadStripMode({ issues: stripIssues.length, sessions: stripSessions.length })
+  const singleIssue = stripMode === `chips` ? (stripIssues[0]?.issueId ?? null) : null
+
+  // EXP-1343 / #EXP-1433: phones page Conversation · (the one issue | the
+  // item open from the group) · Stories (swipe AND tap); a tap slides the
+  // new page in from the side it sits on.
+  const pages = useMemo(
+    () => threadPages({ single: singleIssue, open: stripOpen ? threadPageOf(tab) : null }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [singleIssue, stripOpen?.kind, stripOpen?.id]
+  )
+  const page = threadPageOf(tab)
+  const showPage = (next: ThreadPage) => {
+    if (isMobile) {
+      // The pages around the move: a page opened from the group joins them.
+      const item = next === `conversation` || next === `stories` ? (stripOpen ? page : null) : next
+      primeTabEnter(threadPages({ single: singleIssue, open: item }), page, next)
     }
+    go(threadPageSearch(next))
+  }
+  const swipe = useFaceSwipe(pages, page, showPage)
+  /** A pick swaps the tab in place (a page on phones). */
+  const pickSession = (sessionId: string) => showPage(`session:${sessionId}`)
+  const pickIssue = (issueId: string) => showPage(`issue:${issueId}`)
+
+  const firstIssue = issueTabs[0] ? issuesById.get(issueTabs[0].issueId) : undefined
+  const menu = useThreadMenu({
+    rootId: root.id,
+    teamSlug,
+    issueIds,
+    newIssueBoardId: firstIssue?.boardId,
+    canEdit: permissions.isMember,
   })
 
   // STORIES TAB: every story of the tree (the chip's dot, the body).
@@ -483,9 +374,12 @@ export function ThreadScreen({
           (mainSession !== null && tab.kind === `session` && tab.sessionId === mainSession.id),
         onSelect: () => (mainSession ? go({}) : showPage(`conversation`)),
       }}
-      issues={issueItems}
+      issues={stripIssues}
       add={menu.addMenu}
-      sessions={sessionItems}
+      sessions={stripSessions}
+      open={stripOpen}
+      onOpenIssue={pickIssue}
+      onOpenSession={pickSession}
       stories={{
         label: STORY_TAB.copy.label,
         active: tab.kind === `stories`,

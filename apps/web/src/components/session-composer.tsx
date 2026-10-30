@@ -302,6 +302,13 @@ export function SessionComposer({
       })
       .catch((error) => failedAction(`load`, prompt.name, error))
   }
+  // #EXP-1434: Prompts › in the "+" — the same body, inserted at the caret.
+  const insertPrompt = (prompt: { id: string; name: string }) => {
+    trpc.prompts.get
+      .query({ id: prompt.id })
+      .then(({ prompt: full }) => fieldRef.current?.insertText(full.body))
+      .catch((error) => failedAction(`load`, prompt.name, error))
+  }
   const menu = useSlashCommandMenu({
     text,
     commands,
@@ -512,6 +519,7 @@ export function SessionComposer({
                     `${issueRefInsertionText(fieldRef.current.charBeforeCaret())}${identifier} `
                   ),
               }}
+              prompts={{ prompts, onPick: insertPrompt }}
               onAttach={() => toolsRef.current?.attach()}
               rowsDisabled={row !== null && ended}
               highlighted={files.length > 0}

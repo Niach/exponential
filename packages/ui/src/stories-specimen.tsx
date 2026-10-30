@@ -181,6 +181,7 @@ export const STORY_SPECIMEN_INPUT: Omit<StoriesInput, `agents`> & { agents: read
         kind: `surface`,
         story: true,
         title: `Spacing review`,
+        description: `Paddings match on all four platforms.`,
         surface: {
           root: {
             id: `r`,
@@ -273,25 +274,29 @@ export const STORY_VIEWER_SPECIMEN_CARD = STORY_SPECIMEN_INPUT.messages.find(
   (message) => message.id === STORY_VIEWER_SPECIMEN_RING.stories[0]!.id
 )!.card
 
-/** THE viewer frame, open on ring 0, story 0, the progress frozen at 0 (the
- *  modal's size, drawn in place so a capture needs no portal). */
+/** THE viewer, open on ring 0's first frame (the board question's surface
+ *  frame), the progress frozen at 0: `frame` = the md+ modal's size, drawn
+ *  in place so a capture needs no portal; no frame = the phone's full
+ *  screen. */
 export function StoryViewerSpecimen({ frame = true }: { frame?: boolean }) {
   const ring = STORY_VIEWER_SPECIMEN_RING
-  const first = ring.stories[0]!
   return (
     <div
       data-testid="story-viewer-specimen"
-      className={frame ? `overflow-hidden border border-glass-stroke-card shadow-2xl shadow-black/40` : undefined}
-      style={{
-        width: STORY_VIEWER.width,
-        maxWidth: `100%`,
-        height: Math.min(STORY_VIEWER.height, 680),
-        borderRadius: frame ? STORY_VIEWER.radius : undefined,
-      }}
+      className={frame ? `overflow-hidden border border-glass-stroke-card shadow-2xl shadow-black/40` : `h-dvh w-full`}
+      style={
+        frame
+          ? {
+              width: STORY_VIEWER.width,
+              maxWidth: `100%`,
+              height: Math.min(STORY_VIEWER.height, 680),
+              borderRadius: STORY_VIEWER.radius,
+            }
+          : undefined
+      }
     >
       <StoryViewerPanel
         ring={ring}
-        story={first}
         index={0}
         fraction={0}
         avatar={storySpecimenAvatar(ring)}

@@ -170,7 +170,7 @@ function AgentRoute() {
         ) : dev === `story-ring` ? (
           <StoryRingSpecimen />
         ) : dev === `story-viewer` ? (
-          <StoryViewerSpecimen />
+          <StoryViewerSpecimen frame={!isMobile} />
         ) : dev === `story-tab` ? (
           <StoryTabSpecimen size={isMobile ? `phone` : `wide`} />
         ) : dev === `phone-tab-bar` ? (

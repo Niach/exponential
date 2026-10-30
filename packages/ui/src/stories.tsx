@@ -6,11 +6,14 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
   type TouchEvent,
 } from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/ui"
+import { ExponentialSurface, useSurface } from "@exponential_app/ui-react"
 import { DIALOG_CLASSES } from "@exponential_app/ui/web/primitives"
 import { CHATS_SHELL } from "@exp/domain-contract/chats"
 import { joinAnswers, PLAN_CARD_COPY, type CardSurface } from "@exp/domain-contract/plan-card"
@@ -22,7 +25,11 @@ import {
   STORY_PROGRESS,
   STORY_RING,
   STORY_VIEWER,
+  storyFrameIndex,
+  storyFrames,
   type Story,
+  type StoryFooter as StoryFooterKind,
+  type StoryFrame,
   type StoryRing as StoryRingModel,
 } from "@exp/domain-contract/stories"
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
@@ -33,8 +40,7 @@ import { cn } from "./cn"
 import { Composer } from "./composer"
 import { Input } from "./input"
 import { conceptIcon } from "./icons.generated"
-import { PlanCardCustomField, PlanCardOptions, PlanCardSurface, questionAnswer, useSurfaceDataRef } from "./plan-card"
-import { SurfaceCard } from "./surface-card"
+import { PlanCardCustomField, PlanCardOptions, planCardHost, questionAnswer, useSurfaceDataRef } from "./plan-card"
 import { Textarea } from "./textarea"
 
 // S-3 STORIES ×web (fixtures/stories.json; desktop crates/ui stories, iOS
@@ -48,15 +54,21 @@ import { Textarea } from "./textarea"
 //                    glass-stroke hairline
 //   StoryRingButton  a ring with its title under it (the chats header's row)
 //   StoryRingRow     the rings side by side, scrolling sideways
-//   StoryProgress    one segment per story: done = foreground, the current
-//                    = its fill, todo = the glass-stroke track
-//   StoryViewerPanel the viewer's frame (progress, header, body, footer, tap
-//                    thirds, swipes), fully controlled; the styleguide paints
-//                    it statically
-//   StoryViewer      the stateful viewer: phones full screen, md+ a centred
-//                    modal (`viewer`) over a scrim with side arrows; tap
-//                    thirds / swipe / ←→ / Esc; only a result advances on its
-//                    own (`autoAdvanceMs`), a long press pauses it
+//   StoryProgress    one segment per FRAME (`progress.gap` within a story,
+//                    `progress.storyGap` between stories): done =
+//                    foreground, the current = its fill, todo = the
+//                    glass-stroke track
+//   StoryViewerPanel one frame of `storyFrames(ring)`: the body (picture
+//                    fitted on black / THE surface bare / the plan text)
+//                    fills it, progress + header + title + description float
+//                    over the top scrim, the footer over the bottom one; tap
+//                    thirds, swipes; fully controlled (the styleguide paints
+//                    it statically)
+//   StoryViewer      the stateful viewer stepping FRAMES across the rings:
+//                    phones full screen, md+ a centred modal (`viewer`) over
+//                    a scrim with side arrows outside it; every frame has its
+//                    own timer (a result's `autoAdvanceMs`), a long press
+//                    pauses it
 
 const CloseIcon = conceptIcon(`ui-close`)
 const PrevIcon = conceptIcon(`ui-chevron-left`)
@@ -237,34 +249,37 @@ export function StoryRingRow({
   )
 }
 
-/** THE progress: one segment per story, the current filled to `fraction`. */
+/** THE progress: one segment per FRAME, the current filled to `fraction`.
+ *  `groups[i]` = segment i's story: segments of one story sit
+ *  `progress.gap` apart, a new story starts `progress.storyGap` after the
+ *  last (absent = one group, every segment `progress.gap` apart). */
 export function StoryProgress({
   count,
   index,
   fraction,
+  groups,
   className,
 }: {
   count: number
   index: number
   /** The current segment's fill (0…1). */
   fraction: number
+  /** Each segment's story (the frame's `story`). */
+  groups?: readonly number[]
   className?: string
 }) {
   return (
-    <div
-      data-testid={STORIES_TEST_IDS.progress}
-      data-index={index}
-      className={cn(`flex w-full`, className)}
-      style={{ gap: STORY_PROGRESS.gap }}
-    >
+    <div data-testid={STORIES_TEST_IDS.progress} data-index={index} className={cn(`flex w-full`, className)}>
       {Array.from({ length: count }, (_, at) => {
         const fill = at < index ? 1 : at === index ? Math.min(1, Math.max(0, fraction)) : 0
+        const lead =
+          at === 0 ? 0 : groups && groups[at] !== groups[at - 1] ? STORY_PROGRESS.storyGap : STORY_PROGRESS.gap
         return (
           <span
             key={at}
             data-slot="story-progress-segment"
             className="relative flex-1 overflow-hidden rounded-full bg-glass-stroke"
-            style={{ height: STORY_PROGRESS.height }}
+            style={{ height: STORY_PROGRESS.height, marginLeft: lead }}
           >
             <span className="absolute inset-y-0 left-0 rounded-full bg-foreground" style={{ width: `${fill * 100}%` }} />
           </span>
@@ -312,6 +327,7 @@ export interface StoryAnswer {
   surfaceData?: Record<string, unknown>
 }
 
+
 /** The md+ modal frame (`viewer`: width × height max, radius); phones =
  *  the whole screen. */
 export const STORY_VIEWER_FRAME_CLASS = `md:h-[min(var(--story-h),calc(100dvh-2rem))] md:w-(--story-w) md:max-w-[calc(100vw-8rem)] md:rounded-(--story-radius) md:border md:border-glass-stroke-card md:shadow-2xl md:shadow-black/40`
@@ -321,13 +337,43 @@ export const STORY_VIEWER_FRAME_STYLE = {
   [`--story-radius`]: `${STORY_VIEWER.radius}px`,
 } as CSSProperties
 
-const INTERACTIVE = `button, a, input, textarea, select, [role="button"], [role="slider"], [contenteditable="true"]`
+/** A press on these never steps (the tap thirds skip them). */
+const INTERACTIVE = `button, a, input, textarea, select, label, [role="button"], [role="slider"], [role="radio"], [role="checkbox"], [role="switch"], [role="option"], [contenteditable="true"], [data-slot="story-footer"]`
 
-/** The viewer's frame (fully controlled). */
+/** A floating band's scrim (`viewer.scrimHeight`): black at the edge,
+ *  clear at its inner end; a band taller than the scrim stays black under
+ *  its content. `to` = the direction it fades towards. */
+function storyScrim(to: `bottom` | `top`): CSSProperties {
+  const black = `rgb(0 0 0 / 0.75)`
+  return {
+    minHeight: STORY_VIEWER.scrimHeight,
+    backgroundImage: `linear-gradient(to ${to}, ${black} 0%, ${black} calc(100% - ${STORY_VIEWER.scrimHeight}px), transparent 100%)`,
+  }
+}
+
+/** A node's live height (a callback ref + its height; 0 until measured). */
+function useMeasuredHeight(): [(node: HTMLElement | null) => void, number] {
+  const [height, setHeight] = useState(0)
+  const observer = useRef<ResizeObserver | null>(null)
+  const ref = useCallback((node: HTMLElement | null) => {
+    observer.current?.disconnect()
+    observer.current = null
+    if (!node) return
+    setHeight(node.offsetHeight)
+    if (typeof ResizeObserver === `undefined`) return
+    observer.current = new ResizeObserver(() => setHeight(node.offsetHeight))
+    observer.current.observe(node)
+  }, [])
+  return [ref, height]
+}
+
+/** The viewer's frame (fully controlled): the body fills it on black, the
+ *  progress + header + the frame's title and description float over the
+ *  top scrim, the footer over the bottom one. */
 export function StoryViewerPanel({
   ring,
-  story,
   index,
+  frames: given,
   fraction,
   avatar,
   detail,
@@ -341,17 +387,18 @@ export function StoryViewerPanel({
   onDecide,
   onAnswer,
   onPause,
-  initialPicture = 0,
   className,
   style,
 }: {
   ring: Pick<StoryRingModel, `key` | `title` | `stories`>
-  story: Story
-  /** The story's place in its ring. */
+  /** The frame on show: its index in `storyFrames(ring)`. */
   index: number
+  /** `storyFrames(ring)` when the host holds it already. */
+  frames?: readonly StoryFrame[]
   /** The current progress segment's fill (0…1). */
   fraction: number
   avatar: ReactNode
+  /** The frame's story's card detail. */
   detail: StoryCardDetail
   renderText?: (text: string) => ReactNode
   attachmentSrc?: (attachmentId: string) => string
@@ -366,18 +413,17 @@ export function StoryViewerPanel({
   onAnswer?: (answer: StoryAnswer) => void
   /** A long press holds the timer (true) / lets it go (false). */
   onPause?: (paused: boolean) => void
-  /** The picture the story opens on (a Stories tab thumbnail's index). */
-  initialPicture?: number
   className?: string
   style?: CSSProperties
 }) {
-  const press = useRef<{ x: number; y: number; at: number; held: boolean; timer: number | null } | null>(null)
-  const [picture, setPicture] = useState(initialPicture)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setPicture(initialPicture), [story.id])
+  const frames = useMemo(() => given ?? storyFrames(ring), [given, ring])
+  const groups = useMemo(() => frames.map((entry) => entry.story), [frames])
+  const [topRef, top] = useMeasuredHeight()
+  const press = useRef<{ x: number; y: number; held: boolean; timer: number | null } | null>(null)
 
   const endPress = () => {
     const current = press.current
+    press.current = null
     if (current?.timer != null) window.clearTimeout(current.timer)
     if (current?.held) onPause?.(false)
   }
@@ -387,7 +433,7 @@ export function StoryViewerPanel({
       if (press.current) press.current.held = true
       onPause?.(true)
     }, 250)
-    press.current = { x: event.clientX, y: event.clientY, at: Date.now(), held: false, timer }
+    press.current = { x: event.clientX, y: event.clientY, held: false, timer }
   }
   const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
     const current = press.current
@@ -426,258 +472,353 @@ export function StoryViewerPanel({
     else if (dx < -48) onNext?.()
   }
 
-  const shown = story.pictures[Math.min(picture, story.pictures.length - 1)] ?? null
-  const surface = story.surface ? detail.surface : null
+  const at = Math.min(Math.max(0, index), frames.length - 1)
+  const frame = frames[at]
+  const story = frame ? ring.stories[frame.story] : undefined
+  if (!frame || !story) return null
   return (
     <div
       data-testid={STORIES_TEST_IDS.viewer}
       data-story={story.id}
       data-kind={story.kind}
+      data-frame={frame.kind}
       data-ring={ring.key}
-      className={cn(`relative flex h-full w-full flex-col overflow-hidden bg-background text-foreground`, className)}
+      className={cn(`relative h-full w-full cursor-pointer overflow-hidden bg-black text-foreground select-none`, className)}
       style={style}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={endPress}
+      onPointerLeave={endPress}
     >
-      <div className="flex shrink-0 flex-col gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2">
-        <StoryProgress count={ring.stories.length} index={index} fraction={fraction} />
-        <div data-testid={STORIES_TEST_IDS.header} className="flex min-w-0 items-center gap-2.5">
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            onClick={onOpenSession ? () => onOpenSession(story.sessionId) : undefined}
-          >
-            <StoryRing stories={ring.stories} size={STORY_VIEWER_AVATAR}>
-              {avatar}
-            </StoryRing>
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate text-sm font-medium">{story.sessionName}</span>
-              <span data-slot="story-meta" className="truncate text-xs text-muted-foreground">
-                {story.meta}
+      <StoryFrameView
+        key={`${story.id}:${frame.index}`}
+        story={story}
+        frame={frame}
+        detail={detail}
+        top={top}
+        renderText={renderText}
+        attachmentSrc={attachmentSrc}
+        busy={busy}
+        onDecide={onDecide}
+        onAnswer={onAnswer}
+      />
+      <div data-slot="story-top" className="pointer-events-none absolute inset-x-0 top-0 z-10" style={storyScrim(`bottom`)}>
+        <div ref={topRef} className="flex flex-col gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
+          <StoryProgress count={frames.length} index={at} fraction={fraction} groups={groups} />
+          <div data-testid={STORIES_TEST_IDS.header} className="flex min-w-0 items-center gap-2.5">
+            <button
+              type="button"
+              className="pointer-events-auto flex min-w-0 flex-1 items-center gap-2.5 rounded-md text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              onClick={onOpenSession ? () => onOpenSession(story.sessionId) : undefined}
+            >
+              <StoryRing stories={ring.stories} size={STORY_VIEWER_AVATAR}>
+                {avatar}
+              </StoryRing>
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-sm font-medium">{story.sessionName}</span>
+                <span data-slot="story-meta" className="truncate text-xs text-muted-foreground">
+                  {story.meta}
+                </span>
               </span>
-            </span>
-          </button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={STORIES_COPY.close}
-            className="shrink-0 text-muted-foreground"
-            onClick={onClose}
-          >
-            <CloseIcon />
-          </Button>
+            </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={STORIES_COPY.close}
+              className="pointer-events-auto shrink-0 text-muted-foreground"
+              onClick={onClose}
+            >
+              <CloseIcon />
+            </Button>
+          </div>
+          {(frame.title || frame.description) && (
+            <div className="flex min-w-0 flex-col gap-1 px-0.5">
+              {frame.title && (
+                <div data-slot="story-title" className="truncate text-base font-semibold">
+                  {frame.title}
+                </div>
+              )}
+              {frame.description && (
+                <p data-slot="story-description" className="line-clamp-3 text-sm text-muted-foreground">
+                  {frame.description}
+                </p>
+              )}
+            </div>
+          )}
         </div>
-      </div>
-      <div
-        data-slot="story-body"
-        className="relative flex min-h-0 flex-1 cursor-pointer select-none flex-col gap-3 overflow-y-auto px-4 pb-4"
-        onPointerDown={onPointerDown}
-        onPointerUp={onPointerUp}
-        onPointerCancel={endPress}
-        onPointerLeave={endPress}
-      >
-        {/* The plan text starts with the title: no title line over it. */}
-        {story.title && story.text === null && (
-          <div data-slot="story-title" className="truncate text-base font-semibold">
-            {story.title}
-          </div>
-        )}
-        {shown && (
-          <figure data-slot="story-picture" className="flex min-h-0 flex-col items-center gap-2">
-            <img
-              key={shown.attachmentId}
-              src={attachmentSrc(shown.attachmentId)}
-              alt={shown.label}
-              draggable={false}
-              className="max-h-[50dvh] w-auto max-w-full rounded-xl border border-glass-stroke-card object-contain"
-            />
-            {story.pictures.length > 1 && (
-              <div className="flex items-center gap-1.5" data-slot="story-picture-pager">
-                {story.pictures.map((entry, at) => (
-                  <button
-                    key={entry.attachmentId}
-                    type="button"
-                    aria-label={entry.label}
-                    aria-current={at === picture || undefined}
-                    className={cn(`size-1.5 rounded-full`, at === picture ? `bg-foreground` : `bg-glass-stroke-strong`)}
-                    onClick={() => setPicture(at)}
-                  />
-                ))}
-              </div>
-            )}
-            {shown.caption && (
-              <figcaption className="text-center text-xs text-muted-foreground">{shown.caption}</figcaption>
-            )}
-          </figure>
-        )}
-        {surface && story.kind === `result` && (
-          <SurfaceCard surface={surface} testKey={`story-${story.id}`} />
-        )}
-        {story.text !== null && (
-          <div data-slot="story-text" className="text-sm text-foreground/90">
-            {renderText ? renderText(story.text) : <p className="whitespace-pre-wrap">{story.text}</p>}
-          </div>
-        )}
-        {story.footer !== `none` && (
-          <StoryAskBody key={story.id} story={story} surface={surface} detail={detail} attachmentSrc={attachmentSrc} busy={busy} onDecide={onDecide} onAnswer={onAnswer} />
-        )}
       </div>
     </div>
   )
 }
 
-/** A plan's / question's surface + footer (the in-chat card's answer
- *  controls: THE option rows / tiles, THE free-text row, THE buttons). */
-function StoryAskBody({
-  story,
+/** THE surface renderer with no card chrome around it (the story body). */
+function StorySurface({
   surface,
+  dataRef,
+  disabled,
+  testKey,
+}: {
+  surface: CardSurface
+  dataRef: { current: Record<string, unknown> | null }
+  disabled: boolean
+  testKey: string
+}) {
+  const state = useSurface({
+    surfaceId: `story-${testKey}`,
+    catalogId: CORE_CATALOG_ID,
+    initial: surface.root as NestedNode,
+    data: { ...(surface.data ?? {}) },
+  })
+  dataRef.current = state.data as Record<string, unknown>
+  const host = useMemo(() => planCardHost(), [])
+  return (
+    <div data-slot="story-surface" inert={disabled || undefined} className="min-w-0">
+      <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode="dark" />
+    </div>
+  )
+}
+
+/** One frame's body (a picture fitted on black, THE surface, the plan
+ *  text, or nothing) and, on a story's last frame, its footer. */
+function StoryFrameView({
+  story,
+  frame,
   detail,
+  top,
+  renderText,
   attachmentSrc,
   busy,
   onDecide,
   onAnswer,
 }: {
   story: Story
-  surface: CardSurface | null
+  frame: StoryFrame
   detail: StoryCardDetail
+  /** The floating top band's height (the scrolling body starts under it). */
+  top: number
+  renderText?: (text: string) => ReactNode
   attachmentSrc: (attachmentId: string) => string
   busy: boolean
   onDecide?: (decision: StoryDecision) => void
   onAnswer?: (answer: StoryAnswer) => void
 }) {
   const surfaceData = useSurfaceDataRef()
-  const [picked, setPicked] = useState<string[]>([])
-  const [customText, setCustomText] = useState(``)
-  const [changing, setChanging] = useState(false)
-  const [feedback, setFeedback] = useState(``)
-  const withData = () => (surface && surfaceData.current ? { surfaceData: surfaceData.current } : {})
-  const approve = PLAN_OPTIONS.find((option) => option.key === `approve`)
-  const reject = PLAN_OPTIONS.find((option) => option.key === `reject`)
-  const labels = questionAnswer(picked, customText, detail.multi)
+  const [footerRef, bottom] = useMeasuredHeight()
+  const picture = frame.kind === `picture` && frame.picture !== null ? (story.pictures[frame.picture] ?? null) : null
+  const surface = frame.kind === `surface` ? detail.surface : null
+  const text = frame.kind === `text` ? story.text : null
   return (
     <>
-      {surface && (
-        <PlanCardSurface surface={surface} dataRef={surfaceData} disabled={busy} label={false} testKey={`story-${story.id}`} />
+      {picture && (
+        <img
+          data-slot="story-picture"
+          src={attachmentSrc(picture.attachmentId)}
+          alt={picture.label}
+          draggable={false}
+          className="absolute inset-0 size-full object-contain"
+        />
       )}
-      <div data-slot="story-footer" data-footer={story.footer} className="mt-auto flex flex-col gap-2 pt-2">
-        {story.footer === `plan` ? (
-          <>
-            {changing && (
-              <Composer>
-                <Textarea
-                  value={feedback}
-                  onChange={(event) => setFeedback(event.target.value)}
-                  placeholder={ASK_DOCK_COPY.feedbackPlaceholder}
-                  aria-label={STORIES_COPY.change}
-                  rows={1}
-                  autoFocus
-                  className="max-h-32 border-none bg-transparent px-3 pb-1 pt-3 text-sm shadow-none focus-visible:border-transparent"
-                />
-              </Composer>
-            )}
-            <div className="flex items-center justify-end gap-2">
-              {changing ? (
-                <>
-                  <Button type="button" variant="secondary" size="sm" onClick={() => setChanging(false)}>
-                    {ASK_DOCK_COPY.cancel}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    data-slot="story-decide"
-                    data-decision="rejected"
-                    disabled={busy || !onDecide || feedback.trim() === ``}
-                    onClick={() =>
-                      reject && onDecide?.({ decision: reject.decision, feedback: feedback.trim(), ...withData() })
-                    }
-                  >
-                    {STORIES_COPY.change}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    data-slot="story-change"
-                    disabled={busy || !onDecide}
-                    onClick={() => setChanging(true)}
-                  >
-                    {STORIES_COPY.change}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    data-slot="story-decide"
-                    data-decision="approved"
-                    disabled={busy || !onDecide}
-                    onClick={() =>
-                      approve && onDecide?.({ decision: approve.decision, fresh: approve.fresh, ...withData() })
-                    }
-                  >
-                    {STORIES_COPY.approve}
-                  </Button>
-                </>
-              )}
+      {(surface || text !== null) && (
+        <div
+          data-slot="story-body"
+          className="absolute inset-0 overflow-y-auto overscroll-contain px-4"
+          style={{ paddingTop: top + 8, paddingBottom: bottom + 16 }}
+        >
+          {surface ? (
+            <StorySurface surface={surface} dataRef={surfaceData} disabled={busy} testKey={story.id} />
+          ) : (
+            <div data-slot="story-text" className="text-sm text-foreground/90">
+              {renderText ? renderText(text!) : <p className="whitespace-pre-wrap">{text}</p>}
             </div>
-          </>
-        ) : (
-          <>
-            {story.footer === `choices` && (
-              <PlanCardOptions
-                options={detail.options}
-                multi={detail.multi}
-                picked={picked}
-                onPick={busy || !onAnswer ? undefined : setPicked}
-                attachmentSrc={attachmentSrc}
-                label={story.title ?? STORIES_COPY.question}
-              />
-            )}
-            {story.footer === `reply` ? (
-              <Input
-                value={customText}
-                onChange={(event) => setCustomText(event.target.value)}
-                placeholder={STORIES_COPY.reply}
-                aria-label={story.title ?? STORIES_COPY.question}
-                data-slot="story-reply"
-                className="h-9 text-sm"
-              />
-            ) : detail.custom ? (
-              <PlanCardCustomField
-                value={customText}
-                onChange={setCustomText}
-                label={story.title ?? STORIES_COPY.question}
-              />
-            ) : null}
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                size="sm"
-                data-slot="story-answer"
-                disabled={busy || !onAnswer || labels.length === 0}
-                onClick={() => onAnswer?.({ answer: joinAnswers(labels), answers: labels, ...withData() })}
-              >
-                {PLAN_CARD_COPY.answer}
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
+          )}
+        </div>
+      )}
+      {frame.footer !== `none` && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end"
+          style={storyScrim(`top`)}
+        >
+          <div ref={footerRef} className="pointer-events-auto cursor-auto px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <StoryFooter
+              story={story}
+              footer={frame.footer}
+              detail={detail}
+              surfaceData={surfaceData}
+              attachmentSrc={attachmentSrc}
+              busy={busy}
+              onDecide={onDecide}
+              onAnswer={onAnswer}
+            />
+          </div>
+        </div>
+      )}
     </>
   )
 }
 
-/** Where the viewer stands: a ring (by key) and a story (by id). */
+/** A plan's / question's footer (the in-chat card's answer controls: THE
+ *  option rows / tiles, THE free-text row, THE buttons). */
+function StoryFooter({
+  story,
+  footer,
+  detail,
+  surfaceData,
+  attachmentSrc,
+  busy,
+  onDecide,
+  onAnswer,
+}: {
+  story: Story
+  footer: Exclude<StoryFooterKind, `none`>
+  detail: StoryCardDetail
+  /** The shown surface's live data (null = none shown). */
+  surfaceData: { current: Record<string, unknown> | null }
+  attachmentSrc: (attachmentId: string) => string
+  busy: boolean
+  onDecide?: (decision: StoryDecision) => void
+  onAnswer?: (answer: StoryAnswer) => void
+}) {
+  const [picked, setPicked] = useState<string[]>([])
+  const [customText, setCustomText] = useState(``)
+  const [changing, setChanging] = useState(false)
+  const [feedback, setFeedback] = useState(``)
+  const withData = () => (surfaceData.current ? { surfaceData: surfaceData.current } : {})
+  const approve = PLAN_OPTIONS.find((option) => option.key === `approve`)
+  const reject = PLAN_OPTIONS.find((option) => option.key === `reject`)
+  const labels = questionAnswer(picked, customText, detail.multi)
+  return (
+    <div data-slot="story-footer" data-footer={footer} inert={busy || undefined} className="flex flex-col gap-2">
+      {footer === `plan` ? (
+        <>
+          {changing && (
+            <Composer>
+              <Textarea
+                value={feedback}
+                onChange={(event) => setFeedback(event.target.value)}
+                placeholder={ASK_DOCK_COPY.feedbackPlaceholder}
+                aria-label={STORIES_COPY.change}
+                rows={1}
+                autoFocus
+                className="max-h-32 border-none bg-transparent px-3 pb-1 pt-3 text-sm shadow-none focus-visible:border-transparent"
+              />
+            </Composer>
+          )}
+          <div className="flex items-center justify-end gap-2">
+            {changing ? (
+              <>
+                <Button type="button" variant="secondary" size="sm" onClick={() => setChanging(false)}>
+                  {ASK_DOCK_COPY.cancel}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  data-slot="story-decide"
+                  data-decision="rejected"
+                  disabled={busy || !onDecide || feedback.trim() === ``}
+                  onClick={() =>
+                    reject && onDecide?.({ decision: reject.decision, feedback: feedback.trim(), ...withData() })
+                  }
+                >
+                  {STORIES_COPY.change}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  data-slot="story-change"
+                  disabled={busy || !onDecide}
+                  onClick={() => setChanging(true)}
+                >
+                  {STORIES_COPY.change}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  data-slot="story-decide"
+                  data-decision="approved"
+                  disabled={busy || !onDecide}
+                  onClick={() =>
+                    approve && onDecide?.({ decision: approve.decision, fresh: approve.fresh, ...withData() })
+                  }
+                >
+                  {STORIES_COPY.approve}
+                </Button>
+              </>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          {footer === `choices` && (
+            <PlanCardOptions
+              options={detail.options}
+              multi={detail.multi}
+              picked={picked}
+              onPick={busy || !onAnswer ? undefined : setPicked}
+              attachmentSrc={attachmentSrc}
+              label={story.title ?? STORIES_COPY.question}
+            />
+          )}
+          {footer === `reply` ? (
+            <Input
+              value={customText}
+              onChange={(event) => setCustomText(event.target.value)}
+              placeholder={STORIES_COPY.reply}
+              aria-label={story.title ?? STORIES_COPY.question}
+              data-slot="story-reply"
+              className="h-9 text-sm"
+            />
+          ) : detail.custom ? (
+            <PlanCardCustomField value={customText} onChange={setCustomText} label={story.title ?? STORIES_COPY.question} />
+          ) : null}
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              data-slot="story-answer"
+              disabled={busy || !onAnswer || labels.length === 0}
+              onClick={() => onAnswer?.({ answer: joinAnswers(labels), answers: labels, ...withData() })}
+            >
+              {PLAN_CARD_COPY.answer}
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Where the viewer stands: a ring (by key), a story (by id) and the
+ *  frame's place among that story's frames. */
 export interface StoryPosition {
   ringKey: string
   storyId: string
+  index: number
 }
 
-/** The next / previous position over the rings (past the last ring =
- *  null = close; before the first story of the first ring = stay). */
-export function stepStory(
+/** A position's flat index in its ring's frames (a frame that is gone =
+ *  its story's first; -1 = the story is gone). */
+export function storyFramePosition(frames: readonly StoryFrame[], at: Pick<StoryPosition, `storyId` | `index`>): number {
+  const hit = frames.findIndex((frame) => frame.storyId === at.storyId && frame.index === at.index)
+  return hit >= 0 ? hit : frames.findIndex((frame) => frame.storyId === at.storyId)
+}
+
+const framePosition = (ringKey: string, frame: StoryFrame): StoryPosition => ({
+  ringKey,
+  storyId: frame.storyId,
+  index: frame.index,
+})
+
+/** The next / previous FRAME over the rings (past the last frame of the
+ *  last ring = null = close; before the very first frame = stay; the first
+ *  frame of a ring steps back to the previous ring's last). */
+export function stepFrame(
   rings: readonly Pick<StoryRingModel, `key` | `stories`>[],
   at: StoryPosition,
   direction: 1 | -1
@@ -685,17 +826,18 @@ export function stepStory(
   const r = rings.findIndex((ring) => ring.key === at.ringKey)
   if (r < 0) return null
   const ring = rings[r]!
-  const s = ring.stories.findIndex((story) => story.id === at.storyId)
-  const next = s + direction
-  if (s >= 0 && next >= 0 && next < ring.stories.length) return { ringKey: ring.key, storyId: ring.stories[next]!.id }
+  const frames = storyFrames(ring)
+  const f = storyFramePosition(frames, at)
+  const next = f + direction
+  if (f >= 0 && next >= 0 && next < frames.length) return framePosition(ring.key, frames[next]!)
   if (direction === 1) {
     const following = rings[r + 1]
-    const first = following?.stories[0]
-    return following && first ? { ringKey: following.key, storyId: first.id } : null
+    const first = following ? storyFrames(following)[0] : undefined
+    return following && first ? framePosition(following.key, first) : null
   }
   const before = rings[r - 1]
-  const last = before?.stories.at(-1)
-  return before && last ? { ringKey: before.key, storyId: last.id } : `stay`
+  const last = before ? storyFrames(before).at(-1) : undefined
+  return before && last ? framePosition(before.key, last) : `stay`
 }
 
 /** THE story viewer: open while `openRing` names a ring. */
@@ -747,16 +889,18 @@ export function StoryViewer({
       return
     }
     const ring = rings.find((entry) => entry.key === openRing)
-    const first = ring?.stories.find((entry) => entry.id === openStory) ?? ring?.stories[0]
+    const frames = ring ? storyFrames(ring) : []
+    const hit = openStory === null ? 0 : storyFrameIndex(frames, openStory, openPicture)
+    const first = frames[Math.max(0, hit)]
     if (!ring || !first) {
       onClose()
       return
     }
     setSnapshot(rings)
-    setPosition({ ringKey: ring.key, storyId: first.id })
+    setPosition(framePosition(ring.key, first))
     // Opening only: later changes of `rings` refresh the stories below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openRing, openStory])
+  }, [openRing, openStory, openPicture])
 
   // Live stories by id (an answer's state, a fresher meta), else the snapshot's.
   const live = useMemo(() => {
@@ -773,13 +917,15 @@ export function StoryViewer({
     [snapshot, live]
   )
   const ring = position ? view.find((entry) => entry.key === position.ringKey) : undefined
-  const index = ring && position ? ring.stories.findIndex((story) => story.id === position.storyId) : -1
-  const story = ring && index >= 0 ? ring.stories[index]! : null
+  const frames = useMemo(() => (ring ? storyFrames(ring) : []), [ring])
+  const at = position ? storyFramePosition(frames, position) : -1
+  const frame = at >= 0 ? frames[at]! : null
+  const story = ring && frame ? (ring.stories[frame.story] ?? null) : null
 
   const go = useCallback(
     (direction: 1 | -1) => {
       if (!position) return
-      const next = stepStory(view, position, direction)
+      const next = stepFrame(view, position, direction)
       if (next === `stay`) return
       if (next === null) onClose()
       else setPosition(next)
@@ -787,7 +933,7 @@ export function StoryViewer({
     [position, view, onClose]
   )
 
-  // Seen when shown.
+  // Seen when one of its frames is shown.
   const shownRef = useRef(onShown)
   shownRef.current = onShown
   const storyId = story?.id ?? null
@@ -796,20 +942,21 @@ export function StoryViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storyId])
 
-  // The result's timer (a decision never advances on its own).
+  // Every frame's own timer (a decision's frames never advance on their own).
   const [paused, setPaused] = useState(false)
   const [fraction, setFraction] = useState(0)
-  const duration = story?.autoAdvanceMs ?? null
+  const frameKey = frame ? `${frame.storyId}:${frame.index}` : null
+  const duration = frame?.autoAdvanceMs ?? null
   useEffect(() => {
     setFraction(duration === null ? 1 : 0)
-  }, [storyId, duration])
+  }, [frameKey, duration])
   const elapsed = useRef(0)
   useEffect(() => {
     elapsed.current = 0
-  }, [storyId])
+  }, [frameKey])
   useEffect(() => {
-    if (duration === null || paused || storyId === null) return
-    let frame = 0
+    if (duration === null || paused || frameKey === null) return
+    let raf = 0
     let last = performance.now()
     const tick = (now: number) => {
       if (typeof document === `undefined` || document.visibilityState !== `hidden`) elapsed.current += now - last
@@ -820,11 +967,11 @@ export function StoryViewer({
         go(1)
         return
       }
-      frame = requestAnimationFrame(tick)
+      raf = requestAnimationFrame(tick)
     }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [duration, paused, storyId, go])
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [duration, paused, frameKey, go])
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
@@ -838,7 +985,7 @@ export function StoryViewer({
     }
   }
 
-  // Answered = the next story; a failed answer stays put (the host toasts).
+  // Answered = the next frame; a failed answer stays put (the host toasts).
   const settle = async (work: Promise<unknown> | void) => {
     try {
       await work
@@ -846,6 +993,14 @@ export function StoryViewer({
       return
     }
     go(1)
+  }
+
+  // Only a press that starts AND ends on the bare scrim closes (md+): a
+  // side arrow steps, a drag out of the modal stays.
+  const scrimDown = useRef(false)
+  const step = (direction: 1 | -1) => (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    go(direction)
   }
 
   const open = openRing !== null && ring !== undefined && story !== null
@@ -857,9 +1012,13 @@ export function StoryViewer({
           aria-describedby={undefined}
           onKeyDown={onKeyDown}
           className="fixed inset-0 z-50 flex items-center justify-center outline-none"
+          onPointerDown={(event) => {
+            scrimDown.current = event.target === event.currentTarget
+          }}
           onClick={(event) => {
-            // The scrim around the centred modal (md+) closes it.
-            if (event.target === event.currentTarget) onClose()
+            const bare = scrimDown.current && event.target === event.currentTarget
+            scrimDown.current = false
+            if (bare) onClose()
           }}
         >
           <DialogPrimitive.Title className="sr-only">{ring?.title ?? ``}</DialogPrimitive.Title>
@@ -872,14 +1031,14 @@ export function StoryViewer({
                 data-testid={STORIES_TEST_IDS.previous}
                 aria-label={STORIES_COPY.previous}
                 className="absolute top-1/2 -left-14 hidden -translate-y-1/2 rounded-full bg-glass-row md:inline-flex"
-                onClick={() => go(-1)}
+                onClick={step(-1)}
               >
                 <PrevIcon />
               </Button>
               <StoryViewerPanel
                 ring={ring}
-                story={story}
-                index={index}
+                index={at}
+                frames={frames}
                 fraction={fraction}
                 avatar={avatarFor(ring)}
                 detail={storyCardDetail(cardFor(story))}
@@ -900,7 +1059,6 @@ export function StoryViewer({
                 onDecide={onDecide ? (decision) => void settle(onDecide(story, decision)) : undefined}
                 onAnswer={onAnswer ? (answer) => void settle(onAnswer(story, answer)) : undefined}
                 onPause={setPaused}
-                initialPicture={story.id === openStory ? openPicture : 0}
                 className={STORY_VIEWER_FRAME_CLASS}
                 style={STORY_VIEWER_FRAME_STYLE}
               />
@@ -911,7 +1069,7 @@ export function StoryViewer({
                 data-testid={STORIES_TEST_IDS.next}
                 aria-label={STORIES_COPY.next}
                 className="absolute top-1/2 -right-14 hidden -translate-y-1/2 rounded-full bg-glass-row md:inline-flex"
-                onClick={() => go(1)}
+                onClick={step(1)}
               >
                 <NextIcon />
               </Button>

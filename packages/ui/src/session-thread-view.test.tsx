@@ -1,22 +1,19 @@
-import type { ReactNode } from "react"
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/session-thread.json"
 import { buildSessionThread, type ThreadRow } from "@exp/domain-contract/session-tree"
 import {
   suggestionKey,
-  ThreadChipSubtree,
   ThreadConversation,
   ThreadIssueTab,
-  ThreadIssueTree,
-  ThreadSessionTab,
   ThreadSessionTree,
   ThreadTabs,
   ThreadsListItem,
   ThreadDock,
   threadDockedIds,
   threadTreeRows,
-  type ThreadStripItem,
+  type ThreadStripIssue,
+  type ThreadTreeRow,
 } from "./session-thread-view"
 import { TooltipProvider } from "./tooltip"
 
@@ -326,99 +323,45 @@ describe(`ThreadConversation`, () => {
   })
 })
 
-class ResizeObserverStub {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-globalThis.ResizeObserver ??= ResizeObserverStub as never
-
 const CONVERSATION = { label: `Conversation`, active: false, onSelect: () => {} }
 
-function item(
-  key: string,
-  node: (short: boolean, measure: boolean) => ReactNode,
-  active = false
-): ThreadStripItem {
-  return {
-    key,
-    active,
-    render: ({ short, measure }) => node(short, measure),
-    entry: { kind: `item`, id: key, label: key, onSelect: () => {} },
-  }
-}
+const issue = (identifier: string): ThreadStripIssue => ({
+  issueId: `id-${identifier}`,
+  identifier,
+  title: `Title of ${identifier}`,
+  status: { icon: `circle-dashed` },
+})
 
-const issueItem = (identifier: string, active = false) =>
-  item(
-    identifier,
-    (short, measure) => (
-      <ThreadIssueTab
-        identifier={identifier}
-        title={`Title of ${identifier}`}
-        status={{ icon: `circle-dashed` }}
-        active={active}
-        short={short}
-        data-testid={measure ? undefined : `issue-${identifier}`}
-      />
-    ),
-    active
-  )
+const session = (sessionId: string, name: string, parentId: string | null = null): ThreadTreeRow => ({
+  sessionId,
+  parentId,
+  name,
+  agent: `claude`,
+  markState: `working`,
+})
 
-const sessionItem = (name: string, active = false) =>
-  item(
-    name,
-    (_short, measure) => (
-      <ThreadSessionTab
-        agent="claude"
-        markState="working"
-        name={name}
-        active={active}
-        data-testid={measure ? undefined : `thread-tab-session`}
-      />
-    ),
-    active
-  )
-
-/** jsdom lays nothing out: the ruler's chips and the zone get fixed widths
- *  (an issue 140 full / 70 short, a session 110, "+N" 32, divider 1). */
-function stubWidths(zone: number) {
-  return vi.spyOn(HTMLElement.prototype, `getBoundingClientRect`).mockImplementation(function (
-    this: HTMLElement
-  ) {
-    const slot = this.getAttribute(`data-measure`)
-    const width =
-      this.getAttribute(`data-testid`) === `thread-tabs-zones`
-        ? zone
-        : slot === `issue-full`
-          ? 140
-          : slot === `issue-short`
-            ? 70
-            : slot === `session`
-              ? 110
-              : slot === `overflow`
-                ? 32
-                : slot === `divider`
-                  ? 1
-                  : 0
-    return { width, height: 32, top: 0, left: 0, right: width, bottom: 32, x: 0, y: 0, toJSON() {} } as DOMRect
+const openGroup = () => {
+  act(() => {
+    fireEvent.pointerDown(screen.getByTestId(fixture.testIds.group), {
+      button: 0,
+      ctrlKey: false,
+      pointerType: `mouse`,
+    })
   })
 }
 
 describe(`ThreadTabs`, () => {
   it(`draws Conversation icon-only on the pager, labelled; no Guide tab (S-3)`, () => {
     render(
-      <ThreadTabs
-        variant="pager"
-        conversation={{ ...CONVERSATION, active: true }}
-        issues={[issueItem(`APP-5`)]}
-      />
+      <ThreadTabs variant="pager" conversation={{ ...CONVERSATION, active: true }} issues={[issue(`APP-5`)]} />
     )
     const conversation = screen.getByTestId(`thread-tab-conversation`)
     expect(conversation.textContent).toBe(``)
     expect(conversation.getAttribute(`aria-label`)).toBe(`Conversation`)
     expect(conversation.querySelector(`svg`)).not.toBeNull()
     expect(screen.queryByTestId(`thread-tab-guide`)).toBeNull()
-    expect(screen.queryByTestId(`thread-guide-dot`)).toBeNull()
+    // The pager's one issue chip = its identifier alone.
+    expect(screen.getByTestId(`thread-tab-APP-5`).textContent).toBe(`APP-5`)
   })
 
   it(`keeps icon + label from md up`, () => {
@@ -426,143 +369,142 @@ describe(`ThreadTabs`, () => {
     expect(screen.getByTestId(`thread-tab-conversation`).textContent).toBe(`Conversation`)
   })
 
-  it(`pins + and Conversation left, then issues, then sessions`, () => {
+  // #EXP-1433: every `stripModeCases` row picks the chip or the group tab.
+  for (const entry of fixture.stripModeCases) {
+    it(`stripModeCases: ${entry.name}`, () => {
+      const issues = Array.from({ length: entry.input.issues }, (_, index) => issue(`APP-${index + 1}`))
+      const sessions = Array.from({ length: entry.input.sessions }, (_, index) =>
+        session(`s${index}`, `Session ${index}`)
+      )
+      render(<ThreadTabs conversation={CONVERSATION} issues={issues} sessions={sessions} />)
+      expect(screen.getByTestId(`thread-tabs`).getAttribute(`data-mode`)).toBe(entry.expected.mode)
+      const group = screen.queryByTestId(fixture.testIds.group)
+      if (entry.expected.mode === `chips`) {
+        expect(group).toBeNull()
+        expect(screen.queryAllByRole(`tab`).filter((tab) => tab.dataset.testid?.startsWith(`thread-tab-APP`))).toHaveLength(
+          entry.input.issues
+        )
+      } else {
+        expect(group).not.toBeNull()
+        expect(group!.querySelector(`[data-slot="thread-strip-group-count"]`)!.textContent).toBe(
+          String(entry.expected.count)
+        )
+        expect(screen.queryByTestId(`thread-tab-APP-1`)).toBeNull()
+      }
+    })
+  }
+
+  it(`pins + and Conversation left, the one issue chip, Stories right`, () => {
+    const onOpenIssue = vi.fn()
     render(
       <ThreadTabs
         conversation={{ ...CONVERSATION, active: true }}
-        issues={[issueItem(`APP-5`)]}
+        issues={[issue(`APP-5`)]}
         add={<span data-testid="add">+</span>}
-        sessions={[sessionItem(`Profile the launch path`)]}
+        onOpenIssue={onOpenIssue}
+        stories={{ label: `Stories`, active: false, dot: false, onSelect: () => {} }}
       />
     )
-    const strip = screen.getByTestId(`thread-tabs`)
-    expect(strip.className).not.toContain(`overflow-x-auto`)
     const order = [
       screen.getByTestId(`add`),
       screen.getByTestId(`thread-tab-conversation`),
-      screen.getByTestId(`issue-APP-5`),
-      screen.getByTestId(`thread-tab-session`),
+      screen.getByTestId(`thread-tab-APP-5`),
+      screen.getByRole(`tab`, { name: /Stories/ }),
     ]
     for (let index = 1; index < order.length; index++) {
       expect(
         order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy()
     }
+    expect(screen.getByTestId(`thread-tab-APP-5`).textContent).toContain(`Title of APP-5`)
+    fireEvent.click(screen.getByTestId(`thread-tab-APP-5`))
+    expect(onOpenIssue).toHaveBeenCalledWith(`id-APP-5`)
   })
 
-  it(`goes full → identifiers only → folds each zone into its own "+N"`, () => {
-    const issues = [issueItem(`APP-1`), issueItem(`APP-2`), issueItem(`APP-3`), issueItem(`APP-4`)]
-    const sessions = [sessionItem(`One`), sessionItem(`Two`), sessionItem(`Three`)]
-    const draw = (zone: number) => {
-      const spy = stubWidths(zone)
-      const view = render(
-        <ThreadTabs conversation={CONVERSATION} issues={issues} sessions={sessions} />
-      )
-      spy.mockRestore()
-      return view
-    }
-    // 4 × 140 + 3 × 110 + gaps fits 1000.
-    let view = draw(1000)
-    expect(screen.getByTestId(`thread-tabs`).getAttribute(`data-tier`)).toBe(`full`)
-    expect(within(screen.getByTestId(`thread-tabs-zones`)).getByText(`Title of APP-1`)).toBeTruthy()
-    view.unmount()
-    // 4 × 70 + 3 × 110 + gaps ≈ 640.
-    view = draw(660)
-    expect(screen.getByTestId(`thread-tabs`).getAttribute(`data-tier`)).toBe(`short`)
-    expect(within(screen.getByTestId(`thread-tabs-zones`)).queryByText(`Title of APP-1`)).toBeNull()
-    expect(screen.queryByTestId(`thread-tabs-more-issues`)).toBeNull()
-    view.unmount()
-    view = draw(420)
-    expect(screen.getByTestId(`thread-tabs`).getAttribute(`data-tier`)).toBe(`fold`)
-    expect(screen.getByTestId(`thread-tabs-more-issues`).textContent).toMatch(/^\+\d+$/)
-    expect(screen.getByTestId(`thread-tabs-more-sessions`).textContent).toMatch(/^\+\d+$/)
-    view.unmount()
-  })
-
-  it(`never folds the open chip away`, () => {
-    const spy = stubWidths(200)
+  it(`the group lists issues, a separator, then the whole session tree; a pick opens it`, () => {
+    const onOpenIssue = vi.fn()
+    const onOpenSession = vi.fn()
     render(
       <ThreadTabs
         conversation={CONVERSATION}
-        issues={[issueItem(`APP-1`), issueItem(`APP-2`), issueItem(`APP-3`), issueItem(`APP-4`, true)]}
-        sessions={[]}
+        issues={[issue(`APP-1`), issue(`APP-2`)]}
+        sessions={[session(`a`, `Threads impl`), session(`b`, `Android lane`, `a`)]}
+        onOpenIssue={onOpenIssue}
+        onOpenSession={onOpenSession}
       />
     )
-    spy.mockRestore()
-    expect(screen.getByTestId(`issue-APP-4`)).toBeTruthy()
-    expect(screen.getByTestId(`thread-tabs-more-issues`)).toBeTruthy()
+    const group = screen.getByTestId(fixture.testIds.group)
+    expect(group.closest(`[data-slot="strip-chip"]`)!.getAttribute(`data-active`)).toBeNull()
+    expect(group.textContent).toBe(`4`)
+    openGroup()
+    const rows = screen.getByTestId(`thread-strip-group-rows`)
+    const issueRows = rows.querySelectorAll(`[data-value]`)
+    expect([...issueRows].map((row) => row.getAttribute(`data-value`))).toEqual([`id-APP-1`, `id-APP-2`])
+    const separator = rows.querySelector(`[role="separator"]`)!
+    const tree = within(rows).getByTestId(`thread-session-tree`)
+    expect(issueRows[1]!.compareDocumentPosition(separator) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(separator.compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(tree).getAllByTestId(`thread-session-tree-row`).map((row) => row.textContent)).toEqual([
+      `Threads impl`,
+      `Android lane`,
+    ])
+    // Nothing open: no row carries the check.
+    expect(rows.querySelector(`[data-selected-glyph="check"]`)).toBeNull()
+    fireEvent.click(within(tree).getAllByTestId(`thread-session-tree-item`)[1]!)
+    expect(onOpenSession).toHaveBeenCalledWith(`b`)
+    openGroup()
+    fireEvent.click(screen.getByTestId(`thread-strip-group-rows`).querySelector(`[data-value="id-APP-2"]`)!)
+    expect(onOpenIssue).toHaveBeenCalledWith(`id-APP-2`)
+  })
+
+  it(`reads the open item's label while active; its row carries the check`, () => {
+    const issues = [issue(`APP-1`), issue(`APP-2`)]
+    const sessions = [session(`a`, `Threads impl`), session(`b`, `Android lane`, `a`)]
+    const view = render(
+      <ThreadTabs conversation={CONVERSATION} issues={issues} sessions={sessions} open={{ kind: `issue`, id: `id-APP-2` }} />
+    )
+    let group = screen.getByTestId(fixture.testIds.group)
+    expect(group.closest(`[data-slot="strip-chip"]`)!.getAttribute(`data-active`)).toBe(`true`)
+    const label = group.querySelector<HTMLElement>(`[data-slot="thread-strip-group-label"]`)!
+    expect(label.textContent).toBe(`APP-2`)
+    expect(label.style.maxWidth).toBe(`${fixture.stripGroupMaxWidth}px`)
+    expect(group.querySelector(`[data-slot="thread-strip-group-count"]`)).toBeNull()
+    openGroup()
+    const checked = screen.getByTestId(`thread-strip-group-rows`).querySelector(`[data-selected-glyph="check"]`)!
+    expect(checked.closest(`[data-value]`)!.getAttribute(`data-value`)).toBe(`id-APP-2`)
+    view.unmount()
+
+    render(
+      <ThreadTabs conversation={CONVERSATION} issues={issues} sessions={sessions} open={{ kind: `session`, id: `b` }} />
+    )
+    group = screen.getByTestId(fixture.testIds.group)
+    expect(group.textContent).toBe(`Android lane`)
+    openGroup()
+    const items = screen.getAllByTestId(`thread-session-tree-item`)
+    expect(items[1]!.getAttribute(`aria-checked`)).toBe(`true`)
+    expect(items[1]!.querySelector(`[data-selected-glyph="check"]`)).not.toBeNull()
+    expect(items[0]!.querySelector(`[data-selected-glyph="check"]`)).toBeNull()
+  })
+
+  it(`never draws a "+N", a nested chip menu or a session chip`, () => {
+    render(
+      <ThreadTabs
+        conversation={CONVERSATION}
+        issues={[issue(`APP-1`), issue(`APP-2`), issue(`APP-3`), issue(`APP-4`)]}
+        sessions={[session(`a`, `One`)]}
+      />
+    )
+    expect(document.querySelector(`[data-slot="strip-overflow"]`)).toBeNull()
+    expect(document.querySelector(`[data-slot="strip-chip-chevron"]`)).toBeNull()
+    expect(screen.queryByTestId(`thread-tab-session`)).toBeNull()
+    expect(screen.getByTestId(fixture.testIds.group).textContent).toBe(`5`)
   })
 })
 
-// EXP-1334: a folded chip = the chevron, `<chip> › <open one>`, and its
-// subtree on a CLICK (THE Menu).
-describe(`folded chips`, () => {
-  it(`read the open nested session and open the subtree rows on a click`, () => {
-    const onOpen = vi.fn()
-    render(
-      <ThreadChipSubtree
-        title="Threads impl"
-        trigger={
-          <ThreadSessionTab
-            agent="claude"
-            markState="needs_you"
-            name="Threads impl"
-            active
-            path="Android lane"
-            chevron
-          />
-        }
-      >
-        {(close) => (
-          <ThreadSessionTree
-            menu
-            rows={[
-              { sessionId: `a`, parentId: null, name: `Threads impl`, agent: `claude`, markState: `needs_you` },
-              { sessionId: `c`, parentId: `a`, name: `Android lane`, agent: `claude`, markState: `working` },
-            ]}
-            activeId="c"
-            onOpen={(id) => {
-              close()
-              onOpen(id)
-            }}
-          />
-        )}
-      </ThreadChipSubtree>
-    )
-    const chip = screen.getByTestId(`thread-tab-session`)
-    // A folded chip opens a menu, so it is no tab: its state is data-active.
-    expect(chip.getAttribute(`role`)).toBeNull()
-    expect(chip.getAttribute(`aria-selected`)).toBeNull()
-    expect(chip.closest(`[data-slot="strip-chip"]`)!.getAttribute(`data-active`)).toBe(`true`)
-    expect(chip.textContent).toContain(`› Android lane`)
-    expect(chip.querySelector(`[data-slot="strip-chip-chevron"]`)).not.toBeNull()
-    act(() => {
-      fireEvent.pointerDown(chip, { button: 0, ctrlKey: false, pointerType: `mouse` })
-    })
-    const rows = screen.getAllByTestId(`thread-session-tree-row`)
-    expect(rows.map((row) => row.textContent)).toEqual([`Threads impl`, `Android lane`])
-    expect(rows[1]!.className).toContain(`bg-glass-active`)
-    fireEvent.click(screen.getAllByTestId(`thread-session-tree-item`)[1]!)
-    expect(onOpen).toHaveBeenCalledWith(`c`)
-  })
-
-  it(`lists an issue subtree with its identifiers and guides`, () => {
-    const onOpen = vi.fn()
-    render(
-      <ThreadIssueTree
-        rows={[
-          { issueId: `1`, identifier: `APP-1`, title: `Parent`, status: { icon: `circle-dashed` }, depth: 0 },
-          { issueId: `2`, identifier: `APP-2`, title: `Child`, status: { icon: `circle-dashed` }, depth: 1 },
-        ]}
-        activeId="2"
-        onOpen={onOpen}
-      />
-    )
-    const rows = screen.getAllByTestId(`thread-issue-tree-row`)
-    expect(rows.map((row) => row.textContent)).toEqual([`APP-1Parent`, `APP-2Child`])
-    expect(rows[1]!.querySelector(`[data-testid="tree-guides"]`)).not.toBeNull()
-    fireEvent.click(rows[0]!)
-    expect(onOpen).toHaveBeenCalledWith(`1`)
+describe(`ThreadIssueTab`, () => {
+  it(`draws no glyph for an unsynced status`, () => {
+    render(<ThreadIssueTab identifier="APP-1" title="Parent" status={null} active={false} data-testid="chip" />)
+    expect(screen.getByTestId(`chip`).querySelector(`svg`)).toBeNull()
   })
 })
 
