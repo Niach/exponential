@@ -12,6 +12,8 @@
 
 const DB_NAME = `exp-enet`
 const STORE = `identities`
+/** EXP-1459: this install's unwrapped tree keys (tree-key-store.ts). */
+export const TREE_KEY_STORE = `tree-keys`
 
 export type SealedIdentity = {
   key: CryptoKey
@@ -34,15 +36,23 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
 }
 
 function openDb(): Promise<IDBDatabase> {
-  const req = indexedDB.open(DB_NAME, 1)
-  req.onupgradeneeded = () => req.result.createObjectStore(STORE)
+  const req = indexedDB.open(DB_NAME, 2)
+  req.onupgradeneeded = () => {
+    for (const name of [STORE, TREE_KEY_STORE]) {
+      if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name)
+    }
+  }
   return request(req)
 }
 
-async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>) {
+export async function withStore<T>(
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest<T>,
+  name: string = STORE
+) {
   const db = await openDb()
   try {
-    return await request(run(db.transaction(STORE, mode).objectStore(STORE)))
+    return await request(run(db.transaction(name, mode).objectStore(name)))
   } finally {
     db.close()
   }
@@ -58,7 +68,7 @@ export const indexedDbIdentityStore: IdentityStore = {
   },
 }
 
-async function seal(identity: Uint8Array): Promise<SealedIdentity> {
+export async function sealSecret(identity: Uint8Array): Promise<SealedIdentity> {
   const key = await crypto.subtle.generateKey({ name: `AES-GCM`, length: 256 }, false, [
     `encrypt`,
     `decrypt`,
@@ -68,7 +78,7 @@ async function seal(identity: Uint8Array): Promise<SealedIdentity> {
   return { key, iv, sealed }
 }
 
-async function open(value: SealedIdentity): Promise<Uint8Array> {
+export async function openSecret(value: SealedIdentity): Promise<Uint8Array> {
   const plain = await crypto.subtle.decrypt({ name: `AES-GCM`, iv: value.iv }, value.key, value.sealed)
   return new Uint8Array(plain)
 }
@@ -81,13 +91,25 @@ export async function loadOrCreateIdentity(
 ): Promise<Uint8Array> {
   const existing = await store.get(userId)
   if (existing) {
-    const identity = await open(existing).catch(() => undefined)
+    const identity = await openSecret(existing).catch(() => undefined)
     if (identity?.length === 32) return identity
   }
   const identity = generate()
   if (identity.length !== 32) throw new Error(`identity must be 32 bytes`)
-  await store.put(userId, await seal(identity))
+  await store.put(userId, await sealSecret(identity))
   return identity
+}
+
+/** This account's identity in this profile, when one exists (a tab that
+ *  does not run the node only reads it: the node's tab mints it). */
+export async function loadIdentity(
+  userId: string,
+  store: IdentityStore = indexedDbIdentityStore
+): Promise<Uint8Array | undefined> {
+  const existing = await store.get(userId)
+  if (!existing) return undefined
+  const identity = await openSecret(existing).catch(() => undefined)
+  return identity?.length === 32 ? identity : undefined
 }
 
 /** Drops the identity (after `installs.revoke`: a revoked id never registers again). */
