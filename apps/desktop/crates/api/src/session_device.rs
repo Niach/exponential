@@ -210,12 +210,6 @@ pub struct SessionReport {
     /// server strips the key (its zod object is not strict).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
-    /// EXP-1334: the row's `plan_mode` as the run is in it. EXP-1280: no
-    /// device writes it any more (plan mode is Exponential's: a person's
-    /// `sessions.configure` or the server's approval moves the row); kept
-    /// for the wire.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan_mode: Option<bool>,
     /// EXP-1334: the agent's model as the run is on it (a `/model` switch
     /// mid-session), so a resume launches on it. The server ignores one
     /// outside the agent's vocabulary.
@@ -601,7 +595,6 @@ mod tests {
             title: Some("Fix the login".to_string()),
             sealed_title: None,
             account: Some("0a1b2c3d".to_string()),
-            plan_mode: Some(false),
             model: Some("opus".to_string()),
             device_id: Some("dev-1".to_string()),
             interrupted: Some(false),
@@ -614,7 +607,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"sessionId":"s1","status":"running","needsInput":true,"background":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","planMode":false,"model":"opus","deviceId":"dev-1","interrupted":false,"lost":"process_lost","midTurn":true}"#
+            r#"{"sessionId":"s1","status":"running","needsInput":true,"background":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","model":"opus","deviceId":"dev-1","interrupted":false,"lost":"process_lost","midTurn":true}"#
         );
 
         // Some(None) = an explicit null (the wall cleared); a no-reset wall

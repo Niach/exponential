@@ -683,9 +683,6 @@ export const sessionsRouter = router({
         // rotation may move it off the row's), so the row says it and a
         // person's later pick of the old one is a real switch.
         account: z.string().min(1).max(64).optional(),
-        // S-3: plan mode is gone; an older device still reports it
-        // (accepted, never stored).
-        planMode: z.boolean().optional(),
         // EXP-1334: the agent's model as the run reports it (a `/model`
         // switch mid-session), so a resume launches on it. Outside the
         // agent's vocabulary (a full model id) = ignored, never refused.

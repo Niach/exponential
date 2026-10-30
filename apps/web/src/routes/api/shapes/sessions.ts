@@ -9,10 +9,7 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // and their sub-sessions). ONE visibility rule: `shared OR user_id = me`
 // inside the member's teams. A device picks up its `queued` rows from this
 // shape (the DB is the bus). SERVER-ONLY, behind the allowlist:
-// `mcp_server_ids` and `wake_on`, and the LEGACY columns no client at the
-// floor reads (`kind`, `dispatch`, `caption`, `aside`, the move pair,
-// `spawned_by_session_id`, `action_*`, the agent facets; NEW-8 drops them
-// from the table). NEW-2 adds `agent_id`.
+// `mcp_server_ids` and `wake_on`. NEW-2 adds `agent_id`.
 export const SESSION_COLUMNS = [
   `id`,
   `team_id`,

@@ -1582,7 +1582,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     })
   })
 
-  it(`S-3: the device's plan-mode report is accepted and never stored; the model follows`, async () => {
+  it(`S-3: a plan-mode send is never stored; the model the device reports follows`, async () => {
     const w = await world()
     const root = await sendSession({
       userId: w.owner,
@@ -1594,8 +1594,6 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     })
     const host = caller(w.owner)
     expect((await row(child.sessionId)).planMode).toBe(false)
-    await host.report({ sessionId: root.sessionId, planMode: true })
-    expect((await row(root.sessionId)).planMode).toBe(false)
 
     // The model the run reports (a `/model` switch) follows onto the row; a
     // value outside the agent's vocabulary is ignored, never refused.
