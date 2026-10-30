@@ -21,6 +21,7 @@
 // No private hook: if one is ever needed, the SDK's API is incomplete.
 
 import { useState, useSyncExternalStore } from "react"
+import { eq } from "@tanstack/react-db"
 import { ExponentialHost, isPrivateHost } from "@exponential_app/eui"
 import type { FunctionCallInfo, HostFunction, HostOptions, MediaRequest, ParsedSource, SourceEmit, Transport } from "@exponential_app/eui"
 import { useHostStatus } from "@exponential_app/eui-react"
@@ -50,6 +51,7 @@ import { trpc } from "@/lib/trpc-client"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { readinessAgo } from "@/lib/coding-readiness"
 import { readJsonRpcAnswer } from "@/lib/mcp-oauth/json-rpc-reader"
+import { incrementalTable, memoByVersions, type ChangeSource, type IncrementalTable } from "@/lib/incremental-table"
 import { destructiveTool, exponentialUiConsentPrompt, promptActions } from "@/lib/prompts"
 
 /** The consent card's store: one pending `ask` call at a time, answered
@@ -158,96 +160,148 @@ function devicesSource(_source: ParsedSource, emit: SourceEmit): () => void {
 const iso = (v: Date | string | null | undefined): string => (v === null || v === undefined ? `` : new Date(v).toISOString())
 const day = (v: Date | string | null | undefined): string | null => (v === null || v === undefined ? null : typeof v === `string` ? v.slice(0, 10) : new Date(v).toISOString().slice(0, 10))
 
-/** VAPP-119: the team's synced rows as the contract's `SourceStore` (the
- *  fixture's shapes), read off the collections at call time. */
-export function sourceStore(teamId: string | null): SourceStore {
-  const boards = boardCollection.toArray.filter((b) => b.teamId === teamId)
-  const boardIds = new Set(boards.map((b) => b.id))
-  return {
-    boards: boards.map((b) => ({ id: b.id, slug: b.slug, name: b.name, prefix: b.prefix, icon: b.icon ?? null, color: b.color ?? null, sortOrder: b.sortOrder, deletedAt: b.deletedAt ? iso(b.deletedAt) : null })),
-    issues: issueCollection.toArray
-      .filter((i) => boardIds.has(i.boardId))
-      .map((i) => ({
-        id: i.id,
-        boardId: i.boardId,
-        identifier: i.identifier,
-        title: i.title,
-        status: i.status,
-        priority: i.priority ?? null,
-        assigneeId: i.assigneeId ?? null,
-        creatorId: i.creatorId ?? null,
-        dueDate: day(i.dueDate),
-        sortOrder: i.sortOrder,
-        createdAt: iso(i.createdAt),
-        updatedAt: iso(i.updatedAt),
-      })),
-    members: teamMemberCollection.toArray.filter((m) => m.teamId === teamId).map((m) => ({ userId: m.userId, role: m.role })),
-    users: userCollection.toArray.map((u) => ({ id: u.id, name: u.name, email: u.email ?? null, image: u.image ?? null })),
-    sessions: sessionCollection.toArray
-      .filter((x) => x.teamId === teamId)
-      .map((x) => ({
-        id: x.id,
-        parentId: x.parentId ?? null,
-        agentId: x.agentId ?? null,
-        appId: x.appId ?? null,
-        userId: x.userId ?? null,
-        status: x.status,
-        busy: Boolean(x.busy),
-        needsInput: Boolean(x.needsInput),
-        title: x.title ?? null,
-        createdAt: iso(x.createdAt),
-        updatedAt: iso(x.updatedAt),
-      })),
-    comments: commentCollection.toArray
-      .filter((c) => c.teamId === teamId)
-      .map((c) => ({ id: c.id, issueId: c.issueId, authorId: c.authorId ?? null, parentId: c.parentId ?? null, source: String(c.source), body: c.body, createdAt: iso(c.createdAt) })),
-    attachments: attachmentCollection.toArray
-      .filter((a) => a.teamId === teamId)
-      .map((a) => ({
-        id: a.id,
-        issueId: a.issueId ?? null,
-        commentId: a.commentId ?? null,
-        uploaderId: a.uploaderId ?? null,
-        filename: a.filename,
-        contentType: a.contentType,
-        sizeBytes: a.sizeBytes,
-        width: a.width ?? null,
-        height: a.height ?? null,
-        createdAt: iso(a.createdAt),
-      })),
-  }
+type Row<C> = C extends { toArray: readonly (infer R)[] } ? R : never
+/** A collection as the incremental table's change source (TanStack DB's
+ *  change messages carry the full row). */
+const changes = <C extends { subscribeChanges: unknown }>(c: C) => c as unknown as ChangeSource<Row<C>>
+
+/** The `SourceStore` tables (app-sources.json) and the collections a
+ *  source reads: only those are kept. */
+type StoreTable = keyof SourceStore
+const SOURCE_TABLES: Record<string, readonly StoreTable[]> = {
+  issues: [`issues`, `boards`, `users`],
+  boards: [`boards`],
+  members: [`members`, `users`],
+  sessions: [`sessions`],
+  comments: [`comments`, `issues`, `boards`, `users`],
+  attachments: [`attachments`, `issues`, `boards`, `users`],
 }
 
-/** The collections a source reads (subscribed for the binding's life). */
-const SOURCE_COLLECTIONS: Record<string, { subscribeChanges: (cb: () => void, o?: { includeInitialState?: boolean }) => { unsubscribe: () => void }; preload: () => Promise<unknown> }[]> = {
-  issues: [issueCollection, boardCollection, userCollection],
-  boards: [boardCollection],
-  members: [teamMemberCollection, userCollection],
-  sessions: [sessionCollection],
-  comments: [commentCollection, issueCollection, boardCollection, userCollection],
-  attachments: [attachmentCollection, issueCollection, boardCollection, userCollection],
+const STORE_COLLECTIONS: Record<StoreTable, { preload: () => Promise<unknown> }> = {
+  boards: boardCollection,
+  issues: issueCollection,
+  members: teamMemberCollection,
+  users: userCollection,
+  sessions: sessionCollection,
+  comments: commentCollection,
+  attachments: attachmentCollection,
+}
+
+/** VAPP-119 / VAPP-159: the team's synced rows as the contract's
+ *  `SourceStore` (the fixture's shapes), kept INCREMENTALLY: each table maps
+ *  only the rows a change names (`incrementalTable`), the store's arrays are
+ *  rebuilt once per change batch, and only the `tables` a source reads are
+ *  subscribed. Issues follow the team through its boards (memoized on both
+ *  tables' versions). */
+export function createTeamStore(teamId: string | null, tables: readonly StoreTable[], onChange: () => void) {
+  const want = new Set(tables)
+  const kept: IncrementalTable<unknown>[] = []
+  const keep = <T, R>(name: StoreTable, source: ChangeSource<T>, map: (row: T) => R | null): IncrementalTable<R> | null => {
+    if (!want.has(name)) return null
+    const table = incrementalTable(source, map, () => onChange())
+    kept.push(table as IncrementalTable<unknown>)
+    return table
+  }
+  const boards = keep(`boards`, changes(boardCollection), (b) =>
+    b.teamId === teamId ? { id: b.id, slug: b.slug, name: b.name, prefix: b.prefix, icon: b.icon ?? null, color: b.color ?? null, sortOrder: b.sortOrder, deletedAt: b.deletedAt ? iso(b.deletedAt) : null } : null
+  )
+  const issues = keep(`issues`, changes(issueCollection), (i) => ({
+    id: i.id,
+    boardId: i.boardId,
+    identifier: i.identifier,
+    title: i.title,
+    status: i.status,
+    priority: i.priority ?? null,
+    assigneeId: i.assigneeId ?? null,
+    creatorId: i.creatorId ?? null,
+    dueDate: day(i.dueDate),
+    sortOrder: i.sortOrder,
+    createdAt: iso(i.createdAt),
+    updatedAt: iso(i.updatedAt),
+  }))
+  const members = keep(`members`, changes(teamMemberCollection), (m) => (m.teamId === teamId ? { userId: m.userId, role: m.role } : null))
+  const users = keep(`users`, changes(userCollection), (u) => ({ id: u.id, name: u.name, email: u.email ?? null, image: u.image ?? null }))
+  const sessions = keep(`sessions`, changes(sessionCollection), (x) =>
+    x.teamId === teamId
+      ? {
+          id: x.id,
+          parentId: x.parentId ?? null,
+          agentId: x.agentId ?? null,
+          appId: x.appId ?? null,
+          userId: x.userId ?? null,
+          status: x.status,
+          busy: Boolean(x.busy),
+          needsInput: Boolean(x.needsInput),
+          title: x.title ?? null,
+          createdAt: iso(x.createdAt),
+          updatedAt: iso(x.updatedAt),
+        }
+      : null
+  )
+  const comments = keep(`comments`, changes(commentCollection), (c) =>
+    c.teamId === teamId ? { id: c.id, issueId: c.issueId, authorId: c.authorId ?? null, parentId: c.parentId ?? null, source: String(c.source), body: c.body, createdAt: iso(c.createdAt) } : null
+  )
+  const attachments = keep(`attachments`, changes(attachmentCollection), (a) =>
+    a.teamId === teamId
+      ? {
+          id: a.id,
+          issueId: a.issueId ?? null,
+          commentId: a.commentId ?? null,
+          uploaderId: a.uploaderId ?? null,
+          filename: a.filename,
+          contentType: a.contentType,
+          sizeBytes: a.sizeBytes,
+          width: a.width ?? null,
+          height: a.height ?? null,
+          createdAt: iso(a.createdAt),
+        }
+      : null
+  )
+  const teamIssues = memoByVersions(
+    () => [boards?.version() ?? 0, issues?.version() ?? 0],
+    () => {
+      const boardIds = new Set((boards?.rows() ?? []).map((b) => b.id))
+      return (issues?.rows() ?? []).filter((i) => boardIds.has(i.boardId))
+    }
+  )
+  return {
+    store: (): SourceStore => ({
+      boards: boards?.rows() ?? [],
+      issues: teamIssues(),
+      members: members?.rows() ?? [],
+      users: users?.rows() ?? [],
+      sessions: sessions?.rows() ?? [],
+      comments: comments?.rows() ?? [],
+      attachments: attachments?.rows() ?? [],
+    }),
+    unsubscribe: () => kept.forEach((t) => t.unsubscribe()),
+  }
 }
 
 /** VAPP-119: `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`,
  *  `exp:comments`, `exp:attachments` → the fixture's value over the team's
- *  rows (fixtures/app-sources.json), on every change of the collections the
- *  source reads; a value equal to the last one is not re-emitted. */
+ *  rows (fixtures/app-sources.json), on every change of the tables the
+ *  source reads (kept incrementally, `createTeamStore`); a value equal to
+ *  the last one is not re-emitted. */
 function teamSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope): () => void {
+  const tables = SOURCE_TABLES[source.name] ?? []
   let last: string | null = null
+  let ready = false
   const push = () => {
-    const value = sourceValue(source.name, source.params, sourceStore(scope.teamId), { me: scope.me })
+    if (!ready) return
+    const value = sourceValue(source.name, source.params, team.store(), { me: scope.me })
     const key = JSON.stringify(value)
     if (key === last) return
     last = key
     emit(value)
   }
-  const collections = SOURCE_COLLECTIONS[source.name] ?? []
-  const subs = collections.map((c) => c.subscribeChanges(push))
+  const team = createTeamStore(scope.teamId, tables, push)
+  ready = true
   // A change subscription alone never starts a shape: an app opened before
   // any board would bind an empty list for good (VAPP-110).
-  void Promise.all(collections.map((c) => c.preload())).then(push)
+  void Promise.all(tables.map((t) => STORE_COLLECTIONS[t].preload())).then(push)
   push()
-  return () => subs.forEach((sub) => sub.unsubscribe())
+  return () => team.unsubscribe()
 }
 
 /** The app whose records `exp:records` reads: the hosting app, or (`app=`)
@@ -261,31 +315,21 @@ export interface RecordsScope {
 /** VAPP-122: `exp:records?kind=…` → the fixture's value over the synced
  *  `app_records` rows of the app (names off the users shape), on every
  *  change of the records, the users or the apps (an `app=` slug may sync
- *  later); a value equal to the last one is not re-emitted. */
+ *  later); a value equal to the last one is not re-emitted. VAPP-159: the
+ *  records load ON DEMAND, narrowed by the app (app-records.json SYNC), and
+ *  both tables are kept incrementally. */
 function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope): () => void {
   const query = parseRecordsQuery(recordsSourceParams(source) ?? source.params)
   let last: string | null = null
+  let ready = false
+  let appId: string | null = null
+  let records: IncrementalTable<AppRecordRow> | null = null
   const push = () => {
-    let appId = scope.appId
-    if (query.app) {
-      const other = appCollection.toArray.find((a) => a.slug === query.app && a.teamId === scope.teamId && !a.deletedAt)
-      appId = other?.id ?? null
-    }
-    const rows: AppRecordRow[] = appId
-      ? appRecordCollection.toArray
-          .filter((r) => r.appId === appId)
-          .map((r) => ({
-            id: r.id,
-            kind: r.kind,
-            data: r.data,
-            createdBy: r.createdBy,
-            createdAt: new Date(r.createdAt).toISOString(),
-            updatedAt: new Date(r.updatedAt).toISOString(),
-          }))
-      : []
+    if (!ready) return
+    const rows = records?.rows() ?? []
     const names: Record<string, string> = {}
     for (const row of rows) {
-      if (row.createdBy && !(row.createdBy in names)) names[row.createdBy] = userCollection.toArray.find((u) => u.id === row.createdBy)?.name ?? ``
+      if (row.createdBy && !(row.createdBy in names)) names[row.createdBy] = users.get(row.createdBy) ?? ``
     }
     const value = recordsValue(rows, query, { me: scope.me, now: new Date().toISOString(), names })
     const key = JSON.stringify(value)
@@ -293,10 +337,50 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
     last = key
     emit(value)
   }
-  const subs = [appRecordCollection.subscribeChanges(push), userCollection.subscribeChanges(push), appCollection.subscribeChanges(push)]
-  void appRecordCollection.preload().then(push)
+  const users = incrementalTable(changes(userCollection), (u) => u.name, push)
+  /** The app the binding reads (the hosting one, or `app=` by slug); a
+   *  move re-subscribes the records to that app's subset. */
+  const resolve = () => {
+    const next = query.app
+      ? (appCollection.toArray.find((a) => a.slug === query.app && a.teamId === scope.teamId && !a.deletedAt)?.id ?? null)
+      : scope.appId
+    if (next === appId && (records || !next)) return
+    appId = next
+    records?.unsubscribe()
+    records = next
+      ? incrementalTable(
+          changes(appRecordCollection),
+          (r) =>
+            r.appId === next
+              ? {
+                  id: r.id,
+                  kind: r.kind,
+                  data: r.data,
+                  createdBy: r.createdBy,
+                  createdAt: new Date(r.createdAt).toISOString(),
+                  updatedAt: new Date(r.updatedAt).toISOString(),
+                }
+              : null,
+          push,
+          (r: { appId: unknown }) => eq(r.appId, next)
+        )
+      : null
+  }
+  const apps = query.app
+    ? appCollection.subscribeChanges(() => {
+        resolve()
+        push()
+      })
+    : null
+  if (query.app) void appCollection.preload()
+  resolve()
+  ready = true
   push()
-  return () => subs.forEach((sub) => sub.unsubscribe())
+  return () => {
+    apps?.unsubscribe()
+    records?.unsubscribe()
+    users.unsubscribe()
+  }
 }
 
 /** A JSON-RPC `error` reply to `harness.mcp`: the server's message, with

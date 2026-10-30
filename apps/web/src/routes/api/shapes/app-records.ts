@@ -8,6 +8,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // the trigger-kept `app_deleted_at` mirror of its app), so a trashed record
 // or a trashed app's records never reach a client and the shape identity
 // stays byte-stable. The mirror column itself stays behind the allowlist.
+// VAPP-159: the web loads it ON DEMAND, one app's subset at a time
+// (app-records.json SYNC); the natives keep the whole shape.
 export const APP_RECORD_COLUMNS = [
   `id`,
   `app_id`,
@@ -25,6 +27,7 @@ export const Route = createFileRoute(`/api/shapes/app-records`)({
       GET: createShapeRouteHandler({
         table: `app_records`,
         columns: APP_RECORD_COLUMNS,
+        subsets: true,
         getWhere: async (userId) => {
           if (userId) {
             const teamIds = await getUserTeamIds(userId)

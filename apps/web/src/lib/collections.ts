@@ -228,10 +228,14 @@ export const appVersionCollection = createCollection(
   })
 )
 // VAPP-122: the apps' records (their own data; `exp:records` resolves over
-// it, the app settings page counts it).
+// it, the app settings page counts it). VAPP-159: ON DEMAND like
+// `messages` (#EXP-1380): a browser loads the records of the apps it opens
+// as Electric subsets, never the team's whole shape. Every query on this
+// collection MUST narrow by `appId`.
 export const appRecordCollection = createCollection(
   electricCollectionOptions({
     id: `app_records`,
+    syncMode: `on-demand`,
     shapeOptions: shapeOptions(`/api/shapes/app-records`),
     schema: selectSyncedAppRecordSchema,
     getKey: (item) => item.id,
