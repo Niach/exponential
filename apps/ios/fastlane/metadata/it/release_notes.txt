@@ -1,3 +1,2 @@
-- Le storie scorrono immagine per immagine a schermo intero, ognuna con la sua barra di avanzamento
-- Le notifiche si aprono sul tuo telefono e mostrano il messaggio completo
-- Il menu + dell'editor elenca i prompt del tuo team; la pagina dell'Assistente non ha più il campo istruzioni
+- Un pulsante di chiamata grigio ora dice cosa manca e dove risolverlo
+- Le schede che un agente aggiorna vengono modificate sul posto e passano in fondo alla chat

@@ -1,3 +1,2 @@
-- As histórias avançam imagem a imagem em ecrã inteiro, cada uma com a sua barra de progresso
-- As notificações abrem no teu telemóvel e mostram a mensagem completa
-- O menu + do editor lista os prompts da tua equipa; a página do Assistente já não tem campo de instruções
+- Um botão de chamada desativado diz agora o que falta e onde corrigir
+- Os cartões que um agente atualiza são editados no lugar e passam para o fim do chat

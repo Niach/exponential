@@ -1,3 +1,2 @@
-- Poveștile rulează imagine cu imagine pe tot ecranul, fiecare cu propria bară de progres
-- Notificările se deschid pe telefonul tău și arată mesajul complet
-- Meniul + din editor listează prompturile echipei tale; pagina Asistentului nu mai are câmp de instrucțiuni
+- Un buton de apel gri spune acum ce lipsește și unde poți rezolva
+- Cardurile pe care un agent le actualizează sunt editate pe loc și se mută la finalul chatului

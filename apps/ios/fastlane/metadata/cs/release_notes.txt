@@ -1,3 +1,2 @@
-- Příběhy běží snímek po snímku přes celou obrazovku, každý s vlastním ukazatelem průběhu
-- Oznámení se otevřou přímo v telefonu a ukážou celou zprávu
-- Nabídka + v editoru zobrazuje prompty tvého týmu; stránka Asistenta už nemá pole s pokyny
+- Zašedlé tlačítko hovoru teď řekne, co chybí a kde to opravit
+- Karty, které agent aktualizuje, se upraví na místě a přesunou se na konec chatu

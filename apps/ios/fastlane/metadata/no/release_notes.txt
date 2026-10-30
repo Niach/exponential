@@ -1,3 +1,2 @@
-- Stories spilles bilde for bilde i fullskjerm, hver med sin egen fremdriftslinje
-- Varsler åpnes på telefonen din og viser hele meldingen
-- Redigeringsfeltets +-meny viser teamets prompter; Assistent-siden har ikke lenger et instruksjonsfelt
+- En grå anropsknapp sier nå hva som mangler og hvor du fikser det
+- Kort som en agent oppdaterer, redigeres på stedet og flyttes nederst i chatten

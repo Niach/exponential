@@ -1,3 +1,2 @@
-- Priče se prikazuju slika po slika preko cijelog zaslona, svaka sa svojom trakom napretka
-- Obavijesti se otvaraju na tvom telefonu i prikazuju cijelu poruku
-- Izbornik + u uređivaču prikazuje promptove tvog tima; stranica Asistenta više nema polje za upute
+- Zasivljeni gumb za poziv sada kaže što nedostaje i gdje to popraviti
+- Kartice koje agent ažurira uređuju se na mjestu i premještaju na dno razgovora

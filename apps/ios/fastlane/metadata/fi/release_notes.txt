@@ -1,3 +1,2 @@
-- Tarinat etenevät kuva kerrallaan koko näytöllä, jokaisella oma edistymispalkki
-- Ilmoitukset avautuvat puhelimessasi ja näyttävät koko viestin
-- Kirjoituskentän +-valikko näyttää tiimisi promptit; Avustajan sivulla ei ole enää ohjekenttää
+- Harmaa soittopainike kertoo nyt, mitä puuttuu ja mistä sen voi korjata
+- Agentin päivittämät kortit muokataan paikallaan ja ne siirtyvät keskustelun loppuun

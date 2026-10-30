@@ -30,7 +30,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `Calls say what's missing`,
     summary: `A greyed-out call button now names the real cause and where to fix it, and the Assistant only runs on devices that can speak.`,
     body: `- **Calls say what's missing**: when the call button is off, its reason names the real cause and where to fix it: set up your Assistant, run it on a desktop in Settings → Assistant, or restart Exponential on a device whose voice failed to load. It no longer reads "getting its voice ready" forever.
-- **Assistant devices**: the Assistant's Runs on picker lists only your desktops, because servers and CLI daemons can't speak.`,
+- **Assistant devices**: the Assistant's Runs on picker lists only your desktops, because servers and CLI daemons can't speak.
+- **Desktop transcripts scroll again**: scrolling up in a running session stays put; only a new row brings you back to the bottom.
+- **Cleaner agent cards**: a card an agent updates is edited in place and moves to the bottom of the chat, and cards no longer draw a card inside a card.`,
   },
   {
     id: `2026-10-30-stories-frames`,

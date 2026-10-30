@@ -1,3 +1,2 @@
-- Les stories défilent image par image en plein écran, chacune avec sa propre barre de progression
-- Les notifications s'ouvrent sur ton téléphone et affichent le message complet
-- Le menu + de l'éditeur liste les prompts de ton équipe ; la page de l'Assistant n'a plus de champ d'instructions
+- Un bouton d'appel grisé indique désormais ce qui manque et où le corriger
+- Les cartes qu'un agent met à jour sont modifiées sur place et passent en bas de la discussion
