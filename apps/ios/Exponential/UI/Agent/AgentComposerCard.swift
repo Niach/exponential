@@ -194,7 +194,7 @@ struct AgentComposerCard: View {
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
         // Issue and the runner submenus are pages of the sheet itself.
-        case .implementIssue, .device, .account, .model, .repository, .subagents, .ultracode, .computerUse: break
+        case .implementIssue, .prompts, .device, .account, .model, .repository, .subagents, .ultracode, .computerUse: break
         }
     }
 

@@ -47,7 +47,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  * as its sheet arm): the rows of [ComposerMenu.composerMenuLayout] in a
  * bottom sheet — S-3: Photo or file, Issue › | Device ›, Account ›,
  * Model ›, Repository › | Effort ›, Subagents ›, Ultracode | MCP servers ›,
- * Computer use, each only on its surface and while its condition holds. SLOP-28 (EXP-1259 D5): Implement issue
+ * Computer use, each only on its surface and while its condition holds.
+ * #EXP-1434: Prompts › (after Issue, while the team has a prompt) pushes
+ * [ComposerPromptsPage] as a page of [pages]. SLOP-28 (EXP-1259 D5): Implement issue
  * PUSHES a page inside this sheet ([issuePage]: THE search list, back
  * returns to the rows); the other submenu
  * rows close it and open their picker sheet (two stacked sheets are a dead
@@ -184,6 +186,7 @@ internal fun ComposerPlusMenuSheet(
 /** The row's concept glyph (fixture `rows[].icon`, ×4). */
 internal fun composerMenuGlyph(id: ComposerMenuRowId): ImageVector = when (id) {
     ComposerMenuRowId.ImplementIssue -> ExpIcons.editorIssueRef
+    ComposerMenuRowId.Prompts -> ExpIcons.codingCommand
     ComposerMenuRowId.AddFile -> ExpIcons.uiAttach
     ComposerMenuRowId.Device -> ExpIcons.navDevices
     ComposerMenuRowId.Account -> ExpIcons.settingsAccount
@@ -216,5 +219,43 @@ private fun SubmenuTrailing(value: String?) {
             Spacer(Modifier.width(6.dp))
         }
         Icon(ExpIcons.uiChevronRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = muted)
+    }
+}
+
+/**
+ * #EXP-1434 (composer-menu.json `prompts`): Prompts › = THE search list over
+ * the team's prompts in the `/` menu's order (row = the prompt's icon + its
+ * name; the input filters by slash name like the `/` filter). [onPick] does
+ * exactly what the `/` menu's pick does on that composer; the caller closes.
+ */
+@Composable
+internal fun ComposerPromptsPage(
+    prompts: List<com.exponential.app.domain.SlashPrompt>,
+    onPick: (com.exponential.app.domain.SlashPrompt) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val visible = remember(prompts, query) {
+        val needle = com.exponential.app.domain.SlashCommands.promptSlashName(query)
+        prompts.filter { it.slashName.startsWith(needle) }
+    }
+    val byId = remember(prompts) { prompts.associateBy { it.id } }
+    val items = remember(visible) {
+        visible.map {
+            com.exponential.app.ui.components.picker.PickerItem(
+                value = it.id,
+                label = it.name,
+                icon = it.icon?.let(ExpIcons::byName) ?: ExpIcons.actionDefault,
+            )
+        }
+    }
+    Column(modifier = Modifier.fillMaxWidth().testTag("agent-composer-prompts-picker")) {
+        com.exponential.app.ui.components.SearchListPanel(
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = "Search",
+            items = items,
+            onPick = { item -> byId[item.value]?.let(onPick) },
+            emptyText = "No results",
+        )
     }
 }

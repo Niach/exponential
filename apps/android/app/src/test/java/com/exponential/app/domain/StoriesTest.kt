@@ -50,6 +50,7 @@ class StoriesTest {
         put("createdAt", story.createdAt)
         put("meta", story.meta)
         put("title", nullable(story.title))
+        put("description", nullable(story.description))
         put(
             "pictures",
             JsonArray(
@@ -103,10 +104,13 @@ class StoriesTest {
         val progress = fixture.getValue("progress").jsonObject
         assertEquals(progress.str("height")!!.toFloat(), Stories.Progress.HEIGHT)
         assertEquals(progress.str("gap")!!.toFloat(), Stories.Progress.GAP)
+        assertEquals(progress.str("storyGap")!!.toFloat(), Stories.Progress.STORY_GAP)
         val viewer = fixture.getValue("viewer").jsonObject
         assertEquals(viewer.str("width")!!.toFloat(), Stories.Viewer.WIDTH)
         assertEquals(viewer.str("height")!!.toFloat(), Stories.Viewer.HEIGHT)
         assertEquals(viewer.str("radius")!!.toFloat(), Stories.Viewer.RADIUS)
+        assertEquals(viewer.str("scrimHeight")!!.toFloat(), Stories.Viewer.SCRIM_HEIGHT)
+        assertEquals(viewer.str("scrimFade")!!.toFloat(), Stories.Viewer.SCRIM_FADE)
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(
             mapOf(
@@ -236,5 +240,68 @@ class StoriesTest {
             )
             assertEquals(case.str("name"), case.getValue("expected"), ring?.let(::encode) ?: JsonNull)
         }
+    }
+
+    private fun storyOf(json: JsonObject) = Stories.Story(
+        id = json.str("id")!!,
+        sessionId = json.str("sessionId")!!,
+        rootId = json.str("rootId")!!,
+        sessionName = json.str("sessionName")!!,
+        kind = Stories.Kind.entries.first { it.wire == json.str("kind") },
+        waiting = json.getValue("waiting").jsonPrimitive.boolean,
+        seen = json.getValue("seen").jsonPrimitive.boolean,
+        createdAt = json.long("createdAt")!!,
+        meta = json.str("meta")!!,
+        title = json.str("title"),
+        description = json.str("description"),
+        pictures = json.getValue("pictures").jsonArray.map { it.jsonObject }.map {
+            Stories.Picture(
+                label = it.str("label")!!,
+                attachmentId = it.str("attachmentId")!!,
+                width = it.str("width")?.toDouble(),
+                height = it.str("height")?.toDouble(),
+                caption = it.str("caption"),
+            )
+        },
+        surface = json.getValue("surface").jsonPrimitive.boolean,
+        text = json.str("text"),
+        footer = Stories.Footer.entries.first { it.wire == json.str("footer") },
+        autoAdvanceMs = json.long("autoAdvanceMs"),
+    )
+
+    private fun encode(frame: Stories.Frame) = buildJsonObject {
+        put("story", frame.story)
+        put("storyId", frame.storyId)
+        put("index", frame.index)
+        put("count", frame.count)
+        put("kind", frame.kind.wire)
+        put("picture", frame.picture?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("title", nullable(frame.title))
+        put("description", nullable(frame.description))
+        put("footer", frame.footer.wire)
+        put("autoAdvanceMs", frame.autoAdvanceMs?.let { JsonPrimitive(it) } ?: JsonNull)
+    }
+
+    @Test
+    fun `replays every frame case`() {
+        val cases = fixture.getValue("frameCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val stories = case.getValue("input").jsonObject.getValue("stories").jsonArray.map { storyOf(it.jsonObject) }
+            val frames = Stories.storyFrames(stories)
+            assertEquals(case.str("name"), case.getValue("expected"), JsonArray(frames.map(::encode)))
+        }
+    }
+
+    @Test
+    fun `storyFrameIndex opens a tile at its first frame and a thumbnail at its picture`() {
+        val case = fixture.getValue("frameCases").jsonArray[1].jsonObject
+        val frames = Stories.storyFrames(
+            case.getValue("input").jsonObject.getValue("stories").jsonArray.map { storyOf(it.jsonObject) },
+        )
+        assertEquals(1, Stories.storyFrameIndex(frames, "res-web"))
+        assertEquals(2, Stories.storyFrameIndex(frames, "res-web", 1))
+        assertEquals(3, Stories.storyFrameIndex(frames, "q-done", 4))
+        assertEquals(-1, Stories.storyFrameIndex(frames, "nope"))
     }
 }

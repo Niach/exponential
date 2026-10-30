@@ -640,7 +640,7 @@ struct StorySpecimensScreen: View {
         Stories.MessageInput(
             id: "designer-result", sessionId: "designer", authorSessionId: "designer",
             createdAt: 1799996400000, answeredAt: nil,
-            card: TreeMessageCard.parse(###"{"kind":"surface","story":true,"title":"Spacing review","surface":{"root":{"id":"r","component":"Text","props":{"text":"No drift"}}}}"###)
+            card: TreeMessageCard.parse(###"{"kind":"surface","story":true,"title":"Spacing review","surface":{"root":{"id":"r","component":"Text","props":{"text":"No drift"}}},"description":"Paddings match on all four platforms."}"###)
         ),
         Stories.MessageInput(
             id: "ship-result", sessionId: "ship", authorSessionId: "ship",

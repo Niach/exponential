@@ -1543,63 +1543,17 @@ export function partitionTabs(
   return visible
 }
 
-export interface ThreadStripLayout {
-  /** `full` = identifier + title; `short` = the identifier alone; `fold` =
-   *  short and some chips behind a "+N". */
-  tier: `full` | `short` | `fold`
-  /** Indexes of the issue chips drawn (strip order). */
-  issues: number[]
-  /** Indexes of the session chips drawn. */
-  sessions: number[]
+/** #EXP-1433 (session-thread.json `stripModeCases`): the strip between
+ *  Conversation and Stories. `chips` = at most one issue and no session (that
+ *  issue keeps its chip); `group` = ONE icon tab for every issue and session,
+ *  `count` of them, opening THE Menu of their rows. */
+export interface ThreadStripMode {
+  mode: `chips` | `group`
+  count: number
 }
-
-/**
- * EXP-1334: the strip between Conversation and Guide (both pinned, never
- * scrolled) holds two zones, issues then sessions, one `gap` between them.
- * Every issue chip has a `full` and a `short` width (the caller measures).
- * Tiers: everything full → every issue short → fold: the sessions keep
- * their OWN space (what the short issues leave, at least half the room),
- * each zone packs with `partitionTabs` and its own "+N" (`overflowW`).
- */
-export function partitionThreadStrip(input: {
-  issues: readonly { full: number; short: number }[]
-  sessions: readonly number[]
-  available: number
-  gap: number
-  overflowW: number
-  activeIssue: number | null
-  activeSession: number | null
-}): ThreadStripLayout {
-  const { issues, sessions, gap, overflowW } = input
-  const room = Math.max(input.available, 0)
-  const span = (widths: readonly number[]) =>
-    widths.length === 0 ? 0 : widths.reduce((sum, w) => sum + w, 0) + gap * (widths.length - 1)
-  const sep = issues.length > 0 && sessions.length > 0 ? gap : 0
-  const all = (n: number) => Array.from({ length: n }, (_, index) => index)
-  const sessionSpan = span(sessions)
-  const full = issues.map((issue) => issue.full)
-  const short = issues.map((issue) => issue.short)
-  if (span(full) + sep + sessionSpan <= room) {
-    return { tier: `full`, issues: all(issues.length), sessions: all(sessions.length) }
-  }
-  if (span(short) + sep + sessionSpan <= room) {
-    return { tier: `short`, issues: all(issues.length), sessions: all(sessions.length) }
-  }
-  const zone = (widths: readonly number[], budget: number, active: number | null) => {
-    const shown = partitionTabs(widths, budget, gap, overflowW, active)
-    const used =
-      span(shown.map((index) => widths[index])) +
-      (shown.length < widths.length ? gap + overflowW : 0)
-    return { shown, used }
-  }
-  const sessionBudget =
-    issues.length === 0
-      ? room
-      : Math.min(sessionSpan, Math.max(room / 2, room - span(short) - sep))
-  const placed = zone(sessions, sessionBudget, input.activeSession)
-  const issueBudget = room - (sessions.length > 0 ? placed.used + sep : 0)
-  const issueZone = zone(short, issueBudget, input.activeIssue)
-  return { tier: `fold`, issues: issueZone.shown, sessions: placed.shown }
+export function threadStripMode(input: { issues: number; sessions: number }): ThreadStripMode {
+  const count = input.issues + input.sessions
+  return { mode: input.issues <= 1 && input.sessions === 0 ? `chips` : `group`, count }
 }
 
 /** S-3 (session-thread.json `chatModeCases`): THE thread screen's mode: an

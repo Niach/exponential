@@ -48,7 +48,8 @@ struct ComposerPlusMenu: View {
             subagentModel: false,
             ultracode: launch.agent == "claude",
             mcp: !mcpServers.isEmpty,
-            computerUse: model.device?.canToggleComputerUse == true
+            computerUse: model.device?.canToggleComputerUse == true,
+            prompts: !model.prompts.isEmpty
         )
     }
 
@@ -121,7 +122,7 @@ struct ComposerPlusMenu: View {
     /// The rows whose submenu is a page of this sheet (the rest hand off).
     static func pushes(_ id: ComposerMenu.RowId) -> Bool {
         switch id {
-        case .implementIssue, .device, .account, .model, .repository: true
+        case .implementIssue, .prompts, .device, .account, .model, .repository: true
         default: false
         }
     }
@@ -173,6 +174,15 @@ struct ComposerPlusMenu: View {
                 searchPlaceholder: "Search repositories…",
                 renderItem: { item in byId[item.value].map { AnyView(RepositoryPickerRowBody(row: $0)) } }
             )
+        case .prompts:
+            // #EXP-1434: the `/` menu's pick — the prompt becomes the new
+            // session's subject.
+            ComposerPromptsList(
+                prompts: model.prompts.map { SlashPrompt(id: $0.id, name: $0.name, icon: $0.icon) }
+            ) { prompt in
+                model.pickPrompt(prompt.id)
+                onClose()
+            }
         default:
             if model.agentId != nil, let teamId = model.teamId {
                 // A message to an agent has no implement subject: THE issue
@@ -231,6 +241,39 @@ struct ComposerPlusMenu: View {
     /// The fixture's concept ids → this client's generated icon names.
     static func icon(_ concept: String) -> String {
         AppIcons.conceptOrName(concept) ?? AppIcons.uiAdd
+    }
+}
+
+/// #EXP-1434: the "+" Prompts page — THE search list over the team's
+/// prompts in the `/` menu's order (a row = the prompt's glyph + its name);
+/// the input filters by name like the `/` filter (`promptSlashName` prefix).
+struct ComposerPromptsList: View {
+    let prompts: [SlashPrompt]
+    let onPick: (SlashPrompt) -> Void
+
+    @State private var query = ""
+
+    private var visible: [SlashPrompt] {
+        let needle = SlashCommands.promptSlashName(query)
+        guard !needle.isEmpty else { return prompts }
+        return prompts.filter { $0.slashName.hasPrefix(needle) }
+    }
+
+    var body: some View {
+        SearchListView(
+            items: visible.map { prompt in
+                PickerItem(value: prompt.id, label: prompt.name, icon: ActionIconDisplay.iconName(for: prompt.icon))
+            },
+            query: $query,
+            placeholder: "Search prompts…",
+            inputIdentifier: ComposerMenu.submenuSearchTestId,
+            autofocus: true,
+            emptyText: "No matches",
+            onPick: { id in
+                if let prompt = prompts.first(where: { $0.id == id }) { onPick(prompt) }
+            }
+        )
+        .accessibilityIdentifier("agent-composer-prompts-picker")
     }
 }
 

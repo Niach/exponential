@@ -81,63 +81,78 @@ struct ThreadMenuSheet: View {
     }
 }
 
-/// EXP-1334: a folded chip's subtree, or a zone's "+N" — THE Menu's sheet:
-/// THE tree rows (`SessionRow` small + `TreeGuides`, the rows the Threads
-/// list nests with). A subtree starts with the chip itself. The shown issue
-/// page is the active row. A pick hands the row back; the host acts once
-/// the sheet has dismissed.
-struct ThreadFoldSheet: View {
-    let fold: ThreadStripFold
-    /// The synced issue behind an issue row (its status glyph and title).
+/// #EXP-1433 (session-thread.json STRIP): the strip group tab's Menu — on
+/// phones THE bottom sheet, headed `copy.stripGroup`: the issue rows first
+/// (THE issue search list's rows: status glyph, `IDENT Title`), a
+/// separator, then the session rows (THE tree rows: `SessionRow` small +
+/// `TreeGuides`, the whole tree under the root); the open row carries the
+/// check. A pick hands the item back; the host opens it in place once the
+/// sheet has dismissed.
+struct ThreadStripGroupSheet: View {
+    enum Pick: Equatable {
+        case issue(String)
+        case session(String)
+    }
+
+    let group: ThreadStripGroup
+    /// The synced issue behind an issue row (its title).
     var issue: (String) -> IssueEntity? = { _ in nil }
     /// S-3: a row's status through the team's statuses; nil = no glyph.
     var issueStatus: (String) -> ResolvedIssueStatus? = { _ in nil }
-    /// The issue page on screen (its row is the active one).
-    var shownIssueId: String?
-    let onPick: (ThreadStripFold.Row) -> Void
+    /// The page on screen (its row carries the check).
+    var shown: ThreadPage?
+    let onPick: (Pick) -> Void
 
     var body: some View {
-        GlassSheetChrome(title: fold.title) {
-            let guides = TreeGuides.compute(depths: fold.rows.map(\.depth))
+        GlassSheetChrome(title: SessionTree.ThreadCopy.stripGroup) {
             VStack(spacing: 0) {
-                ForEach(Array(fold.rows.enumerated()), id: \.element.id) { index, row in
+                ForEach(group.issues) { row in
+                    issueRow(row)
+                }
+                if !group.issues.isEmpty, !group.sessions.isEmpty {
+                    GlassDivider()
+                        .padding(.vertical, 4)
+                }
+                let guides = TreeGuides.compute(depths: group.sessions.map(\.depth))
+                ForEach(Array(group.sessions.enumerated()), id: \.element.id) { index, row in
                     Button {
-                        onPick(row)
+                        onPick(.session(row.sessionId))
                     } label: {
-                        label(row, guide: guides[index])
+                        SessionRow(
+                            title: row.name, guide: guides[index], active: shown == .session(row.sessionId),
+                            word: row.markState.word
+                        ) {
+                            ThreadSessionChipMark(state: row.markState)
+                        }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("thread-fold-row-\(row.id)")
+                    .accessibilityIdentifier("thread-strip-group-row-s:\(row.sessionId)")
                 }
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
-            .padding(.top, fold.title == nil ? GlassSheetTokens.headerTopPadding : 0)
             .padding(.bottom, 16)
             .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("thread-fold-sheet")
+            .accessibilityIdentifier("\(SessionTree.ThreadCopy.groupTestId)-menu")
         }
     }
 
-    @ViewBuilder
-    private func label(_ row: ThreadStripFold.Row, guide: TreeGuide) -> some View {
-        switch row {
-        case let .issue(issueId, identifier, _):
-            SessionRow(
-                identifier: identifier,
-                title: issue(issueId)?.title ?? "",
-                guide: guide,
-                active: shownIssueId == issueId
-            ) {
-                if let status = issueStatus(issueId) {
-                    AppIcon(status.iconName, size: AppIcon.Size.small)
-                        .foregroundStyle(status.color)
-                }
-            }
-        case let .session(_, name, markState, _):
-            SessionRow(title: name, guide: guide, word: markState.word) {
-                ThreadSessionChipMark(state: markState)
-            }
+    private func issueRow(_ row: ThreadStripGroup.Issue) -> some View {
+        let status = issueStatus(row.issueId)
+        let title = issue(row.issueId)?.title ?? ""
+        return GlassPickerSheetRow(
+            item: PickerItem(
+                value: row.issueId,
+                label: title.isEmpty ? row.identifier : "\(row.identifier) \(title)",
+                icon: status?.iconName,
+                color: status?.color,
+                keywords: [row.identifier, title]
+            ),
+            checked: shown == .issue(row.issueId) ? .all : .none,
+            style: .check
+        ) {
+            onPick(.issue(row.issueId))
         }
+        .accessibilityIdentifier("thread-strip-group-row-i:\(row.issueId)")
     }
 }
 
@@ -162,6 +177,10 @@ struct ThreadComposerPlusMenu: View {
     var teamId: String?
     /// The Issue page's pick (the host inserts `#IDENT` at the caret).
     var onPickIssue: (IssueEntity) -> Void = { _ in }
+    /// #EXP-1434: the Prompts page's rows (the team's prompts, the `/`
+    /// menu's order) and its pick (the host inserts the body at the caret).
+    var prompts: [SlashPrompt] = []
+    var onPickPrompt: (SlashPrompt) -> Void = { _ in }
     var addFileEnabled = true
     /// A hand-off row (Photo or file): the host closes the sheet and opens
     /// what it names.
@@ -221,6 +240,8 @@ struct ThreadComposerPlusMenu: View {
                 value: modelValue.map { [$0] } ?? [],
                 onChange: { picked in picked.first.map(onPickModel) }
             )
+        case .prompts:
+            ComposerPromptsList(prompts: prompts, onPick: onPickPrompt)
         default:
             if let teamId {
                 ThreadIssueSearchList(teamId: teamId, onPick: onPickIssue)

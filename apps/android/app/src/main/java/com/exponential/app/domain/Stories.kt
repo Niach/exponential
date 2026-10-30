@@ -54,7 +54,10 @@ object Stories {
     /** THE StoryProgress: segment height + gap (dp). */
     object Progress {
         const val HEIGHT = 3f
+        /** Between the segments of ONE story. */
         const val GAP = 4f
+        /** Before the first segment of the next story (frames group by story). */
+        const val STORY_GAP = 10f
     }
 
     /** The wide modal's max size + radius (dp; phones = full screen). */
@@ -62,6 +65,10 @@ object Stories {
         const val WIDTH = 440f
         const val HEIGHT = 760f
         const val RADIUS = 16f
+        /** The floating band's scrim: at least this tall (dp) ... */
+        const val SCRIM_HEIGHT = 180f
+        /** ... fading to clear over the last this many dp past it. */
+        const val SCRIM_FADE = 48f
     }
 
     object TestIds {
@@ -125,6 +132,8 @@ object Stories {
         val createdAt: Long,
         val meta: String,
         val title: String?,
+        /** The card's `description` (a result's one line under its body). */
+        val description: String? = null,
         val pictures: List<Picture>,
         val surface: Boolean,
         val text: String?,
@@ -259,6 +268,7 @@ object Stories {
             createdAt = message.createdAt,
             meta = if (outcome != null) "${Copy.kind(kind)} · $outcome · $age" else "${Copy.kind(kind)} · $age",
             title = title,
+            description = card.str("description")?.trim()?.takeIf { it.isNotEmpty() },
             pictures = pictures,
             surface = surface,
             text = if (kind == Kind.Plan && pictures.isEmpty() && !surface) card.str("plan") else null,
@@ -406,6 +416,76 @@ object Stories {
 
         /** `tab.specimen.case`: the styleguide specimen draws this tabCase. */
         const val SPECIMEN_CASE = 1
+    }
+
+    // ── frames (#EXP-1432) ─────────────────────────────────────────────────
+
+    enum class FrameKind(val wire: String) { Picture("picture"), Surface("surface"), Text("text"), Title("title") }
+
+    /** One step of THE viewer (stories.json `frames`): a picture OR a surface
+     *  (or a plan's text / a bare question), never both. */
+    data class Frame(
+        /** The story's index in the ring. */
+        val story: Int,
+        val storyId: String,
+        /** This frame's place among its story's frames. */
+        val index: Int,
+        val count: Int,
+        val kind: FrameKind,
+        /** The picture's index in `story.pictures` (kind picture), else null. */
+        val picture: Int?,
+        val title: String?,
+        val description: String?,
+        val footer: Footer,
+        val autoAdvanceMs: Long?,
+    )
+
+    /** A story's frames: one per picture (pictures win: the surface stays in
+     *  the chat), else the surface, else the plan text, else the bare title. */
+    private fun framesOf(story: Story, at: Int): List<Frame> {
+        val kinds: List<Pair<FrameKind, Int?>> =
+            if (story.pictures.isNotEmpty()) {
+                story.pictures.indices.map { FrameKind.Picture to it }
+            } else {
+                val kind = when {
+                    story.surface -> FrameKind.Surface
+                    story.text != null -> FrameKind.Text
+                    else -> FrameKind.Title
+                }
+                listOf(kind to null)
+            }
+        return kinds.mapIndexed { index, (kind, picture) ->
+            Frame(
+                story = at,
+                storyId = story.id,
+                index = index,
+                count = kinds.size,
+                kind = kind,
+                picture = picture,
+                // The plan text already begins with the title line.
+                title = if (kind == FrameKind.Text) null else story.title,
+                description = when (kind) {
+                    FrameKind.Picture -> story.pictures[picture!!].caption?.trim()?.takeIf { it.isNotEmpty() }
+                    FrameKind.Text -> null
+                    else -> story.description
+                },
+                footer = if (index == kinds.size - 1) story.footer else Footer.None,
+                autoAdvanceMs = story.autoAdvanceMs,
+            )
+        }
+    }
+
+    /** THE viewer's steps over a ring's stories (stories.json `frameCases`):
+     *  every story's frames, flattened in story order. */
+    fun storyFrames(stories: List<Story>): List<Frame> =
+        stories.flatMapIndexed { at, story -> framesOf(story, at) }
+
+    /** The flat frame index of a story (and one of its pictures); -1 = none. */
+    fun storyFrameIndex(frames: List<Frame>, storyId: String, picture: Int = 0): Int {
+        val first = frames.indexOfFirst { it.storyId == storyId }
+        if (first < 0) return -1
+        val hit = frames.indexOfFirst { it.storyId == storyId && it.picture == picture }
+        return if (hit >= 0) hit else first
     }
 
     /** The chats header row (chats.json BUBBLES + STORY RING): each agent

@@ -85,8 +85,11 @@ private val AGENT_MARKS = mapOf(
     "ag2" to StoryAvatar("bot", "#6366f1"),
 )
 
-private fun result(title: String, text: String) =
-    card("""{"kind": "surface", "story": true, "title": "$title", "surface": {"root": {"id": "r", "component": "Text", "props": {"text": "$text"}}}}""")
+private fun result(title: String, text: String, description: String? = null) =
+    card(
+        """{"kind": "surface", "story": true, "title": "$title", "surface": {"root": {"id": "r", "component": "Text", "props": {"text": "$text"}}}""" +
+            (description?.let { """, "description": "$it"""" } ?: "") + "}",
+    )
 
 private val MESSAGES = listOf(
     Stories.MessageInput(
@@ -107,7 +110,7 @@ private val MESSAGES = listOf(
     ),
     Stories.MessageInput(
         id = "designer-result", sessionId = "designer", authorSessionId = "designer", createdAt = 1_799_996_400_000L, answeredAt = null,
-        card = result("Spacing review", "No drift"),
+        card = result("Spacing review", "No drift", "Paddings match on all four platforms."),
     ),
     Stories.MessageInput(
         id = "ship-result", sessionId = "ship", authorSessionId = "ship", createdAt = 1_799_992_800_000L, answeredAt = null,

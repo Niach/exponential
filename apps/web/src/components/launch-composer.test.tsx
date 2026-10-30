@@ -352,6 +352,85 @@ describe(`LaunchComposer`, () => {
     expect(setAccountKey).toHaveBeenCalledWith(`codex:only`)
   })
 
+  // #EXP-1434: THE EXP-992 usage preview rides the Account › rows too.
+  it(`previews a login's limits on hover in the Account submenu`, () => {
+    vi.useFakeTimers()
+    try {
+      const model = fakeModel({
+        launch: {
+          ...fakeLaunch(),
+          accountKey: `claude:p1`,
+          accountOptions: [
+            {
+              id: `p1`,
+              agent: `claude`,
+              email: `work@example.com`,
+              isLastUsed: true,
+              health: `ok`,
+              limits: { fiveHour: 0.4, week: 0.8, model: { label: `Fable`, used: 0.97 } },
+            },
+            { id: `p2`, agent: `claude`, email: `home@example.com`, isLastUsed: false, health: `ok` },
+          ],
+        },
+      })
+      render(<LaunchComposer model={model} users={[]} />)
+      openPlus()
+      fireEvent.click(screen.getByTestId(`agent-composer-menu-account`))
+      const trigger = screen
+        .getAllByText(`work@example.com`)
+        .map((node) => node.closest(`[cmdk-item]`))
+        .find(Boolean)!
+        .querySelector(`[data-slot=hover-card-trigger]`)!
+      act(() => {
+        fireEvent.pointerEnter(trigger, { pointerType: `mouse` })
+      })
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
+      const preview = document.querySelector(`[data-slot=account-limits-preview]`)
+      expect(preview).toBeTruthy()
+      expect(preview!.querySelectorAll(`[data-slot=meter]`)).toHaveLength(3)
+      expect(preview!.textContent).toContain(`5h`)
+      expect(preview!.textContent).toContain(`week`)
+      expect(preview!.textContent).toContain(`fable`)
+      // A login without a report has no preview to hover.
+      expect(
+        screen
+          .getAllByText(`home@example.com`)
+          .some((node) => node.closest(`[data-slot=hover-card-trigger]`))
+      ).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // #EXP-1434: Prompts › = THE `/` menu's prompts; a pick = the `/` pick.
+  it(`picks a prompt in the Prompts submenu as the subject`, () => {
+    const model = fakeModel()
+    render(<LaunchComposer model={model} users={[]} />)
+    openPlus()
+    fireEvent.click(screen.getByTestId(`agent-composer-menu-prompts`))
+    const list = screen.getByTestId(`agent-composer-prompts-picker`)
+    expect(
+      Array.from(list.querySelectorAll(`[cmdk-item]`)).map((row) => row.textContent)
+    ).toEqual([`Triage`, `Release train`])
+    fireEvent.change(screen.getByTestId(`agent-composer-submenu-search`), {
+      target: { value: `rel` },
+    })
+    expect(
+      Array.from(list.querySelectorAll(`[cmdk-item]`)).map((row) => row.textContent)
+    ).toEqual([`Release train`])
+    fireEvent.click(within(list).getByText(`Release train`))
+    expect(model.pickPrompt).toHaveBeenCalledWith(`pr-2`)
+    expect(screen.queryByTestId(`agent-composer-menu`)).toBeNull()
+  })
+
+  it(`offers no Prompts row while the team has none`, () => {
+    render(<LaunchComposer model={fakeModel({ prompts: [] })} users={[]} />)
+    openPlus()
+    expect(screen.queryByTestId(`agent-composer-menu-prompts`)).toBeNull()
+  })
+
   it(`picks the machine in the Device submenu`, () => {
     const second: SteerDevice = {
       deviceId: `dev-2`,
@@ -409,7 +488,7 @@ describe(`LaunchComposer`, () => {
     })
     render(<LaunchComposer model={model} users={[]} variant="home" />)
     openPlus()
-    expect(menuRowIds()).toEqual([`add-file`, `implement-issue`])
+    expect(menuRowIds()).toEqual([`add-file`, `implement-issue`, `prompts`])
     // The home's question stays (never the instructions placeholder).
     expect(screen.getByTestId(`agent-composer-field`).getAttribute(`placeholder`)).toBe(
       HOME_PLACEHOLDER
@@ -443,6 +522,7 @@ describe(`LaunchComposer + menu`, () => {
     expect(menuRowIds()).toEqual([
       `add-file`,
       `implement-issue`,
+      `prompts`,
       `-`,
       `device`,
       `account`,
@@ -502,6 +582,7 @@ describe(`LaunchComposer + menu`, () => {
     expect(menuRowIds()).toEqual([
       `add-file`,
       `implement-issue`,
+      `prompts`,
       `-`,
       `device`,
       `account`,

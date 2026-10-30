@@ -50,12 +50,18 @@ public enum Stories {
     public enum Progress {
         public static let height: Double = 3
         public static let gap: Double = 4
+        /// A new story's first segment starts this far after the last one.
+        public static let storyGap: Double = 10
     }
 
     public enum Viewer {
         public static let width: Double = 440
         public static let height: Double = 760
         public static let radius: Double = 16
+        /// Phones: the floating top band's scrim (and its mirrored footer
+        /// scrim) is at least this tall, fading clear over the last `scrimFade`.
+        public static let scrimHeight: Double = 180
+        public static let scrimFade: Double = 48
     }
 
     public enum TestIds {
@@ -206,6 +212,8 @@ public enum Stories {
         public let createdAt: Double
         public let meta: String
         public let title: String?
+        /// The card's `description` (a result's one line under its title).
+        public let description: String?
         public let pictures: [Picture]
         public let surface: Bool
         public let text: String?
@@ -214,8 +222,8 @@ public enum Stories {
 
         public init(
             id: String, sessionId: String, rootId: String, sessionName: String, kind: Kind, waiting: Bool, seen: Bool,
-            createdAt: Double, meta: String, title: String?, pictures: [Picture], surface: Bool, text: String?,
-            footer: Footer, autoAdvanceMs: Double?
+            createdAt: Double, meta: String, title: String?, description: String? = nil, pictures: [Picture],
+            surface: Bool, text: String?, footer: Footer, autoAdvanceMs: Double?
         ) {
             self.id = id
             self.sessionId = sessionId
@@ -227,6 +235,7 @@ public enum Stories {
             self.createdAt = createdAt
             self.meta = meta
             self.title = title
+            self.description = description
             self.pictures = pictures
             self.surface = surface
             self.text = text
@@ -357,6 +366,7 @@ public enum Stories {
             createdAt: message.createdAt,
             meta: meta,
             title: title,
+            description: blank(card.description),
             pictures: pictures,
             surface: surface,
             text: kind == .plan && pictures.isEmpty && !surface ? card.plan : nil,
@@ -463,6 +473,87 @@ public enum Stories {
         ring.unseen = list.contains { $0.waiting || !$0.seen }
         ring.stories = waiting + rest
         return ring
+    }
+
+    // MARK: - Frames (STORY VIEWER)
+
+    public enum FrameKind: String, Equatable, Sendable {
+        case picture, surface, text, title
+    }
+
+    /// One step of THE viewer: a picture OR a surface (or a plan's text / a
+    /// bare question), never both.
+    public struct Frame: Equatable, Sendable {
+        /// The story's index in the ring and its id.
+        public let story: Int
+        public let storyId: String
+        /// This frame's place among its story's frames.
+        public let index: Int
+        public let count: Int
+        public let kind: FrameKind
+        /// The picture's index in `story.pictures` (kind `picture`), else nil.
+        public let picture: Int?
+        public let title: String?
+        public let description: String?
+        public let footer: Footer
+        public let autoAdvanceMs: Double?
+
+        public init(
+            story: Int, storyId: String, index: Int, count: Int, kind: FrameKind, picture: Int?, title: String?,
+            description: String?, footer: Footer, autoAdvanceMs: Double?
+        ) {
+            self.story = story
+            self.storyId = storyId
+            self.index = index
+            self.count = count
+            self.kind = kind
+            self.picture = picture
+            self.title = title
+            self.description = description
+            self.footer = footer
+            self.autoAdvanceMs = autoAdvanceMs
+        }
+    }
+
+    /// A story's frames: one per picture (pictures win: the surface stays in
+    /// the chat), else the surface, else the plan text, else the bare title.
+    static func framesOf(_ story: Story, at: Int) -> [Frame] {
+        let kinds: [(FrameKind, Int?)] = story.pictures.isEmpty
+            ? [(story.surface ? .surface : story.text != nil ? .text : .title, nil)]
+            : story.pictures.indices.map { (.picture, $0) }
+        return kinds.enumerated().map { index, entry in
+            let (kind, picture) = entry
+            let description: String? = switch kind {
+            case .picture: blank(story.pictures[picture ?? 0].caption)
+            case .text: nil
+            default: story.description
+            }
+            return Frame(
+                story: at,
+                storyId: story.id,
+                index: index,
+                count: kinds.count,
+                kind: kind,
+                picture: picture,
+                // The plan text already begins with the title line.
+                title: kind == .text ? nil : story.title,
+                description: description,
+                footer: index == kinds.count - 1 ? story.footer : .none,
+                autoAdvanceMs: story.autoAdvanceMs
+            )
+        }
+    }
+
+    /// THE viewer's steps over a ring (`frames`): every story's frames,
+    /// flattened in story order.
+    public static func frames(_ stories: [Story]) -> [Frame] {
+        stories.enumerated().flatMap { at, story in framesOf(story, at: at) }
+    }
+
+    /// The flat frame index of a story (and one of its pictures); -1 = none.
+    public static func frameIndex(_ frames: [Frame], storyId: String, picture: Int = 0) -> Int {
+        guard let first = frames.firstIndex(where: { $0.storyId == storyId }) else { return -1 }
+        return frames.firstIndex { $0.storyId == storyId && $0.picture == picture } ?? first
     }
 
     /// The chats header row (chats.json BUBBLES + STORY RING): each agent

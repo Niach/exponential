@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,9 +29,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.Chats
 import com.exponential.app.domain.Dock
 import com.exponential.app.domain.Stories
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 
 // S-3 STORIES ×4 (fixtures/stories.json `ring` + `progress`, styleguide
@@ -102,13 +104,22 @@ fun StoryRingArcs(
 }
 
 /**
- * THE story progress: one segment per story of the ring,
- * [Stories.Progress.GAP] apart, [Stories.Progress.HEIGHT] tall; done =
+ * THE story progress: one segment per FRAME of the ring (#EXP-1432),
+ * grouped by story ([groups]), [Stories.Progress.HEIGHT] tall; done =
  * foreground, the current = its fill [fraction], todo = the glass-stroke
  * track.
  */
 @Composable
-fun StoryProgress(count: Int, index: Int, fraction: Float, modifier: Modifier = Modifier) {
+fun StoryProgress(
+    count: Int,
+    index: Int,
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    /** #EXP-1432: each segment's story (the frame's `story`): segments of one
+     *  story sit `progress.gap` apart, a new story starts `progress.storyGap`
+     *  after the last; null = one group. */
+    groups: List<Int>? = null,
+) {
     val foreground = MaterialTheme.colorScheme.onSurface
     val shape = RoundedCornerShape(50)
     Row(
@@ -117,7 +128,6 @@ fun StoryProgress(count: Int, index: Int, fraction: Float, modifier: Modifier = 
             .height(Stories.Progress.HEIGHT.dp)
             .semantics { contentDescription = "${minOf(index + 1, count)} / $count" }
             .testTag(Stories.TestIds.PROGRESS),
-        horizontalArrangement = Arrangement.spacedBy(Stories.Progress.GAP.dp),
     ) {
         repeat(count.coerceAtLeast(0)) { segment ->
             val fill = when {
@@ -125,6 +135,12 @@ fun StoryProgress(count: Int, index: Int, fraction: Float, modifier: Modifier = 
                 segment == index -> fraction.coerceIn(0f, 1f)
                 else -> 0f
             }
+            val lead = when {
+                segment == 0 -> 0f
+                groups != null && groups.getOrNull(segment) != groups.getOrNull(segment - 1) -> Stories.Progress.STORY_GAP
+                else -> Stories.Progress.GAP
+            }
+            if (lead > 0f) Spacer(Modifier.width(lead.dp))
             BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
@@ -140,9 +156,9 @@ fun StoryProgress(count: Int, index: Int, fraction: Float, modifier: Modifier = 
 
 /** A ring's avatar (stories.json AVATARS ×4): an agent ring = its mark
  *  ([AgentAvatar]: its glyph in its colour on the muted disc, the bubble's
- *  look); a root chat ring ([color] null) = the chat row's BARE brand mark
- *  ([ChatLeadDisc] `Waiting`: no badge, no PR glyph; [cli] = the root's CLI)
- *  on the same disc. Fills the ring's inner circle. */
+ *  look); a root chat ring ([color] null) = the BARE brand mark of [cli]
+ *  (the root's CLI; claude when unknown) on the same disc, no badge, no PR
+ *  glyph, as web, iOS and the IDE draw it. Fills the ring's inner circle. */
 @Composable
 fun StoryAvatarMark(icon: String?, color: String?, modifier: Modifier = Modifier, cli: String? = null) {
     BoxWithConstraints(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -150,7 +166,13 @@ fun StoryAvatarMark(icon: String?, color: String?, modifier: Modifier = Modifier
         if (color != null) {
             AgentAvatar(icon = icon, color = color, size = side)
         } else {
-            ChatLeadDisc(lead = Chats.ChatLead.Waiting, agent = cli, size = side)
+            val id = cli?.trim()?.lowercase()?.ifEmpty { null } ?: "claude"
+            Box(
+                Modifier.size(side).clip(CircleShape).background(DesignTokens.Palette.Muted, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(agentIconPainter(id), contentDescription = null, tint = agentIconTint(id), modifier = Modifier.size(side * 0.5f))
+            }
         }
     }
 }

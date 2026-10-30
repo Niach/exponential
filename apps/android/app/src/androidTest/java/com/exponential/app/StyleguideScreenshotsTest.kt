@@ -888,10 +888,9 @@ class StyleguideScreenshotsTest {
 
         // --- sg_thread: the cold-start thread (APP-5): the strip, the
         // Conversation with its session cards, the agent's reply and the
-        // pending question card, the reply box. EXP-1334: the strip never
-        // scrolls — + and Conversation pinned left, the
-        // issue + session chips between them partitioned (titles → identifiers
-        // → a "+N" per zone), so the gate is the laid-out strip with its pins.
+        // pending question card, the reply box. #EXP-1433: the strip never
+        // scrolls — + and Conversation pinned left, Stories right, the
+        // issues + sessions between them behind ONE group tab.
         val coldStartRow = hasTestTag(Chats.TestIds.CHAT_ROW) and
             hasText(COLD_START_THREAD_TITLE, substring = true)
         // S-3: the pinned Agents section pushes the row down the lazy list
@@ -904,9 +903,10 @@ class StyleguideScreenshotsTest {
         // S-3: the seeded question stays inline (the Dock takes no asks and
         // the Guide tab is gone; stories carry them).
         flow.waitFor(hasTestTag("plan-card"), SYNC_TIMEOUT)
-        flow.waitFor(hasTestTag("thread-strip-chips"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("thread-strip-zone"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-tab-add"), SYNC_TIMEOUT)
-        flow.waitFor(hasTestTag("thread-tab-session"), SYNC_TIMEOUT)
+        // #EXP-1433: the seed's issues + child session = ONE group tab.
+        flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_GROUP), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_thread")
 

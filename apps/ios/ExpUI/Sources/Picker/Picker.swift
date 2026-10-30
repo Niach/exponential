@@ -811,7 +811,9 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
 
 /// One picker row: its mark, its label, its muted second line — and, when it
 /// is picked, whichever of the two marks its mode wears.
-struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
+/// Public so a host drawing THE picker rows inside its own sheet (#EXP-1433:
+/// the thread strip group's issue rows) paints them exactly as the picker.
+public struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
     let item: PickerItem<Value>
     let checked: PickerChecked
     /// The mode's selection idiom, resolved by the sheet.
@@ -823,10 +825,26 @@ struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
     let content: AnyView?
     let action: () -> Void
 
+    public init(
+        item: PickerItem<Value>,
+        checked: PickerChecked,
+        style: PickerSelectionStyle,
+        mark: AnyView? = nil,
+        content: AnyView? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.item = item
+        self.checked = checked
+        self.style = style
+        self.mark = mark
+        self.content = content
+        self.action = action
+    }
+
     private var fill: Color { GlassPickerTokens.fill(checked, style: style) }
     private var stroke: Color { GlassPickerTokens.stroke(checked, style: style) }
 
-    var body: some View {
+    public var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 leading

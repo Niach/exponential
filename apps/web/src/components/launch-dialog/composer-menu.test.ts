@@ -40,6 +40,7 @@ describe(`composerMenuLayout`, () => {
       ultracode: true,
       mcp: true,
       computerUse: true,
+      prompts: true,
     })
     expect(all.filter((e) => e.kind !== `separator`)).toHaveLength(
       fixture.rows.filter((r) => r.kind !== `separator`).length

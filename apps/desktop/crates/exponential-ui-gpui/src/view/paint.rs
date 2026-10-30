@@ -1086,7 +1086,17 @@ impl SurfaceView {
                 super::input::FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).font(lcx.font.clone()).text_size(px(fs)).text_color(field_ink).w(px(w)).h(px(field_h)).into_any_element(),
                 super::input::FieldInput::Line(s) => gpui_component::input::Input::new(s).appearance(false).w(px(w)).h(px(field_h)).into_any_element(),
             };
-            out = out.child(div().absolute().left_0().top_0().w(px(w)).h(px(field_h)).child(el));
+            // The field claims its presses (see `field_element`).
+            out = out.child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top_0()
+                    .w(px(w))
+                    .h(px(field_h))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(el),
+            );
         }
         let mut bar = lcx.row(div().absolute().left_0().bottom_0().w(px(w)).h(px(send))).items_center().justify_end().gap(px(spacing(lcx.theme, "xs")));
         let idx = self.cache.index_of(&n.id).unwrap_or(0);

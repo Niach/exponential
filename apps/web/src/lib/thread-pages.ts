@@ -1,34 +1,28 @@
-// EXP-1343 (session-thread.json): phones page through EVERY strip tab by
-// swipe AND tap, in strip order — conversation · each issue chip then its
-// nested issues · each session chip then its nested sessions · stories
-// (stories.json STORIES TAB: always the last page); the `+` is never a
-// page. A page is a string key so the pager (`useFaceSwipe`) can compare
-// them by value.
+// EXP-1343 / #EXP-1433 (session-thread.json STRIP): phones page through the
+// strip by swipe AND tap — Conversation · (chips: the ONE issue | group: the
+// item opened from the group's menu, only while it is open) · Stories
+// (stories.json STORIES TAB: always the last page). The `+` and the group
+// tab are never pages. A page is a string key so the pager (`useFaceSwipe`)
+// can compare them by value.
 
 export type ThreadPage = `conversation` | `stories` | `issue:${string}` | `session:${string}`
 
-type StripTab =
-  | { kind: `add` }
-  | { kind: `conversation` }
-  | { kind: `issue`; issueId: string; nested: readonly { issueId: string }[] }
-  | { kind: `session`; sessionId: string; nested: readonly { sessionId: string }[] }
-
-/** The thread's pages in strip order, nested chips flattened after theirs,
- *  the Stories tab last. */
-export function threadPages(tabs: readonly StripTab[]): ThreadPage[] {
-  const issues: ThreadPage[] = []
-  const sessions: ThreadPage[] = []
-  for (const tab of tabs) {
-    if (tab.kind === `issue`) {
-      issues.push(`issue:${tab.issueId}`, ...tab.nested.map((n) => `issue:${n.issueId}` as const))
-    } else if (tab.kind === `session`) {
-      sessions.push(
-        `session:${tab.sessionId}`,
-        ...tab.nested.map((n) => `session:${n.sessionId}` as const)
-      )
-    }
-  }
-  return [`conversation`, ...issues, ...sessions, `stories`]
+/** The thread's pages: `single` = the chips mode's one issue (its id), else
+ *  null; `open` = the issue / session page open from the group (null when
+ *  none is). */
+export function threadPages({
+  single,
+  open,
+}: {
+  single: string | null
+  open: ThreadPage | null
+}): ThreadPage[] {
+  const middle: ThreadPage[] = single
+    ? [`issue:${single}`]
+    : open && open !== `conversation` && open !== `stories`
+      ? [open]
+      : []
+  return [`conversation`, ...middle, `stories`]
 }
 
 /** The page a thread tab shows. */

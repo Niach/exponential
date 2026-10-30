@@ -43,6 +43,7 @@ final class StoriesTests: XCTestCase {
                     "createdAt": story.createdAt,
                     "meta": story.meta,
                     "title": orNull(story.title),
+                    "description": orNull(story.description),
                     "pictures": story.pictures.map { picture -> [String: Any] in
                         [
                             "label": picture.label,
@@ -75,10 +76,14 @@ final class StoriesTests: XCTestCase {
         ])
         XCTAssertEqual(f["ring"] as? [String: Double], ["width": Stories.Ring.width, "gap": Stories.Ring.gap])
         XCTAssertEqual(
-            f["progress"] as? [String: Double], ["height": Stories.Progress.height, "gap": Stories.Progress.gap]
+            f["progress"] as? [String: Double], [
+                "height": Stories.Progress.height, "gap": Stories.Progress.gap,
+                "storyGap": Stories.Progress.storyGap,
+            ]
         )
         XCTAssertEqual(f["viewer"] as? [String: Double], [
             "width": Stories.Viewer.width, "height": Stories.Viewer.height, "radius": Stories.Viewer.radius,
+            "scrimHeight": Stories.Viewer.scrimHeight, "scrimFade": Stories.Viewer.scrimFade,
         ])
         XCTAssertEqual(f["testIds"] as? [String: String], [
             "ring": Stories.TestIds.ring, "viewer": Stories.TestIds.viewer, "progress": Stories.TestIds.progress,
@@ -201,6 +206,72 @@ final class StoriesTests: XCTestCase {
                 "\(name)\nactual: \(actual)\nexpected: \(expected)"
             )
         }
+    }
+
+    private func story(_ raw: [String: Any]) -> Stories.Story {
+        Stories.Story(
+            id: raw["id"] as? String ?? "",
+            sessionId: raw["sessionId"] as? String ?? "",
+            rootId: raw["rootId"] as? String ?? "",
+            sessionName: raw["sessionName"] as? String ?? "",
+            kind: Stories.Kind(rawValue: raw["kind"] as? String ?? "") ?? .result,
+            waiting: raw["waiting"] as? Bool ?? false,
+            seen: raw["seen"] as? Bool ?? false,
+            createdAt: num(raw["createdAt"]) ?? 0,
+            meta: raw["meta"] as? String ?? "",
+            title: raw["title"] as? String,
+            description: raw["description"] as? String,
+            pictures: (raw["pictures"] as? [[String: Any]] ?? []).map { picture in
+                Stories.Picture(
+                    label: picture["label"] as? String ?? "",
+                    attachmentId: picture["attachmentId"] as? String ?? "",
+                    width: num(picture["width"]),
+                    height: num(picture["height"]),
+                    caption: picture["caption"] as? String
+                )
+            },
+            surface: raw["surface"] as? Bool ?? false,
+            text: raw["text"] as? String,
+            footer: Stories.Footer(rawValue: raw["footer"] as? String ?? "") ?? .none,
+            autoAdvanceMs: num(raw["autoAdvanceMs"])
+        )
+    }
+
+    /// #EXP-1432 `storyFrames(ring)` over every `frameCases` entry, the WHOLE
+    /// array.
+    func testFrameCases() throws {
+        let cases = try XCTUnwrap(try fixture()["frameCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        func orNull(_ value: Any?) -> Any { value ?? NSNull() }
+        for entry in cases {
+            let name = entry["name"] as? String ?? "?"
+            let input = try XCTUnwrap(entry["input"] as? [String: Any], name)
+            let stories = try XCTUnwrap(input["stories"] as? [[String: Any]], name).map(story)
+            let actual = Stories.frames(stories).map { frame -> [String: Any] in
+                [
+                    "story": frame.story,
+                    "storyId": frame.storyId,
+                    "index": frame.index,
+                    "count": frame.count,
+                    "kind": frame.kind.rawValue,
+                    "picture": orNull(frame.picture),
+                    "title": orNull(frame.title),
+                    "description": orNull(frame.description),
+                    "footer": frame.footer.rawValue,
+                    "autoAdvanceMs": orNull(frame.autoAdvanceMs),
+                ]
+            }
+            let expected = try XCTUnwrap(entry["expected"] as? [Any], name)
+            XCTAssertTrue(
+                NSArray(array: actual).isEqual(to: expected),
+                "\(name)\nactual: \(actual)\nexpected: \(expected)"
+            )
+            // A thumbnail opens at its picture's frame; a tile at the first.
+            for (at, frame) in Stories.frames(stories).enumerated() where frame.index == 0 {
+                XCTAssertEqual(Stories.frameIndex(Stories.frames(stories), storyId: frame.storyId), at, name)
+            }
+        }
+        XCTAssertEqual(Stories.frameIndex([], storyId: "x"), -1)
     }
 
     /// chats.json BUBBLES + STORY RING (TS `bubbleRings`): the specimen's

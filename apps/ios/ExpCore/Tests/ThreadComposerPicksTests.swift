@@ -88,13 +88,4 @@ final class ThreadComposerPicksTests: XCTestCase {
         picks.settle(.init(effort: nil, ultracode: nil, computerUse: nil))
         XCTAssertEqual(picks.mcpServerIds, ["m1"])
     }
-
-    // MARK: - The strip's "+N" read-out (web `THREAD_STRIP_MORE_COPY`)
-
-    func testTheOverflowChipReadsLikeWeb() {
-        XCTAssertEqual(SessionTree.ThreadCopy.more(1, zone: "issues"), "1 more issue")
-        XCTAssertEqual(SessionTree.ThreadCopy.more(3, zone: "issues"), "3 more issues")
-        XCTAssertEqual(SessionTree.ThreadCopy.more(1, zone: "sessions"), "1 more session")
-        XCTAssertEqual(SessionTree.ThreadCopy.more(2, zone: "sessions"), "2 more sessions")
-    }
 }

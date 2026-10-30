@@ -145,18 +145,32 @@ public struct StoryProgress: View {
     let count: Int
     let index: Int
     let fraction: Double
+    /// Each segment's story (#EXP-1432 frames): segments of one story sit
+    /// `progress.gap` apart, a new story starts `progress.storyGap` after the
+    /// last; nil = one group.
+    let groups: [Int]?
 
-    public init(count: Int, index: Int, fraction: Double) {
+    public init(count: Int, index: Int, fraction: Double, groups: [Int]? = nil) {
         self.count = count
         self.index = index
         self.fraction = fraction
+        self.groups = groups
+    }
+
+    private func lead(_ segment: Int) -> CGFloat {
+        guard segment > 0 else { return 0 }
+        if let groups, groups.indices.contains(segment), groups[segment] != groups[segment - 1] {
+            return CGFloat(Stories.Progress.storyGap)
+        }
+        return CGFloat(Stories.Progress.gap)
     }
 
     public var body: some View {
         let height = CGFloat(Stories.Progress.height)
-        HStack(spacing: CGFloat(Stories.Progress.gap)) {
+        HStack(spacing: 0) {
             ForEach(0..<max(count, 0), id: \.self) { segment in
                 let fill = segment < index ? 1 : segment == index ? min(max(fraction, 0), 1) : 0
+                if segment > 0 { Color.clear.frame(width: lead(segment), height: height) }
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Capsule().fill(GlassTokens.strokeCard)

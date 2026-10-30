@@ -358,6 +358,11 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
                 }
                 attach.plusMenu = false
             },
+            prompts: controls.prompts,
+            onPickPrompt: { prompt in
+                controls.onPickPrompt(prompt)
+                attach.plusMenu = false
+            },
             addFileEnabled: !draft.attachFull && !draft.steerSending,
             onPick: { row in
                 plusPick = row

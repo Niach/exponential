@@ -344,8 +344,7 @@ export function tabHref(
 /**
  * Which tabs get a chip, in strip order — the rest collapse into the "+N"
  * dropdown. EXP-1334: ONE rule, the contract's (`partitionTabs`, the
- * desktop's `partition_tabs` vectors), shared with the thread header's
- * strip (`partitionThreadStrip`).
+ * desktop's `partition_tabs` vectors).
  */
 export { partitionTabs } from "@exp/domain-contract/session-tree"
 

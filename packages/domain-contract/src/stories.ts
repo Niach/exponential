@@ -80,6 +80,8 @@ export interface Story {
   createdAt: number
   meta: string
   title: string | null
+  /** The card's `description` (a result's one line under its body). */
+  description: string | null
   pictures: StoryPicture[]
   surface: boolean
   text: string | null
@@ -204,6 +206,7 @@ function storyOf(
         ? `${fixture.copy[kind]} · ${fixture.tab.copy[resolution]} · ${age}`
         : `${fixture.copy[kind]} · ${age}`,
     title,
+    description: str(card.description)?.trim() || null,
     pictures,
     surface,
     text: kind === `plan` && pictures.length === 0 && !surface ? (str(card.plan) ?? null) : null,
@@ -277,6 +280,63 @@ export function stories(input: StoriesInput): StoryRing[] {
   return list.sort(
     (a, b) => rank(a) - rank(b) || newest(b) - newest(a) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
   )
+}
+
+export type StoryFrameKind = `picture` | `surface` | `text` | `title`
+
+/** One step of THE viewer (`frames`): a picture OR a surface (or a plan's
+ *  text / a bare question), never both. */
+export interface StoryFrame {
+  /** The story's index in the ring and its id. */
+  story: number
+  storyId: string
+  /** This frame's place among its story's frames. */
+  index: number
+  count: number
+  kind: StoryFrameKind
+  /** The picture's index in `story.pictures` (kind `picture`), else null. */
+  picture: number | null
+  title: string | null
+  description: string | null
+  footer: StoryFooter
+  autoAdvanceMs: number | null
+}
+
+/** A story's frames: one per picture (pictures win: the surface stays in the
+ *  chat), else the surface, else the plan text, else the bare title. */
+function framesOf(story: Story, at: number): StoryFrame[] {
+  const kinds: { kind: StoryFrameKind; picture: number | null }[] =
+    story.pictures.length > 0
+      ? story.pictures.map((_, picture) => ({ kind: `picture` as const, picture }))
+      : [{ kind: story.surface ? `surface` : story.text ? `text` : `title`, picture: null }]
+  return kinds.map(({ kind, picture }, index) => ({
+    story: at,
+    storyId: story.id,
+    index,
+    count: kinds.length,
+    kind,
+    picture,
+    // The plan text already begins with the title line.
+    title: kind === `text` ? null : story.title,
+    description:
+      kind === `picture` ? (story.pictures[picture!]!.caption?.trim() || null) : kind === `text` ? null : story.description,
+    footer: index === kinds.length - 1 ? story.footer : `none`,
+    autoAdvanceMs: story.autoAdvanceMs,
+  }))
+}
+
+/** THE viewer's steps over a ring (stories.json `frames`): every story's
+ *  frames, flattened in story order. */
+export function storyFrames(ring: Pick<StoryRing, `stories`>): StoryFrame[] {
+  return ring.stories.flatMap((story, at) => framesOf(story, at))
+}
+
+/** The flat frame index of a story (and one of its pictures); -1 = none. */
+export function storyFrameIndex(frames: readonly StoryFrame[], storyId: string, picture = 0): number {
+  const first = frames.findIndex((frame) => frame.storyId === storyId)
+  if (first < 0) return -1
+  const hit = frames.findIndex((frame) => frame.storyId === storyId && frame.picture === picture)
+  return hit >= 0 ? hit : first
 }
 
 /** The chats header row (chats.json BUBBLES + STORY RING): each agent

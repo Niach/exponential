@@ -872,6 +872,11 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
             .map { rows -> rows.map { com.exponential.app.domain.SlashPrompt(it.id, it.name, it.icon) } }
 
+    /** #EXP-1434: the "+" menu's Prompts › rows = the team's prompts in the
+     *  `/` menu's order. */
+    val promptRows: StateFlow<List<com.exponential.app.domain.SlashPrompt>> =
+        teamPrompts.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /**
      * NEW-2: THE `/` menu's rows ×4 = the builtins [slashMatches] offers,
      * then the team's prompts whose slash name the draft prefixes
@@ -895,17 +900,27 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     /** NEW-2: a picked prompt's body (`prompts.get`; the synced row has none)
-     *  replaces the draft, never auto-sent. */
-    fun insertPrompt(promptId: String) {
+     *  replaces the draft (the `/` menu: the `/name` it was picked by), never
+     *  auto-sent. #EXP-1434: [at] = the + menu's caret/selection: the body
+     *  lands THERE instead (composer-menu.json "at the caret"). */
+    fun insertPrompt(promptId: String, at: Pair<Int, Int>? = null) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             try {
-                setDraft(promptsApi.get(accountId, promptId).body)
+                val body = promptsApi.get(accountId, promptId).body
+                val current = draft.value
+                if (at == null || at.first < 0) {
+                    setDraft(body)
+                } else {
+                    val start = at.first.coerceIn(0, current.length)
+                    val end = at.second.coerceIn(start, current.length)
+                    setDraft(current.substring(0, start) + body + current.substring(end))
+                }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _promptFailure.value = com.exponential.app.ui.components.FailedAction(
                     "load", "the prompt", trpcErrorMessage(t, ""),
-                ) { insertPrompt(promptId) }
+                ) { insertPrompt(promptId, at) }
             }
         }
     }

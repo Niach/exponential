@@ -43,16 +43,25 @@ pub struct StoryRingSpec {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StoryProgressSpec {
     pub height: f32,
+    /// Between the frames of one story.
     pub gap: f32,
+    /// #EXP-1432: before the first frame of the next story.
+    pub story_gap: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StoryViewerSpec {
     pub width: f32,
     pub height: f32,
     pub radius: f32,
+    /// #EXP-1432: the floating header's scrim (at least this tall)…
+    pub scrim_height: f32,
+    /// …fading to clear over its last `scrim_fade` px.
+    pub scrim_fade: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -212,7 +221,7 @@ pub struct StoriesInput {
     pub reads: Vec<StoryReadInput>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoryPicture {
     pub label: String,
@@ -222,7 +231,7 @@ pub struct StoryPicture {
     pub caption: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Story {
     pub id: String,
@@ -235,6 +244,8 @@ pub struct Story {
     pub created_at: i64,
     pub meta: String,
     pub title: Option<String>,
+    /// #EXP-1432: the card's `description` (one line under the title).
+    pub description: Option<String>,
     pub pictures: Vec<StoryPicture>,
     pub surface: bool,
     pub text: Option<String>,
@@ -418,6 +429,7 @@ fn story_of<'a>(
             _ => format!("{} · {age}", kind.label()),
         },
         title,
+        description: non_empty(s(card, "description")),
         text: if kind == StoryKind::Plan && pictures.is_empty() && !surface { s(card, "plan") } else { None },
         pictures,
         surface,
@@ -552,6 +564,89 @@ pub fn story_tab(input: &StoriesInput, root_id: &str) -> Option<StoryRing> {
     })
 }
 
+/// #EXP-1432: what one viewer frame draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StoryFrameKind {
+    Picture,
+    Surface,
+    Text,
+    Title,
+}
+
+/// #EXP-1432: one step of THE viewer (stories.json `frames`): a picture OR a
+/// surface (or a plan's text / a bare question), never both.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryFrame {
+    /// The story's index in the ring and its id.
+    pub story: usize,
+    pub story_id: String,
+    /// This frame's place among its story's frames.
+    pub index: usize,
+    pub count: usize,
+    pub kind: StoryFrameKind,
+    /// The picture's index in `story.pictures` (kind `picture`).
+    pub picture: Option<usize>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub footer: StoryFooter,
+    pub auto_advance_ms: Option<u64>,
+}
+
+/// A story's frames: one per picture (pictures win: the surface stays in
+/// the chat), else the surface, else the plan text, else the bare title.
+fn frames_of(story: &Story, at: usize) -> Vec<StoryFrame> {
+    let kinds: Vec<(StoryFrameKind, Option<usize>)> = if !story.pictures.is_empty() {
+        (0..story.pictures.len()).map(|picture| (StoryFrameKind::Picture, Some(picture))).collect()
+    } else if story.surface {
+        vec![(StoryFrameKind::Surface, None)]
+    } else if story.text.is_some() {
+        vec![(StoryFrameKind::Text, None)]
+    } else {
+        vec![(StoryFrameKind::Title, None)]
+    };
+    let count = kinds.len();
+    kinds
+        .into_iter()
+        .enumerate()
+        .map(|(index, (kind, picture))| StoryFrame {
+            story: at,
+            story_id: story.id.clone(),
+            index,
+            count,
+            kind,
+            picture,
+            // The plan text already begins with the title line.
+            title: if kind == StoryFrameKind::Text { None } else { story.title.clone() },
+            description: match (kind, picture) {
+                (StoryFrameKind::Picture, Some(picture)) => non_empty(story.pictures[picture].caption.clone()),
+                (StoryFrameKind::Text, _) => None,
+                _ => story.description.clone(),
+            },
+            footer: if index + 1 == count { story.footer } else { StoryFooter::None },
+            auto_advance_ms: story.auto_advance_ms,
+        })
+        .collect()
+}
+
+/// #EXP-1432: THE viewer's steps over a ring (`frameCases`): every story's
+/// frames, flattened in story order.
+pub fn story_frames(stories: &[Story]) -> Vec<StoryFrame> {
+    stories.iter().enumerate().flat_map(|(at, story)| frames_of(story, at)).collect()
+}
+
+/// The flat frame index of a story (and one of its pictures); `None` = none.
+pub fn story_frame_index(frames: &[StoryFrame], story_id: &str, picture: usize) -> Option<usize> {
+    let first = frames.iter().position(|frame| frame.story_id == story_id)?;
+    Some(
+        frames
+            .iter()
+            .position(|frame| frame.story_id == story_id && frame.picture == Some(picture))
+            .unwrap_or(first),
+    )
+}
+
 /// The viewer's place: (ring index, story index).
 pub type StoryPosition = (usize, usize);
 
@@ -656,6 +751,27 @@ mod tests {
         }
         let specimen = serde_json::to_value(story_tab_specimen()).unwrap();
         assert_eq!(specimen, cases[STORIES.tab.specimen.case]["expected"]);
+    }
+
+    #[test]
+    fn story_frames_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(STORIES_JSON).unwrap();
+        let cases = fixture["frameCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let stories: Vec<Story> = serde_json::from_value(case["input"]["stories"].clone()).unwrap();
+            let actual = serde_json::to_value(story_frames(&stories)).unwrap();
+            assert_eq!(actual, case["expected"], "{}", case["name"]);
+        }
+        let stories: Vec<Story> =
+            serde_json::from_value(cases.iter().map(|case| case["input"]["stories"].clone()).max_by_key(|list| list.as_array().map_or(0, Vec::len)).unwrap()).unwrap();
+        let frames = story_frames(&stories);
+        assert_eq!(story_frame_index(&frames, "missing", 0), None);
+        if let Some(picture_story) = stories.iter().find(|story| story.pictures.len() > 1) {
+            let first = story_frame_index(&frames, &picture_story.id, 0).unwrap();
+            assert_eq!(story_frame_index(&frames, &picture_story.id, 1), Some(first + 1));
+            assert_eq!(story_frame_index(&frames, &picture_story.id, 99), Some(first));
+        }
     }
 
     #[test]

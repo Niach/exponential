@@ -4,12 +4,13 @@
 //! contract model (`domain::session_tree::build_session_thread`): the header
 //! twice (`fixtures/session-thread.json`'s first case, then the private one
 //! with its lock): the title and the ONE tab strip (+ · Conversation · the
-//! issue chips · Guide with its dot; NEW-6: the private one is a ONE-session
-//! thread, so no Conversation tab); then (EXP-1334) the fold case's strip
-//! at three widths (wide: every chip full; narrower: identifiers; narrow:
-//! each zone folded into its own "+N", a nested session open), a session
-//! chip's subtree and an issue chip's sub-issues drawn OPEN, and the "+"
-//! menu (Link an issue ›, New issue); then every conversation row in order
+//! one issue chip or the group tab · Stories with its dot; NEW-6: the
+//! private one is a ONE-session thread, so no Conversation tab); then
+//! (#EXP-1433) the strip's two modes: ONE issue keeps its chip; anything
+//! more = ONE group tab (the count at rest; active with a session's name or
+//! an issue's identifier while it is open), the group's Menu (issues, a
+//! separator, the session tree) and the "+" menu (Link an issue ›, New
+//! issue) drawn OPEN; then every conversation row in order
 //! (EXP-1334: no root card) — the person's bubble, the agent's prose, an
 //! event line, a child's session card, a question answered in place (an
 //! option with its description, EXP-1322) and the queued reply; the rows
@@ -32,12 +33,11 @@ use gpui::{
     div, px, AnyElement, App, Div, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _,
     Window,
 };
-use gpui_component::menu::{PopupMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use domain::rows::{MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
 use domain::session_tree::{
-    build_session_thread, partition_threads, SessionState, SessionTabMarkState, SessionThreadInput,
+    build_session_thread, partition_threads, SessionThreadInput,
     SessionThreadRow, SessionThreadView, ThreadTab, ThreadsListGroup, ThreadsListInput, TreeIssue,
 };
 use domain::statuses::ResolvedStatus;
@@ -46,8 +46,9 @@ use crate::icons::registry;
 use crate::markdown::ImageCache;
 use crate::session_data::PrSnapshot;
 use crate::thread_screen::{
-    agent_prose, bubble_caption, card_row, clock, issue_glyph, message_markdown, muted_line, thread_menu,
-    thread_strip, title_row, user_bubble, StripIssue, StripPick, ThreadMenuTarget, ThreadStrip,
+    agent_prose, bubble_caption, card_row, clock, message_markdown, muted_line, thread_menu,
+    strip_group_items, strip_group_menu, thread_strip, title_row, user_bubble, StripIssue, StripPick,
+    ThreadMenuTarget, ThreadStrip,
 };
 
 use super::composer_dialog::OpenMenu;
@@ -111,16 +112,28 @@ pub(super) fn case(index: usize) -> Case {
     Case { view, messages, issues }
 }
 
-/// EXP-1334's case: folded issue + session chips, a child's asks.
+/// EXP-1334's case: issues with sub-issues + a session subtree.
 pub(super) const FOLD_CASE: &str = "EXP-1334: the root has no chip";
 
-/// EXP-1334: the web entry's two extra issues on the fold case, so each
-/// zone has something to fold: `(id, identifier, title)`.
+/// The web entry's two extra issues on the fold case: `(id, identifier,
+/// title)`.
 const EXTRA_ISSUES: [(&str, &str, &str); 2] = [("i-5", "EXP-25", "Context ring"), ("i-6", "EXP-26", "Model picker")];
 
-/// The fold case's tabs with the extra issues after its own, before the
-/// sessions (web `FOLDED_TABS`).
-fn folded_tabs(view: &SessionThreadView) -> Vec<ThreadTab> {
+/// #EXP-1433 `chips`: Conversation and ONE issue (web `ONE_ISSUE_TABS`).
+fn one_issue_tabs(view: &SessionThreadView) -> Vec<ThreadTab> {
+    let mut tabs: Vec<ThreadTab> =
+        view.tabs.iter().filter(|tab| matches!(tab, ThreadTab::Add | ThreadTab::Conversation)).cloned().collect();
+    tabs.push(ThreadTab::Issue {
+        issue_id: EXTRA_ISSUES[0].0.to_string(),
+        identifier: EXTRA_ISSUES[0].1.to_string(),
+        nested: Vec::new(),
+    });
+    tabs
+}
+
+/// #EXP-1433 `group`: the fold case's tabs with the extra issues after its
+/// own, before the sessions (web `GROUP_TABS`).
+fn group_tabs(view: &SessionThreadView) -> Vec<ThreadTab> {
     let trailing = |tab: &ThreadTab| matches!(tab, ThreadTab::Session { .. });
     let mut tabs: Vec<ThreadTab> = view.tabs.iter().filter(|tab| !trailing(tab)).cloned().collect();
     tabs.extend(EXTRA_ISSUES.iter().map(|(id, identifier, _)| ThreadTab::Issue {
@@ -139,8 +152,8 @@ fn status_of(index: usize) -> ResolvedStatus {
 }
 
 /// The strip's issue info: a title for every issue the case (and the
-/// extras) names, the status by the chip's index among the issue chips (a
-/// nested row's by its index under the chip + 1, the web `issueSubtree`).
+/// extras) names, the status by the issue's index in the strip's flat issue
+/// list (a chip's sub-issues after it, web `stripIssues`).
 fn strip_issues(case: &Case, tabs: &[ThreadTab]) -> HashMap<String, StripIssue> {
     let mut issues: HashMap<String, StripIssue> = case
         .issues
@@ -164,25 +177,46 @@ fn strip_issues(case: &Case, tabs: &[ThreadTab]) -> HashMap<String, StripIssue> 
             ringed: None,
         });
     }
-    for (index, tab) in tabs.iter().filter(|tab| matches!(tab, ThreadTab::Issue { .. })).enumerate() {
-        let ThreadTab::Issue { issue_id, nested, .. } = tab else {
-            continue;
-        };
-        if let Some(issue) = issues.get_mut(issue_id) {
+    let flat: Vec<&str> = tabs
+        .iter()
+        .flat_map(|tab| match tab {
+            ThreadTab::Issue { issue_id, nested, .. } => std::iter::once(issue_id.as_str())
+                .chain(nested.iter().map(|item| item.issue_id.as_str()))
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        })
+        .collect();
+    for (index, id) in flat.into_iter().enumerate() {
+        if let Some(issue) = issues.get_mut(id) {
             issue.status = Some(status_of(index));
-        }
-        for (row, item) in nested.iter().enumerate() {
-            if let Some(issue) = issues.get_mut(&item.issue_id) {
-                issue.status = Some(status_of(row + 1));
-            }
         }
     }
     issues
 }
 
+/// The strip's spec over `tabs` (the screen's inputs, no store).
+fn strip_spec(case: &Case, tabs: Vec<ThreadTab>, open: StripPick, prefix: &'static str) -> ThreadStrip {
+    let issues = strip_issues(case, &tabs);
+    ThreadStrip {
+        prefix,
+        tabs,
+        issues,
+        clis: Default::default(),
+        open,
+        menu: Some(ThreadMenuTarget {
+            root_id: case.view.root_id.clone(),
+            team_id: None,
+            chip: None,
+            linked: Vec::new(),
+        }),
+        on_pick: std::rc::Rc::new(|_, _, _| {}),
+        // The web specimen's: Stories pinned right, its dot on.
+        stories: Some(true),
+    }
+}
+
 /// THE strip the thread screen draws ([`thread_strip`]) over `tabs`, `open`
-/// picked, laid out in `width` px through the contract's partition over the
-/// MEASURED middle slot (like the screen).
+/// picked, `width` px wide.
 fn strip(
     case: &Case,
     tabs: Vec<ThreadTab>,
@@ -192,51 +226,12 @@ fn strip(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let slot = window.use_keyed_state(SharedString::from(format!("{prefix}-slot")), cx, |_, _| None::<f32>);
-    let available = *slot.read(cx);
-    let issues = strip_issues(case, &tabs);
-    let strip = thread_strip(
-        ThreadStrip {
-            prefix,
-            tabs,
-            issues,
-            clis: Default::default(),
-            open,
-            available,
-            menu: Some(ThreadMenuTarget {
-                root_id: case.view.root_id.clone(),
-                team_id: None,
-                chip: None,
-                linked: Vec::new(),
-            }),
-            on_pick: std::rc::Rc::new(|_, _, _| {}),
-            stories: None,
-            on_slot: Some(std::rc::Rc::new(move |measured, cx| {
-                let changed = slot.update(cx, |slot, _| {
-                    let changed = slot.is_none_or(|prev| (prev - measured).abs() > 0.5);
-                    *slot = Some(measured);
-                    changed
-                });
-                if changed {
-                    cx.refresh_windows();
-                }
-            })),
-        },
-        window,
-        cx,
-    );
+    let strip = thread_strip(strip_spec(case, tabs, open, prefix), window, cx);
     div().w(px(width)).max_w_full().child(strip).into_any_element()
 }
 
 /// The header's width (web `48rem`).
 const HEADER_W: f32 = 768.;
-/// EXP-1334: the fold case's three tiers. Wide: every chip full (web
-/// `84rem`); narrower: the issues short (web `54rem`); narrow: each zone
-/// folded, the open nested session's chip kept (web `36rem`). The IDE's
-/// chips are narrower than the web's (a 14px rem), so its widths are too.
-const WIDE_W: f32 = 1200.;
-const NARROWER_W: f32 = 960.;
-const NARROW_W: f32 = 560.;
 
 /// The header (web `Header`): the title (a lock when private) over THE
 /// strip.
@@ -249,195 +244,16 @@ fn header(case: &Case, prefix: &'static str, window: &mut Window, cx: &mut App) 
         .child(strip(case, case.view.tabs.clone(), StripPick::Conversation, HEADER_W, prefix, window, cx))
 }
 
-/// One row of a chip's subtree.
-enum SubtreeRow {
-    Issue {
-        identifier: String,
-        title: String,
-        status: Option<ResolvedStatus>,
-    },
-    Session {
-        name: String,
-        state: SessionState,
-    },
-}
-
-/// A session chip's lead ×4: THAT session's display state (S-3: one type).
-fn chip_state(mark: SessionTabMarkState) -> SessionState {
-    mark
-}
-
-/// A chip and its nested rows with their picks, depths relative to the chip
-/// (0).
-fn subtree_of(tab: &ThreadTab, issues: &HashMap<String, StripIssue>) -> Vec<(StripPick, SubtreeRow, usize)> {
-    match tab {
-        ThreadTab::Issue {
-            issue_id,
-            identifier,
-            nested,
-        } => {
-            let issue = |id: &str, identifier: &str, depth: usize| {
-                let info = issues.get(id).cloned().unwrap_or_default();
-                (
-                    StripPick::Issue(id.to_string()),
-                    SubtreeRow::Issue {
-                        identifier: identifier.to_string(),
-                        title: info.title,
-                        status: info.status,
-                    },
-                    depth,
-                )
-            };
-            std::iter::once(issue(issue_id, identifier, 0))
-                .chain(nested.iter().map(|item| issue(&item.issue_id, &item.identifier, item.depth)))
-                .collect()
-        }
-        ThreadTab::Session {
-            session_id,
-            name,
-            mark_state,
-            nested,
-        } => {
-            let session = |id: &str, name: &str, mark: SessionTabMarkState, depth: usize| {
-                (
-                    StripPick::Session(id.to_string()),
-                    SubtreeRow::Session {
-                        name: name.to_string(),
-                        state: chip_state(mark),
-                    },
-                    depth,
-                )
-            };
-            std::iter::once(session(session_id, name, *mark_state, 0))
-                .chain(nested.iter().map(|item| session(&item.session_id, &item.name, item.mark_state, item.depth)))
-                .collect()
-        }
-        _ => Vec::new(),
-    }
-}
-
-/// One subtree menu row, the way the thread screen paints it: THE tree row
-/// (guides, the lead, the name, a session's state word in its tone), the
-/// open one checked.
-fn subtree_row(item: &SubtreeRow, guides: &domain::tree_guides::Guides, active: bool, cx: &App) -> Div {
-    use domain::list_item::{GAP, INDENT, SMALL};
-    let theme = cx.theme();
-    let mut row = h_flex()
-        .relative()
-        .flex_shrink_0()
-        .h(px(SMALL))
-        .gap(px(GAP))
-        .items_center()
-        .pl(px(INDENT * guides.depth() as f32))
-        .children(crate::tree_guides::guide_layer(guides, 0., 0.));
-    row = match item {
-        SubtreeRow::Issue {
-            identifier,
-            title,
-            status,
-        } => row
-            .children(issue_glyph(status.as_ref(), cx))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(theme.muted_foreground)
-                    .child(SharedString::from(identifier.clone())),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .max_w(px(320.))
-                    .truncate()
-                    .text_sm()
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(title.clone())),
-            ),
-        SubtreeRow::Session { name, state } => {
-            let word_color = match state {
-                SessionState::NeedsYou => crate::work_card::session_tone_color(state.tone(), cx),
-                _ => theme.muted_foreground,
-            };
-            row.child(crate::run_rows::run_mark(crate::run_rows::run_agent(None), *state, cx))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .max_w(px(320.))
-                        .truncate()
-                        .text_sm()
-                        .text_color(theme.foreground)
-                        .child(SharedString::from(name.clone())),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_sm()
-                        .text_color(word_color)
-                        .child(SharedString::from(state.word())),
-                )
-        }
-    };
-    let check = active.then(|| {
-        Icon::new(registry::UI_CHECK)
-            .size(px(14.))
-            .text_color(theme.foreground)
-            .into_any_element()
-    });
-    crate::controls::pointer_row_fill(
-        h_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_2()
-            .items_center()
-            .child(row)
-            .child(div().flex_1())
-            .children(check),
-        false,
-    )
-}
-
-/// THE Menu of a chip's subtree (the thread screen's), drawn open: the chip
-/// then its nested rows, one guide set, the open one checked.
-fn subtree_menu(
-    mut menu: PopupMenu,
-    tab: Option<&ThreadTab>,
-    issues: &HashMap<String, StripIssue>,
-    open: &StripPick,
-) -> PopupMenu {
-    menu = menu.min_w(px(300.));
-    let Some(tab) = tab else {
-        return menu;
-    };
-    let rows = subtree_of(tab, issues);
-    let depths: Vec<usize> = rows.iter().map(|(_, _, depth)| *depth).collect();
-    for ((pick, row, _), guides) in rows.into_iter().zip(domain::tree_guides::guides_for(&depths)) {
-        let active = *open == pick;
-        menu = menu.item(PopupMenuItem::element(move |_, cx| subtree_row(&row, &guides, active, cx)));
-    }
-    menu
-}
-
-/// EXP-1334: the three menus drawn OPEN under the strips (the web's
-/// `MenuPanel`s): a session chip's subtree (the nested `g2` open), an issue
-/// chip's sub-issues (`i-3` open), the "+" (THE thread menu).
+/// #EXP-1433: the menus drawn OPEN under the strips (the web's
+/// `MenuPanel`s): the group's Menu (`g2` open) and the "+" (THE thread
+/// menu).
 fn open_menus(fold: &Case, tabs: &[ThreadTab], window: &mut Window, cx: &mut App) -> Div {
     let muted = cx.theme().muted_foreground;
     let caption = |text: &'static str| div().text_xs().text_color(muted).child(text);
-    let issues = strip_issues(fold, tabs);
-    let session_tab = fold.view.tabs.iter().find(|tab| matches!(tab, ThreadTab::Session { .. })).cloned();
-    let issue_tab = fold.view.tabs.iter().find(|tab| matches!(tab, ThreadTab::Issue { .. })).cloned();
-    let session_menu: Entity<OpenMenu> = {
-        let issues = issues.clone();
-        window.use_keyed_state("sg-thread-parts-session-subtree", cx, move |window, cx| {
-            OpenMenu::new(window, cx, move |menu, _, _| {
-                subtree_menu(menu, session_tab.as_ref(), &issues, &StripPick::Session("g2".into()))
-            })
-        })
-    };
-    let issue_menu: Entity<OpenMenu> = window.use_keyed_state("sg-thread-parts-issue-subtree", cx, move |window, cx| {
+    let (issues, sessions) = strip_group_items(&strip_spec(fold, tabs.to_vec(), StripPick::Conversation, "sg-group"));
+    let group_menu: Entity<OpenMenu> = window.use_keyed_state("sg-thread-parts-group-menu", cx, move |window, cx| {
         OpenMenu::new(window, cx, move |menu, _, _| {
-            subtree_menu(menu, issue_tab.as_ref(), &issues, &StripPick::Issue("i-3".into()))
+            strip_group_menu(menu, &issues, &sessions, &StripPick::Session("g2".into()), None)
         })
     });
     let target = ThreadMenuTarget {
@@ -457,10 +273,9 @@ fn open_menus(fold: &Case, tabs: &[ThreadTab], window: &mut Window, cx: &mut App
         .child(
             v_flex()
                 .gap_2()
-                .child(session_menu)
-                .child(caption("A session chip's subtree, opened by a click (phones: the bottom sheet)")),
+                .child(group_menu)
+                .child(caption("The group's Menu: issues, a separator, the session tree (phones: the bottom sheet)")),
         )
-        .child(v_flex().gap_2().child(issue_menu).child(caption("An issue chip's sub-issues")))
         .child(v_flex().gap_2().child(add_menu).child(caption("The \"+\" (left of Conversation)")))
 }
 
@@ -588,14 +403,16 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     // The header twice: the first case, then the private one with its lock.
     let header_first = header(&first, "sg-thread", window, cx);
     let header_private = header(&second, "sg-thread-private", window, cx);
-    // EXP-1334: the folded strip at three widths (full → identifiers → each
-    // zone's "+N", a nested session open), then the menus, open.
+    // #EXP-1433: the strip's two modes, then the menus, open.
     let fold = case(case_named(FOLD_CASE));
-    let tabs = folded_tabs(&fold.view);
-    let wide = strip(&fold, tabs.clone(), StripPick::Conversation, WIDE_W, "sg-thread-wide", window, cx);
-    let narrower = strip(&fold, tabs.clone(), StripPick::Conversation, NARROWER_W, "sg-thread-narrower", window, cx);
-    let narrow = strip(&fold, tabs.clone(), StripPick::Session("g2".into()), NARROW_W, "sg-thread-narrow", window, cx);
-    let menus = open_menus(&fold, &tabs, window, cx);
+    let group = group_tabs(&fold.view);
+    let one = strip(&fold, one_issue_tabs(&fold.view), StripPick::Conversation, HEADER_W, "sg-thread-one", window, cx);
+    let rest = strip(&fold, group.clone(), StripPick::Conversation, HEADER_W, "sg-thread-group", window, cx);
+    let session_open =
+        strip(&fold, group.clone(), StripPick::Session("g2".into()), HEADER_W, "sg-thread-group-session", window, cx);
+    let issue_open =
+        strip(&fold, group.clone(), StripPick::Issue("i-3".into()), HEADER_W, "sg-thread-group-issue", window, cx);
+    let menus = open_menus(&fold, &group, window, cx);
     let muted = cx.theme().muted_foreground;
     let caption = |text: &'static str| div().text_xs().text_color(muted).child(text);
     v_flex()
@@ -610,15 +427,17 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         )
         .child(
             v_flex()
-                .w(px(WIDE_W))
+                .w(px(HEADER_W))
                 .max_w_full()
                 .gap_3()
-                .child(caption("Wide: every chip full (identifier + title)"))
-                .child(wide)
-                .child(caption("Narrower: the issues give up their titles first"))
-                .child(narrower)
-                .child(caption("Narrow: each zone folds into its own \"+N\"; the open chip (a nested session) stays"))
-                .child(narrow)
+                .child(caption("One issue, no session: its chip stays"))
+                .child(one)
+                .child(caption("More: ONE group tab, the count muted"))
+                .child(rest)
+                .child(caption("A session open from the group: the tab is active and names it"))
+                .child(session_open)
+                .child(caption("An issue open from the group"))
+                .child(issue_open)
                 .child(menus),
         )
         .child(conversation)
@@ -707,13 +526,15 @@ mod tests {
         assert!(described, "an unanswered question with a described option");
     }
 
-    /// EXP-1334: the fold case's strip carries the web's two extra issues
+    /// #EXP-1433: the group case's strip carries the web's two extra issues
     /// after its own and before the sessions; the statuses alternate in
-    /// progress / backlog by chip index; the open ids are the web's.
+    /// progress / backlog by the flat issue index; the one-issue case is
+    /// `chips`, the group case `group` with every issue and session counted.
     #[test]
-    fn the_fold_strip_is_the_webs() {
+    fn the_strip_modes_are_the_webs() {
+        use domain::session_tree::{thread_strip_mode, StripMode};
         let fold = case(case_named(FOLD_CASE));
-        let tabs = folded_tabs(&fold.view);
+        let tabs = group_tabs(&fold.view);
         let identifiers: Vec<&str> = tabs
             .iter()
             .filter_map(|tab| match tab {
@@ -725,14 +546,20 @@ mod tests {
         let last_issue = tabs.iter().rposition(|tab| matches!(tab, ThreadTab::Issue { .. })).unwrap();
         let first_session = tabs.iter().position(|tab| matches!(tab, ThreadTab::Session { .. })).unwrap();
         assert!(last_issue < first_session);
-        assert!(matches!(tabs.last(), Some(ThreadTab::Session { .. })));
         let issues = strip_issues(&fold, &tabs);
         assert_eq!(issues["i-5"].title, "Context ring");
         assert_eq!(issues["i-6"].title, "Model picker");
         let status = |id: &str| issues[id].status.as_ref().map(|status| status.group_key.clone());
-        assert_eq!(status("i-5"), status("i-1"));
         assert_ne!(status("i-6"), status("i-5"));
-        assert!(tabs.iter().any(|tab| matches!(tab, ThreadTab::Session { nested, .. } if nested.iter().any(|row| row.session_id == "g2"))));
-        assert!(tabs.iter().any(|tab| matches!(tab, ThreadTab::Issue { nested, .. } if nested.iter().any(|row| row.issue_id == "i-3"))));
+        let spec = strip_spec(&fold, tabs, StripPick::Conversation, "t");
+        let (group_issues, group_sessions) = strip_group_items(&spec);
+        assert!(group_sessions.iter().any(|(item, _)| matches!(item, crate::thread_screen::StripGroupItem::Session { session_id, .. } if session_id == "g2")));
+        assert!(group_issues.iter().any(|item| matches!(item, crate::thread_screen::StripGroupItem::Issue { issue_id, .. } if issue_id == "i-3")));
+        let mode = thread_strip_mode(group_issues.len(), group_sessions.len());
+        assert_eq!(mode.mode, StripMode::Group);
+        assert_eq!(mode.count, group_issues.len() + group_sessions.len());
+        let one = strip_spec(&fold, one_issue_tabs(&fold.view), StripPick::Conversation, "t");
+        let (one_issues, one_sessions) = strip_group_items(&one);
+        assert_eq!(thread_strip_mode(one_issues.len(), one_sessions.len()).mode, StripMode::Chips);
     }
 }

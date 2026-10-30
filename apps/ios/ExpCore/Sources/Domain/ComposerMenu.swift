@@ -25,6 +25,9 @@ public enum ComposerMenu {
         /// "Issue": launch = the implement subject picker; session / agent
         /// = the same issue search list, a pick inserts `#IDENT` at the caret.
         case implementIssue = "implement-issue"
+        /// #EXP-1434: the team's prompts as THE search list (the `/` menu's
+        /// rows); a pick = the `/` pick.
+        case prompts
         /// S-3 runner submenus over THE existing pickers.
         case device
         case account
@@ -45,7 +48,7 @@ public enum ComposerMenu {
 
     /// One fixture `conditions` key.
     public enum Condition: String, Equatable, Sendable, CaseIterable {
-        case temporary, device, account, model, repositories, subagentModel, ultracode, mcp, computerUse
+        case temporary, device, account, model, repositories, subagentModel, ultracode, mcp, computerUse, prompts
     }
 
     /// When a conditional row shows (fixture `conditions`).
@@ -70,6 +73,8 @@ public enum ComposerMenu {
         public var mcp: Bool
         /// The picked device advertises `computerUseRunCap`.
         public var computerUse: Bool
+        /// #EXP-1434: the team has at least one prompt (the `/` menu lists it).
+        public var prompts: Bool
 
         public init(
             temporary: Bool = false,
@@ -80,7 +85,8 @@ public enum ComposerMenu {
             subagentModel: Bool = false,
             ultracode: Bool = false,
             mcp: Bool = false,
-            computerUse: Bool = false
+            computerUse: Bool = false,
+            prompts: Bool = false
         ) {
             self.temporary = temporary
             self.device = device
@@ -91,6 +97,7 @@ public enum ComposerMenu {
             self.ultracode = ultracode
             self.mcp = mcp
             self.computerUse = computerUse
+            self.prompts = prompts
         }
 
         public func holds(_ condition: Condition) -> Bool {
@@ -104,6 +111,7 @@ public enum ComposerMenu {
             case .ultracode: ultracode
             case .mcp: mcp
             case .computerUse: computerUse
+            case .prompts: prompts
             }
         }
     }
@@ -135,6 +143,7 @@ public enum ComposerMenu {
     private static let rows: [Row?] = [
         Row(id: .addFile, kind: .item, label: "Photo or file", codexLabel: nil, icon: "ui-attach", surfaces: everywhere, when: []),
         Row(id: .implementIssue, kind: .submenu, label: "Issue", codexLabel: nil, icon: "editor-issue-ref", surfaces: everywhere, when: []),
+        Row(id: .prompts, kind: .submenu, label: "Prompts", codexLabel: nil, icon: "coding-command", surfaces: everywhere, when: [.prompts]),
         nil,
         Row(id: .device, kind: .submenu, label: "Device", codexLabel: nil, icon: "nav-devices", surfaces: everywhere, when: [.device]),
         Row(id: .account, kind: .submenu, label: "Account", codexLabel: nil, icon: "settings-account", surfaces: everywhere, when: [.account]),

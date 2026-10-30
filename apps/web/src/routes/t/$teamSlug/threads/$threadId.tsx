@@ -11,9 +11,9 @@ import { THREADS_LIST_COPY } from "@/lib/session-tree"
 // `session-thread.json` ×4, `buildSessionThread`). Header: the title
 // (EXP-1316: derived, `Implement EXP-12` / `Run <action>` / the agent's
 // auto-name; nobody renames it; a lock when private) + ONE tab strip that
-// never scrolls (EXP-1334, `ThreadTabs`): "+" (THE thread menu) ·
-// Conversation | issue chips … +X | session chips … +Y | Guide (a dot while
-// it holds anything). md+: while the Guide's PR is
+// never scrolls (#EXP-1433, `ThreadTabs`): "+" (THE thread menu) ·
+// Conversation | the one issue chip OR ONE group tab (every issue and
+// session in THE Menu) | Stories (a dot while a story is unseen). md+: while the Guide's PR is
 // open the header's trailing slot carries Merge on EVERY tab, then the `…`
 // (Guide tab only).
 // `?tab=` names the tab on show:
@@ -31,13 +31,13 @@ import { THREADS_LIST_COPY } from "@/lib/session-tree"
 //                          rail; phones: THE bottom Merge capsule)
 //   session&session=<id>   EXP-1316: that session's RAW WORK in place under
 //                          this header + strip, its Stop pill in the header
-//                          (EXP-1343: phones too, no own screen). The
-//                          session chips = the dispatcher's direct children;
-//                          a chip with descendants opens its subtree on a
-//                          CLICK. `/sessions/$id` redirects here.
+//                          (EXP-1343: phones too, no own screen), picked
+//                          from the group tab's tree rows.
+//                          `/sessions/$id` redirects here.
 //
-// Phones: the strip IS the pager under the header (EXP-1343: every strip
-// tab is a page — swipe or tap, in strip order, `lib/thread-pages.ts`). No
+// Phones: the strip IS the pager under the header (#EXP-1433: Conversation ·
+// the one issue | the item open from the group · Stories — swipe or tap,
+// `lib/thread-pages.ts`). No
 // right sidebar, no Show work, no captions. EXP-1347: an issue pill of one
 // of this thread's issues selects its tab (`IssueRefOutlet`).
 

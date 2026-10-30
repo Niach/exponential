@@ -60,7 +60,7 @@ pub(crate) fn specimen_input() -> Value {
             {
                 "id": "designer-result", "sessionId": "designer", "authorSessionId": "designer",
                 "createdAt": 1_799_996_400_000_i64, "answeredAt": null,
-                "card": { "kind": "surface", "story": true, "title": "Spacing review", "surface": text("No drift") }
+                "card": { "kind": "surface", "story": true, "title": "Spacing review", "description": "Paddings match on all four platforms.", "surface": text("No drift") }
             },
             {
                 "id": "ship-result", "sessionId": "ship", "authorSessionId": "ship",
@@ -136,7 +136,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
             let arcs: Vec<RingArc> = ring.stories.iter().map(RingArc::from).collect();
             story_ring(&arcs, SMALL_RING, specimen_avatar(ring, small_glyph, cx), cx).into_any_element()
         })))
-        .child(v_flex().w(gpui::px(280.)).child(story_progress(4, 1, 0.4, cx)))
+        .child(v_flex().w(gpui::px(280.)).child(story_progress(4, 1, 0.4, Some(&[0, 0, 1, 2]), cx)))
 }
 
 #[cfg(test)]

@@ -1,18 +1,18 @@
 //! S-3: `story-viewer` (`fixtures/stories.json` SPECIMEN; web entry
 //! `story-viewer`, iOS + Android twins): THE story viewer's panel
 //! ([`crate::story_viewer`]) as the IDE's centred modal over a scrim, open
-//! on ring `viewer.ring` (0), story `viewer.story` (0) of
-//! `stories(specimen.input)`: the board's waiting question over its
+//! on ring 0's FIRST FRAME (#EXP-1432, `story_frames`) of
+//! `stories(specimen.input)`: the board's waiting question's bare
 //! Exponential UI surface (Text, ChoiceTiles, StatTile) with two described
-//! options, the progress frozen at `viewer.fraction` (0). No `sync::Store`
-//! here: the card is built inline from the same hardcoded input.
+//! options, the progress frozen at 0. No `sync::Store` here: the card is
+//! built inline from the same hardcoded input.
 
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::v_flex;
 use serde_json::json;
 
 use domain::rows::MessageRow;
-use domain::stories::STORIES;
+use domain::stories::{story_frames, STORIES};
 
 use super::story_ring::{board_question_card, specimen_avatar, specimen_rings};
 use crate::markdown::ImageCache;
@@ -39,12 +39,14 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-story-viewer-images", cx, |_, _| ImageCache::new(None)).clone();
     let rings = specimen_rings();
     let ring = &rings[0];
-    let story = &ring.stories[0];
+    let frames = story_frames(&ring.stories);
+    let frame = &frames[0];
+    let story = &ring.stories[frame.story];
     let message = message();
-    let content = story_content(story, Some(&message), 0, &ThreadText::default(), &images, window, cx);
+    let content = story_content(story, frame, Some(&message), &ThreadText::default(), &images, window, cx);
     let avatar = specimen_avatar(ring, crate::story_viewer::HEADER_GLYPH, cx);
     let spec = &STORIES.viewer;
-    let panel = story_panel(ring, story, 0, 0., avatar, content, PanelHandlers::default(), cx)
+    let panel = story_panel(ring, &frames, 0, 0., avatar, content, PanelHandlers::default(), cx)
         .w(px(spec.width))
         .h(px(spec.height))
         .rounded(px(spec.radius))
@@ -71,5 +73,9 @@ mod tests {
         assert_eq!(story.title.as_deref(), Some("Which accent for the board header?"));
         assert!(story.surface);
         assert_eq!(message().id, story.id);
+        // #EXP-1432: the first frame is the question's bare surface, footer on it.
+        let frames = story_frames(&rings[0].stories);
+        assert_eq!(frames[0].kind, domain::stories::StoryFrameKind::Surface);
+        assert_eq!(frames[0].footer, domain::stories::StoryFooter::Choices);
     }
 }

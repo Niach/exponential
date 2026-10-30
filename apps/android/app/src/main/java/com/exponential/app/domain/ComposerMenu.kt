@@ -15,6 +15,8 @@ package com.exponential.app.domain
 enum class ComposerMenuRowId(val wire: String) {
     AddFile("add-file"),
     ImplementIssue("implement-issue"),
+    /** #EXP-1434: the team's prompts (the `/` menu's list) as a submenu. */
+    Prompts("prompts"),
     Device("device"),
     Account("account"),
     Model("model"),
@@ -42,6 +44,7 @@ enum class ComposerMenuCondition(val wire: String) {
     Ultracode("ultracode"),
     Mcp("mcp"),
     ComputerUse("computerUse"),
+    Prompts("prompts"),
 }
 
 data class ComposerMenuConditions(
@@ -56,6 +59,8 @@ data class ComposerMenuConditions(
     val ultracode: Boolean = false,
     val mcp: Boolean = false,
     val computerUse: Boolean = false,
+    /** #EXP-1434: the team has at least one prompt. */
+    val prompts: Boolean = false,
 ) {
     fun holds(condition: ComposerMenuCondition): Boolean = when (condition) {
         ComposerMenuCondition.Temporary -> temporary
@@ -67,6 +72,7 @@ data class ComposerMenuConditions(
         ComposerMenuCondition.Ultracode -> ultracode
         ComposerMenuCondition.Mcp -> mcp
         ComposerMenuCondition.ComputerUse -> computerUse
+        ComposerMenuCondition.Prompts -> prompts
     }
 }
 
@@ -129,6 +135,10 @@ object ComposerMenu {
     val ROWS: List<ComposerMenuEntry> = listOf(
         ComposerMenuEntry.Row(ComposerMenuRowId.AddFile, ComposerMenuRowKind.Item, "Photo or file", icon = "ui-attach", surfaces = ALL),
         ComposerMenuEntry.Row(ComposerMenuRowId.ImplementIssue, ComposerMenuRowKind.Submenu, "Issue", icon = "editor-issue-ref", surfaces = ALL),
+        ComposerMenuEntry.Row(
+            ComposerMenuRowId.Prompts, ComposerMenuRowKind.Submenu, "Prompts",
+            icon = "coding-command", surfaces = ALL, conditions = listOf(ComposerMenuCondition.Prompts),
+        ),
         ComposerMenuEntry.Separator,
         ComposerMenuEntry.Row(
             ComposerMenuRowId.Device, ComposerMenuRowKind.Submenu, "Device",

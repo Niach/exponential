@@ -10,7 +10,7 @@ import {
   guidePullRequest,
   listAgents,
   threadChatMode,
-  partitionThreadStrip,
+  threadStripMode,
   partitionThreads,
   questionOption,
   questionOptions,
@@ -23,7 +23,7 @@ import {
   threadRowWord,
   threadsUnread,
   treeState,
-  type ThreadStripLayout,
+  type ThreadStripMode,
 } from "./session-tree"
 
 describe(`session-tree fixtures (EXP-1291)`, () => {
@@ -65,10 +65,10 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       expect(guideMenuEntries(entry.input)).toEqual(entry.expected)
     })
   }
-  for (const entry of thread.stripCases) {
-    test(`strip (EXP-1334): ${entry.name}`, () => {
-      // The REAL layout type: a shape drift in the fixture fails typecheck.
-      expect(partitionThreadStrip(entry.input)).toEqual(entry.expected as ThreadStripLayout)
+  for (const entry of thread.stripModeCases) {
+    test(`strip (#EXP-1433): ${entry.name}`, () => {
+      // The REAL mode type: a shape drift in the fixture fails typecheck.
+      expect(threadStripMode(entry.input)).toEqual(entry.expected as ThreadStripMode)
     })
   }
   for (const entry of thread.repliesCases) {

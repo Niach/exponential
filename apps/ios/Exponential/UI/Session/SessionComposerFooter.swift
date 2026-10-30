@@ -35,6 +35,11 @@ struct SessionComposerFooter: View {
         var surface: ComposerMenu.Surface = .session
         /// The team whose issues the "+" Issue page searches.
         var teamId: String?
+        /// #EXP-1434: the team's prompts (the `/` menu's) for the "+"
+        /// Prompts page, and its pick (the `/` pick's effect: the body
+        /// inserted at the caret).
+        var prompts: [SlashPrompt] = []
+        var onPickPrompt: (SlashPrompt) -> Void = { _ in }
 
         /// composer-menu.json `model`: a session or an agent chat whose
         /// agent switches models (always for claude and codex), never ended.
@@ -42,7 +47,7 @@ struct SessionComposerFooter: View {
 
         /// The "+" conditions of this composer.
         var menuConditions: ComposerMenu.Conditions {
-            ComposerMenu.Conditions(model: canPickModel)
+            ComposerMenu.Conditions(model: canPickModel, prompts: !prompts.isEmpty)
         }
     }
 

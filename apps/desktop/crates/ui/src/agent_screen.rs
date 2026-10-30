@@ -618,13 +618,26 @@ impl AgentScreenView {
         let view = cx.entity().downgrade();
         let input = self.first.input.clone();
         let team_id = self.subject_team_id();
+        // #EXP-1434: the team's prompts, the `/` menu's list.
+        let prompts: Vec<crate::slash_commands::SlashPrompt> = team_id
+            .as_deref()
+            .filter(|_| Store::try_global(cx).is_some())
+            .map(|team_id| {
+                crate::queries::team_prompts(cx, team_id)
+                    .0
+                    .iter()
+                    .map(crate::slash_commands::SlashPrompt::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let conditions = ComposerMenuConditions { prompts: !prompts.is_empty(), ..ComposerMenuConditions::default() };
         let trigger = crate::composer::composer_tool("agent-plus", registry::UI_ADD, cx)
             .tooltip(crate::chat_screen::PLUS_TOOLTIP)
             .disabled(self.first.sending);
         crate::controls::PointerMenu::for_button(trigger, move |mut menu, window, cx| {
             let root = cx.entity().downgrade();
             menu = crate::picker::search_list::search_submenu_parent(menu.min_w(px(260.)));
-            for row in composer_menu_rows(ComposerSurface::Agent, ComposerMenuConditions::default()) {
+            for row in composer_menu_rows(ComposerSurface::Agent, conditions) {
                 menu = match row {
                     Row::Separator => menu.separator(),
                     Row::AddFile => {
@@ -655,6 +668,32 @@ impl AgentScreenView {
                             crate::picker::search_list::menu_search_list_submenu(
                                 "agent-issue-ref",
                                 crate::picker::search_list::issue_ref_source(team_id.clone(), insert),
+                                sub,
+                                root.clone(),
+                                window,
+                                cx,
+                            )
+                        })
+                    }
+                    // #EXP-1434: Prompts › — the `/` pick's body at the caret.
+                    Row::Prompts => {
+                        let input = input.clone();
+                        let root = root.clone();
+                        let prompts = prompts.clone();
+                        menu.submenu_with_icon(row.icon().map(Icon::new), row.label(), window, cx, move |sub, window, cx| {
+                            let input = input.clone();
+                            let insert: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)> =
+                                std::rc::Rc::new(move |text: String, window: &mut Window, cx: &mut App| {
+                                    input.update(cx, |state, cx| state.insert(text, window, cx));
+                                    input.read(cx).focus_handle(cx).focus(window, cx);
+                                });
+                            let pick: std::rc::Rc<dyn Fn(crate::slash_commands::SlashPrompt, &mut Window, &mut App)> =
+                                std::rc::Rc::new(move |prompt, window: &mut Window, cx: &mut App| {
+                                    crate::picker::search_list::insert_prompt_body(prompt, insert.clone(), window, cx)
+                                });
+                            crate::picker::search_list::menu_search_list_submenu(
+                                "agent-prompts",
+                                crate::picker::search_list::prompt_source(prompts.clone(), pick),
                                 sub,
                                 root.clone(),
                                 window,

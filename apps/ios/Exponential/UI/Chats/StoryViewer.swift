@@ -3,26 +3,31 @@ import ExpUI
 import SwiftUI
 import UIKit
 
-/// S-3 STORY VIEWER (stories.json, styleguide `story-viewer`): full screen
-/// over everything on the phone. Top: THE StoryProgress over the ring's
-/// stories, then the header (the ring's avatar, the story's session name,
-/// its meta muted, the close ghost glyph; a tap on the avatar or name opens
-/// that session). Body: the one-line title (none over plan text), then the pictures (fitted, a
-/// pager when several, the caption under it) and/or the surface through THE
-/// surface card renderer, else the plan's markdown. Footer per `footer`:
-/// Approve · Change, the question's chips (+ the free text when custom), a
-/// reply field, or nothing. NAVIGATION: the right third / a swipe left =
-/// next (past the ring's last = the next ring, past the last ring = close),
-/// the left third / a swipe right = previous, a swipe down = close, a held
-/// press pauses; only a result advances on its own (`autoAdvanceMs`). The
-/// order is the rings' as the viewer OPENED (marking a story seen reorders
-/// the live fold); an answered story drops out and the viewer moves on.
+/// S-3 STORY VIEWER (stories.json, styleguide `story-viewer`; #EXP-1432
+/// FRAMES): full screen over everything on the phone, Instagram-like. The
+/// viewer steps through FRAMES (`Stories.frames`: one per picture, else the
+/// surface, else the plan text, else the bare title), never through stories
+/// with an inner pager. The frame's body fills the screen on black edge to
+/// edge (a picture fitted behind the status bar; a surface through THE
+/// surface renderer with no card chrome, scrolling when taller; the plan's
+/// markdown); THE StoryProgress (one segment per frame of the ring, a
+/// `storyGap` between stories), the header (the ring's avatar, the story's
+/// session name, its meta muted, the close ghost glyph; a tap on the avatar
+/// or name opens that session), the frame's title and description FLOAT over
+/// the top on a scrim; the footer (on a story's last frame) floats over the
+/// bottom on the mirrored scrim. NAVIGATION: the right third / a swipe left
+/// = next frame (past the ring's last = the next ring, past the last ring =
+/// close), the left third / a swipe right = previous, a swipe down = close,
+/// a held press pauses; every frame runs its own timer (`autoAdvanceMs`, a
+/// decision's never). The order is the rings' as the viewer OPENED (marking
+/// a story seen reorders the live fold); an answered story drops out and the
+/// viewer moves on.
 struct StoryViewer: View {
     /// The live rings (the fold recomputes from sync while the viewer is up).
     let rings: [Stories.StoryRing]
     let startKey: String
-    /// stories.json STORIES TAB: a tile opens the viewer at its story (and
-    /// a thumbnail at its picture); nil = the ring's first story.
+    /// stories.json STORIES TAB: a tile opens the viewer at its story's first
+    /// frame, a thumbnail at its picture's frame; nil = the ring's first.
     var startStory: String?
     var startPicture = 0
     var card: (String) -> TreeMessageCard? = { _ in nil }
@@ -41,15 +46,20 @@ struct StoryViewer: View {
         let storyId: String
     }
 
+    private typealias Live = [String: (ring: Stories.StoryRing, story: Stories.Story)]
+
     @State private var order: [Entry] = []
     @State private var position = 0
+    /// The frame's place among its story's frames.
+    @State private var frame = 0
     @State private var elapsed: Double = 0
     @State private var paused = false
     @State private var shown: Set<String> = []
     @State private var holdTask: Task<Void, Never>?
     @State private var held = false
-    @State private var pagerFrame: CGRect = .zero
     @State private var scrollAtTop = true
+    @State private var topHeight: CGFloat = 0
+    @State private var footerHeight: CGFloat = 0
 
     private static let space = "story-viewer"
     private static let tick: Double = 50
@@ -59,15 +69,15 @@ struct StoryViewer: View {
 
     // MARK: - Live lookup
 
-    private var storiesById: [String: (ring: Stories.StoryRing, story: Stories.Story)] {
-        var out: [String: (ring: Stories.StoryRing, story: Stories.Story)] = [:]
+    private var storiesById: Live {
+        var out: Live = [:]
         for ring in rings {
             for story in ring.stories { out[story.id] = (ring, story) }
         }
         return out
     }
 
-    private func present(_ index: Int, _ live: [String: (ring: Stories.StoryRing, story: Stories.Story)]) -> Bool {
+    private func present(_ index: Int, _ live: Live) -> Bool {
         order.indices.contains(index) && live[order[index].storyId] != nil
     }
 
@@ -76,30 +86,30 @@ struct StoryViewer: View {
         return storiesById[order[position].storyId]
     }
 
+    /// The current ring's stories in the opened order (the live ones).
+    private func ringStories(_ ringKey: String, _ live: Live) -> [Stories.Story] {
+        order.filter { $0.ringKey == ringKey }.compactMap { live[$0.storyId]?.story }
+    }
+
     // MARK: - Body
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            AppBackground()
             if let current {
                 let live = storiesById
-                let segments = order.indices.filter { order[$0].ringKey == current.ring.key && present($0, live) }
-                VStack(alignment: .leading, spacing: 12) {
-                    StoryProgress(
-                        count: segments.count,
-                        index: segments.firstIndex(of: position) ?? 0,
-                        fraction: fraction ?? current.story.autoAdvanceMs.map { elapsed / $0 } ?? 1
-                    )
-                    header(current.ring, current.story)
-                    navigable(current.story)
-                    StoryFooter(story: current.story, card: card(current.story.id), onAnswer: onAnswer)
-                        .id(current.story.id)
+                let frames = Stories.frames(ringStories(current.ring.key, live))
+                let at = max(0, frames.firstIndex { $0.storyId == current.story.id && $0.index == frame }
+                    ?? frames.firstIndex { $0.storyId == current.story.id } ?? 0)
+                if frames.indices.contains(at) {
+                    let shownFrame = frames[at]
+                    navigable(current.story, shownFrame)
+                        .task(id: "\(current.story.id):\(shownFrame.index)") { await run(current.story, shownFrame) }
+                    top(current.ring, current.story, shownFrame, frames: frames, at: at)
+                    if shownFrame.footer != Stories.Footer.none {
+                        footer(current.story, shownFrame)
+                    }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-                .task(id: current.story.id) { await run(current.story) }
             }
         }
         .preferredColorScheme(.dark)
@@ -110,6 +120,51 @@ struct StoryViewer: View {
         .accessibilityAction(named: Stories.Copy.previous) { previous() }
         .onAppear(perform: open)
         .onChange(of: rings) { _, _ in settle() }
+    }
+
+    /// The floating top band: progress, header, the frame's title and
+    /// description, on the scrim.
+    private func top(
+        _ ring: Stories.StoryRing, _ story: Stories.Story, _ shownFrame: Stories.Frame, frames: [Stories.Frame],
+        at: Int
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            StoryProgress(
+                count: frames.count,
+                index: at,
+                fraction: fraction ?? shownFrame.autoAdvanceMs.map { elapsed / $0 } ?? 1,
+                groups: frames.map(\.story)
+            )
+            .allowsHitTesting(false)
+            header(ring, story)
+            if shownFrame.title != nil || shownFrame.description != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let title = shownFrame.title {
+                        Text(title)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("story-title")
+                    }
+                    if let description = shownFrame.description {
+                        Text(description)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .lineLimit(3)
+                            .accessibilityIdentifier("story-description")
+                    }
+                }
+                .padding(.horizontal, 2)
+                .allowsHitTesting(false)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topHeight = $0 }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(alignment: .top) { StoryScrim(edge: .top).allowsHitTesting(false) }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private func header(_ ring: Stories.StoryRing, _ story: Stories.Story) -> some View {
@@ -138,23 +193,27 @@ struct StoryViewer: View {
         .accessibilityIdentifier(Stories.TestIds.header)
     }
 
-    /// The title + body: the tap thirds, the swipes and the held press.
-    private func navigable(_ story: Stories.Story) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // stories.json: no title line over the plan text (its first line).
-            if let title = story.title, story.text == nil {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-            StoryBody(
-                story: story, card: card(story.id), pagerFrame: $pagerFrame, scrollAtTop: $scrollAtTop,
-                space: Self.space, initialPage: story.id == startStory ? startPicture : 0
-            )
+    /// The footer floating over the bottom on the mirrored scrim.
+    private func footer(_ story: Stories.Story, _ shownFrame: Stories.Frame) -> some View {
+        StoryFooter(story: story, footer: shownFrame.footer, card: card(story.id), onAnswer: onAnswer)
             .id(story.id)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
+            .frame(maxWidth: .infinity)
+            .background(alignment: .bottom) { StoryScrim(edge: .bottom).allowsHitTesting(false) }
+            .frame(maxHeight: .infinity, alignment: .bottom)
+    }
+
+    /// The frame's body under the bands: the tap thirds, the swipes and the
+    /// held press.
+    private func navigable(_ story: Stories.Story, _ shownFrame: Stories.Frame) -> some View {
+        StoryFrameBody(
+            story: story, frame: shownFrame, card: card(story.id), top: topHeight, bottom: footerHeight,
+            scrollAtTop: $scrollAtTop
+        )
+        .id("\(story.id):\(shownFrame.index)")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .simultaneousGesture(
@@ -168,17 +227,27 @@ struct StoryViewer: View {
                         paused = true
                     }
                 }
-                .onEnded { value in end(value, story: story) }
+                .onEnded(end)
         )
     }
 
     // MARK: - Navigation
+
+    private func frameCount(_ story: Stories.Story) -> Int {
+        max(1, story.pictures.count)
+    }
 
     private func open() {
         guard order.isEmpty else { return }
         order = rings.flatMap { ring in ring.stories.map { Entry(ringKey: ring.key, storyId: $0.id) } }
         position = startStory.flatMap { id in order.firstIndex { $0.storyId == id } }
             ?? order.firstIndex { $0.ringKey == startKey } ?? 0
+        // A thumbnail opens at its picture's frame (`storyFrameIndex`).
+        if let startStory, order.indices.contains(position), order[position].storyId == startStory,
+           let story = storiesById[startStory]?.story {
+            let frames = Stories.frames([story])
+            frame = max(0, Stories.frameIndex(frames, storyId: startStory, picture: startPicture))
+        }
         if order.isEmpty { onClose() }
     }
 
@@ -188,7 +257,7 @@ struct StoryViewer: View {
         let live = storiesById
         guard !present(position, live) else { return }
         if let next = order.indices.first(where: { $0 > position && present($0, live) }) {
-            go(next)
+            go(next, frame: 0)
         } else {
             onClose()
         }
@@ -196,8 +265,11 @@ struct StoryViewer: View {
 
     private func next() {
         let live = storiesById
-        if let next = order.indices.first(where: { $0 > position && present($0, live) }) {
-            go(next)
+        if let story = current?.story, frame + 1 < frameCount(story) {
+            frame += 1
+            elapsed = 0
+        } else if let next = order.indices.first(where: { $0 > position && present($0, live) }) {
+            go(next, frame: 0)
         } else {
             onClose()
         }
@@ -205,19 +277,25 @@ struct StoryViewer: View {
 
     private func previous() {
         let live = storiesById
-        if let previous = order.indices.last(where: { $0 < position && present($0, live) }) {
-            go(previous)
+        if frame > 0 {
+            frame -= 1
+            elapsed = 0
+        } else if let previous = order.indices.last(where: { $0 < position && present($0, live) }),
+                  let story = live[order[previous].storyId]?.story {
+            go(previous, frame: frameCount(story) - 1)
         } else {
             elapsed = 0
         }
     }
 
-    private func go(_ index: Int) {
+    private func go(_ index: Int, frame: Int) {
         position = index
+        self.frame = frame
         elapsed = 0
+        scrollAtTop = true
     }
 
-    private func end(_ value: DragGesture.Value, story: Stories.Story) {
+    private func end(_ value: DragGesture.Value) {
         holdTask?.cancel()
         holdTask = nil
         let wasHeld = held
@@ -226,8 +304,6 @@ struct StoryViewer: View {
         let dx = value.translation.width
         let dy = value.translation.height
         if abs(dx) > Self.swipe, abs(dx) > 2 * abs(dy) {
-            // A pager of pictures takes its own horizontal swipes.
-            if story.pictures.count > 1, pagerFrame.contains(value.startLocation) { return }
             if dx < 0 { next() } else { previous() }
         } else if dy > Self.swipe, dy > 2 * abs(dx), scrollAtTop {
             onClose()
@@ -241,13 +317,13 @@ struct StoryViewer: View {
         }
     }
 
-    /// Marks the story seen once, then (a result) runs its timer.
-    private func run(_ story: Stories.Story) async {
+    /// Marks the frame's story seen once, then runs the frame's own timer.
+    private func run(_ story: Stories.Story, _ shownFrame: Stories.Frame) async {
         if !shown.contains(story.id) {
             shown.insert(story.id)
             onSeen(story)
         }
-        guard let duration = story.autoAdvanceMs else { return }
+        guard fraction == nil, let duration = shownFrame.autoAdvanceMs else { return }
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(Int(Self.tick)))
             guard !Task.isCancelled else { return }
@@ -261,36 +337,65 @@ struct StoryViewer: View {
     }
 }
 
+/// A floating band's scrim (`viewer.scrimHeight`): black 0.88 at the screen
+/// edge, 0.8 behind the band's text, fading clear over the last
+/// `viewer.scrimFade` past it, so a picture's own text never collides with
+/// the title. It reaches behind the status bar / home indicator.
+private struct StoryScrim: View {
+    let edge: VerticalEdge
+
+    var body: some View {
+        let fade = CGFloat(Stories.Viewer.scrimFade)
+        GeometryReader { proxy in
+            let total = max(proxy.size.height + fade, CGFloat(Stories.Viewer.scrimHeight))
+            let solid = max(0, (total - fade) / total)
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.88), location: 0),
+                    .init(color: .black.opacity(0.8), location: solid),
+                    .init(color: .black.opacity(0), location: 1),
+                ],
+                startPoint: edge == .top ? .top : .bottom,
+                endPoint: edge == .top ? .bottom : .top
+            )
+            .frame(height: total)
+            .frame(maxHeight: .infinity, alignment: edge == .top ? .top : .bottom)
+        }
+        .ignoresSafeArea(edges: edge == .top ? .top : .bottom)
+    }
+}
+
 // MARK: - Body
 
-/// A story's body: the pictures and/or the surface, else the plan text.
-private struct StoryBody: View {
+/// One frame's body: a picture fitted on black edge to edge, THE surface
+/// with no card chrome, the plan text, or nothing (a `title` frame).
+private struct StoryFrameBody: View {
     let story: Stories.Story
+    let frame: Stories.Frame
     let card: TreeMessageCard?
-    @Binding var pagerFrame: CGRect
+    /// The floating bands' heights (a scrolling body starts under the top
+    /// band and ends above the footer).
+    let top: CGFloat
+    let bottom: CGFloat
     @Binding var scrollAtTop: Bool
-    let space: String
-    var initialPage = 0
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @State private var page = 0
-    @State private var placed = false
     @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
-        let surface = story.surface ? card?.surface : nil
-        VStack(alignment: .leading, spacing: 12) {
-            if !story.pictures.isEmpty {
-                pictures
-                    .frame(maxHeight: .infinity)
-                if let surface {
-                    surfaceCard(surface)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else if let surface {
-                scroller { surfaceCard(surface) }
-            } else if let text = story.text {
+        switch frame.kind {
+        case .picture:
+            if let index = frame.picture, story.pictures.indices.contains(index) {
+                StoryPicture(picture: story.pictures[index], fill: true)
+                    .ignoresSafeArea()
+            }
+        case .surface:
+            if let surface = card?.surface {
+                scroller { PlanCardSurfaceView(surface: surface, handle: handle, editable: false, bare: true) }
+            }
+        case .text:
+            if let text = story.text {
                 scroller {
                     AgentMarkdownText(
                         text: PlanCard.renderableMarkdown(text),
@@ -302,21 +407,9 @@ private struct StoryBody: View {
                         options: [.hardLineBreaks]
                     )
                 }
-            } else {
-                Spacer(minLength: 0)
             }
-        }
-        .onAppear {
-            scrollAtTop = true
-            guard !placed else { return }
-            placed = true
-            page = min(max(0, initialPage), max(0, story.pictures.count - 1))
-        }
-    }
-
-    private func surfaceCard(_ surface: CardSurface) -> some View {
-        SurfaceCardFrame(title: nil, animate: false) {
-            PlanCardSurfaceView(surface: surface, handle: handle, editable: false, bare: true)
+        case .title:
+            Color.clear
         }
     }
 
@@ -324,42 +417,16 @@ private struct StoryBody: View {
         ScrollView {
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.top, top + 8)
+                .padding(.bottom, bottom + 16)
                 .background(GeometryReader { proxy in
                     Color.clear.preference(key: StoryScrollTop.self, value: proxy.frame(in: .named("story-body")).minY)
                 })
         }
         .coordinateSpace(name: "story-body")
         .onPreferenceChange(StoryScrollTop.self) { scrollAtTop = $0 >= -1 }
-    }
-
-    @ViewBuilder
-    private var pictures: some View {
-        let pictures = story.pictures
-        VStack(spacing: 8) {
-            Group {
-                if pictures.count == 1 {
-                    StoryPicture(picture: pictures[0])
-                } else {
-                    TabView(selection: $page) {
-                        ForEach(Array(pictures.enumerated()), id: \.offset) { index, picture in
-                            StoryPicture(picture: picture).tag(index)
-                        }
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .always))
-                }
-            }
-            .background(GeometryReader { proxy in
-                Color.clear.onAppear { pagerFrame = proxy.frame(in: .named(space)) }
-                    .onChange(of: proxy.frame(in: .named(space))) { _, frame in pagerFrame = frame }
-            })
-            if let caption = pictures[min(page, pictures.count - 1)].caption, !caption.isEmpty {
-                Text(caption)
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .frame(maxWidth: .infinity)
-                    .multilineTextAlignment(.center)
-            }
-        }
+        .onAppear { scrollAtTop = true }
     }
 }
 
@@ -370,21 +437,26 @@ private struct StoryScrollTop: PreferenceKey {
 
 /// One picture through the instance's attachment loader (the plan card's
 /// picture tiles' loader), FITTED; the muted placeholder while it loads.
+/// `fill` = the viewer's frame: fitted on black with no rounding.
 struct StoryPicture: View {
     let picture: Stories.Picture
+    var fill = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var image: UIImage?
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
+        let shape = RoundedRectangle(cornerRadius: fill ? 0 : GlassTokens.groupRadius)
         ZStack {
             if let image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
                     .clipShape(shape)
+            } else if fill {
+                AppIcon(AppIcons.editorImage, size: 28)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             } else {
                 shape
                     .fill(GlassTokens.fillCard)
@@ -422,6 +494,8 @@ struct StoryPicture: View {
 /// custom), a reply field, or nothing. Answers go through `sessions.answer`.
 private struct StoryFooter: View {
     let story: Stories.Story
+    /// The frame's footer (the story's, on its last frame).
+    let footer: Stories.Footer
     let card: TreeMessageCard?
     let onAnswer: (ThreadCardAnswer) async -> Bool
 
@@ -431,7 +505,7 @@ private struct StoryFooter: View {
     @State private var busy = false
 
     var body: some View {
-        switch story.footer {
+        switch footer {
         case .plan: plan
         case .choices: choices
         case .reply: replyField

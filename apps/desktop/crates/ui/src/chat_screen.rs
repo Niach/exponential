@@ -104,6 +104,8 @@ const PAGE_MARK_FADE_STEPS: usize = 12;
 /// menu, the styleguide `menu` entry's composer specimen).
 pub(crate) const PLUS_TOOLTIP: &str = "Add";
 pub(crate) const MENU_IMPLEMENT_ISSUE: &str = "Issue";
+/// #EXP-1434: the team's prompts (the `/` menu's, also a "+" row).
+pub(crate) const MENU_PROMPTS: &str = "Prompts";
 pub(crate) const MENU_ADD_FILE: &str = "Photo or file";
 pub(crate) const MENU_DEVICE: &str = "Device";
 pub(crate) const MENU_ACCOUNT: &str = "Account";
@@ -953,6 +955,19 @@ impl ChatScreenView {
                 .update(cx, |state, cx| state.set_value("", window, cx));
         }
         cx.notify();
+    }
+
+    /// #EXP-1434: the "+" menu's Prompts › pick = what the `/` pick does
+    /// here: the prompt becomes the new session's SUBJECT.
+    fn pick_menu_prompt(
+        &mut self,
+        prompt: crate::slash_commands::SlashPrompt,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.slash = None;
+        self.select_action(prompt.id, cx);
+        self.input.read(cx).focus_handle(cx).focus(window, cx);
     }
 
     fn on_slash_up(&mut self, _: &input::MoveUp, _: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -2208,6 +2223,7 @@ impl ChatScreenView {
             device_picked: self.device.device_id.clone(),
             repos: self.team_repos.clone(),
             repo_picked: self.chat_repo.as_ref().map(|repo| repo.id.clone()),
+            prompts: self.actions.iter().map(crate::slash_commands::SlashPrompt::from).collect(),
             ..RunnerMenu::default()
         };
         if let Some(launch) = self.launch.as_ref() {
@@ -2609,6 +2625,7 @@ impl gpui::Global for OpenComposerDialog {}
 pub(crate) enum ComposerMenuRow {
     AddFile,
     ImplementIssue,
+    Prompts,
     Separator,
     Device,
     Account,
@@ -2627,6 +2644,7 @@ impl ComposerMenuRow {
         Some(match self {
             Self::AddFile => registry::UI_ATTACH,
             Self::ImplementIssue => registry::EDITOR_ISSUE_REF,
+            Self::Prompts => registry::CODING_COMMAND,
             Self::Separator => return None,
             Self::Device => registry::NAV_DEVICES,
             Self::Account => registry::SETTINGS_ACCOUNT,
@@ -2650,6 +2668,7 @@ impl ComposerMenuRow {
         match self {
             Self::AddFile => MENU_ADD_FILE,
             Self::ImplementIssue => MENU_IMPLEMENT_ISSUE,
+            Self::Prompts => MENU_PROMPTS,
             Self::Separator => "",
             Self::Device => MENU_DEVICE,
             Self::Account => MENU_ACCOUNT,
@@ -2667,7 +2686,13 @@ impl ComposerMenuRow {
     fn surfaces(self) -> &'static [ComposerSurface] {
         use ComposerSurface::*;
         match self {
-            Self::AddFile | Self::ImplementIssue | Self::Separator | Self::Device | Self::Account | Self::Model => {
+            Self::AddFile
+            | Self::ImplementIssue
+            | Self::Prompts
+            | Self::Separator
+            | Self::Device
+            | Self::Account
+            | Self::Model => {
                 &[Launch, Session, Agent]
             }
             _ => &[Launch],
@@ -2678,6 +2703,7 @@ impl ComposerMenuRow {
     fn when(self, c: &ComposerMenuConditions) -> bool {
         match self {
             Self::AddFile | Self::ImplementIssue | Self::Separator => true,
+            Self::Prompts => c.prompts,
             Self::Device => c.device,
             Self::Account => c.account,
             Self::Model => c.model,
@@ -2713,12 +2739,19 @@ pub(crate) struct ComposerMenuConditions {
     pub(crate) ultracode: bool,
     pub(crate) mcp: bool,
     pub(crate) computer_use: bool,
+    /// #EXP-1434: the team has at least one prompt.
+    pub(crate) prompts: bool,
 }
 
 impl ComposerMenuConditions {
     /// The LAUNCH composer's conditions off the cluster's menu state, the
     /// agent row's pick and the team's repositories.
-    pub(crate) fn launch(options: &launch_options::ComposerMenu, temporary: bool, repositories: usize) -> Self {
+    pub(crate) fn launch(
+        options: &launch_options::ComposerMenu,
+        temporary: bool,
+        repositories: usize,
+        prompts: bool,
+    ) -> Self {
         Self {
             temporary,
             device: temporary,
@@ -2731,6 +2764,7 @@ impl ComposerMenuConditions {
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
             computer_use: options.computer_use.is_some(),
+            prompts,
         }
     }
 }
@@ -2740,9 +2774,10 @@ impl ComposerMenuConditions {
 /// the separators TIDIED (never leading, trailing or doubled). Pure.
 pub(crate) fn composer_menu_rows(surface: ComposerSurface, conditions: ComposerMenuConditions) -> Vec<ComposerMenuRow> {
     use ComposerMenuRow::*;
-    const ALL: [ComposerMenuRow; 15] = [
+    const ALL: [ComposerMenuRow; 16] = [
         AddFile,
         ImplementIssue,
+        Prompts,
         Separator,
         Device,
         Account,
@@ -2786,6 +2821,8 @@ pub(crate) struct RunnerMenu {
     pub(crate) model_picked: String,
     pub(crate) repos: Vec<ActionRepoRow>,
     pub(crate) repo_picked: Option<String>,
+    /// #EXP-1434: the team's prompts (the `/` menu's, in its order).
+    pub(crate) prompts: Vec<crate::slash_commands::SlashPrompt>,
 }
 
 impl RunnerMenu {
@@ -2860,9 +2897,10 @@ pub(crate) fn plus_menu(
     let rows = match options {
         Some(options) => composer_menu_rows(
             ComposerSurface::Launch,
-            ComposerMenuConditions::launch(options, temporary, runner.repos.len()),
+            ComposerMenuConditions::launch(options, temporary, runner.repos.len(), !runner.prompts.is_empty()),
         ),
-        None => vec![ComposerMenuRow::AddFile, ComposerMenuRow::ImplementIssue],
+        None if runner.prompts.is_empty() => vec![ComposerMenuRow::AddFile, ComposerMenuRow::ImplementIssue],
+        None => vec![ComposerMenuRow::AddFile, ComposerMenuRow::ImplementIssue, ComposerMenuRow::Prompts],
     };
     for row in rows {
         menu = match (row, options) {
@@ -2888,6 +2926,30 @@ pub(crate) fn plus_menu(
                         )
                     },
                 )
+            }
+            // #EXP-1434: THE search list over the team's prompts; a pick =
+            // the `/` menu's pick here (the prompt becomes the subject).
+            (ComposerMenuRow::Prompts, _) => {
+                let view = view.clone();
+                let root = root.clone();
+                let prompts = runner.prompts.clone();
+                menu.submenu_with_icon(Some(row.menu_icon()), MENU_PROMPTS, window, cx, move |sub, window, cx| {
+                    let view = view.clone();
+                    let pick: Rc<dyn Fn(crate::slash_commands::SlashPrompt, &mut Window, &mut App)> =
+                        Rc::new(move |prompt, window, cx| {
+                            if let Some(view) = view.upgrade() {
+                                view.update(cx, |this, cx| this.pick_menu_prompt(prompt, window, cx));
+                            }
+                        });
+                    search_list::menu_search_list_submenu(
+                        "chat-prompts",
+                        search_list::prompt_source(prompts.clone(), pick),
+                        sub,
+                        root.clone(),
+                        window,
+                        cx,
+                    )
+                })
             }
             (ComposerMenuRow::AddFile, _) => menu.item({
                 let view = view.clone();
@@ -2952,10 +3014,13 @@ pub(crate) fn plus_menu(
                             let agent = option.agent;
                             let label = SharedString::from(option.email.clone());
                             let option = option.clone();
-                            sub = sub.item(crate::controls::pointer_check_item_with_icon(
+                            // #EXP-1434: THE EXP-992 usage preview on hover.
+                            sub = sub.item(crate::controls::pointer_account_item(
+                                format!("chat-menu-account-{}", option.account_option_key()),
                                 move || crate::coding_selects::agent_mark(agent),
                                 label,
                                 checked,
+                                option.limits.clone(),
                                 move |window, cx| {
                                     if let Some(view) = view.upgrade() {
                                         let option = option.clone();
@@ -3341,6 +3406,7 @@ mod tests {
         let row_of = |id: &str| match id {
             "add-file" => R::AddFile,
             "implement-issue" => R::ImplementIssue,
+            "prompts" => R::Prompts,
             "device" => R::Device,
             "account" => R::Account,
             "model" => R::Model,
@@ -3398,6 +3464,7 @@ mod tests {
             ultracode: true,
             mcp: true,
             computer_use: true,
+            prompts: true,
         };
         assert_eq!(composer_menu_rows(ComposerSurface::Launch, all), every, "rows order");
         for case in fixture["cases"].as_array().unwrap() {
@@ -3413,6 +3480,7 @@ mod tests {
                 ultracode: flag("ultracode"),
                 mcp: flag("mcp"),
                 computer_use: flag("computerUse"),
+                prompts: flag("prompts"),
             };
             let expected: Vec<ComposerMenuRow> = case["expected"]
                 .as_array()
@@ -3456,7 +3524,7 @@ mod tests {
             assert_eq!(
                 composer_menu_rows(
                     ComposerSurface::Launch,
-                    ComposerMenuConditions::launch(&menu, conditions.temporary, repos)
+                    ComposerMenuConditions::launch(&menu, conditions.temporary, repos, conditions.prompts)
                 ),
                 expected,
                 "{} (from state)",

@@ -650,35 +650,164 @@ pub(crate) fn pointer_check_item(
     )
 }
 
-/// [`pointer_check_item`] led by its own `icon`, drawn as given (an agent's
-/// glyph in its colour, NEW-3's Message an agent › rows): the Picker row's
-/// glyph, the label, the trailing check on the picked one.
-pub(crate) fn pointer_check_item_with_icon(
+/// #EXP-1434: the composer "+" menu's Account › row — [`pointer_check_item`] led by its agent `icon`
+/// whose hover shows THE EXP-992 usage preview (the account picker's
+/// `render_account_limits` bars) in THE hover card to its right
+/// ([`side_hover_card`], web `AccountOptionRow`); a login with no `limits` shows
+/// none. `id` keys the hover (one per row).
+pub(crate) fn pointer_account_item(
+    id: impl Into<SharedString>,
     icon: impl Fn() -> Icon + 'static,
     label: impl Into<SharedString>,
     checked: bool,
+    limits: Option<coding::AccountLimits>,
     on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
+    use gpui::prelude::FluentBuilder as _;
+    let id = id.into();
     let label = label.into();
     let on_select = host_bound(on_select);
-    PopupMenuItem::element(move |_, cx| {
-        pointer_row_fill(
-            gpui_component::h_flex()
-                .flex_1()
-                .min_w_0()
-                .gap(px(t::menu::pointer::ITEM_GAP))
-                .items_center()
-                .child(icon().size(px(t::menu::pointer::ICON_SIZE)).flex_shrink_0())
-                .child(div().flex_1().min_w_0().truncate().child(label.clone()))
-                .children(checked.then(|| {
-                    Icon::new(crate::icons::registry::UI_CHECK)
-                        .size(px(14.))
-                        .text_color(cx.theme().foreground)
-                })),
-            false,
-        )
+    PopupMenuItem::element(move |window, cx| {
+        let limits = limits.clone();
+        div()
+            .id(gpui::ElementId::Name(id.clone()))
+            .relative()
+            .flex_1()
+            .min_w_0()
+            .child(pointer_row_fill(
+                gpui_component::h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(t::menu::pointer::ITEM_GAP))
+                    .items_center()
+                    .child(icon().size(px(t::menu::pointer::ICON_SIZE)).flex_shrink_0())
+                    .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                    .children(checked.then(|| {
+                        Icon::new(crate::icons::registry::UI_CHECK)
+                            .size(px(14.))
+                            .text_color(cx.theme().foreground)
+                    })),
+                false,
+            ))
+            .when_some(limits, |row, limits| {
+                // Web `AccountOptionRow`: THE hover card to the row's right
+                // (`side="right" align="center" sideOffset={10}`, `w-36 p-2`).
+                row.child(side_hover_card(
+                    SharedString::from(format!("{id}-limits")),
+                    move |cx| crate::usage_bar::render_account_limits(&limits, cx),
+                    window,
+                    cx,
+                ))
+            })
     })
     .on_click(move |_, window, cx| on_select(window, cx))
+}
+
+/// The side hover card's open / close delays (web `HoverCard
+/// openDelay={150} closeDelay={80}`).
+const SIDE_HOVER_OPEN: std::time::Duration = std::time::Duration::from_millis(150);
+const SIDE_HOVER_CLOSE: std::time::Duration = std::time::Duration::from_millis(80);
+/// Web `sideOffset={10}`.
+const SIDE_HOVER_OFFSET: f32 = 10.;
+
+/// A side hover card's state: the trigger's bounds, whether the pointer is
+/// on the trigger or the card, and the pending open / close.
+#[derive(Default)]
+struct SideHover {
+    bounds: gpui::Bounds<Pixels>,
+    open: bool,
+    over_trigger: bool,
+    over_card: bool,
+    timer: Option<gpui::Task<()>>,
+}
+
+impl SideHover {
+    /// Opens after [`SIDE_HOVER_OPEN`] / closes after [`SIDE_HOVER_CLOSE`]
+    /// once the pointer is on (or off both) the trigger and the card.
+    fn settle(&mut self, cx: &mut gpui::Context<Self>) {
+        let want = self.over_trigger || self.over_card;
+        if want == self.open {
+            self.timer = None;
+            return;
+        }
+        let delay = if want { SIDE_HOVER_OPEN } else { SIDE_HOVER_CLOSE };
+        self.timer = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = this.update(cx, |state, cx| {
+                state.open = state.over_trigger || state.over_card;
+                state.timer = None;
+                cx.notify();
+                cx.refresh_windows();
+            });
+        }));
+    }
+}
+
+/// THE IDE's hover card BESIDE a row (web `HoverCardContent side="right"
+/// align="center"`): an overlay over the parent row (it must be `relative`)
+/// that tracks the pointer without taking a click, and, while hovered, the
+/// popover-styled `content` to the row's right, flipping left when it does
+/// not fit (`gpui_base::Positioner::side`).
+pub(crate) fn side_hover_card(
+    id: SharedString,
+    content: impl Fn(&App) -> AnyElement + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    use gpui_component::ThemeStyled as _;
+    let state = window.use_keyed_state(ElementId::Name(id.clone()), cx, |_, _| SideHover::default());
+    let (open, bounds) = {
+        let state = state.read(cx);
+        (state.open, state.bounds)
+    };
+    let probe = state.clone();
+    let trigger_state = state.clone();
+    let card_state = state.clone();
+    div()
+        .id(ElementId::Name(id.clone()))
+        .absolute()
+        .inset_0()
+        .on_hover(move |hovered, _, cx| {
+            let hovered = *hovered;
+            trigger_state.update(cx, |state, cx| {
+                state.over_trigger = hovered;
+                state.settle(cx);
+            });
+        })
+        .child(
+            gpui::canvas(
+                move |bounds, _, cx| probe.update(cx, |state, _| state.bounds = bounds),
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
+        .when(open, |this| {
+            this.child(
+                deferred(
+                    gpui_base::Positioner::side(bounds)
+                        .placement(gpui_base::Placement::Right)
+                        .offset(px(SIDE_HOVER_OFFSET))
+                        .child(
+                            div()
+                                .id(ElementId::Name(SharedString::from(format!("{id}-card"))))
+                                .occlude()
+                                .popover_style(cx)
+                                .p_2()
+                                .on_hover(move |hovered, _, cx| {
+                                    let hovered = *hovered;
+                                    card_state.update(cx, |state, cx| {
+                                        state.over_card = hovered;
+                                        state.settle(cx);
+                                    });
+                                })
+                                .child(content(cx)),
+                        ),
+                )
+                .with_priority(gpui_base::POPUP_PRIORITY + 1),
+            )
+        })
+        .into_any_element()
 }
 
 /// THE IDE dropdown menu (EXP-1249): `trigger` opens a `PopupMenu` built by

@@ -112,8 +112,9 @@ export function AccountOptionLabel({
 }
 
 /** One menu row: the label, plus the limits preview — a hover card to the
- *  right on a pointer platform, the bars inline on touch. */
-function AccountOptionRow({
+ *  right on a pointer platform, the bars inline on touch. Also the composer
+ *  "+" menu's Account › rows (#EXP-1434). */
+export function AccountOptionRow({
   option,
   touch,
 }: {

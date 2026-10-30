@@ -7825,11 +7825,27 @@ impl SteerSessionView {
         } else {
             ComposerSurface::Session
         };
+        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+        // #EXP-1434: the team's prompts, the `/` menu's list.
+        let prompts: Vec<slash_commands::SlashPrompt> = team_id
+            .as_deref()
+            .filter(|_| sync::Store::try_global(cx).is_some())
+            .map(|team_id| {
+                crate::queries::team_prompts(cx, team_id)
+                    .0
+                    .iter()
+                    .map(slash_commands::SlashPrompt::from)
+                    .collect()
+            })
+            .unwrap_or_default();
         let rows = composer_menu_rows(
             surface,
-            ComposerMenuConditions { model: self.configurable(), ..ComposerMenuConditions::default() },
+            ComposerMenuConditions {
+                model: self.configurable(),
+                prompts: !prompts.is_empty(),
+                ..ComposerMenuConditions::default()
+            },
         );
-        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
         let (models, model_picked): (&'static [(&'static str, &'static str)], String) = {
             let value = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)
                 .map(|chip| chip.value)
@@ -7881,6 +7897,33 @@ impl SteerSessionView {
                             crate::picker::search_list::menu_search_list_submenu(
                                 "steer-issue-ref",
                                 crate::picker::search_list::issue_ref_source(team_id.clone(), insert),
+                                sub,
+                                root.clone(),
+                                window,
+                                cx,
+                            )
+                        })
+                    }
+                    // #EXP-1434: Prompts › — the `/` pick's body, inserted at
+                    // the caret.
+                    Row::Prompts => {
+                        let input = input.clone();
+                        let root = root.clone();
+                        let prompts = prompts.clone();
+                        menu.submenu_with_icon(row.icon().map(Icon::new), row.label(), window, cx, move |sub, window, cx| {
+                            let input = input.clone();
+                            let insert: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)> =
+                                std::rc::Rc::new(move |text: String, window: &mut Window, cx: &mut App| {
+                                    input.update(cx, |state, cx| state.insert(text, window, cx));
+                                    input.read(cx).focus_handle(cx).focus(window, cx);
+                                });
+                            let pick: std::rc::Rc<dyn Fn(slash_commands::SlashPrompt, &mut Window, &mut App)> =
+                                std::rc::Rc::new(move |prompt, window: &mut Window, cx: &mut App| {
+                                    crate::picker::search_list::insert_prompt_body(prompt, insert.clone(), window, cx)
+                                });
+                            crate::picker::search_list::menu_search_list_submenu(
+                                "steer-prompts",
+                                crate::picker::search_list::prompt_source(prompts.clone(), pick),
                                 sub,
                                 root.clone(),
                                 window,
