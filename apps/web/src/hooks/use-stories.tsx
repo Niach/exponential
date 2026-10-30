@@ -37,13 +37,13 @@ import type { SessionRow } from "@/lib/session-tree"
 //
 // BACKGROUND SYNC (#EXP-1380: every messages query narrows by rootId): the
 // member's agent conversations and EVERY root whose tree was active within a
-// result's keep window (`constants.unseenHours`) load that window's
+// ring's window (`constants.windowHours`, #EXP-1461) load that window's
 // session-authored CARD rows (`author_session_id` + `card` set: the only
 // rows a story can be) eagerly, so every story the fold keeps shows without
 // its chat being opened, as on the natives (F40: no root cap); transcripts
 // stay on demand.
 
-const WINDOW_MS = STORIES_CONSTANTS.unseenHours * 3_600_000
+const WINDOW_MS = STORIES_CONSTANTS.windowHours * 3_600_000
 const DAY = 86_400_000
 
 const ms = (value: unknown): number | null => {

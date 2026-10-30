@@ -428,6 +428,13 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     public let agentInstructionsAt: String?
     /// #EXP-1383: the agent whose session started this root (an agent tree).
     public let startedByAgentId: String?
+    /// EXP-1458: the tree's current public key (base64url) and epoch, on the
+    /// ROOT row; nil until the tree has a key.
+    public let sealPublicKey: String?
+    public let sealEpoch: Int?
+    /// EXP-1458: the title as a sealed body envelope (`title` then stays a
+    /// neutral fallback).
+    public let sealedTitle: String?
 
     public init(
         id: String,
@@ -462,8 +469,14 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         agentId: String? = nil,
         appId: String? = nil,
         agentInstructionsAt: String? = nil,
-        startedByAgentId: String? = nil
+        startedByAgentId: String? = nil,
+        sealPublicKey: String? = nil,
+        sealEpoch: Int? = nil,
+        sealedTitle: String? = nil
     ) {
+        self.sealPublicKey = sealPublicKey
+        self.sealEpoch = sealEpoch
+        self.sealedTitle = sealedTitle
         self.agentId = agentId
         self.appId = appId
         self.agentInstructionsAt = agentInstructionsAt
@@ -529,6 +542,9 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case appId = "app_id"
         case agentInstructionsAt = "agent_instructions_at"
         case startedByAgentId = "started_by_agent_id"
+        case sealPublicKey = "seal_public_key"
+        case sealEpoch = "seal_epoch"
+        case sealedTitle = "sealed_title"
     }
 }
 
@@ -578,6 +594,10 @@ extension SessionEntity: Codable {
         // #EXP-1383: absent on a pre-rotation snapshot.
         agentInstructionsAt = try c.decodeIfPresent(String.self, forKey: .agentInstructionsAt)
         startedByAgentId = try c.decodeIfPresent(String.self, forKey: .startedByAgentId)
+        // EXP-1458: absent on a pre-sealing server = no key, no sealed title.
+        sealPublicKey = try c.decodeIfPresent(String.self, forKey: .sealPublicKey)
+        sealEpoch = try c.decodeWireInt(forKey: .sealEpoch)
+        sealedTitle = try c.decodeIfPresent(String.self, forKey: .sealedTitle)
     }
 }
 

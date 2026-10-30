@@ -10,6 +10,7 @@ import { chacha20poly1305 } from "@noble/ciphers/chacha.js"
 import { x25519 } from "@noble/curves/ed25519"
 import { hkdf } from "@noble/hashes/hkdf.js"
 import { sha256 } from "@noble/hashes/sha2.js"
+import placeholderFixture from "../fixtures/sealed-content.json" with { type: "json" }
 
 // ── the push_seal primitive (format v1) ─────────────────────────────────────
 //   sealed = 0x01 ‖ eph_pub[32] ‖ ciphertext ‖ tag[16]
@@ -268,7 +269,12 @@ export function openBody(body: string, keys: TreeKeys): OpenedBody {
 // ── cards ───────────────────────────────────────────────────────────────────
 
 /** The fields of `messages.card` that stay in clear (routing, wake rules,
- *  answered state); everything else exists only inside `sealed`. */
+ *  answered state, the attachments a card shows); everything else exists
+ *  only inside `sealed`. `pictures` stays in clear PROJECTED: each entry's
+ *  `label` and `attachmentId` only (captions and sizes stay sealed; a
+ *  label without an id = a picture still to upload). Opening fills a sealed
+ *  picture's missing `attachmentId` from the clear entry of its label
+ *  (`resolveClearPictures`); the clear part never replaces it. */
 export const CARD_CLEAR_FIELDS = [
   `kind`,
   `messageId`,
@@ -281,7 +287,56 @@ export const CARD_CLEAR_FIELDS = [
   `decision`,
   `fresh`,
   `answered`,
+  `pictures`,
 ] as const
+
+/** The clear projection of a card's `pictures`: `{label, attachmentId}`
+ *  per entry that names an attachment, `{label}` per entry still to upload
+ *  (the server mints its upload and files it by label); null when none
+ *  names either. */
+export function clearPictures(pictures: unknown): Array<{ label?: string; attachmentId?: string }> | null {
+  if (!Array.isArray(pictures)) return null
+  const out: Array<{ label?: string; attachmentId?: string }> = []
+  for (const picture of pictures) {
+    if (!picture || typeof picture !== `object`) continue
+    const { label, attachmentId } = picture as Record<string, unknown>
+    const entry: { label?: string; attachmentId?: string } = {}
+    if (typeof label === `string`) entry.label = label
+    if (typeof attachmentId === `string`) entry.attachmentId = attachmentId
+    if (entry.label !== undefined || entry.attachmentId !== undefined) out.push(entry)
+  }
+  return out.length > 0 ? out : null
+}
+
+/** A sealed card's pictures uploaded AFTER it was sealed: the server filed
+ *  them on the clear `pictures` entry of their label. Each sealed picture
+ *  without an `attachmentId` takes its label's clear id and, on a plan,
+ *  every `](upload:<label>)` embed points at the attachment (plan-card.ts
+ *  `resolveUpload`). A sealed id is never replaced. */
+export function resolveClearPictures(card: Card, clear: unknown): Card {
+  if (!Array.isArray(clear) || !Array.isArray(card.pictures)) return card
+  const uploaded = new Map<string, string>()
+  for (const entry of clear) {
+    const { label, attachmentId } = (entry ?? {}) as Record<string, unknown>
+    if (typeof label === `string` && typeof attachmentId === `string` && !uploaded.has(label)) uploaded.set(label, attachmentId)
+  }
+  if (uploaded.size === 0) return card
+  const resolved: Array<[string, string]> = []
+  const pictures = card.pictures.map((picture: unknown) => {
+    if (!picture || typeof picture !== `object`) return picture
+    const { label, attachmentId } = picture as Record<string, unknown>
+    const id = typeof label === `string` && typeof attachmentId !== `string` ? uploaded.get(label) : undefined
+    if (id === undefined) return picture
+    resolved.push([label as string, id])
+    return { ...(picture as Card), attachmentId: id }
+  })
+  if (resolved.length === 0) return card
+  const next: Card = { ...card, pictures }
+  if (card.kind === `plan` && typeof card.plan === `string`) {
+    next.plan = resolved.reduce((plan, [label, id]) => plan.split(`](upload:${label})`).join(`](/api/attachments/${id})`), card.plan)
+  }
+  return next
+}
 
 type Card = Record<string, unknown>
 
@@ -301,6 +356,9 @@ export function splitCard(card: Card): { clear: Card; plaintext: string } {
   for (const field of CARD_CLEAR_FIELDS) {
     if (field === `answered`) {
       if (cardAnswered(full)) clear.answered = true
+    } else if (field === `pictures`) {
+      const pictures = clearPictures(full.pictures)
+      if (pictures) clear.pictures = pictures
     } else if (full[field] !== undefined && full[field] !== null) {
       clear[field] = full[field]
     }
@@ -345,5 +403,51 @@ export function openCard(card: Card, keys: TreeKeys): OpenedCard {
   if (!inner || typeof inner !== `object` || Array.isArray(inner) || (inner as Card).kind !== clear.kind) {
     return { status: `refused`, epoch: opened.epoch, card: clear }
   }
-  return { status: `opened`, epoch: opened.epoch, card: { ...(inner as Card), ...clear } }
+  // The clear `pictures` is a projection: the sealed ones stay whole, and
+  // only take the ids of pictures uploaded after sealing.
+  const { pictures: projected, ...over } = clear
+  return { status: `opened`, epoch: opened.epoch, card: resolveClearPictures({ ...(inner as Card), ...over }, projected) }
+}
+
+// ── the locked state (fixtures/sealed-content.json `placeholder`) ───────────
+
+/** Why content stays locked here: `noKey` = waiting for a holder's wrap
+ *  (opens by itself later), `unreadable` = it never opens on this install. */
+export type LockedReason = `noKey` | `unreadable`
+
+export const SEALED_PLACEHOLDER = placeholderFixture.placeholder as {
+  icon: string
+  copy: Record<LockedReason, string>
+  reasons: Record<Exclude<OpenStatus, `plain` | `opened`>, LockedReason>
+}
+
+/** Null when the content opened (or was plaintext). */
+export function lockedReason(status: OpenStatus): LockedReason | null {
+  return status === `plain` || status === `opened` ? null : SEALED_PLACEHOLDER.reasons[status]
+}
+
+/** A message row opened with its tree's keys: `body` / `card` as the
+ *  sender wrote them, or, when either stays sealed, `locked` with an empty
+ *  body and the card's clear part (its kind and routing flags). */
+export function openMessage<M extends { body: string; card: Card | null }>(
+  message: M,
+  keys: TreeKeys
+): M & { locked: LockedReason | null } {
+  const body = openBody(message.body, keys)
+  const card = message.card ? openCard(message.card, keys) : null
+  const reasons = [lockedReason(body.status), card ? lockedReason(card.status) : null]
+  const locked = reasons.includes(`noKey`) ? `noKey` : reasons.includes(`unreadable`) ? `unreadable` : null
+  return {
+    ...message,
+    body: locked ? `` : (body.text ?? ``),
+    card: card ? card.card : null,
+    locked,
+  }
+}
+
+/** A sealed title opened, else null (callers keep the neutral `title`). */
+export function openTitle(sealedTitle: string | null | undefined, keys: TreeKeys): string | null {
+  if (!sealedTitle) return null
+  const opened = openBody(sealedTitle, keys)
+  return opened.status === `opened` || opened.status === `plain` ? opened.text : null
 }

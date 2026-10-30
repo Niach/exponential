@@ -3,8 +3,9 @@
 //! WIDE): the page = THE Chats list of the active team, the same pieces as
 //! the phones ([`crate::chat_list`]): the agent bubbles row, the filter
 //! chips, then the flat rows, one centred column. A row opens the chat, its
-//! right-click = THE chat menu ([`chat_row_menu`], `menuCases`); a bubble
-//! opens the agent's chat, its right-click the agent menu.
+//! right-click = THE chat menu ([`chat_row_menu`], `menuCases`). #EXP-1461:
+//! the header row = THE STORY ROW (rings only); a bubble opens THE story
+//! viewer at its agent's ring, its right-click the agent menu.
 //!
 //! The helpers below still paint the rail's rows and the styleguide's
 //! `thread-parts` specimen: bands Needs you · Running · Recent
@@ -17,9 +18,8 @@
 //! names the issue already, no identifier slot) · the contract's quiet word
 //! (`domain::session_tree::thread_row_word`; EXP-1339: no lock, and
 //! `merged` draws no word, the violet lead says it) · the device icon. A row
-//! opens the thread. EXP-1323: a live tree nests its children under the
-//! root (tree guides; a child opens its session), an unread title is
-//! semibold.
+//! opens the thread. #EXP-1461: every row is a ROOT (no nested children,
+//! no fold row); an unread title is semibold.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -118,25 +118,6 @@ pub(crate) fn thread_row_lead(
     }
 }
 
-/// EXP-1323: a nested child row's lead — that session's own mark (EXP-1344:
-/// the amber badge while it needs you beats the working mark while busy).
-fn child_row_lead(session_id: &str, busy: bool, needs_you: bool, cx: &App) -> gpui::AnyElement {
-    match session_data::session(session_id, cx) {
-        Some(session) => crate::thread_screen::root_mark(&session, busy, needs_you, LEAD_PX, LEAD_BADGE_PX),
-        None => Icon::new(registry::SETTINGS_AGENTS)
-            .with_size(px(LEAD_PX))
-            .text_color(cx.theme().muted_foreground)
-            .into_any_element(),
-    }
-}
-
-/// S-3: the fold row's lead = the root agent's mark in the done state (web
-/// `threads-list` `markState="ended"`).
-fn fold_row_lead(root_id: &str, cx: &App) -> gpui::AnyElement {
-    let agent = session_data::session(root_id, cx).and_then(|root| crate::run_rows::run_agent(root.cli.as_deref()));
-    crate::run_rows::run_mark(agent, domain::session_tree::SessionState::Done, cx).into_any_element()
-}
-
 /// EXP-1318: a thread row's trailing DEVICE ICON — the root session's
 /// device resolved against the synced `devices` rows, its pick through the
 /// device-icon concept map (the Devices page's glyph), the device's name as
@@ -222,44 +203,23 @@ fn band_glyph(key: ThreadsListKey, cx: &App) -> gpui::AnyElement {
 /// draws the same): the lead, the title, the trailing word + device icon.
 fn thread_list_row(
     row: &ThreadsListRow,
-    guides: domain::tree_guides::Guides,
     snapshot: &PrSnapshot,
     cx: &App,
 ) -> gpui::AnyElement {
-    // EXP-1323: a nested child = its own session's mark, no word; it
-    // opens that session (a thread row opens the thread). S-3: the fold row
-    // (`<root>:earlier`) = the muted row with the root's done mark; it opens
-    // the thread.
-    let fold = row.earlier.is_some();
-    let child = row.depth > 0 && !fold;
-    let lead = if fold {
-        fold_row_lead(&row.root_id, cx)
-    } else if child {
-        child_row_lead(&row.session_id, row.busy, row.needs_you, cx)
-    } else {
-        thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx)
-    };
-    let word = (!child && !fold)
-        .then(|| thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls))
-        .flatten();
+    // #EXP-1461: every row is a ROOT (its tree's state rolled up); it
+    // opens the thread.
+    let lead = thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx);
+    let word = thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls);
     let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
     let trailing = thread_row_trailing(word, device, cx);
-    let session_id = if fold { row.root_id.clone() } else { row.session_id.clone() };
+    let session_id = row.session_id.clone();
     let element = pr_row(
         PrRowSpec {
             lead: Some(lead),
             trailing,
-            guides,
             strong: row.unread,
-            muted: fold,
             on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                let session_id = session_id.clone();
-                let screen = if child {
-                    Screen::Session { session_id }
-                } else {
-                    Screen::Thread { session_id }
-                };
-                crate::navigation::navigate(window, cx, screen);
+                crate::navigation::navigate(window, cx, Screen::Thread { session_id: session_id.clone() });
             })),
             ..PrRowSpec::open(
                 format!("{}-{}", THREADS_LIST.test_ids.row, row.session_id),
@@ -268,9 +228,6 @@ fn thread_list_row(
         },
         cx,
     );
-    if child || fold {
-        return element;
-    }
     chat_row_menu(&row.session_id, element, cx)
 }
 
@@ -292,9 +249,8 @@ pub(crate) fn chat_row_menu(root_id: &str, element: gpui::AnyElement, cx: &App) 
 }
 
 /// The Threads page's bands: per group its glass band (glyph + title, no
-/// count) over its rows, the nested children's tree guides off the band's
-/// depth sequence (TreeGuides, 14px/level, the corner tee; EXP-1323). The
-/// page and the styleguide's `thread-parts` specimen both draw this.
+/// count) over its ROOT rows (#EXP-1461: no nested children). The page and
+/// the styleguide's `thread-parts` specimen both draw this.
 pub(crate) fn thread_list_bands(
     groups: &[ThreadsListGroup],
     snapshot: &PrSnapshot,
@@ -309,13 +265,8 @@ pub(crate) fn thread_list_bands(
                 None,
                 cx,
             );
-            let guides = domain::tree_guides::guides_for(&group.rows.iter().map(|row| row.depth).collect::<Vec<_>>());
-            let rows: Vec<gpui::AnyElement> = group
-                .rows
-                .iter()
-                .enumerate()
-                .map(|(index, row)| thread_list_row(row, guides.get(index).cloned().unwrap_or_default(), snapshot, cx))
-                .collect();
+            let rows: Vec<gpui::AnyElement> =
+                group.rows.iter().map(|row| thread_list_row(row, snapshot, cx)).collect();
             v_flex().min_w_0().pb_2().child(band).children(rows).into_any_element()
         })
         .collect()
@@ -514,23 +465,24 @@ fn chats_page_row(
     .into_any_element()
 }
 
-/// #EXP-1380: a bubble's click opens the agent's chat, its right-click the
-/// agent menu. S-3 (stories.json STORY RING): a bubble wearing its agent's
-/// ring opens THE story viewer at that ring instead.
-fn chats_page_bubble(team_id: Option<String>) -> impl Fn(usize, &AgentBubble, Option<&StoryRing>, gpui::Div) -> gpui::AnyElement {
+/// #EXP-1461 THE STORY ROW: a bubble is drawn only while its agent has a
+/// ring, so its click opens THE story viewer at that ring; its right-click
+/// the agent menu.
+fn chats_page_bubble(team_id: Option<String>) -> impl Fn(usize, &AgentBubble, &StoryRing, gpui::Div) -> gpui::AnyElement {
     move |index, bubble, story, element| {
         use crate::controls::PointerContextMenuExt as _;
         use gpui::StatefulInteractiveElement as _;
-        let open_id = bubble.agent.agent_id.clone();
         let menu_id = bubble.agent.agent_id.clone();
-        let open_story = story.map(|ring| ring.key.clone()).zip(team_id.clone());
+        let open_story = team_id.clone().map(|team| (team, story.key.clone()));
         gpui::div()
             .id((SharedString::from(CHATS.test_ids.agent_bubble.clone()), index))
+            .flex_none()
             .cursor_pointer()
             .child(element)
-            .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| match &open_story {
-                Some((key, team)) => crate::story_viewer::open(team, key, window, cx),
-                None => crate::navigation::navigate(window, cx, Screen::Agent { agent_id: open_id.clone() }),
+            .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                if let Some((team, key)) = &open_story {
+                    crate::story_viewer::open(team, key, window, cx);
+                }
             })
             .pointer_context_menu(move |menu, _, cx| {
                 crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &menu_id, cx)
@@ -547,6 +499,7 @@ fn chats_page_ring(team_id: Option<String>) -> impl Fn(usize, &StoryRing, gpui::
         let open_story = team_id.clone().map(|team| (team, ring.key.clone()));
         gpui::div()
             .id((SharedString::from(STORIES.test_ids.ring.clone()), index))
+            .flex_none()
             .cursor_pointer()
             .child(element)
             .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {

@@ -79,6 +79,7 @@ pub use domain::image_message;
 pub mod journal;
 pub use exponential_agent_runtime::login_picker;
 pub mod publisher;
+pub mod seal_keys;
 /// EXP-1279: the code-mode Script card model.
 pub mod script_card;
 pub mod task_queue;

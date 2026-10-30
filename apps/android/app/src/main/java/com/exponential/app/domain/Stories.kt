@@ -21,8 +21,8 @@ object Stories {
     enum class Footer(val wire: String) { Plan("plan"), Choices("choices"), Reply("reply"), None("none") }
 
     object Constants {
-        const val SEEN_HOURS = 24L
-        const val UNSEEN_HOURS = 168L
+        /** #EXP-1461: a ring holds a story while its age is under this. */
+        const val WINDOW_HOURS = 24L
         const val AUTO_ADVANCE_MS = 6000L
     }
 
@@ -69,6 +69,19 @@ object Stories {
         const val SCRIM_HEIGHT = 180f
         /** ... fading to clear over the last this many dp past it. */
         const val SCRIM_FADE = 48f
+        /** #EXP-1463: the wide modal's room to the viewport (x each side, y top + bottom). */
+        const val INSET_X = 96f
+        const val INSET_Y = 48f
+        /** ... and its least width (a tall picture letterboxed on black). */
+        const val MIN_WIDTH = 360f
+    }
+
+    /** THE STORY ROW of the chats header (#EXP-1461, `row`, dp). */
+    object Row {
+        const val ITEM_WIDTH = 72f
+        const val GAP = 12f
+        const val LABEL_GAP = 6f
+        const val PAD_BOTTOM = 4f
     }
 
     object TestIds {
@@ -318,10 +331,8 @@ object Stories {
             // A settled plan/question leaves the ring (the Stories tab keeps it).
             if (built.resolution != null) continue
             val story = built.story
-            if (story.kind == Kind.Result) {
-                val keep = if (story.seen) Constants.SEEN_HOURS else Constants.UNSEEN_HOURS
-                if (now - story.createdAt >= keep * HOUR) continue
-            }
+            // #EXP-1461: a ring holds the last `windowHours` only, waiting or not.
+            if (now - story.createdAt >= Constants.WINDOW_HOURS * HOUR) continue
             val head = emptyRing(built.root, agentsById)
             drafts.getOrPut(head.key) { Draft(head, mutableListOf()) }.stories.add(story)
         }
@@ -350,7 +361,7 @@ object Stories {
     }
 
     /** THE Stories tab of a session screen (stories.json `tab`): every story
-     *  the root's tree ever posted, never expiring; settled plans/questions
+     *  the root's tree ever posted, never expiring (no window cut); settled plans/questions
      *  stay (footer none, `meta` names the outcome), a superseded plan drops.
      *  Waiting first (oldest first), then the rest newest first. ONE ring
      *  (the root's, as [rings] keys it) so the viewer opens on it; null = the
@@ -406,11 +417,13 @@ object Stories {
 
         /** Tile geometry (dp); Android = the `phone` form factor. */
         object Tile {
-            const val THUMB_HEIGHT = 140f
-            const val THUMB_MAX_WIDTH = 280f
+            const val THUMB_HEIGHT = 240f
+            const val THUMB_MAX_WIDTH = 320f
             const val GAP = 8f
+            /** Line 1 → the description. */
+            const val TEXT_GAP = 4f
             const val RADIUS = 10f
-            const val LIST_GAP = 16f
+            const val LIST_GAP = 32f
             const val LEAD_GAP = 24f
         }
 
@@ -488,14 +501,21 @@ object Stories {
         return if (hit >= 0) hit else first
     }
 
-    /** The chats header row (chats.json BUBBLES + STORY RING): each agent
-     *  bubble wears its agent's ring ([BubbleRings.byAgent], first wins);
-     *  [BubbleRings.rest] = the rings no bubble wears (the root rings, an
-     *  agent ring with no bubble), in ring order, painted after the bubbles
-     *  in the same row. */
-    data class BubbleRings(val byAgent: Map<String, StoryRing>, val rest: List<StoryRing>)
+    /** THE STORY ROW of the chats header (#EXP-1461, `rowCases`): ONLY
+     *  rings. [StoryRow.bubbles] = the agent bubbles (listAgents order) whose
+     *  agent has a ring, each wearing it ([StoryRow.byAgent], first wins);
+     *  [StoryRow.rest] = the rings no bubble wears (the root rings, an agent
+     *  ring with no bubble), in ring order. A bubble without a ring is not
+     *  drawn; both empty = no row at all. */
+    data class StoryRow(
+        val bubbles: List<String>,
+        val byAgent: Map<String, StoryRing>,
+        val rest: List<StoryRing>,
+    ) {
+        val isEmpty: Boolean get() = bubbles.isEmpty() && rest.isEmpty()
+    }
 
-    fun bubbleRings(bubbleAgentIds: List<String>, rings: List<StoryRing>): BubbleRings {
+    fun storyRow(bubbleAgentIds: List<String>, rings: List<StoryRing>): StoryRow {
         val ids = bubbleAgentIds.toSet()
         val byAgent = LinkedHashMap<String, StoryRing>()
         val rest = mutableListOf<StoryRing>()
@@ -503,6 +523,33 @@ object Stories {
             val agentId = ring.agentId
             if (agentId != null && agentId in ids && agentId !in byAgent) byAgent[agentId] = ring else rest += ring
         }
-        return BubbleRings(byAgent, rest)
+        val bubbles = bubbleAgentIds.distinct().filter { it in byAgent }
+        return StoryRow(bubbles, byAgent, rest)
     }
+
+    data class ViewerSize(val width: Int, val height: Int)
+
+    /** THE wide viewer's modal size (#EXP-1463, `sizeCases`): a picture with
+     *  a known size = fitted (contain) into the viewport less the inset, at
+     *  least [Viewer.MIN_WIDTH] wide; anything else = the fixed frame, capped
+     *  by the same box. Phones never call it (full screen). */
+    fun storyViewerSize(pictureWidth: Double?, pictureHeight: Double?, viewportWidth: Double, viewportHeight: Double): ViewerSize {
+        val boxWidth = maxOf(0.0, viewportWidth - 2 * Viewer.INSET_X)
+        val boxHeight = maxOf(0.0, viewportHeight - 2 * Viewer.INSET_Y)
+        if (pictureWidth == null || pictureHeight == null || pictureWidth == 0.0 || pictureHeight == 0.0) {
+            return ViewerSize(
+                minOf(Viewer.WIDTH.toDouble(), boxWidth).let(::jsRound),
+                minOf(Viewer.HEIGHT.toDouble(), boxHeight).let(::jsRound),
+            )
+        }
+        val scale = minOf(boxWidth / pictureWidth, boxHeight / pictureHeight)
+        val width = jsRound(pictureWidth * scale)
+        return ViewerSize(
+            minOf(boxWidth, maxOf(Viewer.MIN_WIDTH.toDouble(), width.toDouble())).let(::jsRound),
+            jsRound(pictureHeight * scale),
+        )
+    }
+
+    /** JS `Math.round` (half up, toward +inf). */
+    private fun jsRound(value: Double): Int = kotlin.math.floor(value + 0.5).toInt()
 }

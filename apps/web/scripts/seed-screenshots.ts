@@ -1445,7 +1445,7 @@ async function seedSessionTree(ctx: {
             data: {},
           },
         },
-        // Fresh: a result story drops after stories.json `unseenHours`.
+        // Fresh: a story leaves the rings after stories.json `windowHours`.
         at: minutesAgo(40),
       },
       // #EXP-1456: the Assistant's decision (the inbox row's target).

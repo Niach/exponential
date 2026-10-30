@@ -127,6 +127,7 @@ class SessionTreeTest {
         consumedAt = json.str("consumedAt"),
         createdAt = json.str("createdAt")!!,
         authorSessionId = json.str("authorSessionId"),
+        locked = json.str("locked"),
     )
 
     private fun pullRequest(json: JsonObject) = SessionTree.PullRequest(
@@ -318,6 +319,12 @@ class SessionTreeTest {
             put("text", row.text)
             put("sessionId", nullable(row.sessionId))
         }
+        is SessionTree.ThreadRow.Locked -> buildJsonObject {
+            put("type", "locked")
+            put("id", row.id)
+            put("reason", row.reason)
+            put("author", row.author)
+        }
         is SessionTree.ThreadRow.Divider -> buildJsonObject {
             put("type", "divider")
             put("id", row.id)
@@ -396,8 +403,6 @@ class SessionTreeTest {
                         put("parentId", nullable(row.parentId))
                         put("rootId", row.rootId)
                         put("unread", row.unread)
-                        // S-3: only the fold row carries `earlier`.
-                        row.earlier?.let { put("earlier", it) }
                     }
                 },
             ),
@@ -441,6 +446,40 @@ class SessionTreeTest {
         for (case in cases) {
             val actual = SessionTree.sessionBanner(bannerSession(case.getValue("session").jsonObject))
             assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
+        }
+    }
+
+    /** EXP-1459: sealed-content.json `placeholder.rowCases` over session-thread's first input. */
+    @Test
+    fun `a locked message is the locked row (sealed-content placeholder rowCases)`() {
+        val cases = fixture("sealed-content.json").getValue("placeholder").jsonObject.list("rowCases")
+        assertTrue(cases.isNotEmpty())
+        val input = threadFixture.list("cases").first().getValue("input").jsonObject
+        val root = session(input.getValue("root").jsonObject)
+        for (case in cases) {
+            val m = case.getValue("message").jsonObject
+            val json = kotlinx.serialization.json.JsonObject(
+                mapOf(
+                    "sessionId" to kotlinx.serialization.json.JsonPrimitive(root.id),
+                    "authorId" to kotlinx.serialization.json.JsonNull,
+                    "body" to kotlinx.serialization.json.JsonPrimitive(""),
+                    "card" to kotlinx.serialization.json.JsonNull,
+                    "answeredAt" to kotlinx.serialization.json.JsonNull,
+                    "consumedAt" to kotlinx.serialization.json.JsonPrimitive("2026-10-13T10:00:00.000Z"),
+                    "createdAt" to kotlinx.serialization.json.JsonPrimitive("2026-10-13T10:05:00.000Z"),
+                ) + m,
+            )
+            val view = SessionTree.buildSessionThread(
+                root = root,
+                sessions = input.list("sessions").map(::session),
+                sessionIssues = input.list("sessionIssues").map(::sessionIssue),
+                issues = input.list("issues").map(::issue),
+                messages = listOf(message(json)),
+                pullRequests = input.list("pullRequests").map(::pullRequest),
+                now = input.str("now")!!,
+            )
+            val rows = view.rows.filter { it.id == m.str("id") }.map(::encode)
+            assertEquals(case.str("name"), listOf(case.getValue("expected")), rows)
         }
     }
 
@@ -802,11 +841,7 @@ class SessionTreeTest {
         assertEquals(recent.getValue("max").jsonPrimitive.int, SessionTree.ListCopy.RECENT_MAX)
         assertTrue("treeState.staleHours is gone (S-3)", "treeState" !in listFixture)
         assertEquals(listFixture.getValue("recentChildMinutes").jsonPrimitive.int, SessionTree.ListCopy.RECENT_CHILD_MINUTES)
-        val earlier = copy.getValue("earlier").jsonObject
-        assertEquals(earlier.str("one"), SessionTree.ListCopy.EARLIER_ONE)
-        assertEquals(earlier.str("other"), SessionTree.ListCopy.EARLIER_OTHER)
-        assertEquals("1 earlier sub-session", SessionTree.earlierLabel(1))
-        assertEquals("3 earlier sub-sessions", SessionTree.earlierLabel(3))
+        assertTrue("copy.earlier is gone (#EXP-1461)", "earlier" !in copy)
     }
 
     // NEW-1 / S-3 (TS `sessionKindWord`, session-card.json `copy.blockedKinds`):

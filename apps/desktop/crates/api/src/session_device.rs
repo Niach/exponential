@@ -201,6 +201,10 @@ pub struct SessionReport {
     pub branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// EXP-1458: the title sealed to the tree (a body envelope), sent
+    /// INSTEAD of `title` once the root has a key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sealed_title: Option<String>,
     /// EXP-849: the login (profile id) the run ACTUALLY runs on — a start
     /// pick or a rotation may move it off the row's `account`. An older
     /// server strips the key (its zod object is not strict).
@@ -261,11 +265,63 @@ pub use exponential_agent_runtime::engine::reply::{option_descriptions, ReplyCar
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ReplyInput<'a> {
+struct ReplyInput<'a, C: Serialize> {
     session_id: &'a str,
     body: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    card: Option<&'a ReplyCard>,
+    card: Option<&'a C>,
+    #[serde(flatten)]
+    extras: &'a ReplyExtras,
+}
+
+/// EXP-1458: a sealed reply's companions (`sessions.reply`): every `None`
+/// stays off the wire.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplyExtras {
+    /// The members a sealed body mentions (user ids), in clear.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mention_user_ids: Option<Vec<String>>,
+    /// A sealed question/plan card's ask text (what a listener's agent
+    /// reads), a body envelope for the session's OWN tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ask_text: Option<String>,
+    /// The body (or ask text) re-sealed for each listening tree outside
+    /// the session's own ([`listeners`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listener_copies: Option<Vec<ListenerCopy>>,
+}
+
+/// One `listenerCopies` entry: `body` sealed to `root_id`'s tree.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListenerCopy {
+    pub root_id: String,
+    pub body: String,
+}
+
+/// EXP-1458: a tree outside the session's own that its sealed lines reach
+/// (`sessions.listeners`, `sessions.reply`'s `listeners`), with its current
+/// key; a keyless tree has neither (its listeners get the neutral line).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListenerTree {
+    pub root_id: String,
+    #[serde(default)]
+    pub epoch: Option<u32>,
+    #[serde(default)]
+    pub public_key: Option<String>,
+}
+
+/// `sessions.reply`'s result.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplyResult {
+    #[serde(default)]
+    pub message_id: String,
+    /// Only for a sealed reply, and only when it reaches another tree.
+    #[serde(default)]
+    pub listeners: Vec<ListenerTree>,
 }
 
 #[derive(Deserialize)]
@@ -283,15 +339,30 @@ pub fn reply(
     body: &str,
     card: Option<&ReplyCard>,
 ) -> Result<String, ApiError> {
-    let output: MessageIdOutput = trpc.mutation(
-        "sessions.reply",
-        &ReplyInput {
-            session_id,
-            body,
-            card,
-        },
-    )?;
+    let extras = ReplyExtras::default();
+    let output: MessageIdOutput =
+        trpc.mutation("sessions.reply", &ReplyInput { session_id, body, card, extras: &extras })?;
     Ok(output.message_id)
+}
+
+/// EXP-1458: [`reply`] as the engine posts it: the card as JSON (a SEALED
+/// card, `{...clear, sealed}`, is no [`ReplyCard`]), `body` possibly a body
+/// envelope, and the sealed reply's [`ReplyExtras`]. Returns the row id and
+/// the listening trees.
+pub fn reply_sealed(
+    trpc: &TrpcClient,
+    session_id: &str,
+    body: &str,
+    card: Option<&serde_json::Value>,
+    extras: &ReplyExtras,
+) -> Result<ReplyResult, ApiError> {
+    trpc.mutation("sessions.reply", &ReplyInput { session_id, body, card, extras })
+}
+
+/// EXP-1458: `sessions.listeners` — query, the trees outside the session's
+/// own its sealed lines reach, with their current keys.
+pub fn listeners(trpc: &TrpcClient, session_id: &str) -> Result<Vec<ListenerTree>, ApiError> {
+    trpc.query_with_input("sessions.listeners", &SessionIdInput { session_id })
 }
 
 #[derive(Serialize)]
@@ -478,6 +549,39 @@ mod tests {
         );
     }
 
+    /// EXP-1458: a sealed title rides `sealedTitle` and no plaintext
+    /// `title`; a sealed card posts as JSON.
+    #[test]
+    fn report_sends_a_sealed_title_and_reply_a_sealed_card() {
+        let sealed = SessionReport { sealed_title: Some("exp-sealed:v1:1:AAAA".to_string()), ..Default::default() };
+        assert_eq!(
+            serde_json::to_string(&ReportInput { session_id: "s1", report: &sealed }).unwrap(),
+            r#"{"sessionId":"s1","sealedTitle":"exp-sealed:v1:1:AAAA"}"#
+        );
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"messageId":"m-9"}}}"#);
+        let card = serde_json::json!({"kind": "question", "sealed": "v1:1:BBBB"});
+        let extras = ReplyExtras {
+            ask_text: Some("exp-sealed:v1:1:DDDD".to_string()),
+            listener_copies: Some(vec![ListenerCopy { root_id: "r2".to_string(), body: "exp-sealed:v1:3:EEEE".to_string() }]),
+            ..ReplyExtras::default()
+        };
+        let out = reply_sealed(&client(&base), SESSION, "exp-sealed:v1:1:CCCC", Some(&card), &extras).unwrap();
+        assert_eq!(out, ReplyResult { message_id: "m-9".to_string(), listeners: Vec::new() });
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            body_of(&request).ends_with(&format!(
+                r#"{{"sessionId":"{SESSION}","body":"exp-sealed:v1:1:CCCC","card":{{"kind":"question","sealed":"v1:1:BBBB"}},"askText":"exp-sealed:v1:1:DDDD","listenerCopies":[{{"rootId":"r2","body":"exp-sealed:v1:3:EEEE"}}]}}"#
+            )),
+            "{request}"
+        );
+        let decoded: ReplyResult = serde_json::from_str(
+            r#"{"messageId":"m","txid":3,"listeners":[{"rootId":"r2","epoch":3,"publicKey":"k"},{"rootId":"r3","epoch":null,"publicKey":null}]}"#,
+        )
+        .unwrap();
+        assert_eq!(decoded.listeners[0], ListenerTree { root_id: "r2".into(), epoch: Some(3), public_key: Some("k".into()) });
+        assert_eq!(decoded.listeners[1], ListenerTree { root_id: "r3".into(), epoch: None, public_key: None });
+    }
+
     #[test]
     fn report_serializes_every_field_and_the_blocked_tristate() {
         let wall = SessionReport {
@@ -495,6 +599,7 @@ mod tests {
             })),
             branch: Some("exp/EXP-1".to_string()),
             title: Some("Fix the login".to_string()),
+            sealed_title: None,
             account: Some("0a1b2c3d".to_string()),
             plan_mode: Some(false),
             model: Some("opus".to_string()),

@@ -44,6 +44,7 @@ import { recordNotificationFanout } from "@/lib/metrics/registry"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
 import { deriveSessionTitle } from "@/lib/sessions/brief"
 import { resolveMentions } from "@/lib/integrations/mentions"
+import { isSealedBody, isSealedMessage } from "@/lib/sessions/sealed"
 import { reporterFacingText } from "@/lib/reporter/report-text"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
@@ -1011,7 +1012,7 @@ export async function notifySessionBlocked(
  * issue-less `agent_message` row routed to the conversation, push-first,
  * muted per type by the usual prefs. Best-effort, never throws.
  */
-export async function notifyAssistantDecision(sessionId: string, text: string): Promise<void> {
+export async function notifyAssistantDecision(sessionId: string, text: string | null | undefined): Promise<void> {
   try {
     const [session] = await db
       .select({ userId: sessions.userId, teamId: sessions.teamId, teamSlug: teams.slug })
@@ -1020,7 +1021,11 @@ export async function notifyAssistantDecision(sessionId: string, text: string): 
       .where(eq(sessions.id, sessionId))
       .limit(1)
     if (!session) return
-    const body = text.trim().split(`\n`)[0]!.slice(0, 200)
+    // EXP-1458: a sealed card's text is never read (generic copy).
+    const body =
+      typeof text === `string` && !isSealedBody(text)
+        ? text.trim().split(`\n`)[0]!.slice(0, 200)
+        : SEALED_MESSAGE_NOTIFY_BODY
     await deliverToTeam({
       teamId: session.teamId,
       recipientIds: [session.userId],
@@ -1090,6 +1095,23 @@ export async function notifyDeviceShareRemoved(args: {
   }
 }
 
+/** EXP-1458: a SEALED message's push / inbox body: generic copy, never a
+ *  preview and never the envelope. */
+export const SEALED_MESSAGE_NOTIFY_BODY = `New message in a session`
+
+/** EXP-1458: the reply path's re-notify check over `mention_user_ids`
+ *  (a sealed body has no `@email` to diff, `addsMention`'s twin): `after`
+ *  names someone `before` did not (null `before` = a new message). */
+export function addsMentionUserIds(
+  before: readonly string[] | null | undefined,
+  after: readonly string[] | null | undefined
+): boolean {
+  if (!after?.length) return false
+  if (before === null || before === undefined) return true
+  const had = new Set(before)
+  return after.some((id) => !had.has(id))
+}
+
 /**
  * EXP-1291: `@email` mentions inside a Conversation message (a person's or
  * the agent's) notify the mentioned members who can SEE the session (a
@@ -1097,67 +1119,74 @@ export async function notifyDeviceShareRemoved(args: {
  * `session_id` + `team_id`, typed `agent_message` (the inbox's
  * session-routed type); an agent author's mentions honour the recipients'
  * `allow_agent_messages` block like every agent message.
+ * EXP-1458: a SEALED message is never read: its recipients are its
+ * `mention_user_ids` (the writer's) and the body is generic copy; a
+ * plaintext one parses its `@email`s, unioned with `mention_user_ids`.
  */
 export function fireAndForgetSessionMessageNotify(args: { messageId: string }): void {
-  void (async () => {
-    try {
-      const [row] = await db
-        .select({
-          body: messages.body,
-          authorKind: messages.authorKind,
-          authorId: messages.authorId,
-          sessionId: sessions.id,
-          rootId: sessions.rootId,
-          title: sessions.title,
-          teamId: sessions.teamId,
-          teamSlug: teams.slug,
-          shared: sessions.shared,
-          userId: sessions.userId,
-        })
-        .from(messages)
-        .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-        .innerJoin(sessions, eq(sessions.id, conversations.sessionId))
-        .innerJoin(teams, eq(teams.id, sessions.teamId))
-        .where(eq(messages.id, args.messageId))
-        .limit(1)
-      if (!row || row.authorKind === `system` || !row.body.includes(`@`)) return
+  void notifySessionMessage(args.messageId).catch((err) => {
+    console.error(`[notify] session mention failed:`, err)
+  })
+}
 
-      const mentioned = await db.transaction((tx) => resolveMentions(tx, row.body, row.teamId))
-      const actor = row.authorKind === `user` ? row.authorId : row.userId
-      let recipients = mentioned.filter(
-        (id) => id !== row.authorId && (row.shared || id === row.userId)
-      )
-      if (row.authorKind === `agent`) {
-        const blocked = await getAgentMessageBlocklist(
-          recipients.filter((id) => id !== row.userId)
-        )
-        recipients = recipients.filter((id) => !blocked.has(id))
-      }
-      if (recipients.length === 0) return
+/** The awaitable body of `fireAndForgetSessionMessageNotify`. */
+export async function notifySessionMessage(messageId: string): Promise<void> {
+  const [row] = await db
+    .select({
+      body: messages.body,
+      card: messages.card,
+      mentionUserIds: messages.mentionUserIds,
+      authorKind: messages.authorKind,
+      authorId: messages.authorId,
+      sessionId: sessions.id,
+      rootId: sessions.rootId,
+      title: sessions.title,
+      teamId: sessions.teamId,
+      teamSlug: teams.slug,
+      shared: sessions.shared,
+      userId: sessions.userId,
+    })
+    .from(messages)
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .innerJoin(sessions, eq(sessions.id, conversations.sessionId))
+    .innerJoin(teams, eq(teams.id, sessions.teamId))
+    .where(eq(messages.id, messageId))
+    .limit(1)
+  if (!row || row.authorKind === `system`) return
+  const sealed = isSealedMessage(row)
+  const listed = row.mentionUserIds ?? []
+  if (listed.length === 0 && (sealed || !row.body.includes(`@`))) return
 
-      const who = actor ? await actorName(actor) : `Someone`
-      const thread = await deriveSessionTitle({
-        id: row.sessionId,
-        rootId: row.rootId,
-        title: row.title,
-      })
-      const source = row.body.trim()
-      await deliverToTeam({
-        teamId: row.teamId,
-        recipientIds: recipients,
-        type: `agent_message`,
-        title:
-          row.authorKind === `agent`
-            ? `${who}'s agent mentioned you in ${thread}`
-            : `${who} mentioned you in ${thread}`,
-        body: source.length > 140 ? `${source.slice(0, 139)}…` : source,
-        pushData: { sessionId: row.sessionId, teamId: row.teamId, teamSlug: row.teamSlug },
-        sessionId: row.sessionId,
-      })
-    } catch (err) {
-      console.error(`[notify] session mention failed:`, err)
-    }
-  })()
+  const parsed = sealed ? [] : await db.transaction((tx) => resolveMentions(tx, row.body, row.teamId))
+  // Listed ids pass the same membership guard (deliverToTeam) as parsed ones.
+  const mentioned = [...new Set([...parsed, ...listed])]
+  const actor = row.authorKind === `user` ? row.authorId : row.userId
+  let recipients = mentioned.filter((id) => id !== row.authorId && (row.shared || id === row.userId))
+  if (row.authorKind === `agent`) {
+    const blocked = await getAgentMessageBlocklist(recipients.filter((id) => id !== row.userId))
+    recipients = recipients.filter((id) => !blocked.has(id))
+  }
+  if (recipients.length === 0) return
+
+  const who = actor ? await actorName(actor) : `Someone`
+  const thread = await deriveSessionTitle({
+    id: row.sessionId,
+    rootId: row.rootId,
+    title: row.title,
+  })
+  const source = row.body.trim()
+  await deliverToTeam({
+    teamId: row.teamId,
+    recipientIds: recipients,
+    type: `agent_message`,
+    title:
+      row.authorKind === `agent`
+        ? `${who}'s agent mentioned you in ${thread}`
+        : `${who} mentioned you in ${thread}`,
+    body: sealed ? SEALED_MESSAGE_NOTIFY_BODY : source.length > 140 ? `${source.slice(0, 139)}…` : source,
+    pushData: { sessionId: row.sessionId, teamId: row.teamId, teamSlug: row.teamSlug },
+    sessionId: row.sessionId,
+  })
 }
 
 /**

@@ -98,8 +98,6 @@ pub(crate) struct RunRowSpec {
     pub(crate) guides: domain::tree_guides::Guides,
     /// EXP-1323: news the viewer has not read — a semibold title.
     pub(crate) unread: bool,
-    /// S-3: the tree's fold row (`<root>:earlier`): a muted title.
-    pub(crate) muted: bool,
 }
 
 /// EXP-1248/EXP-1294 — THE session row, small (web `@exp/ui` SessionRow):
@@ -118,7 +116,6 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         trailing,
         guides,
         unread,
-        muted: muted_title,
     } = spec;
     let depth = guides.depth();
     let theme = cx.theme();
@@ -145,7 +142,7 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .text_color(if muted_title { muted } else { theme.foreground })
+                .text_color(theme.foreground)
                 .when(unread, |this| this.font_weight(gpui::FontWeight::SEMIBOLD))
                 .child(title),
         );

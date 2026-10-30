@@ -228,8 +228,9 @@ impl TalkHost for ExponentialHost {
     fn send(&self, outgoing: Outgoing, cx: &App) -> Option<SendJob> {
         let trpc = crate::queries::trpc_client(cx)?;
         let input = send_input(outgoing);
+        let plan = crate::sealing::plan_send(&input, cx);
         Some(Box::new(move || {
-            api::sessions::send(&trpc, &input)
+            crate::sealing::send_blocking(&trpc, &input, &plan)
                 .map(|output| Sent { session_id: output.session_id, message_id: output.message_id })
                 .map_err(send_error)
         }))

@@ -429,6 +429,14 @@ export function ThreadScreen({
             }
             here={root.id}
             back={search.back}
+            onSurfaceReply={
+              permissions.isMember
+                ? (story, text) =>
+                    void trpc.sessions.send
+                      .mutate({ teamId: team.id, sessionId: story.sessionId, text }, SKIP_ERROR_TOAST)
+                      .catch((error) => failedAction(`send`, `the message`, error))
+                : undefined
+            }
           />
         </div>
       </div>

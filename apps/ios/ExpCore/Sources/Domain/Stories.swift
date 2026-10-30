@@ -16,8 +16,8 @@ public enum Stories {
     // MARK: - Fixture constants
 
     public enum Constants {
-        public static let seenHours: Double = 24
-        public static let unseenHours: Double = 168
+        /// #EXP-1461: a ring keeps a story younger than this, waiting or not.
+        public static let windowHours: Double = 24
         public static let autoAdvanceMs: Double = 6000
     }
 
@@ -62,6 +62,18 @@ public enum Stories {
         /// scrim) is at least this tall, fading clear over the last `scrimFade`.
         public static let scrimHeight: Double = 180
         public static let scrimFade: Double = 48
+        /// #EXP-1463: the wide modal's room on each side (x) and top/bottom (y).
+        public static let insetX: Double = 96
+        public static let insetY: Double = 48
+        public static let minWidth: Double = 360
+    }
+
+    /// #EXP-1461 THE STORY ROW's geometry (`row`).
+    public enum Row {
+        public static let itemWidth: Double = 72
+        public static let gap: Double = 12
+        public static let labelGap: Double = 6
+        public static let padBottom: Double = 4
     }
 
     public enum TestIds {
@@ -96,11 +108,12 @@ public enum Stories {
 
         /// A tile's geometry; iOS = the `phone` form factor.
         public enum Tile {
-            public static let thumbHeight: Double = 140
-            public static let thumbMaxWidth: Double = 280
+            public static let thumbHeight: Double = 240
+            public static let thumbMaxWidth: Double = 320
             public static let gap: Double = 8
+            public static let textGap: Double = 4
             public static let radius: Double = 10
-            public static let listGap: Double = 16
+            public static let listGap: Double = 32
             public static let leadGap: Double = 24
 
             /// A thumbnail's width: by aspect at `thumbHeight` (unknown = 4:3),
@@ -414,10 +427,8 @@ public enum Stories {
             guard let built = storyOf(message, sessions: sessionsById, marks: marks, now: now),
                   built.resolution == nil else { continue }
             let story = built.story
-            if story.kind == .result {
-                let keep = story.seen ? Constants.seenHours : Constants.unseenHours
-                if now - story.createdAt >= keep * hour { continue }
-            }
+            // #EXP-1461: a ring holds the last `windowHours` only, waiting or not.
+            if now - story.createdAt >= Constants.windowHours * hour { continue }
             let ring = emptyRing(built.root, agents: agentsById)
             if byKey[ring.key] == nil {
                 order.append(ring.key)
@@ -556,14 +567,15 @@ public enum Stories {
         return frames.firstIndex { $0.storyId == storyId && $0.picture == picture } ?? first
     }
 
-    /// The chats header row (chats.json BUBBLES + STORY RING): each agent
-    /// bubble wears its agent's ring (`byAgent`, keyed by agentId, first
+    /// THE STORY ROW of the chats header (#EXP-1461, `rowCases`): ONLY
+    /// rings. `bubbles` = the agent bubbles (`bubbleAgentIds` in listAgents
+    /// order) whose agent has a ring, each wearing it (`byAgent`, first
     /// wins); `rest` = the rings no bubble wears (the root rings, an agent
-    /// ring with no bubble), in ring order, painted after the bubbles in the
-    /// same row.
-    public static func bubbleRings(
+    /// ring with no bubble), in ring order. A bubble without a ring is not
+    /// drawn; both empty = no row at all.
+    public static func storyRow(
         _ bubbleAgentIds: [String], _ rings: [StoryRing]
-    ) -> (byAgent: [String: StoryRing], rest: [StoryRing]) {
+    ) -> (bubbles: [String], byAgent: [String: StoryRing], rest: [StoryRing]) {
         let ids = Set(bubbleAgentIds)
         var byAgent: [String: StoryRing] = [:]
         var rest: [StoryRing] = []
@@ -574,7 +586,26 @@ public enum Stories {
                 rest.append(ring)
             }
         }
-        return (byAgent, rest)
+        var seen = Set<String>()
+        let bubbles = bubbleAgentIds.filter { seen.insert($0).inserted && byAgent[$0] != nil }
+        return (bubbles, byAgent, rest)
+    }
+
+    /// THE wide viewer's modal size (#EXP-1463, `sizeCases`): a picture with
+    /// a known size = fitted (contain) into the viewport less the inset, at
+    /// least `minWidth` wide; anything else = `Viewer.width` × `height`, each
+    /// capped by the same box. Whole px. Phones never call it (full screen).
+    public static func viewerSize(
+        picture: (width: Double?, height: Double?)?, viewport: (width: Double, height: Double)
+    ) -> (width: Double, height: Double) {
+        let boxWidth = max(0, viewport.width - 2 * Viewer.insetX)
+        let boxHeight = max(0, viewport.height - 2 * Viewer.insetY)
+        guard let picture, let pw = picture.width, let ph = picture.height, pw > 0, ph > 0 else {
+            return (min(Viewer.width, boxWidth), min(Viewer.height, boxHeight))
+        }
+        let scale = min(boxWidth / pw, boxHeight / ph)
+        let width = (pw * scale).rounded()
+        return (min(boxWidth, max(Viewer.minWidth, width)), (ph * scale).rounded())
     }
 
     /// Epoch ms of a synced wire timestamp (nil = absent or unparseable).

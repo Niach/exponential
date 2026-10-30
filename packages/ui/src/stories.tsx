@@ -24,9 +24,11 @@ import {
   STORIES_TEST_IDS,
   STORY_PROGRESS,
   STORY_RING,
+  STORY_ROW,
   STORY_VIEWER,
   storyFrameIndex,
   storyFrames,
+  storyViewerSize,
   type Story,
   type StoryFooter as StoryFooterKind,
   type StoryFrame,
@@ -204,10 +206,10 @@ export function StoryRingButton({
       aria-label={ring.title}
       onClick={onOpen ? () => onOpen(ring.key) : undefined}
       className={cn(
-        `flex shrink-0 flex-col items-center gap-1.5 rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+        `flex shrink-0 flex-col items-center rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
         className
       )}
-      style={{ width: size + 6 }}
+      style={{ width: size + 6, gap: STORY_ROW.labelGap }}
     >
       <StoryRing stories={ring.stories} size={size}>
         {avatar}
@@ -240,7 +242,8 @@ export function StoryRingRow({
   return (
     <div
       data-slot="story-ring-row"
-      className={cn(`-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]`, className)}
+      className={cn(`-mx-4 flex overflow-x-auto px-4 [scrollbar-width:none]`, className)}
+      style={{ gap: STORY_ROW.gap, paddingBottom: STORY_ROW.padBottom }}
     >
       {rings.map((ring) => (
         <StoryRingButton key={ring.key} ring={ring} avatar={avatarFor(ring)} onOpen={onOpen} />
@@ -328,14 +331,51 @@ export interface StoryAnswer {
 }
 
 
-/** The md+ modal frame (`viewer`: width × height max, radius); phones =
- *  the whole screen. */
-export const STORY_VIEWER_FRAME_CLASS = `md:h-[min(var(--story-h),calc(100dvh-2rem))] md:w-(--story-w) md:max-w-[calc(100vw-8rem)] md:rounded-(--story-radius) md:border md:border-glass-stroke-card md:shadow-2xl md:shadow-black/40`
-export const STORY_VIEWER_FRAME_STYLE = {
-  [`--story-w`]: `${STORY_VIEWER.width}px`,
-  [`--story-h`]: `${STORY_VIEWER.height}px`,
-  [`--story-radius`]: `${STORY_VIEWER.radius}px`,
-} as CSSProperties
+/** The md+ modal frame (#EXP-1463: sized by its frame, `storyViewerSize`,
+ *  radius `viewer.radius`); phones = the whole screen. */
+export const STORY_VIEWER_FRAME_CLASS = `md:h-(--story-h) md:w-(--story-w) md:rounded-(--story-radius) md:border md:border-glass-stroke-card md:shadow-2xl md:shadow-black/40`
+export function storyViewerFrameStyle(size: { width: number; height: number }): CSSProperties {
+  return {
+    [`--story-w`]: `${size.width}px`,
+    [`--story-h`]: `${size.height}px`,
+    [`--story-radius`]: `${STORY_VIEWER.radius}px`,
+  } as CSSProperties
+}
+
+/** The window's size (the wide viewer fits its frame into it). */
+function useViewportSize(): { width: number; height: number } {
+  const read = () =>
+    typeof window === `undefined`
+      ? { width: STORY_VIEWER.width, height: STORY_VIEWER.height }
+      : { width: window.innerWidth, height: window.innerHeight }
+  const [size, setSize] = useState(read)
+  useEffect(() => {
+    const onResize = () => setSize(read())
+    window.addEventListener(`resize`, onResize)
+    return () => window.removeEventListener(`resize`, onResize)
+  }, [])
+  return size
+}
+
+/** A picture's size: the card's, else the loaded image's natural size. */
+function usePictureSize(
+  picture: { width: number | null; height: number | null } | null,
+  src: string | null
+): { width: number | null; height: number | null } | null {
+  const [natural, setNatural] = useState<{ src: string; width: number; height: number } | null>(null)
+  const known = Boolean(picture?.width && picture.height)
+  useEffect(() => {
+    if (!picture || known || !src) return
+    const image = new Image()
+    image.onload = () => setNatural({ src, width: image.naturalWidth, height: image.naturalHeight })
+    image.src = src
+    return () => {
+      image.onload = null
+    }
+  }, [picture, known, src])
+  if (!picture || known) return picture
+  return natural?.src === src ? natural : picture
+}
 
 /** A press on these never steps (the tap thirds skip them). */
 const INTERACTIVE = `button, a, input, textarea, select, label, [role="button"], [role="slider"], [role="radio"], [role="checkbox"], [role="switch"], [role="option"], [contenteditable="true"], [data-slot="story-footer"]`
@@ -923,6 +963,13 @@ export function StoryViewer({
   const at = position ? storyFramePosition(frames, position) : -1
   const frame = at >= 0 ? frames[at]! : null
   const story = ring && frame ? (ring.stories[frame.story] ?? null) : null
+  const picture = story && frame?.kind === `picture` && frame.picture !== null ? (story.pictures[frame.picture] ?? null) : null
+  const pictureSize = usePictureSize(
+    picture,
+    picture ? (attachmentSrc ? attachmentSrc(picture.attachmentId) : `/api/attachments/${picture.attachmentId}`) : null
+  )
+  const viewport = useViewportSize()
+  const frameSize = storyViewerSize(pictureSize, viewport)
 
   const go = useCallback(
     (direction: 1 | -1) => {
@@ -1062,7 +1109,7 @@ export function StoryViewer({
                 onAnswer={onAnswer ? (answer) => void settle(onAnswer(story, answer)) : undefined}
                 onPause={setPaused}
                 className={STORY_VIEWER_FRAME_CLASS}
-                style={STORY_VIEWER_FRAME_STYLE}
+                style={storyViewerFrameStyle(frameSize)}
               />
               <Button
                 type="button"

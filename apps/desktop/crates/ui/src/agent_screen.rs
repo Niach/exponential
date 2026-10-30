@@ -520,12 +520,12 @@ impl AgentScreenView {
                     return;
                 }
             };
-            let Ok(input) = this.update(cx, |this, _| {
+            let Ok((input, plan)) = this.update(cx, |this, cx| {
                 this.first.images.note_uploaded(&resolved);
                 let parsed = domain::image_message::parse_steer_message(&this.first.images.message(&text));
                 let mut attachment_ids = parsed.attachment_ids;
                 attachment_ids.extend(parsed.files.into_iter().map(|file| file.id));
-                match &app_device {
+                let input = match &app_device {
                     Some(device_id) => crate::chat_launch::app_send_input(
                         &team_id,
                         &subject_id,
@@ -534,13 +534,15 @@ impl AgentScreenView {
                         attachment_ids,
                     ),
                     None => crate::chat_launch::agent_send_input(&team_id, &subject_id, &parsed.text, attachment_ids),
-                }
+                };
+                let plan = crate::sealing::plan_send(&input, cx);
+                (input, plan)
             }) else {
                 return;
             };
             let result = cx
                 .background_executor()
-                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .spawn(async move { crate::sealing::send_blocking(&trpc, &input, &plan) })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.first.sending = false;

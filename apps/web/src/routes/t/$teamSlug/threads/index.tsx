@@ -237,11 +237,10 @@ function ThreadsPage() {
           {!archivedView && (
             <AgentBubbles
               bubbles={bubbles}
-              // S-3 (stories.json STORY RING): a bubble with a ring opens the
-              // viewer at it, else the agent's chat; the other rings follow.
+              // #EXP-1461 (stories.json STORY ROW): only rings, the last 24 h;
+              // a bubble without one is not drawn, nothing = no row.
               rings={stories.rings}
               ringAvatar={stories.avatarFor}
-              onOpen={openAgent}
               onOpenStory={stories.open}
             />
           )}

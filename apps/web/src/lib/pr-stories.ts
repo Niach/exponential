@@ -8,6 +8,7 @@ import { githubApiHeaders } from "@/lib/integrations/github-app"
 import { appBaseUrl, buildSessionDeepLinkPath } from "@/lib/notification-email-policy"
 import { logicalSessionIds } from "@/lib/sessions/guide-entries"
 import { inSessions, messageSessionId } from "@/lib/sessions/messages"
+import { isSealedCard } from "@/lib/sessions/sealed"
 
 // S-3 (owner 2026-10-28): stories replace the Guide. The I/O half of a PR
 // body (`prBodyFromStories`, lib/pr-body.ts): the opener's story pictures,
@@ -20,7 +21,9 @@ export interface StoryPicture {
 }
 
 /** The resolved pictures of the story cards the opener's LOGICAL session
- *  and its subtree posted (null opener = the whole tree), oldest first. */
+ *  and its subtree posted (null opener = the whole tree), oldest first.
+ *  EXP-1458: SEALED story cards are skipped (their pictures live inside
+ *  `sealed`; the device exports its stories itself). */
 export async function loadStoryPictures(rootId: string, openerSessionId: string | null): Promise<StoryPicture[]> {
   const tree = await db
     .select({ id: sessions.id, parentId: sessions.parentId, branch: sessions.branch, status: sessions.status })
@@ -45,14 +48,15 @@ export async function loadStoryPictures(rootId: string, openerSessionId: string 
         eq(messages.rootId, rootId),
         inSessions([...ids]),
         sql`${messages.authorSessionId} = ${messageSessionId()}`,
-        sql`${messages.card}->>'kind' IN ('surface', 'question', 'plan')`
+        sql`${messages.card}->>'kind' IN ('surface', 'question', 'plan')`,
+        sql`NOT (${messages.card} ? 'sealed')`
       )
     )
     .orderBy(asc(messages.createdAt))
   const base = appBaseUrl()
   const out: StoryPicture[] = []
   for (const { card } of rows) {
-    if (!isStoryCard(card)) continue
+    if (isSealedCard(card) || !isStoryCard(card)) continue
     for (const picture of (card as Extract<MessageCard, { kind: `surface` }>).pictures ?? []) {
       if (!picture.attachmentId) continue
       out.push({

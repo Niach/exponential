@@ -126,7 +126,6 @@ fun ThreadsScreen(
     val bubbles by viewModel.bubbles.collectAsStateWithLifecycle()
     val agentRows by viewModel.agentRows.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.ensureAssistant() }
-    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     val facts by viewModel.rootFacts.collectAsStateWithLifecycle()
     val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
@@ -191,7 +190,6 @@ fun ThreadsScreen(
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     selected = listOf(row.sessionId)
                 },
-                onOpenAgent = { agent -> conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
                 onLongPressAgent = { agentMenuFor = it },
                 agentRows = agentRows,
                 onOpenAgentRow = { row -> row.sessionId?.let(onOpenThread) ?: onOpenAgent(row.agentId) },
@@ -202,8 +200,7 @@ fun ThreadsScreen(
                 onBack = onBack,
                 selected = selected,
                 onToggleSelect = { id -> selected = if (id in selected) selected - id else selected + id },
-                // S-3 STORIES: a bubble with a ring opens the viewer at it,
-                // else the agent's chat; the other rings follow.
+                // #EXP-1461: THE story row: a ring opens the viewer at it.
                 rings = stories.rings,
                 ringAvatar = stories::avatar,
                 onOpenStory = { openedRing = it },
@@ -283,7 +280,6 @@ fun ChatsContent(
     onSelectFilter: (Chats.ChatFilter) -> Unit,
     onOpenChat: (rootSessionId: String) -> Unit,
     onLongPressChat: (Chats.ChatRow) -> Unit,
-    onOpenAgent: (SessionTree.AgentRow) -> Unit,
     onLongPressAgent: (SessionTree.AgentRow) -> Unit,
     onOpenInbox: () -> Unit,
     inboxUnread: Boolean,
@@ -295,8 +291,8 @@ fun ChatsContent(
     /** #EXP-1388: the selection (empty = not selecting). */
     selected: List<String> = emptyList(),
     onToggleSelect: (rootSessionId: String) -> Unit = {},
-    /** S-3 STORIES: the story rings the bubbles row carries (a bubble
-     *  wears its agent's, the rest follow); a tap opens the viewer. */
+    /** #EXP-1461 THE story row: the rings (a bubble wears its agent's, the
+     *  rest follow); a tap opens the viewer. */
     rings: List<Stories.StoryRing> = emptyList(),
     ringAvatar: (Stories.StoryRing) -> StoryAvatar = { StoryAvatar(null, null) },
     onOpenStory: (key: String) -> Unit = {},
@@ -329,11 +325,11 @@ fun ChatsContent(
                 PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = headerActions)
             }
         }
-        if ((bubbles.isNotEmpty() || rings.isNotEmpty()) && !archivedPage) {
+        // #EXP-1461: THE story row (rings only); nothing = no item at all.
+        if (!archivedPage && !Stories.storyRow(bubbles.map { it.agent.agentId }, rings).isEmpty) {
             item(key = "__bubbles__") {
                 AgentBubbles(
                     bubbles = bubbles,
-                    onOpen = onOpenAgent,
                     onLongPress = onLongPressAgent,
                     rings = rings,
                     ringAvatar = ringAvatar,
@@ -406,9 +402,6 @@ internal fun ThreadListRow(
     prLead: ThreadRowPrLead? = null,
 ) {
     val state = SessionTree.threadRowMarkState(row.needsYou, row.busy)
-    // S-3: a tree's fold row (`earlier`) = this muted row, no mark; it
-    // opens the thread.
-    val fold = row.earlier != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -419,9 +412,7 @@ internal fun ThreadListRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (fold) {
-            Spacer(Modifier.size(14.dp))
-        } else if (threadsTab) {
+        if (threadsTab) {
             ThreadsTabLead(row, meta?.agent, word, prLead)
         } else {
             AgentRunMark(agent = meta?.agent, state = state, size = 14.dp, badgeSize = 6.dp)
@@ -432,11 +423,7 @@ internal fun ThreadListRow(
                 row.title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (row.unread) FontWeight.SemiBold else null,
-                color = if (fold) {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.testTag(if (row.unread) "threads-row-unread" else "threads-row-title"),

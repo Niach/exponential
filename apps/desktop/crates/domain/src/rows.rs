@@ -26,6 +26,7 @@
 use serde::Deserialize;
 
 use crate::enums::{IssuePriority, IssueStatus};
+pub use crate::sealed::SealState;
 use crate::hydrate::{
     tolerant_bool_or_false, tolerant_i64, tolerant_id_list, tolerant_opt_bool, tolerant_opt_f64,
     tolerant_opt_i64, tolerant_opt_json,
@@ -766,6 +767,16 @@ pub struct SessionRow {
     pub shared: bool,
     #[serde(default)]
     pub title: Option<String>,
+    /// EXP-1458: the root's tree public key (base64url, 32 bytes) and its
+    /// current epoch; both `None` until the tree is keyed (root rows only).
+    #[serde(default)]
+    pub seal_public_key: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub seal_epoch: Option<i64>,
+    /// EXP-1458: the title sealed to the tree (body envelope); `title` then
+    /// stays a neutral fallback. Open it through `coding::sealing`.
+    #[serde(default)]
+    pub sealed_title: Option<String>,
     /// THE Guide (`GuideEntry[]`, the old results entries = the PR body);
     /// read through [`crate::session_results`].
     #[serde(default, deserialize_with = "tolerant_opt_json")]
@@ -931,6 +942,11 @@ pub struct MessageRow {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+    /// EXP-1459: the sealed body/card's state after `sync::sealed` opened
+    /// it (`None` = plaintext row). Not `Opened` = body empty, card = its
+    /// clear part: render the locked row.
+    #[serde(skip_deserializing)]
+    pub seal: Option<SealState>,
 }
 
 /// NEW-8 `conversations` shape row: the chat primitive a message lives in.
@@ -982,6 +998,11 @@ pub struct SessionReadRow {
 }
 
 impl MessageRow {
+    /// EXP-1459: why this row's sealed content stays locked here.
+    pub fn locked(&self) -> Option<crate::sealed::LockedReason> {
+        crate::sealed::locked_reason(self.seal)
+    }
+
     /// The card's `kind` (`question`, `plan`, `session`, …); `None` for a
     /// plain message (or a card without a string kind).
     pub fn card_kind(&self) -> Option<&str> {

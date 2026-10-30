@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.SealedPlaceholder
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.Stories
 import com.exponential.app.ui.icons.ExpIcons
@@ -497,7 +498,8 @@ private fun ChatPreviewText(preview: Chats.ChatPreview, modifier: Modifier = Mod
     Text(
         text,
         style = style,
-        fontStyle = if (preview.kind == "working") FontStyle.Italic else null,
+        // EXP-1459: a locked preview reads italic muted like `working`.
+        fontStyle = if (preview.kind == "working" || preview.kind == Chats.PREVIEW_KIND_LOCKED) FontStyle.Italic else null,
         color = muted,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
@@ -577,20 +579,19 @@ fun ChatFilterChips(
 }
 
 /**
- * The Chats header's agent BUBBLES (`agentBubbles`): a 66 circle each (the
- * agent's icon in its colour on bg muted inside a 3px background gap) with
- * the name under it; the ring = amber while the viewer's conversation needs
- * them, foreground while it has unread news, else a hairline. A tap opens the
- * agent's chat, a long-press its agent menu. The row scrolls sideways. S-3
- * (stories.json STORY RING): a bubble whose agent has a story ring wears
- * THAT ring instead and a tap opens the viewer at it ([onOpenStory]); the
- * rings no bubble wears follow in the same row ([Stories.bubbleRings]).
+ * THE STORY ROW of the Chats header (stories.json STORY ROW, #EXP-1461):
+ * ONLY rings ([Stories.storyRow]). A bubble whose agent has a ring (the last
+ * 24 h) wears it, in listAgents order (the agent's icon in its colour, its
+ * name under it, medium while unseen; a tap opens the viewer at the ring, a
+ * long-press its agent menu); a bubble without one is not drawn; the rings
+ * no bubble wears follow in ring order. Nothing = no row (no height). Each
+ * item is exactly `row.itemWidth` wide, `row.gap` apart, from the chips'
+ * leading edge; the row scrolls sideways.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AgentBubbles(
     bubbles: List<Chats.AgentBubble>,
-    onOpen: (SessionTree.AgentRow) -> Unit,
     onLongPress: ((SessionTree.AgentRow) -> Unit)?,
     modifier: Modifier = Modifier,
     /** The story rings ([Stories.rings], ring order). */
@@ -599,32 +600,27 @@ fun AgentBubbles(
     ringAvatar: (Stories.StoryRing) -> StoryAvatar = { StoryAvatar(null, null) },
     onOpenStory: (key: String) -> Unit = {},
 ) {
-    val split = remember(bubbles, rings) { Stories.bubbleRings(bubbles.map { it.agent.agentId }, rings) }
-    if (bubbles.isEmpty() && split.rest.isEmpty()) return
+    val row = remember(bubbles, rings) { Stories.storyRow(bubbles.map { it.agent.agentId }, rings) }
+    if (row.isEmpty) return
+    val worn = remember(bubbles, row) { bubbles.filter { it.agent.agentId in row.byAgent } }
     val haptics = LocalHapticFeedback.current
     Row(
         modifier = modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = Stories.Row.PAD_BOTTOM.dp),
+        horizontalArrangement = Arrangement.spacedBy(Stories.Row.GAP.dp),
     ) {
-        bubbles.forEach { bubble ->
+        worn.forEach { bubble ->
             val agent = bubble.agent
-            val story = split.byAgent[agent.agentId]
-            val ring = when (bubble.ring) {
-                Chats.AgentRing.NeedsYou -> NeedsInputAmber
-                Chats.AgentRing.Unread -> MaterialTheme.colorScheme.onSurface
-                null -> GlassTokens.StrokeCard
-            }
-            val ringWidth = if (bubble.ring == null) GlassTokens.Hairline else Chats.Shell.BUBBLE_RING.dp
+            val story = row.byAgent.getValue(agent.agentId)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .width(Chats.Shell.BUBBLE.dp + 8.dp)
+                    .width(Stories.Row.ITEM_WIDTH.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .combinedClickable(
-                        onClick = { if (story != null) onOpenStory(story.key) else onOpen(agent) },
+                        onClick = { onOpenStory(story.key) },
                         onLongClick = onLongPress?.let { long ->
                             {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -634,42 +630,27 @@ fun AgentBubbles(
                     )
                     .testTag(Chats.TestIds.AGENT_BUBBLE),
             ) {
-                if (story != null) {
-                    // THE story ring at the bubble size; its inner muted
-                    // disc carries the bubble's avatar / working mark.
-                    StoryRing(stories = story.stories, size = Chats.Shell.BUBBLE.dp) {
-                        AgentBubbleDisc(
-                            icon = agent.icon,
-                            color = agent.color,
-                            assistant = agent.assistant,
-                            size = Chats.Shell.BUBBLE.dp - (Stories.Ring.WIDTH.dp + Chats.Shell.BUBBLE_RING.dp) * 2,
-                            ring = Color.Transparent,
-                            ringWidth = 0.dp,
-                            ringGap = 0.dp,
-                            glyph = 26.dp,
-                            busy = agent.busy,
-                        )
-                    }
-                } else {
+                // THE story ring at the bubble size; its inner muted disc
+                // carries the bubble's avatar / working mark.
+                StoryRing(stories = story.stories, size = Chats.Shell.BUBBLE.dp) {
                     AgentBubbleDisc(
                         icon = agent.icon,
                         color = agent.color,
                         assistant = agent.assistant,
-                        size = Chats.Shell.BUBBLE.dp,
-                        ring = ring,
-                        ringWidth = ringWidth,
-                        ringGap = Chats.Shell.BUBBLE_RING.dp,
+                        size = Chats.Shell.BUBBLE.dp - (Stories.Ring.WIDTH.dp + Chats.Shell.BUBBLE_RING.dp) * 2,
+                        ring = Color.Transparent,
+                        ringWidth = 0.dp,
+                        ringGap = 0.dp,
                         glyph = 26.dp,
                         busy = agent.busy,
                     )
                 }
-                val strong = bubble.ring != null || story?.unseen == true
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(Stories.Row.LABEL_GAP.dp))
                 Text(
                     agent.name,
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (strong) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (strong) {
+                    fontWeight = if (story.unseen) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (story.unseen) {
                         MaterialTheme.colorScheme.onSurface
                     } else {
                         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -679,7 +660,7 @@ fun AgentBubbles(
                 )
             }
         }
-        split.rest.forEach { ring -> StoryRingButton(ring = ring, avatar = ringAvatar(ring), onOpen = onOpenStory) }
+        row.rest.forEach { ring -> StoryRingButton(ring = ring, avatar = ringAvatar(ring), onOpen = onOpenStory) }
     }
 }
 
@@ -883,11 +864,13 @@ fun ChatDeleteConfirm(
  * A transcript divider (session-thread.json `divider` row): a person's `/new`
  * or `/compact` line painted as the centred glass pill
  * `copy.dividers.<kind> · HH:mm` (icon ui-clean / coding-compact), never a
- * bubble.
+ * bubble. EXP-1459: kind `locked-noKey` | `locked-unreadable` = the same pill
+ * with the lock (sealed-content.json `placeholder`), no time.
  */
 @Composable
 fun TranscriptDivider(kind: String, time: String?, modifier: Modifier = Modifier) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    val locked = kind.removePrefix(LOCKED_DIVIDER_PREFIX).takeIf { kind.startsWith(LOCKED_DIVIDER_PREFIX) }
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Row(
             modifier = Modifier
@@ -895,18 +878,23 @@ fun TranscriptDivider(kind: String, time: String?, modifier: Modifier = Modifier
                 .background(GlassTokens.CardFill, CircleShape)
                 .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape)
                 .padding(horizontal = 14.dp, vertical = 6.dp)
-                .testTag(Chats.TestIds.DIVIDER),
+                .testTag(if (locked != null) SEALED_LOCKED_TEST_ID else Chats.TestIds.DIVIDER),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
-                if (kind == Chats.DIVIDER_KIND_COMPACT) ExpIcons.codingCompact else ExpIcons.uiClean,
+                when {
+                    locked != null -> ExpIcons.uiPrivate
+                    kind == Chats.DIVIDER_KIND_COMPACT -> ExpIcons.codingCompact
+                    else -> ExpIcons.uiClean
+                },
                 contentDescription = null,
                 tint = muted,
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                listOfNotNull(Chats.Copy.divider(kind), time?.takeIf { it.isNotEmpty() }).joinToString(" · "),
+                if (locked != null) SealedPlaceholder.copy(locked)
+                else listOfNotNull(Chats.Copy.divider(kind), time?.takeIf { it.isNotEmpty() }).joinToString(" · "),
                 style = MaterialTheme.typography.labelMedium,
                 color = muted,
                 maxLines = 1,
@@ -914,6 +902,12 @@ fun TranscriptDivider(kind: String, time: String?, modifier: Modifier = Modifier
         }
     }
 }
+
+/** EXP-1459: the [TranscriptDivider] kind of a locked row (`locked-<reason>`). */
+const val LOCKED_DIVIDER_PREFIX = "locked-"
+
+/** EXP-1459: the locked pill's test tag (component tests, captures). */
+const val SEALED_LOCKED_TEST_ID = "sealed-locked"
 
 /** A day pill over the transcript (`Today`, `Yesterday`, a date). */
 @Composable

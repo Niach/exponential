@@ -193,7 +193,7 @@ class IssueImagesApi @Inject constructor(
         filename: String,
         contentType: String,
     ): UploadedImage =
-        post(accountId, "api/sessions/$sessionId/files", bytes, filename, contentType)
+        post(accountId, "api/sessions/$sessionId/files", bytes, filename, contentType).also(::rememberSessionUpload)
 
     /**
      * EXP-825: an image attached BEFORE a session exists — the Agent page
@@ -210,7 +210,11 @@ class IssueImagesApi @Inject constructor(
         filename: String,
         contentType: String,
     ): UploadedImage =
-        post(accountId, "api/teams/$teamId/session-files", bytes, filename, contentType)
+        post(accountId, "api/teams/$teamId/session-files", bytes, filename, contentType).also(::rememberSessionUpload)
+
+    // EXP-1459: a sealed message embeds its attachments itself (SealedWrite).
+    private fun rememberSessionUpload(uploaded: UploadedImage) =
+        com.exponential.app.data.sealed.SealedWrite.rememberUpload(uploaded.id, uploaded.filename, uploaded.contentType)
 
     private suspend fun post(
         accountId: String,

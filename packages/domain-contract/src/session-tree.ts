@@ -13,6 +13,7 @@ import listFixture from "../fixtures/threads-list.json" with { type: "json" }
 import { sessionTitle, sessionTitles } from "./session-title"
 import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
 import { commandDivider } from "./chats"
+import type { LockedReason } from "./sealed-content"
 
 export interface TreeSession {
   id: string
@@ -89,6 +90,9 @@ export interface TreeMessage {
   createdAt: string
   /** EXP-1323: the session that posted it (absent = null). */
   authorSessionId?: string | null
+  /** EXP-1459: sealed content this install cannot open (yet); `body` is
+   *  empty and `card` its clear part (sealed-content.json `placeholder`). */
+  locked?: LockedReason | null
 }
 
 export interface TreePullRequest {
@@ -548,6 +552,9 @@ export type ThreadRow =
   | { type: `event`; id: string; event: string; text: string; sessionId: string | null }
   /** Thread 58cb32df (chats.json): a person's `/new` or `/compact` line. */
   | { type: `divider`; id: string; kind: `new` | `compact`; at: string }
+  /** EXP-1459 (sealed-content.json `placeholder`): content this install
+   *  cannot open (yet), whatever its kind: THE transcript pill. */
+  | { type: `locked`; id: string; reason: LockedReason; author: `user` | `agent` | `system` }
   /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
   | { type: `surface`; id: string; sessionId: string; title: string | null; surface: CardSurface }
 
@@ -960,6 +967,12 @@ export function buildSessionThread(input: {
   const escalated = new Set<string>()
   for (const message of conversation) {
     const card = message.card
+    if (message.locked) {
+      const author =
+        message.authorKind === `user` || message.authorKind === `agent` ? message.authorKind : `system`
+      rows.push({ type: `locked`, id: message.id, reason: message.locked, author })
+      continue
+    }
     if (!card) {
       const author =
         message.authorKind === `user` || message.authorKind === `agent`
@@ -1138,22 +1151,10 @@ export interface ThreadsListRow {
   deviceId?: string | null
   busy: boolean
   needsYou: boolean
-  /** EXP-1323: bold title (a root: the tree's newest agent message is
-   *  newer than the viewer's read of the root; a child: its own). */
+  /** EXP-1323: bold title (the tree's newest agent message is newer than
+   *  the viewer's read of the root). */
   unread: boolean
   activityAt: string
-  /** S-3: set ONLY on a tree's fold row (`<rootId>:earlier`, depth 1, the
-   *  muted list-item row; opens the thread) = how many sub-sessions it hides. */
-  earlier?: number
-}
-
-/** S-3: the fold row's id suffix and its label (`copy.earlier`). */
-export const EARLIER_SUFFIX = `:earlier`
-export function earlierLabel(count: number): string {
-  return (count === 1 ? THREADS_LIST_COPY.earlier.one : THREADS_LIST_COPY.earlier.other).replace(
-    `{n}`,
-    String(count)
-  )
 }
 
 /** EXP-1312: a thread row's lead outside the Threads tab (home Running band,
@@ -1228,18 +1229,15 @@ export function partitionThreads(input: {
 }): ThreadsListGroup[] {
   const readAt = new Map((input.reads ?? []).map((read) => [read.sessionId, ms(read.readAt) ?? 0]))
   const rootOf = new Map(input.sessions.map((s) => [s.id, s.rootId]))
-  const newestAgent = new Map<string, number>()
   const newestAgentInTree = new Map<string, number>()
   for (const message of input.messages) {
     if (message.authorKind !== `agent`) continue
     const at = ms(message.createdAt) ?? 0
-    newestAgent.set(message.sessionId, Math.max(newestAgent.get(message.sessionId) ?? 0, at))
     const rootId = rootOf.get(message.sessionId)
     if (rootId) newestAgentInTree.set(rootId, Math.max(newestAgentInTree.get(rootId) ?? 0, at))
   }
   const unreadAt = (newest: number | undefined, sessionId: string) =>
     newest !== undefined && newest > (readAt.get(sessionId) ?? -1)
-  const now = ``
   const roots = input.sessions.filter(
     (s) =>
       s.parentId === null &&
@@ -1255,10 +1253,7 @@ export function partitionThreads(input: {
     list.push(session)
     byRoot.set(session.rootId, list)
   }
-  const buckets: Record<
-    ThreadsListGroup[`key`],
-    { row: ThreadsListRow; children: ThreadsListRow[] }[]
-  > = {
+  const buckets: Record<ThreadsListGroup[`key`], ThreadsListRow[]> = {
     needs_you: [],
     running: [],
     recent: [],
@@ -1286,85 +1281,29 @@ export function partitionThreads(input: {
       unread: unreadAt(newestAgentInTree.get(root.id), root.id),
       activityAt: activity,
     }
-    const key = needsYou ? `needs_you` : running ? `running` : `recent`
-    // A live tree nests its VISIBLE children (S-3 `visibleTree`: working,
-    // needs you or active within `recentChildMinutes`; depth-first, creation
-    // order), the rest fold into ONE `earlier` row; Recent collapses to the
-    // root.
-    const children: ThreadsListRow[] = []
-    if (key !== `recent`) {
-      const ordered = treeOrder(tree)
-      const shown = visibleTree(ordered.filter((s) => s.id !== root.id), input.now)
-      const walk = (parentId: string, depth: number) => {
-        for (const child of ordered) {
-          if (child.parentId !== parentId || !shown.has(child.id)) continue
-          const card = sessionCard(
-            child,
-            sessionTitle(child, input.sessionIssues, input.issues, input.messages),
-            now
-          )
-          children.push({
-            sessionId: child.id,
-            teamId: child.teamId,
-            depth,
-            parentId,
-            rootId: root.id,
-            title: card.name,
-            deviceId: child.deviceId ?? null,
-            busy: child.status !== `ended` && child.busy,
-            needsYou: child.status !== `ended` && child.needsInput,
-            unread: unreadAt(newestAgent.get(child.id), child.id),
-            activityAt: child.updatedAt,
-          })
-          walk(child.id, depth + 1)
-        }
-      }
-      walk(root.id, 1)
-      const hidden = ordered.filter((s) => s.id !== root.id && !shown.has(s.id))
-      if (hidden.length > 0) {
-        children.push({
-          sessionId: `${root.id}${EARLIER_SUFFIX}`,
-          teamId: root.teamId,
-          depth: 1,
-          parentId: root.id,
-          rootId: root.id,
-          title: earlierLabel(hidden.length),
-          deviceId: null,
-          busy: false,
-          needsYou: false,
-          unread: false,
-          activityAt: hidden.reduce(
-            (latest, s) => ((ms(s.updatedAt) ?? 0) > (ms(latest) ?? 0) ? s.updatedAt : latest),
-            hidden[0].updatedAt
-          ),
-          earlier: hidden.length,
-        })
-      }
-    }
-    buckets[key].push({ row, children })
+    // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
+    // child sessions, only the root ones'): a row is a ROOT, never a child;
+    // the tree's state (needs you, working, unread) rolls up into it.
+    buckets[needsYou ? `needs_you` : running ? `running` : `recent`].push(row)
   }
-  const sorted = (entries: { row: ThreadsListRow; children: ThreadsListRow[] }[]) =>
-    entries.sort(
-      (a, b) =>
-        (ms(b.row.activityAt) ?? 0) - (ms(a.row.activityAt) ?? 0) ||
-        (a.row.sessionId < b.row.sessionId ? -1 : 1)
+  const sorted = (rows: ThreadsListRow[]) =>
+    rows.sort(
+      (a, b) => (ms(b.activityAt) ?? 0) - (ms(a.activityAt) ?? 0) || (a.sessionId < b.sessionId ? -1 : 1)
     )
-  const flat = (entries: { row: ThreadsListRow; children: ThreadsListRow[] }[]) =>
-    entries.flatMap((entry) => [entry.row, ...entry.children])
   // NEW-1: Recent = every tree active in the last `recent.hours`, filled
   // up to the last `recent.max` by activity. Ended trees stay openable.
   const recentRules = listFixture.recent
   const at = ms(input.now ?? null)
   const recent = sorted(buckets.recent).filter(
-    (entry, index) =>
+    (row, index) =>
       index < recentRules.max ||
-      (at !== null && at - (ms(entry.row.activityAt) ?? 0) <= recentRules.hours * 60 * 60 * 1000)
+      (at !== null && at - (ms(row.activityAt) ?? 0) <= recentRules.hours * 60 * 60 * 1000)
   )
   return (Object.keys(buckets) as ThreadsListGroup[`key`][])
     .map((key) => ({
       key,
       title: THREADS_LIST_COPY.groups[key],
-      rows: flat(key === `recent` ? recent : sorted(buckets[key])),
+      rows: key === `recent` ? recent : sorted(buckets[key]),
     }))
     .filter((group) => group.rows.length > 0)
 }

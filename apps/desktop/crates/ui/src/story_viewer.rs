@@ -1,7 +1,8 @@
 //! S-3 STORIES (`fixtures/stories.json` STORY VIEWER; web
 //! `packages/ui/src/stories.tsx` `StoryViewer`): THE story viewer of the
-//! IDE: a centred modal (`viewer.width` × `viewer.height` max,
-//! `viewer.radius`) over a scrim, layered over the window from the Chats
+//! IDE: a centred modal (`viewer.radius`) over a scrim, #EXP-1463 SIZED BY
+//! ITS FRAME ([`story_viewer_size`]: a picture fitted into the window less
+//! `viewer.inset`, else `viewer.width` × `viewer.height` capped), layered over the window from the Chats
 //! page and a session's Stories tab.
 //!
 //! #EXP-1432: the viewer steps FRAMES ([`story_frames`]: a picture story =
@@ -52,7 +53,7 @@ use gpui_component::{
 use domain::rows::MessageRow;
 use domain::session_tree::SessionThreadRow;
 use domain::stories::{
-    story_frame_index, story_frames, Story, StoryFooter, StoryFrame, StoryFrameKind, StoryKind, StoryRing, STORIES,
+    story_frame_index, story_frames, story_viewer_size, Story, StoryFooter, StoryFrame, StoryFrameKind, StoryKind, StoryRing, STORIES,
 };
 
 use crate::icons::registry;
@@ -397,6 +398,15 @@ pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         window.request_animation_frame();
     }
     let images = images(cx);
+    // #EXP-1463: the modal takes its frame's size (a picture's own aspect:
+    // the card's size, else the synced attachment's, else the loaded bytes').
+    let picture = match (frame.kind, frame.picture) {
+        (StoryFrameKind::Picture, Some(index)) => story.pictures.get(index),
+        _ => None,
+    };
+    let picture_size = picture.map(|picture| picture_size(picture, &images, cx));
+    let viewport = window.viewport_size();
+    let size = story_viewer_size(picture_size, (f32::from(viewport.width) as f64, f32::from(viewport.height) as f64));
     let message = message_of(&story.id, &story.session_id, cx);
     let text = ThreadText::team(Some(&team_id)).answering(true);
     let content = story_content(story, frame, message.as_ref(), &text, &images, window, cx);
@@ -412,7 +422,33 @@ pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
     };
     let panel = story_panel(ring, &frames, at, fraction, avatar, content, handlers, cx);
     let focus = cx.global::<Viewer>().focus.clone()?;
-    Some(layer(panel, focus, window))
+    Some(layer(panel, focus, (px(size.width as f32), px(size.height as f32)), window))
+}
+
+/// A picture's pixel size for [`story_viewer_size`]: the card's, else the
+/// synced attachment row's, else the loaded image's natural size (`None`s
+/// while unknown: the fixed frame).
+fn picture_size(
+    picture: &domain::stories::StoryPicture,
+    images: &Entity<ImageCache>,
+    cx: &mut App,
+) -> (Option<f64>, Option<f64>) {
+    if let (Some(width), Some(height)) = (picture.width, picture.height) {
+        if width > 0 && height > 0 {
+            return (Some(width as f64), Some(height as f64));
+        }
+    }
+    let url = format!("/api/attachments/{}", picture.attachment_id);
+    let natural = crate::markdown::attachment_natural_size(&url, cx).or_else(|| {
+        match images.update(cx, |cache, cx| cache.slot(&url, cx)) {
+            ImageSlot::Ready(image) => image.decoded_size(),
+            _ => None,
+        }
+    });
+    match natural {
+        Some((width, height)) => (Some(width as f64), Some(height as f64)),
+        None => (None, None),
+    }
 }
 
 /// A synced message by id, keyed to `session_id` (the fold's owner).
@@ -450,12 +486,12 @@ fn side_arrow(id: &str, icon: crate::icons::ExpIcon, label: &str, forward: bool)
         )
 }
 
-/// The scrim, the panel and the side arrows over the whole window.
-fn layer(panel: gpui::Stateful<Div>, focus: FocusHandle, window: &mut Window) -> AnyElement {
+/// The scrim, the panel (`size`: [`story_viewer_size`]) and the side
+/// arrows over the whole window.
+fn layer(panel: gpui::Stateful<Div>, focus: FocusHandle, size: (gpui::Pixels, gpui::Pixels), window: &mut Window) -> AnyElement {
     let viewport = window.viewport_size();
     let spec = &STORIES.viewer;
-    let height = px(spec.height).min(viewport.height - px(32.));
-    let width = px(spec.width).min(viewport.width - px(128.)).max(px(280.));
+    let (width, height) = size;
     let key_focus = focus.clone();
     deferred(
         anchored().position(point(px(0.), px(0.))).child(

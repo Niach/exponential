@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
+import { z } from "zod"
 import {
   CORE_CATALOG_ID,
   reduceNested,
@@ -7,6 +8,7 @@ import {
   type ReduceResult,
 } from "@exponential_app/eui"
 import {
+  MESSAGE_BODY_MAX,
   PLAN_CARD_DESCRIPTION_MAX,
   PLAN_CARD_SURFACE_MAX_BYTES,
   PLAN_CARD_SURFACE_MAX_COMPONENTS,
@@ -15,13 +17,17 @@ import {
   type MessageCard,
   type PlanCardPicture,
   type PlanCardQuestion,
+  sealedBodyMax,
 } from "@exp/db-schema/domain"
 import { PLAN_CARD_COPY, resolveUpload, type AskCardLike } from "@exp/domain-contract/plan-card"
 import { isStoryCard } from "@exp/domain-contract/stories"
+import { parseSealedValue } from "@exp/domain-contract/sealed-content"
 import { db } from "@/db/connection"
 import { attachments, messages, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
-import { askText, busAsk, closeAskMirrors } from "@/lib/sessions/bus"
+import { askText, busAsk, closeAskMirrors, type ListenerCopy } from "@/lib/sessions/bus"
+import { isSealedBody, isSealedCard, validSealedBody, validSealedCard } from "@/lib/sessions/sealed"
+import { isSessionPrincipal, loadSessionForUser } from "@/lib/sessions/access"
 import { isAssistantConversation, statusCardTarget } from "@/lib/agents/assistant-chat"
 import { notifyAssistantDecision } from "@/lib/integrations/notifications"
 import { insertMessage, postOwnAskCard, inSession, messageSessionId } from "@/lib/sessions/messages"
@@ -91,6 +97,122 @@ export interface CardUpload {
 }
 
 const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
+
+/** EXP-1458: what a SEALED ask/plan carries beside its envelope: the ask
+ *  text the device sealed for its own tree and one copy per listening tree
+ *  (bus.ts `busAsk`). Its pictures ride the card's CLEAR `pictures`:
+ *  [{label, attachmentId}] already uploaded (claimed here), [{label}] still
+ *  to upload (minted here, filed by `publishCardPicture`). */
+export interface SealedShowExtras {
+  askText?: string | null
+  listenerCopies?: ListenerCopy[]
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** EXP-1458: a sealed card's clear `pictures` → their attachment ids. A
+ *  `{label}` entry without one is a picture still to upload (addendum 4):
+ *  its upload is minted like a plaintext card's and filed on that entry. */
+export function sealedCardAttachmentIds(card: MessageCard): string[] {
+  if (!isSealedCard(card)) return []
+  const pictures = (card as unknown as { pictures?: unknown }).pictures
+  if (pictures === undefined || pictures === null) return []
+  if (!Array.isArray(pictures)) throw bad(`sealedCard.pictures must be [{label, attachmentId?}]`)
+  return pictures.flatMap((picture: unknown) => {
+    const { label, attachmentId } = (picture ?? {}) as { label?: unknown; attachmentId?: unknown }
+    if (attachmentId === undefined && typeof label === `string`) return []
+    if (typeof attachmentId !== `string` || !UUID_RE.test(attachmentId)) {
+      throw bad(`sealedCard.pictures: an uploaded picture names its attachmentId, one still to upload its label`)
+    }
+    return [attachmentId]
+  })
+}
+
+/** EXP-1458 (addendum 4): a SEALED card with a late upload filed: the clear
+ *  `pictures` entry of `label` takes the attachment id; `sealed` is never
+ *  touched (readers fill the sealed picture from the clear entry). */
+function fileSealedPicture(card: MessageCard, label: string, attachmentId: string): MessageCard {
+  const pictures = ((card as unknown as { pictures?: Array<{ label?: string; attachmentId?: string }> }).pictures ?? []).map(
+    (picture) => (picture.label === label && !picture.attachmentId ? { label, attachmentId } : picture)
+  )
+  return { ...card, pictures } as unknown as MessageCard
+}
+
+const SEALED_SHOW_KINDS = new Set([`surface`, `question`, `plan`])
+
+/** EXP-1458: a body envelope (never plaintext: it would leak the card). */
+const sealedText = z
+  .string()
+  .max(sealedBodyMax(MESSAGE_BODY_MAX))
+  .refine((value) => isSealedBody(value) && validSealedBody(value), `must be an exp-sealed:v1 envelope`)
+
+/** EXP-1458: a card envelope `{kind, sealed, ...clear}` (validSealedCard
+ *  checks the clear part). */
+export const sealedCardEnvelope = z
+  .object({ kind: z.string().max(32), sealed: z.string().min(1).max(sealedBodyMax(MESSAGE_BODY_MAX)) })
+  .passthrough()
+
+/** EXP-1458: MCP show's sealed fields (the device gateway's call). */
+export const sealedShowExtrasSchema = z.object({
+  sealedCard: sealedCardEnvelope,
+  kind: z.enum([`surface`, `question`, `plan`]).optional(),
+  askText: sealedText.nullable().optional(),
+  listenerCopies: z.array(z.object({ rootId: z.string().uuid(), body: sealedText })).max(20).optional(),
+})
+
+/** EXP-1458: a sealed show card `{kind, sealed, ...clear}`: only its clear
+ *  part is checked (the server never opens `sealed`). */
+export function buildSealedShowCard(card: Record<string, unknown>, kind?: string): ShowCard {
+  if (!validSealedCard(card) || !SEALED_SHOW_KINDS.has(card.kind as string)) {
+    throw bad(`sealedCard must be {kind: "surface"|"question"|"plan", sealed: "v1:<epoch>:<b64url>"} plus clear fields only`)
+  }
+  if (kind !== undefined && kind !== card.kind) throw bad(`kind is ${kind}; sealedCard is a ${String(card.kind)} card`)
+  sealedCardAttachmentIds(card as unknown as MessageCard)
+  return card as unknown as ShowCard
+}
+
+/** EXP-1458: a sealed card names an epoch its tree holds. */
+async function assertSealedCardForTree(tx: Tx, rootId: string, card: MessageCard): Promise<void> {
+  if (!isSealedCard(card)) return
+  const value = parseSealedValue((card as unknown as { sealed: string }).sealed)
+  if (value.kind !== `sealed`) return
+  const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
+  if (root?.sealEpoch == null) throw bad(`This chat has no key for sealed messages yet`)
+  if (value.epoch > root.sealEpoch) throw bad(`The chat's key is at epoch ${root.sealEpoch}`)
+}
+
+/** EXP-1458: a sealed card's pictures = attachments the caller uploaded to
+ *  the team (or already on this row, a replace), claimed by the card's row
+ *  and listed in clear on `messages.attachment_ids` (like send.ts
+ *  `claimAttachments`, without embed lines: the body is the card). */
+export async function claimCardAttachments(
+  tx: Tx,
+  args: { ids: readonly string[]; messageId: string; teamId: string; uploaderId: string }
+): Promise<void> {
+  const ids = [...new Set(args.ids)]
+  if (ids.length === 0) {
+    await tx.update(messages).set({ attachmentIds: null }).where(eq(messages.id, args.messageId))
+    return
+  }
+  const claimed = await tx
+    .update(attachments)
+    .set({ messageId: args.messageId })
+    .where(
+      and(
+        inArray(attachments.id, ids),
+        eq(attachments.teamId, args.teamId),
+        isNull(attachments.issueId),
+        isNull(attachments.draftId),
+        or(
+          eq(attachments.messageId, args.messageId),
+          and(isNull(attachments.messageId), eq(attachments.uploaderId, args.uploaderId))
+        )
+      )
+    )
+    .returning({ id: attachments.id })
+  if (claimed.length !== ids.length) throw bad(`Attach files you uploaded to this team (each file once)`)
+  await tx.update(messages).set({ attachmentIds: ids }).where(eq(messages.id, args.messageId))
+}
 
 function duplicate(values: readonly string[]): string | null {
   const seen = new Set<string>()
@@ -282,12 +404,44 @@ export function buildSurfaceCard(input: {
   }
 }
 
+/** EXP-1458: MCP suggest's `{sealed}`: a suggestions/replies card
+ *  envelope on the caller's own session, pre-consumed like its plaintext
+ *  twin; the server never acts on its items (suggestions.ts refuses). */
+export async function postSealedSuggestionCard(args: {
+  userId: string
+  callerSessionId: string
+  card: Record<string, unknown>
+}): Promise<{ messageId: string }> {
+  const card = args.card
+  if (!validSealedCard(card) || (card.kind !== `suggestions` && card.kind !== `replies`)) {
+    throw bad(`sealed must be {kind: "suggestions"|"replies", sealed: "v1:<epoch>:<b64url>"} plus clear fields only`)
+  }
+  const session = await loadSessionForUser(args.userId, args.callerSessionId)
+  if (!(await isSessionPrincipal(args.userId, session))) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: `Suggest only on your own session` })
+  }
+  const messageId = await db.transaction(async (tx) => {
+    await assertSealedCardForTree(tx, session.rootId, card as unknown as MessageCard)
+    await generateTxId(tx)
+    return insertMessage(tx, session, {
+      authorKind: `agent`,
+      authorSessionId: session.id,
+      card: card as unknown as MessageCard,
+      consumedAt: new Date(),
+    })
+  })
+  return { messageId }
+}
+
 /** Posts a surface card as an AGENT message in the caller's own session
  *  (answers nothing, wakes nothing; `author_session_id` = the session, so
  *  S-3's `replace` finds it). → the message id. */
 export async function postSurfaceCard(args: {
   sessionId: string
   card: Extract<MessageCard, { kind: `surface` }>
+  /** EXP-1458: the uploader of a sealed card's pictures (default: the
+   *  session's starter). */
+  userId?: string
 }): Promise<{ messageId: string }> {
   const messageId = await db.transaction(async (tx) => {
     const [session] = await tx
@@ -306,8 +460,18 @@ export async function postSurfaceCard(args: {
     if (session.status === `ended`) {
       throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
     }
+    await assertSealedCardForTree(tx, session.rootId, args.card)
     await generateTxId(tx)
-    return insertMessage(tx, session, { authorKind: `agent`, authorSessionId: session.id, card: args.card })
+    const messageId = await insertMessage(tx, session, { authorKind: `agent`, authorSessionId: session.id, card: args.card })
+    if (isSealedCard(args.card)) {
+      await claimCardAttachments(tx, {
+        ids: sealedCardAttachmentIds(args.card),
+        messageId,
+        teamId: session.teamId,
+        uploaderId: args.userId ?? session.userId,
+      })
+    }
+    return messageId
   })
   return { messageId }
 }
@@ -359,6 +523,17 @@ export async function replaceTarget(
  *  `upload:<label>` embeds resolve on the new card too. */
 export function carryPictures(before: MessageCard, card: ShowCard): ShowCard {
   if (!hasCardPictures(before)) return card
+  // EXP-1458: a sealed card carries on its CLEAR pictures only: a label
+  // still to upload takes the id the replaced sealed card's clear entry got.
+  if (isSealedCard(card)) {
+    if (!isSealedCard(before)) return card
+    let next = card as unknown as MessageCard
+    for (const picture of before.pictures ?? []) {
+      if (picture.label && picture.attachmentId) next = fileSealedPicture(next, picture.label, picture.attachmentId)
+    }
+    return next as unknown as ShowCard
+  }
+  if (isSealedCard(before)) return card
   let next = card
   for (const picture of before.pictures ?? []) {
     if (!picture.attachmentId) continue
@@ -381,7 +556,11 @@ export async function postShowCard(args: {
   sessionId: string
   card: ShowCard
   replace: boolean
+  /** EXP-1458: set = `card` is sealed (`buildSealedShowCard`). */
+  sealed?: SealedShowExtras
 }): Promise<{ messageId: string; replaced: boolean; uploads: CardUpload[]; next?: string }> {
+  const sealedCard = isSealedCard(args.card)
+  if (!sealedCard && args.sealed) throw bad(`askText and listenerCopies go with a sealed card`)
   // #EXP-1439: in a member's Assistant conversation a surface is THE live
   // status card (`statusCardTarget`, edited in place across turns until the
   // member writes) and an ask notifies its owner.
@@ -397,7 +576,7 @@ export async function postShowCard(args: {
   const replaced = args.replace || status
     ? await db.transaction(async (tx) => {
         const [session] = await tx
-          .select({ id: sessions.id, status: sessions.status })
+          .select({ id: sessions.id, rootId: sessions.rootId, teamId: sessions.teamId, status: sessions.status })
           .from(sessions)
           .where(eq(sessions.id, args.sessionId))
           .limit(1)
@@ -408,6 +587,7 @@ export async function postShowCard(args: {
         }
         const target = status ? await statusCardTarget(tx, session.id) : await replaceTarget(tx, session.id, args.card)
         if (!target) return null
+        await assertSealedCardForTree(tx, session.rootId, args.card)
         await generateTxId(tx)
         const now = new Date()
         const card = carryPictures(target.card, args.card)
@@ -418,7 +598,20 @@ export async function postShowCard(args: {
           .update(messages)
           .set({ card, createdAt: sql`clock_timestamp()`, updatedAt: now })
           .where(eq(messages.id, target.id))
-        if (isAsk(args.card)) {
+        if (sealedCard) {
+          await claimCardAttachments(tx, {
+            ids: sealedCardAttachmentIds(card),
+            messageId: target.id,
+            teamId: session.teamId,
+            uploaderId: args.userId,
+          })
+        }
+        if (isAsk(args.card) && sealedCard) {
+          // EXP-1458: the mirrors' text follows from the device's sealed
+          // copies (in-tree = askText, other trees = their listener copy);
+          // the server reads neither the old nor the new card.
+          await updateSealedAskMirrors(tx, session, target.id, args.sealed ?? {}, now)
+        } else if (isAsk(args.card) && !isSealedCard(target.card)) {
           // The parent's / watchers' ask mirrors keep pointing at the row;
           // their text follows (a neutral private line stays as it is).
           const before = askText(session, target.card as Extract<MessageCard, { kind: `question` | `plan` }>)
@@ -456,11 +649,17 @@ export async function postShowCard(args: {
       userId: args.userId,
       sessionId: args.sessionId,
       card: args.card as Extract<MessageCard, { kind: `plan` | `question` }>,
+      ...(args.sealed ? { sealed: args.sealed } : {}),
     })
     if (assistant) {
+      // EXP-1458: a sealed ask notifies with the title alone.
       void notifyAssistantDecision(
         args.sessionId,
-        args.card.kind === `question` ? args.card.question : (args.card as Extract<MessageCard, { kind: `plan` }>).plan
+        sealedCard
+          ? ``
+          : args.card.kind === `question`
+            ? args.card.question
+            : (args.card as Extract<MessageCard, { kind: `plan` }>).plan
       )
     }
     return { ...posted, replaced: false }
@@ -468,6 +667,7 @@ export async function postShowCard(args: {
   const posted = await postSurfaceCard({
     sessionId: args.sessionId,
     card: args.card as Extract<MessageCard, { kind: `surface` }>,
+    userId: args.userId,
   })
   return {
     ...posted,
@@ -476,8 +676,38 @@ export async function postShowCard(args: {
       userId: args.userId,
       sessionId: args.sessionId,
       messageId: posted.messageId,
-      labels: (args.card.pictures ?? []).map((picture) => picture.label),
+      labels: (args.card.pictures ?? []).filter((picture) => !picture.attachmentId).map((picture) => picture.label),
     }),
+  }
+}
+
+/** EXP-1458: a replaced SEALED ask's mirrors take the device's new copies:
+ *  listeners in the asking tree `askText`, listeners in another tree that
+ *  tree's `listenerCopies` entry; a mirror with no new copy keeps its text. */
+async function updateSealedAskMirrors(
+  tx: Tx,
+  session: { id: string; rootId: string },
+  messageId: string,
+  sealed: SealedShowExtras,
+  now: Date
+): Promise<void> {
+  const mirrorOf = and(
+    eq(messages.authorSessionId, session.id),
+    sql`${messages.card}->>'kind' = 'ask'`,
+    sql`${messages.card}->>'messageId' = ${messageId}`
+  )
+  const askText = sealed.askText?.trim()
+  if (askText) {
+    await tx
+      .update(messages)
+      .set({ body: askText, updatedAt: now })
+      .where(and(mirrorOf, eq(messages.rootId, session.rootId)))
+  }
+  for (const copy of sealed.listenerCopies ?? []) {
+    await tx
+      .update(messages)
+      .set({ body: copy.body, updatedAt: now })
+      .where(and(mirrorOf, eq(messages.rootId, copy.rootId), sql`${messages.rootId} <> ${session.rootId}`))
   }
 }
 
@@ -551,6 +781,8 @@ export async function postAskCard(args: {
   userId: string
   sessionId: string
   card: Extract<MessageCard, { kind: `plan` | `question` }>
+  /** EXP-1458: a sealed card's extras (`SealedShowExtras`). */
+  sealed?: SealedShowExtras
 }): Promise<{ messageId: string; uploads: CardUpload[]; next: string }> {
   const messageId = await db.transaction(async (tx) => {
     const [session] = await tx
@@ -571,21 +803,40 @@ export async function postAskCard(args: {
     if (session.status === `ended`) {
       throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
     }
+    await assertSealedCardForTree(tx, session.rootId, args.card)
     await generateTxId(tx)
     if (args.card.kind === `plan`) await supersedeWaitingPlans(tx, session.id)
     const messageId = await postOwnAskCard(tx, session, args.card)
+    if (isSealedCard(args.card)) {
+      await claimCardAttachments(tx, {
+        ids: sealedCardAttachmentIds(args.card),
+        messageId,
+        teamId: session.teamId,
+        uploaderId: args.userId,
+      })
+    }
     // NEW-1: the card reaches the session's parent and watchers (one row,
-    // two views); a parent may answer what it knows.
-    await busAsk(tx, session, messageId, args.card)
+    // two views); a parent may answer what it knows. EXP-1458: a sealed
+    // card's ask text is the device's (in-tree + per-listener copies).
+    await busAsk(
+      tx,
+      session,
+      messageId,
+      args.card,
+      isSealedCard(args.card)
+        ? { askText: args.sealed?.askText ?? null, listenerCopies: args.sealed?.listenerCopies ?? [] }
+        : undefined
+    )
     return messageId
   })
   return {
     messageId,
+    // EXP-1458: a sealed card's clear `{label}` entries still to upload.
     uploads: mintCardUploads({
       userId: args.userId,
       sessionId: args.sessionId,
       messageId,
-      labels: (args.card.pictures ?? []).map((picture) => picture.label),
+      labels: (args.card.pictures ?? []).filter((picture) => !picture.attachmentId).map((picture) => picture.label),
     }),
     next: PLAN_CARD_COPY.proposeNext,
   }
@@ -651,15 +902,24 @@ export async function publishCardPicture(
         ...sessionAttachmentValues(prepared, { teamId: input.teamId }, input.uploaderId),
         messageId: input.messageId,
       })
-      const next = resolveUpload(card as AskCardLike, {
-        label: input.label,
-        attachmentId: prepared.attachmentId,
-        width: prepared.width,
-        height: prepared.height,
-      }) as MessageCard
+      // EXP-1458: a sealed card's upload lands on its clear entry only and
+      // joins the row's clear attachment list (`claimCardAttachments`).
+      const sealed = isSealedCard(card)
+      const next = sealed
+        ? fileSealedPicture(card, input.label, prepared.attachmentId)
+        : (resolveUpload(card as AskCardLike, {
+            label: input.label,
+            attachmentId: prepared.attachmentId,
+            width: prepared.width,
+            height: prepared.height,
+          }) as MessageCard)
       await tx
         .update(messages)
-        .set({ card: next, updatedAt: new Date() })
+        .set({
+          card: next,
+          ...(sealed ? { attachmentIds: sql`array_append(coalesce(${messages.attachmentIds}, '{}'), ${prepared.attachmentId}::uuid)` } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(messages.id, input.messageId))
       return { label: input.label, card: next, rootId: row.rootId }
     })

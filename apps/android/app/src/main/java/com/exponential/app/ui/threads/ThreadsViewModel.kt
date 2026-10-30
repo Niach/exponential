@@ -105,8 +105,7 @@ class ThreadsViewModel @Inject constructor(
     )
 
     /** The grouped thread list of the ACTIVE team (chats.json: one team per
-     *  phone screen); EXP-1323: a live tree's children nest under their root
-     *  (depth > 0; the phone list keeps the roots only). */
+     *  phone screen); #EXP-1461: root rows only. */
     val groups: StateFlow<List<SessionTree.ThreadsListGroup>> = combine(inputs, activeTeam) { input, team ->
         SessionTree.partitionThreads(
             input.sessions,
@@ -152,8 +151,7 @@ class ThreadsViewModel @Inject constructor(
     ) { g, prs ->
         val byRoot = prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId }
         val byTeam = prs.groupBy { it.teamId }
-        // EXP-1323: a nested child row carries no word (web + IDE).
-        g.flatMap { it.rows }.filter { it.depth == 0 }.mapNotNull { row ->
+        g.flatMap { it.rows }.mapNotNull { row ->
             SessionTree.threadRowWord(
                 busy = row.busy,
                 needsYou = row.needsYou,
@@ -174,7 +172,7 @@ class ThreadsViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList()) { it.pullRequestDao().observeAll() },
     ) { g, prs ->
         val byRoot = prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId }
-        g.flatMap { it.rows }.filter { it.depth == 0 }.mapNotNull { row ->
+        g.flatMap { it.rows }.mapNotNull { row ->
             threadRowPrLead(byRoot[row.sessionId].orEmpty().map { it.state })?.let { row.sessionId to it }
         }.toMap()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
@@ -191,8 +189,7 @@ class ThreadsViewModel @Inject constructor(
             val owner = s.associate { it.id to it.userId }
             g.filter { it.key == SessionTree.ThreadsGroupKey.NeedsYou || it.key == SessionTree.ThreadsGroupKey.Running }
                 .flatMap { it.rows }
-                // The threads themselves: nested children stay on the tab.
-                .filter { it.depth == 0 && owner[it.sessionId] == me }
+                .filter { owner[it.sessionId] == me }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

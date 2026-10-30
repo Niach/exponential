@@ -129,7 +129,8 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let small_glyph = RING_GLYPH_PX * SMALL_RING / CHATS.shell.bubble;
     v_flex()
         .gap_6()
-        .child(h_flex().gap_3().items_start().children(
+        // THE STORY ROW geometry (#EXP-1461, stories.json `row`).
+        .child(h_flex().gap(gpui::px(domain::stories::STORIES.row.gap)).items_start().children(
             rings.iter().map(|ring| story_ring_button(ring, specimen_avatar(ring, RING_GLYPH_PX, cx), cx)),
         ))
         .child(h_flex().gap_3().items_center().children(rings.iter().map(|ring| {

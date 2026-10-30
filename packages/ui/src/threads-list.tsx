@@ -19,11 +19,8 @@ import { GlassSectionHeader } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
 import { menuProps, type MenuEntry, type MenuIcon } from "./menu"
 import { CHATS_COPY, type AgentMenuEntry, type ThreadMenuEntry } from "@exp/domain-contract/chats"
-import { cn } from "./cn"
-import { SessionRow } from "./session-row"
 import { ThreadsListItem } from "./session-thread-view"
 import { SkeletonRows } from "./skeleton"
-import { treeGuides } from "./tree-guides"
 
 // EXP-1293 Threads v2: THE Threads list (fixture `threads-list.json` ×4),
 // shared by the app page and the styleguide so they cannot drift
@@ -34,10 +31,9 @@ import { treeGuides } from "./tree-guides"
 // stacked one too, = pr-open emerald, a merged one = the violet glyph, NEW-41
 // ×4), the title (it names the issue), the trailing word
 // (never `merged`, never a lock, EXP-1339), then the root's device glyph
-// (EXP-1318). Phones put the team's Agents band on top. EXP-1323: a live
-// tree nests its children under the root (`SessionRow` depth + TreeGuides,
-// opening that session), a bold title = unread, the live caption the muted
-// second line, and a row that changes band enters on the motion tokens.
+// (EXP-1318). Phones put the team's Agents band on top. #EXP-1461: ROOTS
+// only (a child never lists); a bold title = unread, the live caption the
+// muted second line, and a row that changes band enters on the motion tokens.
 
 /** Thread 58cb32df (chats.json MENUS ×4): the context-menu kinds a chat row
  *  and an agent row carry (`menuProps(kind, id)`); the app's ONE
@@ -183,11 +179,10 @@ export function ThreadsList({
   deviceGlyph = noDevice,
   entering = noEnter,
   onOpenThread,
-  onOpenSession,
   onOpenAgent,
 }: {
   groups: readonly ThreadsListGroup[]
-  /** Every listed session's agent CLI (its mark), roots and children. */
+  /** Every listed root's agent CLI (its mark). */
   cliByRoot: ReadonlyMap<string, string | null>
   prsByRoot: ReadonlyMap<string, readonly ThreadsListPr[]>
   teamPrs: readonly ThreadsListPr[]
@@ -201,9 +196,6 @@ export function ThreadsList({
    *  after the first paint, else ``. */
   entering?: (key: string) => string
   onOpenThread: (sessionId: string) => void
-  /** EXP-1323: a nested child row opens that session in its thread
-   *  (absent = the thread). */
-  onOpenSession?: (rootId: string, sessionId: string) => void
   onOpenAgent?: (sessionId: string) => void
 }) {
   if (loading) return <SkeletonRows rowHeight={36} />
@@ -250,7 +242,6 @@ export function ThreadsList({
             deviceGlyph={deviceGlyph}
             entering={entering}
             onOpenThread={onOpenThread}
-            onOpenSession={onOpenSession}
           />
         </div>
       ))}
@@ -259,7 +250,7 @@ export function ThreadsList({
   )
 }
 
-/** One band's rows: roots as THE thread row, children nested under them. */
+/** One band's rows: THE thread row per root. */
 function GroupRows({
   group,
   cliByRoot,
@@ -269,7 +260,6 @@ function GroupRows({
   deviceGlyph,
   entering,
   onOpenThread,
-  onOpenSession,
 }: {
   group: ThreadsListGroup
   cliByRoot: ReadonlyMap<string, string | null>
@@ -279,54 +269,11 @@ function GroupRows({
   deviceGlyph: (deviceId: string | null | undefined) => ThreadsListDevice | null
   entering: (key: string) => string
   onOpenThread: (sessionId: string) => void
-  onOpenSession?: (rootId: string, sessionId: string) => void
 }) {
-  const guides = treeGuides(group.rows.map((row) => row.depth))
   return (
     <div className="flex flex-col">
-      {group.rows.map((row, index) => {
+      {group.rows.map((row) => {
         const enter = entering(`${group.key}:${row.sessionId}`)
-        if (row.earlier !== undefined) {
-          // S-3: a tree's hidden sub-sessions fold into ONE muted row (the
-          // list item's ended look); it opens the thread.
-          return (
-            <SessionRow
-              key={row.sessionId}
-              size="small"
-              agent={cliByRoot.get(row.rootId) ?? null}
-              markState="ended"
-              title={row.title}
-              depth={row.depth}
-              guide={guides[index]}
-              data-testid="threads-row-earlier"
-              className={cn(`text-muted-foreground`, enter)}
-              onClick={() => onOpenThread(row.rootId)}
-            />
-          )
-        }
-        if (row.depth > 0) {
-          const device = deviceGlyph(row.deviceId)
-          return (
-            <SessionRow
-              key={row.sessionId}
-              size="small"
-              agent={cliByRoot.get(row.sessionId) ?? null}
-              markState={threadRunMarkState(row)}
-              title={row.title}
-              unread={row.unread}
-              depth={row.depth}
-              guide={guides[index]}
-              deviceIcon={device?.icon}
-              deviceName={device?.name ?? null}
-              active={row.sessionId === activeId}
-              data-testid="threads-row-child"
-              className={enter}
-              onClick={() =>
-                onOpenSession ? onOpenSession(row.rootId, row.sessionId) : onOpenThread(row.rootId)
-              }
-            />
-          )
-        }
         const prs = prsByRoot.get(row.sessionId) ?? []
         const word = threadWordOf(row, prs, teamPrs)
         return (

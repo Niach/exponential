@@ -243,7 +243,7 @@ describe(`installs.list`, () => {
       platform: `iOS 27`,
     })
     expect(Object.keys(listed[0]!).sort()).toEqual(
-      [`installId`, `userId`, `kind`, `label`, `platform`, `endpointId`, `x25519Public`, `lastSeenAt`].sort()
+      [`installId`, `userId`, `deviceId`, `kind`, `label`, `platform`, `endpointId`, `x25519Public`, `lastSeenAt`].sort()
     )
 
     expect((await caller(`u3`).list({ teamId: TEAM_B })).map((row) => row.endpointId)).toEqual([b3.endpointId])

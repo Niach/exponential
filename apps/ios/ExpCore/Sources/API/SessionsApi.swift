@@ -337,6 +337,10 @@ private struct SuggestionItemInput: Encodable {
 public final class SessionsApi: Sendable {
     private let trpc: TrpcClient
 
+    /// EXP-1459: seals what this install writes (set once at launch).
+    public let sealing = SessionSealerSlot()
+    private var sealer: SessionSealer? { sealing.sealer }
+
     public init(trpc: TrpcClient) {
         self.trpc = trpc
     }
@@ -346,7 +350,14 @@ public final class SessionsApi: Sendable {
     /// the server's message.
     @discardableResult
     public func send(accountId: String, _ input: SessionsSendInput) async throws -> SessionsSendResult {
-        try await trpc.mutation(accountId: accountId, path: "sessions.send", input: input)
+        // EXP-1459: the text leaves sealed to the tree's key (+ mentions).
+        guard let sealer else {
+            return try await trpc.mutation(accountId: accountId, path: "sessions.send", input: input)
+        }
+        let prepared = await sealer.prepare(accountId: accountId, input)
+        let result: SessionsSendResult = try await trpc.mutation(accountId: accountId, path: "sessions.send", input: prepared.input)
+        await sealer.completed(prepared, result: result)
+        return result
     }
 
     /// Interrupt the session's current turn (it stays live, goes idle): the
@@ -421,15 +432,17 @@ public final class SessionsApi: Sendable {
         answers: CardAnswers? = nil,
         surfaceData: CardJSON? = nil
     ) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "sessions.answer",
-            input: AnswerMessageInput(
-                messageId: messageId, answer: answer, decision: decision,
-                fresh: decision == .approved && fresh ? true : nil, feedback: feedback,
-                answers: answers, surfaceData: surfaceData
-            )
+        let input = AnswerMessageInput(
+            messageId: messageId, answer: answer, decision: decision,
+            fresh: decision == .approved && fresh ? true : nil, feedback: feedback,
+            answers: answers, surfaceData: surfaceData
         )
+        // EXP-1459: a sealed card is answered by re-sealing it whole.
+        if let sealed = await sealer?.sealAnswer(accountId: accountId, input) {
+            try await trpc.mutationVoid(accountId: accountId, path: "sessions.answer", input: sealed)
+            return
+        }
+        try await trpc.mutationVoid(accountId: accountId, path: "sessions.answer", input: input)
     }
 
     /// Revoke the person's own message the device has not consumed yet.

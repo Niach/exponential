@@ -243,6 +243,10 @@ pub fn session_cards(messages: &[MessageRow]) -> Vec<SessionCard> {
     let mut cards: Vec<(i64, &str, SessionCard)> = messages
         .iter()
         .filter_map(|message| {
+            // EXP-1459: a locked ask cannot be answered here: it stays out.
+            if message.locked().is_some() {
+                return None;
+            }
             let card = message.card.as_ref()?;
             let engine = card.get("questionId").is_some_and(|id| !id.is_null());
             let (kind, waiting) = match card.get("kind").and_then(serde_json::Value::as_str)? {

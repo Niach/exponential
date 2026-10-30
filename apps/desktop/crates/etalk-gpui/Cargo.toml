@@ -1,6 +1,6 @@
 [package]
 name = "etalk-gpui"
-version = "0.2.1"
+version = "0.2.2"
 edition.workspace = true
 license.workspace = true
 publish = false
@@ -14,13 +14,18 @@ readme = "README.md"
 # crate never links Exponential's server or app crates (ui, sync, api, coding,
 # steer, domain, engine, updater).
 etalk = { path = "../etalk" }
+# #EXP-1460: the other libs come in through THEIR release tags, not by path, so a
+# git consumer that pins the same tags gets ONE copy of each (a path dependency
+# would resolve inside the etalk tag's checkout: a second eui-gpui whose types
+# don't unify with the app's). The workspace's `[patch."https://github.com/Niach/exponential"]`
+# builds them from the local crates here; the release smoke builds the tags.
 # The SDK: the glass bar, pills, call buttons and the voice wave.
-eui-core = { path = "../eui-core" }
-eui-gpui = { path = "../eui-gpui" }
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
+eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
 # ePilot: the overlay never covers a fullscreen app (NEW-59) and the tray's
 # Screen memory (NEW-58), whose capture the pause hotkey pauses too.
-epilot = { path = "../epilot" }
-epilot-screen = { path = "../epilot-screen" }
+epilot = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.1.0" }
+epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.1.0" }
 gpui.workspace = true
 gpui-component.workspace = true
 flume = { workspace = true }

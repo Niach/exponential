@@ -1,5 +1,6 @@
 package com.exponential.app.domain
 
+import com.exponential.app.data.sealed.SealedContent
 import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.IssueEntity
@@ -112,6 +113,10 @@ object SessionTree {
         val createdAt: String,
         /** EXP-1323: the session that posted it (absent = null). */
         val authorSessionId: String? = null,
+        /** EXP-1459: sealed content this install cannot open (yet):
+         *  `noKey` | `unreadable` ([SealedPlaceholder]); [body] is empty and
+         *  [card] its clear part. Null = opened or plaintext. */
+        val locked: String? = null,
     )
 
     /** [state] (NEW-1) = contract `prState`; only [treeState] reads it (null = unknown, never merged). */
@@ -264,9 +269,6 @@ object SessionTree {
         const val RECENT_MAX = 20
         /** S-3 fixture `recentChildMinutes`: [visibleChild]'s window. */
         const val RECENT_CHILD_MINUTES = 120
-        /** S-3 `copy.earlier`: the fold row's label. */
-        const val EARLIER_ONE = "1 earlier sub-session"
-        const val EARLIER_OTHER = "{n} earlier sub-sessions"
     }
 
     // ── session state + card ────────────────────────────────────────────────
@@ -662,6 +664,11 @@ object SessionTree {
         /** Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
          *  painted as the centred divider pill; [kind] = `new` | `compact`. */
         data class Divider(override val id: String, val kind: String, val at: String) : ThreadRow
+
+        /** EXP-1459 (sealed-content.json `placeholder`): content this install
+         *  cannot open (yet), whatever its kind: THE transcript pill with the
+         *  lock; [reason] = `noKey` | `unreadable`, [author] user | agent | system. */
+        data class Locked(override val id: String, val reason: String, val author: String) : ThreadRow
 
         /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
         data class Surface(
@@ -1084,6 +1091,14 @@ object SessionTree {
         val escalated = mutableSetOf<String>()
         for (message in conversation) {
             val card = message.card
+            message.locked?.let { reason ->
+                val author = when (message.authorKind) {
+                    DomainContract.messageAuthorKindUser, DomainContract.messageAuthorKindAgent -> message.authorKind
+                    else -> DomainContract.messageAuthorKindSystem
+                }
+                rows.add(ThreadRow.Locked(message.id, reason, author))
+                continue
+            }
             if (card == null) {
                 val author = when (message.authorKind) {
                     DomainContract.messageAuthorKindUser, DomainContract.messageAuthorKindAgent -> message.authorKind
@@ -1239,25 +1254,14 @@ object SessionTree {
         val activityAt: String,
         /** The ROOT's device (the row's trailing device icon); null = none. */
         val deviceId: String? = null,
-        /** EXP-1323: 0 = the thread (opens the thread), >0 = a nested child
-         *  (opens that session); [parentId] null on a root. */
+        /** #EXP-1461: every list row is a ROOT (0, [parentId] null). */
         val depth: Int = 0,
         val parentId: String? = null,
         val rootId: String = sessionId,
-        /** EXP-1323: bold title (a root: the tree's newest agent message is
-         *  newer than the viewer's read of the root; a child: its own). */
+        /** EXP-1323: bold title (the tree's newest agent message is newer
+         *  than the viewer's read of the root). */
         val unread: Boolean = false,
-        /** S-3: set ONLY on a tree's fold row (`<rootId>:earlier`, depth 1,
-         *  the muted list-item row; opens the thread) = how many
-         *  sub-sessions it hides; null elsewhere. */
-        val earlier: Int? = null,
     )
-
-    /** S-3: the fold row's id suffix and its label (`copy.earlier`). */
-    const val EARLIER_SUFFIX = ":earlier"
-
-    fun earlierLabel(count: Int): String =
-        (if (count == 1) ListCopy.EARLIER_ONE else ListCopy.EARLIER_OTHER).replace("{n}", count.toString())
 
     data class ThreadsListGroup(val key: ThreadsGroupKey, val title: String, val rows: List<ThreadsListRow>)
 
@@ -1281,17 +1285,14 @@ object SessionTree {
     ): List<ThreadsListGroup> {
         val readAt = reads.associate { it.sessionId to (ms(it.readAt) ?: 0L) }
         val rootOf = sessions.associate { it.id to it.rootId }
-        val newestAgent = HashMap<String, Long>()
         val newestAgentInTree = HashMap<String, Long>()
         for (message in messages) {
             if (message.authorKind != DomainContract.messageAuthorKindAgent) continue
             val at = ms(message.createdAt) ?: 0L
-            newestAgent[message.sessionId] = maxOf(newestAgent[message.sessionId] ?: 0L, at)
             val rootId = rootOf[message.sessionId] ?: continue
             newestAgentInTree[rootId] = maxOf(newestAgentInTree[rootId] ?: 0L, at)
         }
         fun unreadAt(newest: Long?, sessionId: String) = newest != null && newest > (readAt[sessionId] ?: -1L)
-        val cardNow = ""
         // Converted once: titles are resolved per row below.
         val titleLinks = sessionIssues.map(::titleLink)
         val titleIssues = issues.map(::titleIssue)
@@ -1307,7 +1308,7 @@ object SessionTree {
         }
         val byRoot = LinkedHashMap<String, MutableList<Session>>()
         for (session in sessions) byRoot.getOrPut(session.rootId) { mutableListOf() }.add(session)
-        val buckets = linkedMapOf<ThreadsGroupKey, MutableList<Pair<ThreadsListRow, List<ThreadsListRow>>>>(
+        val buckets = linkedMapOf<ThreadsGroupKey, MutableList<ThreadsListRow>>(
             ThreadsGroupKey.NeedsYou to mutableListOf(),
             ThreadsGroupKey.Running to mutableListOf(),
             ThreadsGroupKey.Recent to mutableListOf(),
@@ -1334,87 +1335,32 @@ object SessionTree {
                 rootId = root.id,
                 unread = unreadAt(newestAgentInTree[root.id], root.id),
             )
+            // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
+            // child sessions, only the root ones'): a row is a ROOT, never a
+            // child; the tree's state (needs you, working, unread) rolls up.
             val key = when {
                 needsYou -> ThreadsGroupKey.NeedsYou
                 running -> ThreadsGroupKey.Running
                 else -> ThreadsGroupKey.Recent
             }
-            // A live tree nests its VISIBLE children (S-3 [visibleTree]:
-            // working, needs you or active within `recentChildMinutes`;
-            // depth-first, creation order), the rest fold into ONE `earlier`
-            // row; Recent collapses to the root.
-            val children = mutableListOf<ThreadsListRow>()
-            if (key != ThreadsGroupKey.Recent) {
-                val ordered = treeOrder(tree)
-                val shown = visibleTree(ordered.filter { it.id != root.id }, now)
-                fun walk(parentId: String, depth: Int) {
-                    for (child in ordered) {
-                        if (child.parentId != parentId || child.id !in shown) continue
-                        val card = sessionCard(child, titleOf(child), cardNow)
-                        val ended = child.status == DomainContract.sessionStatusEnded
-                        children.add(
-                            ThreadsListRow(
-                                sessionId = child.id,
-                                teamId = child.teamId,
-                                title = card.name,
-                                busy = !ended && child.busy,
-                                needsYou = !ended && child.needsInput,
-                                activityAt = child.updatedAt,
-                                deviceId = child.deviceId,
-                                depth = depth,
-                                parentId = parentId,
-                                rootId = root.id,
-                                unread = unreadAt(newestAgent[child.id], child.id),
-                            ),
-                        )
-                        walk(child.id, depth + 1)
-                    }
-                }
-                walk(root.id, 1)
-                val hidden = ordered.filter { it.id != root.id && it.id !in shown }
-                if (hidden.isNotEmpty()) {
-                    children.add(
-                        ThreadsListRow(
-                            sessionId = "${root.id}$EARLIER_SUFFIX",
-                            teamId = root.teamId,
-                            title = earlierLabel(hidden.size),
-                            busy = false,
-                            needsYou = false,
-                            activityAt = hidden.drop(1).fold(hidden[0].updatedAt) { latest, s ->
-                                if ((ms(s.updatedAt) ?: 0L) > (ms(latest) ?: 0L)) s.updatedAt else latest
-                            },
-                            deviceId = null,
-                            depth = 1,
-                            parentId = root.id,
-                            rootId = root.id,
-                            unread = false,
-                            earlier = hidden.size,
-                        ),
-                    )
-                }
-            }
-            buckets.getValue(key).add(row to children)
+            buckets.getValue(key).add(row)
         }
-        val order = compareByDescending<Pair<ThreadsListRow, List<ThreadsListRow>>> { ms(it.first.activityAt) ?: 0L }
-            .thenBy { it.first.sessionId }
+        val order = compareByDescending<ThreadsListRow> { ms(it.activityAt) ?: 0L }
+            .thenBy { it.sessionId }
         // NEW-1: Recent = every tree active in the last `recent.hours`, filled
         // up to the last `recent.max` by activity. Ended trees stay openable.
         val at = now?.let { ms(it) }
         val windowMs = ListCopy.RECENT_HOURS * 60L * 60L * 1000L
         return buckets.entries
-            .map { (key, entries) ->
-                var sorted = entries.sortedWith(order)
+            .map { (key, rows) ->
+                var sorted = rows.sortedWith(order)
                 if (key == ThreadsGroupKey.Recent) {
-                    sorted = sorted.filterIndexed { index, (row, _) ->
+                    sorted = sorted.filterIndexed { index, row ->
                         index < ListCopy.RECENT_MAX ||
                             (at != null && at - (ms(row.activityAt) ?: 0L) <= windowMs)
                     }
                 }
-                ThreadsListGroup(
-                    key,
-                    ListCopy.GROUPS.getValue(key),
-                    sorted.flatMap { (row, children) -> listOf(row) + children },
-                )
+                ThreadsListGroup(key, ListCopy.GROUPS.getValue(key), sorted)
             }
             .filter { it.rows.isNotEmpty() }
     }
@@ -1816,18 +1762,24 @@ object SessionTree {
 
     /** [sessionId] = the session the row's conversation belongs to (resolved
      *  by [messages] or by a DAO query scoped to that session's conversation). */
-    fun message(row: MessageEntity, sessionId: String): Message = Message(
-        id = row.id,
-        sessionId = sessionId,
-        authorKind = row.authorKind,
-        authorId = row.authorId,
-        body = row.body,
-        card = parseObject(row.card),
-        answeredAt = row.answeredAt,
-        consumedAt = row.consumedAt,
-        createdAt = row.createdAt,
-        authorSessionId = row.authorSessionId,
-    )
+    fun message(row: MessageEntity, sessionId: String): Message {
+        // EXP-1459: the DAO already opened what this install can; what stays
+        // sealed is LOCKED (empty body, the card's clear part).
+        val opened = SealedContent.openMessage(row.rootId, row.body, row.card)
+        return Message(
+            id = row.id,
+            sessionId = sessionId,
+            authorKind = row.authorKind,
+            authorId = row.authorId,
+            body = opened.body,
+            card = parseObject(opened.cardJson),
+            answeredAt = row.answeredAt,
+            consumedAt = row.consumedAt,
+            createdAt = row.createdAt,
+            authorSessionId = row.authorSessionId,
+            locked = opened.locked,
+        )
+    }
 
     fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt, archivedAt = row.archivedAt, storySeenAt = row.storySeenAt)
 

@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.data.sealed.SealedWriter
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
@@ -49,6 +50,13 @@ data class SessionsSendInput(
     val agentId: String? = null,
     // VAPP-110: a message to an APP = into the caller's editor session with it.
     val appId: String? = null,
+    // EXP-1459 (contract addendum 2, #EXP-1458), set by [SessionsApi.send]
+    // alone: the `@email` mentions as user ids (the server cannot read a
+    // sealed text), and the tree key of a root that has none yet.
+    val mentionUserIds: List<String>? = null,
+    /** The `#IDENT` issue refs of the text, resolved by the writer. */
+    val refIssueIds: List<String>? = null,
+    val seal: SealInput? = null,
 ) {
     companion object {
         /**
@@ -161,6 +169,15 @@ data class SessionsSendInput(
     }
 }
 
+/** EXP-1459: `sessions.send` `seal`: the new root's tree key (epoch 1), wrapped for every reader the writer resolved (its own install among them). */
+@Serializable
+data class SealInput(
+    val installId: String,
+    val publicKey: String,
+    val epoch: Int,
+    val wraps: List<TreeKeyWrap>,
+)
+
 /** `sessions.send`'s answer: the session it landed in and the message row
  *  (null for a start without text). */
 @Serializable
@@ -236,6 +253,9 @@ data class AnswerInput(
     val feedback: String? = null,
     val answers: JsonElement? = null,
     val surfaceData: JsonObject? = null,
+    /** EXP-1459: the FULL card re-sealed with the answer (`{...clear, sealed}`);
+     *  set by [SessionsApi.answer] alone, which then sends no plaintext answer. */
+    val sealedCard: JsonObject? = null,
 ) {
     companion object {
         fun planAnswers(answers: Map<String, List<String>>): JsonObject =
@@ -263,17 +283,27 @@ data class SessionMcpPicks(val mcpServerIds: List<String> = emptyList())
 private val stopJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; explicitNulls = false }
 
 @Singleton
-class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
+class SessionsApi @Inject constructor(
+    private val trpc: TrpcClient,
+    private val sealer: dagger.Lazy<SealedWriter>,
+) {
 
-    /** THE entrypoint: start a root / child, or message a session / agent. */
-    suspend fun send(accountId: String, input: SessionsSendInput): SessionsSendResult =
-        trpc.mutation(
+    /**
+     * THE entrypoint: start a root / child, or message a session / agent.
+     * EXP-1459: the text goes out SEALED for its tree ([SealedWriter]).
+     */
+    suspend fun send(accountId: String, input: SessionsSendInput): SessionsSendResult {
+        val prepared = sealer.get().prepareSend(accountId, input)
+        val result = trpc.mutation(
             accountId,
             path = "sessions.send",
-            input = input,
+            input = prepared.input,
             inputSerializer = SessionsSendInput.serializer(),
             outputSerializer = SessionsSendResult.serializer(),
         )
+        prepared.onSent(result)
+        return result
+    }
 
     /** Interrupt the current turn (the session stays live, goes idle). */
     suspend fun stop(accountId: String, sessionId: String): SessionStopResult {
@@ -332,7 +362,7 @@ class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
         trpc.mutationUnit(
             accountId,
             path = "sessions.answer",
-            input = input,
+            input = sealer.get().prepareAnswer(accountId, input),
             inputSerializer = AnswerInput.serializer(),
         )
     }

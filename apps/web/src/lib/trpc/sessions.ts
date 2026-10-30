@@ -6,8 +6,12 @@ import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
+  bodyWithin,
   codingSessionBlockedSchema,
   MESSAGE_BODY_MAX,
+  sealedBodyMax,
+  SESSIONS_SEND_MAX_MENTIONS,
+  SESSIONS_SEND_MAX_WAKE_ON,
   messageCardSchema,
   QUESTION_CARD_OPTIONS_MAX,
   questionCardOptionDescriptionsSchema,
@@ -39,7 +43,8 @@ import {
   loadCardForAnswer,
   stampAnsweredCard,
 } from "@/lib/sessions/answer"
-import { BUS_COPY, busAsk, busLine, busRelayTurn } from "@/lib/sessions/bus"
+import { BUS_COPY, busAsk, busLine, busListenerTrees, busRelayTurn } from "@/lib/sessions/bus"
+import { isSealedBody, isSealedCard, validSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import {
   issueIdentifiers,
   linkIssues,
@@ -54,6 +59,8 @@ import {
   stopSession,
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
+import { escalateTarget } from "@/lib/sessions/escalate"
+import { sendTarget } from "@/lib/sessions/send-target"
 import { extractMentionEmails } from "@/lib/mention-refs"
 import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage, inSession, sessionConversation } from "@/lib/sessions/messages"
 import { clearBlockedInTx, interruption, INTERRUPTIONS } from "@/lib/sessions/watchdog"
@@ -127,6 +134,31 @@ export function addsMention(before: string | null, after: string): boolean {
   if (before === null) return true
   const had = new Set(extractMentionEmails(before))
   return extractMentionEmails(after).some((email) => !had.has(email))
+}
+
+/** EXP-1458: `ids` names someone `before` did not (null = a new message:
+ *  any id counts). Kept here, not imported from notifications (which the
+ *  device suites mock whole). */
+export function addsMentionId(before: readonly string[] | null, ids: readonly string[]): boolean {
+  if (ids.length === 0) return false
+  const had = new Set(before ?? [])
+  return ids.some((id) => !had.has(id))
+}
+
+// EXP-1458: one copy per listening TREE (`sessions.listeners`).
+const listenerCopiesSchema = z
+  .array(z.object({ rootId: uuid, body: z.string().min(1).max(sealedBodyMax(MESSAGE_BODY_MAX)) }))
+  .max(SESSIONS_SEND_MAX_WAKE_ON)
+
+/** EXP-1458: a writer's body is plaintext or a well-formed envelope; an
+ *  ask text and every listener copy are envelopes. */
+function assertSealedWrite(body: string, askText?: string, copies?: ReadonlyArray<{ body?: string }>) {
+  const bad = (what: string) => new TRPCError({ code: `BAD_REQUEST`, message: `Invalid sealed ${what}` })
+  if (!validSealedBody(body)) throw bad(`body`)
+  if (askText !== undefined && (!isSealedBody(askText) || !validSealedBody(askText))) throw bad(`ask text`)
+  for (const copy of copies ?? []) {
+    if (!copy.body || !isSealedBody(copy.body) || !validSealedBody(copy.body)) throw bad(`listener copy`)
+  }
 }
 
 export const sessionsRouter = router({
@@ -637,6 +669,14 @@ export const sessionsRouter = router({
           .optional(),
         branch: z.string().max(255).optional(),
         title: z.string().max(255).optional(),
+        // EXP-1458: the CLI's auto-name sealed to the tree (a body
+        // envelope; `sessions.sealed_title`), sent instead of `title` once
+        // the root has a key. Fills a blank one only, like `title`.
+        sealedTitle: z
+          .string()
+          .max(sealedBodyMax(255))
+          .refine((value) => isSealedBody(value) && validSealedBody(value), `not a sealed title`)
+          .optional(),
         // EXP-849: the login the run ACTUALLY runs on (a start pick or a
         // rotation may move it off the row's), so the row says it and a
         // person's later pick of the old one is a real switch.
@@ -806,6 +846,7 @@ export const sessionsRouter = router({
             // The CLI's auto-name only fills a blank title (a person's or
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),
+            ...(input.sealedTitle && !session.sealedTitle && !session.title ? { sealedTitle: input.sealedTitle } : {}),
             ...(turnEnded ? { lastTurnAt: now } : {}),
             // EXP-1413: working again = the Stop is settled.
             ...((nowBusy || stopSettled) && session.stoppedAt ? { stoppedAt: null } : {}),
@@ -838,8 +879,20 @@ export const sessionsRouter = router({
     .input(
       z.object({
         sessionId: uuid,
-        body: z.string().max(MESSAGE_BODY_MAX).default(``),
+        body: z
+          .string()
+          .max(sealedBodyMax(MESSAGE_BODY_MAX))
+          .refine(bodyWithin(MESSAGE_BODY_MAX), `body is too long`)
+          .default(``),
         card: messageCardSchema.optional(),
+        // EXP-1458: the members a (sealed) body mentions (user ids).
+        mentionUserIds: z.array(z.string().min(1).max(64)).max(SESSIONS_SEND_MAX_MENTIONS).optional(),
+        // EXP-1458: a sealed reply's (or ask's) copies for the listeners in
+        // OTHER trees (`busListeners`), each sealed to that tree.
+        listenerCopies: listenerCopiesSchema.optional(),
+        // EXP-1458: a sealed question/plan card's ask text, sealed to this
+        // tree (what its parent's agent reads; absent = the neutral line).
+        askText: z.string().max(sealedBodyMax(MESSAGE_BODY_MAX)).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -850,9 +903,17 @@ export const sessionsRouter = router({
       if (card && !DEVICE_CARD_KINDS.has(card.kind)) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `A device cannot post ${card.kind} cards` })
       }
+      // EXP-1458: sealed content is stored as is; only its envelope and
+      // the card's clear part are checked.
+      assertSealedWrite(input.body, input.askText, input.listenerCopies)
+      const sealedCard = card !== null && isSealedCard(card)
+      if (sealedCard && !validSealedCard(card as Record<string, unknown>)) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid sealed card` })
+      }
       // A question card's `options` are labels; their descriptions ride the
       // parallel `optionDescriptions` sidecar.
       if (
+        !sealedCard &&
         card?.kind === `question` &&
         card.options !== undefined &&
         !z.array(questionCardOptionSchema).max(QUESTION_CARD_OPTIONS_MAX).safeParse(card.options).success
@@ -860,6 +921,7 @@ export const sessionsRouter = router({
         throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid question options` })
       }
       if (
+        !sealedCard &&
         card?.kind === `question` &&
         (card as { optionDescriptions?: unknown }).optionDescriptions !== undefined &&
         !questionCardOptionDescriptionsSchema.safeParse(
@@ -891,8 +953,16 @@ export const sessionsRouter = router({
           !card && session.agentId !== null && session.id === session.rootId
             ? await editAgentTurnText(tx, session.id, input.body)
             : null
-        if (edited) await patchBusCopies(tx, edited.id, edited.before, input.body.trim())
+        if (edited) await patchBusCopies(tx, edited.id, edited.before, input.body.trim(), input.listenerCopies)
         const messageId = edited?.id ?? (await postAgentMessage(tx, session, input.body, card))
+        // EXP-1458: who the text mentions, in clear (a sealed body's
+        // `@email`s are unreadable here); an edit replaces the set.
+        if (input.mentionUserIds !== undefined || edited) {
+          await tx
+            .update(messages)
+            .set({ mentionUserIds: input.mentionUserIds?.length ? input.mentionUserIds : null })
+            .where(eq(messages.id, messageId))
+        }
         // EXP-1374: a message is a sign of life (the stuck rule).
         await tx.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, session.id))
         if (asks) {
@@ -902,20 +972,71 @@ export const sessionsRouter = router({
             .where(eq(sessions.id, session.id))
           // NEW-1: the card reaches the parent and watchers (one row, two
           // views); a parent may answer what it knows.
-          await busAsk(tx, session, messageId, card as Extract<MessageCard, { kind: `question` | `plan` }>)
+          await busAsk(tx, session, messageId, card as Extract<MessageCard, { kind: `question` | `plan` }>, {
+            askText: input.askText,
+            listenerCopies: input.listenerCopies,
+          })
         } else if (!card && !edited) {
           // NEW-1: the turn's reply reaches the parent and watchers.
-          await busRelayTurn(tx, session, input.body, messageId)
+          await busRelayTurn(tx, session, input.body, messageId, input.listenerCopies)
         }
-        return { messageId, txid, before: edited?.before ?? null }
+        // EXP-1458: the listeners in other trees a sealed line reaches,
+        // so the device knows whom it seals copies for.
+        const listeners =
+          isSealedBody(input.body) || sealedCard ? await busListenerTrees(tx, session) : []
+        return {
+          messageId,
+          txid,
+          listeners,
+          before: edited?.before ?? null,
+          mentionsBefore: edited?.mentionUserIds ?? null,
+        }
       })
       // An in-place edit re-notifies only for a mention it ADDED (a later
-      // turn's text repeats the earlier ones).
-      if (input.body.includes(`@`) && addsMention(result.before, input.body)) {
+      // turn's text repeats the earlier ones). EXP-1458: a sealed body's
+      // mentions are the writer's `mentionUserIds`.
+      const mentions = isSealedBody(input.body)
+        ? addsMentionId(result.before === null ? null : result.mentionsBefore, input.mentionUserIds ?? [])
+        : (input.body.includes(`@`) && addsMention(result.before, input.body)) ||
+          addsMentionId(result.before === null ? null : result.mentionsBefore, input.mentionUserIds ?? [])
+      if (mentions) {
         fireAndForgetSessionMessageNotify({ messageId: result.messageId })
       }
-      return { messageId: result.messageId, txid: result.txid }
+      return {
+        messageId: result.messageId,
+        txid: result.txid,
+        ...(result.listeners.length ? { listeners: result.listeners } : {}),
+      }
     }),
+
+  /** EXP-1458: the trees OUTSIDE this session's own that its sealed lines
+   *  reach (its parent's, its watchers'), with their current key: the
+   *  device seals one copy per tree (`reply {listenerCopies}`, `end
+   *  {copies}`). A keyless tree (null key) gets the neutral line. */
+  listeners: authedProcedure
+    .input(z.object({ sessionId: uuid }))
+    .query(async ({ ctx, input }) => {
+      const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
+      return busListenerTrees(ctx.db as never, session)
+    }),
+
+  /** EXP-1458: the tree a card's escalation would land in (its managing
+   *  agent conversation's root): the device seals the card to its key
+   *  (`sessionKeys.publicKeys`) and escalates with `sealedCard`. */
+  escalateTarget: authedProcedure
+    .input(z.object({ messageId: uuid }))
+    .query(({ ctx, input }) => escalateTarget(ctx.session.user.id, input.messageId)),
+
+  /** EXP-1458: the conversation a send to an agent / app lands in, with its
+   *  key (`SendTarget`): the device seals the text to it (or sends `seal`
+   *  for a keyless or new root) instead of sending it in plaintext. */
+  sendTarget: authedProcedure
+    .input(
+      z
+        .object({ agentId: uuid.optional(), appId: uuid.optional() })
+        .refine((input) => !input.agentId !== !input.appId, `name agentId or appId`)
+    )
+    .query(({ ctx, input }) => sendTarget(ctx.session.user.id, input)),
 
   /** The device delivered these pending inputs (person messages, another
    *  session's question or report) into the agent. EXP-1280: also the

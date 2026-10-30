@@ -369,6 +369,8 @@ public enum Chats {
 
     public enum ChatPreviewKind: String, Equatable, Sendable {
         case working, question, plan, you, agent, picture, surface, new, compact, empty
+        /// EXP-1459: the previewed message is sealed and does not open here.
+        case locked
     }
 
     public struct ChatPreview: Equatable, Sendable {
@@ -661,6 +663,11 @@ public enum Chats {
         return ChatPreview(kind: .question, text: fill(Copy.Preview.question, plainLine(question)))
     }
 
+    /// EXP-1459: a sealed message that does not open here.
+    static func lockedPreview(_ reason: LockedReason) -> ChatPreview {
+        ChatPreview(kind: .locked, text: SealedPlaceholder.copy(reason))
+    }
+
     /// The root conversation's preview line (`previewCases`).
     /// `visible` = the viewer's synced session ids (nil = no check,
     /// #EXP-1399 review).
@@ -674,6 +681,7 @@ public enum Chats {
         let own = messages
             .filter { $0.sessionId == rootId && ($0.authorKind == "user" || $0.authorKind == "agent") }
             .filter { m in
+                if m.isLocked { return true }
                 if let card = m.card { return previewCards.contains(card.kind ?? "") }
                 return !m.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
@@ -686,10 +694,12 @@ public enum Chats {
            let waiting = own.first(where: { m in
                m.answeredAt == nil && ["question", "plan", "ask"].contains(m.card?.kind ?? "")
            }) {
+            if let reason = waiting.locked { return lockedPreview(reason) }
             return askPreview(waiting, visible: visible)
         }
         if busy { return ChatPreview(kind: .working, text: Copy.Preview.working) }
         guard let newest = own.first else { return ChatPreview(kind: .empty, text: Copy.Preview.empty) }
+        if let reason = newest.locked { return lockedPreview(reason) }
         if newest.authorKind == "user" {
             if let divider = commandDivider(newest.body) {
                 return ChatPreview(kind: divider == .new ? .new : .compact, text: divider.label)
@@ -1030,11 +1040,15 @@ extension Chats {
     /// (a time a kept agent message already stands for is skipped, compared
     /// as instants), and the newest agent time as an event card. The open
     /// chat's transcript, unread marking and pickup keep reading messages.
-    public static func digestMessages(sessionId: String, digest raw: String?) -> [TreeMessage] {
-        digestMessages(sessionId: sessionId, digest: SessionTree.jsonObject(raw))
+    /// EXP-1459: the digest's bodies and cards are sealed like the messages
+    /// they stand for; `rootId` names the tree whose key opens them.
+    public static func digestMessages(sessionId: String, digest raw: String?, rootId: String? = nil, opener: SealedOpener? = .shared) -> [TreeMessage] {
+        digestMessages(sessionId: sessionId, digest: SessionTree.jsonObject(raw), rootId: rootId, opener: opener)
     }
 
-    public static func digestMessages(sessionId: String, digest: [String: Any]?) -> [TreeMessage] {
+    /// `opener` nil = the digest as stored (sealed entries stay whole: the
+    /// fixture's own view, chats.json `digestCases`).
+    public static func digestMessages(sessionId: String, digest: [String: Any]?, rootId: String? = nil, opener: SealedOpener? = .shared) -> [TreeMessage] {
         guard let digest else { return [] }
         func text(_ value: Any?) -> String? { value as? String }
         func msOr0(_ iso: String) -> Double { SessionTree.ms(iso) ?? 0 }
@@ -1048,18 +1062,21 @@ extension Chats {
             guard seen.insert(id).inserted else { continue }
             let authorKind = text(m["authorKind"]) ?? ""
             let createdAt = text(m["createdAt"]) ?? ""
-            let card = (m["card"] as? [String: Any]).map(TreeMessageCard.init(object:))
+            let raw = (body: text(m["body"]) ?? "", card: m["card"] as? [String: Any], status: SealStatus.plain)
+            let opened = opener.map { SealedMessage.open(body: raw.body, card: raw.card, rootId: rootId, opener: $0) } ?? raw
+            let card = opened.card.map(TreeMessageCard.init(object:))
             out.append(TreeMessage(
                 id: id,
                 sessionId: sessionId,
                 authorKind: authorKind,
                 authorId: nil,
-                body: text(m["body"]) ?? "",
+                body: opened.body,
                 card: card,
                 answeredAt: text(m["answeredAt"]),
                 consumedAt: nil,
                 createdAt: createdAt,
-                authorSessionId: text(m["authorSessionId"])
+                authorSessionId: text(m["authorSessionId"]),
+                sealStatus: opened.status
             ))
             if authorKind == agent, card?.kind != "event" {
                 counted[msOr0(createdAt), default: 0] += 1

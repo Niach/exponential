@@ -30,10 +30,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.exponential.app.domain.Dock
+import com.exponential.app.domain.PlanCard
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.Stories
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.dockTint
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.thread.SurfaceCard
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -45,12 +49,15 @@ import kotlin.math.roundToInt
  * body, painting [Stories.storyTab]'s ring. Android = the `phone` form
  * factor ([Stories.Tab.Tile]).
  *
- *   StoryTab   the PR block slot ([lead]), `leadGap`, then the tiles in fold
- *              order `listGap` apart, else THE EmptyState
- *   StoryTile  line 1 = the title (one line; none = the kind word) with
- *              `meta` muted at the end (a waiting tile leads with the
- *              plan/question tint dot and tints its meta), then ONE sideways
- *              row of picture thumbnails, a muted caption-or-label under each
+ *   StoryTab   the PR block slot ([lead]), `leadGap`, then the stories
+ *              INLINE in fold order `listGap` apart (#EXP-1462: the Guide's
+ *              way, never a list of title rows), else THE EmptyState
+ *   StoryTile  one story's section: line 1 = the title (one line; none =
+ *              the kind word) with `meta` muted at the end (a waiting one
+ *              leads with the plan/question tint dot and tints its meta),
+ *              the description (muted, wrapping), then its body in place:
+ *              ONE sideways row of pictures (a muted caption-or-label under
+ *              each), else THE surface card, else the plan markdown
  */
 
 private val TILE_SHAPE = RoundedCornerShape(Stories.Tab.Tile.RADIUS.dp)
@@ -67,10 +74,17 @@ fun storyThumbWidth(picture: Stories.Picture): Int {
 @Composable
 fun StoryTile(
     story: Stories.Story,
-    /** A tap on the line (picture 0) or a thumbnail (its index). */
+    /** A tap on the line (picture 0) or a picture (its index). */
     onOpen: (Stories.Story, Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** The story's card as THE thread row (its surface); null = none. */
+    row: SessionTree.ThreadRow? = null,
+    /** An inline surface's reply press (THE chat's), to the story's session. */
+    onReply: ((Stories.Story, String) -> Unit)? = null,
 ) {
+    // The frame rule: pictures win, else the surface, else the plan text.
+    val surface = if (story.pictures.isEmpty() && story.surface) storySurface(row) else null
+    val text = if (story.pictures.isEmpty() && surface == null) story.text else null
     val tint = if (story.waiting) {
         dockTint(if (story.kind == Stories.Kind.Question) Dock.Tint.Question else Dock.Tint.Plan)
     } else {
@@ -81,31 +95,43 @@ fun StoryTile(
         modifier.fillMaxWidth().testTag(Stories.Tab.TestIds.TILE),
         verticalArrangement = Arrangement.spacedBy(Stories.Tab.Tile.GAP.dp),
     ) {
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(6.dp))
-                .clickable { onOpen(story, 0) }
-                .heightIn(min = 24.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .clickable { onOpen(story, 0) },
+            verticalArrangement = Arrangement.spacedBy(Stories.Tab.Tile.TEXT_GAP.dp),
         ) {
-            if (tint != null) Box(Modifier.size(6.dp).background(tint, CircleShape))
-            Text(
-                story.title ?: Stories.Copy.kind(story.kind),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                story.meta,
-                style = MaterialTheme.typography.bodySmall,
-                color = tint ?: muted,
-                maxLines = 1,
-            )
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (tint != null) Box(Modifier.size(6.dp).background(tint, CircleShape))
+                Text(
+                    story.title ?: Stories.Copy.kind(story.kind),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    story.meta,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tint ?: muted,
+                    maxLines = 1,
+                )
+            }
+            story.description?.let { description ->
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = muted,
+                    modifier = Modifier.testTag("story-tile-description"),
+                )
+            }
         }
         if (story.pictures.isNotEmpty()) {
             Row(
@@ -148,6 +174,21 @@ fun StoryTile(
                 }
             }
         }
+        if (surface != null) {
+            Box(Modifier.fillMaxWidth().testTag("story-tile-surface")) {
+                SurfaceCard(
+                    row = surface,
+                    animate = false,
+                    onReply = { reply -> onReply?.invoke(story, reply) },
+                    showTitle = false,
+                )
+            }
+        }
+        if (text != null) {
+            Box(Modifier.fillMaxWidth().testTag("story-tile-text")) {
+                MarkdownView(PlanCard.withoutPendingUploads(text), softBreaksAsNewlines = true)
+            }
+        }
     }
 }
 
@@ -160,6 +201,9 @@ fun StoryTab(
     onOpen: (Stories.Story, Int) -> Unit,
     modifier: Modifier = Modifier,
     lead: (@Composable () -> Unit)? = null,
+    /** Each story's card as THE thread row, by story id (its surface). */
+    rows: Map<String, SessionTree.ThreadRow> = emptyMap(),
+    onReply: ((Stories.Story, String) -> Unit)? = null,
 ) {
     val stories = ring?.stories.orEmpty()
     Column(
@@ -169,7 +213,7 @@ fun StoryTab(
         lead?.invoke()
         if (stories.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(Stories.Tab.Tile.LIST_GAP.dp)) {
-                stories.forEach { story -> StoryTile(story, onOpen) }
+                stories.forEach { story -> StoryTile(story, onOpen, row = rows[story.id], onReply = onReply) }
             }
         } else {
             EmptyState(

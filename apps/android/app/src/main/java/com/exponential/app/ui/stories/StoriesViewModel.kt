@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AnswerInput
 import com.exponential.app.data.api.SessionsApi
+import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -264,6 +265,13 @@ class StoriesViewModel @Inject constructor(
                     surfaceData = answer.surfaceData,
                 ),
             )
+        }
+
+    /** #EXP-1462: an inline surface's reply press on the Stories tab (THE
+     *  chat's `surfaceReply`), sent to the STORY's session. */
+    fun reply(story: Stories.Story, text: String) =
+        run("send", "the message", {}) { accountId ->
+            sessionsApi.send(accountId, SessionsSendInput.message(story.sessionId, text))
         }
 
     /** A plan story's decision (THE inline card's `sessions.answer`). */

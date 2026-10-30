@@ -10,8 +10,8 @@
 //!   bubble's footprint).
 //! - [`team_stories`]: THE fold (`domain::stories::stories`) over the synced
 //!   sessions, agents, show cards and the viewer's read marks, memoised per
-//!   store change. The rings ride the Chats page's agent bubbles row
-//!   ([`crate::chat_list::agent_bubbles_row`], chats.json BUBBLES); a tap
+//!   store change. The rings make THE STORY ROW of the Chats header
+//!   ([`crate::chat_list::agent_bubbles_row`], `story_row`); a tap
 //!   opens THE viewer, [`crate::story_viewer`].
 
 use std::collections::{HashMap, HashSet};
@@ -197,28 +197,36 @@ pub(crate) fn store_ring_avatar(ring: &StoryRing, glyph: f32, cx: &App) -> AnyEl
 /// The glyph inside a bubble-sized ring (the chats bubble's).
 pub(crate) const RING_GLYPH_PX: f32 = 24.;
 
-/// One ring of the row (web `StoryRingButton`): the ring with its title
-/// under it, bold while it holds anything unseen. The caller hangs the tap.
-pub(crate) fn story_ring_button(ring: &StoryRing, avatar: AnyElement, cx: &App) -> Div {
+/// One item of THE STORY ROW (#EXP-1461, stories.json `row`): the ring at
+/// the bubble size, centred, `title` one line under it (`row.labelGap`
+/// below, truncated to the item), medium while `unseen`. Exactly
+/// `row.itemWidth` wide, never shrunk.
+pub(crate) fn story_row_item(stories: &[Story], avatar: AnyElement, title: &str, unseen: bool, cx: &App) -> Div {
     let theme = cx.theme();
-    let size = CHATS.shell.bubble;
-    let arcs: Vec<RingArc> = ring.stories.iter().map(RingArc::from).collect();
+    let arcs: Vec<RingArc> = stories.iter().map(RingArc::from).collect();
     v_flex()
-        .w(px(size + 6.))
-        .flex_shrink_0()
+        .w(px(STORIES.row.item_width))
+        .flex_none()
         .items_center()
-        .gap_1p5()
-        .child(story_ring(&arcs, size, avatar, cx))
+        .gap(px(STORIES.row.label_gap))
+        .child(story_ring(&arcs, CHATS.shell.bubble, avatar, cx))
         .child(
             div()
                 .w_full()
+                .min_w_0()
                 .truncate()
                 .text_center()
                 .text_xs()
-                .when(ring.unseen, |this| this.font_weight(FontWeight::MEDIUM))
-                .text_color(if ring.unseen { theme.foreground } else { theme.muted_foreground })
-                .child(SharedString::from(ring.title.clone())),
+                .when(unseen, |this| this.font_weight(FontWeight::MEDIUM))
+                .text_color(if unseen { theme.foreground } else { theme.muted_foreground })
+                .child(SharedString::from(title.to_string())),
         )
+}
+
+/// One ring of the row (web `StoryRingButton`): [`story_row_item`] with the
+/// ring's title. The caller hangs the tap.
+pub(crate) fn story_ring_button(ring: &StoryRing, avatar: AnyElement, cx: &App) -> Div {
+    story_row_item(&ring.stories, avatar, &ring.title, ring.unseen, cx)
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +237,7 @@ pub(crate) fn story_ring_button(ring: &StoryRing, avatar: AnyElement, cx: &App) 
 struct StoriesKey {
     team_id: String,
     revisions: [u64; 5],
-    /// The metas' ages and the results' expiry move with the minute.
+    /// The metas' ages and the 24 h window move with the minute.
     minute: i64,
 }
 

@@ -46,9 +46,12 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let content = story_content(story, frame, Some(&message), &ThreadText::default(), &images, window, cx);
     let avatar = specimen_avatar(ring, crate::story_viewer::HEADER_GLYPH, cx);
     let spec = &STORIES.viewer;
+    // #EXP-1463: a surface frame = the fixed frame (`story_viewer_size`
+    // without a picture) in the 1440 × 900 capture window.
+    let size = domain::stories::story_viewer_size(None, (1440., 900.));
     let panel = story_panel(ring, &frames, 0, 0., avatar, content, PanelHandlers::default(), cx)
-        .w(px(spec.width))
-        .h(px(spec.height))
+        .w(px(size.width as f32))
+        .h(px(size.height as f32))
         .rounded(px(spec.radius))
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())

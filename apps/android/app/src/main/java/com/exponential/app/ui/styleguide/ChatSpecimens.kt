@@ -1,5 +1,8 @@
 package com.exponential.app.ui.styleguide
 
+import com.exponential.app.ui.components.ChatRow
+import com.exponential.app.domain.SealedPlaceholder
+import com.exponential.app.data.sealed.SealedContent
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.graphics.graphicsLayer
 import com.exponential.app.data.db.BoardEntity
@@ -210,7 +213,6 @@ fun ChatListSpecimenScreen() {
                     onSelectFilter = { filter = it },
                     onOpenChat = {},
                     onLongPressChat = {},
-                    onOpenAgent = {},
                     onLongPressAgent = {},
                     onOpenInbox = {},
                     inboxUnread = true,
@@ -260,7 +262,6 @@ fun ChatSelectionSpecimenScreen() {
                     onSelectFilter = {},
                     onOpenChat = {},
                     onLongPressChat = {},
-                    onOpenAgent = {},
                     onLongPressAgent = {},
                     onOpenInbox = {},
                     inboxUnread = true,
@@ -548,4 +549,60 @@ private fun Caption(text: String) {
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
     )
+}
+
+// ── sealed-locked ────────────────────────────────────────────────────────
+// EXP-1459 (sealed-content.json `placeholder`): content this install cannot
+// open (yet), the web entry's rows (chat-specimens.tsx SealedLockedSpecimen)
+// line for line: in the transcript THE pill with the lock, in the list the
+// preview line italic muted, like `working`.
+
+const val SealedLockedSpecimenTestId = "sealed-locked-specimen"
+
+private val LOCKED_TRANSCRIPT: List<SessionTree.ThreadRow> = listOf(
+    message("l-m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it."),
+    SessionTree.ThreadRow.Locked(id = "l-k1", reason = SealedContent.LOCKED_NO_KEY, author = "agent"),
+    message("l-m2", "agent", "Deferred the shape subscribe until after the first frame."),
+    SessionTree.ThreadRow.Locked(id = "l-k2", reason = SealedContent.LOCKED_UNREADABLE, author = "user"),
+)
+
+private val LOCKED_LIST_ROWS: List<Chats.ChatRow> get() = LIST.rows.take(3).mapIndexed { index, row ->
+    when (index) {
+        0 -> row.copy(preview = Chats.ChatPreview(Chats.PREVIEW_KIND_LOCKED, SealedPlaceholder.COPY_NO_KEY))
+        2 -> row.copy(preview = Chats.ChatPreview(Chats.PREVIEW_KIND_LOCKED, SealedPlaceholder.COPY_UNREADABLE))
+        else -> row
+    }
+}
+
+/** The locked state: a transcript with both pills over three chat rows with locked previews (shot `sg_sealed-locked`). */
+@Composable
+fun SealedLockedSpecimenScreen() {
+    AppBackground {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .testTag(SealedLockedSpecimenTestId)
+                .statusBarsPadding()
+                .padding(top = 12.dp),
+        ) {
+            ThreadConversation(
+                rows = LOCKED_TRANSCRIPT,
+                rootId = "r",
+                meta = { row -> ThreadRowMeta(authorName = "Dana Reyes", time = TIMES[row.id.removePrefix("l-")].orEmpty()) },
+                onOpenCard = {},
+                onAnswer = { _, _, _ -> },
+                onDecidePlan = { _, _, _ -> },
+                canUnqueue = { false },
+                onUnqueue = {},
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                onSurfaceReply = {},
+            )
+            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+                LOCKED_LIST_ROWS.forEach { row ->
+                    ChatRow(row = row, agent = "claude", onClick = {}, onLongClick = null)
+                }
+            }
+        }
+    }
 }

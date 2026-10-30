@@ -20,21 +20,22 @@ const root = (id: string, ageDays: number, over: { agentId?: string | null; user
 })
 
 describe(`backgroundStoryRoots`, () => {
-  it(`takes my agent conversations whatever their age, then every root whose tree moved within the keep window, uncapped`, () => {
+  it(`takes my agent conversations whatever their age, then every root whose tree moved within the 24 h window, uncapped`, () => {
     const rows = [
       root(`conv`, 30, { agentId: `a1` }),
       root(`theirs`, 0, { agentId: `a1`, userId: `you` }),
-      root(`old`, 8),
-      root(`r1`, 1),
-      root(`r2`, 2),
-      root(`r3`, 3),
-      { ...root(`r1`, 1), id: `child`, rootId: `r1` },
-      // A stale root whose child posted this week (F40).
+      // #EXP-1461: the window is `windowHours` (24 h).
+      root(`old`, 2),
+      root(`r1`, 0.25),
+      root(`r2`, 0.5),
+      root(`r3`, 0.9),
+      { ...root(`r1`, 0.25), id: `child`, rootId: `r1` },
+      // A stale root whose child posted today (F40).
       root(`quiet`, 20),
-      { ...root(`quiet`, 2), id: `quiet-child`, rootId: `quiet` },
+      { ...root(`quiet`, 0.5), id: `quiet-child`, rootId: `quiet` },
     ]
     expect(backgroundStoryRoots(rows, `me`, NOW)).toEqual([`conv`, `quiet`, `r1`, `r2`, `r3`, `theirs`])
-    const many = Array.from({ length: 40 }, (_, i) => root(`n${String(i).padStart(2, `0`)}`, 1))
+    const many = Array.from({ length: 40 }, (_, i) => root(`n${String(i).padStart(2, `0`)}`, 0.5))
     expect(backgroundStoryRoots(many, `me`, NOW)).toHaveLength(40)
   })
 })

@@ -55,6 +55,11 @@ pub struct InstallEntry {
     pub x25519_public: String,
     #[serde(default)]
     pub last_seen_at: Option<String>,
+    /// EXP-1458: the `devices.device_id` the install registered with
+    /// (desktop + daemon); a new tree's key is wrapped for the install of
+    /// the device that will run it.
+    #[serde(default)]
+    pub device_id: Option<String>,
 }
 
 /// One row of `installs.mine`: the caller's own installs, revoked included.

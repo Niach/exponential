@@ -1,6 +1,8 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { contract } from "@exp/domain-contract"
+import { CARD_CLEAR_FIELDS } from "@exp/domain-contract/sealed-content"
+import { validSealedCard } from "@/lib/sessions/sealed"
 import {
   CATEGORY_ANCHOR,
   eventNameSchema,
@@ -23,7 +25,6 @@ import {
   PLAN_CARD_QUESTIONS_MAX,
   pictureLabelSchema,
   QUESTION_CARD_OPTIONS_MAX,
-  SESSIONS_SEND_TEXT_MAX,
   sessionsSendInputSchema,
   REPLIES_MAX,
   SUGGESTIONS_MAX,
@@ -159,7 +160,16 @@ import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { escalateCard } from "@/lib/sessions/escalate"
 import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
-import { buildPlanCard, buildQuestionCard, buildSurfaceCard, postShowCard, SURFACE_CARD_TITLE_MAX } from "@/lib/sessions/plan"
+import {
+  buildPlanCard,
+  buildQuestionCard,
+  buildSealedShowCard,
+  buildSurfaceCard,
+  postSealedSuggestionCard,
+  postShowCard,
+  sealedCardEnvelope,
+  sealedShowExtrasSchema,
+} from "@/lib/sessions/plan"
 import { loadAgentForUser } from "@/lib/agents/conversation"
 import { loadAppForUser } from "@/lib/apps/editor-session"
 import { appCatalogText, componentCatalogText } from "@/lib/apps/package"
@@ -2406,16 +2416,23 @@ export function registerExponentialTools(
         planMode: z.boolean().optional(),
         computerUse: z.boolean().optional(),
         ultracode: z.boolean().optional(),
-        mcpServerIds: z.array(uuidString).max(20).optional(),
+        // Caps live in sessionsSendInputSchema (a sealed text runs longer).
+        mcpServerIds: z.array(uuidString).optional(),
         name: z.string().optional(),
-        text: z.string().max(SESSIONS_SEND_TEXT_MAX).optional(),
-        attachmentIds: z.array(uuidString).max(10).optional(),
+        text: z.string().optional(),
+        attachmentIds: z.array(uuidString).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
         promptId: uuidString.optional(),
         repositoryId: uuidString.optional(),
         // Loose for the context budget; sessionsSendInputSchema validates all.
         answer: z.record(z.string(), z.unknown()).optional(),
-        wakeOn: z.array(uuidString).min(1).max(20).optional(),
+        wakeOn: z.array(uuidString).optional(),
+        // EXP-1458: a device's sealed send (sessionsSendInputSchema checks
+        // them; bare `{}` in the always-loaded schema).
+        mentionUserIds: z.any().optional(),
+        refIssueIds: z.any().optional(),
+        sealedName: z.any().optional(),
+        seal: z.any().optional(),
         // NEW-4: `stop: true` with sessionId interrupts that session's
         // running turn (it stays, idle; a message resumes it). Nothing else
         // rides along.
@@ -2558,9 +2575,12 @@ export function registerExponentialTools(
       inputSchema: strictInput({
         id: uuidString.optional(),
         summary: z.string().trim().min(1).max(4000).optional(),
+        // EXP-1458: the device's sealed report card + one per listening tree.
+        sealedReport: sealedCardEnvelope.optional(),
+        copies: z.array(z.strictObject({ rootId: uuidString, sealedReport: sealedCardEnvelope })).max(20).optional(),
       }),
     },
-    async ({ id, summary }) => {
+    async ({ id, summary, sealedReport, copies }) => {
       try {
         let target = id ?? null
         if (target) {
@@ -2569,7 +2589,26 @@ export function registerExponentialTools(
           target = (await loadCallerSession())?.id ?? null
           if (!target) throw new Error(noSessionMessage(`exponential_sessions_end`, `id`))
         }
-        await endSession({ userId: user.id, sessionId: target, summary: summary ?? null })
+        if (copies?.length && !sealedReport) throw new Error(`copies go with sealedReport.`)
+        if (sealedReport && !(sealedReport.kind === `report` && validSealedCard(sealedReport))) {
+          throw new Error(`sealedReport must be {kind: "report", sealed: "v1:<epoch>:<b64url>"} plus clear fields only.`)
+        }
+        for (const copy of copies ?? []) {
+          if (!(copy.sealedReport.kind === `report` && validSealedCard(copy.sealedReport))) {
+            throw new Error(`copies[].sealedReport must be a sealed report card.`)
+          }
+        }
+        await endSession({
+          userId: user.id,
+          sessionId: target,
+          summary: summary ?? null,
+          ...(sealedReport
+            ? {
+                sealedReport,
+                reportCopies: (copies ?? []).map((copy) => ({ rootId: copy.rootId, card: copy.sealedReport })),
+              }
+            : {}),
+        })
         return ok({ ok: true, id: target })
       } catch (e) {
         return err(e)
@@ -2668,14 +2707,24 @@ export function registerExponentialTools(
             .max(SUGGESTIONS_MAX)
             .optional(),
           replies: z.array(replyInputSchema).min(1).max(REPLIES_MAX).optional(),
+          // EXP-1458: the device's sealed card(s) {kind: suggestions|replies, sealed}.
+          sealed: z.union([sealedCardEnvelope, z.array(sealedCardEnvelope).min(1).max(2)]).optional(),
         }),
       },
-      async ({ tasks, replies }) => {
+      async ({ tasks, replies, sealed }) => {
         try {
-          if (!tasks?.length && !replies?.length) throw new Error(`Pass tasks, replies or both`)
+          if (sealed && (tasks || replies)) throw new Error(`A sealed call carries tasks and replies inside sealed.`)
+          if (!sealed && !tasks?.length && !replies?.length) throw new Error(`Pass tasks, replies or both`)
           const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_sessions_suggest`))
           if (!access.full) assertTeamFullyGranted(access, own.teamId)
+          if (sealed) {
+            const messageIds: string[] = []
+            for (const card of Array.isArray(sealed) ? sealed : [sealed]) {
+              messageIds.push((await postSealedSuggestionCard({ userId: user.id, callerSessionId: own.id, card })).messageId)
+            }
+            return ok({ messageIds })
+          }
           const posted: {
             tasks?: { messageId: string; itemIds: string[] }
             replies?: { messageId: string; itemIds: string[] }
@@ -2720,7 +2769,8 @@ export function registerExponentialTools(
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           surface: cardSurfaceInput,
-          title: z.string().trim().min(1).max(SURFACE_CARD_TITLE_MAX).optional(),
+          // The cap is buildSurfaceCard's (the show schema's byte budget).
+          title: z.string().trim().optional(),
           replace: z.boolean().optional(),
           ask: z
             .strictObject({
@@ -2750,13 +2800,37 @@ export function registerExponentialTools(
           pictures: cardPicturesInput,
           description: z.string().optional(),
           story: z.boolean().optional(),
+          // EXP-1458: the device's sealed card (+ an ask's sealed ask text
+          // and per-tree copies); bare `{}`, sealedShowExtrasSchema checks.
+          sealedCard: z.any().optional(),
+          kind: z.any().optional(),
+          askText: z.any().optional(),
+          listenerCopies: z.any().optional(),
         }),
       },
-      async ({ surface, title, replace, ask, plan, pictures, description, story }) => {
+      async ({ surface, title, replace, ask, plan, pictures, description, story, sealedCard, kind, askText, listenerCopies }) => {
         try {
           const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_show`))
           if (!access.full) assertTeamFullyGranted(access, own.teamId)
+          if (sealedCard !== undefined || kind !== undefined || askText !== undefined || listenerCopies !== undefined) {
+            // EXP-1458: everything but replace/story lives inside sealedCard.
+            if (surface || title || ask || plan || pictures || description) {
+              throw new Error(`A sealed card carries surface, ask, plan, pictures, title and description inside sealedCard.`)
+            }
+            const extras = sealedShowExtrasSchema.parse({ sealedCard, kind, askText, listenerCopies })
+            const card = buildSealedShowCard(extras.sealedCard, extras.kind)
+            if (story !== undefined && (CARD_CLEAR_FIELDS as readonly string[]).includes(`story`)) card.story = story
+            return ok(
+              await postShowCard({
+                userId: user.id,
+                sessionId: own.id,
+                card,
+                replace: replace === true,
+                sealed: { askText: extras.askText ?? null, listenerCopies: extras.listenerCopies ?? [] },
+              })
+            )
+          }
           if (ask && plan) throw new Error(`Pass ask or plan, not both: one card per call.`)
           if (!ask && !plan && !surface && !pictures?.length) throw new Error(`Pass surface, ask, plan or pictures.`)
           // F38: pictures alone (a result story's screenshots) = a surface
@@ -2864,15 +2938,19 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_escalate`,
     {
-      description: `Show a waiting question/plan card (messageId; its ask mirror works too) in the team agent's conversation that manages its thread, so a person answers it there. The same card: an answer either side answers both. From inside that thread or from the agent's conversation. Idempotent.`,
-      inputSchema: strictInput({ messageId: uuidString }),
+      description: `Show a waiting question/plan card (messageId; its ask mirror works too) in the team agent's conversation that manages its thread, so a person answers it there. The same card: an answer either side answers both. From inside that thread or from the agent's conversation. Idempotent. sealedCard: the card sealed to the target tree (sessions.escalateTarget).`,
+      inputSchema: strictInput({
+        messageId: uuidString,
+        // EXP-1458: a sealed origin card's copy for the target tree.
+        sealedCard: z.object({ kind: z.string(), sealed: z.string() }).passthrough().optional(),
+      }),
     },
-    async ({ messageId }) => {
+    async ({ messageId, sealedCard }) => {
       try {
         const own = await loadCallerSession()
         if (!own) throw new Error(noSessionMessage(`exponential_sessions_escalate`))
         if (!access.full) assertTeamFullyGranted(access, own.teamId)
-        return ok(await escalateCard({ userId: user.id, caller: own, messageId }))
+        return ok(await escalateCard({ userId: user.id, caller: own, messageId, sealedCard }))
       } catch (e) {
         return err(e)
       }

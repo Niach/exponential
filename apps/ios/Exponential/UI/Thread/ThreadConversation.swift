@@ -550,6 +550,14 @@ struct ThreadConversationRow: View, Equatable {
                 icon: AppIcons.conceptOrName(kind.icon) ?? kind.icon,
                 text: [kind.label, time].compactMap { $0 }.joined(separator: " · ")
             )
+        case let .locked(_, reason, _):
+            // EXP-1459 (sealed-content.json `placeholder`): sealed content
+            // this install can't open (yet) = the same pill, the lock, no time.
+            TranscriptDividerPill(
+                icon: AppIcons.conceptOrName(SealedPlaceholder.icon) ?? SealedPlaceholder.icon,
+                text: SealedPlaceholder.copy(reason)
+            )
+            .accessibilityIdentifier(SealedPlaceholder.testId)
         case let .surface(_, _, title, surface):
             SurfaceCardRow(
                 surface: surface,

@@ -862,6 +862,8 @@ export function ThreadConversation(props: ThreadConversationProps) {
         )
       case `divider`:
         return <TranscriptDivider key={row.id} kind={row.kind} at={row.at} className={enter} />
+      case `locked`:
+        return <TranscriptDivider key={row.id} kind={`locked-${row.reason}`} at={null} className={enter} />
       case `surface`:
         return (
           <SurfaceCard

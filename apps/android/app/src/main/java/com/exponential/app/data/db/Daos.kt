@@ -4,9 +4,13 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import com.exponential.app.data.sealed.SealedContent
+import com.exponential.app.data.sealed.SealedKeys
 import com.exponential.app.domain.SessionTree
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 
 @Dao
 interface TeamDao {
@@ -57,6 +61,10 @@ interface BoardDao {
 
 @Dao
 interface IssueDao {
+    // EXP-1459: `#IDENT` refs of a sealed text → issue ids (`refIssueIds`), case-insensitive.
+    @Query("SELECT * FROM issues WHERE upper(identifier) IN (:identifiers)")
+    suspend fun byIdentifiers(identifiers: List<String>): List<IssueEntity>
+
     @Query("SELECT * FROM issues WHERE board_id = :boardId ORDER BY sort_order, created_at")
     fun observeByBoard(boardId: String): Flow<List<IssueEntity>>
 
@@ -205,6 +213,10 @@ interface UserDao {
     @Query("SELECT * FROM users ORDER BY name, email")
     fun observeAll(): Flow<List<UserEntity>>
 
+    // EXP-1459: `@email` mentions → user ids (`mentionUserIds`), case-insensitive.
+    @Query("SELECT * FROM users WHERE lower(email) IN (:emails)")
+    suspend fun byEmails(emails: List<String>): List<UserEntity>
+
     // EXP-487: the team's member users — assignee pickers + @-mention
     // vocabulary. The users table is account-wide (cross-team author
     // display), so scoping happens here via the team_members join.
@@ -309,43 +321,59 @@ interface IssueDraftDao {
 // threads (`kind = thread`) and team agents (`kind = agent`); every session
 // of one tree shares `root_id`.
 @Dao
-interface SessionDao {
+abstract class SessionDao {
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
-    fun observeById(id: String): Flow<SessionEntity?>
+    abstract fun rawObserveById(id: String): Flow<SessionEntity?>
+    fun observeById(id: String): Flow<SessionEntity?> = rawObserveById(id).openedSession()
 
+    // RAW (sealed as synced): writers and link resolution, never a screen.
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
-    suspend fun getById(id: String): SessionEntity?
+    abstract suspend fun getById(id: String): SessionEntity?
+
+    // EXP-1459: the caller's conversation root with an agent / app (raw).
+    @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND agent_id = :agentId AND user_id = :userId ORDER BY created_at DESC LIMIT 1")
+    abstract suspend fun agentConversation(agentId: String, userId: String): SessionEntity?
+
+    @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND app_id = :appId AND user_id = :userId ORDER BY created_at DESC LIMIT 1")
+    abstract suspend fun appConversation(appId: String, userId: String): SessionEntity?
 
     // Every visible session (the Threads list derives groups per tree off it).
     @Query("SELECT * FROM sessions ORDER BY created_at, id")
-    fun observeAll(): Flow<List<SessionEntity>>
+    abstract fun rawObserveAll(): Flow<List<SessionEntity>>
+    fun observeAll(): Flow<List<SessionEntity>> = rawObserveAll().openedSessions()
 
     @Query("SELECT * FROM sessions WHERE team_id = :teamId ORDER BY created_at, id")
-    fun observeByTeam(teamId: String): Flow<List<SessionEntity>>
+    abstract fun rawObserveByTeam(teamId: String): Flow<List<SessionEntity>>
+    fun observeByTeam(teamId: String): Flow<List<SessionEntity>> = rawObserveByTeam(teamId).openedSessions()
 
     // One tree: the root and every descendant, creation order.
     @Query("SELECT * FROM sessions WHERE root_id = :rootId OR id = :rootId ORDER BY created_at, id")
-    fun observeTree(rootId: String): Flow<List<SessionEntity>>
+    abstract fun rawObserveTree(rootId: String): Flow<List<SessionEntity>>
+    fun observeTree(rootId: String): Flow<List<SessionEntity>> = rawObserveTree(rootId).openedSessions()
 
     // #EXP-1380: the sessions a chat's cards name (another tree's root).
     @Query("SELECT * FROM sessions WHERE id IN (:ids) ORDER BY created_at, id")
-    fun observeByIds(ids: List<String>): Flow<List<SessionEntity>>
+    abstract fun rawObserveByIds(ids: List<String>): Flow<List<SessionEntity>>
+    fun observeByIds(ids: List<String>): Flow<List<SessionEntity>> = rawObserveByIds(ids).openedSessions()
 
     // NEW-2: the agents' CONVERSATION sessions (roots with `agent_id`; the
     // definitions live in `agents`), creation order.
     @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
-    fun observeAgents(): Flow<List<SessionEntity>>
+    abstract fun rawObserveAgents(): Flow<List<SessionEntity>>
+    fun observeAgents(): Flow<List<SessionEntity>> = rawObserveAgents().openedSessions()
 
     // Every session not ended (the bar's live dot, the switcher's per-team dots).
     @Query("SELECT * FROM sessions WHERE status != 'ended' ORDER BY created_at, id")
-    fun observeLive(): Flow<List<SessionEntity>>
+    abstract fun rawObserveLive(): Flow<List<SessionEntity>>
+    fun observeLive(): Flow<List<SessionEntity>> = rawObserveLive().openedSessions()
 
     // The roots (threads) an issue sits in, newest activity first.
     @Query(
         "SELECT s.* FROM sessions s INNER JOIN session_issues si ON si.session_id = s.id " +
             "WHERE si.issue_id = :issueId ORDER BY s.updated_at DESC, s.created_at DESC, s.id",
     )
-    fun observeRootsOfIssue(issueId: String): Flow<List<SessionEntity>>
+    abstract fun rawObserveRootsOfIssue(issueId: String): Flow<List<SessionEntity>>
+    fun observeRootsOfIssue(issueId: String): Flow<List<SessionEntity>> = rawObserveRootsOfIssue(issueId).openedSessions()
 
     // App-link resolution (EXP-1288): team SLUG + root id → the id, only when
     // the synced root sits in that team.
@@ -353,16 +381,16 @@ interface SessionDao {
         "SELECT s.id FROM sessions s JOIN teams w ON w.id = s.team_id " +
             "WHERE s.id = :sessionId AND w.slug = :teamSlug LIMIT 1",
     )
-    suspend fun findIdByTeamRef(teamSlug: String, sessionId: String): String?
+    abstract suspend fun findIdByTeamRef(teamSlug: String, sessionId: String): String?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: SessionEntity)
+    abstract suspend fun upsert(item: SessionEntity)
 
     @Query("DELETE FROM sessions WHERE id = :id")
-    suspend fun deleteById(id: String)
+    abstract suspend fun deleteById(id: String)
 
     @Query("DELETE FROM sessions")
-    suspend fun clear()
+    abstract suspend fun clear()
 }
 
 // EXP-1291: a thread's issues (always on the ROOT), display order.
@@ -389,9 +417,10 @@ interface SessionIssueDao {
 
 // EXP-1291: the Conversation, oldest first.
 @Dao
-interface MessageDao {
+abstract class MessageDao {
     @Query("SELECT * FROM messages ORDER BY created_at, id")
-    fun observeAll(): Flow<List<MessageEntity>>
+    abstract fun rawObserveAll(): Flow<List<MessageEntity>>
+    fun observeAll(): Flow<List<MessageEntity>> = rawObserveAll().openedMessages()
 
     // NEW-8: a session's thread = the messages of its own conversation (the
     // `conversations` row with that `session_id`); a message whose
@@ -400,11 +429,13 @@ interface MessageDao {
         "SELECT * FROM messages WHERE conversation_id IN " +
             "(SELECT id FROM conversations WHERE session_id = :sessionId) ORDER BY created_at, id",
     )
-    fun observeBySession(sessionId: String): Flow<List<MessageEntity>>
+    abstract fun rawObserveBySession(sessionId: String): Flow<List<MessageEntity>>
+    fun observeBySession(sessionId: String): Flow<List<MessageEntity>> = rawObserveBySession(sessionId).openedMessages()
 
     // Every message of one tree (the root's conversation + its children's).
     @Query("SELECT * FROM messages WHERE root_id = :rootId ORDER BY created_at, id")
-    fun observeByRoot(rootId: String): Flow<List<MessageEntity>>
+    abstract fun rawObserveByRoot(rootId: String): Flow<List<MessageEntity>>
+    fun observeByRoot(rootId: String): Flow<List<MessageEntity>> = rawObserveByRoot(rootId).openedMessages()
 
     // #EXP-1380: the card-less rows of the given sessions' conversations —
     // all a session TITLE reads (its first prompt), never a whole transcript.
@@ -413,7 +444,8 @@ interface MessageDao {
             "(SELECT id FROM conversations WHERE session_id IN (:sessionIds)) " +
             "AND (author_kind = 'user' OR author_session_id IS NOT NULL) ORDER BY created_at, id",
     )
-    fun observeTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>>
+    abstract fun rawObserveTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>>
+    fun observeTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>> = rawObserveTitleRows(sessionIds).openedMessages()
 
     // S-3 STORIES (stories.json): every session's OWN cards (posted into its
     // own conversation) — the fold keeps the plan / question / surface ones.
@@ -422,12 +454,14 @@ interface MessageDao {
             "WHERE messages.card IS NOT NULL AND messages.card != 'null' " +
             "AND messages.author_session_id = conversations.session_id ORDER BY messages.created_at, messages.id",
     )
-    fun observeOwnCards(): Flow<List<MessageEntity>>
+    abstract fun rawObserveOwnCards(): Flow<List<MessageEntity>>
+    fun observeOwnCards(): Flow<List<MessageEntity>> = rawObserveOwnCards().openedMessages()
 
     // #EXP-1399: the given messages by id (an `ask` mirror's ORIGIN card,
     // which lives in another tree than the conversation drawing it).
     @Query("SELECT * FROM messages WHERE id IN (:ids) ORDER BY created_at, id")
-    fun observeByIds(ids: List<String>): Flow<List<MessageEntity>>
+    abstract fun rawObserveByIds(ids: List<String>): Flow<List<MessageEntity>>
+    fun observeByIds(ids: List<String>): Flow<List<MessageEntity>> = rawObserveByIds(ids).openedMessages()
 
     // A session's person messages the device has not consumed (the queue bar).
     @Query(
@@ -435,16 +469,21 @@ interface MessageDao {
             "(SELECT id FROM conversations WHERE session_id = :sessionId) AND author_kind = 'user' " +
             "AND consumed_at IS NULL ORDER BY created_at, id",
     )
-    fun observeQueued(sessionId: String): Flow<List<MessageEntity>>
+    abstract fun rawObserveQueued(sessionId: String): Flow<List<MessageEntity>>
+    fun observeQueued(sessionId: String): Flow<List<MessageEntity>> = rawObserveQueued(sessionId).openedMessages()
+
+    // EXP-1459: one message RAW (sealed as synced): the answer re-seals its card.
+    @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
+    abstract suspend fun getById(id: String): MessageEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: MessageEntity)
+    abstract suspend fun upsert(item: MessageEntity)
 
     @Query("DELETE FROM messages WHERE id = :id")
-    suspend fun deleteById(id: String)
+    abstract suspend fun deleteById(id: String)
 
     @Query("DELETE FROM messages")
-    suspend fun clear()
+    abstract suspend fun clear()
 }
 
 /**
@@ -474,27 +513,59 @@ interface SessionReadDao {
 
 // NEW-3: conversations (one per session; NEW-8: dm/channel rows carry no session).
 @Dao
-interface ConversationDao {
+abstract class ConversationDao {
     // NEW-8: every message is keyed through these ([com.exponential.app.domain.MessageConversation]).
     @Query("SELECT * FROM conversations")
-    fun observeAll(): Flow<List<ConversationEntity>>
+    abstract fun rawObserveAll(): Flow<List<ConversationEntity>>
+    fun observeAll(): Flow<List<ConversationEntity>> = rawObserveAll().openedConversations(observeRoots())
 
     // Thread e4a04d22: one team's conversations (the Chats list reads their digests).
     @Query("SELECT * FROM conversations WHERE team_id = :teamId")
-    fun observeByTeam(teamId: String): Flow<List<ConversationEntity>>
+    abstract fun rawObserveByTeam(teamId: String): Flow<List<ConversationEntity>>
+    fun observeByTeam(teamId: String): Flow<List<ConversationEntity>> = rawObserveByTeam(teamId).openedConversations(observeRoots())
 
     @Query("SELECT * FROM conversations WHERE session_id = :sessionId LIMIT 1")
-    fun observeBySession(sessionId: String): Flow<ConversationEntity?>
+    abstract fun observeBySession(sessionId: String): Flow<ConversationEntity?>
+
+    // EXP-1459: the tree each session conversation belongs to (its digest
+    // opens with that root's keys).
+    @Query(
+        "SELECT conversations.id AS conversationId, " +
+            "CASE WHEN sessions.root_id = '' THEN sessions.id ELSE sessions.root_id END AS rootId " +
+            "FROM conversations JOIN sessions ON sessions.id = conversations.session_id",
+    )
+    abstract fun observeRoots(): Flow<List<ConversationRoot>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: ConversationEntity)
+    abstract suspend fun upsert(item: ConversationEntity)
 
     @Query("DELETE FROM conversations WHERE id = :id")
-    suspend fun deleteById(id: String)
+    abstract suspend fun deleteById(id: String)
 
     @Query("DELETE FROM conversations")
-    suspend fun clear()
+    abstract suspend fun clear()
 }
+
+/** EXP-1459: a session conversation's tree. */
+data class ConversationRoot(val conversationId: String, val rootId: String)
+
+// EXP-1459 (sealed-content.json): the screens read OPENED rows; Room keeps
+// them as synced. Re-emits when this install gains a tree key; off the main
+// thread (the first open loads the eNet library).
+private fun Flow<List<MessageEntity>>.openedMessages(): Flow<List<MessageEntity>> =
+    combine(this, SealedKeys.keys) { rows, keys -> rows.map { SealedContent.message(it, keys) } }.flowOn(Dispatchers.Default)
+
+private fun Flow<List<SessionEntity>>.openedSessions(): Flow<List<SessionEntity>> =
+    combine(this, SealedKeys.keys) { rows, keys -> rows.map { SealedContent.session(it, keys) } }.flowOn(Dispatchers.Default)
+
+private fun Flow<SessionEntity?>.openedSession(): Flow<SessionEntity?> =
+    combine(this, SealedKeys.keys) { row, keys -> row?.let { SealedContent.session(it, keys) } }.flowOn(Dispatchers.Default)
+
+private fun Flow<List<ConversationEntity>>.openedConversations(roots: Flow<List<ConversationRoot>>): Flow<List<ConversationEntity>> =
+    combine(this, roots, SealedKeys.keys) { rows, rootRows, keys ->
+        val rootOf = rootRows.associate { it.conversationId to it.rootId }
+        rows.map { SealedContent.conversation(it, rootOf[it.id], keys) }
+    }.flowOn(Dispatchers.Default)
 
 // NEW-2: the team agents (definitions), rail order.
 @Dao

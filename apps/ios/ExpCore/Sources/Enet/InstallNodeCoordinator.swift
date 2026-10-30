@@ -26,6 +26,11 @@ public final class InstallNodeCoordinator: @unchecked Sendable {
         self.db = db
     }
 
+    /// This install's registry id on an account (nil until registered).
+    public func installId(accountId: String) async -> String? {
+        await service.installId(accountId: accountId)
+    }
+
     public func start() {
         lock.withLock {
             guard task == nil else { return }

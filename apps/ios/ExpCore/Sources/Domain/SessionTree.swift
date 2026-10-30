@@ -544,6 +544,28 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
     public let createdAt: String
     /// EXP-1323: the session that posted it (nil = none).
     public let authorSessionId: String?
+    /// EXP-1459: `plain` / `opened` = readable; anything else = this install
+    /// can't open it (yet): the body is empty and the card is its clear part.
+    public let sealStatus: SealStatus
+    /// EXP-1459: an escalated `ask` mirror's `sealedCard` (the origin card
+    /// sealed to THIS tree), opened; nil = none or locked.
+    public let escalated: TreeMessageCard?
+
+    /// The content is sealed and this install can't open it (yet).
+    public var isLocked: Bool { !sealStatus.isReadable }
+
+    /// EXP-1459: this origin as an escalated mirror shows it: itself when
+    /// readable, else the mirror's opened `sealedCard` of the same kind.
+    public func opened(escalated: TreeMessageCard?) -> TreeMessage {
+        guard isLocked, let escalated, escalated.kind == card?.kind else { return self }
+        return TreeMessage(
+            id: id, sessionId: sessionId, authorKind: authorKind, authorId: authorId,
+            body: body, card: escalated, answeredAt: answeredAt, consumedAt: consumedAt,
+            createdAt: createdAt, authorSessionId: authorSessionId, sealStatus: .opened
+        )
+    }
+    /// Why (sealed-content.json `placeholder`); nil = readable.
+    public var locked: LockedReason? { SealedPlaceholder.reason(sealStatus) }
 
     public init(
         id: String,
@@ -555,9 +577,13 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
         answeredAt: String?,
         consumedAt: String?,
         createdAt: String,
-        authorSessionId: String? = nil
+        authorSessionId: String? = nil,
+        sealStatus: SealStatus = .plain,
+        escalated: TreeMessageCard? = nil
     ) {
         self.authorSessionId = authorSessionId
+        self.sealStatus = sealStatus
+        self.escalated = escalated
         self.id = id
         self.sessionId = sessionId
         self.authorKind = authorKind
@@ -808,6 +834,9 @@ public enum ThreadRow: Equatable, Sendable {
     /// Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
     /// the centred divider pill; `at` = the message's createdAt (wire text).
     case divider(id: String, kind: Chats.DividerKind, at: String)
+    /// EXP-1459 (sealed-content.json `placeholder`): content this install
+    /// cannot open (yet), whatever its kind: THE transcript pill, no time.
+    case locked(id: String, reason: LockedReason, author: String)
     /// Thread 58cb32df (chats.json): an agent's inline Exponential UI
     /// preview (`surface` card); `title` trimmed, nil = none.
     case surface(id: String, sessionId: String, title: String?, surface: CardSurface)
@@ -868,6 +897,7 @@ public enum ThreadRow: Equatable, Sendable {
              let .picture(id, _, _, _, _),
              let .event(id, _, _, _),
              let .divider(id, _, _),
+             let .locked(id, _, _),
              let .surface(id, _, _, _):
             id
         }
@@ -1103,12 +1133,9 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     /// EXP-1316: the ROOT's device (the row's trailing device glyph,
     /// resolved against the synced devices rows); nil = none.
     public let deviceId: String?
-    /// EXP-1323: bold title (a root: the tree's newest agent message is
-    /// newer than the viewer's read of the root; a child: its own).
+    /// EXP-1323: bold title (the tree's newest agent message is newer than
+    /// the viewer's read of the root).
     public let unread: Bool
-    /// S-3: set ONLY on a tree's fold row (`<rootId>:earlier`, depth 1, the
-    /// muted list-item row; opens the thread) = how many sub-sessions it hides.
-    public let earlier: Int?
 
     public var id: String { sessionId }
 
@@ -1123,11 +1150,9 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         needsYou: Bool,
         unread: Bool = false,
         activityAt: String,
-        deviceId: String? = nil,
-        earlier: Int? = nil
+        deviceId: String? = nil
     ) {
         self.deviceId = deviceId
-        self.earlier = earlier
         self.depth = depth
         self.parentId = parentId
         self.rootId = rootId ?? sessionId
@@ -1679,6 +1704,11 @@ public enum SessionTree {
         for message in messages { messagesById[message.id] = message }
         var escalated = Set<String>()
         for message in conversation {
+            if let reason = message.locked {
+                let author = message.authorKind == "user" || message.authorKind == "agent" ? message.authorKind : "system"
+                rows.append(.locked(id: message.id, reason: reason, author: author))
+                continue
+            }
             guard let card = message.card else {
                 let author = message.authorKind == "user" || message.authorKind == "agent"
                     ? message.authorKind
@@ -1749,11 +1779,13 @@ public enum SessionTree {
             // mirror draws nothing here. #EXP-1399: a mirror from ANOTHER
             // tree (an agent's conversation watching a thread, `escalate`) =
             // the origin's session card + THE origin card, read from its
-            // message (first mirror wins).
+            // message (first mirror wins). EXP-1459: an origin this install
+            // can't open draws the mirror's `sealedCard` (sealed to this tree).
             case "ask":
                 guard let targetId = card.sessionId, let target = byId[targetId],
                       !treeIds.contains(target.id),
-                      let originId = card.messageId, let origin = messagesById[originId],
+                      let originId = card.messageId, let synced = messagesById[originId],
+                      case let origin = synced.opened(escalated: message.escalated),
                       origin.sessionId == target.id,
                       // #EXP-1399 review: only the origin session's own mirror draws it.
                       message.authorSessionId == target.id,
@@ -1921,18 +1953,15 @@ public enum SessionTree {
         reads: [TreeSessionRead] = [],
         now: String? = nil
     ) -> [ThreadsListGroup] {
-        // EXP-1323: unread = the newest agent-authored message (a root: any
-        // session of its tree; a child: its own) is newer than the viewer's
-        // read of that session.
+        // EXP-1323: unread = the tree's newest agent-authored message is
+        // newer than the viewer's read of the root.
         var readAt: [String: Double] = [:]
         for read in reads { readAt[read.sessionId] = ms(read.readAt) ?? 0 }
         var rootOf: [String: String] = [:]
         for session in sessions { rootOf[session.id] = session.rootId }
-        var newestAgent: [String: Double] = [:]
         var newestAgentInTree: [String: Double] = [:]
         for message in messages where message.authorKind == "agent" {
             let at = ms(message.createdAt) ?? 0
-            newestAgent[message.sessionId] = max(newestAgent[message.sessionId] ?? 0, at)
             if let rootId = rootOf[message.sessionId] {
                 newestAgentInTree[rootId] = max(newestAgentInTree[rootId] ?? 0, at)
             }
@@ -1954,8 +1983,7 @@ public enum SessionTree {
         let titleIndex = SessionTitle.index(sessionIssues: sessionIssues, issues: issues, messages: messages)
         var updatedMs: [String: Double] = [:]
         for session in sessions { updatedMs[session.id] = ms(session.updatedAt) ?? 0 }
-        let nowDate = ms(now).map { Date(timeIntervalSince1970: $0 / 1000) }
-        var buckets: [ThreadsListGroup.Key: [(row: ThreadsListRow, children: [ThreadsListRow], activityMs: Double)]] = [:]
+        var buckets: [ThreadsListGroup.Key: [(row: ThreadsListRow, activityMs: Double)]] = [:]
         for root in roots {
             let tree = byRoot[root.id] ?? [root]
             let live = tree.filter { $0.status != "ended" }
@@ -1981,58 +2009,10 @@ public enum SessionTree {
                 activityAt: activity,
                 deviceId: root.deviceId
             )
+            // #EXP-1461 (owner 2026-10-30: 'only the root ones'): a row is a
+            // ROOT, never a child; the tree's state rolls up into it.
             let key: ThreadsListGroup.Key = needsYou ? .needsYou : running ? .running : .recent
-            // A live tree nests its VISIBLE children (S-3 `visibleTree`:
-            // working, needs you or active within `recentChildMinutes`;
-            // depth-first, creation order), the rest fold into ONE `earlier`
-            // row; Recent collapses to the root.
-            var children: [ThreadsListRow] = []
-            if key != .recent {
-                let ordered = treeOrder(tree)
-                let shown = visibleTree(ordered.filter { $0.id != root.id }, now: nowDate)
-                func walk(_ parentId: String, _ depth: Int) {
-                    for child in ordered where child.parentId == parentId && shown.contains(child.id) {
-                        let ended = child.status == "ended"
-                        children.append(ThreadsListRow(
-                            sessionId: child.id,
-                            teamId: child.teamId,
-                            depth: depth,
-                            parentId: parentId,
-                            rootId: root.id,
-                            title: SessionTitle.title(SessionTitle.Session(child), index: titleIndex),
-                            busy: !ended && child.busy,
-                            needsYou: !ended && child.needsInput,
-                            unread: unread(newestAgent[child.id], child.id),
-                            activityAt: child.updatedAt,
-                            deviceId: child.deviceId
-                        ))
-                        walk(child.id, depth + 1)
-                    }
-                }
-                walk(root.id, 1)
-                let hidden = ordered.filter { $0.id != root.id && !shown.contains($0.id) }
-                if let first = hidden.first {
-                    var hiddenActivity = first.updatedAt
-                    for session in hidden where (updatedMs[session.id] ?? 0) > (ms(hiddenActivity) ?? 0) {
-                        hiddenActivity = session.updatedAt
-                    }
-                    children.append(ThreadsListRow(
-                        sessionId: "\(root.id)\(earlierSuffix)",
-                        teamId: root.teamId,
-                        depth: 1,
-                        parentId: root.id,
-                        rootId: root.id,
-                        title: earlierLabel(hidden.count),
-                        busy: false,
-                        needsYou: false,
-                        unread: false,
-                        activityAt: hiddenActivity,
-                        deviceId: nil,
-                        earlier: hidden.count
-                    ))
-                }
-            }
-            buckets[key, default: []].append((row, children, activityMs))
+            buckets[key, default: []].append((row, activityMs))
         }
         // NEW-1: Recent = every tree active in the last `recent.hours`,
         // filled up to the last `recent.max` by activity (no clock = the
@@ -2049,7 +2029,7 @@ public enum SessionTree {
                         || (at.map { $0 - entry.activityMs <= ListRules.recentHours * 60 * 60 * 1000 } ?? false)
                 }.map(\.element)
             }
-            let rows = entries.flatMap { [$0.row] + $0.children }
+            let rows = entries.map(\.row)
             return rows.isEmpty ? nil : ThreadsListGroup(key: key, title: key.title, rows: rows)
         }
     }
@@ -2059,12 +2039,6 @@ public enum SessionTree {
         public static let recentHours: Double = 24
         public static let recentMax = 20
         public static let recentChildMinutes: Double = 120
-    }
-
-    /// S-3: the fold row's id suffix and its label (`copy.earlier`).
-    public static let earlierSuffix = ":earlier"
-    public static func earlierLabel(_ count: Int) -> String {
-        count == 1 ? "1 earlier sub-session" : "\(count) earlier sub-sessions"
     }
 
     /// S-3: a tree's display state = the session's four (`SessionState`).

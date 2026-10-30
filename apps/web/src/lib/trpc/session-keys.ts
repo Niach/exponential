@@ -14,12 +14,23 @@
 // Every procedure names an `installId` the caller owns (not revoked).
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
+import { sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
 import { sessionVisibleTo } from "@/lib/sessions/access"
-import { resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
+import { sessionDeviceOwner } from "@/lib/sessions/host"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
+import {
+  createTreeKeyInTx,
+  loadRoot,
+  ownInstall,
+  PUBLIC_KEY_RE,
+  treeReaders,
+  WRAPPED_RE,
+  type Reader,
+} from "@/lib/sessions/tree-keys"
+
+export { createTreeKeyInTx, treeReaders, type TreeKeyInput, type TreeReader } from "@/lib/sessions/tree-keys"
 
 /** The `int` columns' ceiling (contract: epochs are 1…2147483647). */
 const EPOCH_MAX = 2_147_483_647
@@ -27,103 +38,10 @@ const EPOCH_MAX = 2_147_483_647
 export const SESSION_KEYS_PENDING_MAX = 200
 const BATCH_MAX = 500
 
-// 32 bytes as unpadded base64url (43 chars; the last carries 4 bits).
-const PUBLIC_KEY_RE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/
-// push_seal of a 32-byte secret = 81 bytes = exactly 108 base64url chars.
-const WRAPPED_RE = /^[A-Za-z0-9_-]{108}$/
 
 const uuid = z.string().uuid()
 const epoch = z.number().int().min(1).max(EPOCH_MAX)
 const wrapped = z.string().regex(WRAPPED_RE, `base64url of a wrapped 32-byte secret`)
-
-/** Anything that can `select` (the pool, a transaction, the test fake). */
-type Reader = Pick<typeof import("@/db/connection").db, `select`>
-
-export interface TreeReader {
-  installId: string
-  userId: string
-  x25519Public: string
-  /** An install of the device executing a session in the tree. */
-  executing: boolean
-}
-
-type Root = Pick<Session, `id` | `teamId` | `userId` | `shared` | `parentId` | `sealPublicKey` | `sealEpoch`>
-
-const notFound = () => new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
-
-/** The readers of `root`'s tree, by install id. */
-export async function treeReaders(database: Reader, root: Root): Promise<Map<string, TreeReader>> {
-  const members = new Set(
-    (await database.select({ userId: teamMembers.userId }).from(teamMembers).where(eq(teamMembers.teamId, root.teamId))).map(
-      (row) => row.userId
-    )
-  )
-  const out = new Map<string, TreeReader>()
-  const add = (rows: Array<typeof installs.$inferSelect>, executing: boolean) => {
-    for (const row of rows) {
-      if (row.revokedAt || !members.has(row.userId)) continue
-      const known = out.get(row.id)
-      out.set(row.id, {
-        installId: row.id,
-        userId: row.userId,
-        x25519Public: row.x25519Public,
-        executing: executing || (known?.executing ?? false),
-      })
-    }
-  }
-
-  const userIds = root.shared ? [...members] : members.has(root.userId) ? [root.userId] : []
-  if (userIds.length > 0) {
-    add(await database.select().from(installs).where(inArray(installs.userId, userIds)), false)
-  }
-
-  // The executing devices: the host row of every (machine, starter) in the tree.
-  const tree = await database
-    .select({ deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
-    .from(sessions)
-    .where(eq(sessions.rootId, root.id))
-  const hosts = new Map<string, { deviceId: string; userId: string; teamId: string }>()
-  for (const row of tree) hosts.set(`${row.deviceId}\n${row.userId}`, row)
-  const deviceRowIds: string[] = []
-  for (const key of hosts.values()) {
-    const host = await resolveSessionHost(key, database)
-    if (!host || !members.has(host)) continue
-    const rows = await database
-      .select({ id: devices.id, userId: devices.userId, deviceId: devices.deviceId })
-      .from(devices)
-      .where(and(eq(devices.userId, host), eq(devices.deviceId, key.deviceId)))
-    for (const row of rows) {
-      if (row.userId === host && row.deviceId === key.deviceId) deviceRowIds.push(row.id)
-    }
-  }
-  if (deviceRowIds.length > 0) {
-    const rows = await database.select().from(installs).where(inArray(installs.deviceId, deviceRowIds))
-    add(
-      rows.filter((row) => row.deviceId !== null && deviceRowIds.includes(row.deviceId)),
-      true
-    )
-  }
-  return out
-}
-
-/** The caller's own, non-revoked install. */
-async function ownInstall(database: Reader, userId: string, installId: string) {
-  const [row] = await database
-    .select()
-    .from(installs)
-    .where(and(eq(installs.id, installId), eq(installs.userId, userId)))
-    .limit(1)
-  if (!row || row.userId !== userId || row.revokedAt) {
-    throw new TRPCError({ code: `FORBIDDEN`, message: `Not your install` })
-  }
-  return row
-}
-
-async function loadRoot(database: Reader, rootId: string): Promise<Session> {
-  const [root] = await database.select().from(sessions).where(eq(sessions.id, rootId)).limit(1)
-  if (!root || root.parentId !== null || root.id !== rootId) throw notFound()
-  return root
-}
 
 /** The wraps one install holds: rootId → epochs. */
 async function heldEpochs(database: Reader, installId: string, rootIds?: string[]) {
@@ -183,60 +101,13 @@ export const sessionKeysRouter = router({
         wraps: z.array(z.object({ installId: uuid, wrapped })).min(1).max(BATCH_MAX),
       })
     )
-    .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id
-      await ownInstall(ctx.db, userId, input.installId)
-      const targets = input.wraps.map((wrap) => wrap.installId)
-      if (new Set(targets).size !== targets.length) {
-        throw new TRPCError({ code: `BAD_REQUEST`, message: `One wrap per install` })
-      }
-      if (!targets.includes(input.installId)) {
-        throw new TRPCError({ code: `BAD_REQUEST`, message: `Include a wrap for your own install` })
-      }
-      return ctx.db.transaction(async (tx) => {
-        // Serializes one tree's key writes (create vs create, rotation vs rotation).
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`session_keys:${input.rootId}`}))`)
-        const root = await loadRoot(tx, input.rootId)
-        const readers = await treeReaders(tx, root)
-        const caller = readers.get(input.installId)
-        if (!caller) throw notFound()
-        if (root.sealEpoch === null) {
-          if (input.epoch !== 1) {
-            throw new TRPCError({ code: `CONFLICT`, message: `A tree's first key is epoch 1` })
-          }
-        } else {
-          if (input.epoch !== root.sealEpoch + 1) {
-            throw new TRPCError({ code: `CONFLICT`, message: `The tree is at epoch ${root.sealEpoch}` })
-          }
-          if (root.userId !== userId && !caller.executing) {
-            throw new TRPCError({
-              code: `FORBIDDEN`,
-              message: `Only the session's starter or its device rotates the key`,
-            })
-          }
-        }
-        for (const target of targets) {
-          if (!readers.has(target)) {
-            throw new TRPCError({ code: `BAD_REQUEST`, message: `A wrap names an install that is not a reader` })
-          }
-        }
-        for (const wrap of input.wraps) {
-          await tx.insert(sessionKeys).values({
-            rootId: root.id,
-            epoch: input.epoch,
-            installId: wrap.installId,
-            wrapped: wrap.wrapped,
-            createdByInstallId: input.installId,
-          })
-        }
-        await tx
-          .update(sessions)
-          .set({ sealPublicKey: input.publicKey, sealEpoch: input.epoch })
-          .where(eq(sessions.id, root.id))
+    .mutation(({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        const created = await createTreeKeyInTx(tx, ctx.session.user.id, input)
         const txid = await generateTxId(tx)
-        return { rootId: root.id, epoch: input.epoch, wraps: input.wraps.length, txid }
+        return { ...created, txid }
       })
-    }),
+    ),
 
   /** The wraps this install holds (every epoch: old ciphertext stays readable). */
   mine: authedProcedure

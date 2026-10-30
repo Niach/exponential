@@ -456,6 +456,60 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
 mod tests {
     use super::*;
 
+    /// EXP-1459: sealed-content.json `placeholder.rowCases` through the
+    /// thread model on `session-thread.json`'s first case.
+    #[test]
+    fn locked_row_cases_match_the_fixture() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(fixture_rows::SESSION_THREAD_JSON).expect("session-thread.json parses");
+        let input = &fixture["cases"][0]["input"];
+        let root: SessionRow = fixture_rows::row(&input["root"]);
+        let sessions: Vec<SessionRow> = fixture_rows::rows(&input["sessions"]);
+        let links: Vec<SessionIssueRow> = fixture_rows::rows(&input["sessionIssues"]);
+        let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap_or_default();
+        let pulls: Vec<PullRequestRow> = fixture_rows::rows(&input["pullRequests"]);
+        let sealed: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../../packages/domain-contract/fixtures/sealed-content.json"
+        ))
+        .unwrap();
+        for c in sealed["placeholder"]["rowCases"].as_array().unwrap() {
+            let m = &c["message"];
+            let message = MessageRow {
+                id: m["id"].as_str().unwrap().into(),
+                session_id: root.id.clone(),
+                author_kind: m["authorKind"].as_str().map(str::to_string),
+                body: Some(String::new()),
+                card: m.get("card").cloned(),
+                consumed_at: Some("2026-10-13T10:00:00.000Z".into()),
+                created_at: Some("2026-10-13T10:05:00.000Z".into()),
+                seal: match m["locked"].as_str() {
+                    Some("noKey") => Some(domain::sealed::SealState::Locked),
+                    _ => Some(domain::sealed::SealState::Unreadable),
+                },
+                ..MessageRow::default()
+            };
+            let view = build_session_thread(
+                SessionThreadInput {
+                    root: &root,
+                    sessions: &sessions.iter().collect::<Vec<_>>(),
+                    session_issues: &links.iter().collect::<Vec<_>>(),
+                    issues: &issues,
+                    messages: &[&message],
+                    pull_requests: &pulls.iter().collect::<Vec<_>>(),
+                    now_ms: fixture_rows::now_ms(&input["now"]),
+                },
+                None,
+            );
+            let rows: Vec<serde_json::Value> = view
+                .rows
+                .iter()
+                .filter(|row| row.id() == message.id)
+                .map(|row| serde_json::to_value(row).unwrap())
+                .collect();
+            assert_eq!(rows, vec![c["expected"].clone()], "{}", c["name"]);
+        }
+    }
+
     /// The demo draws every row kind the conversation has, the session card
     /// first.
     #[test]
@@ -480,6 +534,7 @@ mod tests {
                 SessionThreadRow::Report { .. } => "report",
                 SessionThreadRow::Suggestions { .. } => "suggestions",
                 SessionThreadRow::Divider { .. } => "divider",
+                SessionThreadRow::Locked { .. } => "locked",
                 SessionThreadRow::Surface { .. } => "surface",
             })
             .collect();

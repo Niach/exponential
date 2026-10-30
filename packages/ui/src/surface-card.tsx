@@ -3,6 +3,7 @@ import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential
 import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 import { CHATS_COPY, CHATS_TEST_IDS, surfaceReply } from "@exp/domain-contract/chats"
 import { PLAN_CARD_GEOMETRY, type CardSurface } from "@exp/domain-contract/plan-card"
+import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
@@ -32,6 +33,7 @@ import { userMessageTime } from "./user-message-bubble"
 const ENTER = fixture.surfaceCard.enter
 const NewIcon = conceptIcon(`ui-clean`)
 const CompactIcon = conceptIcon(`coding-compact`)
+const LockedIcon = conceptIcon(SEALED_PLACEHOLDER.icon as `ui-private`)
 
 /** tokens.json `motion` (the CSS vars win; these cover a var-less host). */
 const DURATION_FALLBACK: Record<string, number> = { fast: 120, standard: 180, slow: 280 }
@@ -187,23 +189,27 @@ export function SurfaceCard({
   )
 }
 
-/** A person's `/new` or `/compact` line: the centred glass pill. */
+/** A person's `/new` or `/compact` line: the centred glass pill. EXP-1459:
+ *  the same pill with the lock = content this install cannot open (yet)
+ *  (sealed-content.json `placeholder`; no time). */
 export function TranscriptDivider({
   kind,
   at,
   className,
 }: {
-  kind: `new` | `compact`
+  kind: `new` | `compact` | `locked-noKey` | `locked-unreadable`
   /** The line's createdAt (ISO); its local `HH:mm` follows the copy. */
   at: string | null
   className?: string
 }) {
-  const Icon = kind === `new` ? NewIcon : CompactIcon
-  const time = at ? userMessageTime(new Date(at)) : ``
-  const label = time ? `${CHATS_COPY.dividers[kind]} · ${time}` : CHATS_COPY.dividers[kind]
+  const locked = kind === `locked-noKey` ? `noKey` : kind === `locked-unreadable` ? `unreadable` : null
+  const Icon = locked ? LockedIcon : kind === `new` ? NewIcon : CompactIcon
+  const copy = locked ? SEALED_PLACEHOLDER.copy[locked] : CHATS_COPY.dividers[kind as `new` | `compact`]
+  const time = at && !locked ? userMessageTime(new Date(at)) : ``
+  const label = time ? `${copy} · ${time}` : copy
   return (
     <div
-      data-testid={CHATS_TEST_IDS.divider}
+      data-testid={locked ? SEALED_LOCKED_TEST_ID : CHATS_TEST_IDS.divider}
       data-kind={kind}
       className={cn(`flex justify-center`, className)}
     >
@@ -214,6 +220,9 @@ export function TranscriptDivider({
     </div>
   )
 }
+
+/** EXP-1459: the locked pill's test id (component tests, captures). */
+export const SEALED_LOCKED_TEST_ID = `sealed-locked`
 
 /** The issue chips inside a chat bubble run INLINE with the prose like the
  *  natives' (iOS/Android wrap a chip's title with the text, its box cloned

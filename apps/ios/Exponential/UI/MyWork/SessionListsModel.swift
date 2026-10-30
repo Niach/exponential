@@ -212,13 +212,14 @@ final class SessionListsModel {
         // into messages (`Chats.digestMessages`, `digestCases`), stands in
         // for them, so this observation tracks `conversations`, never
         // `messages`.
+        let rootIds = Dictionary(sessions.map { ($0.id, $0.rootId) }, uniquingKeysWith: { first, _ in first })
         let digestMessages = try Row.fetchAll(db, sql: """
             SELECT "session_id", "digest" FROM "conversations"
             WHERE "session_id" IS NOT NULL AND "session_id" <> ''
             """)
             .flatMap { row -> [TreeMessage] in
                 let sessionId: String = row["session_id"]
-                return Chats.digestMessages(sessionId: sessionId, digest: row["digest"] as String?)
+                return Chats.digestMessages(sessionId: sessionId, digest: row["digest"] as String?, rootId: rootIds[sessionId])
             }
         return Rows(
             sessions: sessions.map { TreeSession(sessionRow: $0) },
@@ -244,9 +245,8 @@ final class SessionListsModel {
             messages: rows.messages,
             teamId: nil,
             reads: rows.reads,
-            // S-3: the clock the Recent window and the nested children's
-            // `visibleChild` read (a phone draws roots only; a hidden child
-            // folds into the `earlier` row, which opens the thread).
+            // NEW-1: the clock the Recent window reads (#EXP-1461: every
+            // row is a root).
             now: ISO8601DateFormatter().string(from: Date())
         )
         // Roots holding a live session of mine (any depth of the tree).
@@ -256,7 +256,7 @@ final class SessionListsModel {
         let running = groups
             .filter { $0.key != .recent }
             .flatMap(\.rows)
-            .filter { $0.depth == 0 && mine.contains($0.sessionId) }
+            .filter { mine.contains($0.sessionId) }
         let identifierById = Dictionary(
             rows.issues.map { ($0.id, $0.identifier) }, uniquingKeysWith: { a, _ in a }
         )
@@ -274,8 +274,7 @@ final class SessionListsModel {
         }
         var words: [String: ThreadRowWord] = [:]
         var prStates: [String: [String]] = [:]
-        // EXP-1323: a nested child row carries no word (web + IDE).
-        for row in groups.flatMap(\.rows) where row.depth == 0 {
+        for row in groups.flatMap(\.rows) {
             let prs = prsByRoot[row.sessionId] ?? []
             words[row.sessionId] = SessionTree.threadRowWord(
                 busy: row.busy,

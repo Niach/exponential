@@ -6,8 +6,8 @@ import { useSessionNav } from "@/hooks/use-session-nav"
 import { useStories } from "@/hooks/use-stories"
 
 // S-3 STORIES (web): the chats page's story rings (stories.json RINGS) and
-// THE viewer they open. The rings ride the agent bubbles row (chats.json
-// BUBBLES, `AgentBubbles rings`): a bubble wears its agent's ring, the rest
+// THE viewer they open. The rings ARE the chats header row (stories.json
+// STORY ROW, `AgentBubbles rings`): a bubble wears its agent's ring, the rest
 // follow it; nothing here paints a row of its own.
 
 export function useChatStories(

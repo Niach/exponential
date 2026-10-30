@@ -1,5 +1,5 @@
 import { useMemo, type ComponentProps, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
-import { bubbleRings, type StoryRing as StoryRingModel } from "@exp/domain-contract/stories"
+import { STORY_ROW, storyRow, type StoryRing as StoryRingModel } from "@exp/domain-contract/stories"
 import {
   CHAT_FILTERS,
   CHATS_COPY,
@@ -98,74 +98,46 @@ export function AgentAvatar({
   return <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className={className} />
 }
 
-const BUBBLE_RING: Record<NonNullable<AgentBubble[`ring`]> | `none`, string> = {
-  needs_you: `border-amber-400`,
-  unread: `border-foreground`,
-  none: `border-transparent`,
-}
-
-/** One agent bubble: the 66 circle (a 3px ring around a 3px background gap
- *  around the agent's icon on bg muted) with the name under it. A tap opens
- *  the agent's chat; right-click / long-press = its agent menu. S-3
- *  (stories.json STORY RING): a bubble with a `story` ring wears THE
- *  StoryRing instead and a tap opens the story viewer at it. */
+/** One agent bubble of the story row: the agent's icon on bg muted inside
+ *  its THE StoryRing (the bubble size), the name under it. A tap opens the
+ *  story viewer at the ring; right-click / long-press = its agent menu. */
 export function AgentBubbleButton({
   bubble,
-  story = null,
-  onOpen,
+  story,
   onOpenStory,
   className,
 }: {
   bubble: AgentBubble
-  /** Its agent's story ring (`bubbleRings`); null = none. */
-  story?: StoryRingModel | null
-  onOpen?: (agentId: string) => void
+  /** Its agent's story ring (`storyRow`). */
+  story: StoryRingModel
   onOpenStory?: (key: string) => void
   className?: string
 }) {
-  const size = CHATS_SHELL.bubble
-  const ring = CHATS_SHELL.bubbleRing
   const avatar = bubble.busy ? (
     <AgentWorkingMark agent={null} className="size-6" />
   ) : (
     <AgentAvatar agent={bubble} className="size-6" />
   )
-  const opensStory = story !== null && onOpenStory !== undefined
   return (
     <button
       type="button"
       data-testid={CHATS_TEST_IDS.agentBubble}
-      data-ring={bubble.ring ?? `none`}
-      data-story={story ? story.key : undefined}
+      data-story={story.key}
       {...menuProps(`agent`, bubble.agentId)}
-      onClick={
-        opensStory ? () => onOpenStory(story.key) : onOpen ? () => onOpen(bubble.agentId) : undefined
-      }
+      onClick={onOpenStory ? () => onOpenStory(story.key) : undefined}
       className={cn(
-        `flex shrink-0 flex-col items-center gap-1.5 rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+        `flex shrink-0 flex-col items-center rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
         className
       )}
-      style={{ width: size + 6 }}
+      style={{ width: STORY_ROW.itemWidth, gap: STORY_ROW.labelGap }}
     >
-      {story ? (
-        <StoryRing stories={story.stories} size={size}>
-          <span className="flex size-full items-center justify-center rounded-full bg-muted">{avatar}</span>
-        </StoryRing>
-      ) : (
-        <span
-          className={cn(`relative flex shrink-0 rounded-full`, BUBBLE_RING[bubble.ring ?? `none`])}
-          style={{ width: size, height: size, borderWidth: ring, padding: ring }}
-        >
-          {bubble.ring === null && (
-            <span aria-hidden className="absolute -inset-[3px] rounded-full border border-glass-stroke" />
-          )}
-          <span className="flex size-full items-center justify-center rounded-full bg-muted">{avatar}</span>
-        </span>
-      )}
+      <StoryRing stories={story.stories} size={CHATS_SHELL.bubble}>
+        <span className="flex size-full items-center justify-center rounded-full bg-muted">{avatar}</span>
+      </StoryRing>
       <span
         className={cn(
           `w-full truncate text-center text-xs`,
-          bubble.ring || story?.unseen ? `font-medium text-foreground` : `text-muted-foreground`
+          story.unseen ? `font-medium text-foreground` : `text-muted-foreground`
         )}
       >
         {bubble.name}
@@ -174,14 +146,14 @@ export function AgentBubbleButton({
   )
 }
 
-/** The Chats header's agents row (`agentBubbles`, in `listAgents` order).
- *  S-3: each bubble wears its agent's story ring, the rings no bubble wears
- *  follow in the same row (`bubbleRings`). */
+/** THE story row of the Chats header (stories.json STORY ROW, #EXP-1461):
+ *  ONLY rings (`storyRow`). A bubble whose agent has a ring wears it (in
+ *  `listAgents` order); a bubble without one is not drawn; the rings no
+ *  bubble wears follow in ring order. Nothing = no row. */
 export function AgentBubbles({
   bubbles,
   rings = [],
   ringAvatar,
-  onOpen,
   onOpenStory,
   className,
 }: {
@@ -190,30 +162,27 @@ export function AgentBubbles({
   rings?: readonly StoryRingModel[]
   /** A trailing ring's avatar (a root ring's brand mark). */
   ringAvatar?: (ring: StoryRingModel) => ReactNode
-  onOpen?: (agentId: string) => void
   onOpenStory?: (key: string) => void
   className?: string
 }) {
-  const { byAgent, rest } = useMemo(
-    () => bubbleRings(bubbles.map((bubble) => bubble.agentId), rings),
-    [bubbles, rings]
-  )
-  if (bubbles.length === 0 && rest.length === 0) return null
+  const row = useMemo(() => storyRow(bubbles.map((bubble) => bubble.agentId), rings), [bubbles, rings])
+  const worn = useMemo(() => bubbles.filter((bubble) => row.byAgent.has(bubble.agentId)), [bubbles, row])
+  if (worn.length === 0 && row.rest.length === 0) return null
   return (
     <div
       data-slot="agent-bubbles"
-      className={cn(`-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]`, className)}
+      className={cn(`-mx-4 flex overflow-x-auto px-4 [scrollbar-width:none]`, className)}
+      style={{ gap: STORY_ROW.gap, paddingBottom: STORY_ROW.padBottom }}
     >
-      {bubbles.map((bubble) => (
+      {worn.map((bubble) => (
         <AgentBubbleButton
           key={bubble.agentId}
           bubble={bubble}
-          story={byAgent.get(bubble.agentId) ?? null}
-          onOpen={onOpen}
+          story={row.byAgent.get(bubble.agentId)!}
           onOpenStory={onOpenStory}
         />
       ))}
-      {rest.map((ring) => (
+      {row.rest.map((ring) => (
         <StoryRingButton key={ring.key} ring={ring} avatar={ringAvatar?.(ring)} onOpen={onOpenStory} />
       ))}
     </div>
@@ -414,7 +383,7 @@ function ChatRowText({
           <span
             className={cn(
               `line-clamp-2 min-w-0 flex-1 text-sm leading-snug text-muted-foreground`,
-              row.preview.kind === `working` && `italic`
+              (row.preview.kind === `working` || row.preview.kind === `locked`) && `italic`
             )}
           >
             {prefix && <span className="text-foreground/85">{prefix}</span>}

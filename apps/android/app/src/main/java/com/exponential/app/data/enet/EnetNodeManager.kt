@@ -5,7 +5,15 @@ import android.util.Log
 import com.exponential.app.data.api.InstallsApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.api.PendingWrap
+import com.exponential.app.data.api.SessionKeysApi
 import com.exponential.app.data.db.MultiAccountTeamRepository
+import com.exponential.app.data.sealed.HolderApi
+import com.exponential.app.data.sealed.SealedFfi
+import com.exponential.app.data.sealed.SealedKeys
+import com.exponential.app.data.sealed.TreeKeyHolder
+import com.exponential.app.data.sealed.TreeKeyStore
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -19,6 +27,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
@@ -35,6 +44,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   [REFRESH_MS].
  * - The account's credentials dropping (sign-out, a dead session) stops its
  *   node; an explicit sign-out of this install also revokes it ([signOut]).
+ * - EXP-1459: a registered install is a tree-key HOLDER ([TreeKeyHolder]):
+ *   on start, every [HOLDER_MS] and whenever a screen met a key it lacks.
+ *   An account's stored tree keys open content from app start, offline too.
  */
 @Singleton
 class EnetNodeManager @Inject constructor(
@@ -42,11 +54,16 @@ class EnetNodeManager @Inject constructor(
     private val teams: MultiAccountTeamRepository,
     private val api: InstallsApi,
     private val identities: EnetIdentityStore,
+    private val treeKeys: TreeKeyStore,
+    private val sessionKeys: SessionKeysApi,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private val nodes = mutableMapOf<String, InstallNode>()
+    private val holders = ConcurrentHashMap<String, TreeKeyHolder>()
+    private val installIds = ConcurrentHashMap<String, String>()
+    private val holderWake = Channel<Unit>(Channel.CONFLATED)
 
     // accountId -> userId of the signed-in accounts, and their team ids.
     @Volatile private var accounts: Map<String, String> = emptyMap()
@@ -73,6 +90,35 @@ class EnetNodeManager @Inject constructor(
             }
         }
         scope.launch { loop() }
+        scope.launch { holderLoop() }
+    }
+
+    /** This install's registry id for [accountId] once its node registered (the sealed writers' `installId`). */
+    fun installId(accountId: String): String? = installIds[accountId]
+
+    /** Runs a holder pass now (a key was just created, or a screen lacks one). */
+    fun wakeHolders() {
+        holderWake.trySend(Unit)
+    }
+
+    private suspend fun holderLoop() {
+        while (true) {
+            withTimeoutOrNull(HOLDER_MS) {
+                select<Unit> {
+                    holderWake.onReceive { }
+                    SealedKeys.missing.onReceive { }
+                }
+            }
+            for (holder in holders.values.toList()) {
+                try {
+                    holder.pass()
+                } catch (err: CancellationException) {
+                    throw err
+                } catch (err: Throwable) {
+                    Log.w(TAG, "tree-key holder failed: ${err.javaClass.simpleName}")
+                }
+            }
+        }
     }
 
     private suspend fun loop() {
@@ -98,6 +144,13 @@ class EnetNodeManager @Inject constructor(
                     continue
                 }
                 if (node.installId == null) startAndRegister(accountId, node)
+                node.installId?.let { id ->
+                    installIds[accountId] = id
+                    if (!holders.containsKey(accountId)) newHolder(accountId, id)?.let {
+                        holders[accountId] = it
+                        holderWake.trySend(Unit)
+                    }
+                }
                 if (!node.refreshAccess(teamIds[accountId].orEmpty())) failed = true
             } catch (err: CancellationException) {
                 throw err
@@ -109,8 +162,30 @@ class EnetNodeManager @Inject constructor(
         return failed
     }
 
+    private fun newHolder(accountId: String, installId: String): TreeKeyHolder? {
+        val identity = identities.vault.identity(accountId, create = false) ?: return null
+        return TreeKeyHolder(
+            accountId = accountId,
+            installId = installId,
+            installSecret = SealedFfi.installSecret(identity),
+            crypto = SealedFfi,
+            vault = treeKeys.vault,
+            api = object : HolderApi {
+                override suspend fun mine(installId: String) =
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.mine(accountId, installId) } ?: error("mine timed out")
+                override suspend fun pending(installId: String) =
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.pending(accountId, installId) } ?: error("pending timed out")
+                override suspend fun wrap(installId: String, wraps: List<PendingWrap>) {
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.wrap(accountId, installId, wraps) } ?: error("wrap timed out")
+                }
+            },
+        )
+    }
+
     private fun newNode(accountId: String, userId: String): InstallNode? {
         val identity = identities.vault.identity(accountId) ?: return null
+        // The keys this account already holds open content before the node is up.
+        SealedKeys.merge(treeKeys.vault.all(accountId))
         return InstallNode(
             userId = userId,
             identity = identity,
@@ -141,6 +216,8 @@ class EnetNodeManager @Inject constructor(
     }
 
     private suspend fun stopQuietly(accountId: String) {
+        holders.remove(accountId)
+        installIds.remove(accountId)
         val node = nodes.remove(accountId) ?: return
         try {
             node.stop()
@@ -175,7 +252,11 @@ class EnetNodeManager @Inject constructor(
                     }
                 }
             }
-            if (forget) identities.vault.forget(accountId)
+            if (forget) {
+                identities.vault.forget(accountId)
+                SealedKeys.drop(treeKeys.vault.all(accountId).keys)
+                treeKeys.vault.forget(accountId)
+            }
         }
         wake.trySend(Unit)
     }
@@ -192,6 +273,8 @@ class EnetNodeManager @Inject constructor(
         /** The allowlist refresh cadence (#VAPP-37: on start + every 10 minutes). */
         const val REFRESH_MS = 10 * 60 * 1000L
         private const val RETRY_MS = 60 * 1000L
+        /** The tree-key holder cadence (sealed-content.json: on start + every minute while online). */
+        const val HOLDER_MS = 60 * 1000L
         private const val CALL_TIMEOUT_MS = 20_000L
         private const val REVOKE_TIMEOUT_MS = 3_000L
     }

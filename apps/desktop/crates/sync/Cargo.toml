@@ -29,6 +29,9 @@ reqwest.workspace = true
 # layer drains it on one foreground task.
 flume.workspace = true
 log = "0.4"
+# EXP-1459: opens sealed session content (`sealed.rs`); the push-only build
+# (no iroh), the node feature comes from the hosts' own edge.
+enet-core = { path = "../enet-core", default-features = false }
 
 [features]
 default = ["gpui"]

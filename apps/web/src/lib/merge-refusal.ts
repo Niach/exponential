@@ -89,7 +89,10 @@ export async function postMergeRefusal(args: {
       const ofThisPr = and(
         inSession(target.id),
         sql`${messages.card}->>'event' = 'pr_merge_refused'`,
-        sql`${messages.card}->>'pullRequestId' = ${args.pullRequestId}`
+        sql`${messages.card}->>'pullRequestId' = ${args.pullRequestId}`,
+        // EXP-1458: refusals are server-written plaintext; a sealed card is
+        // never one (its `headSha` would live inside `sealed`).
+        sql`NOT (${messages.card} ? 'sealed')`
       )
       // One unread line per PR: a repeat click or an automerge pass while
       // the last refusal still waits adds nothing.
