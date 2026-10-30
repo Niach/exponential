@@ -13,6 +13,9 @@ publish = false
 # on the GPU only, plus playback.
 etalk = { path = "../etalk" }
 etalk-crispasr = { path = "../etalk-crispasr" }
+# EXP-1424: the wake word's model detector (tract, pure Rust) for phrases
+# with a published model; the files are pinned downloads like the others.
+etalk-wakeword = { path = "../etalk-wakeword" }
 serde_json = { workspace = true }
 log = "0.4"
 # NEW-55: the echo canceller of LOCAL calls (the voice device's own microphone
@@ -32,6 +35,9 @@ cpal = "0.16"
 libc = { workspace = true }
 
 [dev-dependencies]
+# EXP-1424: the wake tests fetch livekit-wakeword's test model by sha256
+# (crates/etalk-wakeword/tests/common).
+sha2 = { workspace = true }
 # NEW-55: the `call_latency` example times the call's Opus frames (NEW-88:
 # through `call-codec`, so `--features etalk-codec/libopus` times libopus).
 etalk-codec = { path = "../etalk-codec" }

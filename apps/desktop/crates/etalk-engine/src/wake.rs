@@ -19,9 +19,16 @@
 //! it matches with [`slide_match`] (the phrase within the first
 //! [`SLIDE_SKIP_WORDS`] + 1 words, [`SLIDE_EDIT_RATIO`]).
 //!
+//! EXP-1424 MODEL DETECTOR: a phrase with a published model
+//! (`etalk_wakeword::models`, e.g. spezl's `Hey spezl`) whose files are
+//! ready is heard by [`ModelDetector`] instead: every 80 ms frame scored by
+//! the openWakeWord pipeline, no Parakeet pass while scanning. Both sit
+//! behind [`WakeDetector`]; every other phrase keeps [`TranscriptMatcher`]
+//! (all of the above).
+//!
 //! Fixture-locked by `packages/etalk/fixtures/talk-listen.json`
-//! (`wake`): only the voice device listens, so this is the one
-//! implementation.
+//! (`wake`, `wake.detector`): only the voice device listens, so this is the
+//! one implementation.
 
 use crate::listen::{Segmenter, Transcriber, Utterance, Vad, FRAME, RATE};
 
@@ -59,6 +66,13 @@ pub const SLIDE_EDIT_RATIO: f32 = 0.15;
 /// S-3: a later check's phrase may start after this many words (fragments
 /// of the speech the window cut into).
 pub const SLIDE_SKIP_WORDS: usize = 3;
+
+/// EXP-1424: a model's detection seeds its turn from at most this far back
+/// (the phrase lies inside the classifier's window, which ends there).
+pub const MODEL_HISTORY_MS: usize = 2_000;
+/// EXP-1424: the edits [`model_match`] tolerates when it strips the phrase
+/// (the model already heard it: only the transcript's spelling is in doubt).
+pub const MODEL_EDIT_RATIO: f32 = 0.5;
 
 const fn frames(ms: usize) -> usize {
     (ms * RATE / 1000).div_ceil(FRAME)
@@ -208,6 +222,48 @@ pub fn slide_match(phrase: &str, heard: &str) -> Option<String> {
     (distance <= slide_allowed(phrase)).then(|| rest_after(heard, count))
 }
 
+/// EXP-1424: a MODEL's turn (talk-listen.json `wake.detector.modelMatch`):
+/// the model heard the phrase, so the transcript loses its closest opening
+/// (starting at any of the first [`SLIDE_SKIP_WORDS`] + 1 words, the
+/// closest wins, the earliest on a tie) within floor(letters ×
+/// [`MODEL_EDIT_RATIO`]) edits; else it stays whole.
+pub fn model_match(phrase: &str, heard: &str) -> Option<String> {
+    let letters: usize = wake_words(phrase).iter().map(|word| word.folded.chars().count()).sum();
+    let words = wake_words(heard);
+    let mut best: Option<(usize, usize)> = None;
+    for skip in 0..=SLIDE_SKIP_WORDS.min(words.len()) {
+        let Some(word) = words.get(skip) else { break };
+        let Some((count, distance)) = wake_distance(phrase, &heard[word.start..]) else { continue };
+        if best.is_none_or(|(_, best)| distance < best) {
+            best = Some((skip + count, distance));
+        }
+    }
+    let (count, distance) = best?;
+    (distance <= (letters as f32 * MODEL_EDIT_RATIO).floor() as usize).then(|| rest_after(heard, count))
+}
+
+/// What woke a turn, so what its transcript loses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opening {
+    /// A segment's first check ([`wake_match`]).
+    First,
+    /// S-3: a later check ([`slide_match`] too).
+    Later,
+    /// EXP-1424: a model ([`model_match`]).
+    Model,
+}
+
+/// `heard` without the phrase that woke the turn (unchanged when it no
+/// longer opens with it).
+pub fn strip(phrase: &str, opening: Opening, heard: &str) -> String {
+    let stripped = match opening {
+        Opening::First => wake_match(phrase, heard),
+        Opening::Later => wake_match(phrase, heard).or_else(|| slide_match(phrase, heard)),
+        Opening::Model => model_match(phrase, heard),
+    };
+    stripped.unwrap_or_else(|| heard.to_string())
+}
+
 /// The window for `phrase`: [`WINDOW_BASE_MS`] + [`WINDOW_PER_LETTER_MS`] per
 /// letter or digit, clamped to [`WINDOW_MIN_MS`] … [`WINDOW_MAX_MS`].
 pub fn window_ms(phrase: &str) -> usize {
@@ -223,14 +279,19 @@ pub struct Check {
     /// The segment's padded start (a segment that began while the voice
     /// played is never checked, however late the check).
     pub segment: usize,
-    /// S-3: a later check of the segment ([`slide_match`]), not its first.
-    pub later: bool,
+    /// S-3: a later check of the segment ([`slide_match`]), not its first;
+    /// EXP-1424: or a model's detection (never transcribed to match).
+    pub opening: Opening,
 }
 
 impl Check {
     /// Whether `heard` (this check's transcript) is the phrase.
     pub fn matches(&self, phrase: &str, heard: &str) -> bool {
-        if self.later { slide_match(phrase, heard).is_some() } else { wake_match(phrase, heard).is_some() }
+        match self.opening {
+            Opening::First => wake_match(phrase, heard).is_some(),
+            Opening::Later => slide_match(phrase, heard).is_some(),
+            Opening::Model => true,
+        }
     }
 }
 
@@ -257,6 +318,9 @@ pub struct WakeScanner {
     /// Frames scored while the voice played: a segment starting before
     /// this is the reply's and never checked.
     played: usize,
+    /// EXP-1424: frames kept back even in silence (a model's seed reaches
+    /// back [`MODEL_HISTORY_MS`], past a segment that already closed).
+    history: usize,
 }
 
 impl WakeScanner {
@@ -271,7 +335,14 @@ impl WakeScanner {
             audio: Vec::new(),
             scores: Vec::new(),
             played: 0,
+            history: frames(crate::listen::PAD_MS),
         }
+    }
+
+    /// EXP-1424: a scanner for [`ModelDetector`]: it also keeps the last
+    /// [`MODEL_HISTORY_MS`].
+    pub fn for_model() -> Self {
+        WakeScanner { history: frames(MODEL_HISTORY_MS), ..WakeScanner::new(WINDOW_MIN_MS) }
     }
 
     /// Captured samples, before their scores.
@@ -287,13 +358,18 @@ impl WakeScanner {
         self.scores.push(probability);
         let closed = self.segmenter.push(probability);
         let hop = frames(WINDOW_HOP_MS);
-        let last = |start: usize, end: usize| Check { start: end.saturating_sub(self.window).max(start), end, segment: start, later: true };
+        let last = |start: usize, end: usize| Check { start: end.saturating_sub(self.window).max(start), end, segment: start, opening: Opening::Later };
         let check = if let Some(segment) = closed {
             // The segment that just closed (a cut one included): its first
             // check, or its unchecked tail.
             let checks = std::mem::take(&mut self.checks);
             if checks == 0 {
-                Some(Check { start: segment.start, end: segment.end.min(segment.start + self.window), segment: segment.start, later: false })
+                Some(Check {
+                    start: segment.start,
+                    end: segment.end.min(segment.start + self.window),
+                    segment: segment.start,
+                    opening: Opening::First,
+                })
             } else {
                 (checks < MAX_CHECKS_PER_SEGMENT && segment.end >= self.checked_to + frames(WINDOW_HOP_MS / 2))
                     .then(|| last(segment.start, segment.end))
@@ -301,7 +377,7 @@ impl WakeScanner {
         } else if let Some(start) = self.segmenter.open_start() {
             let check = if self.checks == 0 {
                 (self.segmenter.frames() - start >= self.window)
-                    .then_some(Check { start, end: start + self.window, segment: start, later: false })
+                    .then_some(Check { start, end: start + self.window, segment: start, opening: Opening::First })
             } else {
                 // Grown = its speech (padded) reached that far: a pause
                 // that may still close it adds nothing.
@@ -341,10 +417,8 @@ impl WakeScanner {
 
     /// Drop what no check or seed can reach any more.
     fn trim(&mut self) {
-        let keep = self
-            .segmenter
-            .open_start()
-            .unwrap_or_else(|| self.segmenter.frames().saturating_sub(frames(crate::listen::PAD_MS)));
+        let back = self.segmenter.frames().saturating_sub(self.history);
+        let keep = self.segmenter.open_start().map_or(back, |start| start.min(back));
         if keep > self.base {
             let drop = keep - self.base;
             self.audio.drain(..(drop * FRAME).min(self.audio.len()));
@@ -354,15 +428,135 @@ impl WakeScanner {
     }
 }
 
-/// One capture through the scan: score it, transcribe the checks it makes
-/// due, and match each against `phrase`. A match comes back with the scores
-/// of the capture's frames after it (the turn's utterance takes them).
-/// `playing` = a reply is being spoken (or just was, [`ECHO_TAIL_MS`]): the
-/// capture is the voice's own, and a segment that starts in it is never
-/// checked, so the agent can't wake itself.
+/// EXP-1424: how the scan hears the phrase: [`TranscriptMatcher`] (the
+/// rules above) or [`ModelDetector`] (a model of its own), picked per
+/// phrase ([`detector_kind`]).
+pub trait WakeDetector {
+    /// One capture, already in `scanner` and scored (`probabilities`, one
+    /// per frame): a match comes back with the scores of the capture's
+    /// frames after it (the turn's utterance takes them). `playing` = the
+    /// capture is the voice's own (or the cooldown's): a segment that starts
+    /// in it never wakes.
+    #[allow(clippy::too_many_arguments)]
+    fn hear(
+        &mut self,
+        scanner: &mut WakeScanner,
+        samples: &[f32],
+        probabilities: &[f32],
+        transcriber: &mut dyn Transcriber,
+        phrase: &str,
+        language: &str,
+        playing: bool,
+    ) -> Result<Option<(Check, Vec<f32>)>, String>;
+
+    fn kind(&self) -> DetectorKind;
+}
+
+/// Which detector hears a phrase (talk-listen.json `wake.detector.pick`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetectorKind {
+    Transcript,
+    Model,
+}
+
+/// `phrase`'s detector among `models`: a model when one is published for
+/// it, else the transcript matcher (the files still have to be ready: until
+/// then the listener keeps the matcher).
+pub fn detector_kind(models: &[etalk_wakeword::models::Model], phrase: &str) -> DetectorKind {
+    match etalk_wakeword::models::model_in(models, phrase) {
+        Some(_) => DetectorKind::Model,
+        None => DetectorKind::Transcript,
+    }
+}
+
+/// #NEW-56: transcribe the checks the scanner makes due and match each.
+pub struct TranscriptMatcher;
+
+impl WakeDetector for TranscriptMatcher {
+    fn hear(
+        &mut self,
+        scanner: &mut WakeScanner,
+        _samples: &[f32],
+        probabilities: &[f32],
+        transcriber: &mut dyn Transcriber,
+        phrase: &str,
+        language: &str,
+        playing: bool,
+    ) -> Result<Option<(Check, Vec<f32>)>, String> {
+        for (index, probability) in probabilities.iter().enumerate() {
+            let check = scanner.push(*probability);
+            if playing {
+                scanner.played = scanner.frames();
+            }
+            let Some(check) = check else { continue };
+            if check.segment < scanner.played {
+                continue;
+            }
+            let heard = transcriber.transcribe(scanner.pcm(check), language)?;
+            if check.matches(phrase, &heard) {
+                return Ok(Some((check, probabilities[index + 1..].to_vec())));
+            }
+        }
+        Ok(None)
+    }
+
+    fn kind(&self) -> DetectorKind {
+        DetectorKind::Transcript
+    }
+}
+
+/// EXP-1424: a phrase's model scores every frame; Silero still segments
+/// (the turn needs its scores), nothing is transcribed while scanning. A
+/// detection is a [`Check`] from up to [`MODEL_HISTORY_MS`] before it (never
+/// before its segment's padded start) to the detection; its segment is the
+/// open one (else the check's start), so the echo and cooldown rules hold.
+pub struct ModelDetector(pub etalk_wakeword::Detector);
+
+impl WakeDetector for ModelDetector {
+    fn hear(
+        &mut self,
+        scanner: &mut WakeScanner,
+        samples: &[f32],
+        probabilities: &[f32],
+        _transcriber: &mut dyn Transcriber,
+        _phrase: &str,
+        _language: &str,
+        playing: bool,
+    ) -> Result<Option<(Check, Vec<f32>)>, String> {
+        for probability in probabilities {
+            scanner.push(*probability);
+            if playing {
+                scanner.played = scanner.frames();
+            }
+        }
+        // Always fed (its history stays whole); a detection while playing
+        // is dropped below.
+        let Some(end) = self.0.detect(samples).map_err(|err| err.to_string())? else { return Ok(None) };
+        let end = (end / FRAME).min(scanner.frames());
+        let open = scanner.segmenter.open_start();
+        let start = end.saturating_sub(frames(MODEL_HISTORY_MS)).max(open.unwrap_or(0)).max(scanner.base);
+        let segment = open.unwrap_or(start);
+        if playing || segment < scanner.played {
+            return Ok(None);
+        }
+        Ok(Some((Check { start, end, segment, opening: Opening::Model }, Vec::new())))
+    }
+
+    fn kind(&self) -> DetectorKind {
+        DetectorKind::Model
+    }
+}
+
+/// One capture through the scan: score it and let `detector` hear it. A
+/// match comes back with the scores of the capture's frames after it (the
+/// turn's utterance takes them). `playing` = a reply is being spoken (or
+/// just was, [`ECHO_TAIL_MS`]): the capture is the voice's own, and a
+/// segment that starts in it is never checked, so the agent can't wake
+/// itself.
 #[allow(clippy::too_many_arguments)]
 pub fn scan(
     scanner: &mut WakeScanner,
+    detector: &mut dyn WakeDetector,
     vad: &mut dyn Vad,
     transcriber: &mut dyn Transcriber,
     samples: &[f32],
@@ -372,21 +566,7 @@ pub fn scan(
 ) -> Result<Option<(Check, Vec<f32>)>, String> {
     scanner.samples(samples);
     let probabilities = vad.push(samples)?;
-    for (index, probability) in probabilities.iter().enumerate() {
-        let check = scanner.push(*probability);
-        if playing {
-            scanner.played = scanner.frames();
-        }
-        let Some(check) = check else { continue };
-        if check.segment < scanner.played {
-            continue;
-        }
-        let heard = transcriber.transcribe(scanner.pcm(check), language)?;
-        if check.matches(phrase, &heard) {
-            return Ok(Some((check, probabilities[index + 1..].to_vec())));
-        }
-    }
-    Ok(None)
+    detector.hear(scanner, samples, &probabilities, transcriber, phrase, language, playing)
 }
 
 /// A match's turn: the segment from the check's start seeds it, the
@@ -400,7 +580,7 @@ pub fn turn(
     transcriber: &mut dyn Transcriber,
 ) -> Result<Utterance, (etalk::ListenFailure, String)> {
     let (audio, scores) = scanner.seed(check);
-    let mut utterance = Utterance::woken(id, language, phrase, check.later, &audio, &scores, transcriber)?;
+    let mut utterance = Utterance::woken(id, language, phrase, check.opening, &audio, &scores, transcriber)?;
     utterance.feed_scored(&[], &rest, transcriber, &mut |_| {})?;
     Ok(utterance)
 }
@@ -505,7 +685,7 @@ mod tests {
                     if let Some(check) = scanner.push(run[0].as_f64().unwrap() as f32) {
                         // Every check's audio is still kept.
                         assert_eq!(scanner.pcm(check).len(), (check.end - check.start) * FRAME, "{}", case["name"]);
-                        assert_eq!(check.later, checks.last().is_some_and(|last: &[usize; 2]| last[0] >= check.segment), "{}", case["name"]);
+                        assert_eq!(check.opening == Opening::Later, checks.last().is_some_and(|last: &[usize; 2]| last[0] >= check.segment), "{}", case["name"]);
                         checks.push([check.start, check.end]);
                     }
                 }
@@ -533,6 +713,74 @@ mod tests {
                 case["elapsedMs"].as_u64().unwrap() as usize,
             );
             assert_eq!(over, case["over"].as_bool().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    fn detector() -> serde_json::Value {
+        wake()["detector"].clone()
+    }
+
+    #[test]
+    fn the_model_constants_are_the_fixture() {
+        let c = &detector()["constants"];
+        assert_eq!(c["frameMs"], etalk_wakeword::FRAME_SAMPLES * 1000 / etalk_wakeword::RATE);
+        assert_eq!(c["threshold"].as_f64().unwrap() as f32, etalk_wakeword::models::THRESHOLD);
+        assert_eq!(c["patienceFrames"], etalk_wakeword::models::PATIENCE);
+        assert_eq!(c["debounceFrames"], etalk_wakeword::models::DEBOUNCE);
+        assert_eq!(c["modelHistoryMs"], MODEL_HISTORY_MS);
+        assert_eq!(c["modelEditRatio"].as_f64().unwrap() as f32, MODEL_EDIT_RATIO);
+        for model in etalk_wakeword::models::MODELS {
+            assert!(model.threshold > 0.0 && model.threshold < 1.0, "{}: its own measured threshold", model.id);
+        }
+    }
+
+    #[test]
+    fn detectors_are_picked_like_the_fixture() {
+        use etalk_wakeword::models::{Model, Pin, HEY_SPEZL};
+        let published = |key: &'static str| Model {
+            phrases: Box::leak(Box::new([key])),
+            classifier: Pin { url: "https://example.invalid/m.onnx", sha256: "00", ..HEY_SPEZL.classifier },
+            ..HEY_SPEZL
+        };
+        for case in detector()["pick"].as_array().unwrap() {
+            let models: Vec<Model> =
+                case["models"].as_array().unwrap().iter().map(|key| published(key.as_str().unwrap().to_string().leak())).collect();
+            let expected = match case["detector"].as_str().unwrap() {
+                "model" => DetectorKind::Model,
+                _ => DetectorKind::Transcript,
+            };
+            assert_eq!(detector_kind(&models, case["phrase"].as_str().unwrap()), expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn triggers_fire_like_the_fixture() {
+        let c = &detector()["constants"];
+        for case in detector()["trigger"].as_array().unwrap() {
+            let mut trigger = etalk_wakeword::Trigger::new(
+                c["threshold"].as_f64().unwrap() as f32,
+                c["patienceFrames"].as_u64().unwrap() as usize,
+                c["debounceFrames"].as_u64().unwrap() as usize,
+            );
+            let fires: Vec<usize> = case["scores"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .enumerate()
+                .filter_map(|(frame, score)| trigger.push(score.as_f64().unwrap() as f32).then_some(frame))
+                .collect();
+            let expected: Vec<usize> = serde_json::from_value(case["fires"].clone()).unwrap();
+            assert_eq!(fires, expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn model_matches_follow_the_fixture() {
+        for case in detector()["modelMatch"].as_array().unwrap() {
+            let (phrase, heard) = (case["phrase"].as_str().unwrap(), case["heard"].as_str().unwrap());
+            let expected = case["rest"].as_str().map(str::to_string);
+            assert_eq!(model_match(phrase, heard), expected, "{}", case["name"]);
+            assert_eq!(strip(phrase, Opening::Model, heard), expected.unwrap_or(heard.to_string()), "{}", case["name"]);
         }
     }
 
@@ -592,7 +840,7 @@ mod tests {
                 }
                 continue;
             }
-            if let Some(matched) = scan(&mut scanner, &mut vad, &mut engines, chunk, "Hey Studio", "en", playing).unwrap() {
+            if let Some(matched) = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut engines, chunk, "Hey Studio", "en", playing).unwrap() {
                 turn = Some(super::turn("wake-1", "en", "Hey Studio", &scanner, matched, &mut engines).unwrap());
             }
         }
@@ -658,13 +906,13 @@ mod tests {
                 }
                 continue;
             }
-            if let Some(matched) = scan(&mut scanner, &mut vad, &mut engines, chunk, "Hey Studio", "en", false).unwrap() {
+            if let Some(matched) = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut engines, chunk, "Hey Studio", "en", false).unwrap() {
                 woke_at = Some(matched.0);
                 turn = Some(super::turn("wake-1", "en", "Hey Studio", &scanner, matched, &mut engines).unwrap());
             }
         }
         let check = woke_at.expect("a later check woke it");
-        assert!(check.later && check.start > check.segment, "{check:?}");
+        assert!(check.opening == Opening::Later && check.start > check.segment, "{check:?}");
         assert_eq!(answer, Some(etalk::Event::Heard { id: "wake-1".into(), text: "Move it.".into() }));
         // The first window alone would never have woken it.
         assert_eq!(wake_match("Hey Studio", "the release and hey Studio, move it."), None);
@@ -687,6 +935,77 @@ mod tests {
         assert_eq!(answer, Some(etalk::Event::Heard { id: "wake-1".into(), text: "Move NEW-78 to done.".into() }), "the person's phrase after it");
     }
 
+    /// Speech wherever a frame is louder than a whisper (real recordings).
+    struct Energy(Vec<f32>);
+
+    impl crate::listen::Vad for Energy {
+        fn push(&mut self, samples: &[f32]) -> Result<Vec<f32>, String> {
+            self.0.extend_from_slice(samples);
+            let whole = self.0.len() / FRAME * FRAME;
+            let rms = |frame: &[f32]| (frame.iter().map(|x| x * x).sum::<f32>() / frame.len() as f32).sqrt();
+            let out = self.0[..whole].chunks(FRAME).map(|frame| if rms(frame) > 0.01 { 0.9 } else { 0.05 }).collect();
+            self.0.drain(..whole);
+            Ok(out)
+        }
+    }
+
+    /// EXP-1424: a phrase with a model wakes without a transcription while
+    /// scanning, and the turn loses the phrase (livekit-wakeword's
+    /// `hey_livekit` and its recording); during the voice's own playback it
+    /// never wakes.
+    /// What the turn answered, the transcriptions spent while scanning, and
+    /// the check that woke it.
+    fn model_wake(played: usize) -> (Option<etalk::Event>, usize, Option<Check>) {
+        let fixtures = crate::wakeword_fixtures::fixtures().join("tests/fixtures");
+        let (phrase, _) = crate::wakeword_fixtures::wav(&fixtures.join("positive.wav"));
+        let audio = [tone(1.0, 0.0), phrase, tone(NO_COMMAND_MS as f32 / 1000.0 + 1.0, 0.0)].concat();
+        let model = etalk_wakeword::Detector::new(
+            crate::wakeword_fixtures::front_end(),
+            crate::wakeword_fixtures::hey_livekit(),
+            etalk_wakeword::Trigger::new(etalk_wakeword::models::THRESHOLD, etalk_wakeword::models::PATIENCE, etalk_wakeword::models::DEBOUNCE),
+            1.0,
+        );
+        let mut detector = ModelDetector(model);
+        let mut vad = Energy(Vec::new());
+        let mut engines = Says("Hey LiveKit, move it.", 0);
+        let mut scanner = WakeScanner::for_model();
+        let (mut turn, mut answer, mut woke) = (None::<Utterance>, None, None);
+        let mut scanned = None;
+        for (index, chunk) in audio.chunks(320).enumerate() {
+            if let Some(utterance) = turn.as_mut() {
+                utterance.feed(chunk, &mut vad, &mut engines, &mut |_| {}).unwrap();
+                if turn_ended(utterance) {
+                    turn.take().unwrap().finish(&mut engines, &mut |event| answer = Some(event)).unwrap();
+                    break;
+                }
+                continue;
+            }
+            let playing = index * 320 < played;
+            if let Some(matched) = scan(&mut scanner, &mut detector, &mut vad, &mut engines, chunk, "Hey LiveKit", "en", playing).unwrap() {
+                scanned = Some(engines.1);
+                woke = Some(matched.0);
+                turn = Some(super::turn("wake-1", "en", "Hey LiveKit", &scanner, matched, &mut engines).unwrap());
+            }
+        }
+        (answer, scanned.unwrap_or(engines.1), woke)
+    }
+
+    #[test]
+    fn a_model_wakes_without_transcribing_and_strips_the_phrase() {
+        let (answer, scanned, check) = model_wake(0);
+        let check = check.expect("the model heard the phrase");
+        assert_eq!(check.opening, Opening::Model);
+        assert!(check.start >= check.end.saturating_sub(frames(MODEL_HISTORY_MS)) && check.start < check.end, "{check:?}");
+        assert_eq!(scanned, 0, "nothing transcribed while scanning");
+        assert_eq!(answer, Some(etalk::Event::Heard { id: "wake-1".into(), text: "Move it.".into() }));
+    }
+
+    #[test]
+    fn a_model_never_wakes_on_the_voice() {
+        let (answer, scanned, check) = model_wake(usize::MAX);
+        assert_eq!((answer, scanned, check), (None, 0, None));
+    }
+
     #[test]
     fn the_seed_starts_at_the_check_and_runs_to_now() {
         let mut scanner = WakeScanner::new(2_000);
@@ -696,7 +1015,7 @@ mod tests {
             found = found.or(scanner.push(probability));
         }
         let check = found.expect("a 2 s segment is checked while open");
-        assert_eq!(check, Check { start: 18, end: 18 + frames(2_000), segment: 18, later: false });
+        assert_eq!(check, Check { start: 18, end: 18 + frames(2_000), segment: 18, opening: Opening::First });
         let (audio, scores) = scanner.seed(check);
         assert_eq!(scores.len(), 90 - 18);
         assert_eq!(audio.len(), scores.len() * FRAME);

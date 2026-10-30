@@ -41,7 +41,7 @@ use std::path::{Path, PathBuf};
 
 use etalk_engine::listen::{Transcriber, RATE};
 use etalk_engine::listener::Engines;
-use etalk_engine::wake::{scan, turn, turn_ended, wake_allowed, wake_distance, window_ms, WakeScanner};
+use etalk_engine::wake::{scan, turn, turn_ended, wake_allowed, wake_distance, window_ms, TranscriptMatcher, WakeScanner};
 
 /// User + system CPU seconds of this process, every thread (Linux).
 fn cpu_seconds() -> f64 {
@@ -124,7 +124,7 @@ fn run(engines: &mut Engines, audio: &[f32], phrase: &str, language: &str, clip:
         }
         let checks = counting.1;
         counting.2.clear();
-        let matched = scan(&mut scanner, &mut vad, &mut counting, chunk, phrase, language, false).expect("scan");
+        let matched = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut counting, chunk, phrase, language, false).expect("scan");
         tally.checks += counting.1 - checks;
         if let Some(checks_heard) = tally.checks_heard.as_mut() {
             checks_heard.extend(counting.2.iter().cloned());

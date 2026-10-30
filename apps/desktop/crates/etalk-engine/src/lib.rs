@@ -65,6 +65,12 @@ pub mod meeting;
 pub mod runtime;
 pub mod sink;
 pub mod wake;
+pub mod wake_model;
+
+/// EXP-1424: the wake tests' real model (livekit-wakeword's `hey_livekit`).
+#[cfg(test)]
+#[path = "../../etalk-wakeword/tests/common/mod.rs"]
+mod wakeword_fixtures;
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
