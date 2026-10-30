@@ -1,5 +1,11 @@
 import { resolveSessionHost } from "@/lib/sessions/host"
-import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
+import {
+  QUESTION_PUSH_COPY,
+  QUESTION_PUSH_DATA_KEYS,
+  questionPushRecipients,
+  questionPushText,
+  questionPushTitle,
+} from "@exp/domain-contract/question-push"
 import {
   and,
   desc,
@@ -44,9 +50,10 @@ import { recordNotificationFanout } from "@/lib/metrics/registry"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
 import { deriveSessionTitle } from "@/lib/sessions/brief"
 import { resolveMentions } from "@/lib/integrations/mentions"
-import { isSealedBody, isSealedMessage } from "@/lib/sessions/sealed"
+import { isSealedBody, isSealedCard, isSealedMessage } from "@/lib/sessions/sealed"
+import { askText as busAskText } from "@/lib/sessions/bus"
 import { reporterFacingText } from "@/lib/reporter/report-text"
-import type { CodingSessionBlocked } from "@exp/db-schema/domain"
+import type { CodingSessionBlocked, MessageCard } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
 
 // The canonical push `data.type` discriminator vocabulary (D8/D13). The web
@@ -1007,36 +1014,61 @@ export async function notifySessionBlocked(
 }
 
 /**
- * #EXP-1439: a member's Assistant asks them for a DECISION (a question or
- * plan card in its conversation): the one moment its chat pushes. One
- * issue-less `agent_message` row routed to the conversation, push-first,
- * muted per type by the usual prefs. Best-effort, never throws.
+ * #VAPP-45 (question-push.json): a ROOT session posted a question or plan
+ * card on itself (it now waits on a person): ONE issue-less `agent_message`
+ * row + push to its OWNER alone (#EXP-1439: an Assistant's decision is the
+ * same push under its own title). A child's ask routes to its parent agent:
+ * nothing. A SEALED card is never opened: the row and the push say the
+ * generic copy and the push's data carries the device's tree-sealed
+ * `askText` verbatim (`sealedText`), which the phone opens. Best-effort,
+ * never throws.
  */
-export async function notifyAssistantDecision(sessionId: string, text: string | null | undefined): Promise<void> {
+export async function notifySessionAsk(args: {
+  sessionId: string
+  card: Extract<MessageCard, { kind: `question` | `plan` }>
+  /** A sealed card's ask text, sealed by the device to its own tree. */
+  sealedAskText?: string | null
+}): Promise<void> {
   try {
     const [session] = await db
-      .select({ userId: sessions.userId, teamId: sessions.teamId, teamSlug: teams.slug })
+      .select({
+        id: sessions.id,
+        parentId: sessions.parentId,
+        rootId: sessions.rootId,
+        title: sessions.title,
+        userId: sessions.userId,
+        teamId: sessions.teamId,
+        teamSlug: teams.slug,
+        agentRole: agents.role,
+      })
       .from(sessions)
       .innerJoin(teams, eq(teams.id, sessions.teamId))
-      .where(eq(sessions.id, sessionId))
+      .leftJoin(agents, eq(agents.id, sessions.agentId))
+      .where(eq(sessions.id, args.sessionId))
       .limit(1)
     if (!session) return
-    // EXP-1458: a sealed card's text is never read (generic copy).
-    const body =
-      typeof text === `string` && !isSealedBody(text)
-        ? text.trim().split(`\n`)[0]!.slice(0, 200)
-        : SEALED_MESSAGE_NOTIFY_BODY
+    const recipientIds = questionPushRecipients(session)
+    if (recipientIds.length === 0) return
+    const sealed = isSealedCard(args.card)
+    const sealedText = sealed && args.sealedAskText && isSealedBody(args.sealedAskText) ? args.sealedAskText : null
+    const assistant = session.agentRole === `assistant`
     await deliverToTeam({
       teamId: session.teamId,
-      recipientIds: [session.userId],
+      recipientIds,
       type: `agent_message`,
-      title: ASSISTANT_COPY.decisionPush,
-      body: body || null,
-      pushData: { sessionId, teamId: session.teamId, teamSlug: session.teamSlug },
-      sessionId,
+      title: questionPushTitle({ assistant, sessionTitle: assistant ? `` : await deriveSessionTitle(session) }),
+      body: sealed ? SEALED_MESSAGE_NOTIFY_BODY : questionPushText(busAskText(session, args.card)),
+      pushData: {
+        sessionId: session.id,
+        teamId: session.teamId,
+        teamSlug: session.teamSlug,
+        [QUESTION_PUSH_DATA_KEYS.rootId]: session.rootId,
+        ...(sealedText ? { [QUESTION_PUSH_DATA_KEYS.sealedText]: sealedText } : {}),
+      },
+      sessionId: session.id,
     })
   } catch (err) {
-    console.error(`[notify] assistant decision failed:`, err)
+    console.error(`[notify] session ask failed:`, err)
   }
 }
 
@@ -1096,8 +1128,8 @@ export async function notifyDeviceShareRemoved(args: {
 }
 
 /** EXP-1458: a SEALED message's push / inbox body: generic copy, never a
- *  preview and never the envelope. */
-export const SEALED_MESSAGE_NOTIFY_BODY = `New message in a session`
+ *  preview and never the envelope (question-push.json `copy.genericBody`). */
+export const SEALED_MESSAGE_NOTIFY_BODY = QUESTION_PUSH_COPY.genericBody
 
 /** EXP-1458: the reply path's re-notify check over `mention_user_ids`
  *  (a sealed body has no `@email` to diff, `addsMention`'s twin): `after`

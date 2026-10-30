@@ -350,4 +350,35 @@ describe(`sealedPlaintext budget`, () => {
     expect(json.data).toEqual({ type: `issue_comment`, notificationId: `n`, userId: `u` })
     expect(json.body).toBe(`body`)
   })
+
+  // #VAPP-45 (question-push.json SIZE): a question's tree-sealed text is
+  // dropped FIRST, before the body is cut or a routing key goes.
+  it(`drops a question's sealedText first, keeping the body and every other key`, () => {
+    const data = { type: `agent_message`, sessionId: `s`, rootId: `s`, notificationId: `n`, userId: `u` }
+    const p = sealedPlaintext(`T needs you`, `New message in a session`, { ...data, sealedText: `exp-sealed:v1:1:${`A`.repeat(4000)}` })
+    const json = JSON.parse(Buffer.from(p).toString())
+    expect(sealedSize(p)).toBeLessThanOrEqual(MAX_SEALED_BYTES)
+    expect(json.data).toEqual(data)
+    expect(json.body).toBe(`New message in a session`)
+  })
+
+  it(`keeps a sealedText that fits`, () => {
+    const data = { type: `agent_message`, rootId: `s`, userId: `u`, sealedText: `exp-sealed:v1:1:${`A`.repeat(1500)}` }
+    const json = JSON.parse(Buffer.from(sealedPlaintext(`T`, `B`, data)).toString())
+    expect(json.data).toEqual(data)
+  })
+})
+
+describe(`sendToUsers legacy /send (#VAPP-45)`, () => {
+  it(`never carries a question's sealedText`, async () => {
+    h.selectResults.push([{ userId: `u1`, token: `t1`, relayCapability: null, pushPublicKey: null }])
+    fetchMock.mockResolvedValue(relayOk())
+    await sendToUsers([{ userId: `u1` }], {
+      title: `T`,
+      body: `B`,
+      data: { type: `agent_message`, rootId: `s`, sealedText: `exp-sealed:v1:1:AAAA` },
+    })
+    const sent = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)
+    expect(sent.data).toEqual({ type: `agent_message`, rootId: `s`, userId: `u1` })
+  })
 })

@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-question-pushes`,
+    date: `2026-10-30`,
+    title: `Questions push to your phone`,
+    summary: `When a chat you started asks you a question or proposes a plan, your phone gets a push, with the question itself even in sealed chats.`,
+    body: `- **Every chat you start**: a question or plan from one of your chats now sends you a push, not only your Assistant. Teammates are not pinged; they still see that it needs input.
+- **The question, kept private**: in a sealed chat the push carries the question encrypted, and your phone opens it with the chat's key to show it. Without the key you see "New message in a session".`,
+  },
+  {
     id: `2026-10-30-conversation-session-rows`,
     date: `2026-10-30`,
     title: `Session rows open from a chat`,

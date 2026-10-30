@@ -35,6 +35,7 @@ import { inSession, messageWithSession } from "@/lib/sessions/messages"
 const notifyBlocked = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => {}))
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
+  notifySessionAsk: async () => {},
   fireAndForgetSessionMessageNotify: () => {},
   notifySessionBlocked: notifyBlocked,
   // EXP-1328: File as issue runs issues.create.
