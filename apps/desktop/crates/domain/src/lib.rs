@@ -159,6 +159,8 @@ pub mod relations;
 pub mod relations_view;
 pub mod reporter_reply;
 pub mod rows;
+// EXP-1459: the state of a sealed body, card or title on this install.
+pub mod sealed;
 // NEW-2: THE schedule picker (cron <-> rows, labels, summary), fixture-locked ×4.
 pub mod schedule_picker;
 pub mod session_results;

@@ -1362,6 +1362,10 @@ pub struct DigestMessage {
     pub answered_at: Option<String>,
     #[serde(default)]
     pub created_at: String,
+    /// EXP-1459: stamped by `sync::sealed` when it opened (or could not
+    /// open) this message's sealed body/card; never on the wire.
+    #[serde(default, rename = "_seal")]
+    pub seal: Option<crate::sealed::SealState>,
 }
 
 /// `conversations.digest` (TS `ConversationDigest`).
@@ -1424,6 +1428,7 @@ pub fn digest_messages(session_id: &str, digest: Option<&ConversationDigest>) ->
             card: message.card.clone(),
             answered_at: message.answered_at.clone(),
             created_at: Some(message.created_at.clone()),
+            seal: message.seal,
             ..MessageRow::default()
         });
         let event = message.card.as_ref().and_then(|card| card.get("kind")).and_then(Value::as_str) == Some("event");
