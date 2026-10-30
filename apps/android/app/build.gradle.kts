@@ -116,6 +116,8 @@ android {
             it.systemProperty("jna.library.path", File(cargoTarget, "release").absolutePath)
             it.systemProperty("exponential.push.sealFixture", File(repoRoot, "packages/domain-contract/fixtures/push-seal.json").absolutePath)
             it.systemProperty("exponential.enet.installFixture", File(repoRoot, "packages/domain-contract/fixtures/install-register.json").absolutePath)
+            // EXP-1459: the sealed-content vectors (SealedContentFixtureTest).
+            it.systemProperty("exponential.enet.sealedFixture", File(repoRoot, "packages/domain-contract/fixtures/sealed-content.json").absolutePath)
         }
     }
 

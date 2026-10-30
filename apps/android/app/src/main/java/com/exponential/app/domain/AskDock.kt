@@ -147,6 +147,8 @@ object AskDock {
      *  `surface` card. Each draws inline; a waiting one also docks. */
     fun sessionCards(messages: List<SessionTree.Message>): List<SessionCard> = messages
         .mapNotNull { message ->
+            // EXP-1459: a locked card cannot be answered here: never a card, never docked.
+            if (message.locked != null) return@mapNotNull null
             val card = message.card ?: return@mapNotNull null
             val kind = (card["kind"] as? kotlinx.serialization.json.JsonPrimitive)
                 ?.takeIf { it.isString }?.content

@@ -692,6 +692,14 @@ data class SessionEntity(
     @ColumnInfo(name = "agent_instructions_at") @SerialName("agent_instructions_at") @JsonNames("agentInstructionsAt") val agentInstructionsAt: String? = null,
     // #EXP-1383: the agent whose session started this root (an agent tree).
     @ColumnInfo(name = "started_by_agent_id") @SerialName("started_by_agent_id") @JsonNames("startedByAgentId") val startedByAgentId: String? = null,
+    // EXP-1459 (sealed-content.json): the ROOT's tree key (base64url X25519
+    // public + current epoch), both NULL until a key exists.
+    @ColumnInfo(name = "seal_public_key") @SerialName("seal_public_key") @JsonNames("sealPublicKey") val sealPublicKey: String? = null,
+    @ColumnInfo(name = "seal_epoch") @SerialName("seal_epoch") @JsonNames("sealEpoch")
+    @Serializable(with = PgIntSerializer::class) val sealEpoch: Int? = null,
+    // A body envelope of the title; [title] stays the neutral fallback. Read
+    // through the DAO, which opens it into [title] when this install can.
+    @ColumnInfo(name = "sealed_title") @SerialName("sealed_title") @JsonNames("sealedTitle") val sealedTitle: String? = null,
 ) {
     val isRoot: Boolean get() = parentId == null
     /** NEW-2: an agent's conversation session ([SessionKind.sessionKindOf]). */
