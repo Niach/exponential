@@ -1,17 +1,21 @@
 import {
   conceptIcon,
   getActionIcon,
-  Pill,
+  Badge,
   SidebarGroup,
   SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
+  SidebarMenuDot,
   SidebarMenuItem,
   SidebarMenuTrailing,
   SidebarProvider,
+  type SidebarDotTone,
 } from "@exp/ui"
+
+import { designTokens } from "@exp/design-tokens"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -19,16 +23,18 @@ import type { StyleguideEntry } from "./types.ts"
 // primitives (the team rail's nav rows, a section header and its agent
 // rows). Every trailing indicator — a nav row's dot, the Drafts count, an
 // agent's needs-you dot or spinner, a section's "+", a row's hover gear —
-// sits in ONE 20px column 4px in from the row's right edge.
+// sits in ONE 20px column 4px in from the row's right edge. #EXP-1480: the
+// dot (`SidebarMenuDot`, `sidebar.trailingDot`) and the count (`Badge`) are
+// the same on web and the IDE.
 
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavThreadsIcon = conceptIcon(`nav-threads`)
 const NavDraftsIcon = conceptIcon(`nav-drafts`)
 const UiAddIcon = conceptIcon(`ui-add`)
 
-const Dot = ({ className }: { className: string }) => (
+const Dot = ({ tone }: { tone: SidebarDotTone }) => (
   <SidebarMenuTrailing className="pointer-events-none">
-    <span className={`size-2 rounded-full ${className}`} />
+    <SidebarMenuDot tone={tone} />
   </SidebarMenuTrailing>
 )
 
@@ -49,14 +55,14 @@ function SidebarRowsSpecimen() {
                   <NavInboxIcon className="h-4 w-4" />
                   <span>Inbox</span>
                 </SidebarMenuButton>
-                <Dot className="bg-primary" />
+                <Dot tone="unread" />
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton density="compact">
                   <NavThreadsIcon className="h-4 w-4" />
                   <span>Chats</span>
                 </SidebarMenuButton>
-                <Dot className="bg-yellow-400" />
+                <Dot tone="needsYou" />
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton density="compact">
@@ -64,7 +70,7 @@ function SidebarRowsSpecimen() {
                   <span>Drafts</span>
                 </SidebarMenuButton>
                 <SidebarMenuTrailing className="pointer-events-none">
-                  <Pill size="sm" className="tabular-nums">2</Pill>
+                  <Badge count={2} />
                 </SidebarMenuTrailing>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -85,7 +91,7 @@ function SidebarRowsSpecimen() {
                       <Icon className="size-4 shrink-0" style={{ color: agent.color }} />
                       <span>{agent.name}</span>
                     </SidebarMenuButton>
-                    {agent.needsYou && <Dot className="bg-amber-500" />}
+                    {agent.needsYou && <Dot tone="needsYou" />}
                   </SidebarMenuItem>
                 )
               })}
@@ -102,7 +108,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1477`,
   title: `Sidebar rows`,
-  blurb: `The team rail's rows: compact 28px nav, agent, app, board and Active rows under muted section headers. Every trailing indicator shares ONE column: 20px wide, 4px in from the row's right edge, contents centred (a count grows leftwards). A nav row's dot, the Drafts count, an agent's needs-you dot or spinner, an Active row's device glyph, a section header's "+" and a row's hover gear (which takes the column from the dot while hovered) all line up in it.`,
+  blurb: `The team rail's rows: compact 28px nav, agent, app, board and Active rows under muted section headers. Every trailing indicator shares ONE column: 20px wide, 4px in from the row's right edge, contents centred (a count grows leftwards). A nav row's dot, the Drafts count, an agent's needs-you dot or spinner, an Active row's device glyph, a section header's "+" and a row's hover gear (which takes the column from the dot while hovered) all line up in it. The dot is ONE ${designTokens.sidebar.trailingDot}px disc (\`sidebar.trailingDot\`) in the rail's tones: unread = primary, needs you = \`semantic.yellow\` (${designTokens.semantic.yellow}), live = green; the Drafts count is the eUI 16px count badge (\`Badge\` / IDE \`count_badge\`), muted.`,
   status: {
     web: {
       state: `ok`,

@@ -27,6 +27,8 @@ export * from "./attachment-thumb"
 export * from "./auth-form-shell"
 export * from "./brand-heading"
 export * from "./avatar"
+// EXP-962: the 16px COUNT badge (the rail's Drafts count; IDE `count_badge`).
+export * from "./badge"
 export * from "./board-glyph"
 export * from "./board-icons"
 export * from "./detail-chrome"

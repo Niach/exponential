@@ -14,6 +14,7 @@ import {
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
+  SidebarMenuDot,
   SidebarMenuItem,
   SidebarMenuTrailing,
 } from "@exp/ui"
@@ -23,7 +24,7 @@ import { cn } from "@/lib/utils"
 // EXP-1293: the rail's AGENTS section, ABOVE Boards and drawn like them —
 // one row per team agent (`listAgents`, fixture-locked: sortOrder, then
 // name): its icon in its color + its name, a spinner while it works, an
-// amber dot while it needs you. A row opens the agent's channel; owners get
+// yellow dot while it needs you. A row opens the agent's channel; owners get
 // the gear to its settings, and the "+" files a new agent.
 
 const UiAddIcon = conceptIcon(`ui-add`)
@@ -48,7 +49,7 @@ export function AgentIcon({
   return <Icon className={cn(`size-4 shrink-0`, className)} style={{ color: agent.color }} />
 }
 
-/** The trailing state: the spinner while busy, else amber when it needs you.
+/** The trailing state: the spinner while busy, else yellow when it needs you.
  *  A row carries it in its trailing column (EXP-1477), an icon at its
  *  top-right corner. */
 function AgentState({
@@ -64,13 +65,11 @@ function AgentState({
   let mark: React.ReactNode = null
   if (agent.needsYou) {
     mark = (
-      <span
+      <SidebarMenuDot
         aria-hidden
+        tone="needsYou"
         data-testid="agent-needs-you"
-        className={cn(
-          `pointer-events-none size-2 rounded-full bg-amber-500`,
-          placement === `icon` && `absolute right-1 top-1`
-        )}
+        className={cn(`pointer-events-none`, placement === `icon` && `absolute right-1 top-1`)}
       />
     )
   } else if (agent.busy && placement === `row`) {

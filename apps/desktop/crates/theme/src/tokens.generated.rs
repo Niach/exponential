@@ -158,6 +158,7 @@ pub mod sidebar {
     pub const DEFAULT_SOURCE_CONTROL: f32 = 320.0;
     pub const HANDLE_WIDTH: f32 = 8.0;
     pub const KEYBOARD_STEP: f32 = 16.0;
+    pub const TRAILING_DOT: f32 = 8.0;
 }
 
 // The shared spacing scale (SLOP-18), in px — padding, gaps and insets.

@@ -127,7 +127,7 @@ describe(`SidebarRunningSection`, () => {
     ).toBe(`Alex's MacBook Pro`)
     expect(rows[1].querySelector(`[data-slot="session-row-device"]`)).toBeNull()
     expect(screen.queryByText(`Fix flaky scroll`)).toBeNull()
-    // The needs-you thread wears the amber badge.
+    // The needs-you thread wears the yellow badge.
     expect(rows[0].querySelector(`[data-slot="run-mark"]`)?.getAttribute(`data-state`)).toBe(
       `needs_input`
     )
@@ -173,7 +173,7 @@ describe(`SidebarRunningIcons`, () => {
 })
 
 describe(`the nav state`, () => {
-  it(`is green while anything runs, amber while something needs you`, () => {
+  it(`is green while anything runs, yellow while something needs you`, () => {
     expect(threadsNavState([])).toEqual({ live: false, needsYou: false, unread: false })
     expect(threadsNavState([groups[1], groups[2]])).toEqual({
       live: true,

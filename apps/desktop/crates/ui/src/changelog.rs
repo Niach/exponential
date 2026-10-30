@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-31-sidebar-dots",
+    date: "2026-10-31",
+    title: "Sidebar dots, the same everywhere",
+    summary: "The sidebar's dots and Drafts count now look the same on web and desktop.",
+    body: r#"- **Same dots**: the sidebar's status dots are one size on web and desktop, and an agent that needs you shows the same yellow on both.
+- **Drafts count**: the Drafts count is the small count badge on web too."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_128: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-sidebar-trailing-column",
     date: "2026-10-30",
     title: "Sidebar indicators, lined up",
