@@ -10,12 +10,14 @@ import { IcArrow } from "./components/icons"
 import { TalkOverlay } from "./components/TalkOverlay"
 import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
 import { LINKS } from "./lib/links"
+import { LIBRARIES } from "../ui/src/lib/libraries"
 
-/* NEW-15: the home page is the product in four parts (Talk, agents, apps,
-   Exponential UI), each one or two sentences over REAL parts: committed
-   captures (shots/) and live @exp/ui islands. The hero is an agent's phone
-   chat (HeroPhone, src/ui-demos/AgentChat.tsx); Talk states only what has
-   shipped, the rest reads "coming". */
+/* NEW-15: the home page is the product in four parts (eTalk, agents, apps,
+   eUI), each one or two sentences over REAL parts: committed captures
+   (shots/) and live @exp/ui islands. The hero is an agent's phone chat
+   (HeroPhone, src/ui-demos/AgentChat.tsx); eTalk states only what has
+   shipped, the rest reads "coming". EXP-1421: then the library family, one
+   docs card per lib with its state. */
 
 function Shot({ view, platform, className }: { view: string; platform: Platform; className: string }) {
   const { src, frame, title } = shotSrc(view, platform)
@@ -111,7 +113,7 @@ export function HomePage() {
                 ))}
               </ul>
               <a className={`btn btn-ghost`} href={`/talk/`}>
-                How Talk works <IcArrow size={12} />
+                How eTalk works <IcArrow size={12} />
               </a>
             </motion.div>
             <motion.figure className={`home-talk-stage`} {...sectionReveal}>
@@ -143,12 +145,30 @@ export function HomePage() {
         <Feature
           id={`ui`}
           title={`One UI on every platform`}
-          text={`Agents and apps draw with Exponential UI, our open framework. React, SwiftUI, Compose and the desktop paint it the same.`}
-          link={{ href: `/ui/`, label: `Exponential UI` }}
+          text={`Agents and apps draw with eUI, our open framework. React, SwiftUI, Compose and the desktop paint it the same.`}
+          link={{ href: `/ui/`, label: `eUI` }}
         >
           <Shot view={`exponential-ui-demo`} platform={`desktop`} className={`aw-shot aw-shot-desktop`} />
           <Shot view={`exponential-ui-demo`} platform={`ios`} className={`aw-shot aw-shot-phone`} />
         </Feature>
+
+        <section id={`libraries`} className={`home-feature home-libs`}>
+          <motion.div className={`shell`} {...sectionReveal}>
+            <h2 className={`section-title`}>Open libraries</h2>
+            <p className={`section-sub`}>The parts Exponential is built from, open source. eUI is published, the others follow.</p>
+            <div className={`docs-cards`}>
+              {LIBRARIES.map((lib) => (
+                <a key={lib.href} className={`docs-card`} href={lib.href}>
+                  <span className={`docs-card-title`}>
+                    {lib.name}
+                    <StatusChip status={lib.status}>{lib.label}</StatusChip>
+                  </span>
+                  <span className={`docs-card-desc`}>{lib.desc}</span>
+                </a>
+              ))}
+            </div>
+          </motion.div>
+        </section>
 
         <section id={`pricing`} className={`home-price-line`}>
           <motion.div className={`shell`} {...sectionReveal}>

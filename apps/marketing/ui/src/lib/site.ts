@@ -3,7 +3,7 @@
    the browser has to FETCH must be added there in the same change; href-only
    origins need nothing. */
 export const SITE_ORIGIN = `https://exponential.at`
-export const SITE_NAME = `Exponential UI`
+export const SITE_NAME = `eUI`
 /** Where the section lives on exponential.at (ui.exponential.at redirects here). */
 export const UI_HOME = `/ui/`
 

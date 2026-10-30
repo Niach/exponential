@@ -10,7 +10,7 @@ export default function TalkGuides({ path }: PageProps) {
   return (
     <>
       <PageHero title="Guides" />
-      <DocsLayout nav={TALK_DOCS_NAV} title="Talk" sections={SECTIONS} currentPath={path}>
+      <DocsLayout nav={TALK_DOCS_NAV} title="eTalk" sections={SECTIONS} currentPath={path}>
         <DocsSection id="guides" num="01" label="Guides">
           <h2>Set it up</h2>
           <CardGrid items={TALK_GUIDES.map((g) => ({ href: talkGuidePath(g.slug), title: g.title, desc: g.blurb }))} />

@@ -1,6 +1,7 @@
 /* The /talk/ level of the site header and the Talk docs' sidebar (NEW-15):
    the /ui/ section's twin (ui/src/lib/nav.ts). */
 import type { DocsNavEntry, ShellSection } from "@exp/site-shell"
+import { otherLibrariesNav } from "../lib/libraries"
 
 export const TALK_HOME = `/talk/`
 
@@ -13,12 +14,13 @@ export const TALK_NAV = [
   { label: `Licences`, href: `/talk/licences/` },
 ] as const
 
-export const TALK_SECTION: ShellSection = { label: `Talk`, href: TALK_HOME, links: [...TALK_NAV] }
+export const TALK_SECTION: ShellSection = { label: `eTalk`, href: TALK_HOME, links: [...TALK_NAV] }
 
 /** The docs sidebar of every Talk page: the reading order. */
 export const TALK_DOCS_NAV: DocsNavEntry[] = [
   { path: TALK_HOME, label: `Overview` },
   ...TALK_NAV.map((l) => ({ path: l.href, label: l.label })),
+  ...otherLibrariesNav(`eTalk`),
 ]
 
 /** The guides, in nav order (each one page under /talk/guides/). */

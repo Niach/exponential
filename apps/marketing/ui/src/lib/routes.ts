@@ -8,6 +8,7 @@ import { breadcrumb, type PageSeo } from "@exp/site-shell/seo"
 import { COMPONENT_DOCS, componentPath, componentSlug, componentSummary } from "./catalog"
 import { GUIDES, guidePath } from "./guides"
 import { SITE_NAME, SITE_ORIGIN, UI_HOME } from "./site"
+import { LIB_ROUTES } from "../libs/routes"
 import { TALK_ROUTES } from "../talk/routes"
 
 export type PageProps = { path: string }
@@ -52,7 +53,7 @@ const UI_ROUTES: readonly Route[] = [
   route(
     UI_HOME,
     () => import("../pages/Home"),
-    `Exponential UI · generative UI, native on every platform`,
+    `eUI (Exponential UI) · generative UI, native on every platform`,
     `An open A2UI SDK: an agent sends a surface as JSON, our renderers paint it natively in React, Solid, web components, SwiftUI, Jetpack Compose and gpui. Themable at runtime, extensible, Apache-2.0.`,
     [`ui/src/pages/Home.tsx`, `ui/src/sdk`],
     [
@@ -106,7 +107,7 @@ const UI_ROUTES: readonly Route[] = [
     `/ui/themes/builder/`,
     () => import("../pages/ThemeBuilder"),
     `Theme builder · ${SITE_NAME}`,
-    `Build an Exponential UI theme in the browser: pick a base, edit tokens and recipes over a live preview, import a shadcn globals.css, export the JSON.`,
+    `Build an eUI theme in the browser: pick a base, edit tokens and recipes over a live preview, import a shadcn globals.css, export the JSON.`,
     [`ui/src/pages/ThemeBuilder.tsx`, `../../packages/exponential-ui/builder`],
     crumbs({ name: `Themes`, path: `/ui/themes/` }, { name: `Builder`, path: `/ui/themes/builder/` })
   ),
@@ -140,7 +141,7 @@ const UI_ROUTES: readonly Route[] = [
     `/ui/conformance/`,
     () => import("../pages/Conformance"),
     `Conformance · ${SITE_NAME}`,
-    `What it means for a renderer to be Exponential UI conformant, the fixture suites every renderer runs, and how a third-party renderer runs them and checks its report.`,
+    `What it means for a renderer to be eUI conformant, the fixture suites every renderer runs, and how a third-party renderer runs them and checks its report.`,
     [`ui/src/pages/Conformance.tsx`, `../../packages/exponential-ui/conformance`],
     crumbs({ name: `Conformance`, path: `/ui/conformance/` })
   ),
@@ -156,14 +157,14 @@ const UI_ROUTES: readonly Route[] = [
     `/ui/numbers/`,
     () => import("../pages/Numbers"),
     `Numbers · ${SITE_NAME}`,
-    `The Exponential UI benchmark suite: ten scenarios through every renderer (React, Solid, the web component, the Rust core, gpui, SwiftUI, Compose), the numbers per machine, the weak points and the CI ratchet.`,
+    `The eUI benchmark suite: ten scenarios through every renderer (React, Solid, the web component, the Rust core, gpui, SwiftUI, Compose), the numbers per machine, the weak points and the CI ratchet.`,
     [`ui/src/pages/Numbers.tsx`, `../../packages/exponential-ui-bench/results`, `../../packages/exponential-ui-bench/scenarios`],
     crumbs({ name: `Numbers`, path: `/ui/numbers/` })
   ),
 ]
 
 /* NEW-15: the Talk section rides the same app and manifest. */
-export const ROUTES: readonly Route[] = [...UI_ROUTES, ...TALK_ROUTES]
+export const ROUTES: readonly Route[] = [...UI_ROUTES, ...TALK_ROUTES, ...LIB_ROUTES]
 
 export const routeFor = (path: string): Route | undefined => {
   const normalized = path.endsWith(`/`) ? path : `${path}/`

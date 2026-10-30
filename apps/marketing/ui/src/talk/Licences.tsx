@@ -16,7 +16,7 @@ const SHIPPED = `in the app`
 const FETCHED = `your machine downloads it`
 
 const ROWS: [string, string, string][] = [
-  [`Talk's crates (talk, voice, crispasr)`, `Apache-2.0`, SHIPPED],
+  [`eTalk's crates (talk, voice, crispasr)`, `Apache-2.0`, SHIPPED],
     [`cpal (audio, macOS and Windows)`, `Apache-2.0`, SHIPPED],
   [`global-hotkey (shortcut, macOS and Windows)`, `MIT or Apache-2.0`, SHIPPED],
   [`tray-icon (tray, macOS and Windows)`, `MIT or Apache-2.0`, SHIPPED],
@@ -41,7 +41,7 @@ export default function TalkLicences({ path }: PageProps) {
           <h1>Licences</h1>
         </div>
       </section>
-      <DocsLayout nav={TALK_DOCS_NAV} title="Talk" sections={SECTIONS} currentPath={path}>
+      <DocsLayout nav={TALK_DOCS_NAV} title="eTalk" sections={SECTIONS} currentPath={path}>
         <DocsSection id="table" num="01" label="What and how">
           <h2>What and how</h2>
           <DocsTable head={[`Component`, `Licence`, `How you get it`]} rows={ROWS} />

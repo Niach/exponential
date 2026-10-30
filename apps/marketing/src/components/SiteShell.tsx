@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react"
 import { GitHubStarsButton, SiteFooterBar, SiteHeaderBar } from "@exp/site-shell"
+import { LIBRARIES, libSection } from "../../ui/src/lib/libraries"
 import { UI_SECTION } from "../../ui/src/lib/nav"
 import { TALK_SECTION } from "../../ui/src/talk/nav"
 import { initAttributionForwarding } from "../lib/attribution"
@@ -8,15 +9,15 @@ import { DownloadIconRow } from "./DownloadSection"
 import { IcArrow } from "./icons"
 import { WidgetEmbed } from "./WidgetEmbed"
 
-/* The main menu; UI SDK and Talk open their sections, whose pages wear
-   their own level (UI_SECTION, TALK_SECTION). */
+/* The main menu; Libraries leads to the front page's library section, and
+   each lib's pages wear their own level (UI_SECTION, TALK_SECTION, the
+   one-page libs' sections). */
 const NAV = [
   { label: `Product`, href: `/#product` },
   { label: `Pricing`, href: `/pricing/` },
   { label: `Docs`, href: `/docs/` },
   { label: `Blog`, href: `/blog/` },
-  { label: `UI SDK`, href: LINKS.ui },
-  { label: `Talk`, href: `/talk/` },
+  { label: `Libraries`, href: `/#libraries` },
   { label: `Download`, href: LINKS.downloadPage },
 ]
 
@@ -38,7 +39,7 @@ export function SiteHeader({ currentPath, extra }: { currentPath?: string; extra
         brand="Exponential"
         currentPath={currentPath}
         nav={NAV}
-        sections={[UI_SECTION, TALK_SECTION]}
+        sections={[UI_SECTION, TALK_SECTION, libSection(`ePilot`), libSection(`eNet`), libSection(`eApps`)]}
         right={
           <>
             {extra}
@@ -93,9 +94,10 @@ export function SiteFooter() {
             { label: `Docs`, href: `/docs/` },
             { label: `Blog`, href: `/blog/` },
             { label: `Self-host`, href: `/docs/self-host/` },
-            { label: `UI SDK`, href: LINKS.ui },
-            { label: `Talk`, href: `/talk/` },
           ],
+        },
+        {
+          links: LIBRARIES.map((lib) => ({ label: lib.name, href: lib.href })),
         },
         {
           links: [

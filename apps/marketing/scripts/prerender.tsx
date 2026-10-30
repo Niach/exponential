@@ -48,6 +48,7 @@ import { COMPONENT_DOCS, componentPath } from "../ui/src/lib/catalog"
 import { GUIDES, guidePath } from "../ui/src/lib/guides"
 import { ROUTES as UI_ROUTES, type PageModule } from "../ui/src/lib/routes"
 import { UI_HOME } from "../ui/src/lib/site"
+import { LIB_ROUTES } from "../ui/src/libs/routes"
 import { TALK_ROUTES } from "../ui/src/talk/routes"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), `..`)
@@ -194,15 +195,19 @@ const SECTIONS = [
       paths: [`/contact/`, `/privacy/`, `/terms/`, `/imprint/`],
     },
     {
-      heading: `Exponential UI (the open generative-UI SDK)`,
+      heading: `eUI (Exponential UI, the open generative-UI SDK)`,
       paths: [UI_HOME, `/ui/concepts/`, `/ui/playground/`, `/ui/conformance/`, `/ui/eval/`, `/ui/numbers/`],
     },
-    { heading: `Exponential UI guides`, paths: [`/ui/guides/`, ...GUIDES.map((g) => guidePath(g.slug))] },
-    { heading: `Exponential UI themes`, paths: [`/ui/themes/`, `/ui/themes/builder/`] },
-    { heading: `Exponential UI components`, paths: [`/ui/components/`, ...COMPONENT_DOCS.map(componentPath)] },
+    { heading: `eUI guides`, paths: [`/ui/guides/`, ...GUIDES.map((g) => guidePath(g.slug))] },
+    { heading: `eUI themes`, paths: [`/ui/themes/`, `/ui/themes/builder/`] },
+    { heading: `eUI components`, paths: [`/ui/components/`, ...COMPONENT_DOCS.map(componentPath)] },
     {
-      heading: `Exponential Talk (speech in and out for agents)`,
+      heading: `eTalk (speech in and out for agents)`,
       paths: TALK_ROUTES.map((r) => r.path),
+    },
+    {
+      heading: `ePilot, eNet, eApps (the other open libraries)`,
+      paths: LIB_ROUTES.map((r) => r.path),
     },
   ]
 
@@ -223,10 +228,10 @@ prerenderSite({
     return <Component />
   },
   llms: {
-    summary: `The next generation dev platform for teams and agents, open source (Apache-2.0). Team agents plan the work, start coding sessions (Claude Code or Codex on your own machine, in the desktop app or the CLI daemon) that open GitHub pull requests, build team apps, and answer by voice (Talk, beta: push to talk and spoken replies on your desktop). Boards, a feedback widget, native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free.`,
+    summary: `The next generation dev platform for teams and agents, open source (Apache-2.0). Team agents plan the work, start coding sessions (Claude Code or Codex on your own machine, in the desktop app or the CLI daemon) that open GitHub pull requests, build team apps, and answer by voice (eTalk, beta: push to talk and spoken replies on your desktop). Boards, a feedback widget, native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free.`,
     intro: [
-      `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential. The open generative-UI SDK the apps are built on, Exponential UI (Apache-2.0), is documented under https://exponential.at/ui/: an agent sends an A2UI surface as JSON and native renderers paint it in React, Solid, web components, SwiftUI, Jetpack Compose and gpui, from one core catalog, with runtime themes, extensions and a shared host API.`,
-      `Talk, the voice layer (beta), is documented under https://exponential.at/talk/: speech in (Silero VAD and Parakeet) and spoken replies (Qwen3-TTS) through CrispASR on the member's own desktop GPU, in English and German.`,
+      `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential. The open generative-UI SDK the apps are built on, eUI (Exponential UI, Apache-2.0), is documented under https://exponential.at/ui/: an agent sends an A2UI surface as JSON and native renderers paint it in React, Solid, web components, SwiftUI, Jetpack Compose and gpui, from one core catalog, with runtime themes, extensions and a shared host API.`,
+      `eTalk, the voice layer (beta), is documented under https://exponential.at/talk/: speech in (Silero VAD and Parakeet) and spoken replies (Qwen3-TTS) through CrispASR on the member's own desktop GPU, in English and German.`,
     ],
     sections: SECTIONS,
     extras: [
@@ -238,7 +243,7 @@ prerenderSite({
         ],
       },
       {
-        heading: `Exponential UI, machine-readable`,
+        heading: `eUI, machine-readable`,
         items: [
           { label: `core.catalog.json`, url: `https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/core.catalog.json`, description: `The core catalog: every component, prop and model-facing description.` },
           { label: `core.schema.json`, url: `https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/core.schema.json`, description: `The catalog as JSON Schema in A2UI's catalog shape.` },

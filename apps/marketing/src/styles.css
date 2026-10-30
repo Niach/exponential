@@ -12,6 +12,7 @@
 @import "./styles/pricing.css";
 @import "./styles/contact.css";
 @import "./styles/download.css";
+@import "./styles/status-chip.css";
 @import "./styles/blog.css";
 @import "./styles/blog-concepts.css";
 @import "@exp/site-shell/styles/docs.css";

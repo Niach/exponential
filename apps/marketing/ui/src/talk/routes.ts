@@ -7,7 +7,7 @@ import type { Route } from "../lib/routes"
 import { SITE_ORIGIN } from "../lib/site"
 import { TALK_GUIDES, TALK_HOME, talkGuidePath } from "./nav"
 
-const NAME = `Exponential Talk`
+const NAME = `eTalk`
 const OG = `/og/og-talk.png`
 const crumbs = (...items: { name: string; path: string }[]) =>
   breadcrumb(SITE_ORIGIN, [{ name: NAME, path: TALK_HOME }, ...items])
@@ -55,7 +55,7 @@ export const TALK_ROUTES: readonly Route[] = [
     `/talk/install/`,
     () => import("./Install"),
     `Install · ${NAME}`,
-    `Turn on Talk: pick your voice device and agent in Settings → Voice, let the models download, allow the microphone, and pick a shortcut.`,
+    `Turn on eTalk: pick your voice device and agent in Settings → Voice, let the models download, allow the microphone, and pick a shortcut.`,
     [`ui/src/talk/Install.tsx`],
     crumbs({ name: `Install`, path: `/talk/install/` })
   ),
@@ -63,7 +63,7 @@ export const TALK_ROUTES: readonly Route[] = [
     `/talk/guides/`,
     () => import("./Guides"),
     `Guides · ${NAME}`,
-    `Step-by-step guides for Talk: record a reference clip for your own voice, and set up a push-to-talk shortcut on your desktop.`,
+    `Step-by-step guides for eTalk: record a reference clip for your own voice, and set up a push-to-talk shortcut on your desktop.`,
     [`ui/src/talk/Guides.tsx`],
     crumbs({ name: `Guides`, path: `/talk/guides/` })
   ),
@@ -91,7 +91,7 @@ export const TALK_ROUTES: readonly Route[] = [
     `/talk/numbers/`,
     () => import("./Numbers"),
     `Numbers · ${NAME}`,
-    `Measured latency, accuracy, VRAM and download sizes for Talk's speech in and speech out, on a GPU and on the CPU, with the targets not yet measured.`,
+    `Measured latency, accuracy, VRAM and download sizes for eTalk's speech in and speech out, on a GPU and on the CPU, with the targets not yet measured.`,
     [`ui/src/talk/Numbers.tsx`, `../../docs/talk-spike.md`],
     crumbs({ name: `Numbers`, path: `/talk/numbers/` })
   ),
@@ -99,7 +99,7 @@ export const TALK_ROUTES: readonly Route[] = [
     `/talk/licences/`,
     () => import("./Licences"),
     `Licences · ${NAME}`,
-    `The licences of the models and libraries Talk downloads or links: CrispASR, Parakeet, Qwen3-TTS, Silero VAD, cpal, global-hotkey and the CUDA runtime.`,
+    `The licences of the models and libraries eTalk downloads or links: CrispASR, Parakeet, Qwen3-TTS, Silero VAD, cpal, global-hotkey and the CUDA runtime.`,
     [`ui/src/talk/Licences.tsx`, `../../docs/third-party-licences.md`],
     crumbs({ name: `Licences`, path: `/talk/licences/` })
   ),

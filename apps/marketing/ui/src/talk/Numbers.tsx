@@ -22,7 +22,7 @@ export default function TalkNumbers({ path }: PageProps) {
           <h1>Numbers</h1>
         </div>
       </section>
-      <DocsLayout nav={TALK_DOCS_NAV} title="Talk" sections={SECTIONS} currentPath={path}>
+      <DocsLayout nav={TALK_DOCS_NAV} title="eTalk" sections={SECTIONS} currentPath={path}>
         <DocsSection id="in" num="01" label="Speech in">
           <h2>Speech in</h2>
           <p>

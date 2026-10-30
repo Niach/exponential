@@ -59,7 +59,7 @@ export default function NumbersPage({ path }: PageProps) {
         </div>
       </section>
 
-      <DocsLayout nav={LEARN_NAV} title="Exponential UI" sections={SECTIONS} currentPath={path}>
+      <DocsLayout nav={LEARN_NAV} title="eUI" sections={SECTIONS} currentPath={path}>
         <DocsSection id="passes" num="01" label="What is measured">
           <h2>What is measured</h2>
           <p>
