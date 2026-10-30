@@ -78,6 +78,16 @@ object SessionDeviceMove {
     /** The device row is shared into the session's team. */
     fun sharedWithTeam(device: SteerDevice, teamId: String): Boolean = teamId in device.sharedTeamIds
 
+    /** #EXP-1440: the refusal for an own machine shared only with OTHER
+     *  teams (the server's FORBIDDEN, the picker's hidden row). */
+    const val DEVICE_OTHER_TEAM_MESSAGE = "This device belongs to another team"
+
+    /** #EXP-1440: one of the caller's OWN machines may run a team's sessions
+     *  when it is personal (shared with no team) or shared with that team; a
+     *  machine shared only with other teams is theirs (web `deviceUsableInTeam`). */
+    fun deviceUsableInTeam(device: SteerDevice, teamId: String): Boolean =
+        device.sharedTeamIds.isEmpty() || sharedWithTeam(device, teamId)
+
     /** One target's refusal, or null = movable. ORDER ×4: offline,
      *  visibility, no login. Old builds are the CLIENT_MIN_VERSION floor's
      *  job, never a refusal here. */

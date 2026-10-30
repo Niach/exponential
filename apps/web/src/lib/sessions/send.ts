@@ -69,6 +69,7 @@ import {
   type MoveTarget,
 } from "@/lib/sessions/move"
 import { SHARING_ORDER } from "@/lib/sessions/host"
+import { DEVICE_OTHER_TEAM_MESSAGE, deviceUsableInTeam } from "@/lib/session-device-move"
 import { agentReuseRefusal } from "@/lib/sessions/agent-reuse"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED } from "@/lib/sessions/meeting-access"
 import type { Db, Tx } from "@/lib/sessions/tx"
@@ -194,7 +195,15 @@ export async function resolveSessionDevice(
     .where(eq(devices.deviceId, deviceId))
     .orderBy(...SHARING_ORDER)
   const own = rows.find((row) => row.userId === userId)
-  if (own) return { shared: (own.sharedTeamIds ?? []).includes(teamId), ownerId: userId }
+  if (own) {
+    // #EXP-1440: a machine shared with other teams belongs to them; only a
+    // personal one (shared with no team) or one shared with THIS team runs
+    // this team's sessions.
+    if (!deviceUsableInTeam(own, teamId)) {
+      throw new TRPCError({ code: `FORBIDDEN`, message: DEVICE_OTHER_TEAM_MESSAGE })
+    }
+    return { shared: (own.sharedTeamIds ?? []).includes(teamId), ownerId: userId }
+  }
   // FEED-148: the first sharing row (`SHARING_ORDER`), as every host read.
   for (const row of rows) {
     if (!(row.sharedTeamIds ?? []).includes(teamId)) continue

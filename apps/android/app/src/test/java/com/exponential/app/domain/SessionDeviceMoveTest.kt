@@ -39,6 +39,16 @@ class SessionDeviceMoveTest {
         assertEquals("Agents move from Settings → Agents.", SessionDeviceMove.REASON_AGENT)
     }
 
+    /** #EXP-1440: personal → usable, shared with the team → usable, shared
+     *  only with another team → not usable. */
+    @Test
+    fun deviceUsableInTeamUnlessAnotherTeamOwnsIt() {
+        assertTrue(SessionDeviceMove.deviceUsableInTeam(device("a"), team))
+        assertTrue(SessionDeviceMove.deviceUsableInTeam(device("b", shared = true), team))
+        assertFalse(SessionDeviceMove.deviceUsableInTeam(device("c").copy(sharedTeamIds = listOf("team-2")), team))
+        assertEquals("This device belongs to another team", SessionDeviceMove.DEVICE_OTHER_TEAM_MESSAGE)
+    }
+
     @Test
     fun pinHiddenForAgents() {
         assertEquals(SessionDeviceMove.REASON_AGENT, SessionDeviceMove.hiddenReason(DomainContract.sessionKindAgent))

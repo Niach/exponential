@@ -1187,8 +1187,8 @@ impl ChatScreenView {
         if self.launch.is_none() {
             return;
         }
-        self.device.devices = if self.team_id.is_some() {
-            queries::launch_devices(cx)
+        self.device.devices = if let Some(team_id) = self.team_id.clone() {
+            queries::launch_devices(Some(&team_id), cx)
         } else {
             Vec::new()
         };

@@ -1454,6 +1454,14 @@ impl DeviceRow {
         self.shared_team_ids.iter().any(|id| id == team_id)
     }
 
+    /// #EXP-1440: one of the caller's OWN machines may run a team's sessions
+    /// when it is personal (shared with no team) or shared with that team; a
+    /// machine shared only with other teams is theirs (web
+    /// `session-device-move.ts` `deviceUsableInTeam`).
+    pub fn is_usable_in_team(&self, team_id: &str) -> bool {
+        !self.is_shared() || self.is_shared_with(team_id)
+    }
+
     /// EXP-484: this machine's account row for `agent` (`claude`/`codex`/
     /// `codex`), still as the raw wire object — `domain` deliberately does not
     /// depend on `coding`, so the typed shape stays there and callers
@@ -1578,6 +1586,20 @@ mod tests {
         assert!(!narrow.is_server());
         assert!(narrow.agent_ids().is_empty());
         assert!(!narrow.is_shared());
+    }
+
+    /// #EXP-1440: personal -> usable, shared with the team -> usable, shared
+    /// only with another team -> not usable.
+    #[test]
+    fn device_row_is_usable_in_team_unless_another_team_owns_it() {
+        let row = |shares: &[&str]| DeviceRow {
+            shared_team_ids: shares.iter().map(|id| id.to_string()).collect(),
+            ..serde_json::from_value(json!({ "id": "d-1" })).unwrap()
+        };
+        assert!(row(&[]).is_usable_in_team("team-1"));
+        assert!(row(&["team-1"]).is_usable_in_team("team-1"));
+        assert!(row(&["team-2", "team-1"]).is_usable_in_team("team-1"));
+        assert!(!row(&["team-2"]).is_usable_in_team("team-1"));
     }
 
     /// EXP-878: a draft row hydrates from the wire with every optional

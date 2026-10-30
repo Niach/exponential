@@ -104,7 +104,9 @@ pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
         .read(cx)
         .iter()
         .filter(|row| {
-            me.as_deref().is_some_and(|me| row.user_id.as_deref() == Some(me))
+            // #EXP-1440: an own machine shared only with OTHER teams is theirs.
+            (me.as_deref().is_some_and(|me| row.user_id.as_deref() == Some(me))
+                && row.is_usable_in_team(team_id))
                 || row.is_shared_with(team_id)
         })
         .filter_map(|row| {

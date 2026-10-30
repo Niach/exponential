@@ -57,6 +57,11 @@ pub(crate) const REASON_OFFLINE: &str = "This device is offline.";
 pub(crate) const REASON_VISIBILITY: &str =
     "This device is shared differently, so the session can't move here.";
 pub(crate) const REASON_NO_LOGIN: &str = "This device has no signed-in login for this agent.";
+/// #EXP-1440: the server's refusal for one of the caller's own machines
+/// shared only with OTHER teams (the pickers hide its row:
+/// [`domain::rows::DeviceRow::is_usable_in_team`]).
+#[allow(dead_code)]
+pub(crate) const DEVICE_OTHER_TEAM_MESSAGE: &str = "This device belongs to another team";
 
 /// The failure toast's verb + object: `Couldn't move the session`.
 pub(crate) const FAILURE_VERB: &str = "move";
@@ -205,7 +210,8 @@ fn device_row(
 /// ones), plus the session's own device when the launch list dropped it
 /// (offline), so the current row is always there to be selected.
 pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Vec<MoveCandidate> {
-    let launch: Vec<LaunchDevice> = crate::queries::launch_devices(cx);
+    let launch: Vec<LaunchDevice> =
+        crate::queries::launch_devices(session.team_id.as_deref(), cx);
     let Some(store) = sync::Store::try_global(cx) else {
         return Vec::new();
     };

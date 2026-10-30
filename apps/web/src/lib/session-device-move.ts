@@ -69,6 +69,21 @@ export function deviceSharedWithTeam(
   return (device.sharedTeamIds ?? []).includes(teamId)
 }
 
+/** #EXP-1440: the refusal for an own machine shared only with OTHER teams
+ *  (the server's FORBIDDEN, the picker's hidden row). */
+export const DEVICE_OTHER_TEAM_MESSAGE = `This device belongs to another team`
+
+/** #EXP-1440: one of the caller's OWN machines may run a team's sessions
+ *  when it is personal (shared with no team) or shared with that team; a
+ *  machine shared only with other teams is theirs. */
+export function deviceUsableInTeam(
+  device: { sharedTeamIds?: readonly string[] | null },
+  teamId: string
+): boolean {
+  const shares = device.sharedTeamIds ?? []
+  return shares.length === 0 || shares.includes(teamId)
+}
+
 /** The agent a session runs (the server's rule): its `cli`, else its
  *  current device's default agent, else claude. */
 export function deviceMoveAgent(

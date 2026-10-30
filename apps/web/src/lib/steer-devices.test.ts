@@ -496,6 +496,33 @@ describe(`composeDeviceList`, () => {
       )
     ).toEqual([])
   })
+
+  it(`#EXP-1440: scoped to a team, drops an own row shared only with other teams`, () => {
+    const rows = [
+      deviceRow({ id: `r-personal`, deviceId: `d-personal`, label: `a` }),
+      deviceRow({ id: `r-here`, deviceId: `d-here`, label: `b`, sharedTeamIds: [`team-1`] }),
+      deviceRow({ id: `r-both`, deviceId: `d-both`, label: `c`, sharedTeamIds: [`team-2`, `team-1`] }),
+      deviceRow({ id: `r-there`, deviceId: `d-there`, label: `d`, sharedTeamIds: [`team-2`] }),
+    ]
+    expect(composeDeviceList(rows, users, NOW, `me`, `team-1`).map((d) => d.deviceId)).toEqual([
+      `d-personal`,
+      `d-here`,
+      `d-both`,
+    ])
+    // Any of several teams keeps a row usable in one of them.
+    expect(composeDeviceList(rows, users, NOW, `me`, [`team-3`, `team-2`]).map((d) => d.deviceId)).toEqual([
+      `d-personal`,
+      `d-both`,
+      `d-there`,
+    ])
+    // No team given: every own row.
+    expect(composeDeviceList(rows, users, NOW, `me`).map((d) => d.deviceId)).toEqual([
+      `d-personal`,
+      `d-here`,
+      `d-both`,
+      `d-there`,
+    ])
+  })
 })
 
 describe(`resumeWorktree`, () => {

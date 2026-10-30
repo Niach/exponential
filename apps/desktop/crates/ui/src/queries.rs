@@ -1052,9 +1052,14 @@ pub(crate) fn device_launch_settings(value: Option<&serde_json::Value>) -> codin
 /// a heartbeat is then UNKNOWN, not offline, so no row is dropped for it —
 /// the picker lists the other machines at first paint instead of seconds
 /// later, and `steer.startSession` still refuses an offline one.
+///
+/// #EXP-1440: scoped to `team_id`, one of the caller's own machines shared
+/// only with OTHER teams is theirs and never listed
+/// ([`domain::rows::DeviceRow::is_usable_in_team`]).
 pub(crate) fn remote_launch_devices<'a>(
     rows: impl Iterator<Item = &'a domain::rows::DeviceRow>,
     now_ms: Option<i64>,
+    team_id: Option<&str>,
     me_user_id: &str,
     own_device_id: &str,
     owner_name: &dyn Fn(&str) -> Option<String>,
@@ -1085,6 +1090,9 @@ pub(crate) fn remote_launch_devices<'a>(
                 .filter(|agent| ready.iter().any(|id| id == agent.id()))
                 .collect();
             let owned = row.user_id.as_deref() == Some(me_user_id);
+            if owned && team_id.is_some_and(|team_id| !row.is_usable_in_team(team_id)) {
+                return None;
+            }
             let owner = (!owned)
                 .then(|| row.user_id.as_deref().and_then(owner_name))
                 .flatten();
@@ -1299,7 +1307,9 @@ pub(crate) fn remote_start_enabled(cx: &mut App) -> bool {
 /// runnable agents) rather than from its synced row: the IDE can always
 /// start a run on itself, whether or not its heartbeat has landed. Other
 /// machines only ever join the list while the instance runs a steer relay.
-pub(crate) fn launch_devices(cx: &mut App) -> Vec<LaunchDevice> {
+/// #EXP-1440: scoped to `team_id`, a machine of the caller's shared only
+/// with OTHER teams (this one included) is theirs and never listed.
+pub(crate) fn launch_devices(team_id: Option<&str>, cx: &mut App) -> Vec<LaunchDevice> {
     let own_device_id = own_device_id(cx);
     let hub = crate::coding_flow::CodingHub::global(cx);
     let (settings, report) = {
@@ -1369,12 +1379,16 @@ pub(crate) fn launch_devices(cx: &mut App) -> Vec<LaunchDevice> {
             .and_then(|user| user.name.clone())
             .filter(|name| !name.is_empty())
     };
-    let mut devices = vec![own];
+    let own_usable = own_row.as_ref().is_none_or(|row| {
+        team_id.is_none_or(|team_id| row.is_usable_in_team(team_id))
+    });
+    let mut devices = if own_usable { vec![own] } else { Vec::new() };
     if remote_enabled {
         let rows = collections.devices.read(cx);
         devices.extend(remote_launch_devices(
             rows.iter(),
             rows.is_caught_up().then(|| chrono::Utc::now().timestamp_millis()),
+            team_id,
             &me,
             &own_device_id,
             &owner_name,
@@ -1731,7 +1745,7 @@ mod tests {
             launch_device_row("r-5", "dev-own", "Local", "me", &["claude"], -30),
         ];
         let owner = |user_id: &str| (user_id == "mate").then(|| "Ada".to_string());
-        let devices = remote_launch_devices(rows.iter(), Some(NOW_MS), "me", "dev-own", &owner);
+        let devices = remote_launch_devices(rows.iter(), Some(NOW_MS), None, "me", "dev-own", &owner);
         let ids: Vec<&str> = devices
             .iter()
             .map(|device| device.device_id.as_str())
@@ -1741,6 +1755,28 @@ mod tests {
         assert_eq!(devices[0].label, "Gamma — Ada");
         assert_eq!(devices[0].agents, vec![coding::CodingAgent::Codex]);
         assert!(devices.iter().all(|device| !device.is_own));
+    }
+
+    /// #EXP-1440: scoped to a team, an own machine shared only with OTHER
+    /// teams is never listed; personal and team-shared ones are.
+    #[test]
+    fn remote_candidates_drop_own_machines_another_team_owns() {
+        let personal = launch_device_row("r-1", "dev-personal", "Alpha", "me", &["claude"], -30);
+        let mut here = launch_device_row("r-2", "dev-here", "Beta", "me", &["claude"], -30);
+        here.shared_team_ids = vec!["team-1".into()];
+        let mut theirs = launch_device_row("r-3", "dev-theirs", "Gamma", "me", &["claude"], -30);
+        theirs.shared_team_ids = vec!["team-2".into()];
+        let rows = vec![personal, here, theirs];
+        let owner = |_: &str| None;
+        let ids = |team: Option<&str>| -> Vec<String> {
+            remote_launch_devices(rows.iter(), Some(NOW_MS), team, "me", "dev-own", &owner)
+                .into_iter()
+                .map(|device| device.device_id)
+                .collect()
+        };
+        assert_eq!(ids(Some("team-1")), ["dev-personal", "dev-here"]);
+        // Not team-scoped: every own machine stays.
+        assert_eq!(ids(None), ["dev-personal", "dev-here", "dev-theirs"]);
     }
 
     /// EXP-749: a machine's ACP-ready subset rides the synced row into the
@@ -1757,7 +1793,7 @@ mod tests {
         let silent = launch_device_row("r-3", "dev-3", "Gamma", "me", &["claude"], -30);
         let rows = vec![ready, none_ready, silent];
         let owner = |_: &str| None;
-        let devices = remote_launch_devices(rows.iter(), Some(NOW_MS), "me", "dev-own", &owner);
+        let devices = remote_launch_devices(rows.iter(), Some(NOW_MS), None, "me", "dev-own", &owner);
 
         assert_eq!(devices[0].device_id, "dev-1");
         assert_eq!(devices[0].acp_agents, vec![coding::CodingAgent::Claude]);
@@ -1787,6 +1823,7 @@ mod tests {
         let devices = remote_launch_devices(
             std::iter::once(&row),
             Some(NOW_MS),
+            None,
             "me",
             "dev-own",
             &owner,

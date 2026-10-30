@@ -101,7 +101,9 @@ export async function resolveMoveTarget(
   let device: Awaited<ReturnType<typeof resolveSessionDevice>>
   try {
     device = await resolveSessionDevice(session.userId, session.teamId, deviceId)
-  } catch {
+  } catch (e) {
+    // #EXP-1440: another team's machine says so, not "shared differently".
+    if (e instanceof TRPCError && e.code === `FORBIDDEN`) throw e
     throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.visibility })
   }
   if (device.shared !== session.shared) {
