@@ -87,7 +87,10 @@ final class SealedContentPushBindingTests: XCTestCase {
             let opened = try openCard(cardJson: json(split["envelope"]!), keys: keys(f))
             XCTAssertEqual(opened.status, .opened, split["name"] as? String ?? "")
             let shown = NSMutableDictionary(dictionary: split["card"] as! [AnyHashable: Any])
-            shown.addEntries(from: split["clear"] as! [AnyHashable: Any])
+            // The `pictures` projection is never laid over (the sealed pictures stay whole).
+            var over = split["clear"] as! [AnyHashable: Any]
+            over["pictures"] = nil
+            shown.addEntries(from: over)
             XCTAssertEqual(try JSONSerialization.jsonObject(with: Data(opened.cardJson.utf8)) as? NSDictionary, shown)
         }
     }

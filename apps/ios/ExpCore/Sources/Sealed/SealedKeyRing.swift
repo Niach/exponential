@@ -212,6 +212,20 @@ public struct SealedMessage {
         return (opened.body, object, opened.status)
     }
 
+    /// An escalated `ask` mirror's `card.sealedCard` (contract addendum
+    /// 2026-10-30: the origin card sealed to the mirror's tree), opened with
+    /// that tree's key; nil = not a mirror carrying one, or not readable.
+    public static func escalatedCard(_ card: String?, rootId: String?, opener: SealedOpener = .shared) -> String? {
+        guard let card, card.contains("\"sealedCard\""),
+              let object = (try? JSONSerialization.jsonObject(with: Data(card.utf8))) as? [String: Any],
+              object["kind"] as? String == "ask",
+              let sealed = object["sealedCard"] as? [String: Any], sealed["sealed"] != nil,
+              let data = try? JSONSerialization.data(withJSONObject: sealed, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        let opened = opener.card(json, rootId: rootId)
+        return opened.status == .opened ? opened.json : nil
+    }
+
     static func worse(_ a: SealStatus, _ b: SealStatus?) -> SealStatus {
         guard let b else { return a }
         return a.isReadable ? b : a

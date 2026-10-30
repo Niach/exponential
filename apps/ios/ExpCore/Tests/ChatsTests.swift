@@ -373,13 +373,13 @@ final class ChatsTests: XCTestCase {
             let name = string(testCase["name"]) ?? ""
             let sessionId = try XCTUnwrap(string(testCase["sessionId"]), name)
             let digest = testCase["digest"] as? [String: Any]
-            let got = Chats.digestMessages(sessionId: sessionId, digest: digest)
+            let got = Chats.digestMessages(sessionId: sessionId, digest: digest, opener: nil)
             XCTAssertEqual(got, try messages(testCase["messages"]), name)
             // The synced JSON text reads the same as the object.
             let raw = try digest.map {
                 String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self)
             }
-            XCTAssertEqual(Chats.digestMessages(sessionId: sessionId, digest: raw), got, name)
+            XCTAssertEqual(Chats.digestMessages(sessionId: sessionId, digest: raw, opener: nil), got, name)
         }
     }
 

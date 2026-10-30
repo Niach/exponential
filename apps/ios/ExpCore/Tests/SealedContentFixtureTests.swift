@@ -105,9 +105,12 @@ final class SealedContentFixtureTests: XCTestCase {
         for case let split as [String: Any] in try XCTUnwrap(card["splits"] as? [Any]) {
             let name = split["name"] as? String ?? "?"
             let full = try XCTUnwrap(split["card"] as? NSDictionary)
-            // `opened` = the sealed card with the clear fields laid over it.
+            // `opened` = the sealed card with the clear fields laid over it,
+            // except the `pictures` projection (the sealed pictures stay whole).
             let shown = NSMutableDictionary(dictionary: full)
-            shown.addEntries(from: try XCTUnwrap(split["clear"] as? [AnyHashable: Any]))
+            var over = try XCTUnwrap(split["clear"] as? [AnyHashable: Any])
+            over["pictures"] = nil
+            shown.addEntries(from: over)
             let opened = crypto.openCard(try Self.json(try XCTUnwrap(split["envelope"])), keys: keys)
             XCTAssertEqual(opened.status, .opened, name)
             XCTAssertEqual(try Self.object(opened.json), shown, name)
@@ -186,6 +189,38 @@ final class SealedContentFixtureTests: XCTestCase {
         let message = SealedMessage.open(body: envelope, card: nil as String?, rootId: "r2", opener: opener)
         XCTAssertEqual(message.body, "")
         XCTAssertEqual(message.status, .noKey)
+    }
+
+    /// An escalated `ask` mirror's `sealedCard` opens under the MIRROR's tree
+    /// key and stands in for an origin card this install can't open.
+    func testEscalatedAskMirrorOpensUnderItsOwnTree() throws {
+        let crypto = try crypto()
+        let f = try Self.fixture()
+        let card = try XCTUnwrap(f["card"] as? [String: Any])
+        let splits = try XCTUnwrap(card["splits"] as? [[String: Any]])
+        let question = try XCTUnwrap(splits.first { ($0["card"] as? [String: Any])?["kind"] as? String == "question" })
+        let envelope = try XCTUnwrap(question["envelope"])
+        let ring = SealedKeyRing(persistence: .memory)
+        let opener = SealedOpener(crypto: crypto, ring: ring)
+        let mirror = try Self.json(["kind": "ask", "sessionId": "s1", "messageId": "m1", "sealedCard": envelope])
+
+        XCTAssertNil(SealedMessage.escalatedCard(mirror, rootId: "watch", opener: opener))
+        ring.add([("watch", 1, try Self.hex(try XCTUnwrap(f["tree"] as? [String: Any])["secret"]))])
+        let opened = try XCTUnwrap(TreeMessageCard.parse(SealedMessage.escalatedCard(mirror, rootId: "watch", opener: opener)))
+        XCTAssertEqual(opened.kind, "question")
+        XCTAssertEqual(opened.question, (question["card"] as? [String: Any])?["question"] as? String)
+        // Not an ask, or no sealedCard: nothing.
+        XCTAssertNil(SealedMessage.escalatedCard(try Self.json(["kind": "ask", "messageId": "m1"]), rootId: "watch", opener: opener))
+
+        let clear = try XCTUnwrap(TreeMessageCard.parse(try Self.json(try XCTUnwrap(question["clear"]))))
+        let origin = TreeMessage(
+            id: "m1", sessionId: "s1", authorKind: "agent", authorId: nil, body: "",
+            card: clear, answeredAt: nil, consumedAt: nil, createdAt: "2026-10-30T00:00:00.000Z",
+            sealStatus: .noKey
+        )
+        XCTAssertEqual(origin.opened(escalated: opened).card, opened)
+        XCTAssertEqual(origin.opened(escalated: opened).sealStatus, .opened)
+        XCTAssertEqual(origin.opened(escalated: nil), origin)
     }
 }
 
