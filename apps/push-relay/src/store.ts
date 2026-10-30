@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 
-// The accountless mode's state (EXP-1428): installs and the capabilities they
+// The push API's state (EXP-1428): installs and the capabilities they
 // minted, in one SQLite file next to the relay. No accounts, so nothing here
 // is tied to a person; an install is a device token plus the hash of the
 // secret that manages it.

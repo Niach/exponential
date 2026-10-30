@@ -98,7 +98,7 @@ Closing the connection ends the call (`Event::CallEnded {Local|Remote|Failed}`).
 
 ## Push sealing
 
-For the push relay's accountless mode: the sender seals a small payload to
+For the push relay's `/push` API: the sender seals a small payload to
 the recipient install's X25519 public key, the relay forwards opaque bytes,
 the recipient's notification extension opens it (`push_open` needs no node).
 

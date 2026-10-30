@@ -1,14 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { createPublicKey, generateKeyPairSync, verify } from "node:crypto"
 import type { BatchResponse, MulticastMessage } from "firebase-admin/messaging"
-import { MAX_SEALED_BYTES } from "./accountless"
+import { MAX_SEALED_BYTES } from "./push-api"
 import { createApnsClient, signProviderToken, type ApnsClient, type ApnsRequest, type ApnsResult } from "./apns"
 import { createRelayApp, type RelayMessaging } from "./app"
 import { RelayStore } from "./store"
 
-// EXP-1428: the accountless /v2 mode, driven through the real Hono app with an
-// in-memory SQLite store, a fake APNs client, a fake FCM client and a fake
-// clock.
+// EXP-1428: the push API, driven through the real Hono app with an in-memory
+// SQLite store, a fake APNs client, a fake FCM client and a fake clock.
 
 const APNS_TOKEN = `ab`.repeat(32)
 const APNS_TOKEN_2 = `cd`.repeat(32)
@@ -67,7 +66,7 @@ function setup(options: SetupOptions = {}) {
     getMessaging: () => (options.messaging === undefined ? fcm!.messaging : options.messaging),
     now: () => clock.now,
     log: quietLog,
-    accountless: {
+    api: {
       store,
       apns: options.apns === undefined ? apns!.client : options.apns,
       apnsTopics: options.topics ?? [TOPIC],
@@ -92,13 +91,13 @@ function call(relay: Relay, method: string, path: string, body?: unknown, auth?:
 }
 
 async function register(relay: Relay, body: Record<string, unknown> = { platform: `apns`, token: APNS_TOKEN }) {
-  const res = await call(relay, `POST`, `/v2/installs`, body)
+  const res = await call(relay, `POST`, `/installs`, body)
   expect(res.status).toBe(201)
   return (await res.json()) as { installId: string; installSecret: string }
 }
 
 async function mint(relay: Relay, install: { installId: string; installSecret: string }, body: Record<string, unknown> = {}) {
-  const res = await call(relay, `POST`, `/v2/installs/${install.installId}/capabilities`, body, install.installSecret)
+  const res = await call(relay, `POST`, `/installs/${install.installId}/capabilities`, body, install.installSecret)
   expect(res.status).toBe(201)
   return (await res.json()) as { capabilityId: string; capability: string }
 }
@@ -108,7 +107,7 @@ function sealed(bytes = 64): string {
 }
 
 function push(relay: Relay, capability: string, body: Record<string, unknown> = { sealed: sealed() }) {
-  return call(relay, `POST`, `/v2/push`, body, capability)
+  return call(relay, `POST`, `/push`, body, capability)
 }
 
 describe(`installs`, () => {
@@ -123,24 +122,24 @@ describe(`installs`, () => {
 
   test(`rejects bad tokens, unknown topics, APNs fields on FCM and unconfigured providers`, async () => {
     const relay = setup({ topics: [TOPIC, `app.other`] })
-    expect((await call(relay, `POST`, `/v2/installs`, { platform: `apns`, token: `../../etc` })).status).toBe(400)
+    expect((await call(relay, `POST`, `/installs`, { platform: `apns`, token: `../../etc` })).status).toBe(400)
     // Two allowed topics: the install must name one, and only an allowed one.
-    expect((await call(relay, `POST`, `/v2/installs`, { platform: `apns`, token: APNS_TOKEN })).status).toBe(400)
-    expect((await call(relay, `POST`, `/v2/installs`, { platform: `apns`, token: APNS_TOKEN, topic: `evil.app` })).status).toBe(400)
-    expect((await call(relay, `POST`, `/v2/installs`, { platform: `apns`, token: APNS_TOKEN, topic: `app.other`, environment: `sandbox` })).status).toBe(201)
-    expect((await call(relay, `POST`, `/v2/installs`, { platform: `fcm`, token: FCM_TOKEN, environment: `sandbox` })).status).toBe(400)
-    expect((await call(relay, `POST`, `/v2/installs`, `not json`)).status).toBe(400)
+    expect((await call(relay, `POST`, `/installs`, { platform: `apns`, token: APNS_TOKEN })).status).toBe(400)
+    expect((await call(relay, `POST`, `/installs`, { platform: `apns`, token: APNS_TOKEN, topic: `evil.app` })).status).toBe(400)
+    expect((await call(relay, `POST`, `/installs`, { platform: `apns`, token: APNS_TOKEN, topic: `app.other`, environment: `sandbox` })).status).toBe(201)
+    expect((await call(relay, `POST`, `/installs`, { platform: `fcm`, token: FCM_TOKEN, environment: `sandbox` })).status).toBe(400)
+    expect((await call(relay, `POST`, `/installs`, `not json`)).status).toBe(400)
 
     const noApns = setup({ apns: null })
-    expect((await call(noApns, `POST`, `/v2/installs`, { platform: `apns`, token: APNS_TOKEN })).status).toBe(503)
+    expect((await call(noApns, `POST`, `/installs`, { platform: `apns`, token: APNS_TOKEN })).status).toBe(503)
     const noFcm = setup({ messaging: null })
-    expect((await call(noFcm, `POST`, `/v2/installs`, { platform: `fcm`, token: FCM_TOKEN })).status).toBe(503)
+    expect((await call(noFcm, `POST`, `/installs`, { platform: `fcm`, token: FCM_TOKEN })).status).toBe(503)
   })
 
   test(`registrations are rate limited per client IP`, async () => {
     const relay = setup({ trustProxy: true, registrationLimit: { max: 2, windowMs: HOUR } })
     const from = (ip: string) =>
-      call(relay, `POST`, `/v2/installs`, { platform: `apns`, token: APNS_TOKEN }, undefined, { "x-forwarded-for": ip })
+      call(relay, `POST`, `/installs`, { platform: `apns`, token: APNS_TOKEN }, undefined, { "x-forwarded-for": ip })
     expect((await from(`10.0.0.1`)).status).toBe(201)
     expect((await from(`10.0.0.1`)).status).toBe(201)
     expect((await from(`10.0.0.1`)).status).toBe(429)
@@ -153,7 +152,7 @@ describe(`installs`, () => {
     const relay = setup()
     const install = await register(relay)
     const { capability } = await mint(relay, install)
-    const res = await call(relay, `PUT`, `/v2/installs/${install.installId}`, { token: APNS_TOKEN_2, environment: `sandbox` }, install.installSecret)
+    const res = await call(relay, `PUT`, `/installs/${install.installId}`, { token: APNS_TOKEN_2, environment: `sandbox` }, install.installSecret)
     expect(res.status).toBe(200)
     expect(relay.store.getInstall(install.installId)).toMatchObject({ token: APNS_TOKEN_2, environment: `sandbox` })
     expect((await push(relay, capability)).status).toBe(202)
@@ -164,10 +163,10 @@ describe(`installs`, () => {
     const relay = setup()
     const a = await register(relay)
     const b = await register(relay)
-    expect((await call(relay, `PUT`, `/v2/installs/${a.installId}`, { token: APNS_TOKEN_2 })).status).toBe(401)
-    expect((await call(relay, `PUT`, `/v2/installs/${a.installId}`, { token: APNS_TOKEN_2 }, b.installSecret)).status).toBe(401)
-    expect((await call(relay, `DELETE`, `/v2/installs/${a.installId}`, undefined, `nope`)).status).toBe(401)
-    expect((await call(relay, `GET`, `/v2/installs/ins_missing/capabilities`, undefined, a.installSecret)).status).toBe(401)
+    expect((await call(relay, `PUT`, `/installs/${a.installId}`, { token: APNS_TOKEN_2 })).status).toBe(401)
+    expect((await call(relay, `PUT`, `/installs/${a.installId}`, { token: APNS_TOKEN_2 }, b.installSecret)).status).toBe(401)
+    expect((await call(relay, `DELETE`, `/installs/${a.installId}`, undefined, `nope`)).status).toBe(401)
+    expect((await call(relay, `GET`, `/installs/ins_missing/capabilities`, undefined, a.installSecret)).status).toBe(401)
     expect(relay.store.getInstall(a.installId)?.token).toBe(APNS_TOKEN)
   })
 
@@ -176,7 +175,7 @@ describe(`installs`, () => {
     const install = await register(relay)
     const { capability } = await mint(relay, install)
     await mint(relay, install)
-    const res = await call(relay, `DELETE`, `/v2/installs/${install.installId}`, undefined, install.installSecret)
+    const res = await call(relay, `DELETE`, `/installs/${install.installId}`, undefined, install.installSecret)
     expect(res.status).toBe(204)
     expect(relay.store.getInstall(install.installId)).toBeNull()
     expect(relay.store.countCapabilities(install.installId)).toBe(0)
@@ -191,7 +190,7 @@ describe(`capabilities`, () => {
     const minted = await mint(relay, install, { label: `Anna`, maxPerHour: 10, expiresAt: `2026-11-01T00:00:00Z` })
     expect(minted.capability).toMatch(/^cap_[A-Za-z0-9_-]{43}$/)
 
-    const list = await call(relay, `GET`, `/v2/installs/${install.installId}/capabilities`, undefined, install.installSecret)
+    const list = await call(relay, `GET`, `/installs/${install.installId}/capabilities`, undefined, install.installSecret)
     expect(list.status).toBe(200)
     const text = await list.text()
     expect(text).not.toContain(minted.capability)
@@ -209,7 +208,7 @@ describe(`capabilities`, () => {
     })
 
     const revoke = (id: string) =>
-      call(relay, `DELETE`, `/v2/installs/${install.installId}/capabilities/${id}`, undefined, install.installSecret)
+      call(relay, `DELETE`, `/installs/${install.installId}/capabilities/${id}`, undefined, install.installSecret)
     expect((await revoke(minted.capabilityId)).status).toBe(204)
     expect((await revoke(minted.capabilityId)).status).toBe(404)
     expect((await push(relay, minted.capability)).status).toBe(401)
@@ -219,7 +218,7 @@ describe(`capabilities`, () => {
     const relay = setup()
     const install = await register(relay)
     const post = (body: unknown) =>
-      call(relay, `POST`, `/v2/installs/${install.installId}/capabilities`, body, install.installSecret)
+      call(relay, `POST`, `/installs/${install.installId}/capabilities`, body, install.installSecret)
     expect((await post({ label: `x`.repeat(65) })).status).toBe(400)
     expect((await post({ maxPerHour: 601 })).status).toBe(400)
     expect((await post({ maxPerHour: 0 })).status).toBe(400)
@@ -236,7 +235,7 @@ describe(`capabilities`, () => {
     const a = await register(relay)
     const b = await register(relay)
     const minted = await mint(relay, a)
-    const res = await call(relay, `DELETE`, `/v2/installs/${b.installId}/capabilities/${minted.capabilityId}`, undefined, b.installSecret)
+    const res = await call(relay, `DELETE`, `/installs/${b.installId}/capabilities/${minted.capabilityId}`, undefined, b.installSecret)
     expect(res.status).toBe(404)
     expect(relay.store.countCapabilities(a.installId)).toBe(1)
   })
@@ -252,7 +251,7 @@ describe(`capabilities`, () => {
   })
 })
 
-describe(`/v2/push`, () => {
+describe(`POST /push`, () => {
   test(`APNs: an alert placeholder with the sealed blob and the right headers`, async () => {
     const relay = setup()
     const install = await register(relay)
@@ -277,7 +276,7 @@ describe(`/v2/push`, () => {
     })
     const row = relay.store.listCapabilities(install.installId).find((r) => r.id === capabilityId)
     expect(row?.lastUsedAt).toBe(relay.clock.now)
-    expect(relay.accountlessStats).toMatchObject({ delivered: 1, pushRequests: 1 })
+    expect(relay.apiStats).toMatchObject({ delivered: 1, pushRequests: 1 })
   })
 
   test(`APNs: high urgency is priority 10, ttl 0 is expiration 0`, async () => {
@@ -370,7 +369,7 @@ describe(`/v2/push`, () => {
   test(`unknown, missing and install-secret bearers are 401 and draw from the failed-auth bucket`, async () => {
     const relay = setup()
     const install = await register(relay)
-    expect((await call(relay, `POST`, `/v2/push`, { sealed: sealed() })).status).toBe(401)
+    expect((await call(relay, `POST`, `/push`, { sealed: sealed() })).status).toBe(401)
     expect((await push(relay, install.installSecret)).status).toBe(401)
     let last = 0
     for (let i = 0; i < 60; i++) last = (await push(relay, `cap_unknown${i}`)).status
@@ -396,34 +395,49 @@ describe(`storage`, () => {
   })
 })
 
-describe(`modes`, () => {
-  test(`accountless-only: v1 routes 404, /healthz stays the constant, ?modes=1 reports`, async () => {
+describe(`operator routes and the /send compat shim`, () => {
+  test(`without the secret: /send, /stats and /healthz?deep=1 are 404, /healthz stays the constant, ?detail=1 reports`, async () => {
     const relay = setup({ secret: null })
     const send = await relay.app.request(`http://relay/send`, { method: `POST`, body: `{}` })
     expect(send.status).toBe(404)
     expect((await relay.app.request(`http://relay/stats`)).status).toBe(404)
+    expect((await relay.app.request(`http://relay/healthz?deep=1`)).status).toBe(404)
     expect(await (await relay.app.request(`http://relay/healthz`)).json()).toEqual({ ok: true })
-    expect(await (await relay.app.request(`http://relay/healthz?modes=1`)).json()).toEqual({
+    expect(await (await relay.app.request(`http://relay/healthz?detail=1`)).json()).toEqual({
       ok: true,
-      modes: { v1: false, accountless: true },
+      api: true,
+      compatSend: false,
       providers: { fcm: true, apns: true },
     })
   })
 
-  test(`both modes: v1 still needs its secret, /stats carries the accountless counters`, async () => {
+  test(`with the secret: /send and /stats need it, /stats carries the API counters and providers`, async () => {
     const relay = setup({ secret: `s`, apns: null })
     expect((await relay.app.request(`http://relay/stats`)).status).toBe(401)
+    const send = await relay.app.request(`http://relay/send`, { method: `POST`, body: `{}` })
+    expect(send.status).toBe(401)
     const stats = await relay.app.request(`http://relay/stats`, { headers: { "x-relay-secret": `s` } })
-    expect(await stats.json()).toMatchObject({ ok: true, accountless: { registrations: 0, pushRequests: 0 } })
-    expect(await (await relay.app.request(`http://relay/healthz?modes=1`)).json()).toMatchObject({
-      modes: { v1: true, accountless: true },
+    expect(await stats.json()).toMatchObject({
+      ok: true,
+      firebaseConfigured: true,
+      sendRequests: 0,
+      providers: { fcm: true, apns: false },
+      api: { registrations: 0, pushRequests: 0 },
+    })
+    expect(await (await relay.app.request(`http://relay/healthz?detail=1`)).json()).toMatchObject({
+      api: true,
+      compatSend: true,
       providers: { apns: false },
     })
   })
 
-  test(`v1-only: /v2 is absent`, async () => {
-    const relay = createRelayApp({ secret: `s`, trustProxy: false, getMessaging: () => null, log: quietLog })
+  test(`the API never accepts the operator secret, and no /v2 prefix exists`, async () => {
+    const relay = setup({ secret: `s` })
+    const install = await register(relay)
+    expect((await call(relay, `GET`, `/installs/${install.installId}/capabilities`, undefined, `s`)).status).toBe(401)
+    expect((await push(relay, `s`)).status).toBe(401)
     expect((await relay.app.request(`http://relay/v2/installs`, { method: `POST`, body: `{}` })).status).toBe(404)
+    expect((await relay.app.request(`http://relay/v2/push`, { method: `POST`, body: `{}` })).status).toBe(404)
   })
 })
 

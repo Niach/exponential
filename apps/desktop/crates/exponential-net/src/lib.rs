@@ -12,7 +12,7 @@
 //! - call ([`CALL_ALPN`]): opaque audio frames over QUIC datagrams.
 //!
 //! Plus [`push`]: sealed push payloads (X25519 + HKDF-SHA256 +
-//! ChaCha20-Poly1305) for the push relay's accountless mode.
+//! ChaCha20-Poly1305) for the push relay's `/push` API.
 //!
 //! Every connection is QUIC/TLS 1.3 authenticated by the peers' ed25519 keys;
 //! a relay only ever forwards ciphertext between endpoint ids. Incoming

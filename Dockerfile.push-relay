@@ -56,10 +56,10 @@ COPY --from=builder /app/bunfig.toml .
 # question.
 COPY LICENSE NOTICE ./
 
-# EXP-1428: the accountless mode's SQLite store (installs + capability
-# hashes). MOUNT A PERSISTENT VOLUME AT /app/data (Coolify: Persistent
-# Storage): without one every redeploy forgets all installs and every
-# capability a peer holds stops working.
+# EXP-1428: the push API's SQLite store (installs + capability hashes); the
+# relay refuses to start without it. MOUNT A PERSISTENT VOLUME AT /app/data
+# (Coolify: Persistent Storage): without one every redeploy forgets all
+# installs and every capability a caller holds stops working.
 RUN mkdir -p /app/data
 ENV PUSH_RELAY_DB_PATH=/app/data/push-relay.sqlite
 

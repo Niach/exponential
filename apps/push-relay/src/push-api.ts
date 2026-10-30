@@ -14,17 +14,21 @@ import {
 } from "./shared"
 import { hashSecret, type ApnsEnvironment, type InstallRow, type Platform, type RelayStore } from "./store"
 
-// The accountless mode (EXP-1428), mounted under /v2 next to the v1 /send.
+// The push API (EXP-1428): the relay's one public surface, at the root.
 //
-// v1 trusts ONE caller (the web app, holding PUSH_RELAY_SECRET) with raw
-// device tokens. spezl has no server and no accounts, so there is no such
-// caller: a device registers itself here and gets back an install secret (to
-// manage the install) and mints CAPABILITIES — opaque bearer tokens it hands
-// to a peer, so the peer can wake it without ever learning the device token.
-// The payload is sealed end to end for the recipient install; the relay only
-// checks that it is base64url and small enough, and forwards it.
+// A device registers itself (POST /installs) and gets back an install secret
+// to manage its install. It then mints CAPABILITIES: opaque bearer tokens it
+// hands to whoever may wake it (a peer device, its own desktop agent, or a
+// server such as Exponential's web app) without that caller ever learning the
+// device token. The payload is sealed end to end for the recipient install
+// (exponential-net's push_seal); the relay only checks that it is base64url
+// and small enough, and forwards it blind. Every caller is equal here: there
+// is no privileged server and no account.
+//
+// The old secret-gated /send for released Exponential clients is a separate
+// compat shim (compat-send.ts), not part of this API.
 
-export interface AccountlessOptions {
+export interface PushApiOptions {
   store: RelayStore
   /** The APNs client, or null while APNS_KEY_P8/KEY_ID/TEAM_ID are not set. */
   apns: ApnsClient | null
@@ -45,7 +49,7 @@ export interface AccountlessOptions {
   registrationLimit?: { max: number; windowMs: number }
 }
 
-export interface AccountlessStats {
+export interface PushApiStats {
   registrations: number
   pushRequests: number
   delivered: number
@@ -59,8 +63,8 @@ export interface AccountlessStats {
 
 /** The decoded sealed payload: APNs caps a whole payload at 4 KB, the envelope needs the rest. */
 export const MAX_SEALED_BYTES = 3072
-/** Every /v2 body is small; a sealed blob at the cap is ~4.1 KB of base64url. */
-const MAX_V2_BODY_BYTES = 16 * 1024
+/** Every push API body is small; a sealed blob at the cap is ~4.1 KB of base64url. */
+const MAX_BODY_BYTES = 16 * 1024
 const MAX_CAPABILITIES_PER_INSTALL = 256
 const DEFAULT_MAX_PER_HOUR = 60
 const MAX_MAX_PER_HOUR = 600
@@ -125,7 +129,7 @@ function hashesEqual(a: string, b: string): boolean {
 
 // ── Mount ─────────────────────────────────────────────────────────────────────
 
-export function mountAccountless(app: Hono, options: AccountlessOptions) {
+export function mountPushApi(app: Hono, options: PushApiOptions) {
   const {
     store,
     apns,
@@ -145,7 +149,7 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
     now
   )
 
-  const stats: AccountlessStats = {
+  const stats: PushApiStats = {
     registrations: 0,
     pushRequests: 0,
     delivered: 0,
@@ -163,11 +167,10 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
     }
   }, SWEEP_INTERVAL_MS).unref?.()
 
-  // The socket address when Bun hands us its server as `env`: unlike v1 (one
-  // trusted caller behind one egress IP), v2 callers are the whole internet,
-  // so without TRUST_PROXY the real peer is a better bucket key than one
-  // shared bucket. Behind an untrusted proxy it degrades to the proxy's IP,
-  // i.e. the same shared bucket as v1.
+  // The socket address when Bun hands us its server as `env`: push API
+  // callers are the whole internet, so without TRUST_PROXY the real peer is a
+  // better bucket key than one shared bucket. Behind an untrusted proxy it
+  // degrades to the proxy's IP, i.e. one shared bucket.
   function ipOf(c: Context): string {
     const server = c.env as { requestIP?: (req: Request) => { address: string } | null } | undefined
     const socket = server?.requestIP?.(c.req.raw)?.address
@@ -182,8 +185,8 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
 
   async function readJson(c: Context): Promise<{ body: unknown } | Response> {
     const contentLength = Number.parseInt(c.req.raw.headers.get(`content-length`) ?? `0`, 10)
-    if (contentLength > MAX_V2_BODY_BYTES) return c.json({ error: `Body too large` }, 413)
-    const raw = await readBodyCapped(c.req.raw.body, MAX_V2_BODY_BYTES)
+    if (contentLength > MAX_BODY_BYTES) return c.json({ error: `Body too large` }, 413)
+    const raw = await readBodyCapped(c.req.raw.body, MAX_BODY_BYTES)
     if (raw === null) return c.json({ error: `Body too large` }, 413)
     if (raw.trim() === ``) return { body: {} }
     try {
@@ -224,7 +227,7 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
 
   // ── Installs ────────────────────────────────────────────────────────────────
 
-  app.post(`/v2/installs`, async (c) => {
+  app.post(`/installs`, async (c) => {
     if (!registrations.hit(ipOf(c))) {
       stats.rateLimited += 1
       return c.json({ error: `Rate limit exceeded` }, 429)
@@ -259,7 +262,7 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
   // Rotates the device token (APNs/FCM hand out a new one after a restore,
   // a reinstall of the OS, …). The install id, its secret and every
   // capability it minted stay valid.
-  app.put(`/v2/installs/:id`, async (c) => {
+  app.put(`/installs/:id`, async (c) => {
     const install = authInstall(c)
     if (install instanceof Response) return install
     const read = await readJson(c)
@@ -275,7 +278,7 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
     return c.json({ installId: install.id })
   })
 
-  app.delete(`/v2/installs/:id`, (c) => {
+  app.delete(`/installs/:id`, (c) => {
     const install = authInstall(c)
     if (install instanceof Response) return install
     store.deleteInstall(install.id)
@@ -284,7 +287,7 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
 
   // ── Capabilities ────────────────────────────────────────────────────────────
 
-  app.post(`/v2/installs/:id/capabilities`, async (c) => {
+  app.post(`/installs/:id/capabilities`, async (c) => {
     const install = authInstall(c)
     if (install instanceof Response) return install
     const read = await readJson(c)
@@ -318,7 +321,7 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
 
   // The capability token itself is never readable again: only its hash is
   // stored, so a lost one is revoked and re-minted.
-  app.get(`/v2/installs/:id/capabilities`, (c) => {
+  app.get(`/installs/:id/capabilities`, (c) => {
     const install = authInstall(c)
     if (install instanceof Response) return install
     const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString())
@@ -334,7 +337,7 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
     })
   })
 
-  app.delete(`/v2/installs/:id/capabilities/:capId`, (c) => {
+  app.delete(`/installs/:id/capabilities/:capId`, (c) => {
     const install = authInstall(c)
     if (install instanceof Response) return install
     if (!store.deleteCapability(install.id, c.req.param(`capId`))) return c.json({ error: `Not found` }, 404)
@@ -359,7 +362,7 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
     return c.json({ error: status === 504 ? `Provider timeout` : `Provider error` }, status)
   }
 
-  app.post(`/v2/push`, async (c) => {
+  app.post(`/push`, async (c) => {
     stats.pushRequests += 1
     const token = bearer(c)
     if (!token?.startsWith(CAPABILITY_PREFIX)) return unauthorized(c)
@@ -429,7 +432,7 @@ export function mountAccountless(app: Hono, options: AccountlessOptions) {
 
     const messaging = getMessaging()
     if (!messaging) return c.json({ error: `FCM not configured` }, 503)
-    // DATA-ONLY like v1 (EXP-264): the app's service must run to open the
+    // DATA-ONLY (EXP-264): the app's service must run to open the
     // sealed payload and build the notification itself.
     const message: MulticastMessage = {
       tokens: [install.token],

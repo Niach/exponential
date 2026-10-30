@@ -19,6 +19,7 @@ const h = vi.hoisted(() => {
     selectResults: [] as unknown[][],
     selectCalls: { count: 0 },
     deleteCalls: { count: 0 },
+    deleteWheres: [] as unknown[],
   }
 })
 
@@ -39,8 +40,9 @@ vi.mock(`@/db/connection`, () => {
         return builder(h.selectResults.shift() ?? [])
       },
       delete: () => ({
-        where: () => {
+        where: (cond: unknown) => {
           h.deleteCalls.count += 1
+          h.deleteWheres.push(cond)
           return Promise.resolve([])
         },
       }),
@@ -48,7 +50,8 @@ vi.mock(`@/db/connection`, () => {
   }
 })
 
-import { sendToUsers } from "./fcm"
+import { MAX_SEALED_BYTES, sealedPlaintext, sendToUsers } from "./fcm"
+import { pushOpen, pushPublicKey } from "@/lib/push-seal"
 
 const fetchMock = vi.fn()
 
@@ -65,6 +68,7 @@ beforeEach(() => {
   h.selectResults.length = 0
   h.selectCalls.count = 0
   h.deleteCalls.count = 0
+  h.deleteWheres.length = 0
   fetchMock.mockReset()
   vi.stubGlobal(`fetch`, fetchMock)
 })
@@ -218,5 +222,132 @@ describe(`sendToUsers (REV2-3)`, () => {
 
     expect(h.selectCalls.count).toBe(0)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-1428: a row carrying a relay capability + push public key is pushed
+// sealed to POST /push (one request per device, Bearer capability); rows
+// without one keep the legacy /send shim exactly as above.
+describe(`sendToUsers sealed /push (EXP-1428)`, () => {
+  const secret = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 7))
+  const pub = Buffer.from(pushPublicKey(secret)).toString(`base64url`)
+
+  function openBody(call: unknown[]) {
+    const body = JSON.parse((call[1] as RequestInit).body as string)
+    const plain = pushOpen(secret, new Uint8Array(Buffer.from(body.sealed, `base64url`)))
+    return { body, payload: JSON.parse(Buffer.from(plain).toString(`utf8`)) }
+  }
+
+  it(`routes capability rows to /push sealed and legacy rows to /send`, async () => {
+    h.selectResults.push([
+      { userId: `u1`, token: `t1`, relayCapability: `cap_a`, pushPublicKey: pub },
+      { userId: `u1`, token: `t1-old`, relayCapability: null, pushPublicKey: null },
+      { userId: `u2`, token: `t2`, relayCapability: null, pushPublicKey: null },
+    ])
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith(`/push`)
+        ? { ok: true, status: 202, json: async () => ({ delivered: true }), text: async () => `` }
+        : relayOk()
+    )
+
+    await sendToUsers(
+      [{ userId: `u1`, data: { notificationId: `n-1` } }, { userId: `u2` }],
+      {
+        title: `Hello`,
+        body: `World`,
+        data: { type: `issue_comment`, issueId: `i-1` },
+        collapseId: `issue-i-1`,
+      }
+    )
+
+    const calls = fetchMock.mock.calls
+    const push = calls.filter((c) => (c[0] as string) === `http://relay.test/push`)
+    const send = calls.filter((c) => (c[0] as string) === `http://relay.test/send`)
+    expect(push).toHaveLength(1)
+    expect(send).toHaveLength(2)
+
+    const init = push[0][1] as RequestInit
+    expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer cap_a`)
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+    const { body, payload } = openBody(push[0])
+    expect(body.collapseId).toBe(`issue-i-1`)
+    expect(payload).toEqual({
+      title: `Hello`,
+      body: `World`,
+      data: { type: `issue_comment`, issueId: `i-1`, notificationId: `n-1`, userId: `u1` },
+    })
+    // The sealed row is never part of a /send token batch.
+    const sentTokens = send.flatMap(
+      (c) => JSON.parse((c[1] as RequestInit).body as string).tokens
+    )
+    expect(sentTokens.sort()).toEqual([`t1-old`, `t2`])
+    expect(h.deleteCalls.count).toBe(0)
+  })
+
+  it(`deletes rows whose install is gone (410) or capability revoked (401)`, async () => {
+    h.selectResults.push([
+      { userId: `u1`, token: `t1`, relayCapability: `cap_gone`, pushPublicKey: pub },
+      { userId: `u2`, token: `t2`, relayCapability: `cap_revoked`, pushPublicKey: pub },
+      { userId: `u3`, token: `t3`, relayCapability: `cap_busy`, pushPublicKey: pub },
+    ])
+    const status: Record<string, number> = {
+      "Bearer cap_gone": 410,
+      "Bearer cap_revoked": 401,
+      "Bearer cap_busy": 429,
+    }
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      const code = status[(init.headers as Record<string, string>).Authorization]
+      return { ok: false, status: code, json: async () => ({}), text: async () => `x` }
+    })
+
+    await sendToUsers([{ userId: `u1` }, { userId: `u2` }, { userId: `u3` }], {
+      title: `Hi`,
+      data: {},
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(h.deleteCalls.count).toBe(1)
+    const where = JSON.stringify(h.deleteWheres[0], (_k, v) =>
+      typeof v === `object` && v && `table` in v ? undefined : v
+    )
+    expect(where).toContain(`cap_gone`)
+    expect(where).toContain(`cap_revoked`)
+    expect(where).not.toContain(`cap_busy`)
+  })
+})
+
+describe(`sealedPlaintext budget`, () => {
+  const sealedSize = (p: Uint8Array) => p.length + 49
+
+  it(`passes a small payload through untouched`, () => {
+    const p = sealedPlaintext(`T`, `B`, { userId: `u`, x: `y` })
+    expect(JSON.parse(Buffer.from(p).toString())).toEqual({
+      title: `T`,
+      body: `B`,
+      data: { userId: `u`, x: `y` },
+    })
+  })
+
+  it(`truncates the body first, keeping every data key`, () => {
+    const data = { userId: `u`, notificationId: `n`, issueId: `i` }
+    const p = sealedPlaintext(`T`, `é`.repeat(4000), data)
+    const json = JSON.parse(Buffer.from(p).toString())
+    expect(sealedSize(p)).toBeLessThanOrEqual(MAX_SEALED_BYTES)
+    expect(json.data).toEqual(data)
+    expect(json.body.endsWith(`…`)).toBe(true)
+    expect(json.body.length).toBeGreaterThan(1000)
+  })
+
+  it(`then drops non-essential data keys, keeping userId / notificationId / type`, () => {
+    const p = sealedPlaintext(`T`, `body`, {
+      type: `issue_comment`,
+      notificationId: `n`,
+      userId: `u`,
+      huge: `x`.repeat(5000),
+    })
+    const json = JSON.parse(Buffer.from(p).toString())
+    expect(sealedSize(p)).toBeLessThanOrEqual(MAX_SEALED_BYTES)
+    expect(json.data).toEqual({ type: `issue_comment`, notificationId: `n`, userId: `u` })
+    expect(json.body).toBe(`body`)
   })
 })

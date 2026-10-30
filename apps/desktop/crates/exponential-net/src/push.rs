@@ -1,4 +1,4 @@
-//! Sealed push payloads for the push relay's accountless mode.
+//! Sealed push payloads for the push relay's `/push` API.
 //!
 //! The sender seals a small payload to the recipient install's X25519 public
 //! key; the relay forwards opaque bytes to APNs/FCM; the recipient's

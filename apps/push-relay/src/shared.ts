@@ -1,9 +1,8 @@
 import type { BatchResponse, MulticastMessage } from "firebase-admin/messaging"
 
-// Pieces both relay modes share: the FCM client slice, the dead-token codes,
-// the deadline wrapper, the capped body read and the per-IP buckets. They
-// lived in `app.ts` until the accountless mode (EXP-1428) needed them too;
-// `app.ts` re-exports what it always exported.
+// Pieces the push API and the /send compat shim share: the FCM client slice,
+// the dead-token codes, the provider deadline, the capped body read and the
+// per-IP buckets. `app.ts` re-exports what it always exported.
 
 /** The slice of firebase-admin Messaging the relay uses. */
 export interface RelayMessaging {
@@ -28,6 +27,16 @@ export const DEAD_CODES = new Set([
 ])
 
 // ── Deadline ──────────────────────────────────────────────────────────────────
+
+// firebase-admin exposes no per-call timeout/abort, so a slow provider would
+// hold every push response — and the caller's fetch slot behind it — open
+// indefinitely. The web app aborts its POST after 10s (REV2-3); answering 504
+// just under that keeps the failure visible to the caller instead of an abort.
+// The orphaned multicast keeps settling in the background (its sends may still
+// deliver); only that batch's invalid-token pruning is lost, which the next
+// successful send or the web app's stale-token sweep recovers. The push API
+// holds APNs requests to the same budget.
+export const FCM_DEADLINE_MS = 8_000
 
 export class DeadlineError extends Error {}
 

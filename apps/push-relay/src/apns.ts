@@ -2,7 +2,7 @@ import { createPrivateKey, sign, type KeyObject } from "node:crypto"
 import { connect, constants, type ClientHttp2Session } from "node:http2"
 import type { ApnsEnvironment } from "./store"
 
-// The accountless mode talks to APNs directly (EXP-1428): FCM's APNs bridge
+// The push API talks to APNs directly (EXP-1428): FCM's APNs bridge
 // would need a Firebase-registered iOS app per bundle id, and spezl has no
 // Firebase project. The HTTP surface depends on the `ApnsClient` interface
 // only, so the tests drive it with a fake; this file is the real one.

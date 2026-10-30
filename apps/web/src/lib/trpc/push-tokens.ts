@@ -3,16 +3,35 @@ import { and, eq } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
 import { fcmTokens } from "@/db/schema"
 
+// 32 bytes as unpadded base64url = 43 chars; the last char carries only 4
+// significant bits, so it is one of [AEIMQUYcgkosw048].
+const PUSH_PUBLIC_KEY_RE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/
+
 export const pushTokensRouter = router({
   register: authedProcedure
     .input(
-      z.object({
-        token: z.string().min(1),
-        // Only the native apps register push tokens — web push is
-        // intentionally unimplemented (no service-worker push handler, no
-        // PushManager subscription anywhere), so there is no `web` arm.
-        platform: z.enum([`android`, `ios`]),
-      })
+      z
+        .object({
+          token: z.string().min(1),
+          // Only the native apps register push tokens — web push is
+          // intentionally unimplemented (no service-worker push handler, no
+          // PushManager subscription anywhere), so there is no `web` arm.
+          platform: z.enum([`android`, `ios`]),
+          // EXP-1428: the push relay's accountless mode. The device registered
+          // itself with the relay, minted a capability for this server and
+          // hands it over with its X25519 push public key; pushes to this row
+          // are then sealed to that key (lib/push-seal.ts) and POSTed to
+          // /push. Both or neither; released clients send neither.
+          capability: z.string().startsWith(`cap_`).max(512).optional(),
+          pushPublicKey: z
+            .string()
+            .regex(PUSH_PUBLIC_KEY_RE, `base64url of 32 bytes`)
+            .optional(),
+        })
+        .refine(
+          (v) => (v.capability === undefined) === (v.pushPublicKey === undefined),
+          { message: `capability and pushPublicKey go together` }
+        )
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
@@ -32,10 +51,20 @@ export const pushTokensRouter = router({
           userId,
           token: input.token,
           platform: input.platform,
+          relayCapability: input.capability ?? null,
+          pushPublicKey: input.pushPublicKey ?? null,
         })
         .onConflictDoUpdate({
           target: [fcmTokens.token, fcmTokens.userId],
-          set: { platform: input.platform, updatedAt: new Date() },
+          // The registration describes what the running build can open: a
+          // re-register without a capability (e.g. an app downgrade) clears
+          // it, so the row falls back to the /send shim.
+          set: {
+            platform: input.platform,
+            relayCapability: input.capability ?? null,
+            pushPublicKey: input.pushPublicKey ?? null,
+            updatedAt: new Date(),
+          },
         })
       return { ok: true }
     }),
