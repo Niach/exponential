@@ -233,7 +233,9 @@ macro_rules! sealed_shape_row {
     };
 }
 
-sealed_shape_row!(SessionRow, "sessions", open_session, |row| domain::sealed::is_closed(row.title_seal));
+// A title opens through the key cache, which tells no closed state: every
+// session re-opens (one cheap pass over the trees).
+sealed_shape_row!(SessionRow, "sessions", open_session, |_| true);
 sealed_shape_row!(MessageRow, "messages", open_message, |row| domain::sealed::is_closed(row.seal));
 sealed_shape_row!(ConversationRow, "conversations", open_conversation, |row| {
     domain::chats::ConversationDigest::decode(row.digest.as_ref()).is_some_and(|digest| {
@@ -1130,7 +1132,7 @@ impl Store {
         Ok(())
     }
 
-    /// EXP-1459: tree keys arrived (`sync::sealed::TreeKeys::on_change`):
+    /// EXP-1459: tree keys arrived (the key cache's change counter moved):
     /// re-open every row whose sealed content stayed closed.
     pub fn reopen_sealed(&self, cx: &mut App) {
         let Some(account_id) = self.session(cx).account_id().map(str::to_string) else {

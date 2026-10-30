@@ -96,6 +96,36 @@ pub struct SendInput {
     /// (a meeting part whose answer was lost).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_message_id: Option<String>,
+    /// EXP-1458: the users `text` mentions (the server cannot read a
+    /// sealed body; the writer resolves `@email`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mention_user_ids: Option<Vec<String>>,
+    /// EXP-1458: a root without a key gets it inline, in the send's own
+    /// transaction (a new thread, agent conversation, app editor).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seal: Option<SendSeal>,
+    /// EXP-1458: `name` as a body envelope (writes `sessions.sealed_title`;
+    /// the plaintext `name` stays neutral or absent).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sealed_name: Option<String>,
+}
+
+/// EXP-1458 `sessions.send` `seal`: the new tree's key, wrapped for every
+/// reader the writer resolved (its own install included).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendSeal {
+    pub install_id: String,
+    pub public_key: String,
+    pub epoch: u32,
+    pub wraps: Vec<SealWrap>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SealWrap {
+    pub install_id: String,
+    pub wrapped: String,
 }
 
 impl SendInput {
@@ -288,6 +318,11 @@ pub struct AnswerInput {
     /// EXP-1280: the inline surface's data model at answer time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surface_data: Option<serde_json::Value>,
+    /// EXP-1458: the FULL card re-sealed with the answer in it
+    /// (`{...clear, sealed}`); with it go only the clear `decision` /
+    /// `fresh`, never `answer` / `answers` / `feedback` / `surfaceData`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sealed_card: Option<serde_json::Value>,
 }
 
 /// Answer a question/plan card in place.

@@ -442,11 +442,6 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "seal_epoch",
             "sealed_title",
             "guide",
-            // EXP-1458: the tree key (roots) and the sealed title
-            // (`sealed-content.json`); healed onto existing stores.
-            "seal_public_key",
-            "seal_epoch",
-            "sealed_title",
             "created_at",
             "updated_at",
         ],

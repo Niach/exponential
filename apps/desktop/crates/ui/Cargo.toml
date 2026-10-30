@@ -22,6 +22,9 @@ coding = { path = "../coding" }
 # (the CLI daemon, which links `screen` through `coding`, never does).
 epilot-screen = { path = "../epilot-screen", features = ["portal"] }
 steer = { path = "../steer" }
+# EXP-1459: the sealed-content contract (a new root's first message seals
+# with its fresh tree key).
+enet-core = { path = "../enet-core" }
 # NEW-53: the speech worker's wire and the voice/call/meeting state machines.
 etalk = { path = "../etalk" }
 # #EXP-1422: the tray, push to talk, the overlay, the call UI, spoken replies

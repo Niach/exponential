@@ -366,10 +366,11 @@ pub(crate) fn send_to_agent(agent_id: &str, text: &str, cx: &mut App) {
         return;
     };
     let input = crate::chat_launch::agent_send_input(&team_id, agent_id, text, Vec::new());
+    let plan = crate::sealing::plan_send(&input, cx);
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
-            .spawn(async move { api::sessions::send(&trpc, &input) })
+            .spawn(async move { crate::sealing::send_blocking(&trpc, &input, &plan) })
             .await;
         if let Err(err) = result {
             let _ = cx.update(|cx| crate::action_error::failed_action_err("send", "the message", &err, cx));
@@ -394,10 +395,11 @@ pub(crate) fn send_surface_reply(session_id: &str, text: &str, cx: &mut App) {
         text: Some(text.to_string()),
         ..Default::default()
     };
+    let plan = crate::sealing::plan_send(&input, cx);
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
-            .spawn(async move { api::sessions::send(&trpc, &input) })
+            .spawn(async move { crate::sealing::send_blocking(&trpc, &input, &plan) })
             .await;
         if let Err(err) = result {
             let _ = cx.update(|cx| crate::action_error::failed_action_err("send", "the message", &err, cx));

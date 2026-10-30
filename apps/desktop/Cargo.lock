@@ -11752,6 +11752,7 @@ dependencies = [
  "comrak",
  "dirs",
  "domain",
+ "enet-core",
  "engine",
  "epilot-screen",
  "etalk",

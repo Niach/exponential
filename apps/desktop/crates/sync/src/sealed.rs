@@ -4,61 +4,62 @@
 //! collections hold is OPENED here, so no renderer ever sees an envelope:
 //!
 //! * `messages`: `body` (body envelope) + `card` (card envelope);
-//! * `sessions`: `sealed_title` opens into `title`;
+//! * `sessions`: the sealed title opens into `title`;
 //! * `conversations`: the digest's kept messages, like `messages`.
 //!
 //! A row this install holds no key for keeps an empty body / the card's clear
 //! part and carries [`SealState::Locked`] (the renderers draw the locked
-//! row); when keys arrive ([`TreeKeys::on_change`]) the collections re-open
-//! exactly those rows. gpui-free: the daemon links it too.
+//! row); when keys arrive the app calls `Store::reopen_sealed`, which
+//! re-opens exactly those rows. gpui-free: the daemon links it too.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use domain::rows::{ConversationRow, MessageRow, SealState, SessionRow};
-use enet_core::sealed::{self as seal, OpenStatus, SEALED_BODY_PREFIX};
+use enet_core::sealed::{self as seal, SEALED_BODY_PREFIX};
+pub use enet_core::sealed::{OpenStatus, OpenedBody, OpenedCard};
 use serde_json::Value;
 
-/// The tree keys this install holds (the cache beside `steer::enet`
-/// implements it: unwrapped `sessionKeys.mine` rows, answers `pending`).
-pub trait TreeKeys: Send + Sync + 'static {
-    /// The cached secret for (root, epoch). Never blocks, no network: it
-    /// runs on the ingest path.
-    fn secret(&self, root_id: &str, epoch: u32) -> Option<[u8; 32]>;
-    /// The writer path, BLOCKING (off the UI thread): the root's current
-    /// (epoch, tree public); a root without a key gets one first
-    /// (`sessionKeys.create` with wraps for every reader it resolves).
-    fn writer_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), String>;
-    /// `f` runs whenever new secrets land (any thread).
-    fn on_change(&self, f: Box<dyn Fn() + Send + Sync>);
+/// What opens a tree's sealed values on this install. The app hands in an
+/// adapter over the device's key cache (`coding::sealing`); sync never
+/// links it. Every call runs on the ingest path: cached keys only, no
+/// network.
+pub trait Opens: Send + Sync + 'static {
+    fn open_body(&self, root_id: &str, body: &str) -> OpenedBody;
+    fn open_card(&self, root_id: &str, card: &Value) -> OpenedCard;
+    /// The session's sealed title opened, `None` = keep `title`.
+    fn open_title(&self, row: &SessionRow) -> Option<String>;
 }
 
-/// No key cache (yet): everything sealed stays locked, writers send plaintext.
+/// No key cache (yet): every sealed value stays closed (`noKey` /
+/// `unsupported` / `malformed` exactly as the contract parses it).
 pub struct NoKeys;
 
-impl TreeKeys for NoKeys {
-    fn secret(&self, _root_id: &str, _epoch: u32) -> Option<[u8; 32]> {
+impl Opens for NoKeys {
+    fn open_body(&self, _root_id: &str, body: &str) -> OpenedBody {
+        seal::open_body(body, &|_| None)
+    }
+    fn open_card(&self, _root_id: &str, card: &Value) -> OpenedCard {
+        seal::open_card(card, &|_| None)
+    }
+    fn open_title(&self, _row: &SessionRow) -> Option<String> {
         None
     }
-    fn writer_key(&self, _root_id: &str) -> Result<(u32, [u8; 32]), String> {
-        Err("no tree key cache".into())
-    }
-    fn on_change(&self, _f: Box<dyn Fn() + Send + Sync>) {}
 }
 
-/// The process's opener: the active account's [`TreeKeys`] plus the
+/// The process's opener: the active account's [`Opens`] plus the
 /// session → root map the ingest learns from the `sessions` shape (a
 /// conversation names its session, a key belongs to the root).
 pub struct Opener {
-    keys: RwLock<Arc<dyn TreeKeys>>,
+    keys: RwLock<Arc<dyn Opens>>,
     roots: RwLock<HashMap<String, String>>,
     /// A digest held sealed content of a session whose root is unknown.
     unresolved: AtomicBool,
 }
 
 impl Opener {
-    pub fn new(keys: Arc<dyn TreeKeys>) -> Self {
+    pub fn new(keys: Arc<dyn Opens>) -> Self {
         Self { keys: RwLock::new(keys), roots: RwLock::new(HashMap::new()), unresolved: AtomicBool::new(false) }
     }
 
@@ -70,11 +71,11 @@ impl Opener {
 
     /// Swap the key cache (sign-in / account switch). The caller re-opens
     /// the collections afterwards.
-    pub fn set_keys(&self, keys: Arc<dyn TreeKeys>) {
+    pub fn set_keys(&self, keys: Arc<dyn Opens>) {
         *self.keys.write().unwrap_or_else(|p| p.into_inner()) = keys;
     }
 
-    pub fn keys(&self) -> Arc<dyn TreeKeys> {
+    pub fn keys(&self) -> Arc<dyn Opens> {
         Arc::clone(&self.keys.read().unwrap_or_else(|p| p.into_inner()))
     }
 
@@ -95,30 +96,25 @@ impl Opener {
         }
     }
 
-    fn lookup(&self, root_id: Option<&str>) -> impl Fn(u32) -> Option<[u8; 32]> + '_ {
-        let keys = self.keys();
-        let root = root_id.map(str::to_string);
-        move |epoch| root.as_deref().and_then(|root| keys.secret(root, epoch))
+    /// The opener for `root_id`'s tree (an unknown root opens nothing).
+    fn tree(&self, root_id: Option<&str>) -> Tree {
+        let keys: Arc<dyn Opens> = if root_id.is_some() { self.keys() } else { Arc::new(NoKeys) };
+        Tree { keys, root: root_id.unwrap_or_default().to_string() }
     }
 
     /// Opens a `messages` row in place (`root_id` names its tree).
     pub fn open_message(&self, row: &mut MessageRow) {
-        let keys = self.lookup(row.root_id.as_deref());
-        row.seal = open_parts(&mut row.body, &mut row.card, &keys);
+        let tree = self.tree(row.root_id.as_deref());
+        row.seal = open_parts(&mut row.body, &mut row.card, &tree);
     }
 
-    /// Opens a `sessions` row's sealed title into `title`.
+    /// Opens a `sessions` row's sealed title into `title` (a title this
+    /// install cannot open keeps the neutral plaintext fallback).
     pub fn open_session(&self, row: &mut SessionRow) {
         let root = row.root_id_or_self().to_string();
         self.remember_root(&row.id, &root);
-        row.title_seal = None;
-        let Some(sealed) = row.sealed_title.as_deref().filter(|t| t.starts_with(SEALED_BODY_PREFIX)) else {
-            return;
-        };
-        let opened = seal::open_body(sealed, &self.lookup(Some(&root)));
-        row.title_seal = SealState::from_status(opened.status.as_str());
-        if let Some(text) = opened.text.filter(|_| opened.status == OpenStatus::Opened) {
-            row.title = Some(text);
+        if let Some(title) = self.keys().open_title(row) {
+            row.title = Some(title);
         }
     }
 
@@ -135,7 +131,7 @@ impl Opener {
 
     fn open_digest(&self, row: &mut ConversationRow) -> bool {
         let root = row.session_id.as_deref().and_then(|session| self.root_of(session));
-        let keys = self.lookup(root.as_deref());
+        let tree = self.tree(root.as_deref());
         let Some(Value::Object(digest)) = row.digest.as_mut() else {
             return true;
         };
@@ -146,7 +142,7 @@ impl Opener {
             };
             let mut body = message.get("body").and_then(Value::as_str).map(str::to_string);
             let mut card = message.get("card").cloned().filter(|card| !card.is_null());
-            let state = open_parts(&mut body, &mut card, &keys);
+            let state = open_parts(&mut body, &mut card, &tree);
             if let Some(state) = state {
                 sealed = true;
                 message.insert("body".into(), Value::String(body.unwrap_or_default()));
@@ -180,44 +176,27 @@ fn worst(a: Option<SealState>, b: Option<SealState>) -> Option<SealState> {
     }
 }
 
+struct Tree {
+    keys: Arc<dyn Opens>,
+    root: String,
+}
+
 /// Opens one message's body + card in place; `None` = nothing was sealed.
 /// Not opened = an empty body and the card's clear part.
-fn open_parts(body: &mut Option<String>, card: &mut Option<Value>, keys: &dyn Fn(u32) -> Option<[u8; 32]>) -> Option<SealState> {
+fn open_parts(body: &mut Option<String>, card: &mut Option<Value>, tree: &Tree) -> Option<SealState> {
     let mut state = None;
     if let Some(text) = body.as_deref().filter(|b| b.starts_with(SEALED_BODY_PREFIX)) {
-        let opened = seal::open_body(text, keys);
+        let opened = tree.keys.open_body(&tree.root, text);
         let body_state = SealState::from_status(opened.status.as_str());
         *body = Some(opened.text.filter(|_| opened.status == OpenStatus::Opened).unwrap_or_default());
         state = worst(state, body_state);
     }
     if let Some(value) = card.as_ref().filter(|c| c.get("sealed").is_some()) {
-        let opened = seal::open_card(value, keys);
+        let opened = tree.keys.open_card(&tree.root, value);
         *card = Some(opened.card);
         state = worst(state, SealState::from_status(opened.status.as_str()));
     }
     state
-}
-
-/// The writer's half: `text` sealed for `root_id`'s tree, or `None` when
-/// this install cannot seal it (no key cache, offline): the caller sends
-/// plaintext, which stays legal. BLOCKING.
-pub fn seal_text_for(root_id: &str, text: &str) -> Option<String> {
-    let keys = Opener::global().keys();
-    let (epoch, public) = match keys.writer_key(root_id) {
-        Ok(key) => key,
-        Err(err) => {
-            log::debug!("[sealed] no writer key for {root_id}: {err}");
-            return None;
-        }
-    };
-    seal::seal_body(&public, epoch, text).map_err(|err| log::warn!("[sealed] seal failed: {err}")).ok()
-}
-
-/// The writer's half for a card (an answer re-seals the FULL card). BLOCKING.
-pub fn seal_card_for(root_id: &str, card: &Value) -> Option<Value> {
-    let keys = Opener::global().keys();
-    let (epoch, public) = keys.writer_key(root_id).ok()?;
-    seal::seal_card(&public, epoch, card).map_err(|err| log::warn!("[sealed] seal failed: {err}")).ok()
 }
 
 #[cfg(test)]
@@ -238,21 +217,27 @@ mod tests {
     }
 
     /// The fixture's `keys` under one root.
-    struct FixtureKeys(Vec<(u32, [u8; 32])>, [u8; 32]);
-    impl TreeKeys for FixtureKeys {
-        fn secret(&self, root_id: &str, epoch: u32) -> Option<[u8; 32]> {
-            (root_id == "root").then(|| self.0.iter().find(|(e, _)| *e == epoch).map(|(_, s)| *s)).flatten()
+    struct FixtureKeys(Vec<(u32, [u8; 32])>);
+    impl FixtureKeys {
+        fn lookup<'a>(&'a self, root_id: &'a str) -> impl Fn(u32) -> Option<[u8; 32]> + 'a {
+            move |epoch| (root_id == "root").then(|| self.0.iter().find(|(e, _)| *e == epoch).map(|(_, s)| *s)).flatten()
         }
-        fn writer_key(&self, _root_id: &str) -> Result<(u32, [u8; 32]), String> {
-            Ok((1, self.1))
+    }
+    impl Opens for FixtureKeys {
+        fn open_body(&self, root_id: &str, body: &str) -> OpenedBody {
+            seal::open_body(body, &self.lookup(root_id))
         }
-        fn on_change(&self, _f: Box<dyn Fn() + Send + Sync>) {}
+        fn open_card(&self, root_id: &str, card: &Value) -> OpenedCard {
+            seal::open_card(card, &self.lookup(root_id))
+        }
+        fn open_title(&self, row: &SessionRow) -> Option<String> {
+            (row.root_id_or_self() == "root").then(|| "Opened title".to_string())
+        }
     }
 
     fn opener(fx: &Value) -> Opener {
         let keys = fx["keys"].as_object().unwrap().iter().map(|(k, v)| (k.parse().unwrap(), hex32(v))).collect();
-        let public = seal::public_key_from_b64(fx["tree"]["publicKey"].as_str().unwrap()).unwrap();
-        Opener::new(Arc::new(FixtureKeys(keys, public)))
+        Opener::new(Arc::new(FixtureKeys(keys)))
     }
 
     fn message(body: &str, card: Option<Value>) -> MessageRow {
@@ -314,12 +299,11 @@ mod tests {
             id: "child".into(),
             root_id: Some("root".into()),
             title: Some("Session".into()),
-            sealed_title: Some(envelope.into()),
             ..SessionRow::default()
         };
         opener.open_session(&mut session);
-        assert_eq!(session.title.as_deref(), fx["body"]["text"].as_str());
-        assert_eq!(session.title_seal, Some(SealState::Opened));
+        assert_eq!(session.title.as_deref(), Some("Opened title"));
+        assert_eq!(opener.root_of("child").as_deref(), Some("root"));
 
         let split = &fx["card"]["splits"].as_array().unwrap()[0];
         let mut conversation = ConversationRow {
@@ -349,17 +333,5 @@ mod tests {
         assert!(!opener.open_conversation(&mut unknown));
         let preview = domain::chats::ConversationDigest::decode(unknown.digest.as_ref()).unwrap().preview.unwrap();
         assert_eq!((preview.body.as_str(), preview.seal), ("", Some(SealState::Locked)));
-    }
-
-    #[test]
-    fn writers_seal_for_the_tree_and_readers_open_it() {
-        let fx = fixture();
-        let opener = opener(&fx);
-        let keys = opener.keys();
-        let (epoch, public) = keys.writer_key("root").unwrap();
-        let body = seal::seal_body(&public, epoch, "hello @a@b.c").unwrap();
-        let mut row = message(&body, None);
-        opener.open_message(&mut row);
-        assert_eq!((row.body.as_deref(), row.seal), (Some("hello @a@b.c"), Some(SealState::Opened)));
     }
 }

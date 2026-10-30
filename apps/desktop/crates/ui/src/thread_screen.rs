@@ -260,8 +260,12 @@ pub(crate) fn answer_card(input: api::sessions::AnswerInput, cx: &mut App) {
         crate::action_error::failed_action("answer", "the question", None, cx);
         return;
     };
+    let plan = crate::sealing::plan_answer(&message_id, cx);
     cx.spawn(async move |cx| {
-        let result = cx.background_executor().spawn(async move { api::sessions::answer(&trpc, &input) }).await;
+        let result = cx
+            .background_executor()
+            .spawn(async move { crate::sealing::answer_blocking(&trpc, &input, &plan) })
+            .await;
         match result {
             // The draft goes only now: a refusal (409, 400, the network)
             // re-opens the card with its picks and text intact.

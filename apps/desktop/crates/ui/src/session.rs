@@ -363,6 +363,7 @@ fn repos_root_is_deletable(repos_root: &Path, home: Option<&Path>) -> bool {
 /// 2. Otherwise resume the first persisted signed-in account (warm start —
 ///    the pipeline resumes from the persisted cursor, §5.11 gate 3).
 pub fn bootstrap(cx: &mut App) {
+    crate::sealing::init(cx);
     let dev_server = std::env::var("EXP_DEV_SERVER").ok();
     let dev_token = std::env::var("EXP_DEV_TOKEN").ok();
     if let (Some(server), Some(token)) = (dev_server, dev_token) {
