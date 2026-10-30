@@ -45,6 +45,7 @@ use std::sync::Arc;
 use crate::host::{EngineCommand, EngineExit, EngineHost, KillFeed, KillReason, SessionCtx};
 use crate::local::EnginePhase;
 use crate::session::EngineError;
+use steer::SessionBlockedReport as _;
 
 /// The run's side-car machinery, alive for exactly as long as the connection.
 pub(crate) struct RunLifecycle {

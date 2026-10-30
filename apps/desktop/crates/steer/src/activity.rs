@@ -35,19 +35,6 @@ pub(crate) const NEEDS_INPUT_RETRY: Duration = Duration::from_secs(5);
 // The publisher ↔ engine answer seam (EXP-249)
 // ---------------------------------------------------------------------------
 
-/// A steerer's semantic answer, relayed verbatim by the publisher: the
-/// question's own id plus the option `key`s of THAT question. The emitter maps
-/// them onto whatever the TUI is showing right now — clients never guess
-/// keystrokes.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RemoteAnswer {
-    pub question_id: String,
-    pub ask_id: Option<String>,
-    pub keys: Vec<String>,
-    /// EXP-513: the typed reply for a `freeText` option — selected with
-    /// `keys`, typed into the TUI's inline editor, submitted with Enter.
-    pub text: Option<String>,
-}
 
 /// The one-way seam between the publisher task (tokio) and the ACP engine:
 /// a steerer's semantic answer goes down the channel and the engine maps it
@@ -527,33 +514,18 @@ impl Default for StatusForwarder {
     }
 }
 
-/// EXP-804: the agent's usage wall as the synced row records it
-/// (EXP-1292: `sessions.blocked`, written with `sessions.report`). The device
-/// is the only thing that can see it (the agent reports the wall on its own
-/// stream), and a walled run keeps status `running` with a moving
-/// `updated_at`, so without this write a rate-limited run is indistinguishable
-/// from a healthy one — the 2026-09-09 incident.
-///
-/// `resets_at` is an ISO string here even though every producer speaks a
-/// different unit: claude's own frame carries unix SECONDS, the relay wire
-/// unix MILLIS, and the column an ISO stamp matching `DeviceUsageWindow`.
-/// [`BlockedForwarder`] is the one place that conversion happens.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SessionBlocked {
-    /// Contract `codingSessionBlocked.kinds` — `rate_limit` today.
-    pub kind: String,
-    pub agent: String,
-    /// Contract `codingSessionBlocked.windows`, when the agent named one.
-    pub window: String,
-    pub resets_at: Option<String>,
-    pub since: String,
+
+/// EXP-1426: the `sessions.report{blocked}` conversion of the core's
+/// [`SessionBlocked`] (pure data in `exponential_agent_runtime::wire`).
+pub trait SessionBlockedReport {
+    fn report_input(&self, handled: Option<bool>) -> api::session_device::BlockedInput;
 }
 
-impl SessionBlocked {
+impl SessionBlockedReport for SessionBlocked {
     /// EXP-1292: the `sessions.report{blocked}` wire value. `handled` is the
     /// EXP-1005 verdict (the device rotates or waits the wall out itself, so
     /// the server sends no rate-limit notification); `None` = it notifies.
-    pub fn report_input(&self, handled: Option<bool>) -> api::session_device::BlockedInput {
+    fn report_input(&self, handled: Option<bool>) -> api::session_device::BlockedInput {
         api::session_device::BlockedInput {
             kind: self.kind.clone(),
             agent: self.agent.clone(),
@@ -586,13 +558,6 @@ pub fn blocked_wall_expired(wall: &SessionBlocked, now_ms: i64) -> bool {
     }
 }
 
-/// The wall clock the expiry rule above compares against (unix ms).
-pub fn now_unix_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_millis() as i64)
-        .unwrap_or_default()
-}
 
 /// The EXP-804 synced usage wall, tracked exactly like [`NeedsInputForwarder`]
 /// tracks its flag: the last CONFIRMED server value, `None` on a write that
@@ -647,17 +612,9 @@ impl Default for BlockedForwarder {
     }
 }
 
-/// EXP-804: every producer of a reset stamp speaks a different unit — the
-/// relay wire unix MILLIS, claude's own frame unix SECONDS, the column an ISO
-/// string. Normalise ONCE, here, on top of the ISO helper the usage collector
-/// already uses so the two never format differently. A non-positive stamp is
-/// "no reset named", never 1970.
-pub fn iso_from_unix_millis(millis: i64) -> Option<String> {
-    if millis <= 0 {
-        return None;
-    }
-    coding::agent_accounts::iso_from_unix_secs(millis / 1000)
-}
+// EXP-1426: `iso_from_unix_millis` + `now_iso` are the core's (pure std,
+// `exponential_agent_runtime::wire::activity`); `iso_tests` below pins them
+// to the usage collector's chrono formatter.
 
 #[cfg(test)]
 mod blocked_tests {
@@ -1145,5 +1102,26 @@ mod exp1292_status_tests {
             })
         );
         assert_eq!(wall.report_input(None).handled, None);
+    }
+}
+
+#[cfg(test)]
+mod iso_tests {
+    use super::*;
+
+    /// EXP-1426: the core formats ISO stamps by hand (no chrono); it must
+    /// write exactly what the usage collector's formatter writes.
+    #[test]
+    fn the_core_iso_formatter_is_the_collector_formatter() {
+        for secs in [1i64, 59, 951_782_400, 1_709_208_000, 1_788_915_540, 4_102_444_799, 253_402_300_799] {
+            assert_eq!(
+                iso_from_unix_millis(secs * 1000 + 999),
+                coding::agent_accounts::iso_from_unix_secs(secs),
+                "{secs}"
+            );
+        }
+        let now = now_iso();
+        let parsed = coding::agent_accounts::unix_millis_from_iso(&now).expect("now parses");
+        assert_eq!(exponential_agent_runtime::wire::activity::iso_from_millis(parsed).as_deref(), Some(now.as_str()));
     }
 }

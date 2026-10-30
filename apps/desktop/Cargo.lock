@@ -2996,6 +2996,7 @@ dependencies = [
 name = "exponential-agent-runtime"
 version = "0.1.0"
 dependencies = [
+ "agent-client-protocol",
  "dirs",
  "flume 0.11.1",
  "libc",

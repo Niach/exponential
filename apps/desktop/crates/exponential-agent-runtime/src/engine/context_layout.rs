@@ -8,8 +8,8 @@
 //!
 //! Only ONE segment can ever be measured: the agent reports the tokens its
 //! first request carried and nothing else. Everything the launcher put there
-//! is known in BYTES ([`coding::ContextLayers`]) and estimated at
-//! `domain::contract::CONTEXT_LAYOUT_CHARS_PER_TOKEN` chars per token; `base`
+//! is known in BYTES ([`ContextLayers`]) and estimated at
+//! [`CHARS_PER_TOKEN`] chars per token; `base`
 //! is then the measured prefix MINUS those estimates — the agent's own system
 //! prompt, its tool definitions and whatever else it prepends, which no
 //! launcher can see. Getting it by subtraction is what keeps the bar's total
@@ -25,10 +25,64 @@
 
 use serde_json::{json, Map, Value};
 
-use steer::{ContextSegment, ContextSegmentKey, ContextSegmentSource};
+use crate::wire::frames::{ContextSegment, ContextSegmentKey, ContextSegmentSource};
+
+/// Contract `contextLayout.charsPerToken`, pinned by Exponential's engine.
+pub const CHARS_PER_TOKEN: usize = 4;
+
+/// The measured layers of ONE launch's starting context, in bytes.
+///
+/// Every field is what the LAUNCHER put there; the agent's own additions
+/// (the files it reads, the tools it calls) are the engine's running total,
+/// not this snapshot.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ContextLayers {
+    /// The run playbook (Exponential: `coding::skill::playbook`) in bytes.
+    pub playbook_bytes: usize,
+    /// EXP-1025 team prompt bytes plus (EXP-1292) a team agent's
+    /// instructions, when the brief carries either.
+    pub team_bytes: Option<usize>,
+    /// The seed prompt's bytes; `None` on a resume (no seed prompt).
+    pub task_bytes: Option<usize>,
+    /// The project memory files the agent will load, in load order.
+    pub project: Vec<ProjectMemoryFile>,
+    /// The Exponential MCP surface the agent gets (always-load tool defs +
+    /// server instructions). EXP-1292: always `None` from the launcher — the
+    /// v2 session router has no budget query (the old
+    /// `codingSessions.contextBudget` went with it); the engine's breakdown
+    /// simply omits the segment.
+    pub tools_bytes: Option<usize>,
+    /// A resume's measured base from the previous run, when one was recorded.
+    pub carried_base: Option<CarriedBase>,
+}
+
+/// One memory file the agent loads on its own at start (`CLAUDE.md` and its
+/// siblings, `AGENTS.md`) — named the way the person reading the breakdown
+/// would name it, and sized as it sits on disk.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProjectMemoryFile {
+    /// How the file is shown: relative to the run's cwd when it is inside
+    /// it, `~/…` under the home dir, else the absolute path.
+    pub label: String,
+    /// The file's size on disk, symlinks followed.
+    pub bytes: usize,
+}
+
+/// EXP-1051 — what the PREVIOUS run of a resumed conversation had measured
+/// for itself: a resume re-enters a transcript whose base context this run
+/// never built, so the only honest number is the recorded one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CarriedBase {
+    /// The predecessor's measured base, in tokens (the agent's own count,
+    /// not an estimate off bytes).
+    pub tokens: u64,
+    /// The model it was measured on — a base carried across a model switch
+    /// is a different window, so the reader has to see which one it was.
+    pub model: String,
+}
 
 /// The `_meta` key the adapters stamp the slot under, read by
-/// [`crate::mapper::Mapper::on_update`]'s prologue beside the other
+/// [`super::mapper::Mapper::on_update`]'s prologue beside the other
 /// latest-wins `_meta` keys. Value: [`slot`]'s object.
 pub const CONTEXT_LAYOUT_META_KEY: &str = "exponentialContextLayout";
 
@@ -37,14 +91,14 @@ pub const CONTEXT_LAYOUT_META_KEY: &str = "exponentialContextLayout";
 /// the segments it covers are text the launcher wrote, and tokenizing them
 /// for real would mean shipping a tokenizer per agent.
 pub fn estimate_tokens(bytes: usize) -> i64 {
-    let per = domain::contract::CONTEXT_LAYOUT_CHARS_PER_TOKEN.max(1);
+    let per = CHARS_PER_TOKEN.max(1);
     i64::try_from((bytes + per / 2) / per).unwrap_or(i64::MAX)
 }
 
 /// Every segment the LAUNCHER knows, in contract order, each `estimated`.
 /// A segment worth zero tokens is omitted rather than drawn as a hairline
 /// nobody can hit.
-pub fn estimated_segments(layers: &coding::ContextLayers) -> Vec<ContextSegment> {
+pub fn estimated_segments(layers: &ContextLayers) -> Vec<ContextSegment> {
     let mut segments = Vec::new();
     let mut push = |key: ContextSegmentKey, bytes: usize, detail: Option<String>| {
         let tokens = estimate_tokens(bytes);
@@ -69,14 +123,14 @@ pub fn estimated_segments(layers: &coding::ContextLayers) -> Vec<ContextSegment>
         // file and summing would drift by up to half a token per file, and
         // the bar has one band for them anyway. The names go on `detail`.
         let bytes: usize = layers.project.iter().map(|file| file.bytes).sum();
-        let detail = steer::truncate(
+        let detail = crate::wire::truncate(
             &layers
                 .project
                 .iter()
                 .map(|file| file.label.as_str())
                 .collect::<Vec<_>>()
                 .join(", "),
-            steer::CONTEXT_SEGMENT_DETAIL_MAX,
+            crate::wire::frames::CONTEXT_SEGMENT_DETAIL_MAX,
         );
         push(
             ContextSegmentKey::Project,
@@ -131,7 +185,7 @@ pub fn measure_base(prefix: BasePrefix, estimated: &[ContextSegment]) -> Context
 /// The whole frame's segments, in contract order. Without a prefix there is
 /// no `base` — the estimates alone are still worth drawing (codex on a
 /// gateway that reports no input halves).
-pub fn layout(layers: &coding::ContextLayers, prefix: Option<BasePrefix>) -> Vec<ContextSegment> {
+pub fn layout(layers: &ContextLayers, prefix: Option<BasePrefix>) -> Vec<ContextSegment> {
     let estimated = estimated_segments(layers);
     match prefix {
         Some(prefix) => {
@@ -172,17 +226,17 @@ pub fn meta(segments: &[ContextSegment], model: Option<&str>) -> Map<String, Val
 mod tests {
     use super::*;
 
-    fn layers() -> coding::ContextLayers {
-        coding::ContextLayers {
+    fn layers() -> ContextLayers {
+        ContextLayers {
             playbook_bytes: 4_000,
             team_bytes: Some(800),
             task_bytes: Some(400),
             project: vec![
-                coding::ProjectMemoryFile {
+                ProjectMemoryFile {
                     label: "CLAUDE.md".to_string(),
                     bytes: 40_000,
                 },
-                coding::ProjectMemoryFile {
+                ProjectMemoryFile {
                     label: "~/.claude/CLAUDE.md".to_string(),
                     bytes: 2_000,
                 },
@@ -224,7 +278,7 @@ mod tests {
 
     #[test]
     fn a_zero_token_layer_is_omitted_rather_than_drawn() {
-        let layers = coding::ContextLayers {
+        let layers = ContextLayers {
             playbook_bytes: 4_000,
             team_bytes: Some(0),
             task_bytes: Some(1),
@@ -240,15 +294,15 @@ mod tests {
 
     #[test]
     fn a_long_project_list_is_cut_at_the_contract_max() {
-        let mut layers = coding::ContextLayers::default();
+        let mut layers = ContextLayers::default();
         layers.project = (0..80)
-            .map(|index| coding::ProjectMemoryFile {
+            .map(|index| ProjectMemoryFile {
                 label: format!("packages/really-quite-long-name-{index}/CLAUDE.md"),
                 bytes: 1_000,
             })
             .collect();
         let detail = estimated_segments(&layers)[0].detail.clone().expect("a detail");
-        assert!(detail.len() <= steer::CONTEXT_SEGMENT_DETAIL_MAX);
+        assert!(detail.len() <= crate::wire::frames::CONTEXT_SEGMENT_DETAIL_MAX);
     }
 
     #[test]

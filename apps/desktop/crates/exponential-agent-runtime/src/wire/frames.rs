@@ -754,6 +754,12 @@ pub struct QueuedMessage {
     pub sent: bool,
 }
 
+/// EXP-850 §3: how many workflow cards one session keeps. A run that starts
+/// more than this many workflows loses the OLDEST (its card is finished and
+/// its transcript rows are still in the log); the cap mirrors the relay's own
+/// `WORKFLOW_SLOT_CAP` and `steer`'s `history::JOURNAL_WORKFLOW_CAP`.
+pub const JOURNAL_WORKFLOW_CAP: usize = 16;
+
 /// EXP-861: the relay's caps on the `queue` slot (`QUEUE_MAX` /
 /// `QUEUE_TEXT_MAX` in protocol.ts) — a frame over either is dropped whole.
 pub const QUEUE_MAX: usize = 20;

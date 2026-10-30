@@ -34,7 +34,9 @@ impl Terminal {
         let (wake_tx, wake_rx) = flume::unbounded();
         let reader = pty.take_reader();
         let read_thread = spawn_read_loop(reader, emulator.term(), wake_tx.clone());
-        let (exit_slot, wait_thread) = pty.spawn_wait_thread(wake_tx)?;
+        let (exit_slot, wait_thread) = pty.spawn_wait_thread(move || {
+            let _ = wake_tx.try_send(crate::read_loop::Wake::ChildExited);
+        })?;
         Ok(Self {
             pty,
             emulator,
@@ -84,7 +86,7 @@ impl Terminal {
         // stale would warn-log every frame forever.
         let pty_result = self.pty.resize(cols, rows, self.emulator.cell_px());
         self.emulator.resize(cols, rows);
-        pty_result
+        Ok(pty_result?)
     }
 
     /// Cell pixel metrics (EXP-636): the paint side reports the real cell

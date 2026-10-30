@@ -45,13 +45,16 @@ pub use exponential_agent_runtime::engine::compaction;
 // EXP-1051: the `context_layout` frame's arithmetic — bytes → tokens, the
 // launcher's layers as estimated segments, and `base` by subtraction from the
 // prefix the agent measured. Pure; the adapters stamp it, the mapper emits it.
-pub mod context_layout;
+// EXP-1426 part 4b: moved to the agent runtime with the mapper.
+pub use exponential_agent_runtime::engine::context_layout;
 // EXP-920: the entity refs an Exponential MCP answer names, distilled on the
 // device for every client's chips (fixture-locked with web `lib/mcp/preview.ts`).
+// EXP-1426 part 4b: the rule is the core's; this keeps the name-keyed entry.
 pub mod exp_tool_refs;
 pub mod host;
 pub mod lifecycle;
 pub use exponential_agent_runtime::engine::local;
+// EXP-1426 part 4b: the core's mapper plus Exponential's `HostTools`.
 pub mod mapper;
 pub mod outbox;
 /// NEW-17: each agent run in its own systemd scope on Linux.
@@ -68,7 +71,8 @@ pub use exponential_agent_runtime::engine::stall;
 pub mod stop_save;
 // EXP-750: the ACP `terminal/*` capability. Session-owned, host-local: the
 // registry lives on `SessionCtx` and nothing it produces leaves the machine.
-mod terminals;
+// EXP-1426 part 4b: moved to the agent runtime (its headless PTY in `spawn`).
+use exponential_agent_runtime::engine::terminals;
 pub use exponential_agent_runtime::engine::transport;
 
 pub use adapters::{Adapter, AdapterKind, AdapterSpec};
@@ -92,8 +96,8 @@ pub use local::{
     TURN_META_KEY, TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
 };
 pub use mapper::{
-    clamp_context_layout, clamp_usage, AnswerDecision, CardAnswer, MapOut, Mapper, MapperConfig,
-    PendingAskKey, Reply,
+    clamp_context_layout, clamp_usage, AnswerDecision, CardAnswer, ExpHostTools, MapOut, Mapper,
+    MapperConfig, PendingAskKey, Reply,
 };
 pub use session::{
     start, start_with, ConfigValue, EngineError, EngineParts, EngineSession, EngineStart,

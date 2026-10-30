@@ -20,56 +20,11 @@ use std::path::{Path, PathBuf};
 
 use crate::agent::CodingAgent;
 
-/// The measured layers of ONE launch's starting context, in bytes.
-///
-/// Every field is what the LAUNCHER put there; the agent's own additions
-/// (the files it reads, the tools it calls) are the engine's running total,
-/// not this snapshot.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ContextLayers {
-    /// The run playbook ([`crate::skill::playbook`]) in bytes.
-    pub playbook_bytes: usize,
-    /// EXP-1025 team prompt bytes plus (EXP-1292) a team agent's
-    /// instructions, when the brief carries either.
-    pub team_bytes: Option<usize>,
-    /// The seed prompt's bytes; `None` on a resume (no seed prompt).
-    pub task_bytes: Option<usize>,
-    /// The project memory files the agent will load, in load order.
-    pub project: Vec<ProjectMemoryFile>,
-    /// The Exponential MCP surface the agent gets (always-load tool defs +
-    /// server instructions). EXP-1292: always `None` from the launcher — the
-    /// v2 session router has no budget query (the old
-    /// `codingSessions.contextBudget` went with it); the engine's breakdown
-    /// simply omits the segment.
-    pub tools_bytes: Option<usize>,
-    /// A resume's measured base from the previous run, when one was recorded.
-    pub carried_base: Option<CarriedBase>,
-}
-
-/// One memory file the agent loads on its own at start (`CLAUDE.md` and its
-/// siblings, `AGENTS.md`) — named the way the person reading the breakdown
-/// would name it, and sized as it sits on disk.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ProjectMemoryFile {
-    /// How the file is shown: relative to the run's cwd when it is inside
-    /// it, `~/…` under the home dir, else the absolute path.
-    pub label: String,
-    /// The file's size on disk, symlinks followed.
-    pub bytes: usize,
-}
-
-/// EXP-1051 — what the PREVIOUS run of a resumed conversation had measured
-/// for itself: a resume re-enters a transcript whose base context this run
-/// never built, so the only honest number is the recorded one.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct CarriedBase {
-    /// The predecessor's measured base, in tokens (the agent's own count,
-    /// not an estimate off bytes).
-    pub tokens: u64,
-    /// The model it was measured on — a base carried across a model switch
-    /// is a different window, so the reader has to see which one it was.
-    pub model: String,
-}
+// EXP-1426 (part 4b): the measured layers are the agent core's vocabulary
+// (its `engine::context_layout` estimates them); the launcher fills them here.
+pub use exponential_agent_runtime::engine::context_layout::{
+    CarriedBase, ContextLayers, ProjectMemoryFile,
+};
 
 /// The SERVER layers' contribution to [`crate::skill::system_append_layers`]'s
 /// output, in bytes — everything the append carries beyond the playbook

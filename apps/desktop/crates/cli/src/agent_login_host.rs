@@ -288,7 +288,9 @@ fn drive(
     };
     let (wake_tx, wake_rx) = flume::unbounded();
     let read_thread = spawn_read_loop(pty.take_reader(), emulator.term(), wake_tx.clone());
-    let wait = pty.spawn_wait_thread(wake_tx);
+    let wait = pty.spawn_wait_thread(move || {
+        let _ = wake_tx.try_send(terminal::Wake::ChildExited);
+    });
     let exit_slot = match wait {
         Ok((slot, _thread)) => Some(slot),
         Err(err) => {
