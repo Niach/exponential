@@ -16,10 +16,10 @@ export type Library = {
 }
 
 export const LIBRARIES: readonly Library[] = [
-  { name: `eUI`, href: `/ui/`, desc: `Generative UI: an agent sends A2UI, native renderers paint it on web, iOS, Android and desktop.`, status: `shipped`, label: `published` },
-  { name: `eTalk`, href: `/talk/`, desc: `Speech in and out for agents: push to talk and spoken replies on your own GPU.`, status: `in-progress`, label: `beta` },
-  { name: `ePilot`, href: `/pilot/`, desc: `Computer use: the agent plans, acts on the real screen, and looks again.`, status: `in-progress`, label: `in the app` },
-  { name: `eNet`, href: `/net/`, desc: `Peer to peer and end-to-end encrypted tunnels between every client, on iroh.`, status: `in-progress`, label: `in development` },
+  { name: `eUI`, href: `/ui/`, desc: `Generative UI: an agent sends A2UI, native renderers paint it on web, iOS, Android and desktop.`, status: `shipped`, label: `0.2.0` },
+  { name: `eTalk`, href: `/talk/`, desc: `Speech in and out for agents: push to talk and spoken replies on your own GPU.`, status: `in-progress`, label: `0.1.0 beta` },
+  { name: `ePilot`, href: `/pilot/`, desc: `Computer use: the agent plans, acts on the real screen, and looks again.`, status: `shipped`, label: `0.1.0` },
+  { name: `eNet`, href: `/net/`, desc: `Peer to peer and end-to-end encrypted tunnels between every client, on iroh.`, status: `shipped`, label: `0.1.0` },
   { name: `eApps`, href: `/apps/`, desc: `The app package format: templates, bindings, records and tools as data, never code.`, status: `in-progress`, label: `in the app` },
 ]
 

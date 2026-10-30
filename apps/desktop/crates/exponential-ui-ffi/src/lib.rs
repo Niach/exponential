@@ -49,10 +49,10 @@
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 
-use exponential_ui::measure::Intrinsics;
-use exponential_ui::surface::{ContrastSetting, Insets, Layer, LayoutOutput, LayoutStep, LeafData, OutEvent, PlacedNode, Surface as CoreSurface, SurfaceCommand, SurfaceOptions, SurfaceSettings};
-use exponential_ui::theme::{Density, Mode, ModeSetting, RecipeQuery, ThemeOptions, ThemeRef};
-use exponential_ui::types::{ExtensionDef, FlatComponent, NestedNode, UiNode};
+use eui_core::measure::Intrinsics;
+use eui_core::surface::{ContrastSetting, Insets, Layer, LayoutOutput, LayoutStep, LeafData, OutEvent, PlacedNode, Surface as CoreSurface, SurfaceCommand, SurfaceOptions, SurfaceSettings};
+use eui_core::theme::{Density, Mode, ModeSetting, RecipeQuery, ThemeOptions, ThemeRef};
+use eui_core::types::{ExtensionDef, FlatComponent, NestedNode, UiNode};
 use serde_json::Value;
 
 uniffi::setup_scaffolding!();
@@ -494,7 +494,7 @@ pub struct FfiApplyOutcome {
     pub issues_json: String,
 }
 
-fn text_style(t: &exponential_ui::measure::TextStyle) -> FfiTextStyle {
+fn text_style(t: &eui_core::measure::TextStyle) -> FfiTextStyle {
     FfiTextStyle {
         font_size: t.font_size,
         font_weight: t.font_weight,
@@ -556,7 +556,7 @@ fn intrinsics(i: &FfiIntrinsics) -> Intrinsics {
     Intrinsics { min_content_width: i.min_content_width, max_content_width: i.max_content_width, height_at_max_content: i.height_at_max_content, baseline: i.baseline }.sanitised()
 }
 
-fn frame(f: &exponential_ui::surface::PlacedFrame) -> FfiFrame {
+fn frame(f: &eui_core::surface::PlacedFrame) -> FfiFrame {
     FfiFrame { index: f.index, x: f.x, y: f.y, w: f.w, h: f.h }
 }
 
@@ -602,7 +602,7 @@ fn convert(out: LayoutOutput) -> FfiLayout {
     }
 }
 
-fn node(n: &PlacedNode, lnode: Option<&exponential_ui::layout_tree::LNode>, host: &[String], hover_styled: bool) -> FfiNode {
+fn node(n: &PlacedNode, lnode: Option<&eui_core::layout_tree::LNode>, host: &[String], hover_styled: bool) -> FfiNode {
     let query = lnode.and_then(|l| l.part_query.as_ref());
     let host = if n.removed { Vec::new() } else { host.to_vec() };
     FfiNode {
@@ -617,7 +617,7 @@ fn node(n: &PlacedNode, lnode: Option<&exponential_ui::layout_tree::LNode>, host
         depth: n.depth,
         parent: n.parent,
         layer: n.layer,
-        is_leaf: n.kind == exponential_ui::layout_tree::NodeKind::Leaf,
+        is_leaf: n.kind == eui_core::layout_tree::NodeKind::Leaf,
         props_json: Value::Object(n.props.clone()).to_string(),
         lines: n.lines,
         pressable: n.pressable,
@@ -640,7 +640,7 @@ fn node(n: &PlacedNode, lnode: Option<&exponential_ui::layout_tree::LNode>, host
     }
 }
 
-fn visual(v: &exponential_ui::style::Visual) -> FfiVisual {
+fn visual(v: &eui_core::style::Visual) -> FfiVisual {
     FfiVisual {
         background_color: v.background_color.clone(),
         color: v.color.clone(),
@@ -755,12 +755,12 @@ fn mode_of(mode: &str) -> Result<Mode, UiError> {
 // Round 1 free functions: the bind pass, the pure shared helpers.
 // ---------------------------------------------------------------------------
 
-fn strings_table(strings_json: Option<String>) -> Result<exponential_ui::strings::StringTable, UiError> {
+fn strings_table(strings_json: Option<String>) -> Result<eui_core::strings::StringTable, UiError> {
     let overrides: indexmap::IndexMap<String, String> = match strings_json {
         Some(s) if !s.trim().is_empty() => parse(&s)?,
         _ => Default::default(),
     };
-    Ok(exponential_ui::strings::string_table(&overrides))
+    Ok(eui_core::strings::string_table(&overrides))
 }
 
 /// The BIND pass over an expanded node for one data model (`src/dynamic.ts
@@ -773,8 +773,8 @@ pub fn bind_tree_json(node_json: String, data_json: String, scope: String, strin
         let node: UiNode = parse(&node_json)?;
         let data: Value = parse(&data_json)?;
         let table = strings_table(strings_json)?;
-        let ctx = exponential_ui::data::ResolveContext::new(&data, &scope).with_strings(&table);
-        Ok(exponential_ui::data::bind_tree(&node, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+        let ctx = eui_core::data::ResolveContext::new(&data, &scope).with_strings(&table);
+        Ok(eui_core::data::bind_tree(&node, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
     })
 }
 
@@ -786,8 +786,8 @@ pub fn run_action_json(action_json: String, data_json: String, scope: String, st
         let action: Value = parse(&action_json)?;
         let data: Value = parse(&data_json)?;
         let table = strings_table(strings_json)?;
-        let ctx = exponential_ui::data::ResolveContext::new(&data, &scope).with_strings(&table);
-        serde_json::to_string(&exponential_ui::data::run_action(&action, &ctx)).map_err(invalid)
+        let ctx = eui_core::data::ResolveContext::new(&data, &scope).with_strings(&table);
+        serde_json::to_string(&eui_core::data::run_action(&action, &ctx)).map_err(invalid)
     })
 }
 
@@ -797,8 +797,8 @@ pub fn resolve_dynamic_json(value_json: String, data_json: String, scope: String
     guarded("resolve_dynamic_json", || {
         let value: Value = parse(&value_json)?;
         let data: Value = parse(&data_json)?;
-        let ctx = exponential_ui::data::ResolveContext::new(&data, &scope);
-        Ok(exponential_ui::data::resolve_value(&value, &ctx).map(|v| v.to_string()))
+        let ctx = eui_core::data::ResolveContext::new(&data, &scope);
+        Ok(eui_core::data::resolve_value(&value, &ctx).map(|v| v.to_string()))
     })
 }
 
@@ -806,14 +806,14 @@ pub fn resolve_dynamic_json(value_json: String, data_json: String, scope: String
 #[uniffi::export]
 pub fn tokenize_code_json(code: String, language: String) -> String {
     shield("tokenize_code_json", || "[]".to_string(), || {
-        serde_json::to_string(&exponential_ui::code::tokenize_code(&code, &language)).unwrap_or_default()
+        serde_json::to_string(&eui_core::code::tokenize_code(&code, &language)).unwrap_or_default()
     })
 }
 
 /// EXP-1324: the text a CodeBlock shows and copies (`ansi`: escapes removed).
 #[uniffi::export]
 pub fn code_text(code: String, language: String) -> String {
-    shield("code_text", || code.clone(), || exponential_ui::code::code_text(&code, &language))
+    shield("code_text", || code.clone(), || eui_core::code::code_text(&code, &language))
 }
 
 /// EXP-1324: the Text `shimmer` colours for a text colour (`#rrggbb[aa]`):
@@ -821,7 +821,7 @@ pub fn code_text(code: String, language: String) -> String {
 #[uniffi::export]
 pub fn text_shimmer_json(color: String, dark: bool) -> String {
     shield("text_shimmer_json", || "{}".to_string(), || {
-        serde_json::to_string(&exponential_ui::text_shimmer::text_shimmer(&color, dark)).unwrap_or_default()
+        serde_json::to_string(&eui_core::text_shimmer::text_shimmer(&color, dark)).unwrap_or_default()
     })
 }
 
@@ -831,8 +831,8 @@ pub fn text_shimmer_json(color: String, dark: bool) -> String {
 #[uniffi::export]
 pub fn voice_wave_json(input_json: String) -> String {
     shield("voice_wave_json", || "{}".to_string(), || {
-        serde_json::from_str::<exponential_ui::voice_wave::VoiceWaveInput>(&input_json)
-            .map(|input| serde_json::to_string(&exponential_ui::voice_wave::voice_wave(&input)).unwrap_or_default())
+        serde_json::from_str::<eui_core::voice_wave::VoiceWaveInput>(&input_json)
+            .map(|input| serde_json::to_string(&eui_core::voice_wave::voice_wave(&input)).unwrap_or_default())
             .unwrap_or_else(|_| "{}".to_string())
     })
 }
@@ -844,8 +844,8 @@ pub fn voice_wave_json(input_json: String) -> String {
 #[uniffi::export]
 pub fn voice_wave_bars_json(input_json: String) -> String {
     shield("voice_wave_bars_json", || "{}".to_string(), || {
-        serde_json::from_str::<exponential_ui::voice_wave::VoiceWaveBarsInput>(&input_json)
-            .map(|input| serde_json::to_string(&exponential_ui::voice_wave::voice_wave_bars(&input)).unwrap_or_default())
+        serde_json::from_str::<eui_core::voice_wave::VoiceWaveBarsInput>(&input_json)
+            .map(|input| serde_json::to_string(&eui_core::voice_wave::voice_wave_bars(&input)).unwrap_or_default())
             .unwrap_or_else(|_| "{}".to_string())
     })
 }
@@ -858,7 +858,7 @@ pub fn voice_wave_bars_json(input_json: String) -> String {
 #[uniffi::export]
 pub fn qr_matrix_json(value: String, level: String) -> String {
     shield("qr_matrix_json", || "null".to_string(), || {
-        let m = exponential_ui::qr_code::qr_matrix(&value, exponential_ui::qr_code::QrLevel::parse(&level));
+        let m = eui_core::qr_code::qr_matrix(&value, eui_core::qr_code::QrLevel::parse(&level));
         serde_json::to_string(&m).unwrap_or_else(|_| "null".to_string())
     })
 }
@@ -867,15 +867,15 @@ pub fn qr_matrix_json(value: String, level: String) -> String {
 /// `None` = no badge (unset, not positive, 0).
 #[uniffi::export]
 pub fn segmented_badge_text(count: Option<f64>) -> Option<String> {
-    shield("segmented_badge_text", || None, || exponential_ui::segmented::badge_text(count.map(serde_json::Value::from).as_ref()))
+    shield("segmented_badge_text", || None, || eui_core::segmented::badge_text(count.map(serde_json::Value::from).as_ref()))
 }
 
 /// `{min, max}` of a chart (`series_json` = the Chart's `series`).
 #[uniffi::export]
 pub fn chart_extent_json(kind: String, series_json: String, min: Option<f64>, max: Option<f64>) -> Result<String, UiError> {
     guarded("chart_extent_json", || {
-        let series: Vec<exponential_ui::chart::ChartSeries> = parse(&series_json)?;
-        serde_json::to_string(&exponential_ui::chart::chart_extent(&kind, &series, min, max)).map_err(invalid)
+        let series: Vec<eui_core::chart::ChartSeries> = parse(&series_json)?;
+        serde_json::to_string(&eui_core::chart::chart_extent(&kind, &series, min, max)).map_err(invalid)
     })
 }
 
@@ -883,7 +883,7 @@ pub fn chart_extent_json(kind: String, series_json: String, min: Option<f64>, ma
 #[uniffi::export]
 pub fn nice_ticks_json(min: f64, max: f64, target: u32) -> String {
     shield("nice_ticks_json", || r#"{"min":0,"max":0,"step":0,"ticks":[]}"#.to_string(), || {
-        serde_json::to_string(&exponential_ui::chart::nice_ticks(min, max, target as usize)).unwrap_or_default()
+        serde_json::to_string(&eui_core::chart::nice_ticks(min, max, target as usize)).unwrap_or_default()
     })
 }
 
@@ -891,7 +891,7 @@ pub fn nice_ticks_json(min: f64, max: f64, target: u32) -> String {
 #[uniffi::export]
 pub fn week_start(locale: String) -> u8 {
     shield("week_start", || 0, || {
-        exponential_ui::locale::week_start(&locale)
+        eui_core::locale::week_start(&locale)
     })
 }
 
@@ -899,7 +899,7 @@ pub fn week_start(locale: String) -> u8 {
 #[uniffi::export]
 pub fn text_direction(locale: String) -> String {
     shield("text_direction", || "ltr".to_string(), || {
-        exponential_ui::locale::text_direction(&locale).to_string()
+        eui_core::locale::text_direction(&locale).to_string()
     })
 }
 
@@ -916,7 +916,7 @@ pub fn string_table_json(overrides_json: Option<String>) -> Result<String, UiErr
 pub fn format_string(template: String, params_json: String) -> Result<String, UiError> {
     guarded("format_string", || {
         let params: serde_json::Map<String, Value> = parse(&params_json)?;
-        Ok(exponential_ui::strings::format_string(&template, &params))
+        Ok(eui_core::strings::format_string(&template, &params))
     })
 }
 
@@ -926,8 +926,8 @@ pub fn format_string(template: String, params_json: String) -> Result<String, Ui
 pub fn resolve_conditions_json(style_json: String, context_json: String) -> Result<String, UiError> {
     guarded("resolve_conditions_json", || {
         let style: serde_json::Map<String, Value> = parse(&style_json)?;
-        let ctx: exponential_ui::conditions::ConditionContext = parse(&context_json)?;
-        Ok(Value::Object(exponential_ui::conditions::resolve_conditions(&style, &ctx)).to_string())
+        let ctx: eui_core::conditions::ConditionContext = parse(&context_json)?;
+        Ok(Value::Object(eui_core::conditions::resolve_conditions(&style, &ctx)).to_string())
     })
 }
 
@@ -935,7 +935,7 @@ pub fn resolve_conditions_json(style_json: String, context_json: String) -> Resu
 #[uniffi::export]
 pub fn component_a11y_json(component: String) -> Option<String> {
     shield("component_a11y_json", || None, || {
-        exponential_ui::a11y::component_a11y(&component).map(|a| serde_json::json!({"role": a.role, "keys": a.keys}).to_string())
+        eui_core::a11y::component_a11y(&component).map(|a| serde_json::json!({"role": a.role, "keys": a.keys}).to_string())
     })
 }
 
@@ -944,7 +944,7 @@ pub fn component_a11y_json(component: String) -> Option<String> {
 pub fn validate_style_json(style_json: String, root: Option<bool>) -> Result<String, UiError> {
     guarded("validate_style_json", || {
         let style: Value = parse(&style_json)?;
-        serde_json::to_string(&exponential_ui::style_check::validate_style(&style, "style", root)).map_err(invalid)
+        serde_json::to_string(&eui_core::style_check::validate_style(&style, "style", root)).map_err(invalid)
     })
 }
 
@@ -963,7 +963,7 @@ pub struct Surface {
     time_zone: Mutex<Option<String>>,
     /// VAPP-103 rfix: the panics [`Surface::shield`] caught, as issues
     /// (`issues_json` lists them after the core's).
-    panics: Mutex<Vec<exponential_ui::types::ReduceIssue>>,
+    panics: Mutex<Vec<eui_core::types::ReduceIssue>>,
 }
 
 impl Surface {
@@ -977,7 +977,7 @@ impl Surface {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
             Ok(v) => v,
             Err(payload) => {
-                let issue = exponential_ui::types::ReduceIssue { id: format!("ffi.{what}"), message: format!("panicked: {}", panic_text(payload.as_ref())) };
+                let issue = eui_core::types::ReduceIssue { id: format!("ffi.{what}"), message: format!("panicked: {}", panic_text(payload.as_ref())) };
                 let mut panics = self.panics.lock().unwrap_or_else(|e| e.into_inner());
                 if !panics.contains(&issue) {
                     panics.push(issue);
@@ -1130,8 +1130,8 @@ impl Surface {
         guarded("new", || {
             let theme = match theme_id.as_deref() {
                 Some("") => None,
-                Some(id) => Some(exponential_ui::themes::builtin_theme(id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?),
-                None => Some(exponential_ui::themes::default_theme()),
+                Some(id) => Some(eui_core::themes::builtin_theme(id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?),
+                None => Some(eui_core::themes::default_theme()),
             };
             let options = SurfaceOptions { catalog_id, theme, mode: mode_of(&mode)?, extensions: Vec::new(), rounding: false, expand_controls: None };
             Ok(Surface::wrap(CoreSurface::new(&surface_id, options)))
@@ -1179,7 +1179,7 @@ impl Surface {
 
     pub fn set_builtin_theme(&self, id: String) -> Result<(), UiError> {
         self.guarded("set_builtin_theme", || {
-            let theme = exponential_ui::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
+            let theme = eui_core::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
             self.core().set_theme(Some(theme));
             Ok(())
         })
@@ -1434,7 +1434,7 @@ impl Surface {
                         self.core().layout_intrinsics(&answers)
                     }
                     LayoutStep::Heights(leaves, requests) => {
-                        let heights: Vec<f32> = measurer.measure_heights(leaves_of(self, &leaves), requests.iter().map(|r| FfiHeightRequest { index: r.index, width: r.width }).collect()).into_iter().map(exponential_ui::measure::finite_or_zero).collect();
+                        let heights: Vec<f32> = measurer.measure_heights(leaves_of(self, &leaves), requests.iter().map(|r| FfiHeightRequest { index: r.index, width: r.width }).collect()).into_iter().map(eui_core::measure::finite_or_zero).collect();
                         self.core().layout_heights(&heights)
                     }
                     LayoutStep::Done(out) => break convert(*out),
@@ -1459,7 +1459,7 @@ impl Surface {
                     sizes.insert(id, (m["w"].as_f64().unwrap_or(0.0) as f32, m["h"].as_f64().unwrap_or(0.0) as f32));
                 }
             }
-            let mut m = exponential_ui::measure::FixedMeasure { sizes, wrap };
+            let mut m = eui_core::measure::FixedMeasure { sizes, wrap };
             if let Some(last) = self.reentered() {
                 return Ok(last);
             }
@@ -1529,7 +1529,7 @@ impl Surface {
                 .iter()
                 .filter_map(|&i| {
                     let v = inner.visual(i)?;
-                    let leaf = inner.layout_node(i).is_some_and(|n| n.kind == exponential_ui::layout_tree::NodeKind::Leaf);
+                    let leaf = inner.layout_node(i).is_some_and(|n| n.kind == eui_core::layout_tree::NodeKind::Leaf);
                     Some(FfiPaint { index: i, visual: visual(v), text_style: if leaf { inner.text_style(i).map(text_style) } else { None } })
                 })
                 .collect()
@@ -1563,7 +1563,7 @@ impl Surface {
     /// `holdingLabel` (a Relayout event follows).
     pub fn hold(&self, index: u32, input_json: String) -> Result<Vec<FfiEvent>, UiError> {
         self.guarded("hold", || {
-            let input = parse::<exponential_ui::hold::HoldInput>(&input_json)?;
+            let input = parse::<eui_core::hold::HoldInput>(&input_json)?;
             Ok(events(self.core().hold(index, &input)))
         })
     }
@@ -1645,9 +1645,9 @@ impl Surface {
     /// must not call back into the surface.
     pub fn set_formatter(&self, formatter: Option<Arc<dyn HostFormatter>>) {
         self.shield("set_formatter", || (), || {
-            let f: Arc<dyn exponential_ui::format::Formatter> = match formatter {
+            let f: Arc<dyn eui_core::format::Formatter> = match formatter {
                 Some(host) => Arc::new(ForeignFormatter(host)),
-                None => Arc::new(exponential_ui::format::EnglishFormatter),
+                None => Arc::new(eui_core::format::EnglishFormatter),
             };
             self.core().set_formatter(f);
         })
@@ -1659,9 +1659,9 @@ impl Surface {
     /// Called with the surface locked: never call the surface from it.
     pub fn set_fallback_zone(&self, zone: Option<Arc<dyn HostZone>>) {
         self.shield("set_fallback_zone", || (), || {
-            let f: Arc<dyn exponential_ui::format::Formatter> = match zone {
-                Some(zone) => Arc::new(exponential_ui::format::ZonedEnglishFormatter::new(Arc::new(move |ms| zone.offset_minutes(ms)))),
-                None => Arc::new(exponential_ui::format::EnglishFormatter),
+            let f: Arc<dyn eui_core::format::Formatter> = match zone {
+                Some(zone) => Arc::new(eui_core::format::ZonedEnglishFormatter::new(Arc::new(move |ms| zone.offset_minutes(ms)))),
+                None => Arc::new(eui_core::format::EnglishFormatter),
             };
             self.core().set_formatter(f);
         })
@@ -1706,7 +1706,7 @@ impl Surface {
     /// view; `align` = `start | center | end | nearest` (default).
     pub fn scroll_to_index(&self, id: String, index: u32, align: Option<String>) -> Vec<FfiEvent> {
         self.shield("scroll_to_index", || Vec::new(), || {
-            let align = align.as_deref().and_then(exponential_ui::list::ScrollAlign::parse).unwrap_or_default();
+            let align = align.as_deref().and_then(eui_core::list::ScrollAlign::parse).unwrap_or_default();
             events(self.core().scroll_to_index(&id, index as usize, align))
         })
     }
@@ -1760,29 +1760,29 @@ pub trait HostFormatter: Send + Sync {
 
 struct ForeignFormatter(Arc<dyn HostFormatter>);
 
-impl exponential_ui::format::Formatter for ForeignFormatter {
+impl eui_core::format::Formatter for ForeignFormatter {
     fn locale(&self) -> String {
         self.0.locale()
     }
-    fn number(&self, value: f64, o: exponential_ui::format::NumberOptions) -> String {
+    fn number(&self, value: f64, o: eui_core::format::NumberOptions) -> String {
         self.0.number(value, o.decimals, o.grouping)
     }
-    fn currency(&self, value: f64, code: &str, o: exponential_ui::format::NumberOptions) -> String {
+    fn currency(&self, value: f64, code: &str, o: eui_core::format::NumberOptions) -> String {
         self.0.currency(value, code.to_string(), o.decimals, o.grouping)
     }
     fn percent(&self, value: f64, decimals: Option<u32>) -> String {
         self.0.percent(value, decimals)
     }
-    fn date(&self, value: exponential_ui::format::DateValue, o: &exponential_ui::format::DateOptions) -> String {
+    fn date(&self, value: eui_core::format::DateValue, o: &eui_core::format::DateOptions) -> String {
         self.0.date(value.ms, value.date_only, o.format.clone(), o.style.map(|s| s.as_str().to_string()), o.time)
     }
-    fn relative_time(&self, value: i64, unit: exponential_ui::format::RelativeUnit) -> String {
+    fn relative_time(&self, value: i64, unit: eui_core::format::RelativeUnit) -> String {
         self.0.relative_time(value, unit.as_str().to_string())
     }
-    fn plural(&self, value: f64) -> exponential_ui::format::PluralCategory {
-        exponential_ui::format::PluralCategory::parse(&self.0.plural(value)).unwrap_or(exponential_ui::format::PluralCategory::Other)
+    fn plural(&self, value: f64) -> eui_core::format::PluralCategory {
+        eui_core::format::PluralCategory::parse(&self.0.plural(value)).unwrap_or(eui_core::format::PluralCategory::Other)
     }
-    fn bytes(&self, value: f64, unit: exponential_ui::format::ByteUnit) -> String {
+    fn bytes(&self, value: f64, unit: eui_core::format::ByteUnit) -> String {
         self.0.bytes(value, unit.as_str().to_string())
     }
 }
@@ -1799,19 +1799,19 @@ struct BindOptions {
     now: Option<f64>,
 }
 
-fn bind_options(options_json: Option<String>) -> Result<(BindOptions, exponential_ui::strings::StringTable), UiError> {
+fn bind_options(options_json: Option<String>) -> Result<(BindOptions, eui_core::strings::StringTable), UiError> {
     let options: BindOptions = match options_json {
         Some(s) if !s.trim().is_empty() => parse(&s)?,
         _ => BindOptions::default(),
     };
-    let table = exponential_ui::strings::string_table(&options.strings.clone().unwrap_or_default());
+    let table = eui_core::strings::string_table(&options.strings.clone().unwrap_or_default());
     Ok((options, table))
 }
 
 /// The resolve context of a bind helper: its scope, strings, clock
 /// (`now`) and formatter (the English fallback when `None`).
-fn bind_ctx<'a>(data: &'a Value, options: &'a BindOptions, table: &'a exponential_ui::strings::StringTable, formatter: Option<&'a ForeignFormatter>) -> exponential_ui::data::ResolveContext<'a> {
-    let ctx = exponential_ui::data::ResolveContext::new(data, &options.scope).with_strings(table);
+fn bind_ctx<'a>(data: &'a Value, options: &'a BindOptions, table: &'a eui_core::strings::StringTable, formatter: Option<&'a ForeignFormatter>) -> eui_core::data::ResolveContext<'a> {
+    let ctx = eui_core::data::ResolveContext::new(data, &options.scope).with_strings(table);
     let ctx = match options.now {
         Some(now) => ctx.with_now(now),
         None => ctx,
@@ -1837,7 +1837,7 @@ pub fn bind_row_slot_json(slot_json: String, rows_prop_json: String, rows_json: 
         let (options, table) = bind_options(options_json)?;
         let foreign = formatter.map(ForeignFormatter);
         let ctx = bind_ctx(&data, &options, &table, foreign.as_ref());
-        Ok(exponential_ui::data::bind_row_slot(&slot, &rows_prop, &rows, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+        Ok(eui_core::data::bind_row_slot(&slot, &rows_prop, &rows, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
     })
 }
 
@@ -1850,12 +1850,12 @@ pub fn bind_section_header_json(slot_json: String, section_json: String, index: 
     guarded("bind_section_header_json", || {
         let slot: UiNode = parse(&slot_json)?;
         let section: Value = parse(&section_json)?;
-        let section = exponential_ui::list::ListSection { value: section.get("value").map(exponential_ui::format::display_string).unwrap_or_default(), start: section.get("start").and_then(Value::as_u64).unwrap_or(0) as usize, count: section.get("count").and_then(Value::as_u64).unwrap_or(0) as usize };
+        let section = eui_core::list::ListSection { value: section.get("value").map(eui_core::format::display_string).unwrap_or_default(), start: section.get("start").and_then(Value::as_u64).unwrap_or(0) as usize, count: section.get("count").and_then(Value::as_u64).unwrap_or(0) as usize };
         let data: Value = parse(&data_json)?;
         let (options, table) = bind_options(options_json)?;
         let foreign = formatter.map(ForeignFormatter);
         let ctx = bind_ctx(&data, &options, &table, foreign.as_ref());
-        Ok(exponential_ui::data::bind_section_header(&slot, &section, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+        Ok(eui_core::data::bind_section_header(&slot, &section, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
     })
 }
 
@@ -1864,7 +1864,7 @@ pub fn bind_section_header_json(slot_json: String, section_json: String, index: 
 #[uniffi::export]
 pub fn display_string_json(value_json: String) -> Result<String, UiError> {
     guarded("display_string_json", || {
-        Ok(exponential_ui::format::display_string(&parse::<Value>(&value_json)?))
+        Ok(eui_core::format::display_string(&parse::<Value>(&value_json)?))
     })
 }
 
@@ -1877,8 +1877,8 @@ pub fn format_call_json(call_json: String, formatter: Option<Arc<dyn HostFormatt
         let call: Value = parse(&call_json)?;
         let empty = Value::Object(Default::default());
         let foreign = formatter.map(ForeignFormatter);
-        let zoned = exponential_ui::format::ZonedEnglishFormatter::fixed(offset_minutes.unwrap_or(0));
-        let ctx = exponential_ui::data::ResolveContext::new(&empty, "");
+        let zoned = eui_core::format::ZonedEnglishFormatter::fixed(offset_minutes.unwrap_or(0));
+        let ctx = eui_core::data::ResolveContext::new(&empty, "");
         let ctx = match &foreign {
             Some(f) => ctx.with_formatter(f),
             None => ctx.with_formatter(&zoned),
@@ -1887,7 +1887,7 @@ pub fn format_call_json(call_json: String, formatter: Option<Arc<dyn HostFormatt
             Some(n) => ctx.with_now(n),
             None => ctx,
         };
-        Ok(exponential_ui::data::resolve_value(&call, &ctx).map(|v| v.to_string()))
+        Ok(eui_core::data::resolve_value(&call, &ctx).map(|v| v.to_string()))
     })
 }
 
@@ -1897,7 +1897,7 @@ pub fn format_call_json(call_json: String, formatter: Option<Arc<dyn HostFormatt
 pub fn parse_date_value_json(value_json: String) -> Result<Option<String>, UiError> {
     guarded("parse_date_value_json", || {
         let v: Value = parse(&value_json)?;
-        Ok(exponential_ui::format::parse_date_value(&v).map(|d| serde_json::json!({"ms": d.ms, "dateOnly": d.date_only}).to_string()))
+        Ok(eui_core::format::parse_date_value(&v).map(|d| serde_json::json!({"ms": d.ms, "dateOnly": d.date_only}).to_string()))
     })
 }
 
@@ -1910,12 +1910,12 @@ pub fn format_pattern_json(pattern: String, fields_json: String, names_json: Opt
     guarded("format_pattern_json", || {
         let f: Value = parse(&fields_json)?;
         let n = |k: &str| f.get(k).and_then(Value::as_i64).unwrap_or(0);
-        let fields = exponential_ui::format::DateFields { year: n("year"), month: n("month").clamp(1, 12) as u32, day: n("day") as u32, weekday: n("weekday").rem_euclid(7) as u32, hour: n("hour") as u32, minute: n("minute") as u32, second: n("second") as u32 };
+        let fields = eui_core::format::DateFields { year: n("year"), month: n("month").clamp(1, 12) as u32, day: n("day") as u32, weekday: n("weekday").rem_euclid(7) as u32, hour: n("hour") as u32, minute: n("minute") as u32, second: n("second") as u32 };
         let names = match names_json {
-            Some(s) => parse::<exponential_ui::format::DateNames>(&s)?,
-            None => exponential_ui::format::english_names().clone(),
+            Some(s) => parse::<eui_core::format::DateNames>(&s)?,
+            None => eui_core::format::english_names().clone(),
         };
-        Ok(exponential_ui::format::format_pattern(&pattern, &fields, &names))
+        Ok(eui_core::format::format_pattern(&pattern, &fields, &names))
     })
 }
 
@@ -1924,7 +1924,7 @@ pub fn format_pattern_json(pattern: String, fields_json: String, names_json: Opt
 #[uniffi::export]
 pub fn relative_time_unit_json(delta_ms: f64) -> String {
     shield("relative_time_unit_json", || r#"{"value":0,"unit":"second"}"#.to_string(), || {
-        let (value, unit) = exponential_ui::format::relative_time_unit(delta_ms);
+        let (value, unit) = eui_core::format::relative_time_unit(delta_ms);
         serde_json::json!({"value": value, "unit": unit.as_str()}).to_string()
     })
 }
@@ -1935,8 +1935,8 @@ pub fn relative_time_unit_json(delta_ms: f64) -> String {
 #[uniffi::export]
 pub fn animation_frame_json(name: String, timing_json: String, elapsed_ms: f64, reduced_motion: bool) -> Result<Option<String>, UiError> {
     guarded("animation_frame_json", || {
-        let timing: exponential_ui::animation::AnimationTiming = parse(&timing_json)?;
-        Ok(exponential_ui::animation::frame_with_timing(&name, &timing, elapsed_ms, reduced_motion).map(|f| serde_json::to_string(&f).unwrap_or_default()))
+        let timing: eui_core::animation::AnimationTiming = parse(&timing_json)?;
+        Ok(eui_core::animation::frame_with_timing(&name, &timing, elapsed_ms, reduced_motion).map(|f| serde_json::to_string(&f).unwrap_or_default()))
     })
 }
 
@@ -1951,7 +1951,7 @@ pub fn animation_frame_json(name: String, timing_json: String, elapsed_ms: f64, 
 #[uniffi::export]
 pub fn resizable_json(request_json: String) -> Result<String, UiError> {
     guarded("resizable_json", || {
-        use exponential_ui::resizable::{drag_delta, keyboard_resize, normalize_sizes, panel_extents, resize_panels, Orientation, PanelLimits};
+        use eui_core::resizable::{drag_delta, keyboard_resize, normalize_sizes, panel_extents, resize_panels, Orientation, PanelLimits};
         let r: Value = parse(&request_json)?;
         let nums = |k: &str| r.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<_>>()).unwrap_or_default();
         let limits = PanelLimits::list(r.get("panels"));
@@ -1983,7 +1983,7 @@ pub fn resizable_json(request_json: String) -> Result<String, UiError> {
 #[uniffi::export]
 pub fn list_json(request_json: String) -> Result<String, UiError> {
     guarded("list_json", || {
-        use exponential_ui::list::*;
+        use eui_core::list::*;
         let r: Value = parse(&request_json)?;
         let nums = |k: &str| r.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<_>>()).unwrap_or_default();
         let num = |k: &str| r.get(k).and_then(Value::as_f64).unwrap_or(0.0);
@@ -2039,7 +2039,7 @@ pub fn list_json(request_json: String) -> Result<String, UiError> {
 /// A RESOLVED theme (built-in or loaded), shared by surfaces and painters.
 #[derive(uniffi::Object)]
 pub struct Theme {
-    inner: Arc<exponential_ui::theme::ResolvedTheme>,
+    inner: Arc<eui_core::theme::ResolvedTheme>,
 }
 
 #[uniffi::export]
@@ -2048,7 +2048,7 @@ impl Theme {
     #[uniffi::constructor]
     pub fn builtin(id: String) -> Result<Arc<Self>, UiError> {
         guarded("builtin", || {
-            let inner = exponential_ui::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
+            let inner = eui_core::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
             Ok(Arc::new(Theme { inner }))
         })
     }
@@ -2086,9 +2086,9 @@ impl Theme {
     pub fn resolve_part(&self, owner_component: String, part: String, owner_props_json: String, states: Vec<String>, mode: String) -> Result<FfiPartStyle, UiError> {
         guarded("resolve_part", || {
             let props: serde_json::Map<String, Value> = parse(&owner_props_json)?;
-            let query = RecipeQuery::new(owner_component.as_str(), part, exponential_ui::recipes::native_recipe_props(&owner_component, &props), states);
-            let style = exponential_ui::theme::resolve_recipe(&self.inner, &query, mode_of(&mode)?);
-            let v = exponential_ui::style::visual(&style, exponential_ui::style::BoxKind::Leaf);
+            let query = RecipeQuery::new(owner_component.as_str(), part, eui_core::recipes::native_recipe_props(&owner_component, &props), states);
+            let style = eui_core::theme::resolve_recipe(&self.inner, &query, mode_of(&mode)?);
+            let v = eui_core::style::visual(&style, eui_core::style::BoxKind::Leaf);
             Ok(FfiPartStyle { visual: visual(&v), style_json: Value::Object(style).to_string() })
         })
     }
@@ -2166,7 +2166,7 @@ impl Theme {
     pub fn control_geometry(&self, component: String, props_json: String) -> Result<String, UiError> {
         guarded("control_geometry", || {
             let props: serde_json::Map<String, Value> = parse(&props_json)?;
-            let g = exponential_ui::geometry::control_geometry(&self.inner, &component, &props, &[]);
+            let g = eui_core::geometry::control_geometry(&self.inner, &component, &props, &[]);
             serde_json::to_string(&g).map_err(invalid)
         })
     }
@@ -2182,7 +2182,7 @@ fn extensions_of(extensions_json: Option<String>) -> Result<Vec<ExtensionDef>, U
         None => Ok(Vec::new()),
         Some(json) => {
             let list: Vec<ExtensionDef> = parse(&json)?;
-            list.into_iter().map(|e| exponential_ui::extension::define_extension(e).map_err(invalid)).collect()
+            list.into_iter().map(|e| eui_core::extension::define_extension(e).map_err(invalid)).collect()
         }
     }
 }
@@ -2193,8 +2193,8 @@ pub fn reduce_surface_json(components_json: String, catalog_id: String, extensio
     guarded("reduce_surface_json", || {
         let components: Vec<FlatComponent> = parse(&components_json)?;
         let extensions = extensions_of(extensions_json)?;
-        let options = exponential_ui::reducer::ReduceOptions::new(&catalog_id).with_view(exponential_ui::catalog::CatalogView::with(&extensions));
-        let result = exponential_ui::reducer::reduce_surface(&components, &options);
+        let options = eui_core::reducer::ReduceOptions::new(&catalog_id).with_view(eui_core::catalog::CatalogView::with(&extensions));
+        let result = eui_core::reducer::reduce_surface(&components, &options);
         serde_json::to_string(&result).map_err(invalid)
     })
 }
@@ -2205,8 +2205,8 @@ pub fn reduce_nested_json(nested_json: String, catalog_id: String, extensions_js
     guarded("reduce_nested_json", || {
         let tree: NestedNode = parse(&nested_json)?;
         let extensions = extensions_of(extensions_json)?;
-        let options = exponential_ui::reducer::ReduceOptions::new(&catalog_id).with_view(exponential_ui::catalog::CatalogView::with(&extensions));
-        let result = exponential_ui::reducer::reduce_nested(&tree, &options);
+        let options = eui_core::reducer::ReduceOptions::new(&catalog_id).with_view(eui_core::catalog::CatalogView::with(&extensions));
+        let result = eui_core::reducer::reduce_nested(&tree, &options);
         serde_json::to_string(&result).map_err(invalid)
     })
 }
@@ -2216,19 +2216,19 @@ pub fn reduce_nested_json(nested_json: String, catalog_id: String, extensions_js
 pub fn extension_errors(extension_json: String) -> Result<Vec<String>, UiError> {
     guarded("extension_errors", || {
         let ext: ExtensionDef = parse(&extension_json)?;
-        Ok(exponential_ui::extension::validate_extension(&ext))
+        Ok(eui_core::extension::validate_extension(&ext))
     })
 }
 
-fn load_theme_inner(theme_json: &str, parents_json: Option<&str>) -> Result<exponential_ui::theme::ResolvedTheme, UiError> {
+fn load_theme_inner(theme_json: &str, parents_json: Option<&str>) -> Result<eui_core::theme::ResolvedTheme, UiError> {
     let source: Value = parse(theme_json)?;
-    let mut refs = exponential_ui::themes::builtin_refs();
+    let mut refs = eui_core::themes::builtin_refs();
     if let Some(p) = parents_json {
         let parents: Vec<Value> = parse(p)?;
         refs.extend(parents.into_iter().map(ThemeRef::Source));
     }
     let options = ThemeOptions::core(&refs);
-    exponential_ui::theme::try_load_theme(&source, &options).map_err(|issues| UiError::Theme { issues_json: serde_json::to_string(&issues).unwrap_or_default() })
+    eui_core::theme::try_load_theme(&source, &options).map_err(|issues| UiError::Theme { issues_json: serde_json::to_string(&issues).unwrap_or_default() })
 }
 
 /// Load a theme file over the built-ins (+ `parents_json` = extra sources);
@@ -2256,14 +2256,14 @@ pub fn theme_issues_json(theme_json: String, parents_json: Option<String>) -> St
 #[uniffi::export]
 pub fn builtin_theme_ids() -> Vec<String> {
     shield("builtin_theme_ids", || Vec::new(), || {
-        exponential_ui::themes::BUILTIN_THEME_IDS.iter().map(|s| s.to_string()).collect()
+        eui_core::themes::BUILTIN_THEME_IDS.iter().map(|s| s.to_string()).collect()
     })
 }
 
 #[uniffi::export]
 pub fn default_theme_id() -> String {
     shield("default_theme_id", || String::new(), || {
-        exponential_ui::themes::DEFAULT_THEME_ID.to_string()
+        eui_core::themes::DEFAULT_THEME_ID.to_string()
     })
 }
 
@@ -2271,7 +2271,7 @@ pub fn default_theme_id() -> String {
 #[uniffi::export]
 pub fn builtin_theme_json(id: String) -> Option<String> {
     shield("builtin_theme_json", || None, || {
-        exponential_ui::themes::builtin_theme(&id).map(|t| serde_json::to_string(&*t).unwrap_or_default())
+        eui_core::themes::builtin_theme(&id).map(|t| serde_json::to_string(&*t).unwrap_or_default())
     })
 }
 
@@ -2280,10 +2280,10 @@ pub fn builtin_theme_json(id: String) -> Option<String> {
 #[uniffi::export]
 pub fn resolve_recipe_json(theme_json: String, component: String, part: String, props_json: String, states: Vec<String>, mode: String) -> Result<String, UiError> {
     guarded("resolve_recipe_json", || {
-        let theme: exponential_ui::theme::ResolvedTheme = parse(&theme_json)?;
+        let theme: eui_core::theme::ResolvedTheme = parse(&theme_json)?;
         let props: serde_json::Map<String, Value> = parse(&props_json)?;
         let query = RecipeQuery::new(component, part, props, states);
-        let style = exponential_ui::theme::resolve_recipe(&theme, &query, mode_of(&mode)?);
+        let style = eui_core::theme::resolve_recipe(&theme, &query, mode_of(&mode)?);
         Ok(Value::Object(style).to_string())
     })
 }
@@ -2292,9 +2292,9 @@ pub fn resolve_recipe_json(theme_json: String, component: String, part: String, 
 #[uniffi::export]
 pub fn control_geometry_json(theme_json: String, component: String, props_json: String) -> Result<String, UiError> {
     guarded("control_geometry_json", || {
-        let theme: exponential_ui::theme::ResolvedTheme = parse(&theme_json)?;
+        let theme: eui_core::theme::ResolvedTheme = parse(&theme_json)?;
         let props: serde_json::Map<String, Value> = parse(&props_json)?;
-        let g = exponential_ui::geometry::control_geometry(&theme, &component, &props, &[]);
+        let g = eui_core::geometry::control_geometry(&theme, &component, &props, &[]);
         serde_json::to_string(&g).map_err(invalid)
     })
 }
@@ -2304,12 +2304,12 @@ pub fn control_geometry_json(theme_json: String, component: String, props_json: 
 #[allow(clippy::too_many_arguments)]
 pub fn place_overlay(anchor_x: f64, anchor_y: f64, anchor_w: f64, anchor_h: f64, size_w: f64, size_h: f64, viewport_w: f64, viewport_h: f64, side: String) -> Result<FfiPlacement, UiError> {
     guarded("place_overlay", || {
-        let side = exponential_ui::overlay::OverlaySide::parse(&side).ok_or_else(|| invalid(format!("bad side {side:?}")))?;
-        let p = exponential_ui::overlay::place_overlay(
-            &exponential_ui::overlay::Rect { x: anchor_x, y: anchor_y, width: anchor_w, height: anchor_h },
-            &exponential_ui::overlay::Size { width: size_w, height: size_h },
-            &exponential_ui::overlay::Size { width: viewport_w, height: viewport_h },
-            &exponential_ui::overlay::PlaceOptions::side(side),
+        let side = eui_core::overlay::OverlaySide::parse(&side).ok_or_else(|| invalid(format!("bad side {side:?}")))?;
+        let p = eui_core::overlay::place_overlay(
+            &eui_core::overlay::Rect { x: anchor_x, y: anchor_y, width: anchor_w, height: anchor_h },
+            &eui_core::overlay::Size { width: size_w, height: size_h },
+            &eui_core::overlay::Size { width: viewport_w, height: viewport_h },
+            &eui_core::overlay::PlaceOptions::side(side),
         );
         Ok(FfiPlacement { x: p.x, y: p.y, side: p.side.as_str().to_string(), flipped: p.flipped })
     })
@@ -2321,7 +2321,7 @@ pub fn place_overlay(anchor_x: f64, anchor_y: f64, anchor_w: f64, anchor_h: f64,
 pub fn json_equal(a: String, b: String) -> bool {
     shield("json_equal", || false, || {
         match (serde_json::from_str::<Value>(&a), serde_json::from_str::<Value>(&b)) {
-            (Ok(a), Ok(b)) => exponential_ui::json::equal(&a, &b),
+            (Ok(a), Ok(b)) => eui_core::json::equal(&a, &b),
             _ => false,
         }
     })
@@ -2358,7 +2358,7 @@ pub fn json_diff(a: String, b: String) -> String {
                     None
                 }
                 _ => {
-                    if exponential_ui::json::equal(a, b) {
+                    if eui_core::json::equal(a, b) {
                         None
                     } else {
                         Some(format!("{path}: {a} vs {b}"))
@@ -2376,14 +2376,14 @@ pub fn json_diff(a: String, b: String) -> String {
 #[uniffi::export]
 pub fn core_catalog_id() -> String {
     shield("core_catalog_id", || String::new(), || {
-        exponential_ui::catalog::CORE_CATALOG_ID.to_string()
+        eui_core::catalog::CORE_CATALOG_ID.to_string()
     })
 }
 
 #[uniffi::export]
 pub fn basic_catalog_id() -> String {
     shield("basic_catalog_id", || String::new(), || {
-        exponential_ui::catalog::A2UI_BASIC_CATALOG_ID.to_string()
+        eui_core::catalog::A2UI_BASIC_CATALOG_ID.to_string()
     })
 }
 
@@ -2391,7 +2391,7 @@ pub fn basic_catalog_id() -> String {
 #[uniffi::export]
 pub fn bench_tree_json(n: u32) -> String {
     shield("bench_tree_json", || "{}".to_string(), || {
-        exponential_ui::bench::bench_tree_json(n as usize)
+        eui_core::bench::bench_tree_json(n as usize)
     })
 }
 
@@ -2404,12 +2404,12 @@ pub fn version() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// The host API (VAPP-91): `exponential_ui::host`, JSON in and out. The
+// The host API (VAPP-91): `eui_core::host`, JSON in and out. The
 // platform host owns the I/O (transports, resolvers, function registry) and
 // performs the router's ops on its surfaces.
 // ---------------------------------------------------------------------------
 
-use exponential_ui::host as h;
+use eui_core::host as h;
 
 fn json_string<T: serde::Serialize>(v: &T) -> String {
     serde_json::to_string(v).unwrap_or_default()
@@ -2439,8 +2439,8 @@ impl HostRouter {
     pub fn route(&self, message_json: String) -> String {
         shield("route", || "[]".to_string(), || {
             // VAPP-103: an oversized message is refused before it is parsed.
-            if message_json.len() > exponential_ui::limits::MAX_MESSAGE_BYTES {
-                let message = h::error_message(h::INVALID_MESSAGE, "", &exponential_ui::limits::message_bytes_issue(), None);
+            if message_json.len() > eui_core::limits::MAX_MESSAGE_BYTES {
+                let message = h::error_message(h::INVALID_MESSAGE, "", &eui_core::limits::message_bytes_issue(), None);
                 return Value::Array(vec![serde_json::json!({"op": "send", "message": message})]).to_string();
             }
             let ops = match serde_json::from_str::<Value>(&message_json) {

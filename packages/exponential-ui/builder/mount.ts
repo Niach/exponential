@@ -2,11 +2,11 @@
 // with the whole catalog previewed live, import a shadcn `globals.css` or a
 // tweakcn export as a start, export the JSON. Plain DOM for the editor; the
 // engine is src/builder.ts, the preview is the REAL React renderer
-// (builder/preview.tsx on `@exponential_app/ui-react`, VAPP-87).
+// (builder/preview.tsx on `@exponential_app/eui-react`, VAPP-87).
 // ui.exponential.at (VAPP-93) mounts it: `mountBuilder(root, modeTarget)`
 // wires the page's markup (index.html's body: #base, #panel, #preview, …)
 // found under `root`; main.ts runs it on the standalone page, which
-// `bun run --filter @exponential_app/ui build:builder` bundles.
+// `bun run --filter @exponential_app/eui build:builder` bundles.
 
 import { TOKEN_GROUPS } from "../src/catalog"
 import { diffTheme, exportThemeJson, importShadcnCss, parseThemeJson, themeFromImport } from "../src/builder"

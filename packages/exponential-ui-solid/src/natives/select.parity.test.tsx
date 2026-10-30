@@ -3,7 +3,7 @@
 // hidden native select, invalid, an empty list, host-sourced options).
 
 import { describe, it } from "vitest"
-import type { NestedNode } from "@exponential_app/ui"
+import type { NestedNode } from "@exponential_app/eui"
 import { expectParity, fixtureCases } from "./inputs-parity"
 
 const STATES = [`hover`, `focus`, `pressed`, `checked`, `open`, `disabled`, `invalid`]

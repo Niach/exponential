@@ -1,7 +1,7 @@
 /* EXP-1421: exponential.at/apps/, eApps' one docs page: the app package
    format. Facts: packages/exponential-ui/docs/package-format.md (format
    version 2, VAPP-161) and src/host/ (package.ts, records.ts,
-   record-store.ts, tools.ts, signature.ts), on master for @exponential_app/ui 0.2.0 (unreleased);
+   record-store.ts, tools.ts, signature.ts), in @exponential_app/eui 0.2.0;
    domain-contract fixtures app-records.json and app-export.json (what the
    app ships). Package names: docs/libraries.md. */
 import type { ReactNode } from "react"
@@ -65,7 +65,7 @@ const EXAMPLE = `{
   }
 }`
 
-const VALIDATE = `import { toolConsent, validatePackage, verifyPackageFile } from "@exponential_app/ui/host"
+const VALIDATE = `import { toolConsent, validatePackage, verifyPackageFile } from "@exponential_app/eui/host"
 
 const file = JSON.parse(text)
 const issues = validatePackage(file.package)
@@ -120,10 +120,10 @@ export default function Apps({ path }: PageProps) {
         <DocsSection id="today" num="05" label="Use it today">
           <h2>Use it today</h2>
           <p>
-            The package type and its validator are in eUI&apos;s host module; the records store, tool consent and signatures
-            (format version 2) arrive with the next release:
+            The package type, its validator, the records store, tool consent and signatures are in eUI&apos;s host module
+            (format version 2 since 0.2.0):
           </p>
-          <DocsCode language="shell">npm install @exponential_app/ui</DocsCode>
+          <DocsCode language="shell">npm install @exponential_app/eui</DocsCode>
           <DocsCode language="ts">{VALIDATE}</DocsCode>
         </DocsSection>
         <DocsSection id="packages" num="06" label="Packages">

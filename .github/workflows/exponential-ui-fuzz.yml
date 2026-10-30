@@ -2,7 +2,7 @@ name: exponential-ui-fuzz
 
 # VAPP-107: the Exponential UI security fuzzing, NIGHTLY (never on a pull
 # request: a fuzz budget is minutes per target). The Rust core's cargo-fuzz
-# targets (apps/desktop/crates/exponential-ui/fuzz: reduce + expand, the
+# targets (apps/desktop/crates/eui-core/fuzz: reduce + expand, the
 # expression language, JSON pointers, theme loading, the transport decoders,
 # the host router, a live surface, the media header readers + URL policy)
 # each run for a fixed budget on nightly Rust with ASan; a crash fails the
@@ -38,11 +38,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/desktop/crates/exponential-ui/fuzz
+          workspaces: apps/desktop/crates/eui-core/fuzz
       - name: cargo-fuzz
         run: cargo install cargo-fuzz --locked
       - name: Fuzz ${{ matrix.target }}
-        working-directory: apps/desktop/crates/exponential-ui
+        working-directory: apps/desktop/crates/eui-core
         env:
           CARGO_TARGET_DIR: ''
         run: |
@@ -53,7 +53,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-artifacts-${{ matrix.target }}
-          path: apps/desktop/crates/exponential-ui/fuzz/artifacts/
+          path: apps/desktop/crates/eui-core/fuzz/artifacts/
           if-no-files-found: ignore
 
   property-tests:

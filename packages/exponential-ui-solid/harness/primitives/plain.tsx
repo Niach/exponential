@@ -71,7 +71,7 @@ const VARIANTS = [`default`, `destructive`, `outline`, `glass`, `secondary`, `gh
 const TEXT_SIZES = [`default`, `xs`, `sm`, `lg`, `inline`] as const
 const ICON_SIZES = [`icon`, `icon-sm`, `icon-xs`, `icon-lg`] as const
 const PICTURE = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Crect width='16' height='10' fill='%2360a5fa'/%3E%3C/svg%3E`
-const SOURCE = `import { tokenizeCode } from "@exponential_app/ui"\n\nconst lines = tokenizeCode(source, \`ts\`)\nexport default lines.length\n`
+const SOURCE = `import { tokenizeCode } from "@exponential_app/eui"\n\nconst lines = tokenizeCode(source, \`ts\`)\nexport default lines.length\n`
 const noop = () => {}
 const DOT = { display: `block`, borderRadius: 9999, background: `#2563eb` }
 

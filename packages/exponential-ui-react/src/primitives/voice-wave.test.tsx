@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { voiceWave, voiceWavePath } from "@exponential_app/ui"
+import { voiceWave, voiceWavePath } from "@exponential_app/eui"
 import { VoiceWave } from "./voice-wave"
 
 // NEW-77: the VoiceWave primitive paints the core's rings (fixtures/

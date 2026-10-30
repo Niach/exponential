@@ -4,7 +4,7 @@
    (md, the brand mark as its child), the state, the muted line and one pill.
    The rows are the fixture's `overlaySpecimens`, copied here because
    marketing does not declare @exp/domain-contract. Geometry = `glass_bar`
-   (exponential-ui-gpui controls/rows.rs: gap 4, padding 8/10, radius xl3,
+   (eui-gpui controls/rows.rs: gap 4, padding 8/10, radius xl3,
    1px stroke-strong, the opaque popover fill, NO shadow) with the IDE's
    `value` (px 4, 14px semibold) and `item` (32px tall, px 8, 14px muted,
    the one that grows and ellipsizes). */

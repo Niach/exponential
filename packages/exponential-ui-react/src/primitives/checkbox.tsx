@@ -1,7 +1,7 @@
 import * as React from "react"
 import { CheckIcon } from "lucide-react"
 import { Checkbox as CheckboxPrimitive } from "radix-ui"
-import { CHECKBOX_CLASSES } from "@exponential_app/ui/web/primitives"
+import { CHECKBOX_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

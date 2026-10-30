@@ -893,7 +893,7 @@ pub struct ScreensPanel {
     threads_page: Entity<crate::threads_view::ThreadsView>,
     /// VAPP-90: the Exponential UI kitchen sink, built on first use — a
     /// dev-only screen pays its surface build only when opened.
-    exponential_ui: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
+    eui_core: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
     /// VAPP-110: the open app editor, built on entry and DROPPED on every
     /// navigation off it (which ends the member's live editor session).
     app_editor: Option<Entity<crate::app_screen::AppScreenView>>,
@@ -1096,7 +1096,7 @@ impl ScreensPanel {
             issue_draft,
             chat,
             threads_page,
-            exponential_ui: None,
+            eui_core: None,
             app_editor: None,
             exponential_ui_specimen: None,
             sessions: HashMap::new(),
@@ -3268,7 +3268,7 @@ impl Render for ScreensPanel {
                 .unwrap_or_else(|| self.render_syncing(cx)),
             // VAPP-90: the Exponential UI kitchen sink (dev-only).
             Some(Screen::ExponentialUiKitchenSink) => self
-                .exponential_ui
+                .eui_core
                 .get_or_insert_with(|| {
                     cx.new(|cx| {
                         crate::exponential_ui_screen::ExponentialUiKitchenSink::new(window, cx)

@@ -99,7 +99,7 @@ export function mergeResults(machine: MachineInfo, fragments: Fragment[]): Resul
   const runs = { ...(existing?.runs ?? {}) }
   for (const { renderer, machine: _m, ...run } of fragments) runs[renderer] = run
   return {
-    $comment: `Exponential UI benchmark results (VAPP-105) on ONE machine, written by \`bun run --filter @exponential_app/ui-bench bench\`: one run per renderer, every scenario's metrics (scenarios/manifest.json says what each is; ms unless named otherwise). Commit a rerun whole, never edit a number.`,
+    $comment: `Exponential UI benchmark results (VAPP-105) on ONE machine, written by \`bun run --filter @exponential_app/eui-bench bench\`: one run per renderer, every scenario's metrics (scenarios/manifest.json says what each is; ms unless named otherwise). Commit a rerun whole, never edit a number.`,
     machine,
     runs: Object.fromEntries(Object.entries(runs).sort(([a], [b]) => a.localeCompare(b))),
   }

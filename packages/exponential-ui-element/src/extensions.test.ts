@@ -4,8 +4,8 @@
 // slots, and `emit` fires `xui-action`.
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { CORE_CATALOG_ID, defineExtension, reduceNested } from "@exponential_app/ui"
-import type { NestedNode } from "@exponential_app/ui"
+import { CORE_CATALOG_ID, defineExtension, reduceNested } from "@exponential_app/eui"
+import type { NestedNode } from "@exponential_app/eui"
 import { applyRootProps, defineElementExtension, iconsFromSvg, registerExtension, type ElementPaintContext, type SurfaceActionDetail } from "./index"
 import { cleanup, mount } from "./test/helpers"
 

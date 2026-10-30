@@ -1,7 +1,7 @@
 import * as React from "react"
 import { ChevronRight, Ellipsis } from "lucide-react"
 import { Slot } from "radix-ui"
-import { BREADCRUMB_CLASSES } from "@exponential_app/ui/web/primitives"
+import { BREADCRUMB_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

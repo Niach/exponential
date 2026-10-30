@@ -576,7 +576,7 @@ mod tests {
         assert!(!all.is_empty());
         for case in all {
             let name = case["name"].as_str().unwrap();
-            let source = exponential_ui::host::parse_source(case["source"].as_str().unwrap()).unwrap();
+            let source = eui_core::host::parse_source(case["source"].as_str().unwrap()).unwrap();
             let got = records_source_params(&source.scheme, &source.name, &source.params).map(|p| parse_records_query(&p));
             let want: Option<RecordsQuery> = serde_json::from_value(case["expected"].clone()).unwrap();
             assert_eq!(got, want, "{name}");

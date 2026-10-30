@@ -17,16 +17,16 @@
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import { Checkbox as CheckboxPrimitive } from "radix-ui"
-import { tableRowKeys, WINDOW_THRESHOLD } from "@exponential_app/ui"
+import { tableRowKeys, WINDOW_THRESHOLD } from "@exponential_app/eui"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
-import { boundPath, getPointer, setPointer, LITERAL_ROWS_ROOT } from "@exponential_app/ui/web"
+import { boundPath, getPointer, setPointer, LITERAL_ROWS_ROOT } from "@exponential_app/eui/web"
 import { WindowedList, type WindowedListHandle } from "../list"
 import { NodeView, type NativeProps } from "../node-view"
-import { partClass } from "@exponential_app/ui/web"
+import { partClass } from "@exponential_app/eui/web"
 import { useBoundState } from "./bound"
-import { displayString } from "@exponential_app/ui"
+import { displayString } from "@exponential_app/eui"
 import { arr, bool, BuiltinIcon, num, phrase, str, useParts, objects } from "./shared"
-import { sortRows, type TableColumn, type TableSort as Sort } from "@exponential_app/ui/web"
+import { sortRows, type TableColumn, type TableSort as Sort } from "@exponential_app/eui/web"
 
 export { sortRows }
 export type { TableColumn }

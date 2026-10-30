@@ -22,7 +22,7 @@
 
 use std::{rc::Rc, str::FromStr};
 
-use exponential_net as net;
+use enet_core as net;
 use js_sys::{Array, Object, Reflect, Uint8Array};
 use net::{EndpointId, Node};
 use tokio::sync::mpsc::UnboundedReceiver;

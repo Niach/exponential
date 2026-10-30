@@ -5,7 +5,7 @@
 //! pulled `headerActionsOutset` into the padding, ui-copy → ui-check for
 //! 2 s); mono code that never wraps, scrolls sideways and stops `maxLines`
 //! tall. Colours come off the catalog's ONE tokenizer
-//! (`exponential_ui::code::tokenize_code`, `ansi` for command output). The
+//! (`eui_core::code::tokenize_code`, `ansi` for command output). The
 //! destructive variant: a destructive hairline, destructive text, no fill.
 
 use std::cell::RefCell;
@@ -72,7 +72,7 @@ fn token_color(kind: &str, destructive: bool, cx: &App) -> Hsla {
 
 /// The text the copy action copies (escape-free for `ansi`).
 pub(crate) fn code_block_text(code: &str, language: &str) -> String {
-    exponential_ui::code::code_text(code, language)
+    eui_core::code::code_text(code, language)
 }
 
 pub(crate) fn code_block(props: CodeBlockProps, cx: &App) -> AnyElement {
@@ -84,7 +84,7 @@ pub(crate) fn code_block(props: CodeBlockProps, cx: &App) -> AnyElement {
         input
     };
     let title_color = if props.destructive { theme.danger } else { theme.foreground };
-    let lines = exponential_ui::code::tokenize_code(&props.code, props.language);
+    let lines = eui_core::code::tokenize_code(&props.code, props.language);
     let has_header = props.title.is_some() || props.copyable;
     let header = has_header.then(|| {
         let id = props.id.clone();

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
-import { reduceSurface } from "@exponential_app/ui"
-import type { FlatComponent } from "@exponential_app/ui"
+import { reduceSurface } from "@exponential_app/eui"
+import type { FlatComponent } from "@exponential_app/eui"
 import { COMPONENT_DOCS, SHOT_PLATFORMS, shotUrl, specimenById } from "../lib/catalog"
 import { CORE_CATALOG, controlFor, flatten, parseInput, replayChunks, specimenSubject, surfaceIds, type Nested, type PropDoc } from "./a2ui"
 import { caseAlign, initialProps, studioTree } from "./ComponentStudio"

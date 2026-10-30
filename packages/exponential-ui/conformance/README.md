@@ -5,7 +5,7 @@ suite of [`manifest.json`](manifest.json) (GENERATED from the fixtures,
 drift-gated) and the report passes:
 
 ```bash
-bun run --filter @exponential_app/ui conformance:check path/to/report.json
+bun run --filter @exponential_app/eui conformance:check path/to/report.json
 # CONFORMANT  my-renderer (flutter 0.3.0): <n> cases passed in <m> suites
 ```
 
@@ -46,7 +46,7 @@ replays them byte for byte.
 
 `manifest.json` says how each count is derived (`unit`). A renderer built on
 the Rust core (the facade, `exponential-ui-ffi`) gets the pure suites through
-its bindings; one on the TS package gets them from `@exponential_app/ui`;
+its bindings; one on the TS package gets them from `@exponential_app/eui`;
 anything else implements `catalog/host.json` and the reducer itself.
 
 ## The report
@@ -58,13 +58,13 @@ passed, failed: [names], skipped?}}}`. Our runners write it to
 
 | renderer | runner | command |
 |---|---|---|
-| `exponential-ui` (Rust core) | `apps/desktop/crates/exponential-ui/tests/conformance.rs` | `cargo test -p exponential-ui --test conformance` |
-| `@exponential_app/ui-react` | `packages/exponential-ui-react/browser/suites.test.ts` | `bun run --filter @exponential_app/ui-react test:conformance` (headless Chromium) |
-| `@exponential_app/ui-solid` | `packages/exponential-ui-solid/browser/suites.test.ts` | `bun run --filter @exponential_app/ui-solid test:conformance` (headless Chromium) |
-| `@exponential_app/ui-element` | `packages/exponential-ui-element/browser/suites.test.ts` | `bun run --filter @exponential_app/ui-element test:conformance` (headless Chromium) |
-| `exponential-ui-gpui` | `apps/desktop/crates/exponential-ui-gpui/tests/suites.rs` | `cargo test -p exponential-ui-gpui --test suites` |
+| `eui-core` (Rust core) | `apps/desktop/crates/eui-core/tests/conformance.rs` | `cargo test -p eui-core --test conformance` |
+| `@exponential_app/eui-react` | `packages/exponential-ui-react/browser/suites.test.ts` | `bun run --filter @exponential_app/eui-react test:conformance` (headless Chromium) |
+| `@exponential_app/eui-solid` | `packages/exponential-ui-solid/browser/suites.test.ts` | `bun run --filter @exponential_app/eui-solid test:conformance` (headless Chromium) |
+| `@exponential_app/eui-element` | `packages/exponential-ui-element/browser/suites.test.ts` | `bun run --filter @exponential_app/eui-element test:conformance` (headless Chromium) |
+| `eui-gpui` | `apps/desktop/crates/eui-gpui/tests/suites.rs` | `cargo test -p eui-gpui --test suites` |
 | `ExponentialUI` (SwiftUI) | `packages/exponential-ui-swift/Tests/ExponentialUITests/ConformanceTests.swift` | `swift test` |
-| `at.exponential:ui-compose` | `packages/exponential-ui-compose/ui-compose/src/test/…/ConformanceTest.kt` | `./gradlew :ui-compose:testDebugUnitTest` |
+| `at.exponential:eui-compose` | `packages/exponential-ui-compose/ui-compose/src/test/…/ConformanceTest.kt` | `./gradlew :ui-compose:testDebugUnitTest` |
 
 CI (`.github/workflows/exponential-ui.yml`) runs all six renderers plus the
 core on every SDK pull request and fails unless every report is conformant;
@@ -112,10 +112,10 @@ Compose ratchets a few seconds each, so the matrix is not sampled.
 
 | what | where | command |
 |---|---|---|
-| the web baseline | any machine with Chromium | `bun run --filter @exponential_app/ui conformance -- --write-baseline --skip-desktop` (whole matrix only) |
+| the web baseline | any machine with Chromium | `bun run --filter @exponential_app/eui conformance -- --write-baseline --skip-desktop` (whole matrix only) |
 | the SwiftUI ratchet | macOS | `EXPONENTIAL_UI_WRITE_FIXTURES=1 swift test --filter RealFont` (`packages/exponential-ui-swift`) |
 | the Compose ratchet | ubuntu (CI verifies there) | `.github/workflows/record-compose-fixtures.yml`, artifact `compose-fixtures` (`EXP_UI_WRITE_FIXTURES=1 ./gradlew :ui-compose:testDebugUnitTest --tests '*RealFontConformanceTest'`) |
-| the gpui ratchet | Linux only (`tests/conformance.rs` builds there) | the same workflow's `gpui` job, artifact `gpui-ratchet` (`EXP_UI_WRITE_FIXTURES=1 cargo test -p exponential-ui-gpui --test conformance`) |
+| the gpui ratchet | Linux only (`tests/conformance.rs` builds there) | the same workflow's `gpui` job, artifact `gpui-ratchet` (`EXP_UI_WRITE_FIXTURES=1 cargo test -p eui-gpui --test conformance`) |
 
 A new case without a budget fails every ratchet, so a matrix change re-records
 all four in the same change.
@@ -133,7 +133,7 @@ divergence decisions (`causes`, `rules`) beside the ratchet's counts.
 Every WEB renderer runs the manifest through ONE runner,
 [`browser-suites.ts`](browser-suites.ts) `runBrowserSuites(options)`: the
 pure suites through the core and the shared web layer
-(`@exponential_app/ui/web`), the painted ones in headless Chromium against the
+(`@exponential_app/eui/web`), the painted ones in headless Chromium against the
 renderer's harness ([`browser-page.ts`](browser-page.ts): `bunHarness`,
 `openPage`, `EXPONENTIAL_UI_CHROME` = an explicit Chromium executable). A
 renderer plugs in with:
@@ -173,17 +173,17 @@ keeps the FIRST difference of each kind per case; differing screenshots land
 in `.conformance/parity/`.
 
 ```bash
-bun run --filter @exponential_app/ui conformance:parity              # React vs React, the self-check (~3 min)
-bun run --filter @exponential_app/ui conformance:parity -- --candidate packages/exponential-ui-solid/harness/serve.ts
-bun run --filter @exponential_app/ui conformance:parity -- --candidate packages/exponential-ui-element/harness/serve.ts
-bun run --filter @exponential_app/ui parity:check .conformance/exponential-ui-parity-react-react.json
-bun run --filter @exponential_app/ui-solid test:parity               # Solid's gate calls runParity
-bun run --filter @exponential_app/ui-element test:parity             # the web component's gate, the same call
+bun run --filter @exponential_app/eui conformance:parity              # React vs React, the self-check (~3 min)
+bun run --filter @exponential_app/eui conformance:parity -- --candidate packages/exponential-ui-solid/harness/serve.ts
+bun run --filter @exponential_app/eui conformance:parity -- --candidate packages/exponential-ui-element/harness/serve.ts
+bun run --filter @exponential_app/eui parity:check .conformance/exponential-ui-parity-react-react.json
+bun run --filter @exponential_app/eui-solid test:parity               # Solid's gate calls runParity
+bun run --filter @exponential_app/eui-element test:parity             # the web component's gate, the same call
 ```
 
 **Primitive cases (FEED-131, group `primitive`).** The same gate also
-compares the PRIMITIVE sets: `@exponential_app/ui-react/primitives` (Radix +
-`dist/exponential-ui-react.css`) against `@exponential_app/ui-solid/primitives`
+compares the PRIMITIVE sets: `@exponential_app/eui-react/primitives` (Radix +
+`dist/exponential-ui-react.css`) against `@exponential_app/eui-solid/primitives`
 (+ `dist/exponential-ui-solid.css`, compiled from the SAME `tailwind.css`,
 byte-identical: `src/primitives/styles.test.ts`). Every row of
 [`primitive-specimens.json`](../fixtures/primitive-specimens.json) runs ×
@@ -203,8 +203,8 @@ BOTH packages (`SPECIMENS: Record<id, component>`); the jsdom twin is
 `expectElementParity` (ui-solid `src/test/parity.ts`).
 
 ```bash
-bun run --filter @exponential_app/ui-solid test:parity:primitives    # the primitive group alone (seconds)
-EXPONENTIAL_UI_PARITY_GROUP=matrix,overlay bun run --filter @exponential_app/ui-solid test:parity
+bun run --filter @exponential_app/eui-solid test:parity:primitives    # the primitive group alone (seconds)
+EXPONENTIAL_UI_PARITY_GROUP=matrix,overlay bun run --filter @exponential_app/eui-solid test:parity
 ```
 
 ## Listing

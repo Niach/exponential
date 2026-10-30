@@ -9,7 +9,7 @@
 // lives in the theme); `ansi` output copies without its escapes.
 
 import { useMemo, useRef, useState } from "react"
-import { codeText, tokenizeCode } from "@exponential_app/ui"
+import { codeText, tokenizeCode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { arr, bool, BuiltinIcon, num, str, useParts } from "./shared"

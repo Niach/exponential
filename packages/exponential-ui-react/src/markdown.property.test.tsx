@@ -6,8 +6,8 @@
 import { describe, expect, it } from "vitest"
 import fc from "fast-check"
 import { renderToStaticMarkup } from "react-dom/server"
-import { decideUrl, mediaRequest } from "@exponential_app/ui"
-import { ownPrivateHosts } from "@exponential_app/ui/web"
+import { decideUrl, mediaRequest } from "@exponential_app/eui"
+import { ownPrivateHosts } from "@exponential_app/eui/web"
 import { linkAt, parseList, renderMarkdown } from "./markdown"
 
 const runs = Number(process.env.FC_NUM_RUNS ?? 200)

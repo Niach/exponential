@@ -3,7 +3,7 @@ name = "exponential-ui-ffi"
 version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "The UniFFI facade over exponential-ui for the SwiftUI and Compose painters: a coarse Surface object (messages in, frames out, measurement in batches), shipped inside the Swift and Kotlin packages as an xcframework / .so."
+description = "The UniFFI facade over eui-core for the SwiftUI and Compose painters: a coarse Surface object (messages in, frames out, measurement in batches), shipped inside the Swift and Kotlin packages as an xcframework / .so."
 repository = "https://github.com/Niach/exponential"
 homepage = "https://exponential.at/ui/"
 readme = "README.md"
@@ -22,16 +22,16 @@ required-features = ["cli"]
 [features]
 default = ["builtin-themes"]
 cli = ["uniffi/cli"]
-shaping = ["exponential-ui/shaping"]
+shaping = ["eui-core/shaping"]
 # VAPP-106: the core's gates, forwarded. The device builds keep the defaults
 # (the Swift and Compose conformance suites paint `playful`); a host that
 # builds the facade itself drops `builtin-themes` for a smaller binary
 # (`EXPONENTIAL_UI_FEATURES=` in build-ios.sh / build-android.sh).
-builtin-themes = ["exponential-ui/builtin-themes"]
-descriptions = ["exponential-ui/descriptions"]
+builtin-themes = ["eui-core/builtin-themes"]
+descriptions = ["eui-core/descriptions"]
 
 [dependencies]
-exponential-ui = { path = "../exponential-ui", version = "0.2.0", default-features = false }
+eui-core = { path = "../eui-core", version = "0.2.0", default-features = false }
 # The version already in apps/desktop/Cargo.lock (the FFI facade), ONE uniffi in the tree.
 uniffi = { version = "0.31" }
 serde = "1"

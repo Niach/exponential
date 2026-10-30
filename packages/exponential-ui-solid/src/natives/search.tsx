@@ -12,7 +12,7 @@
 // layout tree (`<id>.head`, `<id>.item.<i>`, …).
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Component, type JSX } from "solid-js"
-import { elementScale } from "@exponential_app/ui/web"
+import { elementScale } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
 import { IconGlyph } from "../icons"

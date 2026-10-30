@@ -1,7 +1,7 @@
 // FEED-128 (from VAPP-91's React runner): the SHARED browser conformance
 // runner of every WEB renderer. Every suite of `manifest.json`: the pure
 // ones through the TS reference (the core + the shared web layer
-// `@exponential_app/ui/web`) plus the renderer's own logic (`options.logic`),
+// `@exponential_app/eui/web`) plus the renderer's own logic (`options.logic`),
 // the painted ones in headless Chromium through the renderer's HARNESS
 // (browser-page.ts says the page protocol). A plain async function (the core
 // carries no vitest): it returns the report and the blocks that threw; the

@@ -11,7 +11,7 @@ import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"
 import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
-import { segmentedBadge } from "@exponential_app/ui/web"
+import { segmentedBadge } from "@exponential_app/eui/web"
 
 interface Tab {
   label: string

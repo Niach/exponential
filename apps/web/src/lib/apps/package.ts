@@ -6,13 +6,13 @@ import {
   validatePackage,
   type AppPackage,
   type ExtensionDef,
-} from "@exponential_app/ui"
-import { catalogPrompt, componentPrompt } from "@exponential_app/ui/prompt"
+} from "@exponential_app/eui"
+import { catalogPrompt, componentPrompt } from "@exponential_app/eui/prompt"
 import extensionJson from "@exp/ui/exponential-ui/extension.json"
 import { APP_PACKAGE_MAX_BYTES, APP_RECORD_KINDS_MAX, APP_RECORD_MAX_BYTES, APP_TEMPLATE_MAX_COMPONENTS } from "@exp/domain-contract/apps"
 import { APP_RECORD_ROW_KEYS } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS } from "@exp/domain-contract/app-actions"
-import type { RecordSchema } from "@exponential_app/ui"
+import type { RecordSchema } from "@exponential_app/eui"
 
 // VAPP-110: what an app's PACKAGE may be, server-side (tRPC `apps.upsertPackage`
 // and MCP `apps upsert` both land here). The SDK's `validatePackage` checks the

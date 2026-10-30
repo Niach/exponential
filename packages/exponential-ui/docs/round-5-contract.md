@@ -4,7 +4,7 @@ Round 5 adds the low-level pieces the spezl drafts (a chat app with voice
 calls, push-to-talk, computer-use plans and QR pairing) kept rebuilding: a
 chat bubble, a call screen, a plan card, a QR code and a QR scanner, plus
 five extensions of existing components. This file is the CONTRACT half:
-what changed in `@exponential_app/ui` and what each renderer implements to
+what changed in `@exponential_app/eui` and what each renderer implements to
 match. Everything here is locked by a fixture or a test.
 
 Read §0, the sections you own, then §11 (your checklist).

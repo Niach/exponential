@@ -7,8 +7,8 @@
 // the keyboard model of a11y.json on the Radix-backed natives.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { builtinTheme, loadTheme, resolveStyleValues, styleToCss, BUILTIN_THEMES, BUILTIN_THEME_IDS, THEME_SCHEMA_ID } from "@exponential_app/ui"
-import conditions from "@exponential_app/ui/fixtures/style-conditions.json"
+import { builtinTheme, loadTheme, resolveStyleValues, styleToCss, BUILTIN_THEMES, BUILTIN_THEME_IDS, THEME_SCHEMA_ID } from "@exponential_app/eui"
+import conditions from "@exponential_app/eui/fixtures/style-conditions.json"
 import type { Page } from "playwright"
 import { openPage, startHarness, type Harness } from "./support"
 

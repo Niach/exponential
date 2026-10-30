@@ -1,1 +1,1 @@
-export * from "@exponential_app/ui-react/primitives/tooltip"
+export * from "@exponential_app/eui-react/primitives/tooltip"

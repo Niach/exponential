@@ -3,7 +3,7 @@
 // request and serves it (`PORT`, default 4183) with the SAME page as the
 // React and Solid harnesses. The harness itself has no JSX (it drives the
 // custom element); `vite-plugin-solid` compiles the Solid painter, which
-// `@exponential_app/ui-solid` ships as TSX sources inside the monorepo, and
+// `@exponential_app/eui-solid` ships as TSX sources inside the monorepo, and
 // harness/vlist.tsx. The browser suites spawn this; `dev:harness` runs it
 // for a human.
 

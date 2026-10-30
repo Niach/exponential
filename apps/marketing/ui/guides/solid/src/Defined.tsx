@@ -1,5 +1,5 @@
-import { ExponentialSurface, createSurface } from "@exponential_app/ui-solid"
-import type { A2uiMessage } from "@exponential_app/ui-solid"
+import { ExponentialSurface, createSurface } from "@exponential_app/eui-solid"
+import type { A2uiMessage } from "@exponential_app/eui-solid"
 import { defined } from "./defined"
 
 // A surface written in TypeScript, painted by the Solid renderer: the

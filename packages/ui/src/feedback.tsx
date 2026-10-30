@@ -9,7 +9,7 @@ import {
   markStripeSpan,
   type MarkSpan,
 } from "@exp/domain-contract/feedback-mark"
-import { Spinner } from "@exponential_app/ui-react/primitives/spinner"
+import { Spinner } from "@exponential_app/eui-react/primitives/spinner"
 
 import { cn } from "./cn"
 import { toast } from "./toast"

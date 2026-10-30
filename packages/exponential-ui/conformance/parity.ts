@@ -1,6 +1,6 @@
 // FEED-128: the deterministic WEB PARITY check. Two web renderers that claim
-// the same DOM + stylesheet contract (`@exponential_app/ui-react` is the
-// REFERENCE; `@exponential_app/ui-solid` the first candidate) are loaded side
+// the same DOM + stylesheet contract (`@exponential_app/eui-react` is the
+// REFERENCE; `@exponential_app/eui-solid` the first candidate) are loaded side
 // by side in ONE headless Chromium — same viewport, device scale 1, the
 // conformance font set, reduced motion, animations and transitions off — and
 // every case is compared four ways, all EXACT:
@@ -19,7 +19,7 @@
 //          excluded): 0 differing pixels.
 // Not a manifest suite (the natives' reports keep the manifest's list): a
 // web-only gate with its own report (parity-report.schema.json), checked by
-// `bun run --filter @exponential_app/ui parity:check <report.json>`.
+// `bun run --filter @exponential_app/eui parity:check <report.json>`.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"

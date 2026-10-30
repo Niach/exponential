@@ -1,1 +1,1 @@
-export * from "@exponential_app/ui-react/primitives/disclosure-header"
+export * from "@exponential_app/eui-react/primitives/disclosure-header"

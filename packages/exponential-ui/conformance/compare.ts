@@ -17,7 +17,7 @@
 // differs there (e.g. a control the core expands into parts the DOM renders
 // without `data-xui-id`), nothing was compared.
 //
-// The Rust gate (apps/desktop/crates/exponential-ui-gpui/tests/conformance.rs)
+// The Rust gate (apps/desktop/crates/eui-gpui/tests/conformance.rs)
 // implements the same rules.
 
 import type { CaseDump, Dump, DumpNode } from "./dump"

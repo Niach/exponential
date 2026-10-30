@@ -1,9 +1,9 @@
 import { onCleanup, onMount } from "solid-js"
-import { CORE_CATALOG_ID } from "@exponential_app/ui"
-import { ExponentialSurface, createSurface } from "@exponential_app/ui-solid"
-import type { A2uiMessage } from "@exponential_app/ui-solid"
-import { Button } from "@exponential_app/ui-solid/primitives"
-import "@exponential_app/ui-solid/styles.css"
+import { CORE_CATALOG_ID } from "@exponential_app/eui"
+import { ExponentialSurface, createSurface } from "@exponential_app/eui-solid"
+import type { A2uiMessage } from "@exponential_app/eui-solid"
+import { Button } from "@exponential_app/eui-solid/primitives"
+import "@exponential_app/eui-solid/styles.css"
 
 export function App() {
   // The surface state: A2UI v0.9 server messages in, the tree and data out.

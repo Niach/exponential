@@ -1,10 +1,10 @@
 import * as React from "react"
 import { Tabs as TabsPrimitive } from "radix-ui"
-import { TABS_CLASSES } from "@exponential_app/ui/web/primitives"
+import { TABS_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 
-export { SEGMENTED_ITEM, SEGMENTED_LIST, SEGMENTED_ROW, SEGMENTED_ROW_COMPACT, SEGMENTED_TAB } from "@exponential_app/ui/web/primitives"
+export { SEGMENTED_ITEM, SEGMENTED_LIST, SEGMENTED_ROW, SEGMENTED_ROW_COMPACT, SEGMENTED_TAB } from "@exponential_app/eui/web/primitives"
 
 function Tabs({
   className,

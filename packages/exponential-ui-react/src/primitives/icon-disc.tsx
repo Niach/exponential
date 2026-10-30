@@ -1,10 +1,10 @@
 import type { LucideIcon } from "lucide-react"
-import { ICON_DISC_CLASSES, type IconDiscTone } from "@exponential_app/ui/web/primitives"
+import { ICON_DISC_CLASSES, type IconDiscTone } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 
-export { ICON_DISC_TONES } from "@exponential_app/ui/web/primitives"
-export type { IconDiscTone } from "@exponential_app/ui/web/primitives"
+export { ICON_DISC_TONES } from "@exponential_app/eui/web/primitives"
+export type { IconDiscTone } from "@exponential_app/eui/web/primitives"
 
 export function IconDisc({
   icon: Icon,

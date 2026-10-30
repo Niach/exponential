@@ -5,9 +5,9 @@
 // dark + rtl + forced states, and the DOM after a pick by click and by keys.
 
 import { describe, expect, it } from "vitest"
-import type { NestedNode } from "@exponential_app/ui"
-import components from "@exponential_app/ui/fixtures/catalog-components.json"
-import specimens from "@exponential_app/ui/fixtures/specimens.json"
+import type { NestedNode } from "@exponential_app/eui"
+import components from "@exponential_app/eui/fixtures/catalog-components.json"
+import specimens from "@exponential_app/eui/fixtures/specimens.json"
 import { expectDomParity, renderReact, renderSolidSurface, serializeDom, type ParityCase } from "../test/parity"
 
 const cases = (components as unknown as { cases: { name: string; node: NestedNode }[] }).cases.filter((c) => c.node.component === `ChoiceTiles`)

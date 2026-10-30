@@ -17,9 +17,9 @@
 // trigger's `aria-expanded`/`aria-controls`/`data-state` are painted here.
 
 import { For, Index, batch, createComputed, createEffect, createMemo, createSignal, createUniqueId, on, untrack, type Component, type JSX } from "solid-js"
-import { weekStart } from "@exponential_app/ui"
-import type { Formatter } from "@exponential_app/ui"
-import { addDays, addMonths, calendarStop, isoDate, monthGrid, parseIsoDate, sameDay } from "@exponential_app/ui/web"
+import { weekStart } from "@exponential_app/eui"
+import type { Formatter } from "@exponential_app/eui"
+import { addDays, addMonths, calendarStop, isoDate, monthGrid, parseIsoDate, sameDay } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField } from "../form"
 import type { NativeProps } from "../node-view"

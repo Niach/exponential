@@ -35,10 +35,10 @@ Exponential is built from open libraries it shares with other apps ([docs/librar
 
 | | what | code | docs |
 |---|---|---|---|
-| **eUI** | Generative UI: agents send A2UI, native renderers paint it on web, iOS, Android and desktop | `packages/exponential-ui*`, `apps/desktop/crates/exponential-ui*` | [exponential.at/ui](https://exponential.at/ui/) |
+| **eUI** | Generative UI: agents send A2UI, native renderers paint it on web, iOS, Android and desktop | `packages/exponential-ui*`, `apps/desktop/crates/eui-core*` | [exponential.at/ui](https://exponential.at/ui/) |
 | **eTalk** | Speech in and out for agents: push to talk, wake word, spoken replies, calls | `apps/desktop/crates/etalk*`, `packages/etalk` | [exponential.at/talk](https://exponential.at/talk/) |
 | **ePilot** | Computer use: the agent sees the real screen and drives the real pointer and keyboard | `apps/desktop/crates/epilot*` | [exponential.at/pilot](https://exponential.at/pilot/) |
-| **eNet** | Peer to peer, end-to-end encrypted networking on iroh, sealed push | `apps/desktop/crates/exponential-net*` | [exponential.at/net](https://exponential.at/net/) |
+| **eNet** | Peer to peer, end-to-end encrypted networking on iroh, sealed push | `apps/desktop/crates/enet-core*` | [exponential.at/net](https://exponential.at/net/) |
 | **eApps** | The app package format: templates, bindings, records and tools as data | `packages/exponential-ui/src/host` | [exponential.at/apps](https://exponential.at/apps/) |
 | agent-runtime | The server-free agent core: run the user's own Claude Code or Codex | `apps/desktop/crates/exponential-agent-runtime` | [its README](./apps/desktop/crates/exponential-agent-runtime/README.md) |
 

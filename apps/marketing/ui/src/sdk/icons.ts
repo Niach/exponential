@@ -4,7 +4,7 @@
    SDK has no icon registry of its own; a host passes one in. Loaded only
    inside the islands (the whole Lucide set is the second-heaviest chunk). */
 import * as lucide from "lucide-react"
-import type { IconComponent, IconMap } from "@exponential_app/ui-react"
+import type { IconComponent, IconMap } from "@exponential_app/eui-react"
 import registry from "../../../../../packages/icons/icons.json"
 
 const pascal = (name: string) => name.replace(/(^|-)([a-z0-9])/g, (_, __, c: string) => c.toUpperCase())

@@ -11,9 +11,9 @@
 // function) or a host-painted component re-renders on every change.
 
 import { useMemo, useRef, useSyncExternalStore } from "react"
-import { sharedCatalogView } from "@exponential_app/ui"
-import type { ExtensionDef, UiNode } from "@exponential_app/ui"
-import { CLIENT_FUNCTIONS, absolutePath, isBinding, isCall, pointerTokens } from "@exponential_app/ui/web"
+import { sharedCatalogView } from "@exponential_app/eui"
+import type { ExtensionDef, UiNode } from "@exponential_app/eui"
+import { CLIENT_FUNCTIONS, absolutePath, isBinding, isCall, pointerTokens } from "@exponential_app/eui/web"
 import type { SurfaceContextValue } from "./context"
 import { extensionComponent } from "./extensions"
 

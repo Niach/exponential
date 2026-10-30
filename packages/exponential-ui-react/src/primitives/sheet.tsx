@@ -1,7 +1,7 @@
 import * as React from "react"
 import { XIcon } from "lucide-react"
 import { Dialog as SheetPrimitive } from "radix-ui"
-import { SHEET_CLASSES, isTypeaheadPortalInteraction, type SheetSide } from "@exponential_app/ui/web/primitives"
+import { SHEET_CLASSES, isTypeaheadPortalInteraction, type SheetSide } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 import {

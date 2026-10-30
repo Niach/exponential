@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 // VAPP-87 acceptance: a PLAIN Vite app OUTSIDE the monorepo, installed from
-// the packed tarballs of `@exponential_app/ui` and `@exponential_app/ui-react`,
+// the packed tarballs of `@exponential_app/eui` and `@exponential_app/eui-react`,
 // renders the kitchen sink. Packs both packages, writes a throwaway app
 // under a temp dir, `bun install`s it (React + Vite from the registry or the
 // local cache), builds it, serves `dist/` and checks the DOM in Chromium.
 //
-//   bun run --filter @exponential_app/ui-react smoke:pack [--keep]
+//   bun run --filter @exponential_app/eui-react smoke:pack [--keep]
 
 import { chromium } from "playwright"
 import { execSync } from "node:child_process"
@@ -45,8 +45,8 @@ writeFileSync(
       type: `module`,
       scripts: { build: `vite build` },
       dependencies: {
-        "@exponential_app/ui": `file:../${ui}`,
-        "@exponential_app/ui-react": `file:../${uiReact}`,
+        "@exponential_app/eui": `file:../${ui}`,
+        "@exponential_app/eui-react": `file:../${uiReact}`,
         react: version(`react`),
         "react-dom": version(`react-dom`),
       },
@@ -57,7 +57,7 @@ writeFileSync(
       // The renderer's own dependency on the catalog package is a workspace
       // link here and a registry version once VAPP-91 publishes; until then
       // the tarball stands in for the registry.
-      overrides: { "@exponential_app/ui": `file:../${ui}` },
+      overrides: { "@exponential_app/eui": `file:../${ui}` },
     },
     null,
     2
@@ -68,9 +68,9 @@ writeFileSync(join(app, `index.html`), `<!doctype html><html><head><meta charset
 writeFileSync(
   join(app, `src/main.jsx`),
   `import { createRoot } from "react-dom/client"
-import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/ui"
-import kitchenSink from "@exponential_app/ui/fixtures/kitchen-sink.json"
-import { ExponentialSurface } from "@exponential_app/ui-react"
+import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
+import kitchenSink from "@exponential_app/eui/fixtures/kitchen-sink.json"
+import { ExponentialSurface } from "@exponential_app/eui-react"
 const { root } = reduceNested(kitchenSink, { catalogId: CORE_CATALOG_ID })
 createRoot(document.getElementById("root")).render(
   <div style={{ display: "grid", gap: 16 }}>

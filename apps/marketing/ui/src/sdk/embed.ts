@@ -49,8 +49,8 @@ export function embedCode(target: EmbedTarget, { messages, surfaceId, theme, mod
   switch (target) {
     case `react`: {
       const body = lines.replace(/\\/g, () => `\\\\`).replace(/`/g, () => `\\\``).replace(/\$\{/g, () => `\\\${`)
-      return `import { ExponentialHost, MemoryTransport } from "@exponential_app/ui"
-import { HostSurface } from "@exponential_app/ui-react"
+      return `import { ExponentialHost, MemoryTransport } from "@exponential_app/eui"
+import { HostSurface } from "@exponential_app/eui-react"
 
 const SURFACE = \`${body}\`
 
@@ -65,8 +65,8 @@ export function Preview() {
     }
     case `solid`: {
       const body = lines.replace(/\\/g, () => `\\\\`).replace(/`/g, () => `\\\``).replace(/\$\{/g, () => `\\\${`)
-      return `import { ExponentialSurface, createSurface } from "@exponential_app/ui-solid"
-import type { A2uiMessage } from "@exponential_app/ui-solid"
+      return `import { ExponentialSurface, createSurface } from "@exponential_app/eui-solid"
+import type { A2uiMessage } from "@exponential_app/eui-solid"
 
 const SURFACE = \`${body}\`
 
@@ -87,7 +87,7 @@ export function Preview() {
         .replace(/<\/(script)/gi, (_, tag: string) => `<\\/${tag}`)
         .replace(/<!--/g, () => `<\\!--`)
       return `<script type="module">
-  import "@exponential_app/ui-element/define"
+  import "@exponential_app/eui-element/define"
 </script>
 
 <exponential-surface surface-id="${surfaceId}" theme="${theme}" mode="${mode}"${rtl ? ` direction="rtl"` : ``}${width ? ` width="${width}"` : ``}></exponential-surface>
@@ -161,10 +161,10 @@ ${rtl ? `    // ${NATIVE_RTL}
     }
     case `gpui`: {
       const h = rawHashes(lines, `"`)
-      return `use exponential_ui::theme::Mode;
-use exponential_ui::themes::builtin_theme;
-use exponential_ui_gpui::runtime::{ExponentialHost, HostOptions};
-use exponential_ui_gpui::transport::MemoryTransport;
+      return `use eui_core::theme::Mode;
+use eui_core::themes::builtin_theme;
+use eui_gpui::runtime::{ExponentialHost, HostOptions};
+use eui_gpui::transport::MemoryTransport;
 use gpui::{prelude::*, App, Entity};
 
 const SURFACE: &str = r${h}"

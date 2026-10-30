@@ -1,6 +1,6 @@
-// @exponential_app/ui-solid — Exponential UI's SolidJS renderer (FEED-128):
+// @exponential_app/eui-solid — Exponential UI's SolidJS renderer (FEED-128):
 // the same DOM, the same compiled stylesheet and the same runtime themes as
-// `@exponential_app/ui-react`, the same export list with Solid names
+// `@exponential_app/eui-react`, the same export list with Solid names
 // (`createSurface` for `useSurface`, `defineSolidExtension`,
 // `createHostSurface`, `createHostOwnedValue`, `parts`…).
 export { ExponentialSurface, resolveThemeInput, surfaceTheme } from "./surface"
@@ -10,13 +10,13 @@ export type { A2uiMessage, SurfaceState, CreateSurfaceOptions, UseSurfaceOptions
 export { registerExtension, defineSolidExtension, registeredExtensions, extensionCatalogs, extensionComponent } from "./extensions"
 export type { SolidExtension, ExtensionComponent, RegisterExtensionOptions } from "./extensions"
 export type { HostPlugin, IconComponent, IconMap, PaintError, SurfaceActionEvent, SurfaceInputEvent, ExtensionComponentProps, SourceOption } from "./host"
-export { compileTheme, compiledTheme, themeScope, partClass, propAttribute, tokenVar, tokenVarName, cssValue, declarations, ruleSelectors, STATE_SELECTORS, LAYERS } from "@exponential_app/ui/web"
-export type { CompiledTheme } from "@exponential_app/ui/web"
-export { nodeSheet, compileNodeSheet, dynamicStyleEntries, queryToken, nodeClass, surfaceClass, walkNodes } from "@exponential_app/ui/web"
-export type { NodeSheet, DynamicStyleEntry } from "@exponential_app/ui/web"
-export { BASE_CSS } from "@exponential_app/ui/web"
-export { getPointer, setPointer, absolutePath, resolveValue, resolveProps, resolveNodeProps, resolveVisible, bindTree, boundPath, isBinding, isCall, hasDynamic, memoFormatter, CLIENT_FUNCTIONS } from "@exponential_app/ui/web"
-export type { DataModel, DataBinding, FunctionCall, ClientFunction, ResolveContext } from "@exponential_app/ui/web"
+export { compileTheme, compiledTheme, themeScope, partClass, propAttribute, tokenVar, tokenVarName, cssValue, declarations, ruleSelectors, STATE_SELECTORS, LAYERS } from "@exponential_app/eui/web"
+export type { CompiledTheme } from "@exponential_app/eui/web"
+export { nodeSheet, compileNodeSheet, dynamicStyleEntries, queryToken, nodeClass, surfaceClass, walkNodes } from "@exponential_app/eui/web"
+export type { NodeSheet, DynamicStyleEntry } from "@exponential_app/eui/web"
+export { BASE_CSS } from "@exponential_app/eui/web"
+export { getPointer, setPointer, absolutePath, resolveValue, resolveProps, resolveNodeProps, resolveVisible, bindTree, boundPath, isBinding, isCall, hasDynamic, memoFormatter, CLIENT_FUNCTIONS } from "@exponential_app/eui/web"
+export type { DataModel, DataBinding, FunctionCall, ClientFunction, ResolveContext } from "@exponential_app/eui/web"
 export { createHostOwnedValue, DEBOUNCE_MS } from "./inputs"
 export type { HostOwnedOptions, HostOwnedValue } from "./inputs"
 export { WindowedList } from "./list"
@@ -39,9 +39,9 @@ export { createMediaQuery, createElementSize } from "./platform"
 export type { BoxSize } from "./platform"
 // React re-exports these through its natives (table/inputs/chips/dates);
 // on Solid they come straight from the web layer until those natives land.
-export { sortRows, parseLocaleNumber, acceptsFile, monthGrid } from "@exponential_app/ui/web"
+export { sortRows, parseLocaleNumber, acceptsFile, monthGrid } from "@exponential_app/eui/web"
 // VAPP-91: the host API on Solid.
 export { HostSurface, hostPlugin, createHostSurface, createHostSurfaceIds, createHostStatus, useHostStatus } from "./host-surface"
 export type { HostSurfaceProps } from "./host-surface"
 export { createMediaSource, createMediaSrc, clearMediaCache, mediaCacheStats, fetchLimited, MEDIA_CACHE_IDLE_MAX } from "./media"
-export { linkHref, mediaRequestOf, urlPolicyOf } from "@exponential_app/ui/web"
+export { linkHref, mediaRequestOf, urlPolicyOf } from "@exponential_app/eui/web"

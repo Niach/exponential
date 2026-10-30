@@ -32,9 +32,9 @@ use std::sync::Arc;
 
 use domain::plan_card::{self as model, AnswerIssue, CardAnswerInput, CardAnswers, OptionRows};
 use domain::session_tree::{CardSurface, PlanQuestion, QuestionOption};
-use exponential_ui::host::{media_request, MediaOptions, MediaRequest, UrlPolicy};
-use exponential_ui_gpui::host::HostPlugin;
-use exponential_ui_gpui::view::{SurfaceView, SurfaceViewOptions};
+use eui_core::host::{media_request, MediaOptions, MediaRequest, UrlPolicy};
+use eui_gpui::host::HostPlugin;
+use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{
     div, img, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Entity, FontWeight,
     InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, SharedString, Styled as _,
@@ -452,7 +452,7 @@ impl HostPlugin for CardSurfaceHost {
 
     /// Sandbox: a `FileUpload` never opens the native picker — handled,
     /// with nothing picked (web's inert host).
-    fn pick_files(&self, _request: &exponential_ui_gpui::host::FilePickRequest, _cx: &mut App) -> bool {
+    fn pick_files(&self, _request: &eui_gpui::host::FilePickRequest, _cx: &mut App) -> bool {
         true
     }
 }
@@ -474,7 +474,7 @@ pub(crate) fn card_surface_view(
     cx: &mut App,
 ) -> Option<Entity<SurfaceView>> {
     let message_id = surface_id;
-    let tree: exponential_ui::NestedNode = match serde_json::from_value(surface.root.clone()) {
+    let tree: eui_core::NestedNode = match serde_json::from_value(surface.root.clone()) {
         Ok(tree) => tree,
         Err(error) => {
             log::warn!("[plan card] the surface of {message_id} does not parse: {error}");
@@ -483,16 +483,16 @@ pub(crate) fn card_surface_view(
     };
     let options = SurfaceViewOptions {
         surface_id: surface_id.to_string(),
-        theme: exponential_ui::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
-        mode: exponential_ui::theme::Mode::Dark,
+        theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
+        mode: eui_core::theme::Mode::Dark,
         host,
         // `None`: the surface follows its frame's width (a fixed width
         // left the surface's equal tile columns short of the frame).
         width: None,
         // Reduce motion (`theme::motion::reduce_motion`, the one place): the
         // surface's own transitions become 0 ms.
-        settings: theme::motion::reduce_motion().then(|| exponential_ui::surface::SurfaceSettings {
-            mode: exponential_ui::theme::ModeSetting::Dark,
+        settings: theme::motion::reduce_motion().then(|| eui_core::surface::SurfaceSettings {
+            mode: eui_core::theme::ModeSetting::Dark,
             reduced_motion: true,
             ..Default::default()
         }),
@@ -1406,7 +1406,7 @@ mod tests {
     #[gpui::test]
     async fn the_card_host_is_inert_for_media_and_uploads(cx: &mut gpui::TestAppContext) {
         let host = CardSurfaceHost { instance: None, token: None };
-        let request = exponential_ui_gpui::host::FilePickRequest {
+        let request = eui_gpui::host::FilePickRequest {
             surface_id: "s".into(),
             component_id: "upload".into(),
             accept: None,
@@ -1510,7 +1510,7 @@ mod tests {
     /// the rest of the LAN.
     #[test]
     fn a_lan_instance_opts_exactly_its_own_host_in() {
-        use exponential_ui::host::decide_url;
+        use eui_core::host::decide_url;
         let host = CardSurfaceHost { instance: Some("http://192.168.1.20:3000".into()), token: None };
         let media = |src: &str| media_request(src, &host.options()).map(|request| request.url);
         assert_eq!(media("/api/attachments/a1").as_deref(), Some("http://192.168.1.20:3000/api/attachments/a1"));

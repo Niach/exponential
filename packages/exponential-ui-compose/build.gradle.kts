@@ -10,8 +10,8 @@ plugins {
     alias(libs.plugins.roborazzi) apply false
 }
 
-// VAPP-91: Maven Central for `at.exponential:ui-compose` and
-// `at.exponential:ui-compose-primitives`. Every publishing module gets the
+// VAPP-91: Maven Central for `at.exponential:eui-compose` and
+// `at.exponential:eui-compose-primitives`. Every publishing module gets the
 // shared POM (licence, developers, scm), the local `centralBundle`
 // repository (`build/central-bundle`, zipped by release/central-bundle.sh
 // into the Central Portal upload) and, ONLY when a key is provided

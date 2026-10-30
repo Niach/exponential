@@ -7,8 +7,8 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "@exponential_app/ui": "^0.2.0",
-    "@exponential_app/ui-react": "^0.2.0",
+    "@exponential_app/eui": "^0.2.0",
+    "@exponential_app/eui-react": "^0.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

@@ -1,5 +1,5 @@
 {
-  "name": "@exponential_app/ui",
+  "name": "@exponential_app/eui",
   "version": "0.2.0",
   "private": true,
   "description": "Exponential UI: the core A2UI catalog (components, macros, model descriptions, token names), the A2UI basic catalog map, the TypeScript reference reducer, the runtime theme format with the built-in themes, and the theme builder.",
@@ -50,7 +50,7 @@
   "devDependencies": {
     "@anthropic-ai/sdk": "^1.1.0",
     "@exp/tsconfig": "workspace:*",
-    "@exponential_app/ui-react": "workspace:*",
+    "@exponential_app/eui-react": "workspace:*",
     "@types/bun": "latest",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

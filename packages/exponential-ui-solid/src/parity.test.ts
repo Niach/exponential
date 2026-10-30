@@ -3,7 +3,7 @@
 // src/test/parity.ts).
 
 import { describe, it } from "vitest"
-import type { NestedNode } from "@exponential_app/ui"
+import type { NestedNode } from "@exponential_app/eui"
 import { expectDomParity } from "./test/parity"
 
 const layout: NestedNode = {

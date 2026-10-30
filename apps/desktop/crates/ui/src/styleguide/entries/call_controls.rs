@@ -1,5 +1,5 @@
 //! S-3 — `call-controls` (2 Primitives): THE round icon-only call buttons
-//! (`voice_overlay::call_buttons` on `exponential_ui_gpui::call_button`,
+//! (`voice_overlay::call_buttons` on `eui_gpui::call_button`,
 //! eUI `CallButton`), the same rows as the web entry
 //! (`apps/styleguide/src/entries/call-controls.tsx`): each of
 //! `fixtures/voice-call.json` `surfaceSpecimens`' button sets at the call
@@ -12,7 +12,7 @@ use gpui::{div, px, App, Div, ParentElement as _, SharedString, Styled as _, Win
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use etalk::call::VOICE_CALL;
-use exponential_ui_gpui::controls::CallSize;
+use eui_gpui::controls::CallSize;
 
 use etalk_gpui::voice_overlay::{call_buttons, call_pill, specimen_face, CallActions};
 

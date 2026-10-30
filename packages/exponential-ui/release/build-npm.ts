@@ -16,10 +16,10 @@
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-element
 //
 // FEED-128: Solid's JSX needs its compiler (Bun's bundler has none), so
-// `@exponential_app/ui-solid` builds through Vite + `vite-plugin-solid` in
+// `@exponential_app/eui-solid` builds through Vite + `vite-plugin-solid` in
 // library mode into the SAME layout (dist/<entry>.js + dist/types).
 //
-// FEED-130: `@exponential_app/ui-element` has no JSX (it mounts ui-solid, a
+// FEED-130: `@exponential_app/eui-element` has no JSX (it mounts ui-solid, a
 // dependency, so external): the plain Bun path with code splitting (`.` and
 // `./define` share ONE element class), then `scripts/build-standalone.ts`
 // writes dist/standalone.js, everything inlined.
@@ -40,7 +40,7 @@ export const ENTRIES: Record<string, Record<string, string>> = {
   // catalog), the schema emitters, the conformance suite (+ every fixture)
   // and the host API are entries of their own. FEED-128/131: the web layer
   // and its primitives' recipes are entries the web renderers import.
-  "@exponential_app/ui": {
+  "@exponential_app/eui": {
     index: `src/index.ts`,
     prompt: `src/entries/prompt.ts`,
     schema: `src/entries/schema.ts`,
@@ -49,16 +49,16 @@ export const ENTRIES: Record<string, Record<string, string>> = {
     web: `src/web/index.ts`,
     "web/primitives": `src/web/primitives/index.ts`,
   },
-  "@exponential_app/ui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
-  "@exponential_app/ui-solid": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
+  "@exponential_app/eui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
+  "@exponential_app/eui-solid": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
   // FEED-130: `.` and `./define` share one element class through a chunk;
   // `dist/standalone.js` (everything inlined) is built by the package's script.
-  "@exponential_app/ui-element": { index: `src/index.ts`, define: `src/define.ts` },
+  "@exponential_app/eui-element": { index: `src/index.ts`, define: `src/define.ts` },
 }
 
 /** The packages that also ship a self-contained bundle (`scripts/build-standalone.ts` → dist/standalone.js). */
 export const STANDALONE: Record<string, string> = {
-  "@exponential_app/ui-element": `dist/standalone.js`,
+  "@exponential_app/eui-element": `dist/standalone.js`,
 }
 
 export interface StandaloneBundle {
@@ -78,12 +78,12 @@ export async function bundleStandalone(dir: string, options: { outDir: string; s
 
 /** The packages that ship a compiled stylesheet (`build:css` → dist/<name>.css). */
 export const STYLESHEET: Record<string, string> = {
-  "@exponential_app/ui-react": `dist/exponential-ui-react.css`,
-  "@exponential_app/ui-solid": `dist/exponential-ui-solid.css`,
+  "@exponential_app/eui-react": `dist/exponential-ui-react.css`,
+  "@exponential_app/eui-solid": `dist/exponential-ui-solid.css`,
 }
 
 /** The packages whose JSX is Solid's (built with Vite, not Bun). */
-const SOLID = new Set([`@exponential_app/ui-solid`])
+const SOLID = new Set([`@exponential_app/eui-solid`])
 
 export interface BundleOptions {
   outdir: string
@@ -103,7 +103,7 @@ interface Manifest {
 }
 
 /** Every dependency and peer (`d` and `d/*`), and the package's own name:
- *  a sub-entry (`@exponential_app/ui/web`) imports its root by name, so the
+ *  a sub-entry (`@exponential_app/eui/web`) imports its root by name, so the
  *  root's module state stays ONE copy. */
 function externals(pkg: Manifest): string[] {
   return [pkg.name, ...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})].flatMap((d) => [d, `${d}/*`])

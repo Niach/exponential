@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// VAPP-105: the Rust core's runner (apps/desktop/crates/exponential-ui/examples/bench_suite.rs):
+// VAPP-105: the Rust core's runner (apps/desktop/crates/eui-core/examples/bench_suite.rs):
 // `bun run runners/core.ts [--scenario <id>] [--repeat <n>]` builds it in release
 // and writes the `core` fragment to `fragmentPath("core")`.
 import { spawnSync } from "node:child_process"

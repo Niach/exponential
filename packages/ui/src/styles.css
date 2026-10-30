@@ -10,11 +10,11 @@
    utility only these components use (the whole shadcn set) goes missing. */
 @source "./**/*.{ts,tsx}";
 /* VAPP-87 — the shadcn set and the generic primitives now LIVE in
-   @exponential_app/ui-react/primitives (this package re-exports them), so
+   @exponential_app/eui-react/primitives (this package re-exports them), so
    their utilities are scanned at their real path too. */
 @source "../../exponential-ui-react/src/primitives/**/*.{ts,tsx}";
 /* FEED-131 — their class strings live in the framework-free recipes of
-   @exponential_app/ui/web/primitives. */
+   @exponential_app/eui/web/primitives. */
 @source "../../exponential-ui/src/web/primitives/**/*.ts";
 
 html {

@@ -7,7 +7,7 @@ import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView, mergeStyle, withClass } from "../node-view"
-import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/ui"
+import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
 
 /** The media box's intrinsic width (catalog/layout.json
  *  `mediaIntrinsicWidth`: max-content 320, min-content 0 — a compressible

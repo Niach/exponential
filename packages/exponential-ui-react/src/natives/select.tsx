@@ -12,9 +12,9 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
-import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/ui"
+import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { boundPath } from "@exponential_app/ui/web"
+import { boundPath } from "@exponential_app/eui/web"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, useField } from "../form"
 import { IconGlyph } from "../icons"

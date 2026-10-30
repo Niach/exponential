@@ -10,7 +10,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react"
 import { Checkbox as CheckboxPrimitive, RadioGroup as RadioPrimitive, Slider as SliderPrimitive, Switch as SwitchPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { boundPath, hostPath } from "@exponential_app/ui/web"
+import { boundPath, hostPath } from "@exponential_app/eui/web"
 import { FieldErrors, joinIds, useField } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useHostOwnedValue } from "../inputs"
@@ -19,7 +19,7 @@ import { mergeStyle } from "../node-view"
 import { useBoundState } from "./bound"
 import { bool, BuiltinIcon, num, str, useParts, TextPart, objects } from "./shared"
 import type { SurfaceInputEvent } from "../host"
-import { parseLocaleNumber } from "@exponential_app/ui/web"
+import { parseLocaleNumber } from "@exponential_app/eui/web"
 
 export function useInputSender(node: NativeProps[`node`], scope: string, prop: string, domId: string = node.id) {
   const ctx = useSurfaceContext()

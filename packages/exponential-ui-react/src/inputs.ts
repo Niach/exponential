@@ -1,12 +1,12 @@
 // VAPP-87: HOST-OWNED inputs on React. The rules (revision counter,
 // debounce, echo acceptance: a host push is adopted only when the field is
 // not focused AND every revision was acknowledged, the VAPP-4 typing rule)
-// are the web layer's `HostOwnedController` (`@exponential_app/ui/web`
+// are the web layer's `HostOwnedController` (`@exponential_app/eui/web`
 // inputs.ts, FEED-128); this hook keeps one per field and re-renders on its
 // changes.
 
 import { useCallback, useEffect, useReducer, useRef } from "react"
-import { DEBOUNCE_MS, HostOwnedController } from "@exponential_app/ui/web"
+import { DEBOUNCE_MS, HostOwnedController } from "@exponential_app/eui/web"
 
 export { DEBOUNCE_MS }
 

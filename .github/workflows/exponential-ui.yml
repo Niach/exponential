@@ -70,15 +70,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
       - name: Catalog package tests (TS reference, host fixtures)
-        run: bun run --filter @exponential_app/ui test
+        run: bun run --filter @exponential_app/eui test
       - name: The primitives' stylesheet
-        run: bun run --filter @exponential_app/ui-react build:css
+        run: bun run --filter @exponential_app/eui-react build:css
       - name: React renderer tests
-        run: bun run --filter @exponential_app/ui-react test
+        run: bun run --filter @exponential_app/eui-react test
       - name: React conformance (headless Chromium)
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-react.json
-        run: bun run --filter @exponential_app/ui-react test:conformance
+        run: bun run --filter @exponential_app/eui-react test:conformance
       - name: Size gate (npm entries, VAPP-106)
         run: bun packages/exponential-ui/release/size.ts npm --check
       - name: Guides (React, agent, define, theme) from a fresh project
@@ -88,11 +88,11 @@ jobs:
           bun apps/marketing/ui/guides/check.ts define
           bun apps/marketing/ui/guides/check.ts theme
       - name: Bench scenarios are generated and the ratchet's tests pass
-        run: bun run --filter @exponential_app/ui-bench test
+        run: bun run --filter @exponential_app/eui-bench test
       - name: Bench (React, headless Chromium)
         env:
           EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
-        run: bun run --filter @exponential_app/ui-bench bench:react
+        run: bun run --filter @exponential_app/eui-bench bench:react
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-react
@@ -124,19 +124,19 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
       - name: The primitives' stylesheets (React's, then Solid's byte-identical copy)
-        run: bun run --filter @exponential_app/ui-react build:css && bun run --filter @exponential_app/ui-solid build:css
+        run: bun run --filter @exponential_app/eui-react build:css && bun run --filter @exponential_app/eui-solid build:css
       - name: Solid renderer tests (jsdom, DOM parity with React)
-        run: bun run --filter @exponential_app/ui-solid test
+        run: bun run --filter @exponential_app/eui-solid test
       - name: Solid conformance (headless Chromium)
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-solid.json
-        run: bun run --filter @exponential_app/ui-solid test:conformance
+        run: bun run --filter @exponential_app/eui-solid test:conformance
       - name: Web parity, React vs Solid (renderer + primitives)
         env:
           EXPONENTIAL_UI_PARITY_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-parity-react-solid.json
         run: |
-          bun run --filter @exponential_app/ui-solid test:parity
-          bun run --filter @exponential_app/ui parity:check "$EXPONENTIAL_UI_PARITY_REPORT"
+          bun run --filter @exponential_app/eui-solid test:parity
+          bun run --filter @exponential_app/eui parity:check "$EXPONENTIAL_UI_PARITY_REPORT"
       - name: Solid browser suites (overlays, inputs, tables, primitives' interactions vs React)
         working-directory: packages/exponential-ui-solid
         # Every browser/*.test.ts but the two runs above.
@@ -146,7 +146,7 @@ jobs:
       - name: Bench (Solid, headless Chromium)
         env:
           EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
-        run: bun run --filter @exponential_app/ui-bench bench:solid
+        run: bun run --filter @exponential_app/eui-bench bench:solid
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -178,19 +178,19 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
       - name: Element tests (jsdom)
-        run: bun run --filter @exponential_app/ui-element test
+        run: bun run --filter @exponential_app/eui-element test
       - name: Element conformance (headless Chromium)
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-element.json
-        run: bun run --filter @exponential_app/ui-element test:conformance
+        run: bun run --filter @exponential_app/eui-element test:conformance
       - name: Web parity, React vs the element
         env:
           EXPONENTIAL_UI_PARITY_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-parity-react-element.json
         run: |
-          bun run --filter @exponential_app/ui-element test:parity
-          bun run --filter @exponential_app/ui parity:check "$EXPONENTIAL_UI_PARITY_REPORT"
+          bun run --filter @exponential_app/eui-element test:parity
+          bun run --filter @exponential_app/eui parity:check "$EXPONENTIAL_UI_PARITY_REPORT"
       - name: Element API + standalone bundle (headless Chromium)
-        run: bun run --filter @exponential_app/ui-element test:browser browser/element.test.ts browser/standalone.test.ts
+        run: bun run --filter @exponential_app/eui-element test:browser browser/element.test.ts browser/standalone.test.ts
       - name: Guide (element) from a fresh project
         run: bun apps/marketing/ui/guides/check.ts element
       - uses: actions/upload-artifact@v4
@@ -203,7 +203,7 @@ jobs:
       - name: Bench (the web component, headless Chromium)
         env:
           EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
-        run: bun run --filter @exponential_app/ui-bench bench:element
+        run: bun run --filter @exponential_app/eui-bench bench:element
       - uses: actions/upload-artifact@v4
         with:
           name: bench-element
@@ -237,7 +237,7 @@ jobs:
         working-directory: apps/desktop
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui.json
-        run: cargo test --locked -p exponential-ui -p exponential-ui-ffi
+        run: cargo test --locked -p eui-core -p exponential-ui-ffi
       - name: Committed bindings match the generator (Kotlin ships them with omit_checksums)
         # Release train 2026-10-23: uniffi.toml omits the Kotlin checksums and
         # build-android.yml compiles the COMMITTED binding (SKIP_BINDINGS), so a
@@ -249,13 +249,13 @@ jobs:
       - name: "The crate's feature gates (VAPP-106, without the non-default themes; with the descriptions)"
         working-directory: apps/desktop
         run: |
-          cargo test --locked -p exponential-ui --no-default-features --lib --test generated_drift
-          cargo test --locked -p exponential-ui --features descriptions --test generated_drift
+          cargo test --locked -p eui-core --no-default-features --lib --test generated_drift
+          cargo test --locked -p eui-core --features descriptions --test generated_drift
       - name: gpui painter tests (gpui conformance)
         working-directory: apps/desktop
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-gpui.json
-        run: cargo test --locked -p exponential-ui-gpui
+        run: cargo test --locked -p eui-gpui
       - uses: oven-sh/setup-bun@v2
       - name: Size (host facade + cargo bloat, VAPP-106; a budget exists per host OS)
         run: |
@@ -451,7 +451,7 @@ jobs:
           SKIP_BINDINGS: '1'
         run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
       - uses: oven-sh/setup-bun@v2
-      - name: Size gate (the x86_64 .so, VAPP-106; the arm ABIs gate in release-ui.yml)
+      - name: Size gate (the x86_64 .so, VAPP-106; the arm ABIs gate in release-eui.yml)
         run: bun packages/exponential-ui/release/size.ts android --check
       - name: Gradle cache
         if: runner.environment == 'github-hosted'
@@ -585,13 +585,13 @@ jobs:
           merge-multiple: true
       - name: Every renderer is Exponential UI conformant
         # The parity reports (conformance-solid, conformance-element) are checked in their jobs, not here.
-        run: bun run --filter @exponential_app/ui conformance:check $(ls "$GITHUB_WORKSPACE"/.conformance/*.json | grep -v '/exponential-ui-parity-')
+        run: bun run --filter @exponential_app/eui conformance:check $(ls "$GITHUB_WORKSPACE"/.conformance/*.json | grep -v '/exponential-ui-parity-')
 
   bench:
     # VAPP-105: the ratchet over every renderer's fragment (budgets.json, per
     # CI machine). The merged results and the budgets this run suggests are
     # artifacts: after a green run, record them with
-    # `bun run --filter @exponential_app/ui-bench ratchet .bench/*.json --write`
+    # `bun run --filter @exponential_app/eui-bench ratchet .bench/*.json --write`
     # and commit budgets.json (and results/<machine>.json for the record).
     # EXP-1394: every renderer job already gated its own fragment; this is the
     # merged report. It only re-ratchets the uploaded fragments, so re-running
@@ -608,12 +608,12 @@ jobs:
           path: .bench
           merge-multiple: true
       - name: Every benchmark holds its budget
-        run: bun run --filter @exponential_app/ui-bench ratchet $(ls "$GITHUB_WORKSPACE"/.bench/*.json)
+        run: bun run --filter @exponential_app/eui-bench ratchet $(ls "$GITHUB_WORKSPACE"/.bench/*.json)
       - name: The budgets this run suggests (an artifact, never written to the tree here)
         if: always()
         run: |
           cp packages/exponential-ui-bench/budgets.json "$RUNNER_TEMP/budgets.before.json"
-          bun run --filter @exponential_app/ui-bench ratchet $(ls "$GITHUB_WORKSPACE"/.bench/*.json) --write || true
+          bun run --filter @exponential_app/eui-bench ratchet $(ls "$GITHUB_WORKSPACE"/.bench/*.json) --write || true
           mkdir -p .bench/suggested && cp packages/exponential-ui-bench/budgets.json .bench/suggested/budgets.json
           cp "$RUNNER_TEMP/budgets.before.json" packages/exponential-ui-bench/budgets.json
       - uses: actions/upload-artifact@v4

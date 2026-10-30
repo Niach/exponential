@@ -1,5 +1,5 @@
 // VAPP-87 + round 1: ONE normalized node → one React element. The BIND pass
-// of the contract (§1, `@exponential_app/ui` `bindTree` is the reference)
+// of the contract (§1, `@exponential_app/eui` `bindTree` is the reference)
 // runs here per render: a node whose `visible` resolves falsy is not
 // rendered at all; props, dynamic style values (the expander's `percent{}`
 // for a bound Progress) and macro recipe props resolve against the data
@@ -15,16 +15,16 @@
 // once per item under the item's scope, keyed by `template.key`.
 
 import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react"
-import { UNKNOWN_COMPONENT, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/ui"
-import type { UiNode } from "@exponential_app/ui"
-import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "@exponential_app/ui/web"
+import { UNKNOWN_COMPONENT, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/eui"
+import type { UiNode } from "@exponential_app/eui"
+import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
 import { responsiveProps, useLive } from "./live"
-import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "@exponential_app/ui/web"
+import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "@exponential_app/eui/web"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
-import { cssValue, isMacroComponent, partClass, propAttribute } from "@exponential_app/ui/web"
+import { cssValue, isMacroComponent, partClass, propAttribute } from "@exponential_app/eui/web"
 
 export interface NativeProps extends ExtensionComponentProps {
   /** The data scope (template item) this node renders under. */

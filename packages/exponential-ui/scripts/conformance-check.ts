@@ -1,4 +1,4 @@
-// VAPP-91: `bun run --filter @exponential_app/ui conformance:check <report.json>…`
+// VAPP-91: `bun run --filter @exponential_app/eui conformance:check <report.json>…`
 // — exits non-zero unless every report is conformant (conformance/README.md).
 import { readFileSync } from "node:fs"
 import { checkReport, conformanceManifest } from "../src/conformance"

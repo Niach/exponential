@@ -1,6 +1,6 @@
 # `exponential-ui-ffi` — the mobile facade
 
-The UniFFI facade over [`exponential-ui`](../exponential-ui) for the SwiftUI
+The UniFFI facade over [`eui-core`](../eui-core) for the SwiftUI
 (VAPP-88) and Compose (VAPP-89) painters. It ships INSIDE the Swift and
 Kotlin packages (an xcframework / an Android `.so` with the generated
 bindings), so an embedder never builds Rust.

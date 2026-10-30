@@ -1,10 +1,10 @@
 import { useMemo, type ReactNode } from "react"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/ui"
-import specimens from "@exponential_app/ui/fixtures/specimens.json"
-import { ExponentialSurface, useSurface } from "@exponential_app/ui-react"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
+import specimens from "@exponential_app/eui/fixtures/specimens.json"
+import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 import { planCardHost } from "./plan-card"
 
-// VAPP-162: ONE Exponential UI specimen (`@exponential_app/ui`
+// VAPP-162: ONE Exponential UI specimen (`@exponential_app/eui`
 // fixtures/specimens.json, the same JSON ui.exponential.at and the
 // `exponential-ui-*` shots paint) through THE React renderer, so a
 // styleguide entry that shows an eUI piece can never drift from the SDK.

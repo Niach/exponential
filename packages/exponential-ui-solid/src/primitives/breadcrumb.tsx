@@ -1,7 +1,7 @@
 import { children, splitProps, type ComponentProps, type ValidComponent } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { ChevronRight, Ellipsis } from "lucide-solid"
-import { BREADCRUMB_CLASSES } from "@exponential_app/ui/web/primitives"
+import { BREADCRUMB_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { PaintIcon } from "../icons"
 import { cn } from "./cn"

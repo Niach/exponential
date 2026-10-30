@@ -5,9 +5,9 @@
 
 import { describe, expect, it } from "vitest"
 import { act } from "react"
-import { PENDING_DELAY_MS } from "@exponential_app/ui"
-import type { NestedNode } from "@exponential_app/ui"
-import components from "@exponential_app/ui/fixtures/catalog-components.json"
+import { PENDING_DELAY_MS } from "@exponential_app/eui"
+import type { NestedNode } from "@exponential_app/eui"
+import components from "@exponential_app/eui/fixtures/catalog-components.json"
 import { expectDomParity, renderReact, renderSolidSurface, serializeDom, type ParityCase } from "../test/parity"
 
 type Case = { name: string; node: NestedNode }

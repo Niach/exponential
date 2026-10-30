@@ -3,7 +3,7 @@
 // and interactions replayed on both surfaces).
 
 import { describe, it } from "vitest"
-import type { NestedNode } from "@exponential_app/ui"
+import type { NestedNode } from "@exponential_app/eui"
 import { expectParity, fixtureCases } from "./inputs-parity"
 
 const COMPONENTS = [`Input`, `Textarea`, `NumberField`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Composer`] as const

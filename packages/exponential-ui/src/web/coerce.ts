@@ -4,7 +4,7 @@
 // the built-in glyph names of `core.catalog.json` `builtinIcons`. Pure:
 // every web renderer paints with the same values.
 
-import { DEFAULT_STRINGS, coreCatalog } from "@exponential_app/ui"
+import { DEFAULT_STRINGS, coreCatalog } from "@exponential_app/eui"
 
 export const str = (v: unknown, fallback = ``): string => (v === undefined || v === null ? fallback : typeof v === `object` ? JSON.stringify(v) : String(v))
 export const num = (v: unknown, fallback = 0): number => (typeof v === `number` && Number.isFinite(v) ? v : typeof v === `string` && v.trim() !== `` && Number.isFinite(Number(v)) ? Number(v) : fallback)

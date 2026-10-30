@@ -1,7 +1,7 @@
 // NEW-77: THE voice level (catalog/style.json `voiceWave`): three closed
 // polar waves around one optional centre child. The geometry is the core's
 // `voiceWave` (src/voice-wave.ts, fixtures/voice-wave.json; the painters
-// import it from `@exponential_app/ui`, never through here, so this barrel
+// import it from `@exponential_app/eui`, never through here, so this barrel
 // does not carry style.json); this module holds what both web painters
 // share: the size enum's px (the neutral theme's `VoiceWave/root` edges),
 // the clock that drives the phase, the accessible name and the class

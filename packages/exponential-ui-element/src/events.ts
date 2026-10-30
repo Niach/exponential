@@ -7,8 +7,8 @@
 // settle. The ones that need a return value (option sources, media,
 // resolveUrl, Markdown…) stay plugin-only.
 
-import type { FunctionCallInfo, ThemeIssue, TransportStatus, UiNode } from "@exponential_app/ui"
-import type { PaintError, SurfaceActionEvent, SurfaceHandle, SurfaceInputEvent } from "@exponential_app/ui-solid"
+import type { FunctionCallInfo, ThemeIssue, TransportStatus, UiNode } from "@exponential_app/eui"
+import type { PaintError, SurfaceActionEvent, SurfaceHandle, SurfaceInputEvent } from "@exponential_app/eui-solid"
 import type { ExponentialSurfaceElement } from "./element"
 
 /** Keeps the source control pending until `promise` settles. */

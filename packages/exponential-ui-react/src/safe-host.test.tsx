@@ -5,8 +5,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, ExponentialHost, MEDIA_LIMITS, MemoryTransport, reduceNested } from "@exponential_app/ui"
-import type { ClientMessage, NestedNode } from "@exponential_app/ui"
+import { CORE_CATALOG_ID, ExponentialHost, MEDIA_LIMITS, MemoryTransport, reduceNested } from "@exponential_app/eui"
+import type { ClientMessage, NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface } from "./surface"
 import { HostSurface } from "./host-surface"
 import { renderToStaticMarkup } from "react-dom/server"

@@ -1,5 +1,5 @@
 import * as React from "react"
-import { SHEET_CHROME_CLASSES } from "@exponential_app/ui/web/primitives"
+import { SHEET_CHROME_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 import type { SheetDragHandleProps } from "./use-sheet-drag"

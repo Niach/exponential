@@ -20,4 +20,4 @@ unicode-normalization = "0.1"
 
 [dev-dependencies]
 # VAPP-161: `sourceCases` parse their source with the SDK's own parser.
-exponential-ui = { path = "../exponential-ui" }
+eui-core = { path = "../eui-core" }

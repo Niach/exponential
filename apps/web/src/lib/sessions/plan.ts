@@ -5,7 +5,7 @@ import {
   reduceNested,
   type NestedNode,
   type ReduceResult,
-} from "@exponential_app/ui"
+} from "@exponential_app/eui"
 import {
   PLAN_CARD_DESCRIPTION_MAX,
   PLAN_CARD_SURFACE_MAX_BYTES,

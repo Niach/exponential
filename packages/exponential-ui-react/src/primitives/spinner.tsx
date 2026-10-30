@@ -1,6 +1,6 @@
 import type * as React from "react"
 import { LoaderCircle } from "lucide-react"
-import { SPINNER_CLASSES } from "@exponential_app/ui/web/primitives"
+import { SPINNER_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

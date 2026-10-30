@@ -9,9 +9,9 @@
 import { describe, expect, it } from "vitest"
 import { act, render } from "@testing-library/react"
 import { createRef } from "react"
-import { reduceSurface } from "@exponential_app/ui"
-import type { FlatComponent } from "@exponential_app/ui"
-import bench from "@exponential_app/ui/fixtures/bench-list.json"
+import { reduceSurface } from "@exponential_app/eui"
+import type { FlatComponent } from "@exponential_app/eui"
+import bench from "@exponential_app/eui/fixtures/bench-list.json"
 import { ExponentialSurface, type SurfaceHandle } from "./surface"
 
 const run = process.env.XUI_BENCH === `1`

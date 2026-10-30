@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# VAPP-91: the Maven Central Portal upload bundle for at.exponential:ui-compose
-# and at.exponential:ui-compose-primitives.
+# VAPP-91: the Maven Central Portal upload bundle for at.exponential:eui-compose
+# and at.exponential:eui-compose-primitives.
 #
 #   bash release/central-bundle.sh [-PuiVersion=1.2.3] [more gradle args]
 #

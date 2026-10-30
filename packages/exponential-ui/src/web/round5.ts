@@ -5,7 +5,7 @@
 // (§7), the Segmented count badge text (§3) and THE Button hold machine
 // (§9, fixtures/interactions-round1.json `buttonHold`).
 
-import { luminance, parseColor, qrMatrix, QR_CODE, type QrMatrix } from "@exponential_app/ui"
+import { luminance, parseColor, qrMatrix, QR_CODE, type QrMatrix } from "@exponential_app/eui"
 import styleJson from "../../catalog/style.json" with { type: "json" }
 
 /** style.json `qrScanner` (the viewfinder geometry). */

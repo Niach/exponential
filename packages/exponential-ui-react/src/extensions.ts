@@ -1,13 +1,13 @@
 // VAPP-87: EXTENSIONS. An extension = its catalog (`defineExtension` from
-// `@exponential_app/ui`: own id, extends the core, natives + macros) plus one
+// `@exponential_app/eui`: own id, extends the core, natives + macros) plus one
 // React component per NATIVE kind it adds (macros expand in the reducer and
 // need no component). `registerExtension` adds one to the module registry
 // every surface reads; the `extensions` prop of `ExponentialSurface` adds
 // per-surface ones. An extension may also OVERRIDE a core native's painter
 // (`components: { Switch: MySwitch }`), the VAPP-92 "painter override".
 
-import { defineExtension } from "@exponential_app/ui"
-import type { ExtensionDef } from "@exponential_app/ui"
+import { defineExtension } from "@exponential_app/eui"
+import type { ExtensionDef } from "@exponential_app/eui"
 import type { ComponentType } from "react"
 import type { ExtensionComponentProps } from "./host"
 

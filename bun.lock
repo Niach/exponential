@@ -25,9 +25,9 @@
         "@exp/site-shell": "workspace:*",
         "@exp/ui": "workspace:*",
         "@exp/view-catalog": "workspace:*",
-        "@exponential_app/ui": "workspace:*",
-        "@exponential_app/ui-bench": "workspace:*",
-        "@exponential_app/ui-react": "workspace:*",
+        "@exponential_app/eui": "workspace:*",
+        "@exponential_app/eui-bench": "workspace:*",
+        "@exponential_app/eui-react": "workspace:*",
         "lucide-react": "^0.544.0",
         "motion": "^12.39.0",
         "react": "^19.2.0",
@@ -120,8 +120,8 @@
         "@exp/ui": "workspace:*",
         "@exp/view-catalog": "workspace:*",
         "@exp/widget": "workspace:*",
-        "@exponential_app/ui": "workspace:*",
-        "@exponential_app/ui-react": "workspace:*",
+        "@exponential_app/eui": "workspace:*",
+        "@exponential_app/eui-react": "workspace:*",
         "@mcp-b/global": "^4.0.0",
         "@mcp-b/react-webmcp": "^4.0.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -224,7 +224,7 @@
       },
     },
     "packages/exponential-ui": {
-      "name": "@exponential_app/ui",
+      "name": "@exponential_app/eui",
       "version": "0.2.0",
       "dependencies": {
         "class-variance-authority": "^0.7.1",
@@ -234,7 +234,7 @@
       "devDependencies": {
         "@anthropic-ai/sdk": "^1.1.0",
         "@exp/tsconfig": "workspace:*",
-        "@exponential_app/ui-react": "workspace:*",
+        "@exponential_app/eui-react": "workspace:*",
         "@types/bun": "latest",
         "@types/react": "^19.2.0",
         "@types/react-dom": "^19.2.0",
@@ -249,30 +249,30 @@
       },
     },
     "packages/exponential-ui-bench": {
-      "name": "@exponential_app/ui-bench",
+      "name": "@exponential_app/eui-bench",
       "version": "0.2.0",
       "devDependencies": {
         "@exp/tsconfig": "workspace:*",
-        "@exponential_app/ui": "workspace:*",
-        "@exponential_app/ui-element": "workspace:*",
-        "@exponential_app/ui-react": "workspace:*",
-        "@exponential_app/ui-solid": "workspace:*",
+        "@exponential_app/eui": "workspace:*",
+        "@exponential_app/eui-element": "workspace:*",
+        "@exponential_app/eui-react": "workspace:*",
+        "@exponential_app/eui-solid": "workspace:*",
         "@types/bun": "latest",
         "playwright": "^1.54.2",
         "typescript": "^5.7.2",
       },
     },
     "packages/exponential-ui-element": {
-      "name": "@exponential_app/ui-element",
+      "name": "@exponential_app/eui-element",
       "version": "0.2.0",
       "dependencies": {
-        "@exponential_app/ui": "workspace:*",
-        "@exponential_app/ui-solid": "workspace:*",
+        "@exponential_app/eui": "workspace:*",
+        "@exponential_app/eui-solid": "workspace:*",
         "solid-js": "^1.9.17",
       },
       "devDependencies": {
         "@exp/tsconfig": "workspace:*",
-        "@exponential_app/ui-react": "workspace:*",
+        "@exponential_app/eui-react": "workspace:*",
         "@testing-library/dom": "^10.4.1",
         "@types/bun": "latest",
         "@types/react": "^19.2.0",
@@ -289,10 +289,10 @@
       },
     },
     "packages/exponential-ui-react": {
-      "name": "@exponential_app/ui-react",
+      "name": "@exponential_app/eui-react",
       "version": "0.2.0",
       "dependencies": {
-        "@exponential_app/ui": "workspace:*",
+        "@exponential_app/eui": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "lucide-react": "^0.544.0",
@@ -326,17 +326,17 @@
       },
     },
     "packages/exponential-ui-solid": {
-      "name": "@exponential_app/ui-solid",
+      "name": "@exponential_app/eui-solid",
       "version": "0.2.0",
       "dependencies": {
-        "@exponential_app/ui": "workspace:*",
+        "@exponential_app/eui": "workspace:*",
         "@floating-ui/dom": "^1.7.0",
         "aria-hidden": "^1.2.6",
         "lucide-solid": "0.544.0",
       },
       "devDependencies": {
         "@exp/tsconfig": "workspace:*",
-        "@exponential_app/ui-react": "workspace:*",
+        "@exponential_app/eui-react": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@tailwindcss/node": "^4.3.0",
         "@tailwindcss/oxide": "^4.3.0",
@@ -451,8 +451,8 @@
         "@exp/emoji": "workspace:*",
         "@exp/etalk": "workspace:*",
         "@exp/icons": "workspace:*",
-        "@exponential_app/ui": "workspace:*",
-        "@exponential_app/ui-react": "workspace:*",
+        "@exponential_app/eui": "workspace:*",
+        "@exponential_app/eui-react": "workspace:*",
         "@radix-ui/react-progress": "^1.1.7",
         "@tailwindcss/node": "^4.3.0",
         "@tailwindcss/oxide": "^4.3.0",
@@ -847,15 +847,15 @@
 
     "@exp/widget": ["@exp/widget@workspace:packages/widget"],
 
-    "@exponential_app/ui": ["@exponential_app/ui@workspace:packages/exponential-ui"],
+    "@exponential_app/eui": ["@exponential_app/eui@workspace:packages/exponential-ui"],
 
-    "@exponential_app/ui-bench": ["@exponential_app/ui-bench@workspace:packages/exponential-ui-bench"],
+    "@exponential_app/eui-bench": ["@exponential_app/eui-bench@workspace:packages/exponential-ui-bench"],
 
-    "@exponential_app/ui-element": ["@exponential_app/ui-element@workspace:packages/exponential-ui-element"],
+    "@exponential_app/eui-element": ["@exponential_app/eui-element@workspace:packages/exponential-ui-element"],
 
-    "@exponential_app/ui-react": ["@exponential_app/ui-react@workspace:packages/exponential-ui-react"],
+    "@exponential_app/eui-react": ["@exponential_app/eui-react@workspace:packages/exponential-ui-react"],
 
-    "@exponential_app/ui-solid": ["@exponential_app/ui-solid@workspace:packages/exponential-ui-solid"],
+    "@exponential_app/eui-solid": ["@exponential_app/eui-solid@workspace:packages/exponential-ui-solid"],
 
     "@fastify/busboy": ["@fastify/busboy@3.2.0", "", {}, "sha512-m9FVDXU3GT2ITSe0UaMA5rU3QkfC/UXtCU8y0gSN/GugTqtVldOBWIB5V6V3sbmenVZUIpU6f+mPEO2+m5iTaA=="],
 

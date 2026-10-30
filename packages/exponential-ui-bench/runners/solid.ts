@@ -7,7 +7,7 @@
 // and the layout read back on the main thread. The harness bundles with
 // Vite (Solid's JSX needs its compiler), ~10 s once per run.
 //
-//   bun run --filter @exponential_app/ui-bench bench:solid [--scenario <id>]… [--repeat <n>]
+//   bun run --filter @exponential_app/eui-bench bench:solid [--scenario <id>]… [--repeat <n>]
 //
 // Writes `{ renderer: "solid-chromium", platform: "web", … }` to
 // $EXPONENTIAL_UI_BENCH_OUT (default .bench/solid-chromium.json).

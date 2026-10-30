@@ -1,6 +1,6 @@
 import { useMemo, useRef, type ReactNode } from "react"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/ui"
-import { ExponentialSurface, useSurface, type HostPlugin, type IconMap } from "@exponential_app/ui-react"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
+import { ExponentialSurface, useSurface, type HostPlugin, type IconMap } from "@exponential_app/eui-react"
 import { SEMANTIC_ICONS, type IconConcept, type IconName } from "@exp/icons"
 import {
   optionRows,

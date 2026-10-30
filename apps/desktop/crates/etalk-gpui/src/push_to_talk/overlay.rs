@@ -20,7 +20,7 @@
 //! free one; none = the window stays hidden (the turn still runs, the reply
 //! is still spoken).
 
-use exponential_ui::voice_wave::Activity;
+use eui_core::voice_wave::Activity;
 use gpui::{
     div, point, px, size, App, AppContext as _, Bounds, Context, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
     Pixels, Point, Render, SharedString, Size, StatefulInteractiveElement as _, Styled as _, Window, WindowBounds, WindowHandle, WindowKind,

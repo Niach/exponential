@@ -11,7 +11,7 @@ import {
 import fixture from "@exp/domain-contract/fixtures/push-seal.json"
 
 // Locks lib/push-seal.ts byte-for-byte to `push_seal` / `push_open` in
-// apps/desktop/crates/exponential-net/src/push.rs (EXP-1428) through the
+// apps/desktop/crates/enet-core/src/push.rs (EXP-1428) through the
 // shared vectors every implementation replays (EXP-1435: Rust, web, Swift,
 // Kotlin), packages/domain-contract/fixtures/push-seal.json.
 

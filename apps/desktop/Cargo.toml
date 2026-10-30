@@ -22,7 +22,7 @@ license = "Apache-2.0"
 # (one git source = one rev for all zed crates). `pinned_revs.rs` in crates/app
 # gates the lock against drift; NEVER plain `cargo update`, it would float this to
 # zed main HEAD. Current pin: gpui-component da4f9369 → zed cc053a4a (2026-08-07).
-# EXP-1429: the same bump moves the consumer policy table (crates/exponential-ui-gpui/
+# EXP-1429: the same bump moves the consumer policy table (crates/eui-gpui/
 # README.md "gpui revisions") and the gpui guide app; `test.yml` runs
 # packages/exponential-ui/release/check-gpui-revs.ts against all of them.
 # Crate versions at this rev: gpui 0.2.2, gpui_platform 0.1.0, gpui_macros 0.1.0.

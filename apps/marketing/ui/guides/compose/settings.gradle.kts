@@ -1,4 +1,4 @@
-// A fresh Android app on the Exponential UI SDK: `at.exponential:ui-compose`
+// A fresh Android app on the Exponential UI SDK: `at.exponential:eui-compose`
 // from Maven Central (mavenLocal() first, so the guide check builds against
 // a local publish of the checkout).
 pluginManagement {

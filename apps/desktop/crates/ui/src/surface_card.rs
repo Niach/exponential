@@ -26,8 +26,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use exponential_ui_gpui::host::{ActionEvent, HostPlugin};
-use exponential_ui_gpui::view::SurfaceView;
+use eui_gpui::host::{ActionEvent, HostPlugin};
+use eui_gpui::view::SurfaceView;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, Entity, EntityId, FontWeight, InteractiveElement as _, IntoElement,
@@ -108,15 +108,15 @@ impl HostPlugin for ReplyHost {
         }
     }
 
-    fn url_policy(&self) -> Option<exponential_ui::host::UrlPolicy> {
+    fn url_policy(&self) -> Option<eui_core::host::UrlPolicy> {
         self.inner.url_policy()
     }
 
-    fn media_options(&self) -> exponential_ui::host::MediaOptions {
+    fn media_options(&self) -> eui_core::host::MediaOptions {
         self.inner.media_options()
     }
 
-    fn media_request(&self, src: &str) -> Option<exponential_ui::host::MediaRequest> {
+    fn media_request(&self, src: &str) -> Option<eui_core::host::MediaRequest> {
         self.inner.media_request(src)
     }
 
@@ -128,7 +128,7 @@ impl HostPlugin for ReplyHost {
         self.inner.open_media_file(path, cx)
     }
 
-    fn pick_files(&self, request: &exponential_ui_gpui::host::FilePickRequest, cx: &mut App) -> bool {
+    fn pick_files(&self, request: &eui_gpui::host::FilePickRequest, cx: &mut App) -> bool {
         self.inner.pick_files(request, cx)
     }
 }
@@ -256,7 +256,7 @@ pub(crate) fn enter_frame(elapsed: Duration, reduced: bool) -> Option<EnterLook>
 /// `staggerMs` apart (past `maxStaggered` they share the last delay), each
 /// an opacity + `fromTranslateY` rise over its token duration. `None` when
 /// the root has no children.
-pub(crate) fn children_entrance(started: Instant, surface: &CardSurface) -> Option<exponential_ui_gpui::view::NodeEntrance> {
+pub(crate) fn children_entrance(started: Instant, surface: &CardSurface) -> Option<eui_gpui::view::NodeEntrance> {
     let enter = &CHATS.surface_card.enter;
     let ids: Vec<String> = surface
         .root
@@ -274,7 +274,7 @@ pub(crate) fn children_entrance(started: Instant, surface: &CardSurface) -> Opti
         "accelerate" => theme::tokens::motion::ease::ACCELERATE,
         _ => theme::tokens::motion::ease::DECELERATE,
     };
-    Some(exponential_ui_gpui::view::NodeEntrance {
+    Some(eui_gpui::view::NodeEntrance {
         started,
         ids,
         from_opacity: enter.children.from_opacity,

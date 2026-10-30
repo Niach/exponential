@@ -2797,7 +2797,7 @@ impl ListPanel {
             .child(crate::feedback::skeleton_rows(
                 "side-list-skeleton",
                 crate::feedback::SKELETON_ROWS,
-                exponential_ui_gpui::controls::FLAT_ROW_COMPACT_H,
+                eui_gpui::controls::FLAT_ROW_COMPACT_H,
                 cx,
             ))
             .into_any_element()

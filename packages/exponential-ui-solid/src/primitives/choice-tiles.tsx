@@ -1,13 +1,13 @@
 import { For, Show, createMemo, type JSX } from "solid-js"
 import { ImageIcon } from "lucide-solid"
-import { CHOICE_TILES_CLASSES, choiceColumns, choiceToggle, choiceValues, type ChoiceTileOption, type TileState } from "@exponential_app/ui/web/primitives"
+import { CHOICE_TILES_CLASSES, choiceColumns, choiceToggle, choiceValues, type ChoiceTileOption, type TileState } from "@exponential_app/eui/web/primitives"
 
 import { PaintIcon } from "../icons"
 import { css, type StyleInput } from "../style"
 import { cn } from "./cn"
 
-export { choiceColumns, choiceToggle, choiceValues } from "@exponential_app/ui/web/primitives"
-export type { ChoiceTileOption, TileState } from "@exponential_app/ui/web/primitives"
+export { choiceColumns, choiceToggle, choiceValues } from "@exponential_app/eui/web/primitives"
+export type { ChoiceTileOption, TileState } from "@exponential_app/eui/web/primitives"
 
 // EXP-1280: picture choice tiles, React's `ChoiceTilesFrame` one to one (the
 // grid, one button per option, the roving tab stop, the keys of

@@ -1,5 +1,5 @@
 import { Show, children, splitProps, type ComponentProps, type JSX } from "solid-js"
-import { EMPTY_STATE_CLASSES, type EmptyStateSize } from "@exponential_app/ui/web/primitives"
+import { EMPTY_STATE_CLASSES, type EmptyStateSize } from "@exponential_app/eui/web/primitives"
 
 import type { IconComponent } from "../host"
 import { PaintIcon } from "../icons"
@@ -9,8 +9,8 @@ import { IconDisc } from "./icon-disc"
 /** lucide-react's `focusable="false"` (not in Solid's SVG attribute types). */
 const UNFOCUSABLE = { focusable: `false` } as JSX.SvgSVGAttributes<SVGSVGElement>
 
-export { EMPTY_STATE_SIZES } from "@exponential_app/ui/web/primitives"
-export type { EmptyStateSize } from "@exponential_app/ui/web/primitives"
+export { EMPTY_STATE_SIZES } from "@exponential_app/eui/web/primitives"
+export type { EmptyStateSize } from "@exponential_app/eui/web/primitives"
 
 export function EmptyState(props: { icon?: IconComponent; title: string; description?: string; size?: EmptyStateSize; class?: string; children?: JSX.Element }) {
   const actions = children(() => props.children)

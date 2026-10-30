@@ -26,7 +26,7 @@ import {
   Volume2,
   Zap,
 } from "lucide-react"
-import type { IconMap } from "@exponential_app/ui-react"
+import type { IconMap } from "@exponential_app/eui-react"
 
 export const BLOG_ICONS: IconMap = {
   "arrow-down": ArrowDown,

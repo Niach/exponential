@@ -1,12 +1,12 @@
 import type { ComponentProps } from "react"
 import type { LucideIcon } from "lucide-react"
-import { EMPTY_STATE_CLASSES, type EmptyStateSize } from "@exponential_app/ui/web/primitives"
+import { EMPTY_STATE_CLASSES, type EmptyStateSize } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 import { IconDisc } from "./icon-disc"
 
-export { EMPTY_STATE_SIZES } from "@exponential_app/ui/web/primitives"
-export type { EmptyStateSize } from "@exponential_app/ui/web/primitives"
+export { EMPTY_STATE_SIZES } from "@exponential_app/eui/web/primitives"
+export type { EmptyStateSize } from "@exponential_app/eui/web/primitives"
 
 export function EmptyState({
   icon: Icon,

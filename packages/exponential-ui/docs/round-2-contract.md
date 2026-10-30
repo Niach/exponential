@@ -9,7 +9,7 @@
 Round 2 adds the authoring features round 1 left out, settles the open
 contract questions in TS and Rust together, and turns the 53 gpui-vs-web
 divergence causes into decisions. This file is the CONTRACT half: what
-changed in `@exponential_app/ui` and what each renderer implements to match.
+changed in `@exponential_app/eui` and what each renderer implements to match.
 Everything here is locked by a fixture or a test (`src/round2.test.ts`).
 
 Read §0, the sections you own, then §9 (your checklist) and §10.
@@ -388,9 +388,9 @@ of trailing punctuation (gpui), resp-states line breaks (survivor: UAX #14
 both sides, inside the ±1 line tolerance), part coverage (React).
 
 **Ratchet procedure** once React and gpui land: `bun run --filter
-@exponential_app/ui conformance -- --write-baseline` (intended web changes:
+@exponential_app/eui conformance -- --write-baseline` (intended web changes:
 lifted template, Resizable, layout-box dump, Nunito/Fira Code, the React
-fixes), then `EXP_UI_WRITE_FIXTURES=1 cargo test -p exponential-ui-gpui
+fixes), then `EXP_UI_WRITE_FIXTURES=1 cargo test -p eui-gpui
 --test conformance` (keeps `causes`/`rules`), target zero origins; a
 survivor gets `fix: ["survivor"]` + `reason`.
 
@@ -405,7 +405,7 @@ resizable`.
 
 ## 9. Per-renderer checklists
 
-### React (`@exponential_app/ui-react`)
+### React (`@exponential_app/eui-react`)
 1. Resizable native (flex + hairline handles, pointer capture from the drag START sizes, `keyboardResize`, `normalizeSizes`, two-way `sizes`, separator a11y, recipes incl. grip).
 2. `position: sticky` (CSS), `backdropBlur` (`styleToCss` already maps it), `animation` (`ANIMATION_PROPERTIES_CSS` + `keyframesCss` once per document, replacing the own `--xui-band` rule; `styleToCss(…, theme)` multiplies opacity; drop it under reduced motion), `direction` on inner boxes (the CSS cascade does it; mirror glyphs by the node's direction).
 3. Formatter: build `intlFormatter(locale, timeZone)` per surface, pass it to the bind pass (`formatter`), use it for Table cells (new `currency`/`percent`/`relativeTime` types), NumberField, chart ticks, pickers, calendar names.
@@ -416,7 +416,7 @@ resizable`.
 8. §7 fixes on the web side: overlays layout-transparent (wrapper `display: contents` or trigger-sized), DropdownMenu without chevron, Chart frame = `height`, AudioPlayer controls row, Video `aspect-ratio`, Table/CodeBlock spacing from recipes only, FileUpload Browse button, TreeGuides columns, Switch label first, Checkbox no overlap.
 9. Regenerate the web baseline after 1–8 (§8).
 
-### Rust core (`exponential-ui`) + FFI
+### Rust core (`eui-core`) + FFI
 1. Load the new catalog: Resizable, List `slotScope: row` + `section` slot, `panel` def, cellType, Video `aspectRatio`, 31 functions; `generated_drift.rs` counts (83 components); `layout.json` (`LAYOUT_JSON`).
 2. `theme.rs`: token group `blur` (field, `NUMBER_GROUPS`, completeness, overlay); recipe keys `backdropBlur` (token-only `blur`) and `animation` (enum); replay `theme-resolved.json`.
 3. `style_check.rs`: `direction` no longer root-only (spec-driven), `sticky`, the two token keys; `animations` table (`style.json`) → `animation.rs` port (timing, `cubic_bezier`, frames) replaying `animations.json` within 1e-3.
@@ -430,7 +430,7 @@ resizable`.
 10. `host/contract.rs`: host.json version 2 + the `surface` section.
 11. FFI: `bindRowSlotJson`, `bindSectionHeaderJson`, `scrollToIndex` command, a foreign `Formatter` + `FfiSettings.timeZone` (the host's; the core's fallback gets the host's UTC offset through `HostZone`); regenerate bindings (`generate-bindings.sh`); bench 100k (`bench.rs`) → README.
 
-### gpui (`exponential-ui-gpui`)
+### gpui (`eui-gpui`)
 1. Resizable (drag, keys, AccessKit separator), sticky (paint offset inside the scroller), backdropBlur (fallback: background only, documented), animations from the core frames (reduced motion = rest).
 2. §7 gpui-side fixes: Image/Video ratio, Chart min-content 0, picker triggers without the 160 floor, Radio gap, Slider row height, Badge/Pill no gap for absent parts, ToggleGroup content-sized, Link trigger stretch, Markdown paragraph lines, empty text = 0 lines, number text via `display_string`, Accordion count part, field text inset, bidi paragraph direction = node direction, the CardRow part.
 3. Formatter: core `EnglishFormatter` at the local UTC offset (or a host one) for Table cells, NumberField, chart ticks, `paint/date.rs` month names; strings for the Table/FileUpload labels; painted opacity = own × frame.

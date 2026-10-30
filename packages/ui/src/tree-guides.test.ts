@@ -3,7 +3,7 @@ import {
   TREE_GUIDE_COLUMN,
   TREE_GUIDE_RADIUS,
   treeGuides as sdkTreeGuides,
-} from "@exponential_app/ui"
+} from "@exponential_app/eui"
 import {
   treeGuideCentre,
   treeGuideIsEmpty,

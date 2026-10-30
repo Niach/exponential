@@ -1,9 +1,9 @@
-import { SEGMENTED_CONTROL_CLASSES } from "@exponential_app/ui/web/primitives"
+import { SEGMENTED_CONTROL_CLASSES } from "@exponential_app/eui/web/primitives"
 import {
   SegmentedControl as BaseSegmentedControl,
   type SegmentedControlProps as BaseSegmentedControlProps,
   type SegmentedOption,
-} from "@exponential_app/ui-react/primitives/segmented-control"
+} from "@exponential_app/eui-react/primitives/segmented-control"
 
 import { GlassTabsRow } from "./glass-rows"
 import { TabsTrigger } from "./tabs"

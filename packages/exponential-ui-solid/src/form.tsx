@@ -8,8 +8,8 @@
 // every field inert (a disabled fieldset). The registry is the web layer's.
 
 import { For, Show, createContext, createMemo, createSignal, createEffect, onCleanup, untrack, useContext, type Accessor, type JSX } from "solid-js"
-import { FormRegistry, fieldErrorsVisible, joinIds, validateOnDefault } from "@exponential_app/ui/web"
-import type { UiNode } from "@exponential_app/ui"
+import { FormRegistry, fieldErrorsVisible, joinIds, validateOnDefault } from "@exponential_app/eui/web"
+import type { UiNode } from "@exponential_app/eui"
 import { useSurfaceContext } from "./context"
 import type { NativeProps } from "./node-view"
 import { bool, failingChecks, parts, str, type PartFn } from "./natives/shared"

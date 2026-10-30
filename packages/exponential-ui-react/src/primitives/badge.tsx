@@ -1,5 +1,5 @@
 import * as React from "react"
-import { BADGE_CLASSES, badgeLabel, type BadgeTone } from "@exponential_app/ui/web/primitives"
+import { BADGE_CLASSES, badgeLabel, type BadgeTone } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

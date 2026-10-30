@@ -4,7 +4,7 @@ import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 import { cn } from "./cn"
 import { useMediaQuery } from "./use-media-query"
 
-export * from "@exponential_app/ui-react/primitives/skeleton"
+export * from "@exponential_app/eui-react/primitives/skeleton"
 
 const PLACEHOLDER = FEEDBACK_STATES.placeholder
 /** A `ListRow` (list density): 12px padding around one 20px line. */

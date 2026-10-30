@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Search } from "lucide-react"
 
 import { BARE_FIELD_CLASS, Input } from "./input"
 import { Label } from "./label"
-import { Spinner } from "@exponential_app/ui-react/primitives/spinner"
+import { Spinner } from "@exponential_app/eui-react/primitives/spinner"
 import { Switch } from "./switch"
 import { Tabs, TabsList } from "./tabs"
 import { cn } from "./cn"

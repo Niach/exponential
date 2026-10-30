@@ -1,5 +1,5 @@
 import { Show, createEffect, createSignal, splitProps, untrack, type ComponentProps, type JSX } from "solid-js"
-import { SWITCH_CLASSES } from "@exponential_app/ui/web/primitives"
+import { SWITCH_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { bubbleOnChange, createElementSize, createInForm, setChecked as setInputChecked } from "../behaviors"
 import { css } from "../style"

@@ -4,9 +4,9 @@
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react"
-import { listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/ui"
+import { listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/eui"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
-import { getPointer, LITERAL_ROWS_ROOT } from "@exponential_app/ui/web"
+import { getPointer, LITERAL_ROWS_ROOT } from "@exponential_app/eui/web"
 import { WindowedList, type WindowedListHandle } from "../list"
 import type { NativeProps } from "../node-view"
 import { NodeView, TemplateItemView, mergeStyle, templateItems } from "../node-view"

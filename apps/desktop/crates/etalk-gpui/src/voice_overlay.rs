@@ -13,9 +13,9 @@
 //! this is the capsule both draw, its words from `fixtures/voice.json`
 //! (`pttCopy`, `overlaySpecimens`).
 
-use exponential_ui::voice_wave::Activity;
+use eui_core::voice_wave::Activity;
 use etalk::call::{CallButton, CallView, SurfaceSpecimen, VOICE_CALL};
-use exponential_ui_gpui::controls::{
+use eui_gpui::controls::{
     call_button, glass_bar, glass_pill, glass_pill_button_primary, voice_wave, CallSize, CallTone, PillMode, PillSize, VoiceWaveChild,
     VoiceWaveColors,
 };

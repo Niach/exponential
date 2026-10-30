@@ -8,7 +8,7 @@
 
 Round 1 makes one A2UI surface render faithfully, responsively and
 accessibly on web, desktop, iOS and Android. This file is the CONTRACT half:
-what changed in `@exponential_app/ui` (catalog, macros, style, tokens,
+what changed in `@exponential_app/eui` (catalog, macros, style, tokens,
 themes, the TS reference, fixtures, generated constants) and what each
 renderer (React, the Rust core, gpui, SwiftUI, Compose) must implement to
 match. Everything below is locked by a fixture or a test in this package;
@@ -574,12 +574,12 @@ New rows: `styleLayoutEffectKeys`, `coreFunctionNames`,
 `tokenGroups` gained `breakpoint`, `ease`, `density`. The Rust file also
 embeds `STRINGS_JSON`, `LOCALE_JSON`, `CODE_JSON`, `A11Y_JSON` beside the
 existing catalog JSON, mirrored into
-`apps/desktop/crates/exponential-ui/src/generated/catalog.rs`. Themes
+`apps/desktop/crates/eui-core/src/generated/catalog.rs`. Themes
 generated outputs carry the new token groups and `contrast`.
 
 ## 9. Per-renderer checklists
 
-### React (`@exponential_app/ui-react`, the reference renderer)
+### React (`@exponential_app/eui-react`, the reference renderer)
 1. Media: map every condition (`min/max-width|height` → `@container xui (width >= N)` / `(width < N)` with `$breakpoint` resolved from the theme; orientation via the container's aspect: emit both `(orientation: …)` container queries; `hover`/`prefers-reduced-motion` → real `@media`). States `:hover` → `:hover` (and `[data-xs~=hover]`), `:focus-visible` → `:focus-visible`, `:pressed` → `:active, [data-xs~=pressed]`, emitted after the media rules in that order.
 2. Bind pass: run `bindTree` semantics in the binding layer (props along the schema with DATA props verbatim, styles, recipe props, `accessibility`, `$string`), drop falsy `visible`, honour template `key` as the React key; Table slot cells per row (`bindRowSlot`); map `accessibility` (role, states, `autoFocus`) to ARIA; mirror `rtlMirroredIcons` under rtl.
 3. Actions: `runAction` order; implement `set` against the surface data model.
@@ -588,7 +588,7 @@ generated outputs carry the new token groups and `contrast`.
 6. Theme: `resolveMode('system')` via `matchMedia`, `applyDensity`, `applyContrast` (`prefers-contrast: more`), new recipe keys/states (`invalid`, `dragover`).
 7. Built-in strings + glyphs from the generated tables; `textDirection` for the root.
 
-### Rust core (`apps/desktop/crates/exponential-ui`)
+### Rust core (`apps/desktop/crates/eui-core`)
 1. `expr.rs`: dynamic inputs emit calls exactly as `src/expr.ts` (member vs operand rule, `fallback`, `concat`, `$lt`, `$sub`, `$not`, `$text` over a value object, `range(...)`, key interpolation); `TemplateChild` gains `"$slot:name"` splices and `slots` values that are template nodes (AlertDialog) — `MacroTemplate.slots` becomes `IndexMap<String, SlotRef>` (string | node), plus `$set`.
 2. `macros.rs`: `$if`/`$any` → `visible` (and/or), `$set` → `functionCall: set` (after `event`; an author FUNCTION wins and is reported), `$a11y` → `accessibility` (author label/description merged over the root's), responsive variants → media blocks, author `visible`/`accessibility` onto the root; `expr.rs`: `$clamp`, `$fill` (always emits), `$eq` numeric-string equality. Replay `catalog-macros.json` (189 cases incl. `bound:*`/`responsive:*`) and `bind-time.json` (`cases` × 3 datasets AND `extra` with `issues` + `rowSlots`).
 3. `reducer.rs`: `visible` (validate: boolean or dynamic), template `key`, `accessibility` on the flat path, slot names checked (`*` = any).
@@ -599,7 +599,7 @@ generated outputs carry the new token groups and `contrast`.
 8. New modules to port (pure): `code.rs` (tokenizer, replay `code-tokens.json`), `locale.rs` (+ `languageAliases`, `rtlMirroredIcons`), `chart.rs` (`chart_extent` with loops and split positive/negative stacks, `nice_ticks`, the summary params), strings table. The embedded JSON constants are already generated.
 9. FFI: expose SurfaceSettings, `SurfaceCommand`, the action outcome (`set` writes) so the natives do not re-implement the bind pass.
 
-### gpui painter (`exponential-ui-gpui`)
+### gpui painter (`eui-gpui`)
 1. Paint the new keys: per-side border widths with ONE colour, `borderStyle` dashed/dotted (custom path), per-corner radii (`corner_radii`), `backgroundGradient` (gpui linear gradient, two stops; more stops: chain quads), `transform` at paint time only (no layout), `visibility`, `opacity` unchanged, `letterSpacing`/`textTransform`/`textDecoration`/`fontStyle`/weights 300–800 in text runs, `cursor` → `CursorStyle`, `pointerEvents: none` skips hit-testing.
 2. Motion: animate colour/opacity/transform/size between resolved styles with `transition` ms + `transitionEasing` bezier; 0 ms when the OS asks for reduced motion.
 3. Conditions: the core flattens with the surface size, hover capability (true on desktop), reduced motion, and the node's states (`hover`, `focus-visible` = focus from keyboard, `pressed`).
@@ -654,7 +654,7 @@ generated outputs carry the new token groups and `contrast`.
   Table moved to the native's parts.
 - **Rust**: `macros.json` now has `slots` values that are objects and
   `$set` keys — `MacroTemplate` must accept them before the crate can load
-  the embedded table. Checked here: `cargo check -p exponential-ui --lib`
+  the embedded table. Checked here: `cargo check -p eui-core --lib`
   compiles against the regenerated mirror; `tests/generated_drift.rs`
   still asserts 61 components (now 82) and `style_check.rs` the old media
   pattern — both are the Rust lane's to update.

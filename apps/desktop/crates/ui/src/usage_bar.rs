@@ -355,11 +355,11 @@ const MINI_TRACK_H: f32 = 4.;
 /// changes in one place; `height` is the only thing a caller varies. The web
 /// twin is the `@exp/ui` `Meter`, iOS `AgentUsageTrack`, Android `UsageTrack`.
 ///
-/// VAPP-90: the body is the SDK's `exponential_ui_gpui::controls::meter`,
+/// VAPP-90: the body is the SDK's `eui_gpui::controls::meter`,
 /// which takes the fill colour; the severity → tone mapping stays here
 /// ([`severity_color`]).
 pub(crate) fn meter(percent: u8, severity: Severity, height: f32, cx: &App) -> gpui::Div {
-    exponential_ui_gpui::controls::meter(percent, severity_color(severity, cx), height, cx)
+    eui_gpui::controls::meter(percent, severity_color(severity, cx), height, cx)
 }
 
 /// EXP-909 — the FULL window form: every window the machine reported, TWO

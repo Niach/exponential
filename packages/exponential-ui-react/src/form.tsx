@@ -10,7 +10,7 @@
 // `disabled` makes every field inert (a disabled fieldset).
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { FormRegistry, fieldErrorsVisible, joinIds, validateOnDefault } from "@exponential_app/ui/web"
+import { FormRegistry, fieldErrorsVisible, joinIds, validateOnDefault } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "./context"
 import type { NativeProps } from "./node-view"
 import { bool, failingChecks, str, useParts, type PartFn } from "./natives/shared"

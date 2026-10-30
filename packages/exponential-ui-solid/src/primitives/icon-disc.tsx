@@ -1,12 +1,12 @@
 import type { JSX } from "solid-js"
-import { ICON_DISC_CLASSES, type IconDiscTone } from "@exponential_app/ui/web/primitives"
+import { ICON_DISC_CLASSES, type IconDiscTone } from "@exponential_app/eui/web/primitives"
 
 import type { IconComponent } from "../host"
 import { PaintIcon } from "../icons"
 import { cn } from "./cn"
 
-export { ICON_DISC_TONES } from "@exponential_app/ui/web/primitives"
-export type { IconDiscTone } from "@exponential_app/ui/web/primitives"
+export { ICON_DISC_TONES } from "@exponential_app/eui/web/primitives"
+export type { IconDiscTone } from "@exponential_app/eui/web/primitives"
 
 /** lucide-react's own stroke width, its fallback for an undefined one. */
 const LUCIDE_STROKE = 2

@@ -1,1 +1,1 @@
-export * from "@exponential_app/ui-react/primitives/voice-wave"
+export * from "@exponential_app/eui-react/primitives/voice-wave"

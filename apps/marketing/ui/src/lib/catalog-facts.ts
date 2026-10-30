@@ -2,7 +2,7 @@
    links) WITHOUT importing the generated component docs: those weigh ~140 KB
    and belong to the component pages only. catalog-facts.test.ts locks every
    value here to the docs, so a catalog change fails the test, not the page. */
-import promptBudget from "@exponential_app/ui/fixtures/prompt-budget.json"
+import promptBudget from "@exponential_app/eui/fixtures/prompt-budget.json"
 
 export const CORE_CATALOG = `https://ui.exponential.at/catalogs/core/v1`
 export const CORE_LITE_CATALOG = `https://ui.exponential.at/catalogs/core-lite/v1`

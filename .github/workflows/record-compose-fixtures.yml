@@ -97,10 +97,10 @@ jobs:
         working-directory: apps/desktop
         env:
           EXP_UI_WRITE_FIXTURES: '1'
-        run: cargo test --locked -p exponential-ui-gpui --test conformance
+        run: cargo test --locked -p eui-gpui --test conformance
       - name: Verify the re-recorded ratchet passes
         working-directory: apps/desktop
-        run: cargo test --locked -p exponential-ui-gpui --test conformance
+        run: cargo test --locked -p eui-gpui --test conformance
       - name: What changed
         run: git status --short
       - uses: actions/upload-artifact@v4

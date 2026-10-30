@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Separator as SeparatorPrimitive } from "radix-ui"
-import { SEPARATOR_CLASSES } from "@exponential_app/ui/web/primitives"
+import { SEPARATOR_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

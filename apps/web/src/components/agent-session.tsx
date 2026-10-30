@@ -84,7 +84,7 @@ import {
   SkeletonRows,
   type WorkCardLaneTarget,
 } from "@exp/ui"
-import { codeText } from "@exponential_app/ui"
+import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSessionDevice } from "@/hooks/use-session-device"

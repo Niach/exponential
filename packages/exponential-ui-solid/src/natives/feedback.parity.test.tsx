@@ -4,8 +4,8 @@
 // iterates them), forced states, and dark + rtl.
 
 import { describe, it } from "vitest"
-import type { NestedNode } from "@exponential_app/ui"
-import componentsFixture from "@exponential_app/ui/fixtures/catalog-components.json"
+import type { NestedNode } from "@exponential_app/eui"
+import componentsFixture from "@exponential_app/eui/fixtures/catalog-components.json"
 import { expectDomParity } from "../test/parity"
 
 const MINE = new Set([`Ring`, `Spinner`, `Skeleton`, `TreeGuides`, `VoiceWave`])

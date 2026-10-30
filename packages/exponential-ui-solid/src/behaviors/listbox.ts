@@ -5,7 +5,7 @@
 // computation). The two differ in timing only, kept apart so neither moves.
 
 import { createComputed, createEffect, createSignal, untrack, type Accessor } from "solid-js"
-import { nextEnabledIndex, typeaheadStep } from "@exponential_app/ui/web"
+import { nextEnabledIndex, typeaheadStep } from "@exponential_app/eui/web"
 
 export interface ListNavOptions {
   count: Accessor<number>

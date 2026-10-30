@@ -26,7 +26,7 @@
 // `openMediaSource` (one source's plan + load) are framework-free; a
 // renderer wraps them in its reactivity (React: `useMediaSource`).
 
-import { MEDIA_LIMITS, mediaImageWithinLimits } from "@exponential_app/ui"
+import { MEDIA_LIMITS, mediaImageWithinLimits } from "@exponential_app/eui"
 import type { AnyHostPlugin as HostPlugin } from "./host-types"
 import { mediaRequestOf, mediaUrlAllowed } from "./urls"
 

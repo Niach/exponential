@@ -9,7 +9,7 @@
 
 import { createContext, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, Show, splitProps, untrack, useContext, type Accessor, type ComponentProps, type JSX } from "solid-js"
 import { Check, ChevronDown, ChevronUp } from "lucide-solid"
-import { SELECT_CLASSES, SELECT_INLINE, SELECT_VIEWPORT_ATTR, SELECT_VIEWPORT_CSS, selectItemAlignedContentStyle, selectPopperContentStyle } from "@exponential_app/ui/web/primitives"
+import { SELECT_CLASSES, SELECT_INLINE, SELECT_VIEWPORT_ATTR, SELECT_VIEWPORT_CSS, selectItemAlignedContentStyle, selectPopperContentStyle } from "@exponential_app/eui/web/primitives"
 import { bindStyle, createFocusScope, createLayer, findNextItem, LayerContext, mountIn, NativeSelect, OPEN_KEYS, Popper, radixTypeahead, SELECTION_KEYS, styleWriter, useFocusGuards, useModalEffects, type Align, type OutsideEvent, type Side, type StyleObject } from "../behaviors"
 import { insert } from "solid-js/web"
 import { PaintIcon } from "../icons"

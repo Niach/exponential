@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import basicMap from "@exponential_app/ui/catalog/basic-map.json"
-import coreCatalog from "@exponential_app/ui/catalog/core.catalog.json"
+import basicMap from "@exponential_app/eui/catalog/basic-map.json"
+import coreCatalog from "@exponential_app/eui/catalog/core.catalog.json"
 import { CATALOG_ID, COMPONENT_DOCS, LITE_CATALOG_ID, componentSlug } from "./catalog"
 import { BASIC_FUNCTION_COUNT, COMPONENT_COUNT, CORE_CATALOG, FUNCTION_COUNT, CORE_LITE_CATALOG, MACRO_COUNT, NATIVE_COUNT, componentSlugOf } from "./catalog-facts"
 

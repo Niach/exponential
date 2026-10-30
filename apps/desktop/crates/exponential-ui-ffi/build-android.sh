@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # VAPP-86: build the UniFFI facade for arm64-v8a + armeabi-v7a (+ x86_64 for the emulator)
 # with cargo-ndk, generate the Kotlin bindings (JNA), drop the .so files
-# where the Compose package (VAPP-89, `at.exponential:ui-compose`) picks them up.
+# where the Compose package (VAPP-89, `at.exponential:eui-compose`) picks them up.
 #   bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
 # Outputs (.so gitignored; the Kotlin binding source is COMMITTED under bindings/kotlin):
 #   apps/desktop/crates/exponential-ui-ffi/out/jniLibs/{arm64-v8a,armeabi-v7a,x86_64}/libexponential_ui_ffi.so
@@ -10,7 +10,7 @@
 #   ABIS="arm64-v8a"   the ABIs to build (default: all three, what the AAR ships)
 #   SKIP_BINDINGS=1    keep the committed Kotlin binding; skip the host build + bindgen
 #   EXPONENTIAL_UI_FEATURES="descriptions"   VAPP-106: `--no-default-features --features <list>`
-#                      (an empty list drops the non-default themes; crates/exponential-ui/Cargo.toml)
+#                      (an empty list drops the non-default themes; crates/eui-core/Cargo.toml)
 # VAPP-106: the .so is built as ONE crate type (`cargo rustc --crate-type
 # cdylib`): with the facade's `[lib] crate-type` listing an rlib too, cargo
 # skips the profile's LTO. `strip = true` on the profile strips the .so.

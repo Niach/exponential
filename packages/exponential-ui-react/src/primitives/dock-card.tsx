@@ -1,11 +1,11 @@
 import * as React from "react"
 import { ChevronRight } from "lucide-react"
-import { DOCK_CARD_CLASSES, DOCK_PILE_CLASSES, dockPileGeometry, type DockCardTint } from "@exponential_app/ui/web/primitives"
+import { DOCK_CARD_CLASSES, DOCK_PILE_CLASSES, dockPileGeometry, type DockCardTint } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 
 // N-12: THE DockCard and THE Dock pile (the recipe and the geometry in
-// @exponential_app/ui/web/primitives/dock): a one-row floating card (the kind
+// @exponential_app/eui/web/primitives/dock): a one-row floating card (the kind
 // glyph, the tinted label, the muted caption, trailing meta, ONE title line,
 // the open chevron or a trailing action) and the pile several of them make,
 // placed like the toasts (anchored at the bottom: the front card last, the
@@ -186,5 +186,5 @@ export function DockPile({ items, expanded, onExpandedChange, className, style, 
   )
 }
 
-export { DOCK_CARD_CLASSES, DOCK_PILE_CLASSES, DOCK_PILE_CONSTANTS, dockPileGeometry } from "@exponential_app/ui/web/primitives"
-export type { DockCardTint } from "@exponential_app/ui/web/primitives"
+export { DOCK_CARD_CLASSES, DOCK_PILE_CLASSES, DOCK_PILE_CONSTANTS, dockPileGeometry } from "@exponential_app/eui/web/primitives"
+export type { DockCardTint } from "@exponential_app/eui/web/primitives"

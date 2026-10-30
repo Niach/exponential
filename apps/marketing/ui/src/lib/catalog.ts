@@ -1,11 +1,11 @@
 /* The site's data: the generated catalog docs, theme docs and specimens of
-   @exponential_app/ui (docs/*.generated.json, fixtures/specimens.json), plus
+   @exponential_app/eui (docs/*.generated.json, fixtures/specimens.json), plus
    the shot index (scripts/shot-index.ts). One page per component; its slug
    is its specimen id minus the prefix. */
-import componentsDoc from "@exponential_app/ui/docs/components.generated.json"
-import themesDoc from "@exponential_app/ui/docs/themes.generated.json"
-import macrosDoc from "@exponential_app/ui/catalog/macros.json"
-import specimensDoc from "@exponential_app/ui/fixtures/specimens.json"
+import componentsDoc from "@exponential_app/eui/docs/components.generated.json"
+import themesDoc from "@exponential_app/eui/docs/themes.generated.json"
+import macrosDoc from "@exponential_app/eui/catalog/macros.json"
+import specimensDoc from "@exponential_app/eui/fixtures/specimens.json"
 
 export type ComponentDoc = (typeof componentsDoc.components)[number]
 export type ThemesDoc = typeof themesDoc

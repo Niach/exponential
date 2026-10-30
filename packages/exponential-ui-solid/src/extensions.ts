@@ -1,13 +1,13 @@
 // FEED-128: EXTENSIONS on Solid (React's extensions.ts). An extension = its
-// catalog (`defineExtension` from `@exponential_app/ui`) plus one Solid
+// catalog (`defineExtension` from `@exponential_app/eui`) plus one Solid
 // component per NATIVE kind it adds. `registerExtension` adds one to the
 // module registry every surface reads (a signal: mounted surfaces follow);
 // the `extensions` prop adds per-surface ones. An extension may also
 // OVERRIDE a core native's painter (`components: { Switch: MySwitch }`).
 
 import { createSignal, type Component } from "solid-js"
-import { defineExtension } from "@exponential_app/ui"
-import type { ExtensionDef } from "@exponential_app/ui"
+import { defineExtension } from "@exponential_app/eui"
+import type { ExtensionDef } from "@exponential_app/eui"
 import type { ExtensionComponentProps } from "./host"
 
 export type ExtensionComponent = Component<ExtensionComponentProps>

@@ -2,7 +2,7 @@ import * as React from "react"
 
 import { cn } from "./cn"
 import { CircleArrowUp, CircleStop } from "lucide-react"
-import { Button } from "@exponential_app/ui-react/primitives/button"
+import { Button } from "@exponential_app/eui-react/primitives/button"
 
 // EXP-790: the send glyph is ONE concept everywhere a composer renders —
 // comments, support replies, steering, the chat launcher — and a working

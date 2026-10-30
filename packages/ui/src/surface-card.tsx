@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/ui"
-import { ExponentialSurface, useSurface } from "@exponential_app/ui-react"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
+import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 import { CHATS_COPY, CHATS_TEST_IDS, surfaceReply } from "@exp/domain-contract/chats"
 import { PLAN_CARD_GEOMETRY, type CardSurface } from "@exp/domain-contract/plan-card"
 import fixture from "@exp/domain-contract/fixtures/chats.json"

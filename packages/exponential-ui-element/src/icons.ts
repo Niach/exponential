@@ -13,7 +13,7 @@
 // dropped anyway.
 
 import { createRenderEffect } from "solid-js"
-import type { IconComponent, IconMap } from "@exponential_app/ui-solid"
+import type { IconComponent, IconMap } from "@exponential_app/eui-solid"
 
 const SKIP = new Set([`size`, `class`, `color`, `strokeWidth`, `absoluteStrokeWidth`, `children`, `ref`, `width`, `height`])
 

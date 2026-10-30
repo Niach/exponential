@@ -235,7 +235,7 @@ export function placeTypeaheadMenu(
   }
 }
 
-export { TYPEAHEAD_PORTAL_SELECTOR, isTypeaheadPortalInteraction } from "@exponential_app/ui/web/primitives"
+export { TYPEAHEAD_PORTAL_SELECTOR, isTypeaheadPortalInteraction } from "@exponential_app/eui/web/primitives"
 
 export function TypeaheadMenu({
   placement = `below`,

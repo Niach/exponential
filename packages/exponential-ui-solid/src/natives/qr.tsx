@@ -14,8 +14,8 @@
 // icon + `Camera unavailable`; `disabled` stops the camera.
 
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type Component, type JSX } from "solid-js"
-import { nativeRecipeProps, resolveRecipe } from "@exponential_app/ui"
-import { QR_CORNERS, QR_SCANNER, qrCornerPath, qrFeedColour, qrPaint, qrScanFormats, qrScanReporter } from "@exponential_app/ui/web"
+import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
+import { QR_CORNERS, QR_SCANNER, qrCornerPath, qrFeedColour, qrPaint, qrScanFormats, qrScanReporter } from "@exponential_app/eui/web"
 import { useSurfaceContext, type SurfaceContextValue } from "../context"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"

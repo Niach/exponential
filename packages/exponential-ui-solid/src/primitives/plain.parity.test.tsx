@@ -12,7 +12,7 @@ import { CodeBlockCopyButton, Progress } from "./index"
 // The React side's JSX stays out of this package's Solid transform: loaded
 // at run time (see src/test/parity.ts).
 const REACT_SPECIMENS = `${import.meta.dirname}/../../../exponential-ui-react/harness/primitives/plain.tsx`
-const REACT_PRIMITIVES = `@exponential_app/ui-react/primitives`
+const REACT_PRIMITIVES = `@exponential_app/eui-react/primitives`
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyComponent = (props: any) => ReactElement
 let react: Record<string, () => ReactElement>

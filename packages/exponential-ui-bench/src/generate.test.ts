@@ -1,12 +1,12 @@
 // VAPP-105: the drift gate. The scenario files are re-rendered in memory and
 // compared with the committed ones; a change to src/scenarios.ts without
-// `bun run --filter @exponential_app/ui-bench generate` fails here. Also the
+// `bun run --filter @exponential_app/eui-bench generate` fails here. Also the
 // invariants every runner relies on.
 import { describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { reduceNested, reduceSurface, MAX_DEPTH, MAX_TEMPLATE_ITEMS } from "@exponential_app/ui"
-import type { FlatComponent, NestedNode } from "@exponential_app/ui"
+import { reduceNested, reduceSurface, MAX_DEPTH, MAX_TEMPLATE_ITEMS } from "@exponential_app/eui"
+import type { FlatComponent, NestedNode } from "@exponential_app/eui"
 import { generateItems, renderScenarios, SCENARIOS, type GeneratedData } from "./scenarios"
 import { resultsIndexSource } from "./results-index"
 

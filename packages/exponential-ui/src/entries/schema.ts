@@ -1,4 +1,4 @@
-// VAPP-106: `@exponential_app/ui/schema`, the JSON-Schema emitters as their
+// VAPP-106: `@exponential_app/eui/schema`, the JSON-Schema emitters as their
 // own entry: they carry the vendored A2UI basic catalog and write every
 // description into the schema, so they attach the descriptions
 // (`describeCatalog`) first and stay out of the root entry.

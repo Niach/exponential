@@ -1,6 +1,6 @@
 # `exponential-net-wasm`: eNet in the browser
 
-The wasm-bindgen facade over [`exponential-net`](../exponential-net) for the
+The wasm-bindgen facade over [`enet-core`](../enet-core) for the
 Exponential web app. License: MIT OR Apache-2.0.
 
 A browser cannot open UDP sockets, so a browser node is **relay-only**: it

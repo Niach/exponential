@@ -9,8 +9,8 @@
 
 import { afterEach, describe, expect, it } from "vitest"
 import { cleanup, fireEvent, render } from "@solidjs/testing-library"
-import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport } from "@exponential_app/ui"
-import type { ClientMessage, FlatComponent, AppPackage } from "@exponential_app/ui"
+import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport } from "@exponential_app/eui"
+import type { ClientMessage, FlatComponent, AppPackage } from "@exponential_app/eui"
 import { HostSurface, hostPlugin } from "./host-surface"
 
 afterEach(() => cleanup())

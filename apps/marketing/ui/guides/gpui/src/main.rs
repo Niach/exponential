@@ -1,6 +1,6 @@
-use exponential_ui::theme::Mode;
-use exponential_ui_gpui::runtime::{ExponentialHost, HostOptions};
-use exponential_ui_gpui::transport::{HttpTransportOptions, JsonlStreamTransport};
+use eui_core::theme::Mode;
+use eui_gpui::runtime::{ExponentialHost, HostOptions};
+use eui_gpui::transport::{HttpTransportOptions, JsonlStreamTransport};
 use gpui::{div, prelude::*, px, size, App, Bounds, Context, Entity, Window, WindowBounds, WindowOptions};
 
 struct Main {
@@ -19,7 +19,7 @@ fn main() {
         gpui_component::init(cx);
         // One host per app: A2UI messages in over a transport, actions back out.
         let transport = JsonlStreamTransport::new(HttpTransportOptions::new("http://localhost:4300/a2ui.jsonl").post_url("http://localhost:4300/action"));
-        let options = HostOptions { transport: Some(Box::new(transport)), theme: exponential_ui::themes::builtin_theme("exponential"), mode: Mode::Dark, ..Default::default() };
+        let options = HostOptions { transport: Some(Box::new(transport)), theme: eui_core::themes::builtin_theme("exponential"), mode: Mode::Dark, ..Default::default() };
         let host = cx.new(|cx| ExponentialHost::new(options, cx));
         host.update(cx, |host, cx| host.connect(cx));
         let window = WindowOptions { window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(540.0), px(640.0)), cx))), ..Default::default() };

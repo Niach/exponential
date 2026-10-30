@@ -6,7 +6,7 @@
 // §7 boxes (overlay = its trigger, Video 16:9, Chart = height).
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { panelExtents } from "@exponential_app/ui"
+import { panelExtents } from "@exponential_app/eui"
 import type { Page } from "playwright"
 import { openPage, startHarness, type Harness } from "./support"
 

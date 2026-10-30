@@ -7,8 +7,8 @@
 // order of appearance.
 
 import { expect } from "vitest"
-import type { NestedNode } from "@exponential_app/ui"
-import kitchenSink from "@exponential_app/ui/fixtures/kitchen-sink.json"
+import type { NestedNode } from "@exponential_app/eui"
+import kitchenSink from "@exponential_app/eui/fixtures/kitchen-sink.json"
 import { renderBoth, type ParityCase } from "../test/parity"
 
 const ID_ATTRS = /\b(id|for|aria-controls|aria-labelledby|aria-describedby|aria-owns|aria-activedescendant)="([^"]*)"/g

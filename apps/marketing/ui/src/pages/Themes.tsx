@@ -1,6 +1,6 @@
-import demoSurface from "@exponential_app/ui/fixtures/demo-surface.json"
+import demoSurface from "@exponential_app/eui/fixtures/demo-surface.json"
 import type { ThemesDoc } from "../lib/catalog"
-import themesDoc from "@exponential_app/ui/docs/themes.generated.json"
+import themesDoc from "@exponential_app/eui/docs/themes.generated.json"
 import type { PageProps } from "../lib/routes"
 import type { Nested } from "../sdk/a2ui"
 import { themeBackgrounds } from "../sdk/backgrounds"

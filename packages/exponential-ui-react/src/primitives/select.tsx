@@ -3,7 +3,7 @@
 import * as React from "react"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import { Select as SelectPrimitive } from "radix-ui"
-import { SELECT_CLASSES } from "@exponential_app/ui/web/primitives"
+import { SELECT_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { cn } from "./cn"
 

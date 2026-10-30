@@ -54,7 +54,7 @@ import {
   createLucideIcon,
 } from "lucide-react"
 import type { IconNode } from "lucide-react"
-import { CUSTOM_ICON_NODES, lookupIcon } from "@exponential_app/ui/web"
+import { CUSTOM_ICON_NODES, lookupIcon } from "@exponential_app/eui/web"
 import type { IconComponent, IconMap } from "./host"
 
 /** The renderer's own chrome glyphs that are NOT catalog part glyphs (the

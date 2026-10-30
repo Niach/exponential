@@ -1,8 +1,8 @@
-// @exponential_app/ui/web/primitives — FEED-131: the FRAMEWORK-FREE half of the
+// @exponential_app/eui/web/primitives — FEED-131: the FRAMEWORK-FREE half of the
 // shadcn primitive set: per module the Tailwind class recipes (cva recipes
 // keep their names; plain strings = one frozen `<MODULE>_CLASSES` object,
 // keyed by part) and the pure helpers, so the React set
-// (@exponential_app/ui-react/primitives) and its Solid twin read ONE source
+// (@exponential_app/eui-react/primitives) and its Solid twin read ONE source
 // of class strings. Nothing here imports a UI framework.
 export * from "./alert-dialog"
 export * from "./alert"

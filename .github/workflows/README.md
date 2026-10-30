@@ -82,8 +82,8 @@ sessions; a relay that ignores the claim shows those sessions as Ended.
 |---|---|---|
 | pull request | `test.yml` (required check `gate`) | typecheck, web unit tests (4 shards), migrations from scratch + drift + custom triggers, desktop `cargo check` (only when the PR touches it) |
 | master push | `build-web.yml`, `build-steer-relay.yml` | the ghcr images the deploys pull |
-| release tags (`desktop-v*`, `android-v*`, `ios-v*`, `cli-v*`, `ui-v*`, `v*.*.*`) + `workflow_dispatch` | `release-suite.yml` (once per commit) | everything heavy: `exponential-ui.yml` (renderers, conformance, bench), `test-ios.yml`, Android unit + lint + licences, desktop `cargo test` + licences, marketing + styleguide builds + `shots:check`, package + bun suites, real-DB suites, the feedback-widget Playwright e2e on the compose stack, push-relay image smoke build |
-| release tags | `build-*.yml`, `release-ui.yml` | the release artifacts |
+| release tags (`desktop-v*`, `android-v*`, `ios-v*`, `cli-v*`, `eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`, `v*.*.*`) + `workflow_dispatch` | `release-suite.yml` (once per commit) | everything heavy: `exponential-ui.yml` (renderers, conformance, bench), `test-ios.yml`, Android unit + lint + licences, desktop `cargo test` + licences, marketing + styleguide builds + `shots:check`, package + bun suites, real-DB suites, the feedback-widget Playwright e2e on the compose stack, push-relay image smoke build |
+| release tags | `build-*.yml`, `release-eui.yml` | the release artifacts |
 | by hand | `exponential-ui-fuzz.yml`, `record-compose-fixtures.yml`, `bump-versions.yml` | fuzzing, re-recording the Compose fixtures, the version-bump PR |
 
 Bench timings never fail (warnings only); counts and bytes still gate.
@@ -112,7 +112,7 @@ copies in Niach/spezl; the Apple ones can be the same values (same team).
 | `PLAY_SERVICE_ACCOUNT_JSON` | secret | `play-upload` | Google Cloud service-account key, invited in Play Console as Release manager on the app | person. The Play app record + first upload must exist (the API cannot create apps) |
 | `RELEASE_BOT_TOKEN` | secret | `bump-versions.yml` | token for the bump PR so `gate` runs on it (GITHUB_TOKEN PRs trigger no workflows) | person (optional) |
 | `RUNNER_STATUS_TOKEN` | secret | `pick-runner.yml` | lists the self-hosted runners (Administration: read) | person (optional) |
-| `NPM_TOKEN`, `CARGO_REGISTRY_TOKEN`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `SIGNING_KEY`, `SIGNING_PASSWORD`, `SWIFT_DIST_TOKEN` | secret | `release-ui.yml` | Exponential UI package publishing | person |
+| `NPM_TOKEN`, `CARGO_REGISTRY_TOKEN`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `SIGNING_KEY`, `SIGNING_PASSWORD`, `SWIFT_DIST_TOKEN` | secret | `release-eui.yml` | Exponential UI package publishing | person |
 
 Turning on the signed updater feed: `minisign -G -W -p update.pub -s update.key`,
 `UPDATE_SIGNING_KEY` = `base64 < update.key`, `UPDATE_SIGNING_PUBKEY` = line 2

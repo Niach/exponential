@@ -22,7 +22,7 @@
 //! the window closing) ENDS the member's live editor session
 //! (`sessions.end` on the root); the next send continues it.
 
-use exponential_ui::theme::Mode;
+use eui_core::theme::Mode;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, AnyElement, App, AppContext as _, Entity, FontWeight, InteractiveElement as _,

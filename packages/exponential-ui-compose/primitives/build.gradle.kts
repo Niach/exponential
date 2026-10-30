@@ -1,4 +1,4 @@
-// VAPP-89: `at.exponential:ui-compose-primitives`, the generic Compose
+// VAPP-89: `at.exponential:eui-compose-primitives`, the generic Compose
 // primitives the catalog natives are painted with (pill, segmented control,
 // field chrome, drawn switch, avatar, meter track, ring, markdown model +
 // view, empty state, disclosure header), themed by `PrimitiveTokens`. Pure
@@ -70,7 +70,7 @@ publishing {
     publications {
         register<MavenPublication>("release") {
             groupId = "at.exponential"
-            artifactId = "ui-compose-primitives"
+            artifactId = "eui-compose-primitives"
             version = project.version.toString()
             afterEvaluate { from(components["release"]) }
             pom {

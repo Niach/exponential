@@ -1,12 +1,12 @@
 // VAPP-87 + round 1: what every painted node reads from its surface.
 
 import { createContext, useContext } from "react"
-import type { ExtensionDef, Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, UiNode } from "@exponential_app/ui"
-import type { CompiledTheme } from "@exponential_app/ui/web"
+import type { ExtensionDef, Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, UiNode } from "@exponential_app/eui"
+import type { CompiledTheme } from "@exponential_app/eui/web"
 import type { HostPlugin } from "./host"
 import type { ReactExtension } from "./extensions"
-import type { ClientFunction, DataModel, ResolveContext } from "@exponential_app/ui/web"
-import { setPointer } from "@exponential_app/ui/web"
+import type { ClientFunction, DataModel, ResolveContext } from "@exponential_app/eui/web"
+import { setPointer } from "@exponential_app/eui/web"
 
 export interface SurfaceContextValue {
   surfaceId: string

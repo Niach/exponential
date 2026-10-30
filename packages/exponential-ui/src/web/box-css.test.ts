@@ -1,7 +1,7 @@
 // VAPP-152: the node sheet per node, the `<style>` batches a streamed
 // update appends to, and the structural sharing between reduced trees.
 import { describe, expect, it } from "bun:test"
-import { CORE_CATALOG_ID, reduceNested, type UiNode } from "@exponential_app/ui"
+import { CORE_CATALOG_ID, reduceNested, type UiNode } from "@exponential_app/eui"
 import { AUTHOR_SEP, compileNodeSheet, nodeSheetBatches, type NodeSheetBatch } from "./box-css"
 import { share } from "./share"
 

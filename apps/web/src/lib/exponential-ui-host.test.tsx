@@ -50,9 +50,9 @@ vi.mock(`@exp/ui`, async (importOriginal) => {
   return { ...actual, toast }
 })
 
-import { ExponentialHost, MemoryTransport, type AppPackage } from "@exponential_app/ui"
-import { mediaRequestOf } from "@exponential_app/ui/web"
-import { HostSurface, hostPlugin } from "@exponential_app/ui-react"
+import { ExponentialHost, MemoryTransport, type AppPackage } from "@exponential_app/eui"
+import { mediaRequestOf } from "@exponential_app/eui/web"
+import { HostSurface, hostPlugin } from "@exponential_app/eui-react"
 import appsFixture from "@exp/domain-contract/fixtures/apps.json"
 import { appReactExtension, devicesPackage } from "@exp/ui"
 import { contract } from "@exp/domain-contract"

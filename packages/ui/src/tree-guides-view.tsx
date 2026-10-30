@@ -35,7 +35,7 @@ import {
 // VAPP-102 — the SDK TWIN: `TreeGuidesNative`
 // (`packages/exponential-ui-react/src/natives/feedback.tsx`) paints a catalog
 // Row's `guides` part from the same rule (`treeGuides`, re-exported by
-// `./tree-guides` from `@exponential_app/ui`) on the same geometry: a 14px
+// `./tree-guides` from `@exponential_app/eui`) on the same geometry: a 14px
 // column (`TREE_GUIDE_COLUMN` = `TREE_INDENT`), a 3px elbow
 // (`TREE_GUIDE_RADIUS` = `TREE_RADIUS`) and verticals overshooting the row's
 // top by `TREE_GUIDE_BRIDGE` (1px, to cross a Section's hairline divider; this

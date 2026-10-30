@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
-// `bun run --filter @exponential_app/ui conformance` — the renderer
+// `bun run --filter @exponential_app/eui conformance` — the renderer
 // conformance harness, everything this machine can run:
 //   1. the WEB dump: the React renderer in headless Chromium with the
 //      conformance fonts (packages/exponential-ui-react/scripts/conformance-web.ts),
 //      compared with the committed baseline (fixtures/conformance-baseline.json)
 //   2. the DESKTOP dump: the gpui painter headless with gpui's own Linux text
 //      system and the same font files (cargo example `conformance_dump` of
-//      apps/desktop/crates/exponential-ui-gpui), compared with the baseline
+//      apps/desktop/crates/eui-gpui), compared with the baseline
 //   3. (`--pixels`) the perceptual step: the web surface PNG next to the
 //      desktop window's capture (Xvfb), a pixel-difference ratio + a global
 //      SSIM per case — REPORTED, never gating

@@ -208,7 +208,7 @@ digests in that one file.
 
 ### Exponential UI: the vendored A2UI basic catalog and the json-render wording (VAPP-85, 2026-10-07)
 
-`packages/exponential-ui` (the `@exponential_app/ui` catalog package, private,
+`packages/exponential-ui` (the `@exponential_app/eui` catalog package, private,
 unpublished until VAPP-91) carries two Apache-2.0 sources:
 
 - **A2UI** (google/A2UI, Apache-2.0, Google LLC): the v0.9 specification's
@@ -236,7 +236,7 @@ unpublished until VAPP-91) carries two Apache-2.0 sources:
   copyrightable work, so no notice is owed. Recorded here for provenance.
 
 **Which clients bundle it (VAPP-87, 2026-10-07):** the web app, through
-`@exponential_app/ui-react` (the React renderer, `packages/exponential-ui-react`)
+`@exponential_app/eui-react` (the React renderer, `packages/exponential-ui-react`)
 on its `/exponential-ui-kitchen-sink` route, which imports the catalog JSON
 and the built-in themes. The two Apache-2.0 sources therefore have one
 `VENDORED` row each in `packages/licenses/curated/supplement.ts` with
@@ -245,7 +245,7 @@ renderer itself adds no third-party source: its natives are Radix behaviour
 (MIT, in the npm inventory) painted from the theme's recipes, and the shadcn
 primitive set that moved from `@exp/ui` into `src/primitives/` was already
 ours (MIT-derived shadcn code, recorded with the web app's dependencies).
-The Solid renderer (FEED-128, `@exponential_app/ui-solid`,
+The Solid renderer (FEED-128, `@exponential_app/eui-solid`,
 `packages/exponential-ui-solid`) adds none either: its runtime set is
 `solid-js` 1.9 (MIT), `@floating-ui/dom` 1.7 (MIT), `aria-hidden` 1.2 (MIT)
 and `lucide-solid` 0.544 (ISC), each declared in its npm tarball (verified
@@ -256,7 +256,7 @@ and its `styles.css` is the React package's compiled sheet. The catalog
 package's new runtime dependencies (FEED-131, the shared primitive recipes),
 `class-variance-authority` 0.7 (Apache-2.0), `clsx` 2.1 (MIT) and
 `tailwind-merge` 3 (MIT), were already in the web app's inventory through
-`@exponential_app/ui-react`, so no inventory changes either.
+`@exponential_app/eui-react`, so no inventory changes either.
 The desktop app (VAPP-90), the iOS SwiftUI painter (VAPP-88,
 `packages/exponential-ui-swift`, whose xcframework embeds the same Rust core
 with the generated catalog and themes) and the Android Compose painter
@@ -297,7 +297,7 @@ every client the catalog reaches (`web`, `desktop`, `ios`, `android`).
 
 The iOS app + its Notification Service Extension (`ExpPush`) and the Android
 app link the PUSH-ONLY build of `exponential-net-ffi` (MIT OR Apache-2.0, ours):
-`exponential-net` without its `node` feature, so the third-party Rust set is
+`enet-core` without its `node` feature, so the third-party Rust set is
 the RustCrypto crates `chacha20poly1305` / `chacha20` / `poly1305` / `aead` /
 `cipher` / `universal-hash`, `hkdf`, `hmac`, `sha2`, `digest` (all MIT OR
 Apache-2.0), `curve25519-dalek` 5 (BSD-3-Clause), `getrandom` (MIT OR

@@ -1,7 +1,7 @@
 // FEED-128 (React's natives/chart.tsx): Chart, kinds bar, stackedBar, line,
 // area, pie, donut and sparkline. The width is the BOX's (measured, no fixed
 // viewBox, so text is never stretched); the numbers every painter shares
-// come from `@exponential_app/ui` (`chartExtent`, `niceTicks`, `seriesColor`,
+// come from `@exponential_app/eui` (`chartExtent`, `niceTicks`, `seriesColor`,
 // `DONUT_HOLE`). Pie and donut draw one RING per series (slices =
 // categories). The legend shows with 2+ series or slices; the tooltip part
 // follows hover and, with the chart focused, ArrowLeft/ArrowRight between
@@ -13,8 +13,8 @@
 // only drives attribute bindings, the band and the tooltip.
 
 import { createMemo, createSignal, createUniqueId, For, Index, Show, type Component, type JSX } from "solid-js"
-import { chartExtent, chartSummaryParams, niceTicks, seriesColor, DONUT_HOLE } from "@exponential_app/ui"
-import { tokenVar, visualScale } from "@exponential_app/ui/web"
+import { chartExtent, chartSummaryParams, niceTicks, seriesColor, DONUT_HOLE } from "@exponential_app/eui"
+import { tokenVar, visualScale } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { mergeStyle, type NativeProps } from "../node-view"
 import { createElementSize } from "../platform"

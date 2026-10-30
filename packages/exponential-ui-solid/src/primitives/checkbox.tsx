@@ -1,6 +1,6 @@
 import { Show, createEffect, createSignal, onCleanup, splitProps, untrack, type ComponentProps, type JSX } from "solid-js"
 import { Check } from "lucide-solid"
-import { CHECKBOX_CLASSES } from "@exponential_app/ui/web/primitives"
+import { CHECKBOX_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { bubbleOnChange, createElementSize, createInForm, createPresence } from "../behaviors"
 import { PaintIcon } from "../icons"

@@ -1,5 +1,5 @@
 // VAPP-103: the TS reference against hostile or huge agent input — the
-// same refusals as the Rust core (apps/desktop/crates/exponential-ui/tests/
+// same refusals as the Rust core (apps/desktop/crates/eui-core/tests/
 // robustness.rs), the same issue text. The shared cases are the `limit-*`
 // reduce cases of fixtures/template-items.json (every runner replays them).
 

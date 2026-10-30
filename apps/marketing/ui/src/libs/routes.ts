@@ -26,7 +26,7 @@ export const LIB_ROUTES: readonly Route[] = [
     () => import("./Net"),
     `eNet · peer to peer, end-to-end encrypted`,
     `eNet connects every Exponential client directly and end to end encrypted on iroh, with a relay that can't read and a relay-only browser build. Chat, files, records, calls and sealed push. Not released yet.`,
-    [`ui/src/libs/Net.tsx`, `../desktop/crates/exponential-net`]
+    [`ui/src/libs/Net.tsx`, `../desktop/crates/enet-core`]
   ),
   lib(
     `/apps/`,
