@@ -658,5 +658,19 @@
         "final": true
       }
     }
-  ]
+  ],
+  "placeholder": {
+    "$comment": "EXP-1459 (owner: the web slice designs it, iOS/Android/desktop copy it): the ONE locked state x4, for content this install cannot open (yet). A message whose body or card does not open (openBody/openCard status noKey, unsupported, malformed or refused) is LOCKED with a reason: `noKey` = waiting for a holder to wrap the tree key for this install (it opens by itself once `sessionKeys.mine` has the wrap, no reload); `unreadable` = unsupported, malformed or refused (it never opens here). TRANSCRIPT (buildSessionThread, both layouts): a locked message is ONE `locked` row {id, reason, author} at its place, whatever its card kind, painted as THE transcript pill (chats.json TranscriptDivider: centred glass pill, muted xs) with the `icon` concept and `copy[reason]`, never a bubble or a card, no time. A locked waiting question/plan stays out of the dock (it cannot be answered here). CHAT LIST (chatPreview): a locked message counts like any other preview candidate; when it is the one the preview shows (the newest, or the waiting card while needsYou) the preview = {kind: `locked`, text: copy[reason]} painted ITALIC muted like `working`. TITLES: `sessions.sealed_title` that opens = the title; one that does not open falls back to the plaintext `title` (neutral) and the usual derivation (a locked first prompt counts as no prompt). A plaintext body (no envelope) is never locked.",
+    "icon": "ui-private",
+    "copy": {
+      "noKey": "Waiting for the key",
+      "unreadable": "Can't be opened here"
+    },
+    "reasons": {
+      "noKey": "noKey",
+      "unsupported": "unreadable",
+      "malformed": "unreadable",
+      "refused": "unreadable"
+    }
+  }
 }

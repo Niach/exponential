@@ -10,6 +10,7 @@ import {
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
 import type { ThreadRow } from "@exp/domain-contract/session-tree"
+import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import { BoardGlyph } from "./board-glyph"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
 import { AgentBubbles, CHAT_SELECTION_ICONS, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
@@ -348,6 +349,71 @@ export function ChatTranscriptSpecimen() {
             testKey="sg-enter"
             className="peer-checked:motion-enter peer-checked:slide-in-from-bottom-[12px] peer-checked:zoom-in-[0.98] peer-checked:[--tw-duration:var(--motion-duration-slow)]"
           />
+        </div>
+      </div>
+    </TooltipProvider>
+  )
+}
+
+// ── sealed-locked ────────────────────────────────────────────────────────
+// EXP-1459 (sealed-content.json `placeholder`): content this install cannot
+// open (yet). In a transcript THE pill with the lock (both layouts); in the
+// list the preview line italic muted, like `working`.
+
+const LOCKED_ROWS: ThreadRow[] = [
+  { ...TRANSCRIPT_ROWS[0]!, id: `l-m1` } as ThreadRow,
+  { type: `locked`, id: `l-k1`, reason: `noKey`, author: `agent` },
+  {
+    type: `message`,
+    id: `l-m2`,
+    author: `agent`,
+    authorId: null,
+    body: `Deferred the shape subscribe until after the first frame.`,
+    queued: false,
+    authorSessionId: null,
+    xref: null,
+  },
+  { type: `locked`, id: `l-k2`, reason: `unreadable`, author: `user` },
+]
+
+const LOCKED_LIST_ROWS: ChatRowModel[] = LIST_ROWS.slice(0, 3).map((row, index) =>
+  index === 0
+    ? { ...row, preview: { kind: `locked`, text: SEALED_PLACEHOLDER.copy.noKey } }
+    : index === 2
+      ? { ...row, preview: { kind: `locked`, text: SEALED_PLACEHOLDER.copy.unreadable } }
+      : row
+)
+
+function LockedTranscript({ layout }: { layout: `transcript` | `bubbles` }) {
+  return (
+    <ThreadConversation
+      rows={LOCKED_ROWS}
+      layout={layout}
+      renderText={paragraph}
+      attachmentSrc={() => ``}
+      messageCaption={() => `Dana Reyes · 21:02`}
+      messageTime={(row) => TIMES[row.id.replace(`l-`, ``)] ?? null}
+      onSurfaceReply={() => {}}
+      arrived={() => false}
+    />
+  )
+}
+
+export function SealedLockedSpecimen() {
+  return (
+    <TooltipProvider>
+      <div data-testid="sealed-locked-specimen" className="flex flex-wrap items-start gap-6">
+        <div className="w-[22rem] max-w-full rounded-3xl border border-glass-stroke-card bg-background p-4">
+          <div className="mb-3 text-xs text-muted-foreground">Phone (bubbles)</div>
+          <LockedTranscript layout="bubbles" />
+        </div>
+        <div className="w-[32rem] max-w-full">
+          <div className="mb-3 text-xs text-muted-foreground">Web wide (transcript)</div>
+          <LockedTranscript layout="transcript" />
+        </div>
+        <div className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4">
+          <div className="text-xs text-muted-foreground">Chats list</div>
+          <ChatList rows={LOCKED_LIST_ROWS} agentOf={() => `claude`} />
         </div>
       </div>
     </TooltipProvider>

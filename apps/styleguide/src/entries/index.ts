@@ -68,6 +68,7 @@ import { entry as storyRing } from "./story-ring.tsx"
 import { entry as storyViewer } from "./story-viewer.tsx"
 import { entry as storyTab } from "./story-tab.tsx"
 import { entry as chatSelection } from "./chat-selection.tsx"
+import { entry as sealedLocked } from "./sealed-locked.tsx"
 import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
 import { entry as qrCode } from "./qr-code.tsx"
@@ -147,6 +148,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   chatTranscript,
   chatMenus,
   chatSelection,
+  sealedLocked,
   storyRing,
   storyViewer,
   storyTab,

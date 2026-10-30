@@ -10,6 +10,7 @@ import { chacha20poly1305 } from "@noble/ciphers/chacha.js"
 import { x25519 } from "@noble/curves/ed25519"
 import { hkdf } from "@noble/hashes/hkdf.js"
 import { sha256 } from "@noble/hashes/sha2.js"
+import placeholderFixture from "../fixtures/sealed-content.json" with { type: "json" }
 
 // ── the push_seal primitive (format v1) ─────────────────────────────────────
 //   sealed = 0x01 ‖ eph_pub[32] ‖ ciphertext ‖ tag[16]
@@ -346,4 +347,47 @@ export function openCard(card: Card, keys: TreeKeys): OpenedCard {
     return { status: `refused`, epoch: opened.epoch, card: clear }
   }
   return { status: `opened`, epoch: opened.epoch, card: { ...(inner as Card), ...clear } }
+}
+
+// ── the locked state (fixtures/sealed-content.json `placeholder`) ───────────
+
+/** Why content stays locked here: `noKey` = waiting for a holder's wrap
+ *  (opens by itself later), `unreadable` = it never opens on this install. */
+export type LockedReason = `noKey` | `unreadable`
+
+export const SEALED_PLACEHOLDER = placeholderFixture.placeholder as {
+  icon: string
+  copy: Record<LockedReason, string>
+  reasons: Record<Exclude<OpenStatus, `plain` | `opened`>, LockedReason>
+}
+
+/** Null when the content opened (or was plaintext). */
+export function lockedReason(status: OpenStatus): LockedReason | null {
+  return status === `plain` || status === `opened` ? null : SEALED_PLACEHOLDER.reasons[status]
+}
+
+/** A message row opened with its tree's keys: `body` / `card` as the
+ *  sender wrote them, or, when either stays sealed, `locked` with an empty
+ *  body and the card's clear part (its kind and routing flags). */
+export function openMessage<M extends { body: string; card: Card | null }>(
+  message: M,
+  keys: TreeKeys
+): M & { locked: LockedReason | null } {
+  const body = openBody(message.body, keys)
+  const card = message.card ? openCard(message.card, keys) : null
+  const reasons = [lockedReason(body.status), card ? lockedReason(card.status) : null]
+  const locked = reasons.includes(`noKey`) ? `noKey` : reasons.includes(`unreadable`) ? `unreadable` : null
+  return {
+    ...message,
+    body: locked ? `` : (body.text ?? ``),
+    card: card ? card.card : null,
+    locked,
+  }
+}
+
+/** A sealed title opened, else null (callers keep the neutral `title`). */
+export function openTitle(sealedTitle: string | null | undefined, keys: TreeKeys): string | null {
+  if (!sealedTitle) return null
+  const opened = openBody(sealedTitle, keys)
+  return opened.status === `opened` || opened.status === `plain` ? opened.text : null
 }
