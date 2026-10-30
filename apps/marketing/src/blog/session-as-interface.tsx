@@ -15,7 +15,7 @@ export const meta: PostMeta = {
   cover: { src: COVER.src, alt: `A session feed: a code-mode script card, a comment written through MCP, the queue`, width: COVER.frame.w, height: COVER.frame.h },
   readingMinutes: 3,
   ogImage: `/og/og-blog-session-as-interface.png`,
-  sources: [`src/blog/session-as-interface.tsx`, `src/components/blog`, `../../shots/script-card`, `../../shots/composer-menu`, `../../shots/trace`, `../../shots/thread`, `../../shots/plan-card`, `../../shots/guide`, `../../shots/ask-dock`, `../../shots/thread-replies`, `../../shots/agent-channel`],
+  sources: [`src/blog/session-as-interface.tsx`, `src/components/blog`, `../../shots/script-card`, `../../shots/composer-menu`, `../../shots/trace`, `../../shots/thread`, `../../shots/plan-card`, `../../shots/story-viewer`, `../../shots/ask-dock`, `../../shots/thread-replies`, `../../shots/agent-channel`],
 }
 
 export function Post() {
@@ -77,14 +77,15 @@ export function Post() {
         </ShotRow>
       </Section>
 
-      <Section id="guide" num="06" label="Guide">
-        <h2>The Guide is the pull request</h2>
+      <Section id="stories" num="06" label="Stories">
+        <h2>Stories carry the results</h2>
         <p>
-          A session ends its work by writing a Guide through MCP: a summary, then one topic per change with the
-          files it touched and a picture per platform. The Guide is a tab on the thread and the body of every pull
-          request; opening a PR with a UI change and no picture is refused.
+          What a session wants a person to see lands as a story: a result with its screenshots, a question or a
+          plan. Each agent and each chat wears a ring on top of Chats; a tap opens its stories, what waits on the
+          person first, and a question is answered right there. The pull request body is a short summary plus the
+          story pictures of each platform; opening a PR with a UI change and no picture is refused.
         </p>
-        <Shot view="story-viewer" platform="web" caption="Stories have since replaced the Guide: a result story with its screenshots, and the pull request body is built from them." />
+        <Shot view="story-viewer" platform="web" caption="A story: the agent's result with its screenshot, one segment per story on top." />
       </Section>
 
       <Section id="notifications" num="07" label="Notifications">

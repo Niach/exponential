@@ -323,7 +323,7 @@ export function CodingDocsPage() {
                 <strong>chat</strong>: the issue moves to{` `}
                 <strong>In Progress</strong>, and the chat&apos;s{` `}
                 <strong>Conversation</strong> tab is the session&apos;s own
-                work, beside the issue&apos;s chip and the Guide. With plan
+                work, beside the issue&apos;s chip. With plan
                 mode on it <strong>plans first</strong>; you approve before
                 implementation starts.
               </li>
@@ -399,8 +399,8 @@ export function CodingDocsPage() {
               the title over one strip of tabs that never scrolls away: a{` `}
               <strong>+</strong> (<strong>Link an issue</strong> or{` `}
               <strong>New issue</strong>), <strong>Conversation</strong>, a
-              chip per linked issue, a chip per session the agent started, and
-              the <strong>Guide</strong> pinned on the right; deeper sessions
+              chip per linked issue and a chip per session the agent started;
+              deeper sessions
               and sub-issues fold under their chip&apos;s chevron. While the
               chat is one session, its Conversation is that session&apos;s
               own work. Once the agent starts a child session, the
@@ -662,28 +662,24 @@ export function CodingDocsPage() {
             <p>You never have to leave the IDE to land the work:</p>
             <ul>
               <li>
-                The chat&apos;s <strong>Guide</strong> tab is the pull
-                request&apos;s body, written by the agent: a Summary, then one
-                section per change with its screenshots and a{` `}
-                <strong>Changes</strong> row that opens that part of the diff.
-                The Guide gets a dot in the strip as soon as it holds anything.
+                What the agent wants you to see lands as{` `}
+                <strong>stories</strong>: its results with their screenshots,
+                its questions and its plans. Each agent and each chat wears a
+                ring around its bubble on top of <strong>Chats</strong>; tap
+                it and swipe through its stories, what waits on you first, and
+                answer a question or approve a plan right there.
               </li>
               <li>
-                <strong>Show complete diff</strong>, at the bottom of the
-                Guide, opens the whole diff: a file tree with{` `}
-                <strong>Filter files</strong> beside every changed file, its
-                unchanged lines folded. Files no section names land in{` `}
-                <strong>Other changes</strong>.
+                The pull request&apos;s body is written for you: a short
+                summary, its linked issues, and the story screenshots of each
+                platform.
               </li>
               <li>
                 While the PR is open the chat header carries the one{` `}
-                <strong>Merge PR</strong> pill (on a phone, the Merge capsule
-                at the bottom of the Guide); a PR stacked on another open one
+                <strong>Merge PR</strong> pill; a PR stacked on another open one
                 reads <strong>Merge stack</strong> and lands the whole stack,
-                bottom up, and the Guide opens with the{` `}
-                <strong>Stack</strong> it belongs to. The linked issues
-                complete on merge. The chat header&apos;s{` `}
-                <strong>…</strong> menu on the Guide holds{` `}
+                bottom up. The linked issues complete on merge. The chat
+                header&apos;s <strong>…</strong> menu holds{` `}
                 <strong>Close PR without merging</strong>. In the Chats list a
                 chat whose
                 PR waits reads <strong>ready to merge</strong>, a stacked one{` `}

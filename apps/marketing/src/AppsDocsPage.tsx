@@ -103,7 +103,7 @@ export function AppsDocsPage() {
               The working area is a rounded card on a darker ground, the same
               cutout layout the web app uses. Work opens as tabs along its
               top: an issue, or a <strong>chat</strong> with its own strip
-              (Conversation, the issue chips, the session chips, the Guide)
+              (Conversation, the issue chips, the session chips)
               under the title. Terminals fill the card instead, and open
               terminals get a bar of tabs under it — a bar that is not there
               at all while none is open.
@@ -260,12 +260,13 @@ export function AppsDocsPage() {
               list to <strong>Stop</strong> it, <strong>Stop and delete</strong>{` `}
               it, or <strong>Delete</strong> an ended one. A chat is one screen
               paged by its strip: the <strong>Conversation</strong>, each
-              linked issue, each session&apos;s work, and the{` `}
-              <strong>Guide</strong>, swiped or tapped, with the composer
-              floating over whichever page is up. The Guide carries the{` `}
-              <strong>Merge</strong> capsule while the pull request is open
-              (<strong>Merge stack</strong> for a stacked one), so a PR the
-              chat opened merges from the phone too.
+              linked issue and each session&apos;s work, swiped or tapped,
+              with the composer floating over whichever page is up. The top
+              bar carries <strong>Merge PR</strong> while the pull request is
+              open (<strong>Merge stack</strong> for a stacked one), so a PR
+              the chat opened merges from the phone too. The agents&apos;{` `}
+              <strong>stories</strong> open full screen from the rings on top
+              of Chats.
             </p>
             <p>
               The full flow (starting sessions, plan mode, several issues at
