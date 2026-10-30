@@ -64,7 +64,9 @@ export function openCardCached(card: Card, keys: TreeKeys): { status: OpenStatus
     return { status: result.status, epoch: result.epoch, inner: result.status === `opened` ? result.card : null }
   })
   if (opened.status !== `opened`) return { status: opened.status, epoch: opened.epoch, card: clear }
-  return { status: `opened`, epoch: opened.epoch, card: { ...opened.inner!, ...clear } }
+  // The clear `pictures` is a projection: the sealed ones stay whole.
+  const { pictures: _projected, ...over } = clear
+  return { status: `opened`, epoch: opened.epoch, card: { ...opened.inner!, ...over } }
 }
 
 /** A message opened with its root's keys (`openMessage`'s rules, the fixture's
@@ -120,4 +122,32 @@ export function openDigestMessages<M extends { body: string; card: Card | null }
   if (messages.length === 0) return []
   const rootId = rootOf(sessionId)
   return messages.map((message) => openMessageWith(message, rootId, source))
+}
+
+/** #EXP-1399 × EXP-1459: an escalated card's ORIGIN lives in another tree;
+ *  when this install cannot open it there, the mirror's `card.sealedCard`
+ *  (the same card sealed to the MIRROR's tree, contract addendum 3) stands
+ *  in for it. `rootOf` = the mirror message's root. */
+export function resolveSealedMirrors<M extends { id: string; card: Card | null; locked?: LockedReason | null }>(
+  messages: M[],
+  rootOf: (message: M) => string,
+  source: KeySource | undefined
+): M[] {
+  const lockedOrigins = new Map<string, M>()
+  for (const message of messages) if (message.locked && message.card) lockedOrigins.set(message.id, message)
+  if (lockedOrigins.size === 0) return messages
+  const standIns = new Map<string, Card>()
+  for (const message of messages) {
+    const card = message.card
+    if (card?.kind !== `ask` || typeof card.messageId !== `string` || !lockedOrigins.has(card.messageId)) continue
+    const copy = card.sealedCard
+    if (!copy || typeof copy !== `object` || Array.isArray(copy)) continue
+    const opened = openCardCached(copy as Card, source?.keysFor(rootOf(message)) ?? EMPTY)
+    if (opened.status === `opened`) standIns.set(card.messageId, opened.card)
+  }
+  if (standIns.size === 0) return messages
+  return messages.map((message) => {
+    const card = standIns.get(message.id)
+    return card ? { ...message, card, locked: null } : message
+  })
 }

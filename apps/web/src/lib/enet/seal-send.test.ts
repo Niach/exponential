@@ -51,6 +51,7 @@ function deps(holder: KeyHolder | undefined, rows: SealSessionRow[] = []): SealD
     myInstalls: async () => mine,
     teamInstalls: async () => team,
     userIdsByEmail: (emails) => emails.flatMap((email) => (email === `dana@acme.dev` ? [`u-dana`] : [])),
+    issueIdsByIdentifier: (_team, identifiers) => identifiers.flatMap((id) => (id === `EXP-12` ? [`i-12`] : [])),
   }
 }
 
@@ -70,19 +71,20 @@ describe(`sealSendInput`, () => {
   it(`a new thread carries its first key inline, wrapped for my installs and the target device`, async () => {
     const { holder } = holderWith()
     const sealed = await sealSendInput(
-      { teamId: `t1`, deviceId: `machine-1`, text: `Ship it @dana@acme.dev`, name: `Launch` },
+      { teamId: `t1`, deviceId: `machine-1`, text: `Ship it @dana@acme.dev #EXP-12 #NOPE-1`, name: `Launch` },
       deps(holder)
     )
-    const { seal, text, sealedName, mentionUserIds } = sealed.input
+    const { seal, text, sealedName, mentionUserIds, refIssueIds } = sealed.input
     expect(sealed.input.name).toBeUndefined()
     expect(mentionUserIds).toEqual([`u-dana`])
+    expect(refIssueIds).toEqual([`i-12`])
     expect(seal?.installId).toBe(INSTALL)
     expect(seal?.epoch).toBe(1)
     expect(seal?.wraps.map((w) => w.installId).sort()).toEqual([INSTALL, PHONE, DEVICE_INSTALL].sort())
     const deviceWrap = seal!.wraps.find((w) => w.installId === DEVICE_INSTALL)!
     const secret = unwrapTreeKey(deviceSecret, deviceWrap.wrapped)
     const keys = new Map([[1, secret]])
-    expect(openBody(text!, keys)).toEqual({ status: `opened`, epoch: 1, text: `Ship it @dana@acme.dev` })
+    expect(openBody(text!, keys)).toEqual({ status: `opened`, epoch: 1, text: `Ship it @dana@acme.dev #EXP-12 #NOPE-1` })
     expect(openBody(sealedName!, keys).text).toBe(`Launch`)
     // The send's result names the new root: this install keeps the key.
     await sealed.after({ sessionId: `new-root` })
@@ -162,5 +164,20 @@ describe(`sealAnswerInput`, () => {
     const input = { answer: `Postgres` }
     expect(sealAnswerInput({ card: { kind: `question`, question: `?` }, rootId: `r1` }, keyedRoot, input, undefined)).toBe(input)
     expect(() => sealAnswerInput({ card: fixture.card.splits[0]!.envelope, rootId: `r1` }, keyedRoot, input, undefined)).toThrow()
+  })
+})
+
+describe(`sealAnswerInput (escalated stand-in)`, () => {
+  it(`answers an origin this install cannot open from the mirror's copy, sealed to the origin tree`, () => {
+    const open = fixture.card.splits[0]!
+    const out = sealAnswerInput(
+      { card: open.envelope, rootId: `origin-root` },
+      undefined,
+      { answers: [`SQLite`] },
+      { keysFor: () => new Map(), current: () => undefined },
+      { card: open.card, key: { epoch: 2, publicKey: fixture.rotatedTree.publicKey } }
+    ) as { sealedCard: Record<string, unknown> }
+    const opened = openCard(out.sealedCard, new Map([[2, hex(fixture.rotatedTree.secret)]]))
+    expect(opened.card).toMatchObject({ kind: `question`, answer: `SQLite` })
   })
 })

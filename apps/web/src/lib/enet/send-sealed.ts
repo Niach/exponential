@@ -5,11 +5,18 @@
 // `answerSessionCard`.
 
 import type { SessionsSendInput } from "@exp/db-schema/domain"
-import { deviceCollection, messageCollection, sessionCollection, userCollection } from "@/lib/collections"
+import {
+  deviceCollection,
+  issueCollection,
+  messageCollection,
+  sessionCollection,
+  userCollection,
+} from "@/lib/collections"
 import type { CardAnswerInput } from "@/lib/sessions/card-answer"
 import { trpc } from "@/lib/trpc-client"
 import { currentKeyHolder } from "./current-key-holder"
 import { sealAnswerInput, sealSendInput, type SealDeps, type SealSessionRow } from "./seal-send"
+import { openCardCached } from "./sealed-open"
 
 type TrpcOptions = Parameters<typeof trpc.sessions.send.mutate>[1]
 
@@ -33,6 +40,12 @@ function sealDeps(): SealDeps {
         .filter((row) => typeof row.email === `string` && wanted.has(row.email.toLowerCase()))
         .map((row) => row.id)
     },
+    issueIdsByIdentifier: (teamId, identifiers) => {
+      const wanted = new Set(identifiers.map((identifier) => identifier.toUpperCase()))
+      return [...issueCollection.values()]
+        .filter((row) => (!teamId || row.teamId === teamId) && wanted.has(row.identifier.toUpperCase()))
+        .map((row) => row.id)
+    },
   }
 }
 
@@ -46,11 +59,34 @@ export async function sendSessionMessage(input: SessionsSendInput, options?: Trp
 
 /** `sessions.answer`; a sealed card's answer is re-sealed inside it. */
 export async function answerSessionCard(messageId: string, input: CardAnswerInput, options?: TrpcOptions) {
-  const row = messageCollection.get(messageId) as { card: Record<string, unknown> | null; rootId: string } | undefined
+  const row = messageCollection.get(messageId) as MessageLike | undefined
   const root = row ? (sessionCollection.get(row.rootId) as SealSessionRow | undefined) : undefined
-  const payload = row ? sealAnswerInput(row, root, input, currentKeyHolder()) : input
+  const payload = row ? sealAnswerInput(row, root, input, currentKeyHolder(), await standInFor(row, root)) : input
   return trpc.sessions.answer.mutate(
     { messageId, ...payload } as Parameters<typeof trpc.sessions.answer.mutate>[0],
     options as Parameters<typeof trpc.sessions.answer.mutate>[1]
   )
+}
+
+type MessageLike = { id: string; card: Record<string, unknown> | null; rootId: string }
+
+/** An escalated origin this install cannot open: its mirror's copy (sealed
+ *  to the mirror's tree) and the origin tree's current public key. */
+async function standInFor(origin: MessageLike, root: SealSessionRow | undefined) {
+  const holder = currentKeyHolder()
+  if (!holder || !origin.card || typeof origin.card.sealed !== `string`) return undefined
+  if (openCardCached(origin.card, holder.keysFor(origin.rootId)).status === `opened`) return undefined
+  for (const value of messageCollection.values()) {
+    const mirror = value as MessageLike
+    const card = mirror.card
+    if (card?.kind !== `ask` || card.messageId !== origin.id || !card.sealedCard) continue
+    const opened = openCardCached(card.sealedCard as Record<string, unknown>, holder.keysFor(mirror.rootId))
+    if (opened.status !== `opened`) continue
+    const key =
+      root?.sealPublicKey && root.sealEpoch
+        ? { epoch: root.sealEpoch, publicKey: root.sealPublicKey }
+        : (await trpc.sessionKeys.publicKeys.query({ rootIds: [origin.rootId] }, quiet))[0]
+    return key ? { card: opened.card, key: { epoch: key.epoch, publicKey: key.publicKey } } : undefined
+  }
+  return undefined
 }

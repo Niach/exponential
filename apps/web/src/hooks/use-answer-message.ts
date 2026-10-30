@@ -6,7 +6,7 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { messageCollection } from "@/lib/collections"
 import {
   buildSessionThread,
-  toTreeMessage,
+  toTreeMessages,
   toTreeSession,
   type MessageRow,
   type SessionRow,
@@ -111,7 +111,7 @@ export function useConversationRows({
             sessions: teamSessions.map(toTreeSession),
             sessionIssues: [],
             issues: [],
-            messages: messages.map(toTreeMessage),
+            messages: toTreeMessages(messages),
             pullRequests: [],
             now: now.toISOString(),
           })

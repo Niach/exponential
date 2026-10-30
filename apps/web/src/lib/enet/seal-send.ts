@@ -17,6 +17,7 @@
 
 import type { SessionsSendInput } from "@exp/db-schema/domain"
 import { sealBody, sealCard } from "@exp/domain-contract/sealed-content"
+import { extractIssueRefs } from "@/lib/issue-refs"
 import { extractMentionEmails } from "@/lib/mention-refs"
 import { answeredCard, type CardAnswerInput } from "@/lib/sessions/card-answer"
 import type { KeyHolder, ReaderInstall } from "./key-holder"
@@ -52,12 +53,15 @@ export type SealDeps = {
   myInstalls: () => Promise<InstallRow[]>
   teamInstalls: (teamId: string) => Promise<InstallRow[]>
   userIdsByEmail: (emails: string[]) => string[]
+  /** Issue ids of `#IDENT` refs in the team (unknown ones dropped). */
+  issueIdsByIdentifier: (teamId: string | undefined, identifiers: string[]) => string[]
 }
 
 export type SealedSendInput = SessionsSendInput & {
   seal?: { installId: string; publicKey: string; epoch: 1; wraps: Array<{ installId: string; wrapped: string }> }
   sealedName?: string
   mentionUserIds?: string[]
+  refIssueIds?: string[]
 }
 
 export type SealedSend = {
@@ -121,12 +125,26 @@ export function mentionUserIds(text: string | undefined, deps: Pick<SealDeps, `u
   return ids.length > 0 ? ids : undefined
 }
 
+/** `refIssueIds` for the text's `#IDENT` refs (none = omitted). */
+export function refIssueIds(
+  text: string | undefined,
+  teamId: string | undefined,
+  deps: Pick<SealDeps, `issueIdsByIdentifier`>
+): string[] | undefined {
+  const identifiers = text ? extractIssueRefs(text) : []
+  if (identifiers.length === 0) return undefined
+  const ids = [...new Set(deps.issueIdsByIdentifier(teamId, identifiers))]
+  return ids.length > 0 ? ids : undefined
+}
+
 export async function sealSendInput(input: SessionsSendInput, deps: SealDeps): Promise<SealedSend> {
   const holder = deps.holder
   const hasText = typeof input.text === `string` && input.text.length > 0
   if (!holder || (!hasText && !input.name)) return { input, after: noop }
   const mentions = mentionUserIds(input.text, deps)
   const root = targetRoot(input, deps)
+  const refs = refIssueIds(input.text, root?.teamId ?? input.teamId, deps)
+  const clearMeta = { ...(mentions ? { mentionUserIds: mentions } : {}), ...(refs ? { refIssueIds: refs } : {}) }
 
   let key: { epoch: number; publicKey: string }
   let after = noop
@@ -141,7 +159,7 @@ export async function sealSendInput(input: SessionsSendInput, deps: SealDeps): P
       } catch {
         // An older keyless root this install may not key (not a reader):
         // plaintext stays legal there.
-        return { input: mentions ? { ...input, mentionUserIds: mentions } : input, after: noop }
+        return { input: { ...input, ...clearMeta }, after: noop }
       }
     }
   } else {
@@ -159,31 +177,35 @@ export async function sealSendInput(input: SessionsSendInput, deps: SealDeps): P
     ...rest,
     ...(hasText ? { text: sealBody(key.publicKey, key.epoch, input.text!) } : {}),
     ...(name ? { sealedName: sealBody(key.publicKey, key.epoch, name) } : {}),
-    ...(mentions ? { mentionUserIds: mentions } : {}),
+    ...clearMeta,
     ...(seal ? { seal } : {}),
   }
   return { input: sealed, after }
 }
 
 /** `sessions.answer`'s input: a SEALED card's answer re-sealed inside the
- *  full card (`sealedCard`), else the plaintext answer as before. */
+ *  full card (`sealedCard`), else the plaintext answer as before.
+ *  `standIn` = an escalated origin this install cannot open: its mirror's
+ *  opened copy, re-sealed to the ORIGIN tree's current key. */
 export function sealAnswerInput(
   message: { card: Card | null; rootId: string },
   root: SealSessionRow | undefined,
   input: CardAnswerInput,
-  holder: Pick<KeyHolder, `keysFor` | `current`> | undefined
+  holder: Pick<KeyHolder, `keysFor` | `current`> | undefined,
+  standIn?: { card: Card; key: { epoch: number; publicKey: string } }
 ): CardAnswerInput | { decision?: `approved` | `rejected`; fresh?: boolean; sealedCard: Card } {
   if (!message.card || typeof message.card.sealed !== `string`) return input
-  if (!holder) throw new Error(`This card is sealed and this browser holds no key for it yet`)
-  const opened = openCardCached(message.card, holder.keysFor(message.rootId))
-  if (opened.status !== `opened`) throw new Error(`This card is sealed and this browser holds no key for it yet`)
-  const answered = answeredCard(opened.card as never, input)
+  const locked = new Error(`This card is sealed and this browser holds no key for it yet`)
+  const opened = holder ? openCardCached(message.card, holder.keysFor(message.rootId)) : null
+  const full = opened?.status === `opened` ? opened.card : standIn?.card
+  if (!full) throw locked
+  const answered = answeredCard(full as never, input)
   if (!answered.ok) throw new Error(answered.message)
   const key =
     root?.sealPublicKey && root.sealEpoch
       ? { epoch: root.sealEpoch, publicKey: root.sealPublicKey }
-      : holder.current(message.rootId)
-  if (!key) throw new Error(`This card is sealed and this browser holds no key for it yet`)
+      : (holder?.current(message.rootId) ?? standIn?.key)
+  if (!key) throw locked
   const sealedCard = sealCard(key.publicKey, key.epoch, answered.card as Card)
   return {
     ...(input.decision ? { decision: input.decision } : {}),

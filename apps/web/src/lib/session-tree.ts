@@ -11,7 +11,7 @@ import type {
 } from "@exp/db-schema/schema"
 import { keyMessagesBySession } from "@exp/domain-contract/message-conversation"
 import { currentKeyHolder } from "@/lib/enet/current-key-holder"
-import { openMessageWith, openTitleWith } from "@/lib/enet/sealed-open"
+import { openMessageWith, openTitleWith, resolveSealedMirrors } from "@/lib/enet/sealed-open"
 import type {
   TreeIssue,
   TreeMessage,
@@ -99,6 +99,13 @@ export function toTreeIssue(row: { id: string; identifier: string; title: string
 export function toTreeMessage(row: MessageRow): TreeMessage {
   // EXP-1459: sealed bodies and cards open here (or stay `locked`).
   return openMessageWith(plainTreeMessage(row), row.rootId, currentKeyHolder())
+}
+
+/** `toTreeMessage` over a list, with escalated origins this install cannot
+ *  open stood in for by their mirror's sealed copy (`resolveSealedMirrors`). */
+export function toTreeMessages(rows: readonly MessageRow[]): TreeMessage[] {
+  const roots = new Map(rows.map((row) => [row.id, row.rootId]))
+  return resolveSealedMirrors(rows.map(toTreeMessage), (message) => roots.get(message.id) ?? message.sessionId, currentKeyHolder())
 }
 
 function plainTreeMessage(row: MessageRow): TreeMessage {

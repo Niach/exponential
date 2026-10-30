@@ -28,7 +28,7 @@ import {
   sessionCard,
   sessionConversationIds,
   toTreeIssue,
-  toTreeMessage,
+  toTreeMessages,
   toTreePullRequest,
   toTreeSession,
   toTreeSessionIssue,
@@ -755,7 +755,7 @@ export function useSessionThread(
       sessions: linked.tree.length > 0 ? [...tree, ...linked.tree] : tree,
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
       issues: foldedIssues,
-      messages: messages.map(toTreeMessage),
+      messages: toTreeMessages(messages),
       pullRequests: pullRequests.map(toTreePullRequest),
       now: now.toISOString(),
     }, { focus, titles: xrefTitles })
