@@ -1,4 +1,4 @@
-import { expect, test as base } from "@playwright/test"
+import { expect, test as base, type Browser } from "@playwright/test"
 import { cleanupNamespace } from "./helpers/db"
 
 export interface TestUser {
@@ -122,6 +122,9 @@ function buildAppFixture(): AppFixture {
   }
 }
 
+// The browser is worker-scoped: one `disconnected` listener per browser.
+const watchedBrowsers = new WeakSet<Browser>()
+
 type Fixtures = {
   app: AppFixture
 }
@@ -139,6 +142,12 @@ export const test = base.extend<Fixtures>({
   // A page that dies mid-test leaves no snapshot: say how it went into the log.
   page: async ({ page }, use) => {
     const at = () => new URL(page.url()).pathname
+    const browser = page.context().browser()
+    if (browser && !watchedBrowsers.has(browser)) {
+      watchedBrowsers.add(browser)
+      browser.on(`disconnected`, () => console.log(`[e2e] browser disconnected`))
+    }
+    page.context().on(`close`, () => console.log(`[e2e] context closed at ${at()}`))
     page.on(`crash`, () => console.log(`[e2e] page crashed at ${at()}`))
     page.on(`close`, () => console.log(`[e2e] page closed at ${at()}`))
     page.on(`pageerror`, (err) => console.log(`[e2e] page error at ${at()}: ${err.stack ?? err.message}`))

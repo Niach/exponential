@@ -10,7 +10,7 @@ import {
 async function warmUp() {
   const browser = await chromium.launch()
   try {
-    const page = await browser.newPage({ ignoreHTTPSErrors: true })
+    const page = await browser.newPage({ ignoreHTTPSErrors: true, serviceWorkers: `block` })
     await page.goto(`https://localhost:3000/auth/login`, { timeout: 180_000 })
     await page
       .getByRole(`heading`, { level: 1, name: `Continue to Exponential` })
