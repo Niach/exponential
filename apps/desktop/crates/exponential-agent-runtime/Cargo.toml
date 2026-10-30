@@ -28,3 +28,9 @@ wait-timeout = "0.2"
 portable-pty = { workspace = true }
 # The event vocabulary (wire): the redactor's patterns.
 regex = "1"
+# The ACP engine core (engine::): the transport's bounded line channels.
+flume = { workspace = true }
+
+[dev-dependencies]
+# engine::child_exit's async waiter test.
+tokio = { workspace = true }

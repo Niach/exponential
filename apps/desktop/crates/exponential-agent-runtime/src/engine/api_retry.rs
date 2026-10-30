@@ -29,7 +29,7 @@
 //! auth and model errors, and anything on the rate-limit slot (account
 //! rotation owns walls, EXP-1005).
 //!
-//! [`ApiError`]: steer::ActivityEvent::ApiError
+//! [`ApiError`]: crate::wire::ActivityEvent::ApiError
 
 use std::time::{Duration, Instant};
 
@@ -106,15 +106,15 @@ impl ApiRetry {
     }
 
     /// Fold in one wire event of a LIVE run (never a history replay).
-    pub fn observe(&mut self, event: &steer::ActivityEvent, now: Instant) {
-        use steer::ActivityEvent as E;
+    pub fn observe(&mut self, event: &crate::wire::ActivityEvent, now: Instant) {
+        use crate::wire::ActivityEvent as E;
         match event {
-            E::Turn { state: steer::frames::TurnState::Started, .. } => {
+            E::Turn { state: crate::wire::frames::TurnState::Started, .. } => {
                 self.in_turn = true;
                 self.errored = false;
                 self.armed_at = None;
             }
-            E::Turn { state: steer::frames::TurnState::Ended, .. } => {
+            E::Turn { state: crate::wire::frames::TurnState::Ended, .. } => {
                 if self.in_turn && self.errored {
                     self.armed_at = Some(now);
                 } else if self.in_turn {
@@ -193,8 +193,8 @@ pub fn give_up_notice() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use steer::frames::TurnState;
-    use steer::ActivityEvent as E;
+    use crate::wire::frames::TurnState;
+    use crate::wire::ActivityEvent as E;
 
     fn turn(state: TurnState) -> E {
         E::Turn { state, started_at: None, tokens: None, at: None }

@@ -29,7 +29,7 @@
 //!   mid-turn still reaches the adapter.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -387,112 +387,12 @@ pub(crate) fn terminal_is_activity(event: &LocalFeedEvent) -> bool {
 // The child a stdio adapter owns (EXP-746)
 // ---------------------------------------------------------------------------
 
-/// How an adapter reports its CHILD's exit to the engine core.
-///
-/// The adapter owns the process (`crate::transport::ChildLines`), the engine
-/// owns the outcome vocabulary — `exit:<code>` is the publisher `bye` every
-/// client already reads. An adapter records the exit here the moment its wait
-/// thread reaps; the engine reads it in the end sequence and, absent an
-/// explicit kill, ends the row with that code.
-///
-/// It reaches the adapters as a field on `AdapterSpec` (claude and codex
-/// record into it; an adapter that owns no child never touches it, and the
-/// run then ends as `ended`).
-#[derive(Clone)]
-pub struct ChildExitLink {
-    slot: Arc<Mutex<Option<terminal::pty::ChildExit>>>,
-    /// EXP-758: the child's pid, recorded at spawn. The lifecycle writes it
-    /// onto the run record so a host that died without its end sequence
-    /// (Cmd-Q, a crash) leaves a pid the next start can reap
-    /// (`coding::reaper::reap_recorded`) — a codex child carries no
-    /// `claude-hooks` anchor, so this is the only handle on it.
-    pid: Arc<Mutex<Option<u32>>>,
-    /// EXP-784: stdout lines the transport DROPPED over the child's life
-    /// (`transport::STDOUT_LINES_CAP`), written by the exit forwarder just
-    /// before the exit. Nonzero is folded into the ended banner
-    /// ([`SessionCtx::take_failure`]): a session that lost frames is broken
-    /// in ways the transcript cannot show.
-    dropped_lines: Arc<AtomicU64>,
-    /// Held until the exit is recorded; dropping it is the signal
-    /// [`ChildExitLink::reaped`] waits on. A flume receiver whose senders are
-    /// all gone resolves immediately and KEEPS resolving, so the edge is
-    /// memoryful: a waiter that arrives after the child died sees it too.
-    gate: Arc<Mutex<Option<flume::Sender<()>>>>,
-    signal: flume::Receiver<()>,
-}
-
-impl Default for ChildExitLink {
-    fn default() -> ChildExitLink {
-        ChildExitLink::new()
-    }
-}
-
-/// How long a closing adapter waits for its child's exit CODE.
-///
-/// The child's stdout ends on one thread and `wait()` reaps it on another, so
-/// the two race by microseconds — but the end sequence reads the code once,
-/// right after the connection closes. Without this grace a crashed CLI would
-/// end the run as a bare `ended` instead of `exit:<code>`.
-pub(crate) const CHILD_EXIT_GRACE: Duration = Duration::from_secs(2);
-
-impl ChildExitLink {
-    pub fn new() -> ChildExitLink {
-        let (gate, signal) = flume::bounded(0);
-        ChildExitLink {
-            slot: Arc::new(Mutex::new(None)),
-            pid: Arc::new(Mutex::new(None)),
-            dropped_lines: Arc::new(AtomicU64::new(0)),
-            gate: Arc::new(Mutex::new(Some(gate))),
-            signal,
-        }
-    }
-
-    /// Adapter side (EXP-784): the transport's final stdout drop count.
-    pub fn record_dropped_lines(&self, dropped: u64) {
-        self.dropped_lines.store(dropped, Ordering::SeqCst);
-    }
-
-    /// EXP-784: stdout lines the transport dropped, once recorded.
-    pub fn dropped_lines(&self) -> u64 {
-        self.dropped_lines.load(Ordering::SeqCst)
-    }
-
-    /// Adapter side: the child was reaped.
-    pub fn record(&self, exit: terminal::pty::ChildExit) {
-        if let Ok(mut slot) = self.slot.lock() {
-            slot.get_or_insert(exit);
-        }
-        // Dropped last: a waiter woken by this must find the code already in
-        // the slot.
-        if let Ok(mut gate) = self.gate.lock() {
-            gate.take();
-        }
-    }
-
-    /// Adapter side: the child was spawned as `pid`.
-    pub fn record_pid(&self, pid: u32) {
-        if let Ok(mut slot) = self.pid.lock() {
-            *slot = Some(pid);
-        }
-    }
-
-    /// The spawned child's pid, once an adapter recorded it.
-    pub fn pid(&self) -> Option<u32> {
-        self.pid.lock().ok().and_then(|slot| *slot)
-    }
-
-    /// Engine side: what the child exited with, if it did.
-    pub fn get(&self) -> Option<terminal::pty::ChildExit> {
-        self.slot.lock().ok().and_then(|slot| slot.clone())
-    }
-
-    /// Resolves once [`ChildExitLink::record`] has run — immediately, if it
-    /// already has. An adapter awaits this (bounded by [`CHILD_EXIT_GRACE`])
-    /// between its child's stdout EOF and closing the connection.
-    pub async fn reaped(&self) {
-        let _ = self.signal.recv_async().await;
-    }
-}
+// EXP-1426 part 4: `ChildExitLink` (with its grace and banner note) moved to
+// the agent runtime alongside the transport that records into it.
+pub use exponential_agent_runtime::engine::child_exit::ChildExitLink;
+pub(crate) use exponential_agent_runtime::engine::child_exit::{
+    dropped_lines_note, CHILD_EXIT_GRACE,
+};
 
 /// EXP-784: the agent-native session handle recorded for THIS run, for the
 /// `session/load` hint. The launcher's resume record carries the previous
@@ -506,12 +406,6 @@ fn recorded_native_session_id(ctx: &SessionCtx) -> Option<String> {
     }
     let record = coding::run_registry::get(&ctx.data_dir, &ctx.session_id)?;
     record.agent_native_session_id.or(record.claude_session_id)
-}
-
-/// EXP-784: the banner fragment for a transport that dropped stdout lines.
-pub(crate) fn dropped_lines_note(dropped: u64) -> String {
-    let (lines, verb) = if dropped == 1 { ("line", "was") } else { ("lines", "were") };
-    format!("{dropped} stdout {lines} {verb} dropped")
 }
 
 /// The `main_fn` every stdio adapter runs: hold the connection open until
@@ -4062,51 +3956,6 @@ mod tests {
             thread_name("0f8c2a11-4d3e-4f0a-9c1d-8a7b6c5d4e3f"),
             "acp-engine-0f8c2a11"
         );
-    }
-
-    #[test]
-    fn a_child_exit_becomes_the_bye_outcome() {
-        let link = ChildExitLink::new();
-        assert_eq!(link.get(), None);
-        link.record(terminal::pty::ChildExit {
-            code: 3,
-            success: false,
-            signal: None,
-        });
-        // A second report never overwrites the first.
-        link.record(terminal::pty::ChildExit {
-            code: 0,
-            success: true,
-            signal: None,
-        });
-        assert_eq!(link.get().map(|exit| exit.code), Some(3));
-    }
-
-    #[tokio::test]
-    async fn a_recorded_child_exit_wakes_waiters_before_and_after_it() {
-        let link = ChildExitLink::new();
-        // Nothing yet: an adapter parked here keeps the connection open.
-        assert!(
-            tokio::time::timeout(Duration::from_millis(50), link.reaped())
-                .await
-                .is_err()
-        );
-        let waiting = link.clone();
-        let parked = tokio::spawn(async move { waiting.reaped().await });
-        link.record(terminal::pty::ChildExit {
-            code: 3,
-            success: false,
-            signal: None,
-        });
-        tokio::time::timeout(Duration::from_secs(5), parked)
-            .await
-            .expect("the waiter parked before the exit is woken")
-            .expect("the waiter did not panic");
-        // And the edge is memoryful: an adapter that asks AFTER the child died
-        // must not park forever on an event it missed.
-        tokio::time::timeout(Duration::from_secs(5), link.reaped())
-            .await
-            .expect("a late waiter resolves immediately");
     }
 
     #[test]

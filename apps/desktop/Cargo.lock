@@ -2926,12 +2926,14 @@ name = "exponential-agent-runtime"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "flume 0.11.1",
  "libc",
  "log",
  "portable-pty",
  "regex",
  "serde",
  "serde_json",
+ "tokio",
  "toml 0.8.23",
  "wait-timeout",
 ]
