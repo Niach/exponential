@@ -1256,7 +1256,15 @@ export type MessageCard =
   /** NEW-1: a child's open question/plan card mirrored into its parent and
    *  watchers: `messageId` = THE card row on `sessionId` (one row, two
    *  views); answering either answers the child. */
-  | { kind: `ask`; sessionId: string; messageId: string }
+  | {
+      kind: `ask`
+      sessionId: string
+      messageId: string
+      // EXP-1458: an escalated SEALED card, re-sealed by the device to
+      // this conversation's tree (`{kind, sealed, ...clear}`); open it
+      // with `openCard`. Absent = read the origin (or the neutral body).
+      sealedCard?: Record<string, unknown>
+    }
   | { kind: `suggestions`; items: SuggestionItem[] }
   | { kind: `replies`; items: ReplyItem[] }
   /** Chats (fixtures/chats.json `surfaceCard`): an agent's inline Exponential
@@ -1325,6 +1333,16 @@ export const SESSIONS_SEND_MAX_ATTACHMENTS = 10
 export const SESSIONS_SEND_MAX_ISSUES = 30
 export const SESSION_BRIEF_MAX_BYTES = 65536
 export const MESSAGE_BODY_MAX = 65536
+/** EXP-1458: a sealed body (`exp-sealed:v1:<epoch>:<b64url>`) of a
+ *  plaintext of at most `chars` UTF-16 units (≤ 3 UTF-8 bytes each, plus
+ *  the 49-byte seal overhead, base64url, plus the prefix and epoch). */
+export const sealedBodyMax = (chars: number) => 25 + Math.ceil(((chars * 3 + 49) * 4) / 3)
+export const SEALED_BODY_PREFIX = `exp-sealed:`
+/** A body's cap: `max` for plaintext, its sealed size for an envelope. */
+export const bodyWithin = (max: number) => (value: string) =>
+  value.length <= (value.startsWith(SEALED_BODY_PREFIX) ? sealedBodyMax(max) : max)
+/** EXP-1458: the people a (sealed) message mentions; the issues it names. */
+export const SESSIONS_SEND_MAX_MENTIONS = 50
 export const AGENT_NAME_MAX = 64
 export const AGENT_INSTRUCTIONS_MAX_BYTES = 16384
 /** Follow-up trees: depth below a root, sessions per tree. */
@@ -1365,6 +1383,15 @@ export const sessionAnswerSchema = z.object({
   fresh: z.boolean().optional(),
   feedback: z.string().max(MESSAGE_BODY_MAX).optional(),
   surfaceData: z.record(z.string(), z.unknown()).optional(),
+  // EXP-1458: answering a SEALED card = the card envelope
+  // `{...clear, sealed}` with the FULL card re-sealed, the answers inside;
+  // its clear `decision` / `fresh` are the answer's. The server validates
+  // the clear part only, stamps `answered_at`, sets clear `answered`, and
+  // keeps first-answer-wins.
+  sealedCard: z
+    .object({ kind: z.string().max(32), sealed: z.string().min(1).max(sealedBodyMax(MESSAGE_BODY_MAX)) })
+    .passthrough()
+    .optional(),
 })
 export type SessionAnswerInput = z.infer<typeof sessionAnswerSchema>
 
@@ -1405,14 +1432,44 @@ export const sessionsSendInputSchema = z
     ultracode: z.boolean().optional(),
     mcpServerIds: z.array(sendUuid).max(20).optional(),
     // The message.
+    // EXP-1458: plaintext, or a body envelope sealed to the target tree
+    // (`exp-sealed:v1:…`, fixtures/sealed-content.json): the server stores
+    // it as is and never reads it. The writer then composes the whole
+    // message (a prompt's body, an app brief) and names its clear
+    // metadata below.
     text: z
       .string()
-      .max(SESSIONS_SEND_TEXT_MAX)
+      .max(sealedBodyMax(SESSIONS_SEND_TEXT_MAX))
+      .refine(bodyWithin(SESSIONS_SEND_TEXT_MAX), `text is too long`)
       .refine((value) => !value.includes(`\u0000`), `contains NUL bytes`)
       .optional(),
+    // Rendered beside the body (`messages.attachment_ids`); a plaintext
+    // body also gets an embed line per file it does not reference.
     attachmentIds: z.array(sendUuid).max(SESSIONS_SEND_MAX_ATTACHMENTS).optional(),
+    // EXP-1458: the members the text mentions (user ids; a sealed body's
+    // `@email`s are unreadable to the server): who is notified. Plaintext
+    // mentions are still parsed from the text.
+    mentionUserIds: z.array(z.string().min(1).max(64)).max(SESSIONS_SEND_MAX_MENTIONS).optional(),
+    // EXP-1458: the issues the text references (`#IDENT`), in clear: a
+    // child's start naming them gives its PR that share. Never links rows.
+    refIssueIds: z.array(sendUuid).max(SESSIONS_SEND_MAX_ISSUES).optional(),
     // EXP-1341: the new session's display name (root or child).
     name: z.string().trim().min(1).max(255).optional(),
+    // EXP-1458: the new session's name as a body envelope (written to
+    // `sessions.sealed_title`; the plaintext title stays neutral).
+    sealedName: z.string().min(1).max(sealedBodyMax(255)).refine((value) => value.startsWith(SEALED_BODY_PREFIX), `not sealed`).optional(),
+    // EXP-1458: the tree key of a root that has none yet (a new thread, an
+    // agent conversation, an app editor), created in the send's own
+    // transaction under `sessionKeys.create`'s rules: `installId` = the
+    // caller's own install (wrapped among `wraps`), every wrap a reader.
+    seal: z
+      .object({
+        installId: sendUuid,
+        publicKey: z.string().length(43),
+        epoch: z.literal(1),
+        wraps: z.array(z.object({ installId: sendUuid, wrapped: z.string().min(1).max(256) })).min(1).max(200),
+      })
+      .optional(),
     // A new root's or child's issues (rows on it); a message's FORWARDED
     // ones (the rows move to that session).
     issueIds: z.array(sendUuid).min(1).max(SESSIONS_SEND_MAX_ISSUES).optional(),
@@ -1477,6 +1534,7 @@ export const sessionsSendInputSchema = z
         issue(`a message needs text, attachments, issues, an answer, an account, a runner pick or a device`)
       return
     }
+    if (input.sealedName && input.sessionId) issue(`a name is for a new session`)
     if (input.answer) issue(`an answer goes to a session (sessionId)`)
     if (input.parentId && rootFacets) issue(`a child session takes no root facets`)
     if (!input.text?.trim() && !input.issueIds && !input.promptId && !input.wakeOn)
@@ -1534,4 +1592,9 @@ export interface SessionsSendResult {
    *  (device-doctor.json storage rule), e.g. `mint is low on disk: 6.2 GB
    *  free.`; absent otherwise. */
   warning?: string
+  /** EXP-1458 (eNet agent-to-agent): the install of the device executing
+   *  the target session (its host's devices row), so a writer may also
+   *  deliver the message over `exp/enet/chat/1`; null when that device has
+   *  no live install. */
+  deliverTo?: { installId: string; endpointId: string } | null
 }

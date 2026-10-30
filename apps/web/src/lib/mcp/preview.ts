@@ -1,4 +1,5 @@
 import { contract } from "@exp/domain-contract"
+import { SEALED_BODY_PREFIX } from "@exp/domain-contract/sealed-content"
 
 // EXP-988 contract / EXP-920 implementation: what an Exponential MCP tool
 // RESULT points at, so a run transcript can render a settled tool row as
@@ -159,6 +160,8 @@ const IDENTIFIER_RE = /^[A-Z][A-Z0-9]*-\d+$/
 function stringAt(row: Record<string, unknown>, key: string): string | null {
   const raw = row[key]
   if (typeof raw !== `string`) return null
+  // EXP-1458: a sealed envelope is never display text (nor cut short).
+  if (raw.startsWith(SEALED_BODY_PREFIX)) return null
   const trimmed = raw.trim()
   return trimmed ? trimmed : null
 }

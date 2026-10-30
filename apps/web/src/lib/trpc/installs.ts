@@ -31,6 +31,22 @@ const SIGNATURE_RE = /^[A-Za-z0-9_-]{85}[AQgw]$/
 const ED25519_SPKI_PREFIX = Buffer.from(`302a300506032b6570032100`, `hex`)
 
 /** The UTF-8 string the install identity signs. */
+/** EXP-1458: the machine id (`devices.device_id`, the string sessions name)
+ *  of each install's linked devices row, so a writer can wrap a tree key
+ *  for the install of the device that will run a session. */
+async function machineIds(
+  database: Pick<typeof import("@/db/connection").db, `select`>,
+  rows: ReadonlyArray<{ deviceId: string | null }>
+): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.flatMap((row) => (row.deviceId ? [row.deviceId] : [])))]
+  if (ids.length === 0) return new Map()
+  const found = await database
+    .select({ id: devices.id, deviceId: devices.deviceId })
+    .from(devices)
+    .where(inArray(devices.id, ids))
+  return new Map(found.map((row) => [row.id, row.deviceId]))
+}
+
 export function installMessage(
   userId: string,
   endpointId: string,
@@ -172,11 +188,13 @@ export const installsRouter = router({
         .from(installs)
         .where(and(inArray(installs.userId, userIds), isNull(installs.revokedAt)))
         .orderBy(asc(installs.createdAt))
+      const machines = await machineIds(ctx.db, rows)
       return rows
         .filter((row) => !row.revokedAt)
         .map((row) => ({
           installId: row.id,
           userId: row.userId,
+          deviceId: (row.deviceId && machines.get(row.deviceId)) ?? null,
           kind: row.kind,
           label: row.label,
           platform: row.platform,
@@ -192,8 +210,10 @@ export const installsRouter = router({
       .from(installs)
       .where(eq(installs.userId, ctx.session.user.id))
       .orderBy(asc(installs.createdAt))
+    const machines = await machineIds(ctx.db, rows)
     return rows.map((row) => ({
       installId: row.id,
+      deviceId: (row.deviceId && machines.get(row.deviceId)) ?? null,
       kind: row.kind,
       label: row.label,
       platform: row.platform,

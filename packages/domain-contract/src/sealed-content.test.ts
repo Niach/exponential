@@ -122,7 +122,9 @@ describe(`card envelope`, () => {
       for (const key of Object.keys(s.clear)) expect(fixture.cardClearFields).toContain(key)
       const opened = openCard(s.envelope as Card, keys)
       expect(opened.status).toBe(`opened`)
-      expect(opened.card).toEqual({ ...(s.card as Card), ...(s.clear as Card) })
+      // The clear `pictures` is a projection, never laid over the card.
+      const { pictures: _projected, ...over } = s.clear as Card
+      expect(opened.card).toEqual({ ...(s.card as Card), ...over })
     })
   }
   for (const c of fixture.cardCases) {

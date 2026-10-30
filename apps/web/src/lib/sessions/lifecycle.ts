@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server"
+import type { MessageCard } from "@exp/db-schema/domain"
 import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm"
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
@@ -7,7 +8,8 @@ import { generateTxId } from "@/lib/trpc"
 import { emitEventInTx } from "@/lib/events"
 import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
 import { getTeamMember } from "@/lib/auth/membership"
-import { busReport, closeAskMirrorsOf, forgetWatched } from "@/lib/sessions/bus"
+import { busReport, closeAskMirrorsOf, forgetWatched, type ListenerCopy } from "@/lib/sessions/bus"
+import { validSealedCard } from "@/lib/sessions/sealed"
 import { postAgentMessage, postMovedMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
@@ -84,7 +86,12 @@ export async function markEnded(tx: Tx, ids: string[]): Promise<string[]> {
 export async function endRowsInTx(
   tx: Tx,
   rows: readonly TreeRow[],
-  named?: { id: string; summary?: string | null } | null
+  named?: {
+    id: string
+    summary?: string | null
+    /** EXP-1458: the device-built sealed report card and its per-tree copies. */
+    sealedReport?: { card: MessageCard; copies?: readonly ListenerCopy[] } | null
+  } | null
 ): Promise<string[]> {
   const endedIds: string[] = []
   for (const row of rows) {
@@ -93,7 +100,12 @@ export async function endRowsInTx(
     if (ended.length === 0) continue
     endedIds.push(row.id)
     await postSystemCard(tx, row.id, { kind: `event`, event: `session_ended`, sessionId: row.id })
-    await busReport(tx, row, named?.id === row.id ? named.summary : null)
+    await busReport(
+      tx,
+      row,
+      named?.id === row.id ? named.summary : null,
+      named?.id === row.id ? named.sealedReport : null
+    )
     // NEW-2: the builtin `session.ended` event. #EXP-1409: the row syncs
     // to the whole team, so a PRIVATE session's carries its ids only (its
     // title is often the prompt); the full payload reaches only a trigger
@@ -196,6 +208,23 @@ export async function stopSession(args: {
   return { txid, delivered: delivered || !session.busy }
 }
 
+/** EXP-1458: a sealed report (and every copy) is a `report` card envelope
+ *  carrying clear fields only. */
+function checkSealedReport(
+  card: Record<string, unknown>,
+  copies?: ReadonlyArray<{ rootId: string; card: Record<string, unknown> }>
+): { card: MessageCard; copies: ListenerCopy[] } {
+  for (const each of [card, ...(copies ?? []).map((copy) => copy.card)]) {
+    if (each.kind !== `report` || !validSealedCard(each)) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid sealed report` })
+    }
+  }
+  return {
+    card: card as MessageCard,
+    copies: (copies ?? []).map((copy) => ({ rootId: copy.rootId, card: copy.card as MessageCard })),
+  }
+}
+
 /** End: explicit and final (agents refuse: they idle, or are deleted). A
  *  root ends its tree deepest first, every child reporting into its parent
  *  before it goes. `summary` = the session's closing agent message (MCP
@@ -204,7 +233,13 @@ export async function endSession(args: {
   userId: string
   sessionId: string
   summary?: string | null
+  /** EXP-1458: the report card the device built and sealed to the tree
+   *  (`{kind: report, sessionId, status, final, summary}`), and its copies
+   *  sealed to each listening tree (`sessions.listeners`). */
+  sealedReport?: Record<string, unknown> | null
+  reportCopies?: ReadonlyArray<{ rootId: string; card: Record<string, unknown> }>
 }): Promise<{ txid: number; endedIds: string[] }> {
+  const sealedReport = args.sealedReport ? checkSealedReport(args.sealedReport, args.reportCopies) : null
   const session = await loadSessionForUser(args.userId, args.sessionId)
   await assertCanSteer(args.userId, session)
   if (isPersistent(session)) {
@@ -215,12 +250,14 @@ export async function endSession(args: {
   }
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    if (args.summary?.trim() && session.status !== `ended`) {
+    // EXP-1458: a sealed tree's closing words ride the sealed report only.
+    if (!sealedReport && args.summary?.trim() && session.status !== `ended`) {
       await postAgentMessage(tx, session, args.summary.trim())
     }
     const endedIds = await endRowsInTx(tx, await liveSubtree(tx, session), {
       id: session.id,
       summary: args.summary,
+      sealedReport,
     })
     return { txid, endedIds }
   })

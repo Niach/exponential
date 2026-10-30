@@ -13,6 +13,7 @@ import {
 } from "@exp/domain-contract/chats"
 import { messages, sessions, type Session } from "@/db/schema"
 import { insertMessage, inSession } from "@/lib/sessions/messages"
+import { isSealedBody, isSealedCard } from "@/lib/sessions/sealed"
 import type { Tx } from "@/lib/sessions/tx"
 
 // NEW-1: THE server bus. Every transition of a session S is posted into
@@ -45,6 +46,13 @@ import type { Tx } from "@/lib/sessions/tx"
 // the session id only (`privateText`), which its agent reads with its own
 // auth; the ask mirror likewise (`askHiddenText`). Every other event body
 // is the server's own copy (`BUS_COPY`) and carries nothing of S.
+//
+// EXP-1458 (sealed-content.json): a SEALED reply, ask or report is never
+// read. A listener in S's own TREE gets a byte copy (one tree key); a
+// listener in ANOTHER tree gets the copy the device sealed to that tree
+// (`ListenerCopy`, `sessions.reply {listenerCopies}`), else the neutral
+// line. `busListenerTargets` names those listeners so the device knows
+// whom to seal for.
 
 export type BusSession = Pick<
   Session,
@@ -96,6 +104,46 @@ export async function busListeners(
 
 type Line = { body: string; card: MessageCard | null }
 
+/** EXP-1458: a sealed line's copy for the listeners in ANOTHER tree, sealed
+ *  by the device to that tree's key (one per tree: `rootId`). A body copy
+ *  (`body`) or, for a report, the card envelope (`card`). */
+export interface ListenerCopy {
+  rootId: string
+  body?: string
+  card?: MessageCard
+}
+
+/** EXP-1458: the TREES a sealed line of `child` reaches outside its own
+ *  (listeners that may see it), with their current key: the device seals
+ *  a `ListenerCopy` for each (`sessions.listeners`). A keyless tree has
+ *  `epoch`/`publicKey` null (its listeners get the neutral line). */
+export async function busListenerTrees(
+  tx: Tx,
+  child: Pick<Session, `id` | `parentId` | `rootId`>
+): Promise<Array<{ rootId: string; epoch: number | null; publicKey: string | null }>> {
+  const listeners = await busListeners(tx, child)
+  if (listeners.length === 0) return []
+  const origin = await busOrigin(tx, child.id)
+  const rootIds = [
+    ...new Set(
+      listeners
+        .filter((listener) => listener.rootId !== child.rootId && origin && !askHidden(listener, origin))
+        .map((listener) => listener.rootId)
+    ),
+  ].sort()
+  if (rootIds.length === 0) return []
+  const roots = await tx
+    .select({ id: sessions.id, epoch: sessions.sealEpoch, publicKey: sessions.sealPublicKey })
+    .from(sessions)
+    .where(inArray(sessions.id, rootIds))
+  const byId = new Map(roots.map((root) => [root.id, root]))
+  return rootIds.map((rootId) => ({
+    rootId,
+    epoch: byId.get(rootId)?.epoch ?? null,
+    publicKey: byId.get(rootId)?.publicKey ?? null,
+  }))
+}
+
 async function deliver(
   tx: Tx,
   child: Pick<Session, `id` | `parentId`>,
@@ -114,15 +162,30 @@ async function deliver(
     originMessageId?: string | null
     /** S-3: listeners this line skips (still counted as listening). */
     skip?: (listener: Listener) => boolean
+    /** EXP-1458: the line is sealed to the child's tree: listeners in it
+     *  get `inTree` (default: the line itself, a byte copy), listeners in
+     *  another tree their `copies` entry, else `hidden`. */
+    sealed?: { inTree?: Line; copies?: readonly ListenerCopy[] }
   }
 ): Promise<string[]> {
   const all = await busListeners(tx, child)
   const listeners = message.skip ? all.filter((listener) => !message.skip!(listener)) : all
-  const origin = message.hidden && listeners.length > 0 ? await busOrigin(tx, child.id) : null
+  const origin =
+    (message.hidden || message.sealed) && listeners.length > 0 ? await busOrigin(tx, child.id) : null
+  const copies = new Map((message.sealed?.copies ?? []).map((copy) => [copy.rootId, copy]))
   const now = new Date()
   const ids: string[] = []
   for (const listener of listeners) {
-    const line = message.hidden && (!origin || askHidden(listener, origin)) ? message.hidden : message
+    let line: Line = message.hidden && (!origin || askHidden(listener, origin)) ? message.hidden : message
+    if (message.sealed && line !== message.hidden) {
+      const copy = copies.get(listener.rootId)
+      line =
+        origin && listener.rootId === origin.rootId
+          ? (message.sealed.inTree ?? message)
+          : copy !== undefined
+            ? { body: copy.body ?? message.body, card: copy.card ?? message.card }
+            : (message.hidden ?? { body: ``, card: message.card })
+    }
     ids.push(
       await insertMessage(tx, listener, {
         authorKind: message.authorKind,
@@ -149,9 +212,9 @@ async function deliver(
 
 /** Who may read `child` (the visibility `askHidden` compares). Gone =
  *  null: every listener gets the hidden line. */
-async function busOrigin(tx: Tx, childId: string): Promise<Pick<Session, `shared` | `userId`> | null> {
+async function busOrigin(tx: Tx, childId: string): Promise<Pick<Session, `shared` | `userId` | `rootId`> | null> {
   const [row] = await tx
-    .select({ shared: sessions.shared, userId: sessions.userId })
+    .select({ shared: sessions.shared, userId: sessions.userId, rootId: sessions.rootId })
     .from(sessions)
     .where(eq(sessions.id, childId))
     .limit(1)
@@ -174,11 +237,14 @@ export async function busRelayTurn(
   tx: Tx,
   child: Pick<Session, `id` | `parentId`>,
   body: string,
-  originMessageId: string | null = null
+  originMessageId: string | null = null,
+  /** EXP-1458: a sealed body's copies for listeners in other trees. */
+  copies?: readonly ListenerCopy[]
 ): Promise<string[]> {
   const text = body.trim()
   if (!text) return []
   return deliver(tx, child, {
+    ...(isSealedBody(text) ? { sealed: { copies } } : {}),
     authorKind: `agent`,
     body: text,
     card: null,
@@ -260,9 +326,26 @@ export async function busAsk(
   tx: Tx,
   child: Pick<Session, `id` | `parentId` | `shared` | `userId`>,
   messageId: string,
-  card: Extract<MessageCard, { kind: `question` | `plan` }>
+  card: Extract<MessageCard, { kind: `question` | `plan` }>,
+  /** EXP-1458: a SEALED card's ask text, sealed by the device: `askText`
+   *  to its own tree, `listenerCopies` to the other trees listening. */
+  sealed?: { askText?: string | null; listenerCopies?: readonly ListenerCopy[] }
 ): Promise<string[]> {
   const mirror: MessageCard = { kind: `ask`, sessionId: child.id, messageId }
+  if (isSealedCard(card)) {
+    const neutral = askHiddenText(child, card)
+    return deliver(tx, child, {
+      authorKind: `agent`,
+      body: neutral,
+      card: mirror,
+      hidden: { body: neutral, card: mirror },
+      sealed: {
+        inTree: { body: sealed?.askText?.trim() || neutral, card: mirror },
+        copies: sealed?.listenerCopies,
+      },
+      waking: true,
+    })
+  }
   return deliver(tx, child, {
     authorKind: `agent`,
     body: askText(child, card),
@@ -380,13 +463,17 @@ export async function busLine(
 export const REPORT_FALLBACK = `Ended without a summary.`
 const REPORT_MAX = 4000
 
-/** The child's closing summary, else its last turn reply, else the fallback. */
+/** The child's closing summary, else its last turn reply, else the
+ *  fallback. EXP-1458: a sealed summary or last reply is never read (the
+ *  fallback instead: a sealed tree reports with `sealedReport`). */
 export async function reportSummary(
   tx: Tx,
   child: Pick<Session, `id`>,
   summary?: string | null
 ): Promise<string> {
   let text = summary?.trim() ?? ``
+  // A sealed summary belongs in a sealed report card (`sealedReport`).
+  if (isSealedBody(text)) text = ``
   if (!text) {
     const [last] = await tx
       .select({ body: messages.body })
@@ -402,6 +489,7 @@ export async function reportSummary(
       .orderBy(desc(messages.createdAt))
       .limit(1)
     text = last?.body.trim() ?? ``
+    if (isSealedBody(text)) text = ``
   }
   return (text || REPORT_FALLBACK).slice(0, REPORT_MAX)
 }
@@ -411,8 +499,29 @@ export async function reportSummary(
 export async function busReport(
   tx: Tx,
   child: Pick<Session, `id` | `parentId`>,
-  summary?: string | null
+  summary?: string | null,
+  /** EXP-1458: the device-built report card sealed to the child's tree
+   *  (`{kind: report, sessionId, status, final, summary}`) and its copies
+   *  sealed to the other listening trees (`copies[].card`). */
+  sealedReport?: { card: MessageCard; copies?: readonly ListenerCopy[] } | null
 ): Promise<string[]> {
+  if (sealedReport) {
+    // Never read: the card is copied whole, the body stays empty.
+    const card = { ...sealedReport.card, sessionId: child.id, final: true } as MessageCard
+    const ids = await deliver(tx, child, {
+      authorKind: `agent`,
+      body: ``,
+      card,
+      hidden: {
+        body: privateText(child, PRIVATE_REPORT_LEAD),
+        card: { kind: `report`, sessionId: child.id, summary: PRIVATE_REPORT_LEAD, final: true },
+      },
+      sealed: { copies: sealedReport.copies?.map((copy) => ({ ...copy, card: copy.card && ({ ...copy.card, sessionId: child.id, final: true } as MessageCard) })) },
+      waking: true,
+    })
+    await forgetWatched(tx, [child.id])
+    return ids
+  }
   const text = await reportSummary(tx, child, summary)
   const ids = await deliver(tx, child, {
     authorKind: `agent`,

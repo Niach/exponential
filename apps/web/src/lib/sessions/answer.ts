@@ -6,6 +6,7 @@ import {
   PLAN_CARD_LABEL_MAX,
   planCardAnswersSchema,
   QUESTION_CARD_OPTIONS_MAX,
+  sessionAnswerSchema,
   type MessageCard,
   type SessionAnswerInput,
 } from "@exp/db-schema/domain"
@@ -26,6 +27,8 @@ import { inSession, messageWithSession } from "@/lib/sessions/messages"
 // with `answered_at`, under an "unanswered" guard, so the FIRST answer wins
 // and every later one is CONFLICT. The device delivers the answer text to
 // the agent off the messages shape; no person message is posted.
+// EXP-1458: a sealed card is answered with `sealedCard` only (the device
+// reads its own answers out of it); the server derives no answer text.
 
 const uuid = z.string().uuid()
 
@@ -47,6 +50,9 @@ export const cardAnswerInput = z.object({
     ])
     .optional(),
   surfaceData: z.record(z.string(), z.unknown()).optional(),
+  // EXP-1458: a SEALED card's answer (the envelope re-sealed with the
+  // answers inside; card-answer.ts `answeredSealedCard`).
+  sealedCard: sessionAnswerSchema.shape.sealedCard,
 })
 export type CardAnswerInput = z.infer<typeof cardAnswerInput>
 

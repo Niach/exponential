@@ -33,6 +33,70 @@ const cases: { name: string; body: string }[] = [
   { name: `a line of one v (no escape trims it)`, body: `v\n${longLine}` },
 ]
 
+async function seedConversation(tx: Parameters<Parameters<typeof inRollback>[0]>[0]) {
+  const userId = `digest-test-${id8()}`
+  await tx.execute(sql`
+    INSERT INTO users (id, name, email, email_verified, is_admin, created_at, updated_at)
+    VALUES (${userId}, 'Tester', ${`${userId}@digest.test`}, true, false, now(), now())`)
+  const team = await tx.execute<{ id: string }>(sql`
+    INSERT INTO teams (name, slug) VALUES ('Digest', ${`digest-${id8()}`}) RETURNING id`)
+  const teamId = team.rows[0]!.id
+  const sessionId = crypto.randomUUID()
+  await tx.execute(sql`
+    INSERT INTO sessions (id, team_id, root_id, user_id, device_id)
+    VALUES (${sessionId}, ${teamId}, ${sessionId}, ${userId}, 'dev')`)
+  const conv = await tx.execute<{ id: string }>(sql`SELECT id FROM conversations WHERE session_id = ${sessionId}`)
+  const conversationId = conv.rows[0]!.id
+  const insert = async (rows: TreeMessage[]) => {
+    for (const m of rows) {
+      await tx.execute(sql`
+        INSERT INTO messages (id, root_id, team_id, conversation_id, author_kind, author_id, body, card, created_at)
+        VALUES (${m.id}, ${sessionId}, ${teamId}, ${conversationId}, ${m.authorKind}, ${m.authorId}, ${m.body},
+          ${m.card ? JSON.stringify(m.card) : null}::jsonb, ${m.createdAt}::timestamptz)`)
+    }
+    const read = await tx.execute<{ digest: ConversationDigest }>(sql`SELECT digest FROM conversations WHERE id = ${conversationId}`)
+    return read.rows[0]!.digest
+  }
+  return { userId, sessionId, insert }
+}
+
+// EXP-1458: a sealed body is kept whole (never cut or line-split, longer
+// than the cut here), a sealed card is copied whole (clear fields + sealed).
+const sealedValue = `v1:1:${`A`.repeat(DIGEST_TEXT_MAX + 200)}`
+const sealedBody = `exp-sealed:${sealedValue}`
+
+describe.skipIf(!ready.ok)(`conversation digest: sealed content (EXP-1458)`, () => {
+  it(`keeps a sealed body and a sealed card whole, SQL = TS`, async () => {
+    await inRollback(async (tx) => {
+      const { userId, sessionId, insert } = await seedConversation(tx)
+      const card = (kind: string) => ({ kind, decision: `pending`, pictures: [{ label: `web list`, attachmentId: crypto.randomUUID() }], sealed: sealedValue })
+      const rows: TreeMessage[] = [
+        { id: crypto.randomUUID(), sessionId, authorKind: `user`, authorId: userId, authorSessionId: null, body: sealedBody, card: null, answeredAt: null, consumedAt: null, createdAt: at(1) },
+        { id: crypto.randomUUID(), sessionId, authorKind: `agent`, authorId: null, authorSessionId: null, body: ``, card: card(`question`), answeredAt: null, consumedAt: null, createdAt: at(2) },
+        { id: crypto.randomUUID(), sessionId, authorKind: `agent`, authorId: null, authorSessionId: null, body: sealedBody, card: null, answeredAt: null, consumedAt: null, createdAt: at(3) },
+      ]
+      const sqlDigest = await insert(rows)
+      expect(sqlDigest).toEqual(conversationDigest(sessionId, rows))
+      expect(sqlDigest.first?.body).toBe(sealedBody)
+      expect(sqlDigest.preview?.body).toBe(sealedBody)
+      expect(sqlDigest.waiting?.card).toEqual(rows[1]!.card)
+    })
+  })
+
+  it(`a plaintext body that only mentions the prefix stays plaintext (cut)`, async () => {
+    await inRollback(async (tx) => {
+      const { userId, sessionId, insert } = await seedConversation(tx)
+      const body = `see exp-sealed: ${`x`.repeat(DIGEST_TEXT_MAX)}`
+      const rows: TreeMessage[] = [
+        { id: crypto.randomUUID(), sessionId, authorKind: `user`, authorId: userId, authorSessionId: null, body, card: null, answeredAt: null, consumedAt: null, createdAt: at(1) },
+      ]
+      const sqlDigest = await insert(rows)
+      expect(sqlDigest).toEqual(conversationDigest(sessionId, rows))
+      expect(sqlDigest.first?.body.length).toBe(DIGEST_TEXT_MAX)
+    })
+  })
+})
+
 describe.skipIf(!ready.ok)(`conversation digest: SQL = TS on long bodies`, () => {
   for (const c of cases)
     it(c.name, async () => {

@@ -4,6 +4,7 @@ import { PRIVATE_PR_LEAD, PRIVATE_REPLY_LEAD, PRIVATE_REPORT_LEAD } from "@exp/d
 import { messages, type Event } from "@/db/schema"
 import { TRIGGER_COPY } from "@/lib/agents/triggers"
 import { askHiddenText, privateText } from "@/lib/sessions/bus"
+import { clearCard, isSealedBody, isSealedCard } from "@/lib/sessions/sealed"
 import type { Tx } from "@/lib/sessions/tx"
 
 // #EXP-1409: a conversation whose readers change (an agent moved from a
@@ -13,7 +14,11 @@ import type { Tx } from "@/lib/sessions/tx"
 // readers may NOW not see (`askHidden`) becomes the neutral line the bus
 // writes today: a relayed reply, an end report, a PR line (the 0199 rules),
 // an ask mirror (`askHiddenText`) and a `session.ended` trigger firing (its
-// ids-only payload). Runs in the move's own transaction.
+// ids-only payload). Runs in the move's own transaction. EXP-1458: a
+// SEALED line (body envelope or `sealed` card) is never read: the tree's
+// new readers would get its key, so it too becomes the neutral line its
+// clear `kind` picks (a reply's otherwise) and its card keeps only the
+// clear part (no `sealed`).
 
 interface Row extends Record<string, unknown> {
   id: string
@@ -33,6 +38,7 @@ interface Firing extends Record<string, unknown> {
 }
 
 function neutral(row: Row): { body: string; card: MessageCard | null } | null {
+  if (isSealedBody(row.body) || isSealedCard(row.card)) return neutralSealed(row)
   const origin = { id: row.originId }
   const card = row.card
   if (!card) return row.relay ? { body: privateText(origin, PRIVATE_REPLY_LEAD), card: null } : null
@@ -47,6 +53,29 @@ function neutral(row: Row): { body: string; card: MessageCard | null } | null {
     return { body: askHiddenText(origin, { kind: row.askKind } as never), card }
   }
   return null
+}
+
+/** EXP-1458: a sealed line by its CLEAR fields only. The ask mirror is
+ *  server-written ({kind, sessionId, messageId}: clear) and stays. */
+function neutralSealed(row: Row): { body: string; card: MessageCard | null } {
+  const origin = { id: row.originId }
+  const card = row.card
+  if (!card) return { body: privateText(origin, PRIVATE_REPLY_LEAD), card: null }
+  const clear = clearCard(card as unknown as Record<string, unknown>)
+  if (card.kind === `ask` && (row.askKind === `question` || row.askKind === `plan`)) {
+    return { body: askHiddenText(origin, { kind: row.askKind } as never), card: clear as MessageCard }
+  }
+  if (card.kind === `report`) {
+    return {
+      body: privateText(origin, PRIVATE_REPORT_LEAD),
+      card: { ...clear, summary: PRIVATE_REPORT_LEAD } as MessageCard,
+    }
+  }
+  if (card.kind === `event` && card.event === `pr_opened`) {
+    const { pullRequestId: _pr, ...rest } = clear
+    return { body: privateText(origin, PRIVATE_PR_LEAD), card: rest as MessageCard }
+  }
+  return { body: privateText(origin, PRIVATE_REPLY_LEAD), card: clear as MessageCard }
 }
 
 /** Rewrites the private lines of `rootIds`' trees their readers may no

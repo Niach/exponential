@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { MessageCard } from "@exp/db-schema/domain"
+import { generateTreeKey, sealCard } from "@exp/domain-contract/sealed-content"
 import { answeredCard, type CardAnswerInput } from "./card-answer"
 
 // EXP-1316: `sessions.answer` and `sessions.resolveCard` stamp ONE shape.
@@ -155,6 +156,62 @@ describe(`answeredCard — EXP-1280 rich cards`, () => {
   it(`refuses surface data past the byte cap`, () => {
     expect(
       answeredCard(plan, { decision: `rejected`, surfaceData: { blob: `x`.repeat(70_000) } })
+    ).toMatchObject({ ok: false, code: `BAD_REQUEST` })
+  })
+})
+
+describe(`answeredCard — EXP-1458 sealed cards`, () => {
+  const tree = generateTreeKey()
+  const sealedQuestion = sealCard(tree.publicKey, 1, { kind: `question`, question: `Which?`, options: [`A`, `B`] })
+  const sealedPlan = sealCard(tree.publicKey, 1, { kind: `plan`, plan: `Do it`, questions: [] })
+  const answerOf = (card: Record<string, unknown>) =>
+    sealCard(tree.publicKey, 1, card) as { kind: string; sealed: string } & Record<string, unknown>
+
+  it(`a sealed question takes the re-sealed card and marks it answered; nothing in clear but routing`, () => {
+    const sealedCard = answerOf({ kind: `question`, question: `Which?`, options: [`A`, `B`], answer: `A`, answers: [`A`] })
+    const result = answeredCard(sealedQuestion as MessageCard, { sealedCard })
+    expect(result).toEqual({ ok: true, card: { kind: `question`, answered: true, sealed: sealedCard.sealed } })
+  })
+
+  it(`a sealed plan's clear decision/fresh come from the envelope (or the input)`, () => {
+    const sealedCard = answerOf({ kind: `plan`, plan: `Do it`, decision: `approved`, fresh: true })
+    expect(answeredCard(sealedPlan as MessageCard, { sealedCard })).toEqual({
+      ok: true,
+      card: { kind: `plan`, decision: `approved`, fresh: true, answered: true, sealed: sealedCard.sealed },
+    })
+    const bare = { kind: `plan`, sealed: sealedCard.sealed }
+    expect(answeredCard(sealedPlan as MessageCard, { sealedCard: bare, decision: `rejected`, fresh: true })).toMatchObject({
+      ok: true,
+      card: { decision: `rejected`, fresh: false, answered: true },
+    })
+    expect(answeredCard(sealedPlan as MessageCard, { sealedCard: bare })).toMatchObject({
+      ok: false,
+      message: PLAN_CARD_COPY.answerIssues.decision,
+    })
+    expect(answeredCard(sealedPlan as MessageCard, { sealedCard, decision: `rejected` })).toMatchObject({ ok: false })
+  })
+
+  it(`a sealed card refuses plaintext answers (never written into it)`, () => {
+    for (const input of [{ answer: `A` }, { answers: [`A`] }, { decision: `approved` as const }]) {
+      expect(answeredCard(sealedQuestion as MessageCard, input)).toMatchObject({ ok: false, code: `BAD_REQUEST` })
+    }
+    const sealedCard = answerOf({ kind: `question`, answer: `A` })
+    expect(answeredCard(sealedQuestion as MessageCard, { sealedCard, answer: `A` })).toMatchObject({ ok: false })
+    expect(answeredCard(sealedQuestion as MessageCard, { sealedCard, feedback: `x` })).toMatchObject({ ok: false })
+  })
+
+  it(`refuses a malformed envelope, a content field in clear, and another kind`, () => {
+    const sealedCard = answerOf({ kind: `question`, answer: `A` })
+    expect(answeredCard(sealedQuestion as MessageCard, { sealedCard: { kind: `question`, sealed: `v1:1:@@` } })).toMatchObject({ ok: false })
+    expect(answeredCard(sealedQuestion as MessageCard, { sealedCard: { ...sealedCard, question: `leak` } })).toMatchObject({ ok: false })
+    expect(answeredCard(sealedQuestion as MessageCard, { sealedCard: answerOf({ kind: `plan`, decision: `approved` }) })).toMatchObject({
+      ok: false,
+    })
+  })
+
+  it(`a plaintext card refuses a sealedCard`, () => {
+    expect(
+      answeredCard({ kind: `question`, question: `Q`, options: [`A`] } as MessageCard, { sealedCard: answerOf({ kind: `question` }) })
     ).toMatchObject({ ok: false, code: `BAD_REQUEST` })
   })
 })

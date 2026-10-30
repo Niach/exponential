@@ -5,6 +5,7 @@ import {
   PLAN_CARD_COPY,
   type AskCardLike,
 } from "@exp/domain-contract/plan-card"
+import { clearCard, isSealedCard, validSealedCard } from "@/lib/sessions/sealed"
 
 // EXP-1316: ONE answered-card shape for both write paths: the thread card
 // (`sessions.answer`, a person) and the device's write-back after a session
@@ -22,6 +23,10 @@ export interface CardAnswerInput {
   feedback?: string
   /** The inline surface's data model at answer time. */
   surfaceData?: Record<string, unknown>
+  /** EXP-1458: a SEALED card's answer = its envelope `{...clear, sealed}`
+   *  re-sealed with the answers inside; clear `decision`/`fresh` = the
+   *  answer's. */
+  sealedCard?: { kind: string; sealed: string } & Record<string, unknown>
 }
 
 export type CardAnswerResult =
@@ -38,6 +43,10 @@ export function answeredCard(card: MessageCard | null, input: CardAnswerInput): 
   if (!card || (card.kind !== `question` && card.kind !== `plan`)) {
     return bad(`This message asks nothing`)
   }
+  // EXP-1458: a sealed card takes only a sealed answer, a plaintext card
+  // only a plaintext one: plaintext answers never land in a sealed card.
+  if (isSealedCard(card)) return answeredSealedCard(card, input)
+  if (input.sealedCard) return bad(`This card is not sealed: answer it with answer/answers/decision`)
   const issue = answerIssue(card as AskCardLike, input)
   if (issue) return bad(PLAN_CARD_COPY.answerIssues[issue])
   const surfaceData = input.surfaceData ?? null
@@ -75,4 +84,28 @@ export function answeredCard(card: MessageCard | null, input: CardAnswerInput): 
       ...withSurface,
     },
   }
+}
+
+/** EXP-1458 (fixtures/sealed-content.json): the answered SEALED card. Only
+ *  the clear part is checked (the server never opens `sealed`): a valid
+ *  envelope of the same kind, a plan's decision. The stored clear fields
+ *  stay unless the answer sets them; `answered: true` marks it. */
+function answeredSealedCard(card: MessageCard, input: CardAnswerInput): CardAnswerResult {
+  const sealed = input.sealedCard
+  if (!sealed) return bad(`This card is sealed: answer it with sealedCard (the card re-sealed with the answers)`)
+  if (input.answer !== undefined || input.answers !== undefined || input.feedback !== undefined || input.surfaceData !== undefined) {
+    return bad(`This card is sealed: its answers go inside sealedCard, never beside it`)
+  }
+  if (!validSealedCard(sealed)) return bad(`sealedCard must be {kind, sealed: "v1:<epoch>:<b64url>"} plus clear fields only`)
+  if (sealed.kind !== card.kind) return bad(`sealedCard is a ${sealed.kind} card; this one is a ${card.kind}`)
+  const stored = clearCard(card as unknown as Record<string, unknown>)
+  const next: Record<string, unknown> = { ...stored, ...sealed, answered: true }
+  if (card.kind === `plan`) {
+    const decision = sealed.decision ?? input.decision
+    if (decision !== `approved` && decision !== `rejected`) return bad(PLAN_CARD_COPY.answerIssues.decision)
+    if (input.decision && input.decision !== decision) return bad(`decision differs from sealedCard's decision`)
+    next.decision = decision
+    next.fresh = decision === `approved` && (sealed.fresh ?? input.fresh) === true
+  }
+  return { ok: true, card: next as unknown as MessageCard }
 }

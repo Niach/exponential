@@ -269,7 +269,10 @@ export function openBody(body: string, keys: TreeKeys): OpenedBody {
 // ── cards ───────────────────────────────────────────────────────────────────
 
 /** The fields of `messages.card` that stay in clear (routing, wake rules,
- *  answered state); everything else exists only inside `sealed`. */
+ *  answered state, the attachments a card shows); everything else exists
+ *  only inside `sealed`. `pictures` stays in clear PROJECTED: each entry's
+ *  `label` and `attachmentId` only (captions and sizes stay sealed), and it
+ *  is never laid over the opened card (the sealed pictures are whole). */
 export const CARD_CLEAR_FIELDS = [
   `kind`,
   `messageId`,
@@ -282,7 +285,22 @@ export const CARD_CLEAR_FIELDS = [
   `decision`,
   `fresh`,
   `answered`,
+  `pictures`,
 ] as const
+
+/** The clear projection of a card's `pictures`: `{label, attachmentId}`
+ *  per entry that names an attachment; null when none does. */
+export function clearPictures(pictures: unknown): Array<{ label?: string; attachmentId: string }> | null {
+  if (!Array.isArray(pictures)) return null
+  const out: Array<{ label?: string; attachmentId: string }> = []
+  for (const picture of pictures) {
+    if (!picture || typeof picture !== `object`) continue
+    const { label, attachmentId } = picture as Record<string, unknown>
+    if (typeof attachmentId !== `string`) continue
+    out.push(typeof label === `string` ? { label, attachmentId } : { attachmentId })
+  }
+  return out.length > 0 ? out : null
+}
 
 type Card = Record<string, unknown>
 
@@ -302,6 +320,9 @@ export function splitCard(card: Card): { clear: Card; plaintext: string } {
   for (const field of CARD_CLEAR_FIELDS) {
     if (field === `answered`) {
       if (cardAnswered(full)) clear.answered = true
+    } else if (field === `pictures`) {
+      const pictures = clearPictures(full.pictures)
+      if (pictures) clear.pictures = pictures
     } else if (full[field] !== undefined && full[field] !== null) {
       clear[field] = full[field]
     }
@@ -346,7 +367,9 @@ export function openCard(card: Card, keys: TreeKeys): OpenedCard {
   if (!inner || typeof inner !== `object` || Array.isArray(inner) || (inner as Card).kind !== clear.kind) {
     return { status: `refused`, epoch: opened.epoch, card: clear }
   }
-  return { status: `opened`, epoch: opened.epoch, card: { ...(inner as Card), ...clear } }
+  // The clear `pictures` is a projection: the sealed ones stay whole.
+  const { pictures: _projected, ...over } = clear
+  return { status: `opened`, epoch: opened.epoch, card: { ...(inner as Card), ...over } }
 }
 
 // ── the locked state (fixtures/sealed-content.json `placeholder`) ───────────

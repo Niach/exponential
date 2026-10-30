@@ -321,6 +321,7 @@ import { displayRowNames, legacyNameOfRow } from "@/lib/mcp/nouns"
 import type { McpUser } from "@/lib/mcp/server"
 import { contract } from "@exp/domain-contract"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
+import { generateTreeKey, sealBody, sealCard } from "@exp/domain-contract/sealed-content"
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -2188,6 +2189,30 @@ describe(`exponential_sessions_send`, () => {
     })
   })
 
+  it(`EXP-1458: forwards a device's sealed send (long envelope, clear metadata, seal, sealed name)`, async () => {
+    dbRows.current = [callerRow()]
+    const tree = generateTreeKey()
+    const text = sealBody(tree.publicKey, 1, `x`.repeat(16_000))
+    expect(text.length).toBeGreaterThan(16_384)
+    const sealedName = sealBody(tree.publicKey, 1, `Secret`)
+    const seal = { installId: CHILD, publicKey: tree.publicKey, epoch: 1, wraps: [{ installId: CHILD, wrapped: `w` }] }
+    const result = await collectTools(USER, SESSION).get(`exponential_sessions_send`)!({
+      teamId: TEAM_V4,
+      deviceId: `mac-1`,
+      text,
+      sealedName,
+      seal,
+      mentionUserIds: [USER.id],
+      refIssueIds: [ISSUE_V4],
+    })
+    expect(result.isError).toBeFalsy()
+    expect(sessionsCore.sendSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: { teamId: TEAM_V4, deviceId: `mac-1`, text, sealedName, seal, mentionUserIds: [USER.id], refIssueIds: [ISSUE_V4] },
+      })
+    )
+  })
+
   it(`resolves issue identifiers before the core sees them`, async () => {
     dbRows.current = [{ id: ISSUE_V4 }]
     const result = await collectTools().get(`exponential_sessions_send`)!({
@@ -2348,6 +2373,27 @@ describe(`exponential_sessions_send stop / sessions_end`, () => {
     dbRows.current = [callerRow({ userId: `other`, hostUserId: null })]
     const result = await collectTools(USER, SESSION).get(`exponential_sessions_end`)!({})
     expect(result.isError).toBe(true)
+    expect(sessionsCore.endSession).not.toHaveBeenCalled()
+  })
+
+  it(`EXP-1458: forwards the device's sealed report and its per-tree copies`, async () => {
+    dbRows.current = [callerRow()]
+    sessionsCore.endSession.mockResolvedValue({ txid: 1, endedIds: [SESSION] })
+    const tree = generateTreeKey()
+    const report = sealCard(tree.publicKey, 1, { kind: `report`, sessionId: SESSION, final: true, summary: `Shipped.` })
+    const copy = sealCard(generateTreeKey().publicKey, 1, { kind: `report`, sessionId: SESSION, summary: `Shipped.` })
+    const end = collectTools(USER, SESSION).get(`exponential_sessions_end`)!
+    expect(parseOk(await end({ sealedReport: report, copies: [{ rootId: CHILD, sealedReport: copy }] }))).toEqual({ ok: true, id: SESSION })
+    expect(sessionsCore.endSession).toHaveBeenCalledWith({
+      userId: USER.id,
+      sessionId: SESSION,
+      summary: null,
+      sealedReport: report,
+      reportCopies: [{ rootId: CHILD, card: copy }],
+    })
+    sessionsCore.endSession.mockClear()
+    expect((await end({ sealedReport: { ...report, summary: `leak` } })).isError).toBe(true)
+    expect((await end({ copies: [{ rootId: CHILD, sealedReport: copy }] })).isError).toBe(true)
     expect(sessionsCore.endSession).not.toHaveBeenCalled()
   })
 
@@ -3392,5 +3438,47 @@ describe(`the reporter's view over MCP (NEW-19)`, () => {
     })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toBe(`Not a member of this team`)
+  })
+})
+
+// EXP-1458: the device gateway's sealed show: {sealedCard, kind, replace?,
+// askText?, listenerCopies?}; only the clear part is checked.
+describe(`exponential_show {sealedCard} (EXP-1458)`, () => {
+  const showTool = (args: Record<string, unknown>) => collectTools(USER, SESSION).get(`exponential_show`)!(args)
+  const tree = generateTreeKey()
+
+  beforeEach(() => {
+    dbRows.current = [callerRow()]
+    postShowCard.mockReset()
+    postShowCard.mockResolvedValue({ messageId: MSG, replaced: false, uploads: [] })
+  })
+
+  it(`posts the envelope as is with the device's ask text and per-tree copies`, async () => {
+    const sealedCard = sealCard(tree.publicKey, 1, { kind: `question`, question: `Which?`, options: [`A`] })
+    const askText = sealBody(tree.publicKey, 1, `Asks: Which?`)
+    const listenerCopies = [{ rootId: CHILD, body: sealBody(generateTreeKey().publicKey, 1, `Asks: Which?`) }]
+    const result = await showTool({ sealedCard, kind: `question`, askText, listenerCopies, replace: true })
+    expect(result.isError).toBeFalsy()
+    expect(postShowCard).toHaveBeenCalledWith({
+      userId: USER.id,
+      sessionId: SESSION,
+      card: sealedCard,
+      replace: true,
+      sealed: { askText, listenerCopies },
+    })
+  })
+
+  it(`refuses plaintext beside it, a plaintext ask text, a content field in clear and a kind mismatch`, async () => {
+    const sealedCard = sealCard(tree.publicKey, 1, { kind: `surface`, title: `t` })
+    for (const args of [
+      { sealedCard, title: `leak` },
+      { sealedCard, askText: `plain leak` },
+      { sealedCard: { ...sealedCard, title: `leak` } },
+      { sealedCard, kind: `plan` },
+      { sealedCard: { kind: `surface`, sealed: `v1:1:@@` } },
+    ]) {
+      expect((await showTool(args)).isError, JSON.stringify(Object.keys(args))).toBe(true)
+    }
+    expect(postShowCard).not.toHaveBeenCalled()
   })
 })

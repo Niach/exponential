@@ -156,6 +156,22 @@ describe.skipIf(!ready.ok)(`#EXP-1391: a refused merge goes into the thread`, ()
     expect(await refusals(w.thread)).toHaveLength(2)
   })
 
+  it(`EXP-1458: a sealed card is never read as a refusal (no dedupe, no headSha)`, async () => {
+    const w = await threadWithPr()
+    expect(await postMergeRefusal({ pullRequestId: w.prId, actorUserId: w.owner, error: refusal(), automerge: true, headSha: `sha-1` })).toBe(true)
+    // The same clear routing fields, sealed: it stands for no refusal.
+    await db
+      .update(messages)
+      .set({ card: sql`jsonb_build_object('kind', 'event', 'event', 'pr_merge_refused', 'pullRequestId', ${w.prId}::text, 'sealed', 'v1:1:AAAA')` })
+      .where(eq(messages.id, (await refusals(w.thread))[0]!.id))
+    expect(await postMergeRefusal({ pullRequestId: w.prId, actorUserId: w.owner, error: refusal(), automerge: true, headSha: `sha-1` })).toBe(true)
+    const lines = await refusals(w.thread)
+    expect(lines).toHaveLength(2)
+    expect(lines.filter((line) => !(`sealed` in (line.card as object)))).toEqual([
+      expect.objectContaining({ card: { kind: `event`, event: `pr_merge_refused`, pullRequestId: w.prId, headSha: `sha-1` } }),
+    ])
+  })
+
   it(`an ended root keeps one display line per refusal, never a repeat`, async () => {
     const w = await threadWithPr()
     await db.update(sessions).set({ status: `ended` }).where(eq(sessions.id, w.thread))
