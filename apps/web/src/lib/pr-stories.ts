@@ -20,10 +20,31 @@ export interface StoryPicture {
   url: string
 }
 
+/** One story card's PR pictures (label + attachment). A plaintext card is
+ *  read as is (`isStoryCard`). EXP-1468 (sealed-content addendum 5): a
+ *  SEALED card is read through its CLEAR part only: the `pictures`
+ *  projection's entries that carry an attachmentId, none when the clear
+ *  `story` is false. Captions stay sealed: a PR body is a public export and
+ *  never carries sealed text (the label stands in for the caption). */
+export function storyPicturesOfCard(card: unknown): { label: string; attachmentId: string }[] {
+  if (isSealedCard(card)) {
+    const clear = card as Record<string, unknown>
+    if (clear.kind !== `surface` && clear.kind !== `question` && clear.kind !== `plan`) return []
+    if (clear.story === false || !Array.isArray(clear.pictures)) return []
+    return clear.pictures.flatMap((entry: unknown) => {
+      const { label, attachmentId } = (entry ?? {}) as Record<string, unknown>
+      return typeof label === `string` && typeof attachmentId === `string` ? [{ label, attachmentId }] : []
+    })
+  }
+  if (!isStoryCard(card)) return []
+  return ((card as Extract<MessageCard, { kind: `surface` }>).pictures ?? []).flatMap((picture) =>
+    picture.attachmentId ? [{ label: picture.label, attachmentId: picture.attachmentId }] : []
+  )
+}
+
 /** The resolved pictures of the story cards the opener's LOGICAL session
- *  and its subtree posted (null opener = the whole tree), oldest first.
- *  EXP-1458: SEALED story cards are skipped (their pictures live inside
- *  `sealed`; the device exports its stories itself). */
+ *  and its subtree posted (null opener = the whole tree), oldest first;
+ *  sealed cards count through their clear part (`storyPicturesOfCard`). */
 export async function loadStoryPictures(rootId: string, openerSessionId: string | null): Promise<StoryPicture[]> {
   const tree = await db
     .select({ id: sessions.id, parentId: sessions.parentId, branch: sessions.branch, status: sessions.status })
@@ -48,22 +69,15 @@ export async function loadStoryPictures(rootId: string, openerSessionId: string 
         eq(messages.rootId, rootId),
         inSessions([...ids]),
         sql`${messages.authorSessionId} = ${messageSessionId()}`,
-        sql`${messages.card}->>'kind' IN ('surface', 'question', 'plan')`,
-        sql`NOT (${messages.card} ? 'sealed')`
+        sql`${messages.card}->>'kind' IN ('surface', 'question', 'plan')`
       )
     )
     .orderBy(asc(messages.createdAt))
   const base = appBaseUrl()
   const out: StoryPicture[] = []
   for (const { card } of rows) {
-    if (isSealedCard(card) || !isStoryCard(card)) continue
-    for (const picture of (card as Extract<MessageCard, { kind: `surface` }>).pictures ?? []) {
-      if (!picture.attachmentId) continue
-      out.push({
-        label: picture.label,
-        attachmentId: picture.attachmentId,
-        url: `${base}${buildAttachmentUrl(picture.attachmentId)}`,
-      })
+    for (const picture of storyPicturesOfCard(card)) {
+      out.push({ ...picture, url: `${base}${buildAttachmentUrl(picture.attachmentId)}` })
     }
   }
   return out

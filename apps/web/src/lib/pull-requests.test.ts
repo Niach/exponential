@@ -365,6 +365,38 @@ describe(`openPullRequest`, () => {
     warn.mockRestore()
   })
 
+  // EXP-1468: a sealed show card (device gateway) feeds the gate through
+  // its clear part: uploaded pictures count, story:false and pending don't.
+  const sealedThread = async (cards: Record<string, unknown>[]) => {
+    const { storyPicturesOfCard } = await vi.importActual<typeof import("@/lib/pr-stories")>(`@/lib/pr-stories`)
+    threadOf(
+      cards.flatMap((card) => storyPicturesOfCard(card)).map((p) => ({ ...p, url: `https://exp.example/api/attachments/${p.attachmentId}` }))
+    )
+  }
+  const sealedSurface = (extra: Record<string, unknown>) => ({ kind: `surface`, sealed: `v1:1:${`A`.repeat(80)}`, ...extra })
+
+  it(`a sealed story card's clear pictures pass the UI gate and land in the body by label`, async () => {
+    await sealedThread([sealedSurface({ pictures: [{ label: `web nav`, attachmentId: `att-sealed` }] })])
+    vi.mocked(compareChangedPaths).mockResolvedValueOnce([`apps/web/src/components/nav.tsx`])
+    await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Nav` })
+    expect(gh.createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ body: `Nav\n\n**web** · [web nav](https://exp.example/api/attachments/att-sealed)${FOOTER}` })
+    )
+  })
+
+  it(`a sealed story:false card or a picture still to upload never passes the UI gate`, async () => {
+    await sealedThread([
+      sealedSurface({ story: false, pictures: [{ label: `web nav`, attachmentId: `att-chat` }] }),
+      sealedSurface({ story: true, pictures: [{ label: `web nav` }] }),
+    ])
+    vi.mocked(compareChangedPaths).mockResolvedValueOnce([`apps/web/src/components/nav.tsx`])
+    await expect(openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Nav` })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: expect.stringMatching(/changes UI on web/),
+    })
+    expect(gh.createPullRequest).not.toHaveBeenCalled()
+  })
+
   it(`needs a head without a session`, async () => {
     await expect(
       openPullRequest({ userId: `u-1`, callerSessionId: null, repositoryId: `repo-1`, title: `x` })

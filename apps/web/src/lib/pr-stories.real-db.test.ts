@@ -4,9 +4,9 @@ import { sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { probeRealDb } from "@/test/real-db"
 
-// EXP-1458 against the real migrated Postgres: a PR body's pictures come
-// from the opener's PLAINTEXT story cards only; a sealed story card (its
-// pictures live inside `sealed`) is skipped, the device exports it itself.
+// EXP-1468 against the real migrated Postgres: a PR body's pictures come
+// from the opener's story cards; a SEALED one counts through its clear
+// `pictures` (entries with an attachmentId) unless its clear `story` is false.
 
 const ready = await probeRealDb(`
   SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'ref_issue_ids') AS ok
@@ -24,8 +24,8 @@ afterAll(async () => {
   for (const id of made.users) await db.execute(sql`DELETE FROM users WHERE id = ${id}`)
 })
 
-describe.skipIf(!ready.ok)(`EXP-1458: story pictures skip sealed cards`, () => {
-  it(`reads plaintext story cards, never a sealed one`, async () => {
+describe.skipIf(!ready.ok)(`EXP-1468: story pictures of sealed cards`, () => {
+  it(`reads plaintext story cards and a sealed one's clear pictures`, async () => {
     const userId = `stories-test-${id8()}`
     await db.execute(sql`
       INSERT INTO users (id, name, email, email_verified, is_admin, created_at, updated_at)
@@ -42,11 +42,12 @@ describe.skipIf(!ready.ok)(`EXP-1458: story pictures skip sealed cards`, () => {
     const conv = await db.execute<{ id: string }>(sql`SELECT id FROM conversations WHERE session_id = ${sessionId}`)
     const conversationId = conv.rows[0]!.id
     const plain = crypto.randomUUID()
+    const sealedId = crypto.randomUUID()
+    const sealed = `v1:1:${`A`.repeat(80)}`
     const cards = [
       { kind: `surface`, pictures: [{ label: `web list`, attachmentId: plain }] },
-      // Stray clear pictures beside `sealed` (writers are refused that) are
-      // still never read.
-      { kind: `surface`, pictures: [{ label: `web hidden`, attachmentId: crypto.randomUUID() }], sealed: `v1:1:${`A`.repeat(80)}` },
+      { kind: `surface`, story: true, pictures: [{ label: `ios list`, attachmentId: sealedId }, { label: `web later` }], sealed },
+      { kind: `surface`, story: false, pictures: [{ label: `web chat`, attachmentId: crypto.randomUUID() }], sealed },
     ]
     for (const [index, card] of cards.entries()) {
       await db.execute(sql`
@@ -55,6 +56,9 @@ describe.skipIf(!ready.ok)(`EXP-1458: story pictures skip sealed cards`, () => {
           now() + ${`${index} seconds`}::interval)`)
     }
     const pictures = await loadStoryPictures(sessionId, null)
-    expect(pictures.map((picture) => [picture.label, picture.attachmentId])).toEqual([[`web list`, plain]])
+    expect(pictures.map((picture) => [picture.label, picture.attachmentId])).toEqual([
+      [`web list`, plain],
+      [`ios list`, sealedId],
+    ])
   })
 })
