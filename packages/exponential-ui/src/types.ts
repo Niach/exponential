@@ -272,7 +272,9 @@ export interface UiNode {
   children: UiNode[]
   slots?: Record<string, UiNode>
   template?: ChildTemplate
-  recipe?: { macro: string; part: string; props: Record<string, unknown> }
+  /** `authored` (VAPP-163, expansion roots only): the top-level style keys
+   *  written ON the macro node, sorted; they win over the part recipe. */
+  recipe?: { macro: string; part: string; props: Record<string, unknown>; authored?: string[] }
 }
 
 /** The nested authoring form (fixtures, kitchen sink): the same as UiNode

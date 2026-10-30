@@ -231,6 +231,7 @@ impl Surface {
             default_keys: Vec::new(),
             own_query: None,
             part_query: None,
+            authored_keys: Vec::new(),
             hidden: true,
             lines: None,
             pressable: false,

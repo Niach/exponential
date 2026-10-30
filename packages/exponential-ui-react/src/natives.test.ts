@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest"
 import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { coreCatalog, DEFAULT_STRINGS } from "@exponential_app/ui"
+import { CUSTOM_ICON_NODES } from "@exponential_app/ui/web"
 import { NATIVES } from "./natives"
 import { FALLBACK_ICONS } from "./icons"
 
@@ -25,6 +26,10 @@ describe(`natives × catalog`, () => {
       if (slot === `$comment`) continue
       expect(FALLBACK_ICONS[icon], `${slot} → ${icon}`).toBeDefined()
     }
+  })
+  it(`every non-Lucide icons.json name (OS marks, progress pies) paints without a host map`, () => {
+    expect(Object.keys(CUSTOM_ICON_NODES)).toEqual(expect.arrayContaining([`os-apple`, `os-windows`, `os-linux`]))
+    for (const name of Object.keys(CUSTOM_ICON_NODES)) expect(FALLBACK_ICONS[name], name).toBeDefined()
   })
   it(`every ctx.t(…) id in the renderer is a catalog string`, () => {
     const dir = join(import.meta.dirname, `natives`)

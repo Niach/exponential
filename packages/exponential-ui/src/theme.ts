@@ -7,9 +7,11 @@
 //
 // Precedence a painter applies (`resolveNodeStyle`): the native's own
 // recipe (Text/root for its variant) < the node's style (a macro template's
-// structure plus the author's style) < the macro part's recipe (Badge/label).
-// A theme therefore restyles what a template drew, and an author's style on
-// a plain native still wins over the theme.
+// structure plus the author's style) < the macro part's recipe (Badge/label)
+// < the AUTHORED keys (VAPP-163: the style written on the macro node, listed
+// in `recipe.authored` by the expander). A theme therefore restyles what a
+// template drew, and an author's style wins over the theme on a plain native
+// and on a macro alike.
 //
 // Round 1: `applyDensity` / `applyContrast` derive the theme a surface runs
 // with from its settings ONCE; `resolveMode` turns `system` into a mode;
@@ -628,8 +630,10 @@ export function nodeRecipeQuery(node: UiNode, extensions: readonly ExtensionDef[
 }
 
 /** What a painter paints a node with: native recipe < node style < macro
- *  part recipe, token references resolved, condition blocks kept nested
- *  (the client resolves `@media` and the state keys itself). */
+ *  part recipe < the node style's AUTHORED keys (`recipe.authored`, the
+ *  style written on the macro node: VAPP-163), token references resolved,
+ *  condition blocks kept nested (the client resolves `@media` and the state
+ *  keys itself). */
 export function resolveNodeStyle(
   theme: ResolvedTheme,
   node: UiNode,
@@ -640,7 +644,13 @@ export function resolveNodeStyle(
   const own = resolveRecipe(theme, { component: node.component, part: `root`, props: nativeRecipeProps(node.component, node.props, extensions), states }, mode)
   const style = node.style ? resolveStyleValues(theme, node.style, mode) : {}
   const part = node.recipe ? resolveRecipe(theme, { ...nodeRecipeQuery(node, extensions), states }, mode) : {}
-  return { ...own, ...(style as ResolvedStyle), ...part }
+  const out: ResolvedStyle = { ...own, ...(style as ResolvedStyle), ...part }
+  for (const authored of node.recipe?.authored ?? []) {
+    const key = resolveConditionKey(theme, authored)
+    const value = (style as Record<string, unknown>)[key]
+    if (value !== undefined) (out as Record<string, unknown>)[key] = value
+  }
+  return out
 }
 
 /** The shadow layers as one CSS `box-shadow` string (for web painters). */

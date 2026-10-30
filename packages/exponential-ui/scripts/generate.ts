@@ -680,6 +680,33 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
   ],
 }
 
+/** VAPP-163: cases a specimen shows AFTER its generated ones (past the cap),
+ *  each pinning a cross-renderer drift the spezl drafts found: a styled
+ *  Heading on a band (the author's style beats the Heading recipe), the
+ *  non-Lucide glyphs (no host mapping on web), a bar of icon tabs (labels
+ *  centred under their icons), a label-less search field (the placeholder
+ *  centred in the box). */
+const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  Heading: [{
+    label: `style · on a band`,
+    node: { id: `band`, component: `Box`, style: { backgroundColor: `$color.primary`, padding: `$spacing.lg`, borderRadius: `$radius.lg` }, children: [
+      { id: `heading`, component: `Heading`, props: { text: `Welcome`, level: `h4` }, style: { color: `$color.primaryForeground`, fontSize: `$type.size.xl3`, lineHeight: `$type.lineHeight.xl3` } },
+    ] },
+  }],
+  Icon: [{
+    label: `name · non-Lucide`,
+    node: { id: `marks`, component: `Stack`, props: { direction: `horizontal`, gap: `md` }, children: [`os-apple`, `os-windows`, `os-linux`, `progress-2-4`].map((name) => ({ id: name, component: `Icon`, props: { name, size: `lg` } })) },
+  }],
+  Segmented: [{
+    label: `variant · bar · icons`,
+    node: { id: `tabs`, component: `Segmented`, props: { variant: `bar`, value: `chats`, items: [{ label: `Chats`, value: `chats`, icon: `message-circle` }, { label: `Contacts`, value: `contacts`, icon: `users` }, { label: `Settings`, value: `settings`, icon: `settings` }] }, style: { width: 360 } },
+  }],
+  Input: [{
+    label: `label · none`,
+    node: { id: `search`, component: `Input`, props: { name: `q`, label: ``, type: `search`, placeholder: `Search` } },
+  }],
+}
+
 /** Styles a specimen case needs to show anything (a fixed box). */
 const SPECIMEN_STYLES: Record<string, Record<string, unknown>> = {
   Resizable: { height: 160 },
@@ -731,6 +758,13 @@ function prefixIds(node: NestedNode, prefix: string): NestedNode {
  *  open; anything else its example, then up to two enum props × every value,
  *  then `true` for up to two booleans, deduplicated, at most SPECIMEN_MAX_CASES. */
 function specimenCases(name: string, all: ComponentCase[]): { label: string; node: NestedNode }[] {
+  // The extras are authored whole: their wrapper Box/Stack must keep its own
+  // children, not the component's demo children (specimenContent).
+  const generated = generatedCases(name, all).map((c) => ({ ...c, node: specimenContent(c.node) }))
+  return [...generated, ...(SPECIMEN_EXTRA[name] ?? [])]
+}
+
+function generatedCases(name: string, all: ComponentCase[]): { label: string; node: NestedNode }[] {
   if (SPECIMEN_OVERRIDES[name]) return SPECIMEN_OVERRIDES[name]
   const own = all.filter((c) => c.node.component === name)
   const suffix = (c: ComponentCase) => c.name.slice(name.length + 1)
@@ -771,7 +805,7 @@ function specimenNode(name: string, all: ComponentCase[]): NestedNode {
       props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
       children: [
         { id: `${root}-case-${i}-label`, component: `Text`, props: { text: c.label, variant: `caption` } },
-        prefixIds(specimenContent(c.node), `c${i}-`),
+        prefixIds(c.node, `c${i}-`),
       ],
     })),
   }
@@ -835,8 +869,18 @@ function treeGuidesFixture() {
   }
 }
 
+/** VAPP-163: a style written ON a macro node wins over the macro's part
+ *  recipes; the expander lists its keys (sorted) in the root's
+ *  `recipe.authored` (a condition block counts as one key). */
+function authoredStyleCases(): ComponentCase[] {
+  return [
+    { name: `Heading/author-style`, node: { id: `heading`, component: `Heading`, props: { text: `On a band`, level: `h1` }, style: { fontSize: 40, color: `$color.primaryForeground`, ":hover": { opacity: 0.9 } } } },
+    { name: `Badge/author-style`, node: { id: `badge`, component: `Badge`, props: { text: `New`, variant: `secondary` }, style: { backgroundColor: `$color.success` } } },
+  ]
+}
+
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...treeGuideCases()]
+  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
@@ -1125,7 +1169,7 @@ function renderFiles(): Record<string, string> {
       cases,
     }),
     "fixtures/catalog-macros.json": json({
-      $comment: `${HEADER} Every macro case of catalog-components.json → the tree the expander produces (macros.json applied, recipes attached). The Rust core replays these byte for byte.`,
+      $comment: `${HEADER} Every macro case of catalog-components.json (plus the */author-style cases: the macro node's own style keys, sorted, land in the root's recipe.authored and win over the part recipes) → the tree the expander produces (macros.json applied, recipes attached). The Rust core replays these byte for byte.`,
       catalogId: CORE_CATALOG_ID,
       cases: macroCases(cases),
     }),

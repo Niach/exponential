@@ -46,8 +46,10 @@ import {
   TriangleAlert,
   Upload,
   X,
+  Icon as LucideIcon,
 } from "lucide-solid"
-import { lookupIcon } from "@exponential_app/ui/web"
+import type { IconNode, LucideProps } from "lucide-solid"
+import { CUSTOM_ICON_NODES, lookupIcon } from "@exponential_app/ui/web"
 import type { IconComponent, IconMap } from "./host"
 
 /** The renderer's own chrome glyphs that are NOT catalog part glyphs. */
@@ -100,6 +102,9 @@ export const FALLBACK_ICONS: Record<string, IconComponent> = {
   search: Search,
   upload: Upload,
   star: Star,
+  // VAPP-163: the icons.json names a Lucide registry has no glyph for (the
+  // OS marks, the progress pies), React's table name for name.
+  ...Object.fromEntries(Object.entries(CUSTOM_ICON_NODES).map(([name, node]) => [name, (props: LucideProps) => <LucideIcon {...props} name={name} iconNode={node as IconNode} />])),
 }
 
 export function resolveIcon(icons: IconMap | undefined, name: string): IconComponent | undefined {

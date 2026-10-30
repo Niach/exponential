@@ -2064,6 +2064,49 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-heading-case-4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-heading-case-4-label",
+                "component": "Text",
+                "props": {
+                  "text": "style · on a band",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4-band",
+                "component": "Box",
+                "style": {
+                  "backgroundColor": "$color.primary",
+                  "padding": "$spacing.lg",
+                  "borderRadius": "$radius.lg"
+                },
+                "children": [
+                  {
+                    "id": "c4-heading",
+                    "component": "Heading",
+                    "props": {
+                      "text": "Welcome",
+                      "level": "h4"
+                    },
+                    "style": {
+                      "color": "$color.primaryForeground",
+                      "fontSize": "$type.size.xl3",
+                      "lineHeight": "$type.lineHeight.xl3"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -2761,6 +2804,67 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-icon-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-icon-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "name · non-Lucide",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-marks",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "md"
+                },
+                "children": [
+                  {
+                    "id": "c8-os-apple",
+                    "component": "Icon",
+                    "props": {
+                      "name": "os-apple",
+                      "size": "lg"
+                    }
+                  },
+                  {
+                    "id": "c8-os-windows",
+                    "component": "Icon",
+                    "props": {
+                      "name": "os-windows",
+                      "size": "lg"
+                    }
+                  },
+                  {
+                    "id": "c8-os-linux",
+                    "component": "Icon",
+                    "props": {
+                      "name": "os-linux",
+                      "size": "lg"
+                    }
+                  },
+                  {
+                    "id": "c8-progress-2-4",
+                    "component": "Icon",
+                    "props": {
+                      "name": "progress-2-4",
+                      "size": "lg"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -3366,6 +3470,53 @@
                   ],
                   "value": "list",
                   "type": "multiple"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-segmented-case-7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-segmented-case-7-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · bar · icons",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7-tabs",
+                "component": "Segmented",
+                "props": {
+                  "variant": "bar",
+                  "value": "chats",
+                  "items": [
+                    {
+                      "label": "Chats",
+                      "value": "chats",
+                      "icon": "message-circle"
+                    },
+                    {
+                      "label": "Contacts",
+                      "value": "contacts",
+                      "icon": "users"
+                    },
+                    {
+                      "label": "Settings",
+                      "value": "settings",
+                      "icon": "settings"
+                    }
+                  ]
+                },
+                "style": {
+                  "width": 360
                 }
               }
             ]
@@ -8246,6 +8397,35 @@
                   "type": "email",
                   "placeholder": "you@example.com",
                   "disabled": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-input-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-input-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "label · none",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-search",
+                "component": "Input",
+                "props": {
+                  "name": "q",
+                  "label": "",
+                  "type": "search",
+                  "placeholder": "Search"
                 }
               }
             ]

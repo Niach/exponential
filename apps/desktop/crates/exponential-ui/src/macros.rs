@@ -295,6 +295,7 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
         macro_: exp.macro_.to_string(),
         part: tpl.part.clone(),
         props: recipe_props(exp, ctx, tpl.recipe.as_ref()),
+        authored: Vec::new(),
     });
     if let Some(routes) = &tpl.on {
         let mut on = IndexMap::new();
@@ -422,6 +423,22 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
         }
     }
     root.style = merge_style(root.style.as_ref(), node.style.as_ref()).filter(|s| !s.is_empty());
+    // VAPP-163: the style written ON the macro node wins over the macro's
+    // part recipes: its top-level keys (condition blocks included), SORTED,
+    // ride on the root's recipe as `authored`. Only the AUTHOR's keys count:
+    // a node an outer template drew (it carries a recipe) passes on just the
+    // keys its own author wrote, never template style.
+    let authored: Vec<String> = match &node.recipe {
+        Some(outer) => outer.authored.clone(),
+        None => {
+            let mut keys: Vec<String> = node.style.as_ref().map(|s| s.keys().cloned().collect()).unwrap_or_default();
+            keys.sort();
+            keys
+        }
+    };
+    if let Some(recipe) = root.recipe.as_mut() {
+        recipe.authored = authored;
+    }
     if let Some(visible) = &node.visible {
         root.visible = Some(visible.clone());
     }

@@ -382,7 +382,12 @@
             "recipe": {
               "macro": "Stack",
               "part": "root",
-              "props": {}
+              "props": {},
+              "authored": [
+                "flexGrow",
+                "flexShrink",
+                "minWidth"
+              ]
             }
           },
           {
@@ -1453,7 +1458,10 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {},
+              "authored": [
+                "gridArea"
+              ]
             },
             "accessibility": {
               "role": "group"
@@ -1581,7 +1589,12 @@
                             "shape": "pill",
                             "selected": false,
                             "tone": "success"
-                          }
+                          },
+                          "authored": [
+                            "position",
+                            "right",
+                            "top"
+                          ]
                         },
                         "accessibility": {
                           "role": "none"
@@ -1840,7 +1853,11 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {},
+              "authored": [
+                "gridArea",
+                "minWidth"
+              ]
             },
             "accessibility": {
               "role": "group",
@@ -2180,7 +2197,11 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {},
+              "authored": [
+                "gridArea",
+                "minWidth"
+              ]
             },
             "accessibility": {
               "role": "group"
@@ -2389,7 +2410,10 @@
                     "recipe": {
                       "macro": "Stack",
                       "part": "root",
-                      "props": {}
+                      "props": {},
+                      "authored": [
+                        "marginInlineStart"
+                      ]
                     }
                   }
                 ],
@@ -4725,7 +4749,10 @@
                       "part": "root",
                       "props": {
                         "tone": "success"
-                      }
+                      },
+                      "authored": [
+                        "width"
+                      ]
                     }
                   },
                   {
@@ -4808,7 +4835,10 @@
                       "part": "root",
                       "props": {
                         "tone": "primary"
-                      }
+                      },
+                      "authored": [
+                        "flexGrow"
+                      ]
                     },
                     "accessibility": {
                       "role": "progressbar",
@@ -5686,7 +5716,11 @@
                 "density": "default",
                 "surface": "card",
                 "depth": 0
-              }
+              },
+              "authored": [
+                "flexBasis",
+                "flexGrow"
+              ]
             },
             "accessibility": {
               "role": "button",
@@ -7612,7 +7646,11 @@
                               "part": "root",
                               "props": {
                                 "variant": "secondary"
-                              }
+                              },
+                              "authored": [
+                                "@media (min-width: $breakpoint.md)",
+                                "display"
+                              ]
                             }
                           },
                           {
@@ -7656,7 +7694,10 @@
                               "part": "root",
                               "props": {
                                 "variant": "outline"
-                              }
+                              },
+                              "authored": [
+                                "@media (min-width: $breakpoint.md)"
+                              ]
                             }
                           }
                         ],
@@ -7676,7 +7717,10 @@
                         "recipe": {
                           "macro": "Stack",
                           "part": "root",
-                          "props": {}
+                          "props": {},
+                          "authored": [
+                            "padding"
+                          ]
                         }
                       }
                     ],
@@ -7711,7 +7755,10 @@
                   "part": "root",
                   "props": {
                     "side": "left"
-                  }
+                  },
+                  "authored": [
+                    "minHeight"
+                  ]
                 }
               },
               {
@@ -7870,7 +7917,10 @@
                         "shape": "pill",
                         "selected": false,
                         "tone": "neutral"
-                      }
+                      },
+                      "authored": [
+                        "flexShrink"
+                      ]
                     },
                     "accessibility": {
                       "role": "none"
@@ -7921,7 +7971,10 @@
                         "shape": "pill",
                         "selected": false,
                         "tone": "neutral"
-                      }
+                      },
+                      "authored": [
+                        "flexShrink"
+                      ]
                     },
                     "accessibility": {
                       "role": "none"
@@ -7972,7 +8025,10 @@
                         "shape": "pill",
                         "selected": false,
                         "tone": "neutral"
-                      }
+                      },
+                      "authored": [
+                        "flexShrink"
+                      ]
                     },
                     "accessibility": {
                       "role": "none"
@@ -8023,7 +8079,10 @@
                         "shape": "pill",
                         "selected": false,
                         "tone": "neutral"
-                      }
+                      },
+                      "authored": [
+                        "flexShrink"
+                      ]
                     },
                     "accessibility": {
                       "role": "none"
@@ -8074,7 +8133,10 @@
                         "shape": "pill",
                         "selected": false,
                         "tone": "neutral"
-                      }
+                      },
+                      "authored": [
+                        "flexShrink"
+                      ]
                     },
                     "accessibility": {
                       "role": "none"
@@ -8125,7 +8187,10 @@
                         "shape": "pill",
                         "selected": false,
                         "tone": "neutral"
-                      }
+                      },
+                      "authored": [
+                        "flexShrink"
+                      ]
                     },
                     "accessibility": {
                       "role": "none"
@@ -8176,7 +8241,10 @@
                         "shape": "pill",
                         "selected": false,
                         "tone": "neutral"
-                      }
+                      },
+                      "authored": [
+                        "flexShrink"
+                      ]
                     },
                     "accessibility": {
                       "role": "none"
@@ -10071,7 +10139,10 @@
                 "recipe": {
                   "macro": "Page",
                   "part": "root",
-                  "props": {}
+                  "props": {},
+                  "authored": [
+                    "height"
+                  ]
                 }
               },
               {
@@ -10404,7 +10475,10 @@
                 "recipe": {
                   "macro": "SplitView",
                   "part": "root",
-                  "props": {}
+                  "props": {},
+                  "authored": [
+                    "height"
+                  ]
                 }
               },
               {

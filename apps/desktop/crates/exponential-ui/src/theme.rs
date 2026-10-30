@@ -7,7 +7,9 @@
 //! one mode with concrete values.
 //!
 //! Precedence a painter applies ([`resolve_node_style`]): the native's own
-//! recipe < the node's style < the macro part's recipe.
+//! recipe < the node's style < the macro part's recipe < the node style's
+//! AUTHORED keys (VAPP-163: the style written on the macro node, listed in
+//! `recipe.authored` by the expander).
 //!
 //! Source objects are `serde_json::Value`s in SOURCE order (`preserve_order`),
 //! so issues come out in the TS order.
@@ -1317,17 +1319,23 @@ pub fn node_recipe_query(node: &UiNode, index: &RecipeIndex) -> RecipeQuery {
 }
 
 /// What a painter paints a node with: native recipe < node style < macro
-/// part recipe, token references resolved, condition blocks kept nested.
+/// part recipe < the node style's authored keys, token references
+/// resolved, condition blocks kept nested.
 pub fn resolve_node_style(theme: &ResolvedTheme, node: &UiNode, mode: Mode, states: &[String], index: &RecipeIndex) -> Props {
     let own_query = RecipeQuery::new(node.component.clone(), "root", index.native_recipe_props(&node.component, &node.props), states.to_vec());
     let mut out = resolve_recipe(theme, &own_query, mode);
-    if let Some(style) = &node.style {
-        out.extend(resolve_style_values(theme, style, mode));
-    }
-    if node.recipe.is_some() {
+    let style = node.style.as_ref().map(|s| resolve_style_values(theme, s, mode)).unwrap_or_default();
+    out.extend(style.clone());
+    if let Some(recipe) = &node.recipe {
         let mut q = node_recipe_query(node, index);
         q.states = states.to_vec();
         out.extend(resolve_recipe(theme, &q, mode));
+        for authored in &recipe.authored {
+            let key = resolve_condition_key(theme, authored);
+            if let Some(v) = style.get(&key) {
+                out.insert(key, v.clone());
+            }
+        }
     }
     out
 }
@@ -1458,7 +1466,7 @@ mod tests {
         let index = RecipeIndex::core();
         let mut label = UiNode::new("b.label", "Text");
         label.props = json!({"text": "New", "variant": "caption"}).as_object().cloned().unwrap();
-        label.recipe = Some(crate::types::Recipe { macro_: "Badge".into(), part: "label".into(), props: json!({"variant": "destructive"}).as_object().cloned().unwrap() });
+        label.recipe = Some(crate::types::Recipe { macro_: "Badge".into(), part: "label".into(), props: json!({"variant": "destructive"}).as_object().cloned().unwrap(), authored: Vec::new() });
         let query = node_recipe_query(&label, &index);
         assert_eq!(query, q("Badge", "label", json!({"variant": "destructive"}), &[]));
         let style = resolve_node_style(&n, &label, Mode::Light, &[], &index);
@@ -1474,6 +1482,60 @@ mod tests {
         text.props = json!({"text": "x", "variant": "muted"}).as_object().cloned().unwrap();
         text.style = json!({"color": "#ff0000"}).as_object().cloned();
         assert_eq!(resolve_node_style(&n, &text, Mode::Light, &[], &RecipeIndex::core())["color"], json!("#ff0000"));
+    }
+
+    fn expand(node: Value) -> UiNode {
+        use crate::catalog::CORE_CATALOG_ID;
+        use crate::reducer::{reduce_nested, ReduceOptions};
+        reduce_nested(&serde_json::from_value(node).unwrap(), &ReduceOptions::new(CORE_CATALOG_ID)).root
+    }
+
+    #[test]
+    fn vapp163_the_expander_lists_the_authors_keys_sorted() {
+        let heading = expand(json!({"id": "h", "component": "Heading", "props": {"text": "Hi", "level": "h1"}, "style": {"fontSize": 40, "color": "$color.primaryForeground"}}));
+        assert_eq!(heading.recipe.as_ref().unwrap().authored, vec!["color".to_string(), "fontSize".to_string()]);
+        let plain = expand(json!({"id": "h", "component": "Heading", "props": {"text": "Hi"}}));
+        assert!(plain.recipe.as_ref().unwrap().authored.is_empty());
+        assert!(serde_json::to_value(plain.recipe.unwrap()).unwrap().get("authored").is_none());
+    }
+
+    #[test]
+    fn vapp163_an_authors_style_on_a_heading_wins_over_its_part_recipe() {
+        let index = RecipeIndex::core();
+        let heading = expand(json!({"id": "h", "component": "Heading", "props": {"text": "Hi", "level": "h1"}, "style": {"fontSize": 40, "color": "$color.primaryForeground"}}));
+        for id in ["playful", "neutral"] {
+            let t = builtin_theme(id).unwrap();
+            let style = resolve_node_style(&t, &heading, Mode::Light, &[], &index);
+            assert_eq!(style["fontSize"], json!(40), "{id}");
+            assert_eq!(style["color"], json!(t.modes.light.color["primaryForeground"]), "{id}");
+            let recipe = resolve_recipe(&t, &q("Heading", "root", json!({"level": "h1"}), &[]), Mode::Light);
+            assert_eq!(style["fontWeight"], recipe["fontWeight"], "{id}");
+        }
+    }
+
+    #[test]
+    fn vapp163_badge_author_background_wins_template_structure_still_loses() {
+        let index = RecipeIndex::core();
+        let badge = expand(json!({"id": "b", "component": "Badge", "props": {"text": "New"}, "style": {"backgroundColor": "#123456"}}));
+        assert_eq!(badge.recipe.as_ref().unwrap().authored, vec!["backgroundColor".to_string()]);
+        let neutral = builtin_theme("neutral").unwrap();
+        assert_eq!(resolve_node_style(&neutral, &badge, Mode::Light, &[], &index)["backgroundColor"], json!("#123456"));
+        let playful = builtin_theme("playful").unwrap();
+        let style = resolve_node_style(&playful, &badge, Mode::Light, &[], &index);
+        assert_eq!(style["backgroundColor"], json!("#123456"));
+        assert!(badge.style.as_ref().unwrap().contains_key("borderRadius"));
+        let recipe = resolve_recipe(&playful, &q("Badge", "root", json!({"variant": "default"}), &[]), Mode::Light);
+        assert_eq!(style["borderRadius"], recipe["borderRadius"]);
+    }
+
+    #[test]
+    fn vapp163_an_authored_condition_block_wins_with_its_media_key_resolved() {
+        let playful = builtin_theme("playful").unwrap();
+        let node = expand(json!({"id": "h", "component": "Heading", "props": {"text": "Hi"}, "style": {"@media (min-width: $breakpoint.md)": {"color": "#00ff00"}}}));
+        assert_eq!(node.recipe.as_ref().unwrap().authored, vec!["@media (min-width: $breakpoint.md)".to_string()]);
+        let style = resolve_node_style(&playful, &node, Mode::Light, &[], &RecipeIndex::core());
+        let key = format!("@media (min-width: {}px)", json::number_to_string(playful.tokens.breakpoint["md"]));
+        assert_eq!(style[&key], json!({"color": "#00ff00"}));
     }
 
     #[test]

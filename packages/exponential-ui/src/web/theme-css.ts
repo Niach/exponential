@@ -10,9 +10,10 @@
 //      the Radix state attribute, and in every case the forced-state marker
 //      `[data-xs~="<state>"]` the recipe sheet uses.
 // Token references stay `var(--xui-…)`, so a mode switch is one attribute
-// flip and never a recompile; the three cascade layers (`xui-recipe` <
-// `xui-node` < `xui-part`) ARE the painter precedence of
-// `resolveNodeStyle` (native recipe < node style < macro part recipe).
+// flip and never a recompile; the cascade layers (`xui-recipe` <
+// `xui-node` < `xui-part` < `xui-author`) ARE the painter precedence of
+// `resolveNodeStyle` (native recipe < node style < macro part recipe < the
+// style keys authored ON a macro node, VAPP-163).
 // Everything is scoped by a class derived from the theme's content, so two
 // surfaces on one page can wear two themes and a host page's own
 // Tailwind/shadcn variables are never touched.
@@ -20,7 +21,7 @@
 import { ANIMATIONS, animatesOpacity, coreCatalog, easingCss, parseTokenRef, shadowCss } from "@exponential_app/ui"
 import type { Easing, FontSpec, RecipeRule, ResolvedTheme, Shadow } from "@exponential_app/ui"
 
-export const LAYERS = `@layer xui-base, xui-recipe, xui-node, xui-part;`
+export const LAYERS = `@layer xui-base, xui-recipe, xui-node, xui-part, xui-author;`
 
 /** Keys whose numbers carry no unit. */
 const UNITLESS = new Set([`flexGrow`, `flexShrink`, `opacity`, `fontWeight`, `aspectRatio`, `zIndex`])

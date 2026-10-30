@@ -337,7 +337,9 @@ struct SegmentedLeaf: View {
                 ConceptIcon(name: icon, size: cx.control("iconMd", 20), color: iconInk, model: cx.model)
             }
             if let label = it["label"]?.displayText, !label.isEmpty {
-                TextLabel(label, ts, color: labelPart.color ?? color, lines: 1)
+                // Centred under the icon (the web's column item): the label
+                // spans the item, so a natural paragraph would sit leading.
+                TextLabel(label, ts, color: labelPart.color ?? color, align: "center", lines: 1)
                     .frame(maxWidth: .infinity)
                     .frame(height: ts.lineHeight)
             }
