@@ -36,7 +36,7 @@ cd packages/exponential-ui-compose
 ### In a blank project
 
 A blank Android Studio project (Compose template, AGP 8.10, Kotlin 2.4, minSdk 26) needs only
-`mavenCentral()` in its repositories and `implementation("at.exponential:ui-compose:0.2.0")`;
+`mavenCentral()` in its repositories and `implementation("at.exponential:ui-compose:0.1.1")`;
 the POM brings the primitives, Compose,
 coroutines and JNA (`@aar`). Ten lines of `MainActivity` (a `SurfaceModel`, `setNested` with the
 kitchen sink from `assets/`, `ExponentialSurface` in a `verticalScroll`) render the kitchen sink

@@ -57,9 +57,9 @@ Maven Central) except the eUI ones, which we already own.
 
 | product | released | how |
 |---|---|---|
-| eUI | 0.2.0 | tag `ui-v0.2.0` → `release-ui.yml`: npm, crates.io (`exponential-ui`), Maven Central, SwiftPM; `exponential-ui-gpui` rides the tag as a git dependency |
+| eUI | 0.1.1 (master is 0.2.0, unreleased) | tag `ui-v<version>` → `release-ui.yml`: npm, crates.io (`exponential-ui`), Maven Central, SwiftPM; `exponential-ui-gpui` rides the tag as a git dependency. 0.2.0 waits for `exponential-ui.yml` to go green again (round-5 baselines) |
 | eTalk | never | crates at the desktop workspace version; no `etalk-v*` tag yet |
 | ePilot | never | crates at the desktop workspace version; no `epilot-v*` tag yet |
 | eNet | never | `exponential-net{,-ffi,-wasm}` 0.1.0, MIT OR Apache-2.0; no `net-v*` tag, no release workflow |
-| eApps | inside eUI | the package format (v2) ships in `@exponential_app/ui/host` and the `exponential-ui` crate; no `exponential-apps` crate yet |
+| eApps | inside eUI | the package format v2 is in `@exponential_app/ui/host` and the `exponential-ui` crate on master (released with eUI 0.2.0); no `exponential-apps` crate yet |
 | agent-runtime | never | `exponential-agent-runtime` 0.1.0, `publish = false` |
