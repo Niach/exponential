@@ -46,9 +46,14 @@ lib() { echo "$THIN/$1/libexponential_net_ffi.a"; }
 
 echo "== xcframework"
 HEADERS="$OUT/headers"
-rm -rf "$HEADERS" && mkdir -p "$HEADERS"
-cp "$BINDINGS/swift/ExponentialNetFFIFFI.h" "$HEADERS/"
-cp "$BINDINGS/swift/module.modulemap" "$HEADERS/module.modulemap"
+rm -rf "$HEADERS" && mkdir -p "$HEADERS/ExponentialNetFFIFFI"
+# The headers sit in a directory named after the clang module, not at the
+# root: an archive copies every static xcframework's headers into ONE
+# BuildProductsPath/include, so two root-level module.modulemap files (this
+# one and eUI's) fail with "Multiple commands produce include/module.modulemap".
+# Clang finds `ExponentialNetFFIFFI` at include/ExponentialNetFFIFFI/module.modulemap.
+cp "$BINDINGS/swift/ExponentialNetFFIFFI.h" "$HEADERS/ExponentialNetFFIFFI/"
+cp "$BINDINGS/swift/module.modulemap" "$HEADERS/ExponentialNetFFIFFI/module.modulemap"
 FAT="$OUT/fat"
 rm -rf "$FAT"
 built() { [ -f "$(lib "$1")" ]; }
