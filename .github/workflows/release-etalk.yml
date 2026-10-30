@@ -94,6 +94,8 @@ jobs:
       - name: Kotlin binding suite (the committed binding vs the host .so)
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
+          # The self-hosted runner's HOME is read-only: the kotlinc + JNA jars cache in the job's temp.
+          XDG_CACHE_HOME: ${{ runner.temp }}/cache
         run: bash apps/desktop/crates/etalk-ffi/run-binding-tests.sh kotlin
 
   swift:
