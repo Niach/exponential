@@ -13,7 +13,8 @@ crates.io `exponential-ui`, Maven `at.exponential:ui-compose*`, tag `ui-v*`).
 the old npm packages, and `exponential-ui` 0.1.1 stays on crates.io, superseded.
 
 Kept on purpose: the UniFFI/wasm binding crates (`exponential-ui-ffi`,
-`exponential-net-ffi`, `exponential-net-wasm`; never published on their own).
+`exponential-net-ffi`, `exponential-net-wasm`; never published on their own;
+`etalk-ffi` follows the new scheme and is not published either).
 Their lib names are baked into the generated bindings and the native library
 files. Also kept: the Swift modules `ExponentialUI` / `ExponentialUIPrimitives`
 from the distribution repo `Niach/exponential-ui-swift`, the Kotlin packages
@@ -29,7 +30,7 @@ consumes them as dependencies.
 | product | Rust crates (`apps/desktop/crates/<name>`) | npm (`@exponential_app/…`) | Maven (`at.exponential:…`) | SwiftPM product (repo) | release tag | docs |
 |---|---|---|---|---|---|---|
 | **eUI** | `eui-core` (crates.io), `eui-gpui` (git dependency on the tag, #EXP-1429), `exponential-ui-ffi` (not published, ships inside Swift/Kotlin) | `eui`, `eui-react`, `eui-solid`, `eui-element` | `eui-compose`, `eui-compose-primitives` | `ExponentialUI`, `ExponentialUIPrimitives` (`Niach/exponential-ui-swift`) | `eui-v*` → `release-eui.yml` | exponential.at/ui/ |
-| **eTalk** | `etalk`, `etalk-engine`, `etalk-crispasr`, `etalk-codec`, `etalk-wakeword`, `etalk-gpui` (git dependencies on the tag); `etalk-ffi` not yet | `etalk` (the contract + fixtures, `packages/etalk`) | not yet | not yet | `etalk-v*` → `release-etalk.yml` | exponential.at/talk/ |
+| **eTalk** | `etalk`, `etalk-engine`, `etalk-crispasr`, `etalk-codec`, `etalk-wakeword`, `etalk-gpui` (git dependencies on the tag), `etalk-ffi` (not published, ships inside Swift/Kotlin) | `etalk` (the contract + fixtures, `packages/etalk`) | `etalk` (planned) | `ExponentialTalk` (planned) | `etalk-v*` → `release-etalk.yml` | exponential.at/talk/ |
 | **ePilot** | `epilot`, `epilot-screen` (git dependencies on the tag) | none (desktop only) | none | none (desktop only) | `epilot-v*` → `release-epilot.yml` | exponential.at/pilot/ |
 | **eNet** | `enet-core` (crates.io), `exponential-net-ffi`, `exponential-net-wasm` (not published yet) | `enet` (the wasm build, planned) | `enet` (planned) | `ExponentialNet` (planned) | `enet-v*` → `release-enet.yml` | exponential.at/net/ |
 | **eApps** | inside `eui-core` for now | inside `@exponential_app/eui/host` | | | rides `eui-v*` | exponential.at/apps/ |

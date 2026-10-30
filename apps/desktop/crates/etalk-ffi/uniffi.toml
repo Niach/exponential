@@ -1,0 +1,9 @@
+[bindings.swift]
+module_name = "ExponentialTalkFFI"
+
+[bindings.kotlin]
+package_name = "at.exponential.talk.ffi"
+cdylib_name = "etalk_ffi"
+# Binding and .so ship together (one AAR, one build-android.sh run), as in
+# exponential-ui-ffi: skip the per-call checksum probes at load.
+omit_checksums = true

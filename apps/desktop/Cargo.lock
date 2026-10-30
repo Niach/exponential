@@ -3022,6 +3022,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "etalk-ffi"
+version = "0.1.0"
+dependencies = [
+ "etalk",
+ "etalk-codec",
+ "serde_json",
+ "uniffi",
+]
+
+[[package]]
 name = "etalk-gpui"
 version = "0.1.0"
 dependencies = [
