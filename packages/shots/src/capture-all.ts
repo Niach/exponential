@@ -163,7 +163,9 @@ const FLEET_VIEWS = new Set([
 ])
 /** The stub's stdout banner (apps/web/scripts/screenshot-desktop.ts). */
 const RELAY_BANNER = `Screenshot desktop online:`
-const RELAY_TIMEOUT_MS = 90_000
+// VAPP-168: the stub compiles and starts its eNet feed node (cargo, the steer
+// crate's example) before the banner; a cold target dir takes minutes.
+const RELAY_TIMEOUT_MS = 15 * 60_000
 
 interface Options {
   platforms: Platform[]
