@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-cli-follow-via-daemon",
+    date: "2026-10-30",
+    title: "The CLI follows sessions while its daemon runs",
+    summary: "`exponential sessions log --follow` now streams a session from another machine even while this machine's daemon is running.",
+    body: r#"- **Follow from anywhere**: on a machine whose daemon is running, the CLI now asks the daemon to connect to the session's device and streams the session's activity through it. Before, it refused and asked you to stop the daemon.
+- **Update the daemon**: an older daemon can't do this; `exponential update` brings it up to date."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_123: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-steer-over-enet",
     date: "2026-10-30",
     title: "Sessions stream straight from your device",

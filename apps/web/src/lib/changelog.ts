@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-cli-follow-via-daemon`,
+    date: `2026-10-30`,
+    title: `The CLI follows sessions while its daemon runs`,
+    summary: `\`exponential sessions log --follow\` now streams a session from another machine even while this machine's daemon is running.`,
+    body: `- **Follow from anywhere**: on a machine whose daemon is running, the CLI now asks the daemon to connect to the session's device and streams the session's activity through it. Before, it refused and asked you to stop the daemon.
+- **Update the daemon**: an older daemon can't do this; \`exponential update\` brings it up to date.`,
+  },
+  {
     id: `2026-10-30-steer-over-enet`,
     date: `2026-10-30`,
     title: `Sessions stream straight from your device`,
