@@ -12,6 +12,7 @@ export const STORIES_CONSTANTS = fixture.constants
 export const STORY_RING = fixture.ring
 export const STORY_PROGRESS = fixture.progress
 export const STORY_VIEWER = fixture.viewer
+export const STORY_ROW = fixture.row
 export const STORIES_TEST_IDS = fixture.testIds
 export const STORY_TAB = fixture.tab
 

@@ -1429,7 +1429,7 @@ async function seedSessionTree(ctx: {
             data: {},
           },
         },
-        // Fresh: a result story drops after stories.json `unseenHours`.
+        // Fresh: a story leaves the rings after stories.json `windowHours`.
         at: minutesAgo(40),
       },
       // VAPP-110 + VAPP-122: the demo user's editor session with the Working
