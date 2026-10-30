@@ -1424,6 +1424,7 @@ final class AgentSessionModel {
                         // EXP-724: the run is over (or gone) — no `ended`
                         // compaction frame will ever arrive for it.
                         if self.sessionEnded { self.clearLiveWork() }
+                        self.liftRowEndedIfRunBack()
                         self.rebuildHostDevice()
                     }
                     // The sequence only finishes cleanly on cancellation.
@@ -1825,6 +1826,19 @@ final class AgentSessionModel {
             return
         }
         guard phase != .live else { return }
+        phase = .live
+        reconnectAttempts = 0
+    }
+
+    /// VAPP-173: a feed that answered while the row still read ended landed
+    /// on `.ended` from the ROW (`markLive`); the run came back
+    /// (fixtures/steer-enet.json OFFLINE REDIAL: "a run that came back =
+    /// live"), so the row flipping running under that open feed lifts it.
+    /// Keepalives alone (an idle run's joined viewer) never re-evaluate.
+    /// Mirrors Android's `SteerConnection` row collector.
+    private func liftRowEndedIfRunBack() {
+        guard !sessionEnded, connected, !sawEnd, history == nil else { return }
+        guard case .ended = phase else { return }
         phase = .live
         reconnectAttempts = 0
     }

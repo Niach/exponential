@@ -356,6 +356,23 @@ class SteerConnection internal constructor(
     internal val isDeviceOffline: Boolean
         get() = !closed && _phase.value is AgentPhase.Ended && _history.value == HistoryState.DeviceOffline
 
+    init {
+        // VAPP-173: a feed that answered while the row still read ended landed
+        // on Ended ("row ended"); the run came back (fixtures/steer-enet.json
+        // OFFLINE REDIAL: "a run that came back = live"), so the row flipping
+        // running under that open feed promotes it. Keepalives alone (an idle
+        // run's joined viewer) never re-evaluate the phase.
+        scope.launch {
+            session.collect { row ->
+                if (row == null || row.isEnded || closed) return@collect
+                if (_connected.value && _phase.value is AgentPhase.Ended && _history.value == null) {
+                    setPhase(AgentPhase.Live, "row running")
+                    reconnectAttempts = 0
+                }
+            }
+        }
+    }
+
     fun setDraft(text: String) {
         _draft.value = text
     }
