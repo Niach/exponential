@@ -269,6 +269,16 @@ fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
 /// it at once and dedups by `id` against the synced copy).
 pub type DirectMessage = MessageRow;
 
+/// `sessions.send`'s `deliverTo` (contract addendum 3): the install of the
+/// device executing the target session.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliverTo {
+    pub install_id: String,
+    /// Lowercase hex of the install's eNet endpoint id.
+    pub endpoint_id: String,
+}
+
 /// The network half of sealing, installed process-wide with [`install`].
 /// Every method BLOCKS on the network: call off the UI thread.
 pub trait SealService: Send + Sync {
@@ -287,10 +297,10 @@ pub trait SealService: Send + Sync {
     fn resolve_root(&self, _session_id: &str) -> Option<String> {
         None
     }
-    /// After the server accepted `message` (sealed) for `target_session`,
-    /// deliver it over eNet to the device executing that session (when it
-    /// is another team device). Fire and forget.
-    fn deliver_direct(&self, _target_session: &str, _message: &DirectMessage) {}
+    /// After the server accepted `message` (sealed, as stored) it returned
+    /// `deliverTo` for: deliver it over eNet chat to that install (the
+    /// device executing the target session). Fire and forget.
+    fn deliver_direct(&self, _deliver_to: &DeliverTo, _message: &DirectMessage) {}
     /// Keeps a new root's secret once `sessions.send {seal}` returned its id.
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
         adopt_into(self.keyring(), root_id, seal);
@@ -636,8 +646,8 @@ pub(crate) mod test_support {
             Ok(self.keyring.current(root_id))
         }
         fn fetch_secrets(&self, _root_id: &str) {}
-        fn deliver_direct(&self, target: &str, message: &MessageRow) {
-            self.delivered.lock().unwrap().push((target.to_string(), message.clone()));
+        fn deliver_direct(&self, to: &DeliverTo, message: &MessageRow) {
+            self.delivered.lock().unwrap().push((to.endpoint_id.clone(), message.clone()));
         }
     }
 

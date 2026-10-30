@@ -60,9 +60,9 @@ impl KeyApi for api::TrpcClient {
     }
 }
 
-/// Another tree's agent-to-agent delivery (`enet.rs` sets it once the node
-/// runs): `(target session, sealed message row)`.
-pub type DirectSender = Arc<dyn Fn(&str, &domain::rows::MessageRow) + Send + Sync>;
+/// Agent-to-agent delivery over eNet (`enet.rs` sets it once the node
+/// runs): `(target install, sealed message row)`.
+pub type DirectSender = Arc<dyn Fn(&coding::sealing::DeliverTo, &domain::rows::MessageRow) + Send + Sync>;
 
 /// One install's key holder. Cheap to clone.
 #[derive(Clone)]
@@ -267,10 +267,10 @@ impl SealService for KeyHolder {
         }
     }
 
-    fn deliver_direct(&self, target_session: &str, message: &domain::rows::MessageRow) {
+    fn deliver_direct(&self, deliver_to: &coding::sealing::DeliverTo, message: &domain::rows::MessageRow) {
         let sender = lock(&self.inner.direct).clone();
         if let Some(sender) = sender {
-            sender(target_session, message);
+            sender(deliver_to, message);
         }
     }
 }
