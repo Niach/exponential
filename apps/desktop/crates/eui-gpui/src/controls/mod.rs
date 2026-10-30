@@ -2,7 +2,7 @@
 //!
 //! The controls the Exponential IDE (`apps/desktop/crates/ui`) and the SDK's
 //! catalog painters share: buttons, fields, the pill, the glass rows, bands,
-//! cards and groups, the meter and the context ring, the read-only markdown
+//! cards and groups, the DockCard and its pile, the meter and the context ring, the read-only markdown
 //! view. They moved here out of the IDE's `controls.rs` / `surface.rs` /
 //! `usage_bar.rs` / `usage_sheet.rs`; the IDE re-exports every one under its
 //! old name, so a doc comment's EXP-… rationale still reads as it did there.
@@ -21,6 +21,7 @@
 mod animation;
 mod buttons;
 mod choice_tiles;
+mod dock;
 mod fades;
 mod feedback;
 mod inputs;
@@ -39,6 +40,10 @@ pub use buttons::{
 };
 pub use choice_tiles::{
     choice_tile, choice_tile_rows, choice_tiles, ChoiceTile, ChoiceTilesGeometry, OnTilePick, TilePicture,
+};
+pub use dock::{
+    dock_card, dock_pile, dock_pile_geometry, dock_pile_slot, DockCard, DockCardTint, DockPileConstants, DockPileItem,
+    DOCK_PILE_CONSTANTS,
 };
 pub use fades::{edge_fade_bottom, edge_fade_bottom_soft, edge_fade_top};
 pub use feedback::{

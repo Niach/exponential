@@ -2,7 +2,8 @@
 //! `packages/ui/src/dock.tsx`, model [`domain::dock`]): the floating band
 //! over the transcript's bottom edge in the composer column: the DockCards
 //! (a waiting plan or question, THE Queue, the queued messages, a status
-//! banner) piled like the toasts ([`domain::stack::stack_layout`] with the
+//! banner) piled like the toasts (THE primitive `eui_gpui::controls::dock_card`
+//! + `dock_pile_geometry`, the web `DockCard`/`DockPile`'s twin, with the
 //! Dock's `stack`, anchored at the bottom: the front card last, the older
 //! ones peeking out above it, `visible` at most; hovering fans them `gap`
 //! apart), then THE composer, which never leaves. A click on a card opens
@@ -29,11 +30,10 @@ use gpui_base::{transition, Transition};
 use gpui_component::{button::{Button, ButtonVariants as _}, h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use theme::tokens as t;
 
+use eui_gpui::controls::{self, DockCard, DockCardTint};
+
 use crate::controls::WebControl as _;
 use crate::icons::registry;
-
-/// Tailwind `amber-400`: the warning banner's tint (web `text-amber-400`).
-const AMBER: u32 = 0xfbbf24;
 
 /// The transcript's last row clears the band by this much (web `DOCK_GAP`).
 pub(crate) const DOCK_GAP: f32 = 16.;
@@ -170,13 +170,18 @@ impl DockState {
     }
 }
 
-fn tint(tint: DockTint, cx: &App) -> Hsla {
+/// The row's tint as the primitive's (`eui_gpui::controls::DockCardTint`).
+fn card_tint(tint: DockTint) -> DockCardTint {
     match tint {
-        DockTint::Plan => cx.theme().primary,
-        DockTint::Question => t::YELLOW.to_hsla(),
-        DockTint::Muted => cx.theme().muted_foreground,
-        DockTint::Warning => gpui::rgb(AMBER).into(),
+        DockTint::Plan => DockCardTint::Plan,
+        DockTint::Question => DockCardTint::Question,
+        DockTint::Muted => DockCardTint::Muted,
+        DockTint::Warning => DockCardTint::Warning,
     }
+}
+
+fn tint(tint: DockTint, cx: &App) -> Hsla {
+    card_tint(tint).color(cx)
 }
 
 fn concept(name: &str) -> crate::icons::ExpIcon {
@@ -189,79 +194,28 @@ pub(crate) fn card_fill() -> Hsla {
     crate::controls::ide_chrome().fill_card_opaque
 }
 
-/// A DockCard collapsed (web `DockCard`): the AskCard chrome (the kind
-/// icon, the tinted label, the muted caption, the trailing meta) over the
-/// one title line and the open chevron (an expandable card) or the
-/// banner's `action`. `hidden` = a card behind the front one while piled
-/// (its chrome peeks, its words do not). The caller wires the click.
+/// A DockCard collapsed: a [`DockRow`] painted through THE primitive
+/// (`eui_gpui::controls::dock_card`, web `DockCard`): the kind icon, the
+/// tinted label, the muted caption, the trailing meta over the one title
+/// line and the open chevron (an expandable card) or the banner's
+/// `action`. `hidden` = a card behind the front one while piled (its chrome
+/// peeks, its words do not). The caller wires the click.
 pub(crate) fn dock_card(row: &DockRow, hidden: f32, action: Option<AnyElement>, cx: &App) -> Stateful<Div> {
-    let muted = cx.theme().muted_foreground;
-    let color = tint(row.tint, cx);
-    let header = h_flex()
-        .w_full()
-        .min_w_0()
-        .mb_1()
-        .gap_2()
-        .items_center()
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_xs()
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .text_color(color)
-                .child(SharedString::from(row.label.clone())),
-        )
-        .when_some(row.caption.clone(), |header, caption| {
-            header.child(div().min_w_0().truncate().text_xs().text_color(muted).child(SharedString::from(caption)))
-        })
-        .when_some(row.meta.clone(), |header, meta| {
-            header.child(div().ml_auto().flex_shrink_0().text_xs().text_color(muted).child(SharedString::from(meta)))
-        });
-    let trailing = if row.expandable {
-        Some(Icon::new(concept(&DOCK.icons.open)).with_size(px(14.)).flex_shrink_0().text_color(muted).into_any_element())
-    } else {
-        action.map(|action| div().flex_shrink_0().child(action).into_any_element())
-    };
-    let title = h_flex()
-        .w_full()
-        .min_w_0()
-        .gap_2()
-        .items_center()
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_sm()
-                .text_color(cx.theme().foreground.opacity(0.9))
-                .child(SharedString::from(row.title.clone())),
-        )
-        .children(trailing);
-    crate::surface::glass_card()
-        .id(SharedString::from(format!("{}-{}", DOCK.test_ids.card, row.id)))
-        .w_full()
-        .min_w_0()
-        .p_3()
-        .when(row.expandable, |card| {
-            card.cursor_pointer()
-                .hover(|style| style.bg(crate::picker::over(card_fill(), t::glass::FILL_ACTIVE.to_hsla())))
-        })
-        .child(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_2()
-                .items_start()
-                .opacity(1. - hidden)
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .mt(px(1.))
-                        .child(Icon::new(concept(&row.icon)).with_size(px(14.)).text_color(color)),
-                )
-                .child(v_flex().flex_1().min_w_0().child(header).child(title)),
-        )
+    controls::dock_card(
+        DockCard {
+            id: SharedString::from(format!("{}-{}", DOCK.test_ids.card, row.id)).into(),
+            tint: card_tint(row.tint),
+            icon: Icon::new(concept(&row.icon)),
+            label: row.label.clone().into(),
+            caption: row.caption.clone().map(Into::into),
+            meta: row.meta.clone().map(Into::into),
+            title: row.title.clone().into(),
+            pressable: row.expandable,
+            trailing: action,
+            hidden,
+        },
+        cx,
+    )
 }
 
 fn slow() -> Transition {
@@ -366,7 +320,7 @@ pub(crate) fn pile(
         let measured = measured.borrow();
         rows.iter().map(|row| measured.get(&row.id).copied().unwrap_or(ESTIMATED_CARD)).collect()
     };
-    let (height, items) = domain::stack::stack_layout(&heights, fanned, true, DOCK.stack);
+    let (height, items) = controls::dock_pile_geometry(&heights, fanned);
     let pile_width = state.read(cx).pile_width.clone();
     let width = pile_width.get();
     let front = rows.last().map(|row| row.id.clone());
@@ -403,12 +357,7 @@ pub(crate) fn pile(
         let heights = measured.clone();
         let measure_id = row.id.clone();
         cards.push(
-            div()
-                .absolute()
-                .left(inset)
-                .right(inset)
-                .top(top)
-                .opacity(shown)
+            controls::dock_pile_slot(top, inset, shown)
                 .on_children_prepainted(move |bounds, window, _| {
                     let Some(bounds) = bounds.first() else { return };
                     let height = f32::from(bounds.size.height);
@@ -443,11 +392,7 @@ pub(crate) fn pile(
     .top_0()
     .left_0()
     .size_full();
-    div()
-        .id(SharedString::from(format!("{id}-{}", DOCK.test_ids.pile)))
-        .relative()
-        .w_full()
-        .h(box_height)
+    controls::dock_pile(SharedString::from(format!("{id}-{}", DOCK.test_ids.pile)), box_height)
         .child(width_probe)
         .when(mode != DockMode::Single, |pile| {
             pile.on_hover(move |hovered, _, cx| {
@@ -835,6 +780,26 @@ mod tests {
         assert_eq!(state.open_id(), None);
         let view = dock(&rows, false, state.open_id());
         assert_eq!(view.open_id, None);
+    }
+
+    /// The primitive's pile numbers are the fixture's (`dock.json` `stack`),
+    /// and its geometry is the shared stack's.
+    #[test]
+    fn the_primitive_pile_is_the_fixture_stack() {
+        let c = controls::DOCK_PILE_CONSTANTS;
+        assert_eq!(
+            DOCK.stack,
+            domain::stack::StackConstants { peek: c.peek, scale_step: c.scale_step, visible: c.visible, gap: c.gap }
+        );
+        for expanded in [false, true] {
+            let heights = [62., 40., 51., 62., 33.];
+            let (h, items) = controls::dock_pile_geometry(&heights, expanded);
+            let (want_h, want) = domain::stack::stack_layout(&heights, expanded, true, DOCK.stack);
+            assert_eq!(h, want_h);
+            for (got, want) in items.iter().zip(&want) {
+                assert_eq!((got.offset, got.scale, got.visible), (want.offset, want.scale, want.visible));
+            }
+        }
     }
 
     /// A state whose memory has settled on nothing.
