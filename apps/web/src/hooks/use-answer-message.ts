@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react"
+import { answerSessionCard } from "@/lib/enet/send-sealed"
 import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { useNow } from "@/hooks/use-now"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -44,7 +45,7 @@ export function useAnswerMessage(): {
     async (messageId: string, input: CardAnswer) => {
       setPending((current) => new Set([...current, messageId]))
       try {
-        const result = await trpc.sessions.answer.mutate({ messageId, ...input }, SKIP_ERROR_TOAST)
+        const result = await answerSessionCard(messageId, input, SKIP_ERROR_TOAST)
         await messageCollection.utils.awaitTxId(result.txid).catch(() => undefined)
       } catch (error) {
         failedAction(`answer`, input.decision ? `the plan` : `the question`, error)

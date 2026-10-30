@@ -1,4 +1,5 @@
 import { threadPendingAsks, threadSessionNames } from "@exp/domain-contract/ask-dock"
+import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import type { ChatLead } from "@exp/domain-contract/chats"
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
@@ -67,7 +68,6 @@ import { issueCollection } from "@/lib/collections"
 import { threadPageOf, threadPages, threadPageSearch, type ThreadPage } from "@/lib/thread-pages"
 import { cn } from "@/lib/utils"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { trpc } from "@/lib/trpc-client"
 import {
   sessionCard,
   sessionTabMarkState,
@@ -706,8 +706,7 @@ function ConversationBody({
   // (a phone's floats in the work bar); the scroller pads by its height.
   const sessionDock = useSessionDock(root)
   const sendSurfaceReply = (text: string) => {
-    trpc.sessions.send
-      .mutate({ teamId, sessionId: view.composer.sessionId, text }, SKIP_ERROR_TOAST)
+    sendSessionMessage({ teamId, sessionId: view.composer.sessionId, text }, SKIP_ERROR_TOAST)
       .catch((error) => failedAction(`send`, `the message`, error))
   }
   const [dockHeight, setDockHeight] = useState(0)

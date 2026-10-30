@@ -1,4 +1,4 @@
-import { fireEvent, render, renderHook, screen } from "@testing-library/react"
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { AGENT_HINT_BANNER } from "@exp/domain-contract/chats"
 import { dockRows } from "@exp/domain-contract/dock"
@@ -18,7 +18,11 @@ vi.mock(`@/hooks/use-team-data`, () => ({ useTeamUsers: () => ({ users: [] }) })
 vi.mock(`@/hooks/use-session-tree`, () => ({ useSessionMessages: () => [] }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: { sessions: { send: { mutate: sendMutate } } } }))
 vi.mock(`@/lib/collections`, () => ({
-  messageCollection: { utils: { awaitTxId: async () => undefined } },
+  messageCollection: { utils: { awaitTxId: async () => undefined }, get: () => undefined },
+  // EXP-1459: the sealing path's lookups (no key holder here: nothing seals).
+  sessionCollection: { get: () => undefined, values: () => [] },
+  deviceCollection: { values: () => [] },
+  userCollection: { values: () => [] },
 }))
 vi.mock(`@/components/session-account-switch`, () => ({
   SessionAccountSwitchButton: () => null,
@@ -64,14 +68,17 @@ describe(`useAgentHintDock`, () => {
     expect(renderHook(() => useAgentHintDock(null)).result.current.source).toBeNull()
   })
 
-  it(`its action sends /new into the conversation, like New conversation`, () => {
+  it(`its action sends /new into the conversation, like New conversation`, async () => {
     const { result } = renderHook(() => useAgentHintDock(root()))
     const row = dockRows([result.current.source!])[0]!
     render(<>{result.current.renderAction(row)}</>)
     fireEvent.click(screen.getByText(AGENT_HINT_BANNER.action))
-    expect(sendMutate).toHaveBeenCalledWith(
-      { teamId: `t1`, sessionId: `s1`, text: `/new` },
-      expect.anything()
+    // EXP-1459: the send seals first (nothing here: no key holder).
+    await waitFor(() =>
+      expect(sendMutate).toHaveBeenCalledWith(
+        { teamId: `t1`, sessionId: `s1`, text: `/new` },
+        expect.anything()
+      )
     )
   })
 })

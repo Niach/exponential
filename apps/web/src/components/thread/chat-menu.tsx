@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react"
+import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import {
   agentMenuEntries,
@@ -250,8 +251,8 @@ export async function sendAgentLine({
 }): Promise<void> {
   try {
     const result = conversationId
-      ? await trpc.sessions.send.mutate({ teamId, sessionId: conversationId, text }, SKIP_ERROR_TOAST)
-      : await trpc.sessions.send.mutate({ agentId, text }, SKIP_ERROR_TOAST)
+      ? await sendSessionMessage({ teamId, sessionId: conversationId, text }, SKIP_ERROR_TOAST)
+      : await sendSessionMessage({ agentId, text }, SKIP_ERROR_TOAST)
     await messageCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
   } catch (error) {
     toastFailed(`Couldn't send the message`, error)
