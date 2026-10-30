@@ -17,6 +17,7 @@ import { answeredCard } from "@/lib/sessions/card-answer"
 import type { Db, Tx } from "@/lib/sessions/tx"
 import { closeAskMirrors } from "@/lib/sessions/bus"
 import { isVoiceConversation } from "@/lib/sessions/brief"
+import { inSession, messageWithSession } from "@/lib/sessions/messages"
 
 // EXP-1280/NEW-1: answering a question/plan card. ONE write path for the
 // thread card (`sessions.answer`, a person), the device's write-back
@@ -56,7 +57,7 @@ export async function loadCardForAnswer(
   input: CardAnswerInput
 ) {
   const [message] = await database
-    .select()
+    .select(messageWithSession())
     .from(messages)
     .where(eq(messages.id, input.messageId))
     .limit(1)
@@ -95,7 +96,7 @@ export async function stampAnsweredCardInTx(
     .from(messages)
     .where(
       and(
-        eq(messages.sessionId, sessionId),
+        inSession(sessionId),
         isNull(messages.answeredAt),
         sql`${messages.card}->>'kind' IN ('question', 'plan')`
       )
@@ -144,7 +145,7 @@ export async function answerSessionCardInTx(
     .from(messages)
     .where(
       and(
-        eq(messages.sessionId, target.id),
+        inSession(target.id),
         sql`${messages.card}->>'kind' IN ('question', 'plan')`,
         ...(input.messageId ? [eq(messages.id, input.messageId)] : [isNull(messages.answeredAt)])
       )

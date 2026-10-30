@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { db, pool } from "@/db/connection"
 import { boards, devices, messages, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { inSession } from "@/lib/sessions/messages"
 
 // #EXP-1413 against the REAL migrated Postgres (harness from
 // merge-refusal.real-db.test.ts): the lifecycle edges (a turn ending in
@@ -149,7 +150,7 @@ const refusals = (sessionId: string) =>
   db
     .select()
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), sql`${messages.card}->>'event' = 'pr_merge_refused'`))
+    .where(and(inSession(sessionId), sql`${messages.card}->>'event' = 'pr_merge_refused'`))
 
 describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle edges`, () => {
   it(`a turn ending while another session of the tree works merges nothing`, async () => {

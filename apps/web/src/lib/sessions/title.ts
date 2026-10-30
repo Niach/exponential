@@ -2,6 +2,7 @@ import { and, asc, inArray, isNull, or, sql } from "drizzle-orm"
 import { sessionTitles, type TitleSession } from "@exp/domain-contract/session-title"
 import { db } from "@/db/connection"
 import { issues, messages, sessionIssues } from "@/db/schema"
+import { inSessions, messageSessionId } from "@/lib/sessions/messages"
 
 // EXP-1341/NEW-1: the server's ONE display-title derivation = the contract's
 // `sessionTitle` (fixtures/session-title.json) over the same rows the
@@ -34,7 +35,7 @@ export async function deriveSessionTitles(
         database
           .select({
             id: messages.id,
-            sessionId: messages.sessionId,
+            sessionId: messageSessionId(),
             authorKind: messages.authorKind,
             authorSessionId: messages.authorSessionId,
             body: messages.body,
@@ -43,11 +44,11 @@ export async function deriveSessionTitles(
           .from(messages)
           .where(
             and(
-              inArray(messages.sessionId, ids),
+              inSessions(ids),
               isNull(messages.card),
               or(
                 sql`${messages.authorKind} = 'user'`,
-                sql`${messages.authorSessionId} IS NOT NULL AND ${messages.authorSessionId} <> ${messages.sessionId}`
+                sql`${messages.authorSessionId} IS NOT NULL AND ${messages.authorSessionId} <> ${messageSessionId()}`
               )
             )
           )

@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { boards, devices, messages, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { inSession } from "@/lib/sessions/messages"
 
 // F21: `sessions.send {clientMessageId}` (tRPC only) against the REAL
 // migrated Postgres: a retried send naming a key its sender already posted
@@ -81,7 +82,7 @@ const keyed = (sessionId: string, clientMessageId: string) =>
   db
     .select({ id: messages.id, body: messages.body })
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.clientMessageId, clientMessageId)))
+    .where(and(inSession(sessionId), eq(messages.clientMessageId, clientMessageId)))
 
 describe.skipIf(!ready.ok)(`F21 sessions.send clientMessageId`, () => {
   it(`a retry naming the same key returns the first message and posts nothing`, async () => {

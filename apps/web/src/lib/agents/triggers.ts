@@ -3,7 +3,7 @@ import { memberChatsChanged } from "@/lib/agents/assistant-chat"
 import type { AgentTrigger, AgentTriggerState } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import { agents, messages, sessions, type Agent, type Event, type Session } from "@/db/schema"
+import { agents, conversations, messages, sessions, type Agent, type Event, type Session } from "@/db/schema"
 import { conversationInTx } from "@/lib/agents/conversation"
 import { latestCronMatch, parseCron } from "@/lib/agents/cron"
 import { askHidden } from "@/lib/sessions/bus"
@@ -113,9 +113,10 @@ export function nudgeAgentHost(host: { ownerId: string; deviceId: string } | nul
  *  (then it is re-armed: unread again). Null = post a new card. */
 async function foldableTick(tx: Tx, agent: Agent): Promise<{ id: string; pending: boolean } | null> {
   const [row] = await tx
-    .select({ id: messages.id, consumedAt: messages.consumedAt, sessionId: messages.sessionId, createdAt: messages.createdAt })
+    .select({ id: messages.id, consumedAt: messages.consumedAt, conversationId: messages.conversationId, createdAt: messages.createdAt })
     .from(messages)
-    .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .innerJoin(sessions, eq(sessions.id, conversations.sessionId))
     .where(
       and(
         eq(sessions.agentId, agent.id),
@@ -132,7 +133,7 @@ async function foldableTick(tx: Tx, agent: Agent): Promise<{ id: string; pending
     .from(messages)
     .where(
       and(
-        eq(messages.sessionId, row.sessionId),
+        eq(messages.conversationId, row.conversationId),
         eq(messages.authorKind, `user`),
         ne(messages.id, row.id),
         gt(messages.createdAt, row.createdAt)

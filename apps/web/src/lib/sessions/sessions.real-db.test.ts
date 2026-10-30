@@ -21,6 +21,7 @@ import {
   userVoiceSettings,
 } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { inSession, messageWithSession } from "@/lib/sessions/messages"
 
 // EXP-1291/NEW-1: the session tree's core against the REAL migrated
 // Postgres — sessions.send's three forms (a root that WORKS on its own
@@ -172,7 +173,7 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     expect(await resolveSessionHost(root)).toBe(w.owner)
     const links = await db.select().from(sessionIssues).where(eq(sessionIssues.sessionId, root.id))
     expect(links).toMatchObject([{ issueId, ownerId: w.owner, shared: false, boardId: w.boardId }])
-    const [message] = await db.select().from(messages).where(eq(messages.id, sent.messageId!))
+    const [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, sent.messageId!))
     expect(message).toMatchObject({ rootId: root.id, teamId: w.teamId, ownerId: w.owner, authorKind: `user` })
     // Start facets post no event cards (the brief names them).
     const cards = await db.select().from(messages).where(eq(messages.rootId, root.id))
@@ -206,7 +207,7 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
       ownerId: w.owner,
       title: null,
     })
-    const [message] = await db.select().from(messages).where(eq(messages.id, sent.messageId!))
+    const [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, sent.messageId!))
     expect(message).toMatchObject({ conversationId: conversation!.id, sessionId: sent.sessionId })
     // A child's conversation is its own, never the root's.
     const child = await sendSession({
@@ -272,7 +273,7 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     })
     const [att] = await db.select().from(attachments).where(eq(attachments.id, upload!.id))
     expect(att!.messageId).toBe(sent.messageId)
-    const [message] = await db.select().from(messages).where(eq(messages.id, sent.messageId!))
+    const [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, sent.messageId!))
     expect(message!.body).toBe(`look\n\n![shot.png](/api/attachments/${upload!.id})`)
     // A second claim of the same upload is refused.
     await expect(
@@ -300,7 +301,7 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
       input: { teamId: w.teamId, deviceId: w.deviceId, promptId: prompt!.id, text: `Web board only.` },
     })
     expect(await row(sent.sessionId)).toMatchObject({ title: `Triage` })
-    const [first] = await db.select({ body: messages.body }).from(messages).where(eq(messages.sessionId, sent.sessionId))
+    const [first] = await db.select({ body: messages.body }).from(messages).where(inSession(sent.sessionId))
     expect(first!.body).toBe(`Triage the backlog.\n\nWeb board only.`)
     const brief = await composeSessionBrief(sent.sessionId)
     expect(brief.brief).toContain(`Triage the backlog.`)
@@ -396,7 +397,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     const cards = await db
       .select({ card: messages.card })
       .from(messages)
-      .where(and(eq(messages.sessionId, root.sessionId), eq(messages.authorKind, `system`)))
+      .where(and(inSession(root.sessionId), eq(messages.authorKind, `system`)))
     expect(cards).toEqual([{ card: { kind: `session`, sessionId: child.sessionId } }])
 
     const brief = await composeSessionBrief(child.sessionId)
@@ -537,7 +538,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       deviceId: w.deviceId,
     })
     expect(await db.select().from(sessions).where(eq(sessions.rootId, root.sessionId))).toHaveLength(1)
-    const [pending] = await db.select().from(messages).where(eq(messages.id, cont.messageId!))
+    const [pending] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, cont.messageId!))
     expect(pending).toMatchObject({ sessionId: root.sessionId, rootId: root.sessionId, body: `one more`, consumedAt: null })
     const links = await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, issueId))
     expect(links).toMatchObject([{ sessionId: root.sessionId }])
@@ -592,14 +593,14 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       userId: w.owner,
       input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `aaaa1111`, text: `first` },
     })
-    const before = await db.select().from(messages).where(eq(messages.sessionId, root.sessionId))
+    const before = await db.select().from(messages).where(inSession(root.sessionId))
 
     // Account-only: the row's login moves (the device acts on it), no bubble.
     const alone = await sendSession({ userId: w.owner, input: { sessionId: root.sessionId, account: `bbbb2222` } })
     expect(alone).toMatchObject({ sessionId: root.sessionId, messageId: null })
     expect(alone.txid).toBeTypeOf(`number`)
     expect(await row(root.sessionId)).toMatchObject({ account: `bbbb2222`, status: `queued` })
-    const after = await db.select().from(messages).where(eq(messages.sessionId, root.sessionId))
+    const after = await db.select().from(messages).where(inSession(root.sessionId))
     expect(after).toHaveLength(before.length)
 
     // With text: the switch and the message land together.
@@ -861,7 +862,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     const cards = await db
       .select({ card: messages.card })
       .from(messages)
-      .where(and(eq(messages.sessionId, agent.sessionId), sql`${messages.card} IS NOT NULL`))
+      .where(and(inSession(agent.sessionId), sql`${messages.card} IS NOT NULL`))
     expect(cards.map((c) => c.card)).toEqual([{ kind: `thread_started`, sessionId: spawned.sessionId }])
     const brief = await composeSessionBrief(agent.sessionId)
     expect(brief.agentInstructions).toBe(`Be brief.`)
@@ -928,7 +929,7 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
     const events = await db
       .select({ card: messages.card })
       .from(messages)
-      .where(and(eq(messages.sessionId, root.sessionId), eq(messages.authorKind, `system`)))
+      .where(and(inSession(root.sessionId), eq(messages.authorKind, `system`)))
     expect(events.map((e) => e.card as { event?: string; sessionId?: string | null }).filter((c) => c.event)).toEqual([
       { kind: `event`, event: `issue_filed`, issueId: a, sessionId: child.sessionId },
       { kind: `event`, event: `issue_unlinked`, issueId: a, sessionId: null },
@@ -1390,7 +1391,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     const posted = await db
       .select()
       .from(messages)
-      .where(and(eq(messages.sessionId, sent.sessionId), eq(messages.body, `b`)))
+      .where(and(inSession(sent.sessionId), eq(messages.body, `b`)))
     expect(posted).toEqual([])
 
     // A queued person message; only its author may revoke it.
@@ -1649,7 +1650,7 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, reads and suggestions`, async () 
       request: new Request(`http://x.test`),
     } as never)
   const sessionMessages = (sessionId: string) =>
-    db.select().from(messages).where(eq(messages.sessionId, sessionId))
+    db.select().from(messages).where(inSession(sessionId))
 
   it(`a child's question and end land on its parent as pending agent input`, async () => {
     const w = await world()
@@ -1770,7 +1771,7 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, reads and suggestions`, async () 
     const [agent] = await db
       .select({ createdAt: messages.createdAt })
       .from(messages)
-      .where(and(eq(messages.sessionId, root.sessionId), eq(messages.authorKind, `agent`)))
+      .where(and(inSession(root.sessionId), eq(messages.authorKind, `agent`)))
     expect((await readOf(root.sessionId))!.readAt.getTime()).toBe(agent!.createdAt.getTime() - 1)
     expect((await readOf(quiet.sessionId))!.readAt.getTime()).toBe(quietRead)
     await caller(w.owner).setArchived({ sessionIds: [root.sessionId], archived: false })
@@ -1924,7 +1925,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       await db
         .select()
         .from(messages)
-        .where(and(eq(messages.sessionId, sessionId), eq(messages.authorKind, `system`)))
+        .where(and(inSession(sessionId), eq(messages.authorKind, `system`)))
     ).map((m) => m.body)
 
   it(`a QUEUED row re-targets in place, carrying the login, and says so (pre-consumed)`, async () => {
@@ -1944,7 +1945,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     const [moved] = await db
       .select()
       .from(messages)
-      .where(and(eq(messages.sessionId, fresh.sessionId), eq(messages.body, `Moved from box to b-box`)))
+      .where(and(inSession(fresh.sessionId), eq(messages.body, `Moved from box to b-box`)))
     expect(moved).toMatchObject({ authorKind: `system`, card: null })
     expect(moved!.consumedAt).not.toBeNull()
     // The current device = nothing at all.
@@ -1982,7 +1983,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     })
     expect(await systemBodies(w.sessionId)).toContain(`Moved from box to b-box`)
     // The message waits on the continuation.
-    const [pending] = await db.select().from(messages).where(eq(messages.id, sent.messageId!))
+    const [pending] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, sent.messageId!))
     expect(pending).toMatchObject({ sessionId: sent.sessionId, body: `carry on there`, consumedAt: null })
     // Its live child re-parents, its watcher follows, its issue rows move.
     expect(await row(kid.sessionId)).toMatchObject({ parentId: sent.sessionId, status: `queued` })
@@ -2053,7 +2054,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       status: `idle`,
       endedAt: null,
     })
-    const moved = (await db.select().from(messages).where(eq(messages.sessionId, w.sessionId))).filter(
+    const moved = (await db.select().from(messages).where(inSession(w.sessionId))).filter(
       (m) => m.authorKind === `system` && m.body.startsWith(`Moved from`)
     )
     expect(moved).toHaveLength(1)
@@ -2532,14 +2533,14 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
       request: new Request(`http://x.test`),
     } as never)
   const texts = async (sessionId: string) =>
-    (await db.select().from(messages).where(eq(messages.sessionId, sessionId)))
+    (await db.select().from(messages).where(inSession(sessionId)))
       .filter((m) => m.authorKind === `agent` && m.card === null)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
       .map((m) => m.body)
   const surface = (text: string) => buildSurfaceCard({ surface: { root: { id: `t`, component: `Text`, props: { text } } } })
   // The device delivers every waiting input (the turn edge).
   const deliver = async (host: ReturnType<typeof caller>, sessionId: string) => {
-    const waiting = (await db.select().from(messages).where(eq(messages.sessionId, sessionId))).filter(
+    const waiting = (await db.select().from(messages).where(inSession(sessionId))).filter(
       (m) => m.authorKind === `user` && m.consumedAt === null
     )
     if (waiting.length) await host.consume({ sessionId, messageIds: waiting.map((m) => m.id) })
@@ -2600,7 +2601,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
       const next = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: titled(title, text), replace: true })
       expect(next).toMatchObject({ messageId: first.messageId, replaced: true })
     }
-    const cards = (await db.select().from(messages).where(eq(messages.sessionId, sent.sessionId))).filter(
+    const cards = (await db.select().from(messages).where(inSession(sent.sessionId))).filter(
       (m) => m.card?.kind === `surface`
     )
     expect(cards).toHaveLength(1)
@@ -2621,7 +2622,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     const edited = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`b`), replace: true })
     expect(edited).toMatchObject({ messageId: first.messageId, replaced: true })
     // The clients' transcript order: created_at, ties by id.
-    const ordered = (await db.select().from(messages).where(eq(messages.sessionId, sent.sessionId))).sort(
+    const ordered = (await db.select().from(messages).where(inSession(sent.sessionId))).sort(
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id)
     )
     expect(ordered.length).toBeGreaterThan(2)
@@ -2662,7 +2663,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     await host.reply({ sessionId: child.sessionId, body: `One.` })
     const two = await host.reply({ sessionId: child.sessionId, body: `Two.` })
     expect(await texts(child.sessionId)).toEqual([`One.`, `Two.`])
-    const copies = (await db.select().from(messages).where(eq(messages.originMessageId, two.messageId)))
+    const copies = (await db.select(messageWithSession()).from(messages).where(eq(messages.originMessageId, two.messageId)))
     expect(copies).toMatchObject([{ sessionId: root.sessionId, body: `Two.` }])
     const { patchBusCopies } = await import(`@/lib/sessions/messages`)
     await db.transaction((tx) => patchBusCopies(tx, two.messageId, `Two.`, `Two, edited.`))

@@ -2471,19 +2471,14 @@ export const messages = pgTable(
   `messages`,
   {
     id: uuidPk(),
-    // NEW-3: the conversation the row lives in (kind `session` in step 1:
-    // the session's own; `populate_message_session_mirrors` derives it from
-    // `session_id` and vice versa, so either suffices at insert).
+    // NEW-3: the conversation the row lives in (kind `session` = a
+    // session's own; NEW-8: a message's session is its conversation's
+    // `session_id`, never a column here).
     conversationId: uuid(`conversation_id`)
       .notNull()
       .references(() => conversations.id, { onDelete: `cascade` }),
-    // NEW-3: the step-1 mirror of the session's conversation. Server-only now
-    // (every client keys messages through `conversation_id`); the server's
-    // readers and the mirror trigger still use it. NEW-8 drops it.
-    sessionId: uuid(`session_id`)
-      .notNull()
-      .references(() => sessions.id, { onDelete: `cascade` }),
-    // Mirrors of the session (app-written at insert, immutable).
+    // Mirrors of the conversation's session (app-written at insert,
+    // immutable; `populate_message_session_mirrors` derives them).
     rootId: uuid(`root_id`)
       .notNull()
       .references(() => sessions.id, { onDelete: `cascade` }),
@@ -2538,7 +2533,6 @@ export const messages = pgTable(
       .where(sql`client_message_id IS NOT NULL`),
     // #NEW-57: the watchdog's prune.
     index(`idx_messages_expires`).on(table.expiresAt).where(sql`expires_at IS NOT NULL`),
-    index(`idx_messages_session_created`).on(table.sessionId, table.createdAt),
     index(`idx_messages_conversation_created`).on(table.conversationId, table.createdAt),
     index(`idx_messages_root`).on(table.rootId),
     index(`idx_messages_team`).on(table.teamId),
@@ -2547,14 +2541,14 @@ export const messages = pgTable(
     // author_session_id IS NOT NULL`); another session's input rides
     // `idx_messages_author_session` instead, so this predicate stays as is.
     index(`idx_messages_pending`)
-      .on(table.sessionId)
+      .on(table.conversationId)
       .where(sql`author_kind = 'user' AND consumed_at IS NULL`),
     index(`idx_messages_author_session`).on(table.authorSessionId),
     index(`idx_messages_origin`).on(table.originMessageId).where(sql`origin_message_id IS NOT NULL`),
     // #EXP-1399: one `ask` mirror of a card per conversation (escalate
     // twice, or the bus and escalate, never insert twice).
     uniqueIndex(`uq_messages_ask_mirror`)
-      .on(table.sessionId, sql`(card->>'messageId')`)
+      .on(table.conversationId, sql`(card->>'messageId')`)
       .where(sql`card->>'kind' = 'ask'`),
   ]
 )

@@ -1189,7 +1189,6 @@ async function seedSessionTree(ctx: {
   }
   const message = (spec: MessageSpec): typeof messages.$inferInsert => ({
     conversationId: conversationOf(spec.sessionId),
-    sessionId: spec.sessionId,
     rootId: spec.rootId ?? spec.sessionId,
     teamId,
     shared: spec.shared ?? true,
@@ -1536,8 +1535,7 @@ async function seedSessionTree(ctx: {
   // EXP-1323: the cold-start thread's suggested tasks card (one started, two
   // open) and the started child's report, posted by that child.
   const thread = (spec: Partial<typeof messages.$inferInsert> & { at: Date }) => ({
-    conversationId: conversationOf(spec.sessionId ?? ids.coldStart),
-    sessionId: ids.coldStart,
+    conversationId: conversationOf(ids.coldStart),
     rootId: ids.coldStart,
     teamId,
     shared: true,

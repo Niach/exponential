@@ -7,6 +7,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { agents, boards, devices, events, issues, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { inSession } from "@/lib/sessions/messages"
 
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: () => null,
@@ -87,7 +88,7 @@ const firings = async (sessionId: string) =>
   db
     .select({ body: messages.body, card: messages.card, consumedAt: messages.consumedAt, authorId: messages.authorId })
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), sql`${messages.card}->>'event' = 'trigger_fired'`))
+    .where(and(inSession(sessionId), sql`${messages.card}->>'event' = 'trigger_fired'`))
 
 describe.skipIf(!ready.ok)(`agent schedules (NEW-2)`, () => {
   it(`arms on the first tick, fires once on the due minute into the owner's conversation, catches a missed tick up and never stacks`, async () => {
@@ -124,7 +125,7 @@ describe.skipIf(!ready.ok)(`agent schedules (NEW-2)`, () => {
     expect(await firings(convo.id)).toHaveLength(1)
     // The device consumed it: the next due minute fires again (caught up).
     // S-3: nobody wrote since, so it folds into the same card, unread again.
-    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, convo.id))
+    await db.update(messages).set({ consumedAt: new Date() }).where(inSession(convo.id))
     await fireScheduledTriggers(new Date(`2020-01-03T10:00:00Z`))
     fired = await firings(convo.id)
     expect(fired).toHaveLength(1)
@@ -156,17 +157,16 @@ describe.skipIf(!ready.ok)(`S-3: one tick card per agent conversation`, () => {
     expect(fired[0]!.body).toContain(`0 * * * *`)
     expect(fired[0]!.body).toContain(`0 */2 * * *`)
     // Read, nobody answered: the 11:00 tick edits the same card, unread again.
-    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, convo.id))
+    await db.update(messages).set({ consumedAt: new Date() }).where(inSession(convo.id))
     await fireScheduledTriggers(new Date(`2020-02-01T11:01:00Z`))
     fired = await firings(convo.id)
     expect(fired).toHaveLength(1)
     expect(fired[0]!.consumedAt).toBeNull()
     expect(fired[0]!.body).not.toContain(`0 */2 * * *`)
     // A person wrote after it: the next tick is a new card.
-    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, convo.id))
+    await db.update(messages).set({ consumedAt: new Date() }).where(inSession(convo.id))
     await db.insert(messages).values({
       conversationId: sql`(SELECT id FROM conversations WHERE session_id = ${convo.id})`,
-      sessionId: convo.id,
       rootId: convo.id,
       teamId: w.teamId,
       authorKind: `user`,
@@ -200,7 +200,7 @@ describe.skipIf(!ready.ok)(`S-3: one tick card per agent conversation`, () => {
         lastActivityAt: new Date(`2020-03-01T09:00:00Z`),
       } as never)
       .returning({ id: sessions.id })
-    await db.update(messages).set({ body: `old`, consumedAt: new Date() }).where(eq(messages.sessionId, convo.id))
+    await db.update(messages).set({ body: `old`, consumedAt: new Date() }).where(inSession(convo.id))
     await fireScheduledTriggers(new Date(`2020-03-01T11:01:00Z`))
     let fired = await firings(convo.id)
     expect(fired[0]!.body).toBe(`old`)

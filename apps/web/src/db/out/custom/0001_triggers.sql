@@ -433,26 +433,24 @@ CREATE OR REPLACE TRIGGER populate_session_issue_visibility
   BEFORE INSERT ON session_issues
   FOR EACH ROW EXECUTE FUNCTION populate_session_issue_visibility();
 
--- NEW-3: a row names its conversation OR its session; the other is derived
--- (a session's conversation is kind `session`, one each). The visibility
--- mirrors come from the session either way.
+-- NEW-8: a row names only its conversation; the visibility mirrors come
+-- from the conversation's session (kind `session`, one each). A conversation
+-- without a session (dm/channel) keeps the values the app wrote.
 CREATE OR REPLACE FUNCTION populate_message_session_mirrors()
 RETURNS TRIGGER AS $$
+DECLARE
+  src record;
 BEGIN
-  IF NEW.session_id IS NULL AND NEW.conversation_id IS NOT NULL THEN
-    SELECT c.session_id INTO NEW.session_id
-    FROM conversations c
-    WHERE c.id = NEW.conversation_id;
+  SELECT s.root_id, s.team_id, s.shared, s.user_id INTO src
+  FROM conversations c
+  JOIN sessions s ON s.id = c.session_id
+  WHERE c.id = NEW.conversation_id;
+  IF FOUND THEN
+    NEW.root_id := src.root_id;
+    NEW.team_id := src.team_id;
+    NEW.shared := src.shared;
+    NEW.owner_id := src.user_id;
   END IF;
-  IF NEW.conversation_id IS NULL AND NEW.session_id IS NOT NULL THEN
-    SELECT c.id INTO NEW.conversation_id
-    FROM conversations c
-    WHERE c.session_id = NEW.session_id;
-  END IF;
-  SELECT s.root_id, s.team_id, s.shared, s.user_id
-    INTO NEW.root_id, NEW.team_id, NEW.shared, NEW.owner_id
-  FROM sessions s
-  WHERE s.id = NEW.session_id;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

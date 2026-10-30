@@ -13,7 +13,7 @@ import { generateTxId } from "@/lib/trpc"
 import { boardVisible } from "@/lib/board-visibility"
 import { assertCanSteer, isSessionPrincipal, loadSessionForUser } from "@/lib/sessions/access"
 import { assertIssuesInTeam, linkIssues } from "@/lib/sessions/issues"
-import { insertMessage } from "@/lib/sessions/messages"
+import { insertMessage, messageWithSession } from "@/lib/sessions/messages"
 import { sendSession } from "@/lib/sessions/send"
 import type { Tx } from "@/lib/sessions/tx"
 import {
@@ -34,7 +34,7 @@ import {
 
 /** The card message + its session, steer-gated. */
 async function loadSuggestionCard(userId: string, messageId: string) {
-  const [message] = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1)
+  const [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, messageId)).limit(1)
   if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
   const session = await loadSessionForUser(userId, message.sessionId)
   await assertCanSteer(userId, session)
@@ -147,7 +147,7 @@ export async function postReplies(args: {
 }
 
 async function loadRepliesCard(userId: string, messageId: string) {
-  const [message] = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1)
+  const [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, messageId)).limit(1)
   if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
   const session = await loadSessionForUser(userId, message.sessionId)
   await assertCanSteer(userId, session)

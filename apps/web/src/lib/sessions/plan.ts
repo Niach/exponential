@@ -24,7 +24,7 @@ import { generateTxId } from "@/lib/trpc"
 import { askText, busAsk, closeAskMirrors } from "@/lib/sessions/bus"
 import { isAssistantConversation, statusCardTarget } from "@/lib/agents/assistant-chat"
 import { notifyAssistantDecision } from "@/lib/integrations/notifications"
-import { insertMessage, postOwnAskCard } from "@/lib/sessions/messages"
+import { insertMessage, postOwnAskCard, inSession, messageSessionId } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
 import {
@@ -334,7 +334,7 @@ export async function replaceTarget(
     .from(messages)
     .where(
       and(
-        eq(messages.sessionId, sessionId),
+        inSession(sessionId),
         eq(messages.authorSessionId, sessionId),
         isAsk(card)
           ? sql`${messages.card}->>'kind' IN ('question', 'plan')`
@@ -526,7 +526,7 @@ export async function supersedeWaitingPlans(tx: Tx, sessionId: string): Promise<
     })
     .where(
       and(
-        eq(messages.sessionId, sessionId),
+        inSession(sessionId),
         eq(messages.authorSessionId, sessionId),
         isNull(messages.answeredAt),
         sql`${messages.card}->>'kind' = 'plan'`,
@@ -605,7 +605,7 @@ const hasCardPictures = (card: MessageCard): card is Extract<MessageCard, { kind
 
 export async function assertCardPictureOpen(messageId: string, sessionId: string, label: string) {
   const [row] = await db
-    .select({ card: messages.card, sessionId: messages.sessionId })
+    .select({ card: messages.card, sessionId: messageSessionId() })
     .from(messages)
     .where(eq(messages.id, messageId))
     .limit(1)
@@ -635,7 +635,7 @@ export async function publishCardPicture(
     published = await db.transaction(async (tx) => {
       await generateTxId(tx)
       const [row] = await tx
-        .select({ card: messages.card, sessionId: messages.sessionId, rootId: messages.rootId })
+        .select({ card: messages.card, sessionId: messageSessionId(), rootId: messages.rootId })
         .from(messages)
         .where(eq(messages.id, input.messageId))
         .limit(1)

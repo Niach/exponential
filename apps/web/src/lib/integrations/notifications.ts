@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  conversations,
   agents,
   comments,
   messages,
@@ -1114,7 +1115,8 @@ export function fireAndForgetSessionMessageNotify(args: { messageId: string }): 
           userId: sessions.userId,
         })
         .from(messages)
-        .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+        .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+        .innerJoin(sessions, eq(sessions.id, conversations.sessionId))
         .innerJoin(teams, eq(teams.id, sessions.teamId))
         .where(eq(messages.id, args.messageId))
         .limit(1)
