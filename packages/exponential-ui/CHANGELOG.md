@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.2.1 (2026-10-30)
+
+- YO-30: `fixtures/text-clusters.json` (text lays out per grapheme cluster: one fallback face per cluster, `letterSpacing` per cluster) and its reference `textClusters` / `trackedClusters`.
+
 ## 0.2.0 (2026-10-30)
 
 - Renamed (EXP-1438): `@exponential_app/ui` is now `@exponential_app/eui`; 0.1.x under the old name is deprecated on npm.

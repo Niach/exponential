@@ -100,6 +100,15 @@ final class Round2PainterTests: XCTestCase {
         XCTAssertEqual(cases.compactMap { c in c.error.map { "\(c.name): \($0)" } }, [])
     }
 
+    /// YO-30: `fixtures/text-clusters.json`: Characters = the fixture's
+    /// clusters, tracking per cluster.
+    func testTextClustersReplayTheFixture() throws {
+        try XCTSkipUnless(Fixtures.available(), "fixtures not in this checkout")
+        let cases = try Round2Suites.textClusters()
+        XCTAssertEqual(cases.count, 4)
+        XCTAssertEqual(cases.compactMap { c in c.error.map { "\(c.name): \($0)" } }, [])
+    }
+
     // MARK: - NEW-77: VoiceWave
 
     /// `fixtures/voice-wave.json` through the facade and `VoiceWaveFrame`.

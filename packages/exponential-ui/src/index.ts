@@ -68,6 +68,7 @@ export { DEFAULT_LOCALE, parseLocale, localeRegion, weekStart, textDirection, RT
 export type { LocaleParts } from "./locale"
 export { tokenizeCode, codeText, ansiRuns, CODE_LANGUAGES, CODE_LANGUAGE_NAMES } from "./code"
 export type { AnsiRun } from "./code"
+export { textClusters, trackedClusters } from "./text-clusters"
 export { textShimmer, TEXT_SHIMMER } from "./text-shimmer"
 export type { TextShimmer } from "./text-shimmer"
 export { voiceWave, voiceWavePath, voiceWavePhase, voiceWaveChildSize, voiceWaveChildBox, voiceWaveActivity, VOICE_WAVE, VOICE_WAVE_ACTIVITIES, VOICE_WAVE_RINGS } from "./voice-wave"

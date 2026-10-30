@@ -524,6 +524,7 @@ final class ConformanceTests: XCTestCase {
         case "animations": try Round2Suites.animations()
         case "pointer": try Round2Suites.pointer()
         case "text-shimmer": try Round2Suites.textShimmer()
+        case "text-clusters": try Round2Suites.textClusters()
         default: [("suite \(id)", "the runner does not know the suite \(id): add it")]
         }
     }

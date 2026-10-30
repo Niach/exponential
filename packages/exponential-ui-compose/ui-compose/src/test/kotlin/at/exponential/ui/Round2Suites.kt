@@ -127,6 +127,34 @@ object Round2Suites {
     }
 
     /**
+     * YO-30: every `fixtures/text-clusters.json` case through ICU's grapheme
+     * clusters (what minikin falls back and letter-spaces per): the clusters
+     * and how many take `letterSpacing` (a bidi control none).
+     */
+    fun textClusters(): List<Pair<String, String?>> = list(json("text-clusters.json"), "cases").map { c ->
+        case(s(c, "name")) {
+            val text = s(c, "text")
+            val it = android.icu.text.BreakIterator.getCharacterInstance().apply { setText(text) }
+            val got = mutableListOf<String>()
+            var start = it.first()
+            var end = it.next()
+            while (end != android.icu.text.BreakIterator.DONE) {
+                got.add(text.substring(start, end))
+                start = end
+                end = it.next()
+            }
+            val want = list(c, "clusters").map { v -> v.string ?: "" }
+            val bidi = Regex("^[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]+$")
+            val tracked = got.count { g -> !bidi.matches(g) }
+            when {
+                got != want -> "clusters $got / expected $want"
+                tracked != (c["tracked"]?.number ?: -1.0).toInt() -> "tracked $tracked / expected ${c["tracked"]?.number}"
+                else -> null
+            }
+        }
+    }
+
+    /**
      * NEW-77: every `fixtures/voice-wave.json` case through the painter's
      * input builder, the facade's `voiceWaveJson` and its parse: the parts in
      * order, every point within 0.5 px, the alphas, stroke widths, child edge,

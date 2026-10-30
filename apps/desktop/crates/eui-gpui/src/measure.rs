@@ -27,6 +27,7 @@ use eui_core::measure::{ControlBox, HeightRequest, Intrinsics, LeafRequest, Meas
 use eui_core::theme::{Mode, ResolvedTheme};
 use gpui::{px, App, Font, FontFallbacks, FontStyle, FontWeight, SharedString, TextRun, TextSystem, Window};
 use serde_json::{Map, Value};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::extension::ExtensionPainter;
 use crate::host::HostPlugin;
@@ -38,7 +39,7 @@ use crate::text;
 const GPUI_MEASURE_BASE: u64 = 0x6770_7569;
 
 /// Glyph fallbacks (CJK, emoji, symbols) after a sans family.
-const SANS_FALLBACKS: [&str; 12] = [
+pub(crate) const SANS_FALLBACKS: [&str; 12] = [
     ".SystemUIFont",
     "Noto Sans",
     "Noto Sans CJK SC",
@@ -83,13 +84,13 @@ struct WrapKey {
 /// measurer and the painter share.
 pub(crate) struct Fonts {
     host: Rc<dyn HostPlugin>,
-    text_system: Arc<TextSystem>,
+    pub(crate) text_system: Arc<TextSystem>,
     map: RefCell<HashMap<String, SharedString>>,
     available: RefCell<HashMap<SharedString, bool>>,
     wraps: RefCell<HashMap<WrapKey, Rc<Vec<String>>>>,
     pub default: SharedString,
     pub mono: SharedString,
-    sans_fallbacks: FontFallbacks,
+    pub(crate) sans_fallbacks: FontFallbacks,
     mono_fallbacks: FontFallbacks,
     epoch: Cell<u64>,
 }
@@ -271,8 +272,28 @@ pub fn tracking_width(text: &str, ls: f32) -> f32 {
     if ls == 0.0 {
         0.0
     } else {
-        ls * text.chars().filter(|c| is_tracked(*c)).count() as f32
+        ls * tracked_clusters(text) as f32
     }
+}
+
+/// YO-30: the clusters `letter-spacing` follows (CSS tracks typographic
+/// character units: a combining mark takes none of its own).
+fn tracked_clusters(text: &str) -> usize {
+    text.graphemes(true).filter(|g| g.chars().any(is_tracked)).count()
+}
+
+/// Byte index of every character → the tracked clusters before ITS
+/// cluster (a mark shifts with its base).
+pub fn tracked_before(text: &str) -> HashMap<usize, usize> {
+    let mut out = HashMap::new();
+    let mut n = 0;
+    for (start, g) in text.grapheme_indices(true) {
+        for (b, _) in g.char_indices() {
+            out.insert(start + b, n);
+        }
+        n += usize::from(g.chars().any(is_tracked));
+    }
+    out
 }
 
 /// Whether `letter-spacing` follows a character: every one but the
@@ -299,7 +320,8 @@ impl<'w> Shaper<'w> {
             return 0.0;
         }
         self.calls += 1;
-        let line = self.window.text_system().shape_line(SharedString::from(text.to_string()), px(size), &[run(text, font.clone())], None);
+        let runs = crate::fallback::cluster_runs(self.window.text_system(), text, &[run(text, font.clone())], &self.fonts.sans_fallbacks);
+        let line = self.window.text_system().shape_line(SharedString::from(text.to_string()), px(size), &runs, None);
         f32::from(line.width) + tracking_width(text, self.tracking)
     }
 
@@ -337,14 +359,14 @@ impl<'w> Shaper<'w> {
     fn md_runs(&self, inlines: &[Inline], spec: &TextSpec) -> (SharedString, Vec<TextRun>) {
         let family = self.fonts.family(spec.family.as_deref());
         let colors = markdown::RunColors { ink: gpui::black(), link: gpui::black(), code_bg: None };
-        markdown::runs(inlines, &family, &self.fonts.mono, spec.weight, colors)
+        let (text, runs) = markdown::runs(inlines, &family, &self.fonts.mono, spec.weight, colors);
+        let runs = crate::fallback::cluster_runs(self.window.text_system(), &text, &runs, &self.fonts.sans_fallbacks);
+        (text, runs)
     }
 
     /// Rich spans (markdown) wrapped at `wrap`.
     fn spans_height(&mut self, inlines: &[Inline], spec: &TextSpec, wrap: Option<f32>) -> f32 {
-        let family = self.fonts.family(spec.family.as_deref());
-        let colors = markdown::RunColors { ink: gpui::black(), link: gpui::black(), code_bg: None };
-        let (text, runs) = markdown::runs(inlines, &family, &self.fonts.mono, spec.weight, colors);
+        let (text, runs) = self.md_runs(inlines, spec);
         if text.is_empty() {
             return spec.line_height;
         }

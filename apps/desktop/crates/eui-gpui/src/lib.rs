@@ -28,6 +28,7 @@
 pub mod chrome;
 pub mod controls;
 pub mod extension;
+pub mod fallback;
 pub mod host;
 pub mod measure;
 pub mod media;

@@ -129,6 +129,25 @@ enum Round2Suites {
         }
     }
 
+    /// YO-30: `fixtures/text-clusters.json`: SwiftUI lays text out per
+    /// `Character` (an extended grapheme cluster), so its clusters are the
+    /// fixture's, and letter-spacing (`tracking`) adds once per cluster that
+    /// is not only bidi controls. Font fallback per cluster is CoreText's own.
+    static func textClusters() throws -> [Case] {
+        let bidi: (Unicode.Scalar) -> Bool = { c in
+            c.value == 0x061C || (0x200E...0x200F).contains(c.value) || (0x202A...0x202E).contains(c.value) || (0x2066...0x2069).contains(c.value)
+        }
+        return list(try json("text-clusters.json"), "cases").map { c in
+            run(s(c, "name")) {
+                let clusters = s(c, "text").map { String($0) }
+                let want = list(c, "clusters").map { $0.string ?? "" }
+                if clusters != want { return "clusters \(clusters) / expected \(want)" }
+                let tracked = clusters.filter { !$0.unicodeScalars.allSatisfy(bidi) }.count
+                return tracked == Int(num(c["tracked"]) ?? -1) ? nil : "tracked \(tracked) / expected \(c["tracked"]?.json ?? "nil")"
+            }
+        }
+    }
+
     /// NEW-77: `fixtures/voice-wave.json` through the facade
     /// (`voiceWaveJson`) and the painter's own `VoiceWaveFrame` read of it:
     /// every point within 0.5 px, the alphas, widths, child edge, phase and
