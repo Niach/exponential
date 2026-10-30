@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-own-worktrees-and-short-ids",
+    date: "2026-10-30",
+    title: "Worktrees and short session ids, fixed",
+    summary: "A second install on the same machine no longer cleans up your worktrees, and the CLI accepts short session ids again.",
+    body: r#"- **Your worktrees stay yours**: the nightly cleanup only touches worktrees its own install started. A second daemon or app with its own data folder or account no longer removes another install's worktrees.
+- **Short session ids**: `exponential sessions show`, `log` and `message` accept an 8-character id prefix again, and `exponential sessions --agents` lists your agent conversations again."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_125: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-offline-redial",
     date: "2026-10-30",
     title: "Offline sessions reconnect on their own",

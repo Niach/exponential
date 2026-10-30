@@ -31,6 +31,15 @@ coolify deploy uuid <app-uuid>
 
 Or click "Deploy" in the Coolify UI.
 
+Health (EXP-1474): `build-web.yml` boots each image leg before pushing it
+(`apps/web/scripts/smoke-server.ts`: `/`, `/auth/login` must be our app
+shell, `/api/health` must say `{"ok":true}`), and the image's HEALTHCHECK
+matches that body. A dead server can answer `/api/health` with 200 and an
+error page, so Coolify's own health check on the web app must match the
+response text too: path `/api/health`, return code 200, response text
+`"ok":true`. Locally after `bun run build`: `cd apps/web && bun run
+smoke:server -- --boot` (needs `DATABASE_URL` + `BETTER_AUTH_SECRET`).
+
 The device-shares gate (FEED-149/FEED-155) is a production deploy step, not
 a CI job: no workflow can reach the production database. It is read-only and
 lists every machine id two accounts share into one team, host row first, with

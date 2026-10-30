@@ -37,7 +37,7 @@ const USAGE: &str = "\
 Usage: exponential sessions [<command>]
 
   [list] [--device <label|id>] [--status queued|running|idle|ended] [--agents] [--limit n]
-                         Threads you can see, newest first (--agents: the team agents)
+                         Threads you can see, newest first (--agents: your agent conversations)
   show <id>              One session: status, device, branch, its thread's issues
   log <id> [--follow]    Print the transcript (--follow keeps streaming a live session)
   message <id> <text…>   Message a session; an idle one wakes up (`-` reads stdin)
@@ -118,7 +118,6 @@ fn list(args: &[String]) -> CommandResult {
     // AFTER the page, so a filtered list reads the widest page instead.
     let filtered = parsed.device.is_some() || parsed.status.is_some();
     let query = SessionsQuery {
-        kind: parsed.agents.then(|| "agent".to_string()),
         live: parsed
             .status
             .as_deref()
@@ -127,9 +126,13 @@ fn list(args: &[String]) -> CommandResult {
         limit: if filtered { mcp_tools::MAX_PAGE } else { parsed.limit },
         ..Default::default()
     };
-    let mut rows = mcp_tools::sessions_list(&ctx.trpc, &query)
-        .map_err(super::devices::tool_error)
-        .context("list sessions")?;
+    let mut rows = if parsed.agents {
+        agent_sessions(&ctx, &query)?
+    } else {
+        mcp_tools::sessions_list(&ctx.trpc, &query)
+            .map_err(super::devices::tool_error)
+            .context("list sessions")?
+    };
     if let Some(status) = &parsed.status {
         rows.retain(|row| &row.status == status);
     }
@@ -254,20 +257,50 @@ fn resolve_session_id(ctx: &Ctx, raw: &str) -> anyhow::Result<String> {
     if uuid::Uuid::parse_str(raw).is_ok() {
         return Ok(raw.to_string());
     }
-    let mut rows = Vec::new();
-    for kind in ["thread", "agent"] {
-        let query = SessionsQuery {
-            kind: Some(kind.to_string()),
-            limit: mcp_tools::MAX_PAGE,
-            ..Default::default()
-        };
-        rows.extend(
-            mcp_tools::sessions_list(&ctx.trpc, &query)
-                .map_err(super::devices::tool_error)
-                .context("list sessions")?,
-        );
+    let query = SessionsQuery {
+        limit: mcp_tools::MAX_PAGE,
+        ..Default::default()
+    };
+    let mut rows = mcp_tools::sessions_list(&ctx.trpc, &query)
+        .map_err(super::devices::tool_error)
+        .context("list sessions")?;
+    // The agent conversations only when the threads hold no match: they
+    // cost a read per team and per agent.
+    if !rows.iter().any(|row| row.id.starts_with(raw)) {
+        rows.extend(agent_sessions(ctx, &query)?);
     }
     match_prefix(&rows, raw)
+}
+
+/// The caller's conversations with every agent of their teams, newest
+/// activity first (EXP-1473: the list tool reads one agent per call since
+/// #1122 dropped its `kind` filter).
+fn agent_sessions(ctx: &Ctx, query: &SessionsQuery) -> anyhow::Result<Vec<RemoteSession>> {
+    let teams = mcp_tools::teams_list(&ctx.trpc)
+        .map_err(super::devices::tool_error)
+        .context("list teams")?;
+    let mut rows = Vec::new();
+    for team in &teams {
+        let agents = mcp_tools::agents_list(&ctx.trpc, &team.id)
+            .map_err(super::devices::tool_error)
+            .context("list agents")?;
+        for agent in agents {
+            let query = SessionsQuery {
+                agent_id: Some(agent.id),
+                team_id: Some(team.id.clone()),
+                ..query.clone()
+            };
+            rows.extend(
+                mcp_tools::sessions_list(&ctx.trpc, &query)
+                    .map_err(super::devices::tool_error)
+                    .context("list sessions")?,
+            );
+        }
+    }
+    // RFC 3339 from one server: the string order is the time order.
+    rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    rows.truncate(query.limit as usize);
+    Ok(rows)
 }
 
 fn match_prefix(rows: &[RemoteSession], prefix: &str) -> anyhow::Result<String> {
