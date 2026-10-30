@@ -64,6 +64,18 @@ object ComposerAgentRow {
     fun pickForSubject(subjectIsLaunch: Boolean, current: String?): String? =
         if (subjectIsLaunch) TEMPORARY_PICK else current
 
+    /** What a pick is (`agentRow.pickCases`): an agent circle, the dotted circle, or any other option. */
+    enum class Pick { AGENT, TEMPORARY, OPTION }
+
+    /**
+     * What a pick does to the subject (`agentRow.pickCases`, #EXP-1450):
+     * picks never drop an ISSUE subject; an agent tap drops only a prompt (a
+     * message to an agent takes none). [subject] = the subject kind
+     * (`issues` / `prompt` / …, null = none).
+     */
+    fun subjectAfterPick(subject: String?, pick: Pick): String? =
+        if (pick == Pick.AGENT && subject == "prompt") null else subject
+
     /** The row for a viewer: [picked] = the last tap (null/unknown = the default). */
     fun <T> composerAgentRow(agents: List<T>, me: String?, picked: String?, row: (T) -> Agent): State<T> {
         val ordered = AgentSettings.Assistant.orderedAgents(agents, me) {

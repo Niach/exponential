@@ -87,4 +87,20 @@ class ComposerAgentRowTest {
             assertEquals(case.str("name"), case.str("expected"), ComposerAgentRow.pickForSubject(isLaunch, case.str("current")))
         }
     }
+
+    // `agentRow.pickCases` (TS `subjectAfterPick`, #EXP-1450): picks never
+    // drop an issue subject; an agent tap drops only a prompt.
+    @Test
+    fun `pickCases match the fixture`() {
+        val cases = row.getValue("pickCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val pick = when (case.str("pick")) {
+                "agent" -> ComposerAgentRow.Pick.AGENT
+                "temporary" -> ComposerAgentRow.Pick.TEMPORARY
+                else -> ComposerAgentRow.Pick.OPTION
+            }
+            assertEquals(case.str("name"), case.str("expected"), ComposerAgentRow.subjectAfterPick(case.str("subject"), pick))
+        }
+    }
 }

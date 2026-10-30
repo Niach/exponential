@@ -29,6 +29,7 @@ import com.exponential.app.domain.AccountOption
 import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.ComposerAgentRow
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueStatusResolver
@@ -98,8 +99,6 @@ internal fun composerPlaceholder(
     home: Boolean = false,
 ): String {
     if (subject == null) return if (home) AgentHome.PLACEHOLDER else DomainContract.composerUiChatPlaceholder
-    // S-3: an agent picked in the agent row keeps the home's question.
-    if (home && subject is ComposerSubject.Agent) return AgentHome.PLACEHOLDER
     return DomainContract.composerUiInstructionsPlaceholder
 }
 
@@ -108,17 +107,47 @@ data class ComposerStarting(val deviceLabel: String, val sinceMs: Long)
 
 
 /** What the composer is about — issue chips OR one prompt chip, never both
- *  (web `subject.kind` issues | prompt). */
+ *  (web `subject.kind` issues | prompt). The agent row's RECIPIENT is not a
+ *  subject (#EXP-1450): it lives beside it ([AgentComposerViewModel.recipientAgentId]). */
 sealed interface ComposerSubject {
     data class Issues(val ids: List<String>) : ComposerSubject
 
     /** NEW-2: a saved prompt (`sessions.send({promptId})`); no inputs. */
     data class Prompt(val id: String) : ComposerSubject
 
-    /** NEW-3: a team agent (`sessions.send({agentId})`): the message goes
-     *  into the caller's DM with it, on the agent's own device and login. */
-    data class Agent(val id: String) : ComposerSubject
+    /** The fixture's subject kind (`agentRow.pickCases`). */
+    val kind: String
+        get() = when (this) {
+            is Issues -> "issues"
+            is Prompt -> "prompt"
+        }
 }
+
+/**
+ * #EXP-1450 (`agentRow.pickCases`, [ComposerAgentRow.subjectAfterPick]): what
+ * a pick (an agent circle, Temporary session, a device, an account, a model…)
+ * leaves of the subject. Issues always survive; an agent tap drops only a
+ * prompt.
+ */
+internal fun ComposerSubject?.afterPick(pick: ComposerAgentRow.Pick): ComposerSubject? =
+    if (ComposerAgentRow.subjectAfterPick(this?.kind, pick) == null) null else this
+
+/**
+ * #EXP-1450: the message to the agent row's picked agent: into the caller's
+ * conversation with it, the kept issues forwarded (`issueIds`); issues alone
+ * need no text.
+ */
+internal fun agentSendInput(
+    agentId: String,
+    subject: ComposerSubject?,
+    text: String?,
+    attachmentIds: List<String>,
+): SessionsSendInput = SessionsSendInput.toAgent(
+    agentId = agentId,
+    text = text,
+    attachmentIds = attachmentIds,
+    issueIds = (subject as? ComposerSubject.Issues)?.ids,
+)
 
 /**
  * The launch options as picked (EXP-437 seeding rules): the machine is a
@@ -587,15 +616,26 @@ class AgentComposerViewModel @Inject constructor(
         steerLaunch.clearFailure()
     }
 
-    /** NEW-3: Message an agent ›'s pick — the agent replaces whatever subject
-     *  is up (picking an issue or a prompt swaps it back out). */
-    fun pickAgent(agentId: String) {
-        _subject.value = ComposerSubject.Agent(agentId)
-        steerLaunch.clearFailure()
-    }
+    // ── Recipient (S-3 agent row, #EXP-1450) ────────────────────────────────
+    private val _recipientAgentId = MutableStateFlow<String?>(null)
 
-    fun clearAgent() {
-        if (_subject.value is ComposerSubject.Agent) _subject.value = null
+    /**
+     * The agent row's picked agent (null = Temporary session). ORTHOGONAL to
+     * the subject: it changes the submit (`Send`) and where the send goes,
+     * never the headline or its chips.
+     */
+    val recipientAgentId: StateFlow<String?> = _recipientAgentId
+
+    /**
+     * The agent row's pick: [agentId] = an agent, null = Temporary session.
+     * Picks never drop an issue subject; an agent drops only a prompt
+     * (`agentRow.pickCases`).
+     */
+    fun pickRecipient(agentId: String?) {
+        if (agentId == _recipientAgentId.value) return
+        _recipientAgentId.value = agentId
+        val pick = if (agentId == null) ComposerAgentRow.Pick.TEMPORARY else ComposerAgentRow.Pick.AGENT
+        _subject.value = _subject.value.afterPick(pick)
         steerLaunch.clearFailure()
     }
 
@@ -825,8 +865,8 @@ class AgentComposerViewModel @Inject constructor(
      */
     fun submit(@Suppress("UNUSED_PARAMETER") resumeOffered: Boolean = false) {
         if (_sending.value) return
-        (_subject.value as? ComposerSubject.Agent)?.let { agent ->
-            submitToAgent(agent.id)
+        _recipientAgentId.value?.let { agentId ->
+            submitToAgent(agentId)
             return
         }
         val target = device.value ?: return
@@ -883,11 +923,12 @@ class AgentComposerViewModel @Inject constructor(
     }
 
     /**
-     * NEW-3: the agent subject's send — `sessions.send({agentId, text,
-     * attachmentIds})` into the caller's DM with it (created on first use; it
-     * runs on the agent's device and login, so no runner picks). The pending
-     * files upload against the team first; the accepted send lands on the DM
-     * (the delegate's `startedSessionId`) and clears the draft.
+     * NEW-3 / #EXP-1450: the agent row's send — `sessions.send({agentId, text,
+     * attachmentIds, issueIds})` into the caller's conversation with it
+     * (created on first use; it runs on the agent's device and login, so no
+     * runner picks); the kept issues forward onto it. The pending files
+     * upload against the team first; the accepted send lands on the
+     * conversation (the delegate's `startedSessionId`) and clears the draft.
      */
     private fun submitToAgent(agentId: String) {
         val teamId = teamId.value ?: return
@@ -922,10 +963,11 @@ class AgentComposerViewModel @Inject constructor(
                     _draft.value,
                     uploadedSet.uploadedImageIds(),
                     uploadedSet.uploadedSteerFiles(),
-                ).orEmpty()
+                )
                 steerLaunch.send(
-                    SessionsSendInput.toAgent(
+                    agentSendInput(
                         agentId = agentId,
+                        subject = _subject.value,
                         text = text,
                         attachmentIds = uploadedSet.mapNotNull { it.uploadedId },
                     ),
