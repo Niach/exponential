@@ -41,6 +41,10 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import com.exponential.app.domain.Chats
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import com.exponential.app.domain.ThreadRowAction
+import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.ui.session.LocalAskCardTrailing
 import androidx.compose.ui.platform.LocalDensity
 import com.exponential.app.ui.components.JumpToBottomButton
 import com.exponential.app.ui.session.isNearBottom
@@ -734,6 +738,10 @@ fun SessionCard(
     modifier: Modifier = Modifier,
     /** EXP-1323: inside another card (a started suggestion): no own shell. */
     bare: Boolean = false,
+    /** #EXP-1464 (thread-row-action.json): the trailing chevron of a row
+     *  that does something; [expanded] turns it down. */
+    chevron: Boolean = false,
+    expanded: Boolean = false,
 ) {
     Column(
         modifier = modifier
@@ -742,12 +750,12 @@ fun SessionCard(
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .testTag(card.testId),
     ) {
-        SessionCardHeader(card)
+        SessionCardHeader(card, chevron, expanded)
     }
 }
 
 @Composable
-private fun SessionCardHeader(card: SessionTree.SessionCard) {
+private fun SessionCardHeader(card: SessionTree.SessionCard, chevron: Boolean, expanded: Boolean) {
     val style = threadCardTextStyle()
     val muted = Muted
     val toneColor = sessionToneColor(card.tone)
@@ -784,6 +792,14 @@ private fun SessionCardHeader(card: SessionTree.SessionCard) {
         card.elapsed?.let {
             Text(it, style = style.copy(fontFeatureSettings = "tnum"), color = muted, maxLines = 1)
         }
+        if (chevron) {
+            Icon(
+                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                contentDescription = null,
+                tint = muted,
+                modifier = Modifier.size(14.dp),
+            )
+        }
     }
 }
 
@@ -799,6 +815,18 @@ data class ThreadRowMeta(
 
 /** The agent a channel belongs to (its rows' avatar + name). */
 data class ThreadAgent(val name: String, val icon: String?, val color: String?, val assistant: Boolean = false)
+
+/**
+ * #EXP-1464 (thread-row-action.json): what an EXPANDING session row needs
+ * from its host: whether a flag stands behind a session's `needs_you`
+ * ([blocked]: it opens instead) and THE waiting question / plan card of a
+ * session ([waitingCard], null while it has not synced = the skeleton line).
+ * Without them a Conversation's session rows only open.
+ */
+class ThreadRowActions(
+    val blocked: (sessionId: String) -> Boolean,
+    val waitingCard: @Composable (sessionId: String) -> SessionTree.ThreadRow?,
+)
 
 /**
  * The Conversation page: the model's rows in order. A thread draws a
@@ -841,7 +869,14 @@ fun ThreadConversation(
     origin: SessionTree.SessionXref? = null,
     /** S-3: an inter-session link PUSHES that session (null = inert). */
     onOpenXref: ((sessionId: String) -> Unit)? = null,
+    /** #EXP-1464: a Needs-you session row expands into its card (null = opens). */
+    rowActions: ThreadRowActions? = null,
 ) {
+    // #EXP-1464 (thread-row-action.json): the expanded session rows (by row
+    // id) and the sessions the viewer answered from one (client-held).
+    var expandedRows by rememberSaveable(rootId) { mutableStateOf(listOf<String>()) }
+    var answeredSessions by rememberSaveable(rootId) { mutableStateOf(listOf<String>()) }
+    val openRowSession: ((String) -> Unit)? = onOpenXref ?: onOpenSession
     // EXP-1334: no root card any more (the conversation IS the dispatcher).
     val shown = if (dockedIds.isEmpty()) {
         rows
@@ -977,16 +1012,89 @@ fun ThreadConversation(
                             onReply = { text -> onSurfaceReply?.invoke(text) },
                         )
                     }
-                    is SessionTree.ThreadRow.SessionRow -> SessionCard(row.card, onClick = { onOpenCard(row.card) })
+                    is SessionTree.ThreadRow.SessionRow -> {
+                        val card = row.card
+                        val action = ThreadRowAction.threadRowAction(
+                            type = "session",
+                            sessionId = card.sessionId,
+                            rootId = rootId,
+                            state = card.state,
+                            blocked = rowActions?.blocked?.invoke(card.sessionId) ?: false,
+                            // No waiting card to draw = it opens.
+                            inline = rowActions == null || ThreadRowAction.waitingCardInline(rows, card.sessionId),
+                            answered = card.sessionId in answeredSessions,
+                        )
+                        val shownCard = action.kindWord?.let { word ->
+                            card.copy(kindWord = word, tone = action.tone ?: card.tone)
+                        } ?: card
+                        when (action.action) {
+                            ThreadRowAction.Kind.Expand -> {
+                                val expanded = row.id in expandedRows
+                                val toggle = {
+                                    expandedRows = if (expanded) expandedRows - row.id else expandedRows + row.id
+                                }
+                                if (expanded && rowActions != null) {
+                                    ExpandedSessionRow(
+                                        card = shownCard,
+                                        waiting = rowActions.waitingCard(card.sessionId),
+                                        onCollapse = toggle,
+                                        onOpenChat = { onOpenCard(card) },
+                                        onAnswer = onAnswer,
+                                        onDecidePlan = onDecidePlan,
+                                        onAnswered = {
+                                            answeredSessions = answeredSessions - card.sessionId + card.sessionId
+                                            expandedRows = expandedRows - row.id
+                                        },
+                                    )
+                                } else {
+                                    SessionCard(shownCard, onClick = toggle, chevron = true)
+                                }
+                            }
+                            ThreadRowAction.Kind.Open ->
+                                SessionCard(shownCard, onClick = { onOpenCard(card) }, chevron = true)
+                            ThreadRowAction.Kind.None -> SessionCard(shownCard, onClick = null)
+                        }
+                    }
                     is SessionTree.ThreadRow.Question -> ThreadAskCard(row, onAnswer, onDecidePlan)
                     is SessionTree.ThreadRow.Plan -> ThreadAskCard(row, onAnswer, onDecidePlan)
                     is SessionTree.ThreadRow.Subagent -> WorkCardView(
                         card = WorkCards.of(WorkCardInput.Subagent(title = row.title, state = row.status)),
                     )
                     is SessionTree.ThreadRow.Picture -> ThreadPictureRow(row)
-                    is SessionTree.ThreadRow.Event -> ThreadEventLine(row.text)
+                    is SessionTree.ThreadRow.Event -> {
+                        val action = ThreadRowAction.threadRowAction(
+                            type = "event",
+                            sessionId = row.sessionId,
+                            rootId = rootId,
+                            state = null,
+                            blocked = false,
+                            inline = false,
+                            answered = false,
+                        )
+                        val open = openRowSession
+                        val target = action.sessionId
+                        ThreadEventLine(
+                            row.text,
+                            onClick = if (action.action != ThreadRowAction.Kind.None && open != null && target != null) {
+                                { open(target) }
+                            } else {
+                                null
+                            },
+                        )
+                    }
                     // S-3: a report renders AS its `Report from <chip> ›` line.
-                    is SessionTree.ThreadRow.Report -> SessionXref(row.xref, onOpenXref)
+                    is SessionTree.ThreadRow.Report -> {
+                        val action = ThreadRowAction.threadRowAction(
+                            type = "report",
+                            sessionId = row.sessionId,
+                            rootId = rootId,
+                            state = null,
+                            blocked = false,
+                            inline = false,
+                            answered = false,
+                        )
+                        SessionXref(row.xref, onOpenXref?.takeIf { action.action != ThreadRowAction.Kind.None })
+                    }
                     is SessionTree.ThreadRow.Suggestions -> ThreadSuggestionsCard(
                         row = row,
                         actions = suggestions,
@@ -1375,16 +1483,106 @@ fun ThreadPictureRow(row: SessionTree.ThreadRow.Picture) {
     }
 }
 
-/** An `event` card (and a system message): ONE quiet line. */
+/** An `event` card (and a system message): ONE quiet line. #EXP-1464: a
+ *  line about another session ([onClick] non-null) becomes a button with the
+ *  trailing chevron and the pressed wash; otherwise it stays plain. */
 @Composable
-fun ThreadEventLine(text: String) {
+fun ThreadEventLine(text: String, onClick: (() -> Unit)? = null) {
+    if (onClick == null) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = Muted,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag(ThreadRowAction.TestIds.EVENT),
+        )
+        return
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .testTag(ThreadRowAction.TestIds.EVENT),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = Muted,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = Muted, modifier = Modifier.size(12.dp))
+    }
+}
+
+/**
+ * #EXP-1464 (thread-row-action.json `expand`): a Needs-you session row,
+ * expanded in place = THE session card (chevron down; a tap collapses it)
+ * over THE question / plan card of that session ([waiting]; null = the
+ * skeleton line while it syncs), its label line carrying `Open chat`.
+ * A sent answer marks the session answered ([onAnswered]) and collapses.
+ */
+@Composable
+private fun ExpandedSessionRow(
+    card: SessionTree.SessionCard,
+    waiting: SessionTree.ThreadRow?,
+    onCollapse: () -> Unit,
+    onOpenChat: () -> Unit,
+    onAnswer: ThreadAnswer,
+    onDecidePlan: ThreadPlanDecision,
+    onAnswered: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag(ThreadRowAction.TestIds.EXPANDED),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SessionCard(card, onClick = onCollapse, chevron = true, expanded = true)
+        if (waiting == null) {
+            SkeletonRows(rows = 1, rowHeight = 20.dp, dot = false)
+        } else {
+            CompositionLocalProvider(LocalAskCardTrailing provides { OpenChatLink(onOpenChat) }) {
+                ThreadAskCard(
+                    waiting,
+                    onAnswer = { id, answer, settled ->
+                        onAnswer(id, answer) { ok ->
+                            settled(ok)
+                            if (ok) onAnswered()
+                        }
+                    },
+                    onDecidePlan = { id, decision, settled ->
+                        onDecidePlan(id, decision) { ok ->
+                            settled(ok)
+                            if (ok) onAnswered()
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** #EXP-1464 `copy.openChat`: the expanded card's trailing text link,
+ *  muted xs text; pressed = foreground. */
+@Composable
+private fun OpenChatLink(onClick: () -> Unit) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     Text(
-        text,
-        style = MaterialTheme.typography.labelSmall,
-        color = Muted,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag("thread-event"),
+        ThreadRowAction.Copy.OPEN_CHAT,
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Normal),
+        color = if (pressed) MaterialTheme.colorScheme.onSurface else Muted,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .testTag(ThreadRowAction.TestIds.OPEN_CHAT),
     )
 }
 

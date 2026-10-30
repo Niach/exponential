@@ -3287,6 +3287,10 @@ private fun AnsweredAskCard(
 /** N-12: an AskCard drawn inside THE Dock's sheet: no glass, no header. */
 internal val LocalAskCardPlain = androidx.compose.runtime.staticCompositionLocalOf { false }
 
+/** #EXP-1464 (thread-row-action.json): the trailing slot of an [AskCard]'s
+ *  label line (an expanded session row's `Open chat`); null = none. */
+internal val LocalAskCardTrailing = androidx.compose.runtime.compositionLocalOf<(@Composable () -> Unit)?> { null }
+
 /**
  * EXP-1191: the ask's chrome, web `AskCard` parity — ONE glass card (12dp
  * padding) holding ONE top-aligned row: the 14dp glyph (a question's semantic
@@ -3329,15 +3333,21 @@ internal fun AskCard(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (heading != null || meta != null) {
+            val trailing = LocalAskCardTrailing.current
+            // #EXP-1464: a question card carrying a trailing link names
+            // itself (`Question`, the glyph's tint) left of it.
+            val heading = heading ?: if (trailing != null && !plan) com.exponential.app.domain.AskDock.Copy.QUESTION else null
+            if (heading != null || meta != null || trailing != null) {
                 Row(
+                    modifier = if (trailing != null) Modifier.fillMaxWidth() else Modifier,
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (heading != null) {
                         Text(
                             heading,
-                            modifier = Modifier.weight(1f, fill = false),
+                            // A trailing link sits at the line's end.
+                            modifier = Modifier.weight(1f, fill = trailing != null),
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
@@ -3357,9 +3367,14 @@ internal fun AskCard(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    if (trailing != null) {
+                        if (heading == null) Spacer(Modifier.weight(1f))
+                        trailing()
+                    }
                 }
             }
-            content()
+            // The slot is this card's own: nothing inside inherits it.
+            androidx.compose.runtime.CompositionLocalProvider(LocalAskCardTrailing provides null) { content() }
         }
     }
 }

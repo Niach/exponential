@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-conversation-session-rows`,
+    date: `2026-10-30`,
+    title: `Session rows open from a chat`,
+    summary: `Tap a session's row in a chat to open it, or answer its question right there.`,
+    body: `- **Conversations**: tap a session's row to open it. A row that needs you opens its question or plan right there, so you can answer in place.
+- **Every line goes somewhere**: "Report from", "was not picked up" and the other session lines open that session; only rows that do something show a chevron.`,
+  },
+  {
     id: `2026-10-30-stories-tidied`,
     date: `2026-10-30`,
     title: `Stories, tidied`,

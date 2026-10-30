@@ -38,7 +38,8 @@ val LocalAgentMarks = staticCompositionLocalOf<Map<String, AgentDefinitionEntity
  * agent's mark ([AgentAvatar] at 16dp keyed by `agentId` through
  * [LocalAgentMarks], else the session glyph), the session's name (foreground,
  * medium, one line) and a muted chevron, 4dp apart. The whole line is the
- * tap target: [onOpen] pushes that session on the back stack (null = inert).
+ * tap target: [onOpen] pushes that session on the back stack (null = inert,
+ * no chevron).
  */
 @Composable
 fun SessionXref(
@@ -81,6 +82,10 @@ fun SessionXref(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
-        Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = muted, modifier = Modifier.size(14.dp))
+        // #EXP-1464 (thread-row-action.json): only a line that opens
+        // something carries the chevron.
+        if (onOpen != null) {
+            Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = muted, modifier = Modifier.size(14.dp))
+        }
     }
 }

@@ -317,6 +317,7 @@ class SessionTreeTest {
             put("id", row.id)
             put("event", row.event)
             put("text", row.text)
+            put("sessionId", nullable(row.sessionId))
         }
         is SessionTree.ThreadRow.Locked -> buildJsonObject {
             put("type", "locked")

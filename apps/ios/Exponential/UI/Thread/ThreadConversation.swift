@@ -52,10 +52,9 @@ struct ThreadLiveTail: View {
 struct ThreadConversationView: View {
     let rows: ThreadRows
     let view: SessionThreadView
-    /// A card's session: open its raw view (`AgentSessionView`).
+    /// #EXP-1464: a row naming a session opens it (inbox-route.json
+    /// `sessionTarget`; a session of this thread opens in place).
     var onOpenSession: (String) -> Void = { _ in }
-    /// A card naming ANOTHER root: open that thread.
-    var onOpenThread: (String) -> Void = { _ in }
     /// S-3: an inter-session link (`SessionXref`): PUSH that session.
     var onOpenXref: (SessionXref) -> Void = { _ in }
     /// A question or plan card's answer (`sessions.answer`).
@@ -96,6 +95,9 @@ struct ThreadConversationView: View {
     /// tap time — an Equatable row that skipped a re-render never holds a
     /// closure over stale state (review of #1218).
     @State private var handlers = ThreadRowHandlers()
+    /// #EXP-1464 (thread-row-action.json): the sessions whose expanded card
+    /// the viewer answered here (client-held `answered`).
+    @State private var answeredSessions: Set<String> = []
 
     /// A card still waiting on its answer (`AskDock.threadPendingAsks`).
     static func isPending(_ row: ThreadRow) -> Bool {
@@ -126,8 +128,9 @@ struct ThreadConversationView: View {
         // place (`onLoadEarlier`).
         let all = shownRows
         let _ = handlers.update(
-            onOpenSession: onOpenSession, onOpenThread: onOpenThread, onOpenXref: onOpenXref,
-            onSubmit: onSubmit, onUnqueue: onUnqueue, onReply: onReply, suggestions: suggestions
+            onOpenSession: onOpenSession, onOpenXref: onOpenXref,
+            onSubmit: onSubmit, onUnqueue: onUnqueue, onReply: onReply, suggestions: suggestions,
+            onAnswered: { [$answeredSessions] sessionId in $answeredSessions.wrappedValue.insert(sessionId) }
         )
         let start = windowStart(all, pinned: pinnedStart)
         LazyVStack(alignment: .leading, spacing: 14) {
@@ -238,15 +241,21 @@ struct ThreadConversationView: View {
                 item.removable = queued && viewerId != nil && authorId == viewerId
             }
         case let .session(_, card):
-            item.otherRoot = rows.isOtherRoot(card.sessionId)
-        case let .report(_, _, _, _, xref):
+            item.action = action(type: "session", sessionId: card.sessionId)
+            if item.action.action == .expand {
+                item.waitingCard = waitingCard(card.sessionId)
+                item.answeringId = item.waitingCard.flatMap { answeringId == $0.id ? answeringId : nil }
+            }
+        case let .report(_, sessionId, _, _, xref):
             item.xrefMark = rows.xrefMark(xref)
+            item.action = action(type: "report", sessionId: sessionId)
         case let .suggestions(id, _, _, _, _):
             item.docked = canAnswer && suggestions != nil && Self.isDocked(row)
             item.pending = suggestions?.pending.filter { $0.hasPrefix("\(id):") } ?? []
             item.suggestable = canAnswer && suggestions != nil
-        case let .event(_, _, text):
+        case let .event(_, _, text, sessionId):
             item.eventIssue = rows.issues.first { issue in issue.identifier.map { text.hasSuffix(" \($0)") } ?? false }
+            item.action = action(type: "event", sessionId: sessionId)
         case let .divider(_, _, at):
             item.time = clock(at)
         default:
@@ -254,6 +263,31 @@ struct ThreadConversationView: View {
         }
         item.replies = canAnswer
         return item
+    }
+
+    /// #EXP-1464 (thread-row-action.json): what a row naming `sessionId`
+    /// does when tapped.
+    private func action(type: String, sessionId: String?) -> ThreadRowAction.Result {
+        let session = sessionId.flatMap { rows.session(id: $0) }
+        let tree = session.map { TreeSession(sessionRow: $0) }
+        return ThreadRowAction.threadRowAction(ThreadRowAction.Input(
+            type: type,
+            sessionId: sessionId,
+            rootId: rows.root.id,
+            state: tree.map { SessionTree.sessionState($0) },
+            blocked: tree?.blocked != nil,
+            inline: sessionId.map { ThreadRowAction.waitingCardInline(view.rows, sessionId: $0) } ?? false,
+            answered: sessionId.map(answeredSessions.contains) ?? false
+        ))
+    }
+
+    /// The expanding row's card (`sessionWaitingCard`); nil = not synced.
+    private func waitingCard(_ sessionId: String) -> ThreadRow? {
+        let messages = (rows.namedCards + rows.messages).map { TreeMessage(messageRow: $0) }
+        guard let id = ThreadRowAction.sessionWaitingCard(sessionId: sessionId, messages: messages),
+              let message = messages.first(where: { $0.id == id })
+        else { return nil }
+        return ThreadRow.askCard(message)
     }
 }
 
@@ -264,26 +298,26 @@ struct ThreadConversationView: View {
 @MainActor
 final class ThreadRowHandlers {
     private(set) var onOpenSession: (String) -> Void = { _ in }
-    private(set) var onOpenThread: (String) -> Void = { _ in }
     private(set) var onOpenXref: (SessionXref) -> Void = { _ in }
     private(set) var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
     private(set) var onUnqueue: (String) -> Void = { _ in }
     private(set) var onReply: (String) -> Void = { _ in }
     private(set) var suggestions: ThreadSuggestionActions?
+    private(set) var onAnswered: (String) -> Void = { _ in }
 
     init() {}
 
     func update(
         onOpenSession: @escaping (String) -> Void,
-        onOpenThread: @escaping (String) -> Void,
         onOpenXref: @escaping (SessionXref) -> Void,
         onSubmit: @escaping (ThreadCardAnswer) -> Void,
         onUnqueue: @escaping (String) -> Void,
         onReply: @escaping (String) -> Void,
-        suggestions: ThreadSuggestionActions?
+        suggestions: ThreadSuggestionActions?,
+        onAnswered: @escaping (String) -> Void
     ) {
         self.onOpenSession = onOpenSession
-        self.onOpenThread = onOpenThread
+        self.onAnswered = onAnswered
         self.onOpenXref = onOpenXref
         self.onSubmit = onSubmit
         self.onUnqueue = onUnqueue
@@ -323,7 +357,10 @@ struct ThreadConversationRow: View, Equatable {
     /// A person's bubble caption (`UserMessageCaption`).
     var caption = ""
     var removable = false
-    var otherRoot = false
+    /// #EXP-1464: what a tap on the row does (thread-row-action.json).
+    var action: ThreadRowAction.Result = .none
+    /// An expanding row's waiting question / plan card; nil = not synced.
+    var waitingCard: ThreadRow?
     var docked = false
     var pending: Set<String> = []
     var eventIssue: IssueEntity?
@@ -337,6 +374,8 @@ struct ThreadConversationRow: View, Equatable {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.threadIssueOutlet) private var threadIssueOutlet
+    /// #EXP-1464: an `expand` row turned down into its card.
+    @State private var expanded = false
 
     init(row: ThreadRow, teamId: String, handlers: ThreadRowHandlers) {
         self.row = row
@@ -345,7 +384,6 @@ struct ThreadConversationRow: View, Equatable {
     }
 
     private func onOpenSession(_ id: String) { handlers.onOpenSession(id) }
-    private func onOpenThread(_ id: String) { handlers.onOpenThread(id) }
     private func onOpenXref(_ xref: SessionXref) { handlers.onOpenXref(xref) }
     private func onUnqueue(_ id: String) { handlers.onUnqueue(id) }
     private func onSubmit(_ answer: ThreadCardAnswer) { handlers.onSubmit(answer) }
@@ -354,7 +392,8 @@ struct ThreadConversationRow: View, Equatable {
         lhs.row == rhs.row && lhs.teamId == rhs.teamId && lhs.arrived == rhs.arrived
             && lhs.animateSurface == rhs.animateSurface && lhs.canAnswer == rhs.canAnswer
             && lhs.answeringId == rhs.answeringId && lhs.time == rhs.time && lhs.caption == rhs.caption
-            && lhs.removable == rhs.removable && lhs.otherRoot == rhs.otherRoot && lhs.docked == rhs.docked
+            && lhs.removable == rhs.removable && lhs.action == rhs.action && lhs.waitingCard == rhs.waitingCard
+            && lhs.docked == rhs.docked
             && lhs.pending == rhs.pending && lhs.eventIssue == rhs.eventIssue
             && lhs.suggestable == rhs.suggestable && lhs.replies == rhs.replies && lhs.xrefMark == rhs.xrefMark
             && lhs.handlers === rhs.handlers
@@ -421,16 +460,14 @@ struct ThreadConversationRow: View, Equatable {
                 .accessibilityIdentifier("thread-message")
             }
         case let .session(_, card):
-            SessionCardView(card: card) {
-                if otherRoot {
-                    onOpenThread(card.sessionId)
-                } else {
-                    onOpenSession(card.sessionId)
-                }
-            }
-        case let .report(_, _, _, _, xref):
-            // S-3: a report renders AS its link header (`Report from <chip> ›`).
-            SessionXrefHeader(xref: xref, agent: xrefMark) { onOpenXref(xref) }
+            sessionCard(card)
+        case let .report(_, sessionId, _, _, xref):
+            // S-3: a report renders AS its link header (`Report from <chip> ›`);
+            // #EXP-1464: tappable (chevron) only while it opens something.
+            SessionXrefHeader(
+                xref: xref, agent: xrefMark,
+                onOpen: action.action == .none ? nil : { onOpenSession(action.sessionId ?? sessionId) }
+            )
         case let .suggestions(id, _, header, startAll, items):
             // N-12: a row with an open item rides THE Dock (`ThreadScreen`)
             // for a reader who may act on it; it stays here once none is.
@@ -498,10 +535,15 @@ struct ThreadConversationRow: View, Equatable {
                 inline: true,
                 caption: caption
             ))
-        case let .event(_, _, text):
-            ThreadEventLine(text: text, issue: eventIssue) { issueId in
-                openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
-            }
+        case .event(_, _, let text, _):
+            ThreadEventLine(
+                text: text,
+                issue: eventIssue,
+                onOpenIssue: { issueId in
+                    openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
+                },
+                onOpen: action.sessionId.map { sessionId in { onOpenSession(sessionId) } }
+            )
         case let .divider(_, kind, _):
             // chats.json: `/new` and `/compact` lines = the centred pill.
             TranscriptDividerPill(
@@ -526,16 +568,97 @@ struct ThreadConversationRow: View, Equatable {
         }
     }
 
+    /// THE session card. #EXP-1464 (thread-row-action.json): `open` opens
+    /// the session; `expand` turns the card down into THE question / plan
+    /// card of that session (answered as a thread card is, `Open chat` on
+    /// its label line), collapsed again once answered; `none` = inert.
+    @ViewBuilder
+    private func sessionCard(_ card: SessionCard) -> some View {
+        switch action.action {
+        case .expand:
+            VStack(alignment: .leading, spacing: 8) {
+                SessionCardView(card: card, expanded: expanded) {
+                    withAnimation(.easeOut(duration: 0.18)) { expanded.toggle() }
+                }
+                if expanded {
+                    if let waitingCard {
+                        ThreadAskCard(
+                            row: waitingCard,
+                            canAnswer: canAnswer,
+                            answeringId: answeringId,
+                            markdownContext: markdownContext,
+                            headerTrailing: AnyView(ThreadOpenChatLink { onOpenSession(card.sessionId) }),
+                            onSubmit: { [handlers] answer in
+                                handlers.onSubmit(answer)
+                                handlers.onAnswered(card.sessionId)
+                                expanded = false
+                            }
+                        )
+                    } else {
+                        SkeletonRows(rows: 1, rowHeight: 20, dot: false, dividers: false)
+                    }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(expanded ? ThreadRowAction.TestIds.expanded : "thread-row")
+        case .open:
+            SessionCardView(card: card, kindWord: action.kindWord, tone: action.tone) {
+                onOpenSession(card.sessionId)
+            }
+        case .none:
+            SessionCardView(card: card, onOpen: nil)
+        }
+    }
+
+}
+
+/// #EXP-1464 `copy.openChat`: trailing an expanded card's label line, it
+/// opens that card's session.
+private struct ThreadOpenChatLink: View {
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            Text(ThreadRowAction.Copy.openChat)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+                .fixedSize()
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(ThreadRowAction.TestIds.openChat)
+    }
 }
 
 /// One muted line (an event, a system message); an event naming a linked
-/// issue draws that issue as THE issue chip after its verb.
+/// issue draws that issue as THE issue chip after its verb. #EXP-1464: an
+/// event about a session (`onOpen`) is a button carrying the chevron and
+/// the pressed wash; otherwise it stays plain.
 private struct ThreadEventLine: View {
     let text: String
     var issue: IssueEntity?
     var onOpenIssue: (String) -> Void = { _ in }
+    var onOpen: (() -> Void)?
 
     var body: some View {
+        if let onOpen {
+            Button(action: onOpen) {
+                HStack(spacing: 6) {
+                    line
+                    AppIcon(AppIcons.uiChevronRight, size: 12)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableRowStyle())
+            .accessibilityIdentifier(ThreadRowAction.TestIds.event)
+        } else {
+            line
+        }
+    }
+
+    private var line: some View {
         HStack(spacing: 6) {
             if let issue {
                 Text(String(text.dropLast((issue.identifier?.count ?? -1) + 1)))
@@ -931,6 +1054,8 @@ struct ThreadAskCard: View {
     var answeringId: String?
     var markdownContext: AgentMarkdownContext?
     var caption: String?
+    /// #EXP-1464: trailing the label line (`Open chat`).
+    var headerTrailing: AnyView?
     var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
 
     @State private var draft = PlanCardDraft()
@@ -984,7 +1109,8 @@ struct ThreadAskCard: View {
             hidesOptions: true,
             hidesResolution: Self.formShowsAnswer(card),
             richBody: true,
-            formGap: card.surface != nil ? PlanCard.Card.blockGap : PlanCard.Card.optionsGap
+            formGap: card.surface != nil ? PlanCard.Card.blockGap : PlanCard.Card.optionsGap,
+            headerTrailing: headerTrailing
         )
     }
 
@@ -1086,7 +1212,8 @@ struct ThreadAskCard: View {
             // NEW-6 (N-1): the decision block lives in the form.
             hidesOptions: true,
             resolutionNote: card.feedback,
-            richBody: true
+            richBody: true,
+            headerTrailing: headerTrailing
         )
     }
 
