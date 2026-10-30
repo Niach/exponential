@@ -593,8 +593,8 @@
         "file": "shots/chat-list/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 51176,
-        "sha256": "c3730a683656aee7b063e6af32d702100f4ed8f18b56504379f507b0c5cb7158"
+        "bytes": 53870,
+        "sha256": "b2eec721cc6ea7a38c9925a9e04c396877e65e88ce277308f92e4c78a2163439"
       }
     },
     "chat-menus": {
@@ -5234,8 +5234,8 @@
         "file": "shots/story-ring/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 24264,
-        "sha256": "187067d2a0b4c0bc41c954f47801e8d3252516922773c9055475a4eaa79b81f1"
+        "bytes": 24848,
+        "sha256": "0fc4e429637efa64165a748a5cac58b50f886c05ea86213dd90aa5e173c34f64"
       }
     },
     "story-tab": {
@@ -5271,8 +5271,8 @@
         "file": "shots/story-tab/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 26234,
-        "sha256": "02b4a517a573e2cd1043f3cae5cc15c6191a6e9aad54ca4543456d39a44bc6ef"
+        "bytes": 32176,
+        "sha256": "8e61542686904d850e0262622687d85ba2570fe86d670bb08e3bdc50bbf700eb"
       }
     },
     "story-viewer": {
@@ -5444,8 +5444,8 @@
         "file": "shots/thread-stories/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 49626,
-        "sha256": "66ee7063ce44ca21227db3aa54755e21417227efffbc5cf098aa165ddffea274"
+        "bytes": 55138,
+        "sha256": "59ca44bc8fb81e891ca3b19ca6ba326cb962f5de8ef277902fda1397f7653f82"
       }
     },
     "threads": {
@@ -5481,8 +5481,8 @@
         "file": "shots/threads/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 60200,
-        "sha256": "39b423c4fbb2651bf6c27a61b24e9cd272f247ac437bd4278255e09c9ae18364"
+        "bytes": 54202,
+        "sha256": "84999a6c40a82a139c46598c31305e2b9ede7ae15f7bdf06dd6278bb0ed1084d"
       }
     },
     "trace": {
