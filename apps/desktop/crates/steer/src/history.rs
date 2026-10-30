@@ -91,6 +91,12 @@ const WORKFLOW_JOURNAL_INTERVAL: Duration = Duration::from_secs(10);
 const HISTORY_BATCH_FRAMES: usize = 64;
 const HISTORY_BATCH_PAUSE: Duration = Duration::from_millis(20);
 
+/// #EXP-1453: how many times one `history_request` mints and dials before
+/// the device gives up (the viewer's redial asks again), and the pause
+/// between tries.
+const HISTORY_REPLAY_ATTEMPTS: u32 = 3;
+const HISTORY_REPLAY_RETRY_PAUSE: Duration = Duration::from_millis(500);
+
 /// Where every session's journal file lives.
 pub fn journal_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("journal")
@@ -818,34 +824,51 @@ async fn serve_history_task(
             return true;
         }
     };
-    let minted = match tokio::task::spawn_blocking(move || tickets.mint()).await {
-        Ok(Ok(Some(ticket))) => ticket,
-        Ok(Ok(None)) => {
-            log::info!("steer history: relay disabled; not replaying {session_id}");
+    // #EXP-1453: one failed dial used to be the whole answer. The viewer then
+    // sat on "Fetching the transcript" for the relay's 20s timeout plus its
+    // no-history backoff (~50s) although the journal was right here. A
+    // transport failure is retried on a fresh ticket instead; a replay that
+    // lands after the relay gave up still opens the room and clears the
+    // backoff, so the viewer's next redial finds it.
+    for attempt in 1..=HISTORY_REPLAY_ATTEMPTS {
+        if attempt > 1 {
+            tokio::time::sleep(HISTORY_REPLAY_RETRY_PAUSE).await;
+        }
+        let mint_tickets = tickets.clone();
+        let minted = match tokio::task::spawn_blocking(move || mint_tickets.mint()).await {
+            Ok(Ok(Some(ticket))) => ticket,
+            Ok(Ok(None)) => {
+                log::info!("steer history: relay disabled; not replaying {session_id}");
+                return true;
+            }
+            Ok(Err(err)) => {
+                log::warn!("steer history: ticket mint for {session_id} failed (attempt {attempt}): {err}");
+                continue;
+            }
+            Err(err) => {
+                log::warn!("steer history: mint task panicked: {err}");
+                return true;
+            }
+        };
+        // #EXP-1415: the run may have come back while the journal was read and
+        // the ticket minted; its live publisher owns the room (the relay refuses
+        // a replay over it too — this only skips the dial).
+        if crate::publisher::is_publishing(session_id) {
+            log::info!("steer history: {session_id} started publishing here; replay dropped");
             return true;
         }
-        Ok(Err(err)) => {
-            log::warn!("steer history: ticket mint for {session_id} failed: {err}");
-            return true;
+        match publish_history(&minted.url, session_id, &events).await {
+            Ok(()) => {
+                log::info!(
+                    "steer history: replayed {} event(s) for {session_id}",
+                    events.len()
+                );
+                return true;
+            }
+            Err(reason) => log::warn!(
+                "steer history: replay of {session_id} failed (attempt {attempt}): {reason}"
+            ),
         }
-        Err(err) => {
-            log::warn!("steer history: mint task panicked: {err}");
-            return true;
-        }
-    };
-    // #EXP-1415: the run may have come back while the journal was read and
-    // the ticket minted; its live publisher owns the room (the relay refuses
-    // a replay over it too — this only skips the dial).
-    if crate::publisher::is_publishing(session_id) {
-        log::info!("steer history: {session_id} started publishing here; replay dropped");
-        return true;
-    }
-    match publish_history(&minted.url, session_id, &events).await {
-        Ok(()) => log::info!(
-            "steer history: replayed {} event(s) for {session_id}",
-            events.len()
-        ),
-        Err(reason) => log::warn!("steer history: replay of {session_id} failed: {reason}"),
     }
     true
 }
@@ -1490,6 +1513,75 @@ mod tests {
         coding::session_retention::save_days(&dir, Some(365)).unwrap();
         assert_eq!(prune_session_history(&dir).0, 1);
         assert!(read_journal(&dir, "ancient").is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// #EXP-1453: tickets whose first dial goes nowhere (a closed port), then
+    /// to the fake relay.
+    struct FlakyTickets {
+        mints: std::sync::atomic::AtomicU32,
+        dead_url: String,
+        url: String,
+    }
+
+    impl crate::publisher::PublisherTickets for FlakyTickets {
+        fn mint(&self) -> Result<Option<api::steer::MintedTicket>, api::error::ApiError> {
+            let n = self.mints.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(Some(api::steer::MintedTicket {
+                ticket: "fake.fake".to_string(),
+                url: if n == 0 { self.dead_url.clone() } else { self.url.clone() },
+            }))
+        }
+    }
+
+    /// #EXP-1453: one failed replay dial is retried on a fresh ticket instead
+    /// of leaving the viewer on "Fetching the transcript" until the relay
+    /// times the ask out.
+    #[test]
+    fn failed_replay_dial_retries_on_a_fresh_ticket() {
+        use futures_util::StreamExt;
+        let dir = temp_dir("replay-retry");
+        let mut writer = JournalWriter::open(&dir, "sess-1").unwrap();
+        writer.append(&ActivityEvent::narration("first"));
+        drop(writer);
+
+        let dead = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let dead_port = dead.local_addr().unwrap().port();
+        drop(dead);
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (seen_tx, seen_rx) = flume::unbounded::<String>();
+        runtime.spawn(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+            let (stream, _addr) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(Ok(msg)) = ws.next().await {
+                if let Message::Text(text) = msg {
+                    let _ = seen_tx.send(text.to_string());
+                }
+            }
+        });
+        let tickets = std::sync::Arc::new(FlakyTickets {
+            mints: std::sync::atomic::AtomicU32::new(0),
+            dead_url: format!("ws://127.0.0.1:{dead_port}/ws?ticket=fake"),
+            url: format!("ws://127.0.0.1:{port}/ws?ticket=fake"),
+        });
+        let served = runtime.block_on(serve_history_task(tickets.clone(), dir.clone(), "sess-1"));
+        assert!(served);
+        assert_eq!(tickets.mints.load(std::sync::atomic::Ordering::SeqCst), 2);
+        let mut frames = Vec::new();
+        while let Ok(frame) = seen_rx.recv_timeout(Duration::from_secs(5)) {
+            let bye = frame.contains("\"t\":\"bye\"");
+            frames.push(frame);
+            if bye {
+                break;
+            }
+        }
+        assert!(frames.iter().any(|f| f.contains("\"t\":\"hello\"")), "{frames:?}");
+        assert!(frames.iter().any(|f| f.contains("first")), "{frames:?}");
         let _ = fs::remove_dir_all(&dir);
     }
 
