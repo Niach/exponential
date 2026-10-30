@@ -2,7 +2,9 @@
 # EXP-1364: the MacBook's self-hosted runner (label exp-mac), native under the
 # logged-in user (Xcode + simulators need it). Idempotent; rerun to upgrade.
 #   bash .github/runners/mac/install.sh
-# Needs: gh logged in as a repo admin, Xcode, Homebrew tuist at the CI pin.
+# Needs: gh logged in as a repo admin, release Xcode 27.1 at /Applications/Xcode.app
+# with the iOS 27 simulator runtime (.github/scripts/select-xcode.sh), Homebrew
+# tuist at the CI pin.
 set -euo pipefail
 
 REPO=Niach/exponential
@@ -30,6 +32,7 @@ RUSTC_WRAPPER=$(command -v sccache)
 SCCACHE_DIR=$HOME/Library/Caches/sccache-ci
 SCCACHE_CACHE_SIZE=40G
 CARGO_INCREMENTAL=0
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 ENV
 
 ls "$HOME"/Library/LaunchAgents/actions.runner.*.plist >/dev/null 2>&1 || ./svc.sh install

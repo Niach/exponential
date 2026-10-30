@@ -34,7 +34,7 @@ jobs:
             os: ubuntu-22.04
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04-arm
-          # macOS = macos-26, the same image as build-ios.yml (EXP-1196
+          # macOS = macos-26 (EXP-1196
           # needed its Xcode 26 SDK; EXP-1273 no longer does, the image stays).
           - target: aarch64-apple-darwin
             os: macos-26

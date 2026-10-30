@@ -40,9 +40,10 @@ jobs:
 
   compile:
     needs: pick
-    # GitHub-hosted: the same image as build-ios.yml (Xcode 26.x needs macOS
-    # Tahoe 26.2+). Self-hosted (the MacBook) builds with its own selected
-    # Xcode and its own Homebrew tuist; the signed release stays on GitHub.
+    # GitHub-hosted: the same `xcode-27` image as build-ios.yml. Both
+    # environments build with Xcode 27.1 on an iOS 27 simulator
+    # (.github/scripts/select-xcode.sh); the MacBook uses its own Homebrew
+    # tuist; the signed release stays on GitHub.
     runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     # A Release compile plus two simulator suites is ~25 min on a cold cache;
     # anything past this is a hung simulator, not slow work.
@@ -56,16 +57,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Select the newest RELEASE Xcode 26.x
-        if: runner.environment == 'github-hosted'
-        run: |
-          XCODE_APP="$(ls -d /Applications/Xcode_26.*.app 2>/dev/null | sort -V | tail -1)"
-          if [ -z "$XCODE_APP" ]; then
-            echo "::error::No release Xcode 26.x on this image" >&2
-            exit 1
-          fi
-          sudo xcode-select -s "$XCODE_APP"
-          xcodebuild -version
+      - name: Select Xcode 27.1 + the iOS 27 simulator
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/select-xcode.sh" --simulator
 
       - name: Install tuist
         if: runner.environment == 'github-hosted'
@@ -164,17 +157,9 @@ jobs:
 
           # Pin the destination. Left to itself tuist takes whatever simulator
           # the image happens to list first (an iPad, locally) — which device
-          # ran the suite should not be a property of the runner image.
-          DEVICE="$(xcrun simctl list devices available -j \
-            | jq -r '[.devices[][] | .name]
-                     | (map(select(. == "iPhone 17 Pro Max"))
-                        + map(select(startswith("iPhone 17")))
-                        + map(select(startswith("iPhone")))) | .[0] // empty')"
-          if [ -z "$DEVICE" ]; then
-            echo "::error::No iPhone simulator available on this image"
-            exit 1
-          fi
-          echo "Simulator: $DEVICE"
+          # ran the suite should not be a property of the runner image. The
+          # select step picked it: iPhone 17 Pro Max on the iOS 27 runtime.
+          DEVICE="$IOS_SIM_NAME"
 
           fail=0
           run_suite() {
@@ -185,7 +170,7 @@ jobs:
 
             local status=0
             tuist test "$scheme" --no-selective-testing \
-              --device "$DEVICE" \
+              --device "$DEVICE" --os "$IOS_SIM_OS" \
               --result-bundle-path "$dir/$scheme.xcresult" \
               > "$log" 2>&1 || status=$?
 

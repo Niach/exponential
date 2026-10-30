@@ -299,6 +299,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 27.1
+        run: bash .github/scripts/select-xcode.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
@@ -363,24 +365,16 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Select the newest RELEASE Xcode 26.x
-        if: runner.environment == 'github-hosted'
-        run: |
-          XCODE_APP="$(ls -d /Applications/Xcode_26.*.app 2>/dev/null | sort -V | tail -1)"
-          [ -n "$XCODE_APP" ] || { echo "::error::No release Xcode 26.x on this image" >&2; exit 1; }
-          sudo xcode-select -s "$XCODE_APP"
-          xcodebuild -version
+      - name: Select Xcode 27.1 + the iOS 27 simulator
+        run: bash .github/scripts/select-xcode.sh --simulator
       - uses: actions/download-artifact@v4
         with:
           name: exponential-ui-xcframework
           path: packages/exponential-ui-swift/Binaries/
-      - name: Pick an iPhone simulator
+      - name: Boot the iOS 27 simulator
         id: sim
         run: |
-          DEVICE="$(xcrun simctl list devices available -j | python3 -c 'import json,sys
-          d=json.load(sys.stdin)["devices"]
-          ios=sorted((k for k in d if "iOS" in k), key=lambda k: [int(x) for x in k.rsplit("iOS-",1)[1].split("-")])
-          print(next(x["udid"] for k in reversed(ios) for x in d[k] if x["name"].startswith("iPhone")))')"
+          DEVICE="$IOS_SIM_UDID"
           echo "id=$DEVICE" >> "$GITHUB_OUTPUT"
           # Boot it up front: a cold boot inside `xcodebuild test` on a busy
           # Mac (the self-hosted runner, other simulators up) fails with

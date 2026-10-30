@@ -46,8 +46,9 @@ registration.
 bash .github/runners/mac/install.sh
 ```
 
-A LaunchAgent under your user, niced (never Background QoS: it pins jobs to the efficiency cores). Uses your selected Xcode
-and Homebrew tuist (test-ios fails loudly if tuist is off the pin).
+A LaunchAgent under your user, niced (never Background QoS: it pins jobs to the efficiency cores). Builds with release Xcode 27.1
+(`/Applications/Xcode.app`, through `DEVELOPER_DIR`) on the iOS 27 simulator
+only (`.github/scripts/select-xcode.sh`; no beta Xcode, no other runtime) and Homebrew tuist (test-ios fails loudly if tuist is off the pin).
 `~/actions-runner/svc.sh stop` pauses it; jobs then fall back to GitHub.
 
 ## Off switch

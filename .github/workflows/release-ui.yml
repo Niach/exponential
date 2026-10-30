@@ -43,7 +43,7 @@ env:
 jobs:
   pick:
     # The xcframework builds on the same Mac as exponential-ui.yml (the
-    # MacBook when it is awake, macos-26 otherwise): the xcframework size
+    # MacBook when it is awake, xcode-27 otherwise): the xcframework size
     # budget in release/size-budget.json is recorded on that machine, and the
     # hosted image's toolchain produces slices ~25% larger (VAPP-109 dry run).
     uses: ./.github/workflows/pick-runner.yml
@@ -115,6 +115,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 27.1
+        run: bash .github/scripts/select-xcode.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
