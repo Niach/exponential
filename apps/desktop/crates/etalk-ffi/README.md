@@ -86,9 +86,9 @@ Every `etalk-v*` tag (`release-etalk.yml`, `docs/libraries.md`) publishes:
   Portal bundle.
 
 ```swift
-.package(url: "https://github.com/Niach/exponential-talk-swift", exact: "0.2.2")
+.package(url: "https://github.com/Niach/exponential-talk-swift", exact: "0.2.3")
 ```
 
 ```kotlin
-implementation("at.exponential:etalk:0.2.2")
+implementation("at.exponential:etalk:0.2.3")
 ```

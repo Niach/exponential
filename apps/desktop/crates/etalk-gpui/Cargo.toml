@@ -1,6 +1,6 @@
 [package]
 name = "etalk-gpui"
-version = "0.2.2"
+version = "0.2.3"
 edition.workspace = true
 license.workspace = true
 publish = false
@@ -20,8 +20,8 @@ etalk = { path = "../etalk" }
 # don't unify with the app's). The workspace's `[patch."https://github.com/Niach/exponential"]`
 # builds them from the local crates here; the release smoke builds the tags.
 # The SDK: the glass bar, pills, call buttons and the voice wave.
-eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
-eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.0" }
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.1" }
+eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.2.1" }
 # ePilot: the overlay never covers a fullscreen app (NEW-59) and the tray's
 # Screen memory (NEW-58), whose capture the pause hotkey pauses too.
 epilot = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.1.0" }
