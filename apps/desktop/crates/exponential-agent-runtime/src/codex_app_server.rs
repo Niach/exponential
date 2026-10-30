@@ -20,7 +20,7 @@
 //! `refreshToken` decides whether this probe also KEEPS the login alive.
 //! `false` is the default and the only value the doctor ever sends: a
 //! presence check must not spend a refresh. EXP-849 sends `true` on a slow
-//! cadence ([`crate::usage_cache::CODEX_REFRESH_INTERVAL_SECS`]) for the
+//! cadence (`coding::usage_cache::CODEX_REFRESH_INTERVAL_SECS`) for the
 //! logins this machine actually runs, so an account that is only ever read
 //! from here does not quietly expire — codex performs the refresh itself,
 //! inside its own credential store; nothing here reads, copies or writes a
@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use terminal::process::background_command;
+use crate::process::background_command;
 
 /// The whole exchange's budget — the same 10 s the doctor's probes get.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(10);

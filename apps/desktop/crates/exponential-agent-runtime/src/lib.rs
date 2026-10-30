@@ -40,3 +40,14 @@ pub mod process;
 pub mod run_scope;
 
 pub use process::{background_command, refresh_windows_path};
+
+// EXP-1426 (part 3): agent identity, detection and the single-account login.
+pub mod agent;
+pub mod codex_app_server;
+pub mod codex_login_picker;
+pub mod detect;
+pub mod login;
+pub mod login_picker;
+pub mod login_screen;
+
+pub use agent::{claude_model_alias, CodingAgent};

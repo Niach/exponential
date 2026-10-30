@@ -41,7 +41,18 @@ caller changes until a later cleanup.
    check, the command head, the Linux run scope, the background `Command` constructor
    (`terminal::process`).
 2. The event vocabulary (`ActivityEvent` and the frames it needs, the redactor) out of `steer`.
-3. Agent identity, detection and the single-account login PTY (no credential moves).
+3. **Done.** Agent identity, detection and the single-account login PTY (no credential moves):
+   `agent` (`CodingAgent`, `claude_model_alias`, the model / effort vocabularies; the settings
+   default stays in `coding` as `CodingAgentExt`), `detect` (`Tool`, a lean `ToolCheck`,
+   `check_tool`, the version and auth-status parsers, the bounded `claude auth status` /
+   `codex login status` probes, `is_signed_in`, `probe_codex_acp`, the min versions, the bounded
+   `output_with_timeout`), `codex_app_server` (the codex handshake the probes use), the login-screen
+   scrapers out of `steer` (`login_picker`, `codex_login_picker`, `login_screen` =
+   `steer::agent_login_driver`) and the new `login`: the sign-in plan, `LocalLogin` (the CLI's own
+   login in a PTY against its DEFAULT home, URL / device-code scraping into `LoginProgress`),
+   logout. `run_doctor`, the profiles, the device caps and Exponential's `ToolCheck` (the lean
+   one plus the account fields), the staging / commit / import flow and its emulator-driven PTY
+   stay in `coding` / `cli` / `ui` and call the core.
 4. The ACP engine core (adapters, mapper, host, session, transport) behind `RunBackend` /
    `EventSink`; `engine` becomes Exponential's adapter.
 5. A local backend and a runnable example: one turn plus the session history with your own login,

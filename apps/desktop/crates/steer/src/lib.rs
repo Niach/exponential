@@ -57,9 +57,10 @@
 
 pub mod call_host;
 pub mod activity;
-pub mod agent_login_driver;
+// EXP-1426: the login-screen scrapers live in the agent core now.
+pub use exponential_agent_runtime::login_screen as agent_login_driver;
 pub mod answer_tap;
-pub mod codex_login_picker;
+pub use exponential_agent_runtime::codex_login_picker;
 pub mod commands;
 pub mod control_channel;
 /// EXP-846: the contract's `expToolDisplay` lookup (our MCP tools' rows).
@@ -74,7 +75,7 @@ pub mod history;
 // and the flat re-exports below keep resolving.
 pub use domain::image_message;
 pub mod journal;
-pub mod login_picker;
+pub use exponential_agent_runtime::login_picker;
 pub mod publisher;
 /// EXP-1279: the code-mode Script card model.
 pub mod script_card;

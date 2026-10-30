@@ -36,11 +36,10 @@ pub enum LoginObservation {
     Nothing,
 }
 
-/// Read one login screen for `agent` (a [`coding::CodingAgent::id`] string:
-/// `claude` / `codex`; anything else observes nothing).
-///
-/// `steer` does not depend on `coding` (§3.1 keeps that direction free), so
-/// the agent arrives as its wire id — callers pass `agent.id()`.
+/// Read one login screen for `agent` (a [`crate::agent::CodingAgent::id`]
+/// string: `claude` / `codex`; anything else observes nothing). EXP-1426:
+/// moved here from `steer::agent_login_driver` (which re-exports it); the
+/// wire-id argument is kept so no caller changed.
 pub fn observe_login_screen(agent: &str, lines: &[String]) -> LoginObservation {
     match agent {
         "claude" => observe_claude(lines),
