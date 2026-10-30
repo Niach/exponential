@@ -80,9 +80,9 @@ sessions; a relay that ignores the claim shows those sessions as Ended.
 
 | When | Workflow | What |
 |---|---|---|
-| pull request | `test.yml` (required check `gate`) | typecheck, web unit tests (4 shards), migrations from scratch + drift + custom triggers, desktop `cargo check` (only when the PR touches it) |
+| pull request | `test.yml` (required check `gate`) | typecheck, web unit tests (4 shards), migrations from scratch + drift + custom triggers, desktop `cargo check` (only when the PR touches it), the eUI conformance pass (`exponential-ui.yml` with `conformance_only`: each renderer's conformance runner + `conformant`, only when the PR touches eUI) |
 | master push | `build-web.yml`, `build-steer-relay.yml` | the ghcr images the deploys pull |
-| release tags (`desktop-v*`, `android-v*`, `ios-v*`, `cli-v*`, `eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`, `v*.*.*`) + `workflow_dispatch` | `release-suite.yml` (once per commit) | everything heavy: `exponential-ui.yml` (renderers, conformance, bench), `test-ios.yml`, Android unit + lint + licences, desktop `cargo test` + licences, marketing + styleguide builds + `shots:check`, package + bun suites, real-DB suites, the feedback-widget Playwright e2e on the compose stack, push-relay image smoke build |
+| release tags (`desktop-v*`, `android-v*`, `ios-v*`, `cli-v*`, `eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`, `v*.*.*`) + `workflow_dispatch` | `release-suite.yml` (once per commit) | everything heavy: `exponential-ui.yml` in full (renderer suites, conformance, parity, guides, size, bench, Simulator + emulator), `test-ios.yml`, Android unit + lint + licences, desktop `cargo test` + licences, marketing + styleguide builds + `shots:check`, package + bun suites, real-DB suites, the feedback-widget Playwright e2e on the compose stack, push-relay image smoke build |
 | release tags | `build-*.yml`, `release-eui.yml` | the release artifacts |
 | by hand | `exponential-ui-fuzz.yml`, `record-compose-fixtures.yml`, `bump-versions.yml` | fuzzing, re-recording the Compose fixtures, the version-bump PR |
 
