@@ -1541,6 +1541,13 @@
       "when": 1793366353322,
       "tag": "0219_new8_drop_legacy_session_columns_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 220,
+      "version": "7",
+      "when": 1793366427796,
+      "tag": "0220_new8_drop_messages_session_id",
+      "breakpoints": true
     }
   ]
 }
