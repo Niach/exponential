@@ -949,7 +949,10 @@ impl<'a> GpuiMeasure<'a> {
     /// to maxWidth (max-content and min-content = maxWidth), then (with a
     /// hint) the root gap and the hint.
     fn qr_scanner(&mut self, leaf: &LeafRequest, inner: Option<f32>) -> (f32, f32) {
-        let edge = match inner {
+        // A fixed width (the author's `style.width`, the control box) wins:
+        // the core asks max- and min-content with no wrap (SwiftUI, Compose).
+        let fixed = leaf.control.width.map(|w| (w - insets(&leaf.control).0).max(0.0));
+        let edge = match fixed.or(inner) {
             Some(w) if w > 0.0 => crate::paint::qr::viewfinder_edge(w),
             _ => crate::paint::qr::QR_SCANNER.max_width,
         };
@@ -959,7 +962,7 @@ impl<'a> GpuiMeasure<'a> {
         }
         let ts = self.part_text("QrScanner", "hint", leaf.props, leaf.text_style);
         let gap = if leaf.control.gap > 0.0 { leaf.control.gap } else { crate::paint::qr::QR_SCANNER.hint_gap };
-        let (_, hh, _) = self.para(hint, &ts, Some(inner.filter(|w| *w > 0.0).unwrap_or(edge).max(edge)), None);
+        let (_, hh, _) = self.para(hint, &ts, Some(fixed.or(inner).filter(|w| *w > 0.0).unwrap_or(edge).max(edge)), None);
         (edge, edge + gap + hh)
     }
 
