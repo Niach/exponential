@@ -475,7 +475,7 @@ private fun StoryFrameBody(
 
 /** THE surface card's row for a story's surface (a result's own, or a
  *  plan's / question's inline surface drawn by the same renderer). */
-private fun storySurface(row: SessionTree.ThreadRow?): SessionTree.ThreadRow.Surface? = when (row) {
+internal fun storySurface(row: SessionTree.ThreadRow?): SessionTree.ThreadRow.Surface? = when (row) {
     is SessionTree.ThreadRow.Surface -> row
     is SessionTree.ThreadRow.Plan -> row.surface?.let { SessionTree.ThreadRow.Surface(row.id, row.sessionId, null, it) }
     is SessionTree.ThreadRow.Question -> row.surface?.let { SessionTree.ThreadRow.Surface(row.id, row.sessionId, null, it) }

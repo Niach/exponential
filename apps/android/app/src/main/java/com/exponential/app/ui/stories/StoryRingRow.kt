@@ -38,10 +38,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * S-3 STORIES (stories.json): THE [StoryViewer] the Chats list's story rings
- * open, full screen at ring [opened] (null = closed). The rings themselves
- * ride the agent bubbles row (chats.json BUBBLES, [AgentBubbles] `rings`):
- * a bubble wears its agent's ring, the rest follow it; nothing here paints a
- * row of its own. [onOpenSession] = the header's tap (the viewer closes
+ * open, full screen at ring [opened] (null = closed; phones only, so
+ * [Stories.storyViewerSize] never applies). The rings themselves ride THE
+ * story row ([AgentBubbles], [Stories.storyRow]); nothing here paints a row
+ * of its own. [onOpenSession] = the header's tap (the viewer closes
  * first).
  */
 @Composable
@@ -97,8 +97,9 @@ fun StoryRingStrip(
     }
 }
 
-/** One ring button (the agent bubble's metrics): the ring around its avatar,
- *  the title under it, waiting / unseen titles in full emphasis. */
+/** One ring button of THE story row (`row`: exactly `row.itemWidth` wide,
+ *  the title `row.labelGap` under the ring at the bubble size), waiting /
+ *  unseen titles in full emphasis. */
 @Composable
 fun StoryRingButton(
     ring: Stories.StoryRing,
@@ -110,13 +111,13 @@ fun StoryRingButton(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
-            .width(size + 8.dp)
+            .width(Stories.Row.ITEM_WIDTH.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable { onOpen(ring.key) }
             .semantics { contentDescription = ring.title },
     ) {
         StoryRing(stories = ring.stories, size = size) { StoryAvatarMark(avatar.icon, avatar.color, cli = avatar.cli) }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Stories.Row.LABEL_GAP.dp))
         Text(
             ring.title,
             style = MaterialTheme.typography.labelLarge,

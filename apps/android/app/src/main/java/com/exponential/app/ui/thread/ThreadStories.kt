@@ -146,7 +146,15 @@ fun ThreadStoriesPage(
         if (tab.loading && tab.ring == null) {
             SkeletonRows()
         } else {
-            StoryTab(ring = tab.ring, lead = lead, onOpen = { story, picture -> open = story.id to picture })
+            StoryTab(
+                ring = tab.ring,
+                lead = lead,
+                onOpen = { story, picture -> open = story.id to picture },
+                // #EXP-1462: each story's body in place (its surface reads
+                // the card; a reply press goes to the story's session).
+                rows = tab.draw.rows,
+                onReply = storiesViewModel::reply,
+            )
         }
     }
 
