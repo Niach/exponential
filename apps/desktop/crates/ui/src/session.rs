@@ -188,6 +188,9 @@ pub fn sign_out_active(cx: &mut App) {
     let Some(account_id) = store.session(cx).account_id().map(String::from) else {
         return;
     };
+    // EXP-1457: an explicit sign-out revokes this install's eNet endpoint
+    // (taken before the control-channel stop, which only stops it).
+    let enet = crate::enet_wiring::stop(&account_id, cx);
     // §08: stop this account's steer control socket before tearing sync down.
     crate::steer_wiring::stop_control_channel(&account_id, cx);
     crate::device_sync::stop_device_sync(&account_id, cx);
@@ -209,6 +212,13 @@ pub fn sign_out_active(cx: &mut App) {
         // no error toast).
         crate::feedback::Blocking::begin(crate::feedback::BLOCKING_SIGN_OUT, cx);
         let ends = cx.background_executor().spawn(async move {
+            if let Some(enet) = enet {
+                let trpc = api::TrpcClient::new(
+                    &account.instance_url,
+                    Arc::new(api::StaticToken(token.clone())),
+                );
+                enet.revoke_blocking(&trpc);
+            }
             if !session_ids.is_empty() {
                 let trpc = api::TrpcClient::new(
                     &account.instance_url,

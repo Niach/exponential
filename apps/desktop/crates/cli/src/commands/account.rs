@@ -17,6 +17,12 @@ pub fn logout(args: &[String]) -> CommandResult {
         if token.starts_with("expu_") {
             log::debug!("credential is an API key — skipping server-side sign-out");
         } else {
+            // EXP-1457: this machine's daemon install leaves the eNet
+            // registry (before the session it authenticates with goes).
+            steer::enet::revoke_stored_blocking(
+                &ctx.trpc,
+                &steer::enet::identity_path(&ctx.data_dir, &ctx.account.id, steer::enet::InstallKind::Daemon),
+            );
             let client = api::login::AuthClient::new();
             if let Err(err) = client.sign_out(&ctx.account.instance_url, &token) {
                 log::warn!("server-side sign-out failed (continuing locally): {err}");

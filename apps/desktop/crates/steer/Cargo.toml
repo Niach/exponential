@@ -45,6 +45,10 @@ serde_json = { workspace = true }
 flume = { workspace = true }
 uuid = { workspace = true }
 log = "0.4"
+# EXP-1457: every install runs one eNet node (`enet.rs`); fs-store off, the
+# in-memory blob store is enough until blobs carry anything.
+enet-core = { path = "../enet-core" }
+data-encoding = "2"
 # NEW-55: the call host's audio: Opus in pure Rust (a port of libopus 1.6,
 # BSD-3), so no cmake on any runner. NEW-88: behind `etalk-codec`, whose
 # `libopus` feature (forwarded below) swaps in the system libopus.
@@ -52,3 +56,7 @@ etalk-codec = { path = "../etalk-codec" }
 # Secret-redaction patterns for the public activity emitter (§P7). Already in
 # the workspace lock via transitive deps — adds no new build.
 regex = "1"
+
+[dev-dependencies]
+# EXP-1457: verifies the install-register signature independently of enet-core.
+ring = "0.17"

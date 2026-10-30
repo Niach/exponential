@@ -139,6 +139,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let Some(runtime) = runtime(cx) else {
         return;
     };
+    // EXP-1457: this install's eNet node rides the same lifecycle.
+    crate::enet_wiring::start(account, cx);
     let auth = AuthContext::global(cx).clone();
     let provider = auth.auth.token_provider(&account.id);
     let trpc = Arc::new(api::TrpcClient::new(&account.instance_url, provider));
@@ -310,6 +312,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
 /// Stop the control socket for `account_id` (§8.3) — from
 /// `session::sign_out_active`.
 pub fn stop_control_channel(account_id: &str, cx: &mut App) {
+    crate::enet_wiring::stop(account_id, cx);
     if let Some(channels) = ControlChannels::global_ref(cx) {
         channels.update(cx, |channels, _| {
             if let Some(handle) = channels.by_account.remove(account_id) {

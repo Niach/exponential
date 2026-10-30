@@ -68,6 +68,7 @@ pub mod billing;
 pub mod comments;
 pub mod error;
 pub mod http;
+pub mod installs;
 pub mod issue_drafts;
 pub mod issues;
 pub mod labels;
