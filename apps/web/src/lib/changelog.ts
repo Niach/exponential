@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-stories-tidied`,
+    date: `2026-10-30`,
+    title: `Stories, tidied`,
+    summary: `The chats header shows only the last day's stories, the viewer fits each picture, a chat's Stories tab shows its stories in place, and lists show top-level chats only.`,
+    body: `- **Last 24 hours**: the story row above your chats holds stories from the last day only, and an agent or chat without one is not shown. Nothing new means no row.
+- **Fits the picture**: on desktop and wide web the story viewer takes the picture's shape, landscape or portrait, within the window. Phones stay full screen.
+- **Stories in place**: a chat's Stories tab shows each story with its description, pictures, preview or plan right there, and keeps every story.
+- **Top-level chats only**: the chat lists and the sidebar's Active section list each chat once; sub-sessions roll up into their chat.`,
+  },
+  {
     id: `2026-10-30-start-coding-keeps-issue`,
     date: `2026-10-30`,
     title: `Start coding keeps your issue`,
