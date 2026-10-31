@@ -66,6 +66,12 @@ impl Headless {
         output
     }
 
+    /// Unplugs output `index`.
+    pub fn remove_output(&mut self, state: &mut Ede, index: usize) {
+        let output = self.outputs.remove(index);
+        state.remove_output(&output);
+    }
+
     /// A full repaint of output `index`.
     pub fn capture(&mut self, state: &Ede, index: usize) -> Result<Frame, String> {
         let output = self.outputs.get(index).ok_or("no such output")?.clone();

@@ -146,7 +146,8 @@ jobs:
       - name: Linux system deps (smithay)
         run: |
           sudo apt-get update && sudo apt-get install -y \
-            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config
+            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
@@ -155,6 +156,10 @@ jobs:
       - name: Cargo test
         working-directory: apps/ede
         run: cargo test --workspace --locked
+      # The DRM/libinput backend needs a real seat to run; CI builds it.
+      - name: Cargo check (udev backend)
+        working-directory: apps/ede
+        run: cargo check --workspace --all-targets --locked --features ede-compositor/udev
 
   # T1 eUI parity (2026-10-30): every renderer's conformance runner + the
   # `conformant` check on every PR that touches eUI (exponential-ui.yml with

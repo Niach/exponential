@@ -272,3 +272,20 @@ fn outputs_line_up_left_to_right_and_windows_open_on_the_pointers_output() {
     let p = h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
     assert_eq!((p.x, p.y), (3199.0, 0.0));
 }
+
+#[test]
+fn unplugging_an_output_moves_its_windows_onto_the_remaining_one() {
+    let h = harness(&[(1280, 800), (1920, 1080), (1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    h.with(|ede| ede.pointer_motion_to((2000.0, 500.0).into(), 0));
+    let t = c.toplevel("w");
+    c.draw(&t, 400, 300, BLUE);
+    wait_for(&mut c, |_| !windows(&h).is_empty());
+    assert_eq!(windows(&h)[0].1.loc, (2040, 390).into());
+
+    h.with_backend(|ede, headless| headless.remove_output(ede, 1));
+    let geos = h.with(|ede| ede.space.outputs().map(|o| ede.space.output_geometry(o).unwrap()).collect::<Vec<_>>());
+    assert_eq!(geos, vec![Rectangle::new((0, 0).into(), (1280, 800).into()), Rectangle::new((1280, 0).into(), (1280, 800).into())], "no gap left");
+    assert_eq!(windows(&h)[0].1.loc, (440, 250).into(), "rescued onto the first output");
+    assert_eq!(h.capture(0).at(640, 400), BLUE);
+}
