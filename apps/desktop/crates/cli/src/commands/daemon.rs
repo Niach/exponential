@@ -50,6 +50,13 @@ const GATED_UPDATE_RETRY: Duration = Duration::from_secs(5 * 60);
 /// running) for this long, the daemon ends them and applies the update;
 /// repo-backed runs stay resumable. The web's "Update now" skips the wait.
 pub const UPDATE_IDLE_GRACE: Duration = Duration::from_secs(2 * 60 * 60);
+/// EXP-1489: a persistent session (a team agent's conversation) never ends,
+/// and one a schedule wakes every 15 minutes never idles for
+/// [`UPDATE_IDLE_GRACE`], so it pinned the update forever. Suspending it
+/// between turns is safe (the next message or firing resumes the SAME row),
+/// so it only has to sit idle this long: enough to let a turn's follow-up
+/// (a queued message, a child's report) start first.
+pub const UPDATE_TURN_GAP: Duration = Duration::from_secs(60);
 /// EXP-1353: how often the loop offers every clone to the shared cargo
 /// target GC (its own throttle walks each at most once an hour).
 const CARGO_TARGET_GC_BEAT: Duration = Duration::from_secs(5 * 60);
@@ -225,25 +232,41 @@ struct LiveSession {
     /// turn is in flight) — the loop's 1 Hz tick keeps it; a pending update
     /// reads it through [`update_gate`].
     idle_since: Option<Instant>,
+    /// EXP-1489: a persistent session (a team agent's conversation) — the
+    /// update gate suspends it between turns ([`UPDATE_TURN_GAP`]).
+    persistent: bool,
+}
+
+impl LiveSession {
+    /// EXP-1489: how long this session must sit idle before a pending
+    /// update may suspend it.
+    fn update_grace(&self) -> Duration {
+        if self.persistent {
+            UPDATE_TURN_GAP
+        } else {
+            UPDATE_IDLE_GRACE
+        }
+    }
 }
 
 type Sessions = Arc<Mutex<Vec<LiveSession>>>;
 
 /// FEED-36: what a pending update may do given the live sessions' idle
-/// stretches (`None` = a turn is in flight).
+/// stretches (`None` = a turn is in flight), each against its own grace
+/// (EXP-1489: [`LiveSession::update_grace`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UpdateGate {
     /// No live session — install and re-exec now.
     Apply,
-    /// Every live session has idled past the grace — end them, then apply.
+    /// Every live session has idled past its grace — end them, then apply.
     EndIdle,
     /// At least one session is working (or idle for less than the grace).
     Wait,
 }
 
-fn update_gate(idle_for: impl IntoIterator<Item = Option<Duration>>, grace: Duration) -> UpdateGate {
+fn update_gate(idle_for: impl IntoIterator<Item = (Option<Duration>, Duration)>) -> UpdateGate {
     let mut any = false;
-    for idle in idle_for {
+    for (idle, grace) in idle_for {
         any = true;
         match idle {
             Some(idle) if idle >= grace => {}
@@ -1000,18 +1023,20 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 update_held_by_claims = false;
                 let now = Instant::now();
                 let guard = lock_sessions(&sessions);
-                update_gate(
-                    guard.iter().map(|live| live.idle_since.map(|since| now.saturating_duration_since(since))),
-                    UPDATE_IDLE_GRACE,
-                )
+                update_gate(guard.iter().map(|live| {
+                    (
+                        live.idle_since.map(|since| now.saturating_duration_since(since)),
+                        live.update_grace(),
+                    )
+                }))
             };
             if gate == UpdateGate::EndIdle {
                 for live in lock_sessions(&sessions).iter() {
                     log::info!(
-                        "suspending session {} ({}) — idle for {}h, a {trigger:?} update is waiting",
+                        "suspending session {} ({}) — idle for {}m, a {trigger:?} update is waiting",
                         live.session.session_id,
                         live.branch,
-                        live.idle_since.map(|since| since.elapsed().as_secs() / 3600).unwrap_or(0)
+                        live.idle_since.map(|since| since.elapsed().as_secs() / 60).unwrap_or(0)
                     );
                     // EXP-1292: the process goes, the session stays — the row
                     // idles and the next message resumes the SAME row.
@@ -2858,6 +2883,7 @@ impl DaemonPickup {
         let identifiers_account = account_id.clone();
         let foreign_sync = self.sync.clone();
         let sessions = Arc::clone(&self.sessions);
+        let data_dir = self.ctx.data_dir.clone();
         launch::pickup_deps(launch::PickupHost {
             ctx: Arc::clone(&self.ctx),
             runtime: self.runtime.clone(),
@@ -2883,6 +2909,9 @@ impl DaemonPickup {
                     .is_some_and(|starter| starter != own_user)
             }),
             on_launched: Arc::new(move |session, cleanup| {
+                // EXP-1489: `prepare` wrote the run record before the spawn.
+                let persistent = coding::run_registry::get(&data_dir, &session.session_id)
+                    .is_some_and(|record| record.kind.is_persistent());
                 register_session(
                     &sessions,
                     LiveSession {
@@ -2890,6 +2919,7 @@ impl DaemonPickup {
                         cleanup,
                         session,
                         idle_since: None,
+                        persistent,
                     },
                 );
             }),
@@ -3814,16 +3844,35 @@ mod tests {
     #[test]
     fn a_pending_update_ends_only_sessions_idle_past_the_grace() {
         let grace = UPDATE_IDLE_GRACE;
-        assert_eq!(update_gate([], grace), UpdateGate::Apply);
-        assert_eq!(update_gate([Some(grace)], grace), UpdateGate::EndIdle);
-        assert_eq!(update_gate([Some(grace * 3), Some(grace)], grace), UpdateGate::EndIdle);
+        let thread = |idle: Option<Duration>| (idle, grace);
+        assert_eq!(update_gate([]), UpdateGate::Apply);
+        assert_eq!(update_gate([thread(Some(grace))]), UpdateGate::EndIdle);
+        assert_eq!(update_gate([thread(Some(grace * 3)), thread(Some(grace))]), UpdateGate::EndIdle);
         assert_eq!(
-            update_gate([Some(grace), Some(grace - Duration::from_secs(1))], grace),
+            update_gate([thread(Some(grace)), thread(Some(grace - Duration::from_secs(1)))]),
             UpdateGate::Wait
         );
-        assert_eq!(update_gate([Some(grace), None], grace), UpdateGate::Wait);
-        assert_eq!(update_gate([None], grace), UpdateGate::Wait);
-        assert_eq!(update_gate([Some(Duration::ZERO)], grace), UpdateGate::Wait);
+        assert_eq!(update_gate([thread(Some(grace)), thread(None)]), UpdateGate::Wait);
+        assert_eq!(update_gate([thread(None)]), UpdateGate::Wait);
+        assert_eq!(update_gate([thread(Some(Duration::ZERO))]), UpdateGate::Wait);
+    }
+
+    /// EXP-1489: a team agent a schedule wakes every 15 minutes never idles
+    /// for the 2h grace — between turns (past the short gap) it lets the
+    /// update through; mid-turn it still holds it.
+    #[test]
+    fn a_persistent_session_lets_the_update_through_between_turns() {
+        let agent = |idle: Option<Duration>| (idle, UPDATE_TURN_GAP);
+        let quarter_hour = Duration::from_secs(15 * 60);
+        assert!(UPDATE_TURN_GAP < quarter_hour);
+        assert_eq!(update_gate([agent(Some(UPDATE_TURN_GAP))]), UpdateGate::EndIdle);
+        assert_eq!(update_gate([agent(Some(Duration::from_secs(1)))]), UpdateGate::Wait);
+        assert_eq!(update_gate([agent(None)]), UpdateGate::Wait);
+        // A chat beside it keeps its own 2h grace.
+        assert_eq!(
+            update_gate([agent(Some(quarter_hour)), (Some(quarter_hour), UPDATE_IDLE_GRACE)]),
+            UpdateGate::Wait
+        );
     }
 
     #[test]
