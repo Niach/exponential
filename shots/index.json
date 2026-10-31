@@ -1336,15 +1336,15 @@
         "file": "shots/exponential-ui-carousel/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 28730,
-        "sha256": "9732e14191777f052cc20e6905b53c19c4a871d7ea6594100311eb7b00075222"
+        "bytes": 28788,
+        "sha256": "da3cf983d1ffe55f075e4989a1f4235c9e61a882762bf7bf4c7f283086b262d4"
       },
       "ios": {
         "file": "shots/exponential-ui-carousel/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 9652,
-        "sha256": "6cfc468730a00f162fc16f09ed7f623fa35cf8350b0c7ab93b7b35eb84848e88"
+        "bytes": 9772,
+        "sha256": "3d9f0b9bda4fadf091f7aed638311fe6b6bc381fdcd3a5601fc7b51a9fc950ce"
       },
       "web": {
         "file": "shots/exponential-ui-carousel/web.webp",
