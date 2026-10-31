@@ -94,6 +94,9 @@ import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.thread.ThreadScreen
+import com.exponential.app.ui.plan.LocalOpenPlanPage
+import com.exponential.app.ui.plan.OpenPlanPage
+import com.exponential.app.ui.plan.PlanPageScreen
 import com.exponential.app.ui.threads.ThreadsScreen
 import com.exponential.app.ui.threads.ThreadsViewModel
 import com.exponential.app.ui.session.AgentSessionScreen
@@ -199,7 +202,9 @@ fun AppNavHost() {
             // Same snapshot hazard as the issue route — the screens read
             // their id from SavedStateHandle once.
             is DeepLinkBus.Target.Session -> {
-                val route = sessionTargetRoute(target.id, webLinkResolver.sessionTarget(target.id))
+                // #EXP-1493: a session with a waiting plan of its own = THE plan page.
+                val route = webLinkResolver.planPageTarget(target.id)?.let { Routes.planPage(target.id, it) }
+                    ?: sessionTargetRoute(target.id, webLinkResolver.sessionTarget(target.id))
                 val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
                 guarded {
                     teamSwitch?.let(viewModel::applyTeamSwitch)
@@ -615,6 +620,10 @@ private fun AuthenticatedNav(
         LocalEntityNavigator provides entityNavigator,
         LocalLeaveGuard provides leaveGuard,
         LocalPageHeaderActions provides pageHeaderActions,
+        // #EXP-1493: every way in pushes THE plan page.
+        LocalOpenPlanPage provides OpenPlanPage { sessionId, messageId ->
+            navController.navigate(Routes.planPage(sessionId, messageId))
+        },
     ) {
     NavHost(
         navController = navController,
@@ -980,6 +989,13 @@ private fun AuthenticatedNav(
                     // Single-top: a double-tap on `+` pushes ONE page.
                     navController.openIssueDraft(boardId, parentId = parentId, singleTop = true)
                 },
+            )
+        }
+        composable(Routes.PLAN_PAGE_PATTERN) {
+            // #EXP-1493: THE plan page (plan-page.json), a pushed page.
+            PlanPageScreen(
+                onBack = { navController.popBackStack() },
+                onOpenSession = { id -> navController.navigate(Routes.session(id)) },
             )
         }
         composable(Routes.SESSION_PATTERN) { entry ->

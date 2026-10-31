@@ -20,7 +20,12 @@ export const entry: StyleguideEntry = {
     },
     desktop: { state: `leftover`, note: `#EXP-1497: the desktop child of #EXP-1493 lands it` },
     ios: { state: `leftover`, note: `#EXP-1498: the iOS child of #EXP-1493 lands it` },
-    android: { state: `leftover`, note: `#EXP-1499: the Android child of #EXP-1493 lands it` },
+    android: {
+      state: `ok`,
+      symbol: `PlanPageScreen`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/plan/PlanPage.kt`,
+      note: `parts: StoryKindBadge (components/StoryRing.kt), PlanPictureCarousel, PlanOutlineList; specimen: styleguide/PlanPageSpecimen.kt`,
+    },
   },
   island: () => (
     <div className="flex flex-wrap items-start gap-6">

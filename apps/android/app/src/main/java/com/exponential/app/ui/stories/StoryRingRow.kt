@@ -34,6 +34,7 @@ import com.exponential.app.ui.components.AgentBubbles
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.StoryAvatarMark
 import com.exponential.app.ui.components.StoryRing
+import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -54,6 +55,7 @@ fun ChatStoryViewer(
 ) {
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
+    val openPlan = LocalOpenPlanPage.current
     val key = opened ?: return
     Dialog(
         onDismissRequest = onClose,
@@ -65,11 +67,15 @@ fun ChatStoryViewer(
             rows = state.rows,
             avatar = state::avatar,
             onAnswer = viewModel::answer,
-            onDecidePlan = viewModel::decidePlan,
             onSeen = viewModel::markSeen,
             onOpenSession = { story ->
                 onClose()
                 onOpenSession(story)
+            },
+            // #EXP-1493: a plan cover's Open plan: the viewer closes, THE plan page opens.
+            onOpenPlan = { story ->
+                onClose()
+                openPlan.open(story.sessionId, story.id)
             },
             onClose = onClose,
             modifier = Modifier.fillMaxSize(),
