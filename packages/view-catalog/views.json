@@ -1940,7 +1940,7 @@
       "group": "coding",
       "title": "App editor · Settings",
       "blurb": "VAPP-177 (fixtures/apps.json THE SETTINGS TAB): the editor's Settings tab: icon, colour and name in one row, the description card, the records line, the Tools group (grant switches, an owner only), Export and Delete app. The old Settings → Apps → app page redirects here; phones open it as the … menu's Settings sheet, grants included.",
-      "order": 27,
+      "order": 56,
       "web": {
         "route": "/t/$teamSlug/apps/$appSlug?tab=settings",
         "anchor": {
@@ -2194,7 +2194,7 @@
       "group": "coding",
       "title": "App editor · Versions",
       "blurb": "VAPP-177 (fixtures/apps.json VERSIONS): the editor's Versions tab: one grouped list newest first, each row the v{n} pill, the note and who · when; the head row carries Current, every other row Preview and Restore. Phones open it as the … menu's Versions sheet.",
-      "order": 31,
+      "order": 55,
       "web": {
         "route": "/t/$teamSlug/apps/$appSlug?tab=versions",
         "anchor": {
