@@ -1,10 +1,11 @@
 //! VAPP-110 — the APPS list (web `apps-list.tsx`, fixtures/apps.json), drawn
 //! as Settings → Apps' index (the Agents index's twin; the rail lists the
-//! apps as a group like the Agents): the band `Apps` with `New app` as
-//! its trailing pill, then one row per app = its glyph (the board set) +
-//! name + the version pill (`v{n}`, `No version yet` muted) + the `…` menu
-//! (Export → the export dialog, VAPP-121; Rename → the New app form
-//! prefilled, Delete → the confirm). Only the
+//! apps as a group like the Agents): the band `Apps` with `Import…` and
+//! `New app` as its trailing pills (VAPP-176: New app = a draft and its
+//! editor at once, [`new_app`]; Import opens the import dialog), then one
+//! row per app = its glyph (the board set) + name + the version pill
+//! (`v{n}`, the muted `Draft` badge) + the `…` menu (Export → the export
+//! dialog, VAPP-121; Delete → the confirm; no Rename). Only the
 //! team's synced apps, by name (Exponential ships no built-in apps); members
 //! manage only their own apps, owners every app. A row opens the editor
 //! ([`Screen::App`]).
@@ -72,7 +73,7 @@ impl AppEntry {
         }
     }
 
-    /// The version pill's text: `v{n}` or `No version yet`.
+    /// The version pill's text: `v{n}` or `Draft`.
     pub(crate) fn pill_label(&self) -> String {
         version_label(self.head_version)
     }
@@ -120,6 +121,53 @@ pub(crate) fn version_pill(id: impl Into<gpui::ElementId>, entry: &AppEntry, cx:
     } else {
         pill.text_color(cx.theme().muted_foreground).into_any_element()
     }
+}
+
+/// VAPP-176 (fixtures/apps.json NEW APP): EVERY New app entry (the band
+/// pill, the sidebar group's `+`, the rail's `+`, the settings nav) calls
+/// `apps.create {teamId}` with no other field = a DRAFT ("Untitled app")
+/// and opens its editor on the synced row; a failure = the failed-action
+/// toast.
+pub(crate) fn new_app(team_id: String, window: &mut Window, cx: &mut App) {
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        crate::action_error::failed_action("create", "the app", None, cx);
+        return;
+    };
+    window
+        .spawn(cx, async move |window| {
+            let result = window
+                .background_executor()
+                .spawn(async move { api::apps::create_draft(&trpc, &team_id) })
+                .await;
+            match result {
+                Ok(output) => {
+                    let app_id = output.app.id;
+                    let apps = window.update(|_, cx| Store::global(cx).collections().apps.clone()).ok();
+                    if let Some(apps) = apps {
+                        crate::queries::await_row_visible(&apps, &app_id, window).await;
+                    }
+                    let _ = window.update(|window, cx| {
+                        crate::navigation::navigate(window, cx, Screen::App { app: app_id });
+                    });
+                }
+                Err(err) => {
+                    let _ = window.update(|_, cx| crate::action_error::failed_action_err("create", "the app", &err, cx));
+                }
+            }
+        })
+        .detach();
+}
+
+/// VAPP-176: `apps.discardDraft {id}`, fire-and-forget (leaving an EMPTY
+/// draft's editor); the server deletes it only while it is still empty and
+/// the caller created it.
+pub(crate) fn discard_draft(app_id: String, cx: &mut App) {
+    let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+    cx.background_executor()
+        .spawn(async move {
+            let _ = api::apps::discard_draft(&trpc, &app_id);
+        })
+        .detach();
 }
 
 /// The delete confirm's two answers (web `Prompt`: Cancel, Delete).
@@ -175,10 +223,10 @@ pub(crate) fn confirm_delete(
 }
 
 /// The row's `…` menu: Export (VAPP-121: any member, once the app has a
-/// version), then Rename, Delete app (the creator or an owner).
+/// version), then Delete app (the creator or an owner). VAPP-176: no Rename
+/// (the agent names an app, the settings page renames it).
 fn row_menu(index: usize, row: AppRow, manage: bool, cx: &App) -> gpui::AnyElement {
-    let copy = &APPS.copy;
-    let (rename, delete) = (copy.menu.rename.clone(), copy.menu.delete.clone());
+    let delete = APPS.copy.menu.delete.clone();
     let export = row.head_version.unwrap_or(0) > 0;
     div()
         .flex_shrink_0()
@@ -187,7 +235,6 @@ fn row_menu(index: usize, row: AppRow, manage: bool, cx: &App) -> gpui::AnyEleme
         .child(
             crate::controls::ghost_icon_button(("apps-row-menu", index), Icon::new(registry::UI_MORE), cx)
                 .pointer_menu(move |menu, _window, cx| {
-                    let rename_row = row.clone();
                     let (delete_id, delete_name) = (row.id.clone(), row.name.clone());
                     let export_id = row.id.clone();
                     let menu = if export {
@@ -208,17 +255,6 @@ fn row_menu(index: usize, row: AppRow, manage: bool, cx: &App) -> gpui::AnyEleme
                         return menu;
                     }
                     menu.item(
-                        crate::controls::pointer_label_item(rename.clone(), false)
-                            .icon(Icon::new(registry::UI_EDIT))
-                            .on_click(move |_: &ClickEvent, window, cx| {
-                                crate::app_form_dialog::open(
-                                    window,
-                                    cx,
-                                    crate::app_form_dialog::AppFormTarget::Rename { app: rename_row.clone() },
-                                )
-                            }),
-                    )
-                    .item(
                         crate::controls::danger_menu_item(delete.clone(), Icon::new(registry::UI_DELETE), cx)
                             .on_click(move |_: &ClickEvent, window, cx| {
                                 confirm_delete(delete_id.clone(), delete_name.clone(), |_, _| {}, window, cx)
@@ -292,15 +328,25 @@ pub(crate) fn apps_list(
     cx: &App,
 ) -> gpui::Div {
     let new_team = team_id.map(str::to_string);
+    let import_team = new_team.clone();
+    // VAPP-176: `Import…` before New app (app-export.json IMPORT).
+    let import = crate::surface::glass_pill_button(APPS.test_ids.import_app.clone(), crate::surface::PillSize::Sm, cx)
+        .label(APPS.copy.import.clone())
+        .on_click(move |_, window, cx| {
+            if let Some(team_id) = import_team.clone() {
+                crate::app_import_dialog::open(window, cx, team_id);
+            }
+        });
     let new_app = crate::surface::glass_pill_button(APPS.test_ids.new_app.clone(), crate::surface::PillSize::Sm, cx)
         .icon(registry::UI_ADD)
         .label(APPS.copy.new_app.clone())
         .on_click(move |_, window, cx| {
             if let Some(team_id) = new_team.clone() {
-                crate::app_form_dialog::open(window, cx, crate::app_form_dialog::AppFormTarget::New { team_id });
+                new_app(team_id, window, cx);
             }
         });
-    let band = crate::surface::glass_section_header(APPS.copy.title.clone(), Some(new_app.into_any_element()), cx);
+    let pills = gpui_component::h_flex().gap_2().child(import).child(new_app);
+    let band = crate::surface::glass_section_header(APPS.copy.title.clone(), Some(pills.into_any_element()), cx);
     let column = v_flex().id(SharedString::from(APPS.test_ids.list.clone())).w_full().min_w_0().child(band);
     let body = if entries.is_empty() {
         crate::controls::empty_state_list(Icon::new(registry::NAV_APPS), APPS.copy.empty.clone(), cx).into_any_element()
@@ -379,7 +425,7 @@ mod tests {
         let order: Vec<&str> = entries.iter().map(|e| e.slug.as_str()).collect();
         assert_eq!(order, ["alpha", "devices", "zeta"]);
         let pills: Vec<String> = entries.iter().map(AppEntry::pill_label).collect();
-        assert_eq!(pills, ["No version yet", "v1", "v3"]);
+        assert_eq!(pills, ["Draft", "v1", "v3"]);
     }
 
     #[test]

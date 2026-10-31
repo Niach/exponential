@@ -21,6 +21,14 @@
 //! LIFETIME: entering starts nothing; leaving (a navigation off the screen,
 //! the window closing) ENDS the member's live editor session
 //! (`sessions.end` on the root); the next send continues it.
+//!
+//! VAPP-176 (apps.json NEW APP): a DRAFT (no version yet) is always DOCKED
+//! whatever the stored layout (`editor_layout_for`); its empty chat shows
+//! the starters ([`crate::agent_screen`]). The editor keys the app by ID: a
+//! draft's slug follows the name the agent gives it, so the screen resolves
+//! the requested slug once, then follows the id (the navigation entry is
+//! replaced by the id, in place). Leaving an EMPTY draft (no editor
+//! session) fires `apps.discardDraft`.
 
 use eui_core::theme::Mode;
 use gpui::prelude::FluentBuilder as _;
@@ -36,14 +44,14 @@ use gpui_component::{
 use serde_json::{json, Value};
 use sync::Store;
 
-use domain::apps::{editor_layout, version_label, viewing_label, EditorLayout, APPS};
+use domain::apps::{editor_layout, editor_layout_for, is_draft, version_label, viewing_label, EditorLayout, APPS};
 use domain::rows::AppVersionRow;
 
 use crate::apps_view::{find_app, version_pill, AppEntry};
 use crate::controls::WebControl as _;
 use crate::exponential_ui_host::{IdeHost, THEME_ID};
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, Navigation};
+use crate::navigation::{active_team_id, nav_for_window, resolved_screen, Navigation};
 
 /// The header glyph (the web's `size-5`).
 const HEADER_GLYPH_PX: f32 = 20.;
@@ -93,6 +101,13 @@ struct Preview {
 pub struct AppScreenView {
     /// The id or slug the screen was opened with.
     requested: String,
+    /// VAPP-176: the `apps` row id once resolved; the screen follows it
+    /// (a draft's slug changes when the agent names it).
+    app_id: Option<String>,
+    /// VAPP-176: the floating flag last handed to the chat.
+    chat_floating: Option<bool>,
+    /// The leave already ran (the panel's `leave`, then the release).
+    left: bool,
     nav: Entity<Navigation>,
     app: Option<AppEntry>,
     versions: Vec<AppVersionRow>,
@@ -136,6 +151,9 @@ impl AppScreenView {
         cx.on_release(|this, cx| this.end_live_session(cx)).detach();
         let mut this = Self {
             requested,
+            app_id: None,
+            chat_floating: None,
+            left: false,
             nav,
             app: None,
             versions: Vec::new(),
@@ -153,6 +171,12 @@ impl AppScreenView {
         };
         this.refresh(window, cx);
         this
+    }
+
+    /// VAPP-176: the layout on screen: a draft is always docked.
+    fn effective_layout(&self) -> EditorLayout {
+        let head = self.app.as_ref().map_or(0, |app| app.head_version);
+        editor_layout_for(Some(self.layout.as_str()), head)
     }
 
     /// VAPP-129: switch the layout, keep it per device (the settings'
@@ -176,7 +200,11 @@ impl AppScreenView {
     /// side" docks it.
     fn sync_chat_layout(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(chat) = self.chat.clone() else { return };
-        let floating = self.layout == EditorLayout::Floating;
+        let floating = self.effective_layout() == EditorLayout::Floating;
+        if self.chat_floating == Some(floating) {
+            return;
+        }
+        self.chat_floating = Some(floating);
         let this = cx.entity().downgrade();
         let dock_side: std::rc::Rc<dyn Fn(&mut Window, &mut App)> = std::rc::Rc::new(move |_, cx| {
             let _ = this.update(cx, |this, cx| this.set_layout(EditorLayout::Docked, cx));
@@ -184,15 +212,31 @@ impl AppScreenView {
         chat.update(cx, |chat, cx| chat.set_floating(floating, Some(dock_side), cx));
     }
 
-    /// The id or slug this view was opened with.
-    pub(crate) fn requested(&self) -> &str {
-        &self.requested
+    /// Whether this view shows `app` (the id or slug it was opened with,
+    /// the resolved id, or the app's current slug).
+    pub(crate) fn shows(&self, app: &str) -> bool {
+        self.requested == app
+            || self.app_id.as_deref() == Some(app)
+            || self.app.as_ref().is_some_and(|entry| entry.slug == app)
     }
 
     fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let team_id = active_team_id(&self.nav, cx);
-        self.app = find_app(&self.requested, team_id.as_deref(), cx);
+        // VAPP-176: by id once resolved, so a slug change never loses it.
+        let key = self.app_id.clone().unwrap_or_else(|| self.requested.clone());
+        self.app = find_app(&key, team_id.as_deref(), cx);
         let app_id = self.app.as_ref().map(|app| app.id.clone());
+        if let Some(id) = app_id.clone().filter(|id| self.app_id.as_ref() != Some(id)) {
+            self.app_id = Some(id.clone());
+            // The navigation entry names the app by id from now on (the
+            // tab title, the rail's highlight), replaced in place.
+            let requested = crate::navigation::Screen::App { app: self.requested.clone() };
+            if id != self.requested && resolved_screen(&self.nav, cx).as_ref() == Some(&requested) {
+                cx.defer_in(window, move |_, window, cx| {
+                    crate::navigation::navigate_replace(window, cx, crate::navigation::Screen::App { app: id });
+                });
+            }
+        }
         self.versions = app_id
             .as_deref()
             .and_then(|app_id| {
@@ -220,6 +264,8 @@ impl AppScreenView {
                 self.live_root = Some(root.id);
             }
         }
+        // VAPP-176: the first version moves a draft off the forced dock.
+        self.sync_chat_layout(cx);
         // The head moved past the version being viewed: it is the head now.
         if self.viewing.is_some() && self.viewing == self.app.as_ref().map(|app| app.head_version) {
             self.viewing = None;
@@ -270,8 +316,17 @@ impl AppScreenView {
         self.preview = Some(Preview { key, ide, _observe: observe });
     }
 
-    /// `sessions.end` on the member's live editor root (the tree).
+    /// `sessions.end` on the member's live editor root (the tree);
+    /// VAPP-176: an EMPTY draft (no editor session) is discarded instead.
     fn end_live_session(&mut self, cx: &mut App) {
+        if !self.left {
+            self.left = true;
+            if let Some(app) = self.app.as_ref().filter(|app| is_draft(app.head_version)) {
+                if self.live_root.is_none() && crate::session_data::my_editor_session(&app.id, cx).is_none() {
+                    crate::apps_view::discard_draft(app.id.clone(), cx);
+                }
+            }
+        }
         let Some(root_id) = self.live_root.take() else { return };
         let live = crate::session_data::session(&root_id, cx)
             .is_some_and(|row| row.status.as_deref() != Some(domain::contract::SESSION_STATUS_ENDED));
@@ -562,7 +617,7 @@ fn version_rows(
 ) -> AnyElement {
     let copy = &APPS.copy;
     if versions.is_empty() {
-        return crate::controls::empty_state_list(Icon::new(registry::UI_HISTORY), copy.no_version.clone(), cx)
+        return crate::controls::empty_state_list(Icon::new(registry::UI_HISTORY), copy.versions_empty.clone(), cx)
             .into_any_element();
     }
     let theme = cx.theme();
@@ -674,7 +729,7 @@ impl Render for AppScreenView {
         };
         let panes = &APPS.panes;
         let chat_share = panes.chat / (panes.chat + panes.preview);
-        let body = match (&self.chat, self.layout) {
+        let body = match (&self.chat, self.effective_layout()) {
             // The chat is built with the app (refresh): the preview alone
             // until then.
             (None, _) => div().flex_1().min_h_0().w_full().child(self.render_preview(cx)).into_any_element(),

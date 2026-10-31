@@ -234,9 +234,6 @@ pub(crate) enum SettingsSection {
     /// VAPP-110: one app's settings page (identity, description, Delete);
     /// the payload is the `apps` row id. The creator's and the owners'.
     App(String),
-    /// VAPP-110: the app page in CREATE mode (web `settings/apps/new`): the
-    /// Apps group's "New app" row. Create opens the editor.
-    NewApp,
     /// NEW-6: the team's saved prompts (web `settings/prompts`) — the
     /// Agents group's Prompts entry. Member-visible (members read them);
     /// writes are owner-only inside the pane.
@@ -450,7 +447,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         | SettingsSection::NewAgent => {
             Icon::from(registry::SETTINGS_AGENTS)
         }
-        SettingsSection::Apps | SettingsSection::App(_) | SettingsSection::NewApp => {
+        SettingsSection::Apps | SettingsSection::App(_) => {
             Icon::from(registry::NAV_APPS)
         }
         SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt => {
@@ -934,7 +931,7 @@ impl Render for SettingsView {
             }
             SettingsSection::Agents => self.agents_index.clone().into_any_element(),
             SettingsSection::Apps => self.apps_index.clone().into_any_element(),
-            SettingsSection::App(_) | SettingsSection::NewApp => self.app_detail.clone().into_any_element(),
+            SettingsSection::App(_) => self.app_detail.clone().into_any_element(),
             SettingsSection::Prompts => self.prompts.clone().into_any_element(),
             SettingsSection::NewPrompt => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
@@ -1245,20 +1242,22 @@ impl Render for SettingsNavPanel {
                         })),
                     );
                 }
-                // "New app" = the app page in create mode (web parity).
-                let selected = effective == SettingsSection::NewApp;
+                // VAPP-176: "New app" = a draft and its editor (web
+                // `@new-app`), no create page.
+                let new_team = team_id.clone();
                 list = list.child(
                     Self::row(
                         "settings-nav-new-app",
                         domain::apps::APPS.copy.new_app.clone(),
                         Some(Icon::new(registry::UI_ADD)),
-                        selected,
+                        false,
                         cx,
                     )
-                    .when(!selected, |row| row.text_color(cx.theme().muted_foreground))
-                    .on_click(cx.listener(|_, _, window, cx| {
-                        select_settings_section(window, cx, SettingsSection::NewApp);
-                        navigate(window, cx, Screen::Settings);
+                    .text_color(cx.theme().muted_foreground)
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        if let Some(team_id) = new_team.clone() {
+                            crate::apps_view::new_app(team_id.to_string(), window, cx);
+                        }
                     })),
                 );
                 continue;

@@ -40,6 +40,21 @@ class AppsTest {
     }
 
     @Test
+    fun `editorLayoutFor replays the fixture`() {
+        val layout = fixture["layout"]!!.jsonObject
+        assertEquals(layout["default"]!!.jsonPrimitive.content, Apps.Layout.DEFAULT)
+        assertEquals(layout["values"]!!.jsonArray.map { it.jsonPrimitive.content }, listOf(Apps.Layout.FLOATING, Apps.Layout.DOCKED))
+        val cases = fixture["layoutCases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        for (case in cases) {
+            val stored = case["stored"]!!.let { if (it is kotlinx.serialization.json.JsonNull) null else it.jsonPrimitive.content }
+            val head = case["headVersion"]!!.jsonPrimitive.int
+            assertEquals(case.toString(), case["layout"]!!.jsonPrimitive.content, Apps.editorLayoutFor(stored, head))
+            assertEquals(head == 0, Apps.isDraft(head))
+        }
+    }
+
+    @Test
     fun `sortApps replays the fixture`() {
         for (case in fixture["sortAppsCases"]!!.jsonArray.map { it.jsonObject }) {
             val apps = case["apps"]!!.jsonArray.map { it.jsonObject }.map {
@@ -57,6 +72,9 @@ class AppsTest {
         val tabs = copy["tabs"]!!.jsonObject
         val expected = listOf(
             c("nav") to Apps.Copy.NAV, c("title") to Apps.Copy.TITLE, c("newApp") to Apps.Copy.NEW_APP,
+            c("untitled") to Apps.Copy.UNTITLED, c("import") to Apps.Copy.IMPORT,
+            c("versionsEmpty") to Apps.Copy.VERSIONS_EMPTY, c("draftPlaceholder") to Apps.Copy.DRAFT_PLACEHOLDER,
+            c("starterTitle") to Apps.Copy.STARTER_TITLE,
             c("version") to Apps.Copy.VERSION, c("noVersion") to Apps.Copy.NO_VERSION,
             c("versions") to Apps.Copy.VERSIONS, c("head") to Apps.Copy.HEAD, c("noNote") to Apps.Copy.NO_NOTE,
             c("byAgent") to Apps.Copy.BY_AGENT, c("viewing") to Apps.Copy.VIEWING, c("restore") to Apps.Copy.RESTORE,
@@ -64,9 +82,8 @@ class AppsTest {
             c("chatEmpty") to Apps.Copy.CHAT_EMPTY, c("previewEmpty") to Apps.Copy.PREVIEW_EMPTY,
             c("composerPlaceholder") to Apps.Copy.COMPOSER_PLACEHOLDER, c("noDevice") to Apps.Copy.NO_DEVICE,
             c("namePlaceholder") to Apps.Copy.NAME_PLACEHOLDER, c("descriptionPlaceholder") to Apps.Copy.DESCRIPTION_PLACEHOLDER,
-            c("create") to Apps.Copy.CREATE, c("rename") to Apps.Copy.RENAME, c("deleteTitle") to Apps.Copy.DELETE_TITLE,
+            c("deleteTitle") to Apps.Copy.DELETE_TITLE,
             c("deleteBody") to Apps.Copy.DELETE_BODY, c("delete") to Apps.Copy.DELETE,
-            menu["rename"]!!.jsonPrimitive.content to Apps.Copy.MENU_RENAME,
             menu["delete"]!!.jsonPrimitive.content to Apps.Copy.MENU_DELETE,
             tabs["chat"]!!.jsonPrimitive.content to Apps.Copy.TAB_CHAT,
             tabs["preview"]!!.jsonPrimitive.content to Apps.Copy.TAB_PREVIEW,
@@ -76,6 +93,11 @@ class AppsTest {
             c("recordsNone") to Apps.Copy.RECORDS_NONE,
         )
         for ((want, got) in expected) assertEquals(want, got)
+        assertEquals(copy["starters"]!!.jsonArray.map { it.jsonPrimitive.content }, Apps.Copy.STARTERS)
+        // VAPP-176: no Rename, no create form.
+        assertEquals(null, copy["create"])
+        assertEquals(null, copy["rename"])
+        assertEquals(setOf("delete"), menu.keys)
 
         // Exponential ships no built-in apps (2026-10-24).
         assertEquals(null, fixture["builtin"])
@@ -93,6 +115,7 @@ class AppsTest {
             "versions" to Apps.TestIds.VERSIONS, "versionRow" to Apps.TestIds.VERSION_ROW, "tabs" to Apps.TestIds.TABS,
             "composer" to Apps.TestIds.COMPOSER, "viewing" to Apps.TestIds.VIEWING,
             "chatCard" to Apps.TestIds.CHAT_CARD, "dockToSide" to Apps.TestIds.DOCK_TO_SIDE, "float" to Apps.TestIds.FLOAT,
+            "importApp" to Apps.TestIds.IMPORT_APP, "starter" to Apps.TestIds.STARTER,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)

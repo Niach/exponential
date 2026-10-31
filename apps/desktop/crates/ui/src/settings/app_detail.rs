@@ -5,8 +5,8 @@
 //! pill, Export (VAPP-121, once there is a version) and "Delete app" (the creator or an owner). Everyone else reads the
 //! page. VAPP-120: under the records line, the Tools group: one row per
 //! typed action the head package declares, its title, the function name
-//! muted and a switch = the app's grant (`apps.granted_tools`). [`SettingsSection::NewApp`] = the same page in CREATE mode: every
-//! field local until Create app, which opens the editor.
+//! muted and a switch = the app's grant (`apps.granted_tools`). VAPP-176:
+//! no create mode (New app = a draft and its editor).
 
 use gpui::{
     div, App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString,
@@ -94,23 +94,13 @@ pub(crate) fn toggled_grants(granted: &[String], name: &str, on: bool) -> Vec<St
     next
 }
 
-/// Which page the inputs were seeded for: one app, or the create page.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Loaded {
-    App(String),
-    New,
-}
-
 pub struct AppDetailPane {
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
     name_input: Entity<InputState>,
     description: Entity<TextareaState>,
-    /// The create page's local icon and colour (an app's live in its row).
-    icon: String,
-    color: String,
-    loaded: Option<Loaded>,
-    pending: crate::feedback::Pending,
+    /// The app id the inputs were seeded for.
+    loaded: Option<String>,
     /// VAPP-122: the team's records quota (`None` = unlimited, or the plan
     /// still loading) and the team it was read for.
     records_max: Option<u64>,
@@ -155,10 +145,7 @@ impl AppDetailPane {
             shared,
             name_input,
             description,
-            icon: DEFAULT_ICON.to_string(),
-            color: DEFAULT_COLOR.to_string(),
             loaded: None,
-            pending: crate::feedback::Pending::default(),
             records_max: None,
             records_plan_team: None,
             tool_busy: None,
@@ -166,50 +153,38 @@ impl AppDetailPane {
         }
     }
 
-    fn page(&self, cx: &App) -> Option<Loaded> {
+    /// The app id on show (`None` = not an app page).
+    fn page(&self, cx: &App) -> Option<String> {
         match self.shared.read(cx).settings_section() {
             // The dev `app:<slug>` seed names a slug: resolve it to the id.
-            SettingsSection::App(id) => Some(Loaded::App(
+            SettingsSection::App(id) => Some(
                 crate::apps_view::find_app(&id, active_team_id(&self.nav, cx).as_deref(), cx)
                     .map(|app| app.id)
                     .unwrap_or(id),
-            )),
-            SettingsSection::NewApp => Some(Loaded::New),
+            ),
             _ => None,
         }
     }
 
     fn loaded_row(&self, cx: &App) -> Option<AppRow> {
-        match &self.loaded {
-            Some(Loaded::App(id)) => app_row(id, cx),
-            _ => None,
-        }
+        self.loaded.as_deref().and_then(|id| app_row(id, cx))
     }
 
-    /// Re-seed the inputs when the page changes (another app, the create
-    /// page), flushing the previous app's pending edits first.
-    fn sync_page(&mut self, page: &Loaded, row: Option<&AppRow>, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.loaded.as_ref() == Some(page) {
+    /// Re-seed the inputs when the page changes (another app), flushing the
+    /// previous app's pending edits first.
+    fn sync_page(&mut self, page: &str, row: &AppRow, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.loaded.as_deref() == Some(page) {
             return;
         }
-        if matches!(self.loaded, Some(Loaded::App(_))) {
+        if self.loaded.is_some() {
             self.commit_rename(cx);
             self.commit_description(cx);
         }
-        self.loaded = Some(page.clone());
-        let (name, description) = row
-            .map(|row| (row.name.clone(), row.description.clone().unwrap_or_default()))
-            .unwrap_or_default();
-        self.icon = DEFAULT_ICON.to_string();
-        self.color = DEFAULT_COLOR.to_string();
-        self.name_input.update(cx, |input, cx| {
-            input.set_value(name, window, cx);
-            if *page == Loaded::New {
-                input.focus(window, cx);
-            }
-        });
+        self.loaded = Some(page.to_string());
+        let (name, description) = (row.name.clone(), row.description.clone().unwrap_or_default());
+        self.name_input.update(cx, |input, cx| input.set_value(name, window, cx));
         self.description.update(cx, |input, cx| input.set_value(description, window, cx));
-        if let Some(team_id) = row.and_then(|row| row.team_id.clone()) {
+        if let Some(team_id) = row.team_id.clone() {
             self.load_records_max(team_id, cx);
         }
     }
@@ -383,70 +358,11 @@ impl AppDetailPane {
             .child(group)
     }
 
-    /// Create app: `apps.create`, then the editor opens on the synced row.
-    fn create(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let name = self.name_input.read(cx).value().trim().to_string();
-        if name.is_empty() || self.pending.active() {
-            return;
-        }
-        let Some(team_id) = active_team_id(&self.nav, cx) else { return };
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
-            crate::action_error::failed_action("create", "the app", None, cx);
-            return;
-        };
-        let description = self.description.read(cx).value().trim().to_string();
-        let input = api::apps::AppInput {
-            team_id: Some(team_id),
-            name: name.chars().take(APPS_CAPS.name_max).collect(),
-            icon: self.icon.clone(),
-            color: self.color.clone(),
-            description: Some(description).filter(|d| !d.is_empty()),
-            ..Default::default()
-        };
-        self.pending.start(cx);
-        cx.notify();
-        cx.spawn_in(window, async move |this, window| {
-            let result = window
-                .background_executor()
-                .spawn(async move { api::apps::create(&trpc, &input) })
-                .await;
-            match result {
-                Ok(output) => {
-                    let app_id = output.app.id.clone();
-                    let apps = window.update(|_, cx| Store::global(cx).collections().apps.clone()).ok();
-                    if let Some(apps) = apps {
-                        crate::queries::await_row_visible(&apps, &app_id, window).await;
-                    }
-                    let _ = this.update_in(window, |this, window, cx| {
-                        this.pending.finish();
-                        // The next visit to New app starts empty.
-                        this.loaded = None;
-                        navigate(window, cx, Screen::App { app: app_id });
-                    });
-                }
-                Err(err) => {
-                    let _ = this.update_in(window, |this, _, cx| {
-                        this.pending.finish();
-                        crate::action_error::failed_action_err("create", "the app", &err, cx);
-                        cx.notify();
-                    });
-                }
-            }
-        })
-        .detach();
-    }
-
-    /// The identity row; on the create page the picks stay local.
-    fn identity_row(&self, row: Option<&AppRow>, manage: bool, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let (icon, color) = match row {
-            Some(row) => (
-                row.icon.clone().unwrap_or_else(|| DEFAULT_ICON.to_string()),
-                row.color.clone().unwrap_or_else(|| DEFAULT_COLOR.to_string()),
-            ),
-            None => (self.icon.clone(), self.color.clone()),
-        };
-        let view = cx.entity().downgrade();
-        let icon_row = row.cloned();
+    /// The identity row: icon and colour save at once.
+    fn identity_row(&self, row: &AppRow, manage: bool, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let icon = row.icon.clone().unwrap_or_else(|| DEFAULT_ICON.to_string());
+        let color = row.color.clone().unwrap_or_else(|| DEFAULT_COLOR.to_string());
+        let icon_row = row.clone();
         let icon_picker = crate::board_form::icon_picker(
             "app-detail",
             registry::PICKABLE_ICONS,
@@ -455,32 +371,19 @@ impl AppDetailPane {
             false,
             move |name, _, cx| {
                 let Some(name) = name else { return };
-                match &icon_row {
-                    Some(row) if manage => update_app(cx, "save", row, |input| input.icon = name.to_string()),
-                    Some(_) => {}
-                    None => {
-                        let _ = view.update(cx, |this, cx| {
-                            this.icon = name.to_string();
-                            cx.notify();
-                        });
-                    }
+                if manage {
+                    update_app(cx, "save", &icon_row, |input| input.icon = name.to_string());
                 }
             },
             cx,
         );
-        let view = cx.entity().downgrade();
-        let color_row = row.cloned();
+        let color_row = row.clone();
         let color_picker = crate::board_form::color_picker(
             "app-detail",
             &color,
-            move |color, _, cx| match &color_row {
-                Some(row) if manage => update_app(cx, "save", row, |input| input.color = color.to_string()),
-                Some(_) => {}
-                None => {
-                    let _ = view.update(cx, |this, cx| {
-                        this.color = color.to_string();
-                        cx.notify();
-                    });
+            move |color, _, cx| {
+                if manage {
+                    update_app(cx, "save", &color_row, |input| input.color = color.to_string());
                 }
             },
             cx,
@@ -503,96 +406,74 @@ impl Render for AppDetailPane {
         let Some(page) = self.page(cx) else {
             return v_flex().into_any_element();
         };
-        let row = match &page {
-            Loaded::App(id) => match app_row(id, cx) {
-                Some(row) => Some(row),
-                // The nav clamps a stale App(id) selection away before this
-                // pane shows, so a missing row is only a transient frame.
-                None => return v_flex().into_any_element(),
-            },
-            Loaded::New => None,
+        // The nav clamps a stale App(id) selection away before this pane
+        // shows, so a missing row is only a transient frame.
+        let Some(row) = app_row(&page, cx) else {
+            return v_flex().into_any_element();
         };
-        self.sync_page(&page, row.as_ref(), window, cx);
-        let manage = row.as_ref().is_none_or(|row| self.can_manage(row, cx));
+        self.sync_page(&page, &row, window, cx);
+        let manage = self.can_manage(&row, cx);
         let copy = &APPS.copy;
-        let actions = match &row {
-            None => {
-                let empty = self.name_input.read(cx).value().trim().is_empty();
-                h_flex().pt_2().justify_end().child(self.pending.apply(
-                    Button::new("app-create")
-                        .primary()
+        let entry = AppEntry::from_row(&row);
+        let open = row.id.clone();
+        let export_id = row.id.clone();
+        let (delete_id, delete_name) = (row.id.clone(), row.name.clone());
+        let actions = h_flex()
+            .pt_2()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .child(
+                Button::new("app-open-editor")
+                    .outline()
+                    .cursor_pointer()
+                    .web_sm()
+                    .icon(Icon::new(registry::NAV_APPS).small())
+                    .label(copy.open_editor.clone())
+                    .on_click(move |_, window, cx| navigate(window, cx, Screen::App { app: open.clone() })),
+            )
+            .child(crate::apps_view::version_pill("app-detail-version", &entry, cx))
+            // VAPP-121: any member exports an app that has a version.
+            .when(entry.head_version > 0, |actions| {
+                actions.child(
+                    Button::new("app-export")
+                        .outline()
                         .cursor_pointer()
                         .web_sm()
-                        .label(copy.create.clone())
-                        .disabled(empty && !self.pending.active())
-                        .on_click(cx.listener(|this, _, window, cx| this.create(window, cx))),
-                    &copy.create,
-                    cx,
-                ))
-            }
-            Some(row) => {
-                let entry = AppEntry::from_row(row);
-                let open = row.id.clone();
-                let export_id = row.id.clone();
-                let (delete_id, delete_name) = (row.id.clone(), row.name.clone());
-                h_flex()
-                    .pt_2()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Button::new("app-open-editor")
-                            .outline()
-                            .cursor_pointer()
-                            .web_sm()
-                            .icon(Icon::new(registry::NAV_APPS).small())
-                            .label(copy.open_editor.clone())
-                            .on_click(move |_, window, cx| navigate(window, cx, Screen::App { app: open.clone() })),
-                    )
-                    .child(crate::apps_view::version_pill("app-detail-version", &entry, cx))
-                    // VAPP-121: any member exports an app that has a version.
-                    .when(entry.head_version > 0, |actions| {
-                        actions.child(
-                            Button::new("app-export")
-                                .outline()
-                                .cursor_pointer()
-                                .web_sm()
-                                .icon(Icon::new(registry::UI_SHARE).small())
-                                .label(domain::app_export::APP_EXPORT_COPY.export.clone())
-                                .on_click(move |_, window, cx| {
-                                    crate::app_export_dialog::open(window, cx, export_id.clone(), false)
-                                }),
-                        )
-                    })
-                    .child(div().flex_1())
-                    .when(manage, |actions| {
-                        actions.child(
-                            Button::new(SharedString::from(format!("app-detail-delete-{}", row.id)))
-                                .danger()
-                                .cursor_pointer()
-                                .web_sm()
-                                .icon(Icon::new(registry::UI_DELETE).small())
-                                .label(copy.menu.delete.clone())
-                                .on_click(move |_, window, cx| {
-                                    crate::apps_view::confirm_delete(
-                                        delete_id.clone(),
-                                        delete_name.clone(),
-                                        |window, cx| {
-                                            select_settings_section(window, cx, SettingsSection::Apps);
-                                            navigate(window, cx, Screen::Settings);
-                                        },
-                                        window,
-                                        cx,
-                                    )
-                                }),
-                        )
-                    })
-            }
-        };
+                        .icon(Icon::new(registry::UI_SHARE).small())
+                        .label(domain::app_export::APP_EXPORT_COPY.export.clone())
+                        .on_click(move |_, window, cx| {
+                            crate::app_export_dialog::open(window, cx, export_id.clone(), false)
+                        }),
+                )
+            })
+            .child(div().flex_1())
+            .when(manage, |actions| {
+                actions.child(
+                    Button::new(SharedString::from(format!("app-detail-delete-{}", row.id)))
+                        .danger()
+                        .cursor_pointer()
+                        .web_sm()
+                        .icon(Icon::new(registry::UI_DELETE).small())
+                        .label(copy.menu.delete.clone())
+                        .on_click(move |_, window, cx| {
+                            crate::apps_view::confirm_delete(
+                                delete_id.clone(),
+                                delete_name.clone(),
+                                |window, cx| {
+                                    select_settings_section(window, cx, SettingsSection::Apps);
+                                    navigate(window, cx, Screen::Settings);
+                                },
+                                window,
+                                cx,
+                            )
+                        }),
+                )
+            });
         let body = section(cx)
             .id("app-settings-page")
             .gap_4()
-            .child(crate::surface::glass_group_rows(vec![self.identity_row(row.as_ref(), manage, window, cx)]))
+            .child(crate::surface::glass_group_rows(vec![self.identity_row(&row, manage, window, cx)]))
             .child(
                 crate::surface::glass_group().child(
                     Textarea::new(&self.description)
@@ -603,7 +484,7 @@ impl Render for AppDetailPane {
                         .py_3(),
                 ),
             )
-            .when_some(row.as_ref(), |body, row| {
+            .when_some(Some(&row), |body, row| {
                 // VAPP-122: the app's live records against the quota.
                 let count = Store::global(cx)
                     .collections()

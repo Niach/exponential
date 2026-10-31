@@ -14,8 +14,12 @@ public enum Apps {
         public static let nav = "Apps"
         public static let title = "Apps"
         public static let newApp = "New app"
+        /// VAPP-176: a New app DRAFT's name until the editor session names it.
+        public static let untitled = "Untitled app"
+        /// VAPP-176: the list band's Import pill (before New app).
+        public static let `import` = "Import\u{2026}"
         public static let version = "v{n}"
-        public static let noVersion = "No version yet"
+        public static let noVersion = "Draft"
         public static let versions = "Versions"
         public static let head = "Current"
         public static let noNote = "No note"
@@ -27,12 +31,20 @@ public enum Apps {
         public static let empty = "No apps yet"
         public static let chatEmpty = "Describe the app you want. The editor session builds it and the preview follows."
         public static let previewEmpty = "No version yet"
+        public static let versionsEmpty = "No versions yet"
         public static let composerPlaceholder = "Ask for a change…"
+        /// VAPP-176: a draft's composer and its starter empty state.
+        public static let draftPlaceholder = "Describe your app…"
+        public static let starterTitle = "What should this app do?"
+        public static let starters = [
+            "Log working hours",
+            "Release checklist",
+            "Admin console for an API",
+            "Team dashboard",
+        ]
         public static let noDevice = "Start a device to edit this app"
         public static let namePlaceholder = "Name"
         public static let descriptionPlaceholder = "What is it for? (optional)"
-        public static let create = "Create app"
-        public static let rename = "Save"
         public static let deleteTitle = "Delete {name}?"
         public static let deleteBody = "Its versions go with it. This cannot be undone."
         public static let delete = "Delete"
@@ -49,7 +61,6 @@ public enum Apps {
         public static let recordsNone = "No records"
 
         public enum Menu {
-            public static let rename = "Rename"
             public static let delete = "Delete app"
         }
 
@@ -105,6 +116,9 @@ public enum Apps {
         public static let chatCard = "app-editor-chat-card"
         public static let dockToSide = "app-editor-dock-side"
         public static let float = "app-editor-float"
+        // VAPP-176: the band's Import pill, a draft's starter pills.
+        public static let importApp = "apps-import"
+        public static let starter = "app-editor-starter"
     }
 
     // MARK: - Contract caps (`contract.json` `apps`)
@@ -183,6 +197,26 @@ public enum Apps {
 
     // MARK: - The model
 
+    /// VAPP-176: a DRAFT = an app with no version yet (New app's
+    /// "Untitled app" until the editor session publishes).
+    public static func isDraft(headVersion: Int) -> Bool { headVersion == 0 }
+
+    /// VAPP-129 the editor layouts (web ≥ md and the IDE; phones keep the
+    /// tabs): the stored choice, else the default.
+    public enum Layout {
+        public static let `default` = "floating"
+        public static let values = ["floating", "docked"]
+        public static let storageKey = "exp.apps.editorLayout"
+    }
+
+    /// TS `editorLayoutFor`: a draft is always docked, else the stored
+    /// layout when known, else the default (`layoutCases`).
+    public static func editorLayoutFor(stored: String?, headVersion: Int) -> String {
+        if isDraft(headVersion: headVersion) { return "docked" }
+        if let stored, Layout.values.contains(stored) { return stored }
+        return Layout.default
+    }
+
     /// `v{n}`, or the "no version" copy while an app has no head.
     public static func versionLabel(_ headVersion: Int) -> String {
         headVersion > 0
@@ -246,6 +280,9 @@ public enum Apps {
         let purpose = description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let lines = [
             "You are the editor session of the Exponential app \"\(name)\" (slug `\(slug)`, \(versionLabel(headVersion))).\(purpose.isEmpty ? "" : " It is for: \(purpose)")",
+        ] + (isDraft(headVersion: headVersion) ? [
+            "It is a new DRAFT with a placeholder name: on your FIRST exponential_apps {op: \"upsert\"} also pass name, icon, color and description that fit what the person asks for. The slug follows the new name; use the slug the upsert returns from then on.",
+        ] : []) + [
             "An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: \"get\", slug: \"\(slug)\"}; learn the components, bindings and functions with exponential_apps {op: \"catalog\"}; publish every change as a new version with exponential_apps {op: \"upsert\", slug: \"\(slug)\", package, note}. The person sees the live preview beside this chat, so keep replies to one or two lines and publish early.",
         ]
         return lines.joined(separator: "\n")

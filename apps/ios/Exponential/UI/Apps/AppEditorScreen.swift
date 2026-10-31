@@ -19,8 +19,17 @@ import SwiftUI
 /// * Versions = newest first: `v{n}`, the note (`copy.noNote`), `Current` on
 ///   the head, who (a person, or `copy.byAgent`) and the time.
 ///
+/// VAPP-176 a DRAFT (no version yet, New app's "Untitled app") opens on
+/// Chat; while its chat is empty the page-size empty state
+/// `copy.starterTitle` offers one pill per `copy.starters` entry, a tap
+/// SENDS that text as the first message (the composer's own first-send
+/// path), and the composer opens focused with `copy.draftPlaceholder`.
+/// The editor keys the app by ID, so a draft's slug change (the agent
+/// naming it) changes nothing here.
+///
 /// LIFETIME: entering starts nothing; leaving ENDS my live editor session
 /// (`sessions.end` on the root: the tree); the next send continues it.
+/// Leaving an EMPTY draft (no editor session) calls `apps.discardDraft`.
 struct AppEditorScreen: View {
     let appId: String
 
@@ -35,6 +44,9 @@ struct AppEditorScreen: View {
     @State private var restoring = false
     /// VAPP-121: the Export sheet (the header's trailing button).
     @State private var exportOpen = false
+    /// The first message's draft (no session yet): the composer and a
+    /// draft's starter pills share it, so both send the same way.
+    @State private var firstDraft: AppFirstMessageDraft?
 
     enum Tab: Hashable, CaseIterable {
         case chat, preview, versions
@@ -82,8 +94,21 @@ struct AppEditorScreen: View {
         }
         .onDisappear {
             endLiveSession()
+            discardEmptyDraft()
             model.stop()
         }
+        .task(id: appId) {
+            if firstDraft?.appId != appId {
+                firstDraft = AppFirstMessageDraft(
+                    appId: appId,
+                    accountId: accountId,
+                    sessionsApi: deps.sessionsApi,
+                    attachmentsApi: deps.attachmentsApi
+                )
+            }
+        }
+        .onChange(of: model.app?.teamId, initial: true) { _, team in firstDraft?.teamId = team ?? "" }
+        .onChange(of: firstDraft == nil) { _, _ in firstDraft?.teamId = model.app?.teamId ?? "" }
         .onChange(of: viewing) { _, number in loadViewing(number) }
         .sheet(isPresented: $exportOpen) {
             if let app = model.app {
@@ -158,21 +183,66 @@ struct AppEditorScreen: View {
     // MARK: - Chat
 
     /// No session yet: the empty chat and THE floating composer whose send
-    /// opens the editor session.
+    /// opens the editor session. VAPP-176: a DRAFT's empty chat = the
+    /// page-size starter state, its composer focused.
     private func chatEmpty(_ app: AppListEntry) -> some View {
-        ZStack {
+        let draft = Apps.isDraft(headVersion: app.headVersion)
+        return ZStack {
             AppBackground()
-            EmptyState(title: Apps.Copy.chatEmpty, icon: AppIcons.navApps, size: .list)
-                .padding(.horizontal, 24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture { UIApplication.endEditing() }
+            if draft {
+                starters(app)
+            } else {
+                EmptyState(title: Apps.Copy.chatEmpty, icon: AppIcons.navApps, size: .list)
+                    .padding(.horizontal, 24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { UIApplication.endEditing() }
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            AppFirstMessageComposer(appId: app.id, teamId: app.teamId ?? "", deviceId: model.deviceId)
+            AppFirstMessageComposer(
+                draft: firstDraft,
+                deviceId: model.deviceId,
+                isDraftApp: draft
+            )
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.chat)
+    }
+
+    /// VAPP-176: `copy.starterTitle` with one action pill per starter; a
+    /// tap sends its text as the first message (disabled without a device,
+    /// like the composer). Scrolls when the keyboard leaves it no room.
+    private func starters(_ app: AppListEntry) -> some View {
+        let sending = firstDraft?.steerSending ?? false
+        let enabled = model.deviceId != nil && firstDraft != nil && !sending
+        let pills = Apps.Copy.starters.map { text in
+            GlassPill(text, size: .md, mode: .action { sendStarter(text) }, enabled: enabled)
+                .accessibilityIdentifier(Apps.TestIds.starter)
+        }
+        return GeometryReader { geometry in
+            ScrollView {
+                EmptyState(title: Apps.Copy.starterTitle, icon: AppIcons.navApps, size: .page) {
+                    ViewThatFits(in: .horizontal) {
+                        VStack(spacing: 8) {
+                            HStack(spacing: 8) { pills[0]; pills[1] }
+                            HStack(spacing: 8) { pills[2]; pills[3] }
+                        }
+                        VStack(spacing: 8) {
+                            ForEach(pills.indices, id: \.self) { pills[$0] }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
+        }
+    }
+
+    private func sendStarter(_ text: String) {
+        guard let firstDraft, model.deviceId != nil, !firstDraft.steerSending else { return }
+        Task { _ = await firstDraft.sendMessage(text, attachmentIds: nil) }
     }
 
     // MARK: - Preview
@@ -245,7 +315,7 @@ struct AppEditorScreen: View {
             ScrollView {
                 VStack(spacing: 0) {
                     if model.versions.isEmpty {
-                        EmptyState(title: Apps.Copy.noVersion, icon: AppIcons.uiHistory, size: .list)
+                        EmptyState(title: Apps.Copy.versionsEmpty, icon: AppIcons.uiHistory, size: .list)
                             .padding(.vertical, 8)
                     }
                     ForEach(model.versions) { version in
@@ -306,6 +376,19 @@ struct AppEditorScreen: View {
 
     // MARK: - Lifetime
 
+    /// VAPP-176: leaving an EMPTY draft (no version, no editor session:
+    /// nothing was ever sent) discards it; the server deletes only my own
+    /// still-empty draft (anything else = a no-op).
+    private func discardEmptyDraft() {
+        guard let app = model.app, Apps.isDraft(headVersion: app.headVersion), model.rootId == nil else { return }
+        let api = deps.appsApi
+        let account = accountId
+        let id = app.id
+        Task.detached {
+            _ = try? await api.discardDraft(accountId: account, id: id)
+        }
+    }
+
     /// Leaving the editor ends my live editor session (its whole tree).
     private func endLiveSession() {
         guard let rootId = model.rootId, model.rootLive else { return }
@@ -355,19 +438,22 @@ private struct AppEditorShell<Title: View, Band: View, Chat: View>: View {
 /// sent as `sessions.send({appId, text, deviceId})` (the server opens my
 /// editor session, briefed). No device online = disabled, `copy.noDevice`.
 private struct AppFirstMessageComposer: View {
-    let appId: String
-    let teamId: String
+    /// The editor's first-send draft (shared with a draft app's starters).
+    let draft: AppFirstMessageDraft?
     let deviceId: String?
+    /// VAPP-176: a DRAFT app: `copy.draftPlaceholder`, opened focused.
+    var isDraftApp = false
 
-    @Environment(AppDependencies.self) private var deps
-    @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
     @Environment(\.motion) private var motion
-    @State private var draft: AppFirstMessageDraft?
     @State private var attach = SessionComposerAttach()
     @State private var expanded = false
+    @State private var autoFocused = false
 
-    private var placeholder: String { deviceId == nil ? Apps.Copy.noDevice : Apps.Copy.composerPlaceholder }
+    private var placeholder: String {
+        if deviceId == nil { return Apps.Copy.noDevice }
+        return isDraftApp ? Apps.Copy.draftPlaceholder : Apps.Copy.composerPlaceholder
+    }
 
     var body: some View {
         Group {
@@ -408,19 +494,22 @@ private struct AppFirstMessageComposer: View {
         .floatingBarEdge(!(expanded || draft?.hasContent == true))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.composer)
-        .task(id: appId) {
-            if draft?.appId != appId {
-                draft = AppFirstMessageDraft(
-                    appId: appId,
-                    teamId: teamId,
-                    accountId: accountId,
-                    sessionsApi: deps.sessionsApi,
-                    attachmentsApi: deps.attachmentsApi
-                )
-            }
+        .onChange(of: deviceId, initial: true) { _, next in
+            draft?.deviceId = next
+            focusDraftApp()
         }
-        .onChange(of: deviceId, initial: true) { _, next in draft?.deviceId = next }
-        .onChange(of: draft == nil) { _, _ in draft?.deviceId = deviceId }
+        .onChange(of: draft == nil, initial: true) { _, _ in
+            draft?.deviceId = deviceId
+            focusDraftApp()
+        }
+    }
+
+    /// VAPP-176: a draft app's composer opens FOCUSED, once, as soon as it
+    /// can send (a device online).
+    private func focusDraftApp() {
+        guard isDraftApp, !autoFocused, draft != nil, deviceId != nil else { return }
+        autoFocused = true
+        expand()
     }
 
     private func expand() {
@@ -441,6 +530,8 @@ private struct AppFirstMessageComposer: View {
 final class AppFirstMessageDraft: SessionComposerDraft {
     let appId: String
     var deviceId: String?
+    /// The app's team (the upload route); set once the app row is read.
+    var teamId: String
     let draftEditor = IssueEditorModel()
     var pendingImages: [PendingSteerImage] = []
     var pendingFiles: [PendingSteerFile] = []
@@ -449,12 +540,11 @@ final class AppFirstMessageDraft: SessionComposerDraft {
     /// A refused send: the host toasts it (the draft stays put).
     var sendError: String?
 
-    @ObservationIgnored private let teamId: String
     @ObservationIgnored private let accountId: String
     @ObservationIgnored private let sessionsApi: SessionsApi
     @ObservationIgnored private let attachmentsApi: AttachmentsApi
 
-    init(appId: String, teamId: String, accountId: String, sessionsApi: SessionsApi, attachmentsApi: AttachmentsApi) {
+    init(appId: String, teamId: String = "", accountId: String, sessionsApi: SessionsApi, attachmentsApi: AttachmentsApi) {
         self.appId = appId
         self.teamId = teamId
         self.accountId = accountId

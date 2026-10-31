@@ -107,6 +107,34 @@ pub fn create(trpc: &TrpcClient, input: &AppInput) -> Result<AppOutput, ApiError
     trpc.mutation("apps.create", input)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DraftInput<'a> {
+    team_id: &'a str,
+}
+
+/// VAPP-176: `apps.create {teamId}` with NO other field = a DRAFT named
+/// "Untitled app" (no icon, no colour, no version); New app ×4.
+pub fn create_draft(trpc: &TrpcClient, team_id: &str) -> Result<AppOutput, ApiError> {
+    trpc.mutation("apps.create", &DraftInput { team_id })
+}
+
+/// `apps.discardDraft` output: whether the draft went.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscardOutput {
+    #[serde(default, alias = "txid")]
+    pub tx_id: Option<i64>,
+    #[serde(default)]
+    pub discarded: bool,
+}
+
+/// VAPP-176: `apps.discardDraft {id}`: hard-deletes the caller's still-EMPTY
+/// draft (no version, no editor session); anything else = a no-op.
+pub fn discard_draft(trpc: &TrpcClient, id: &str) -> Result<DiscardOutput, ApiError> {
+    trpc.mutation("apps.discardDraft", &IdInput { id })
+}
+
 /// VAPP-121 `apps.validateImport` / `apps.import` input: the file's text.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
