@@ -1,3 +1,5 @@
+- Sesije se prenose izravno s uređaja na kojem rade
+- Sesija čiji je uređaj izvan mreže to kaže i sama se ponovno spaja kad se vrati
 - Poruke u sesijama zapečaćuju se na tvojim uređajima, pa ih poslužitelj više ne može čitati
 - Pitanje iz razgovora koji si pokrenuo stiže kao obavijest na mobitel i prikazuje samo pitanje
 - Dodir na odluku u pristigloj pošti otvara razgovor koji te čeka

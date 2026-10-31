@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-31-enet-viewer-release",
+    date: "2026-10-31",
+    title: "Watching sessions works again on every app",
+    summary: "This release ships the apps that watch sessions straight from your device; older apps must update.",
+    body: r#"- **Update required**: watching a session now needs this release of the iOS, Android and desktop apps and the CLI. Older builds show "Couldn't get a viewer ticket" and are asked to update.
+- **Self-hosting**: this release removes server support for iOS below 0.14.77, Android below 0.14.79, desktop below 0.14.88 and the CLI below 0.14.88. Set `CLIENT_MIN_VERSION_*` to those versions before upgrading (see `selfhost/.env.example`)."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_129: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-sidebar-dots",
     date: "2026-10-31",
     title: "Sidebar dots, the same everywhere",
@@ -115,7 +126,7 @@ const PREVIOUS_123: ChangelogEntry = ChangelogEntry {
     summary: "Watching and steering a session now goes directly between your app and the device that runs it; the steer relay no longer carries session content.",
     body: r#"- **Device to device**: a session's activity, your messages, answers and Stop travel over eNet between your app and the machine running the session, on web, desktop, iOS and Android. The steer relay only keeps device presence, the server's kill, Stop and compact commands, and voice calls.
 - **Earlier sessions**: an idle or ended session's transcript comes straight from the device that ran it. When that device is offline the session says so.
-- **Self-hosting**: this release removes server support for iOS below 0.14.76, Android below 0.14.78, desktop below 0.14.87 and the CLI below 0.14.87. Set `CLIENT_MIN_VERSION_*` to those versions before upgrading (see `selfhost/.env.example`)."#,
+- **Self-hosting**: the server no longer supports the apps of the 2026-10-30 release (iOS 0.14.76, Android 0.14.78, desktop and CLI 0.14.87) for watching sessions; the next release sets the floors."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

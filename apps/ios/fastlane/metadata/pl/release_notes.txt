@@ -1,3 +1,5 @@
+- Sesje są przesyłane prosto z urządzenia, na którym działają
+- Sesja, której urządzenie jest offline, mówi o tym i sama łączy się ponownie, gdy wróci
 - Wiadomości w sesjach są pieczętowane na twoich urządzeniach, więc serwer nie może ich już czytać
 - Pytanie z czatu, który rozpocząłeś, przychodzi jako powiadomienie na telefon i pokazuje samo pytanie
 - Dotknięcie decyzji w skrzynce odbiorczej otwiera czat, który na ciebie czeka

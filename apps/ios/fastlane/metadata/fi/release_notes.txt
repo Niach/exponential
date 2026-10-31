@@ -1,3 +1,5 @@
+- Istunnot striimataan suoraan laitteesta, jolla ne ajetaan
+- Istunto, jonka laite on offline, kertoo sen ja yhdistää itse uudelleen, kun laite palaa
 - Istuntojen viestit sinetöidään laitteillasi, joten palvelin ei voi enää lukea niitä
 - Aloittamasi keskustelun kysymys tulee puhelimeesi ilmoituksena ja näyttää itse kysymyksen
 - Saapuneiden päätöksen napauttaminen avaa keskustelun, joka odottaa sinua

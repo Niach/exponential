@@ -1,3 +1,5 @@
+- As sessões chegam diretamente do dispositivo que as executa
+- Uma sessão cujo dispositivo está offline indica-o e volta a ligar-se sozinha quando ele regressa
 - As mensagens das sessões são seladas nos teus dispositivos, por isso o servidor já não as consegue ler
 - Uma pergunta de um chat que iniciaste chega ao telemóvel como notificação e mostra a própria pergunta
 - Tocar numa decisão na caixa de entrada abre o chat que está à tua espera

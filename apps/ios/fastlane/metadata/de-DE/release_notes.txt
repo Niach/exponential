@@ -1,3 +1,5 @@
+- Sessions kommen direkt vom Gerät, auf dem sie laufen
+- Ist das Gerät einer Session offline, steht das dort, und sie verbindet sich von selbst, sobald es zurück ist
 - Session-Nachrichten werden auf deinen Geräten versiegelt, der Server kann sie nicht mehr lesen
 - Eine Frage aus einem Chat, den du gestartet hast, kommt als Push aufs Handy und zeigt die Frage selbst
 - Ein Tipp auf eine Entscheidung im Posteingang öffnet den Chat, der auf dich wartet

@@ -1,3 +1,5 @@
+- Sezení se streamují přímo ze zařízení, na kterém běží
+- Sezení, jehož zařízení je offline, to oznámí a samo se znovu připojí, jakmile je zpět
 - Zprávy v sezeních se pečetí na tvých zařízeních, takže je server už nepřečte
 - Otázka z chatu, který jsi založil, ti přijde jako notifikace i se samotnou otázkou
 - Klepnutím na rozhodnutí ve schránce otevřeš chat, který na tebe čeká

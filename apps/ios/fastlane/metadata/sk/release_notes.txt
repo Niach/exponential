@@ -1,3 +1,5 @@
+- Relácie sa streamujú priamo zo zariadenia, na ktorom bežia
+- Relácia, ktorej zariadenie je offline, to oznámi a sama sa znova pripojí, keď sa vráti
 - Správy v reláciách sa pečatia na tvojich zariadeniach, takže ich server už neprečíta
 - Otázka z chatu, ktorý si začal, ti príde ako notifikácia aj so samotnou otázkou
 - Ťuknutím na rozhodnutie v doručenej pošte otvoríš chat, ktorý na teba čaká

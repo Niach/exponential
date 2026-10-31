@@ -1,3 +1,5 @@
+- Les sessions arrivent directement de l'appareil qui les exécute
+- Une session dont l'appareil est hors ligne l'indique et se reconnecte d'elle-même à son retour
 - Les messages des sessions sont scellés sur tes appareils, le serveur ne peut plus les lire
 - Une question d'un chat que tu as lancé arrive en notification sur ton téléphone et affiche la question elle-même
 - Toucher une décision dans ta boîte de réception ouvre la discussion qui t'attend
