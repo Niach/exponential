@@ -96,6 +96,10 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "emcp@0.1.0",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
       "package": "enet-core@0.1.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },

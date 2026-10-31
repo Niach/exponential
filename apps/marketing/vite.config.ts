@@ -28,7 +28,7 @@ function contentType(file: string): string {
 }
 
 /* The lib docs pages (EXP-1421) ride the /ui/ entry. */
-const SECTIONS = [`/ui`, `/talk`, `/pilot`, `/net`, `/apps`]
+const SECTIONS = [`/ui`, `/talk`, `/pilot`, `/net`, `/apps`, `/mcp`]
 
 /* The eUI section (/ui/, formerly ui.exponential.at): ONE entry,
    ui/index.html, routing by path. In dev a page navigation under /ui/ (an

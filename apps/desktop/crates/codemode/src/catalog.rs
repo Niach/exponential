@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::client::McpClient;
+use emcp::Client;
+
 use crate::Upstream;
 
 /// One callable tool.
@@ -36,15 +37,14 @@ const SUMMARY_MAX: usize = 110;
 
 impl Catalog {
     /// Ask every upstream for its tools, in parallel.
-    pub fn load(upstreams: &[Upstream], direct_only: Vec<String>, http: &reqwest::blocking::Client) -> Catalog {
+    pub fn load(upstreams: &[Upstream], direct_only: Vec<String>) -> Catalog {
         let handles: Vec<_> = upstreams
             .iter()
             .cloned()
             .map(|upstream| {
-                let http = http.clone();
                 std::thread::spawn(move || {
-                    let client = McpClient::new(http, upstream.clone());
-                    let listed = client.initialize(LIST_TIMEOUT).and_then(|()| client.list_tools(LIST_TIMEOUT));
+                    let listed = Client::connect(&upstream, crate::server::CLIENT_NAME, LIST_TIMEOUT)
+                        .and_then(|client| client.list_tools(LIST_TIMEOUT));
                     (upstream.name, listed)
                 })
             })
