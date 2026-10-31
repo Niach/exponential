@@ -16,14 +16,23 @@ struct ThreadPlanSheet: View {
     var canAnswer = true
     var busy = false
     var markdownContext: AgentMarkdownContext?
+    /// #EXP-1493: the plan page's draft (its DockCard counts the answers);
+    /// nil = the sheet's own.
+    var sharedDraft: PlanCardDraft?
+    /// #EXP-1493: the header glyph opening THE plan page; nil = none (on the
+    /// page itself).
+    var onOpenFull: (() -> Void)?
     let onSubmit: (ThreadCardAnswer) -> Void
     let onClose: () -> Void
 
-    @State private var draft = PlanCardDraft()
+    @State private var ownDraft = PlanCardDraft()
     @State private var step = 0
     @State private var rejecting = false
 
+    private var draft: PlanCardDraft { sharedDraft ?? ownDraft }
+
     var body: some View {
+        @Bindable var bound = draft
         let decided = card.decision != nil
         let interactive = !decided && !busy && canAnswer
         let stepped = PlanCard.stepperApplies(kind: "plan", decision: card.decision, questionCount: card.questions.count)
@@ -39,6 +48,7 @@ struct ThreadPlanSheet: View {
         DockSheetChrome(
             row: row,
             meta: question != nil ? PlanCard.Copy.stepLabel(step: page, count: count) : nil,
+            onOpenFull: onOpenFull,
             onClose: onClose
         ) {
             VStack(alignment: .leading, spacing: PlanCard.Card.blockGap) {
@@ -76,7 +86,7 @@ struct ThreadPlanSheet: View {
                     ? PlanCardFooter.Decision(
                         approveIssue: issue.map(PlanCard.Copy.issue),
                         rejecting: $rejecting,
-                        feedback: $draft.feedback,
+                        feedback: $bound.feedback,
                         onDecide: { decide($0, blocked: issue != nil) },
                         busy: busy
                     )
