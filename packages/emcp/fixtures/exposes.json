@@ -1,0 +1,213 @@
+{
+  "$comment": "EXP-1490 (eMCP E1, epic VAPP-175, 2026-10-31): AN APP'S MCP TOOLS ARE DECLARATIVE BINDINGS. An app package lists them in `exposes`; the server broker (#EXP-1491) runs them as the CALLING MEMBER, attributed `via <app>`, so no device has to be online and nothing is hosted. THE FORMAT: `{name, title, description, input, access, run}`. `name` matches `limits.namePattern`, at most `limits.nameMax` characters, never holds `__` (the separator), unique in the app. `title` ≤ `limits.titleMax`, `description` ≤ `limits.descriptionMax`, both non-blank. `input` = a JSON Schema with `type: \"object\"` (the tool's inputSchema as MCP lists it). `access` = `read` | `write`. `run` holds EXACTLY ONE of: `records` = `{op, kind, id?, where?, data?, limit?}` over the app's OWN records (op ∈ `recordOps`; `list`/`get` read, `upsert` writes; `delete` is destructive and refused; `kind` must be one the manifest declares); `action` = `exponential.<noun>.<op>` + `args` (app-actions.json: an offered action that is GRANTABLE, i.e. neither destructive nor owner-only, else `action`; its level = `read` when the last word of the op is one of `readOpWords`, else `write`, so a verb tool writes); `upstream` = a team MCP server NAME the app declares in its package's `upstreams` + `tool` + `args` (each app sees only its own upstreams; the broker never chains tools across apps). DESTRUCTIVE NEVER EXPOSED: a records delete, a DESTRUCTIVE action or call (app-actions.json `actionDestructive` / `callDestructive` on the binding's args before resolution: `exponential.sessions.send` with `stop` is one), an upstream tool a word of whose name is a `destructiveWords` word (= app-actions.json's list) are refused at save (`validateCases`, error code `destructive`); an owner-only action (app-actions.json `ownerActions`) is refused too (`ownerOnly`): it is never grantable, so never exposed; an upstream tool whose live annotations say `destructiveHint: true` is refused at call (`upstreamCallCases`). ACCESS: a binding declared `read` whose run writes is refused (`accessTooLow`); a `write` binding over a read is allowed (it only narrows who sees it). An upstream tool reads only when its live annotations say `readOnlyHint: true`, so a `read` binding over an upstream without it is refused at call (`accessTooLow`). VALIDATION = `validateExposes(exposes, {kinds, upstreams})` → every error `{index, code}` in binding order, codes = `errors` (one binding can carry several; a bad `run` shape stops that binding's checks); more than `limits.maxTools` bindings = `{index: null, code: tooMany}` first. RESOLUTION (`resolveCases`): every string in `run` may hold `${input.<path>}` templates (`path` = dotted keys into the call's input; every template's first key must be a declared `input.properties` key, else `template`). A string that is exactly ONE template takes the input value itself, type kept (a number stays a number); absent drops the key in an object and reads null in an array. A template inside other text becomes text: a string as-is, a number/boolean printed, null/absent empty, an object or array compact JSON. There is no escape and no other variable. TOOL NAMING (`nameCases`): one endpoint lists every granted app's tools as `<app slug>__<name>` (`limits.separator`); longer than `limits.toolNameMax` (64: the shortest cap MCP clients enforce), the slug is cut to fit and ends in `-` + the first `limits.slugHashLength` characters of the lowercase RFC 4648 base32 alphabet (no padding) of SHA-256(the full slug), trailing dashes of the cut trimmed before the `-`. `splitToolName` splits on the FIRST `__`; a name with none, an empty part or a second `__` is null. COLLISIONS (`listCases`): apps are listed sorted by slug (code-point order); a qualified name an earlier app already holds is dropped (only cut slugs can collide; the built-in `exponential_*` tools live on `/api/mcp`, never here). PROVENANCE: every result of an app tool carries `_meta` with the `provenance` keys: the app slug, the binding name, the run kind (`records` | `action` | `upstream`) and, for an upstream, the server name (`metaCases`), so a client can tell whose words it reads.",
+  "limits": {
+    "namePattern": "^[a-z][a-z0-9_]*$",
+    "nameMax": 40,
+    "titleMax": 80,
+    "descriptionMax": 1024,
+    "maxTools": 32,
+    "separator": "__",
+    "toolNameMax": 64,
+    "slugHashLength": 6
+  },
+  "recordOps": ["list", "get", "upsert"],
+  "readRecordOps": ["list", "get"],
+  "readOpWords": ["list", "get", "show", "catalog", "activity", "files"],
+  "destructiveWords": ["delete", "merge", "close", "end", "remove", "trash"],
+  "errors": ["tooMany", "name", "duplicate", "title", "description", "input", "access", "run", "template", "kind", "action", "upstream", "destructive", "ownerOnly", "accessTooLow"],
+  "provenance": {
+    "app": "at.exponential/app",
+    "tool": "at.exponential/tool",
+    "via": "at.exponential/via",
+    "upstream": "at.exponential/upstream"
+  },
+  "actionAccessCases": [
+    { "name": "exponential.issues.list", "expected": "read" },
+    { "name": "exponential.issues.get", "expected": "read" },
+    { "name": "exponential.team_config.labels_list", "expected": "read" },
+    { "name": "exponential.pr.files", "expected": "read" },
+    { "name": "exponential.issues.create", "expected": "write" },
+    { "name": "exponential.issues.update_status", "expected": "write" },
+    { "name": "exponential.sessions.send", "expected": "write" },
+    { "name": "harness.toast", "expected": "write" }
+  ],
+  "upstreamCases": [
+    { "tool": "search_issues", "annotations": { "readOnlyHint": true }, "destructive": false, "access": "read" },
+    { "tool": "create_issue", "annotations": {}, "destructive": false, "access": "write" },
+    { "tool": "create_issue", "annotations": null, "destructive": false, "access": "write" },
+    { "tool": "archive", "annotations": { "destructiveHint": true }, "destructive": true, "access": "write" },
+    { "tool": "delete_file", "annotations": { "readOnlyHint": true }, "destructive": true, "access": "read" },
+    { "tool": "issues.remove", "annotations": null, "destructive": true, "access": "write" },
+    { "tool": "Close-PR", "annotations": null, "destructive": true, "access": "write" },
+    { "tool": "attend_meeting", "annotations": { "destructiveHint": false }, "destructive": false, "access": "write" }
+  ],
+  "validateCases": [
+    {
+      "name": "a valid records read, action write and upstream binding",
+      "context": { "kinds": ["entry"], "upstreams": ["m5"] },
+      "exposes": [
+        { "name": "list_entries", "title": "List entries", "description": "The time entries of a day.", "input": { "type": "object", "properties": { "day": { "type": "string" } } }, "access": "read", "run": { "records": { "op": "list", "kind": "entry", "where": { "day": "${input.day}" } } } },
+        { "name": "log_comment", "title": "Log a comment", "description": "Comment the logged hours on an issue.", "input": { "type": "object", "properties": { "issue": { "type": "string" }, "hours": { "type": "number" } }, "required": ["issue", "hours"] }, "access": "write", "run": { "action": "exponential.comments.create", "args": { "issueId": "${input.issue}", "body": "Logged ${input.hours} h" } } },
+        { "name": "find_customer", "title": "Find a customer", "description": "Search m5 customers.", "input": { "type": "object", "properties": { "q": { "type": "string" } } }, "access": "read", "run": { "upstream": "m5", "tool": "search_customers", "args": { "query": "${input.q}" } } }
+      ],
+      "expected": []
+    },
+    {
+      "name": "a write binding over a read is allowed",
+      "context": { "kinds": ["entry"], "upstreams": [] },
+      "exposes": [
+        { "name": "issues", "title": "Issues", "description": "Open issues.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.issues.list", "args": {} } }
+      ],
+      "expected": []
+    },
+    {
+      "name": "names: pattern, separator, length, duplicate",
+      "context": { "kinds": ["entry"], "upstreams": [] },
+      "exposes": [
+        { "name": "List", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "read", "run": { "records": { "op": "list", "kind": "entry" } } },
+        { "name": "list__all", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "read", "run": { "records": { "op": "list", "kind": "entry" } } },
+        { "name": "a_name_that_is_far_too_long_for_one_tool_x", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "read", "run": { "records": { "op": "list", "kind": "entry" } } },
+        { "name": "entries", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "read", "run": { "records": { "op": "list", "kind": "entry" } } },
+        { "name": "entries", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "read", "run": { "records": { "op": "list", "kind": "entry" } } }
+      ],
+      "expected": [
+        { "index": 0, "code": "name" },
+        { "index": 1, "code": "name" },
+        { "index": 2, "code": "name" },
+        { "index": 4, "code": "duplicate" }
+      ]
+    },
+    {
+      "name": "blank title and description, input not an object, unknown access",
+      "context": { "kinds": ["entry"], "upstreams": [] },
+      "exposes": [
+        { "name": "entries", "title": " ", "description": "", "input": { "type": "string" }, "access": "admin", "run": { "records": { "op": "get", "kind": "entry", "id": "x" } } }
+      ],
+      "expected": [
+        { "index": 0, "code": "title" },
+        { "index": 0, "code": "description" },
+        { "index": 0, "code": "input" },
+        { "index": 0, "code": "access" }
+      ]
+    },
+    {
+      "name": "run holds exactly one target",
+      "context": { "kinds": ["entry"], "upstreams": ["m5"] },
+      "exposes": [
+        { "name": "both", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.issues.create", "upstream": "m5", "tool": "x" } },
+        { "name": "none", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": {} },
+        { "name": "bad_op", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "records": { "op": "count", "kind": "entry" } } }
+      ],
+      "expected": [
+        { "index": 0, "code": "run" },
+        { "index": 1, "code": "run" },
+        { "index": 2, "code": "run" }
+      ]
+    },
+    {
+      "name": "templates name declared inputs, kinds and upstreams are the app's own",
+      "context": { "kinds": ["entry"], "upstreams": ["m5"] },
+      "exposes": [
+        { "name": "by_day", "title": "A", "description": "A.", "input": { "type": "object", "properties": { "day": { "type": "string" } } }, "access": "read", "run": { "records": { "op": "list", "kind": "entry", "where": { "day": "${input.day}", "user": "${input.user.email}" } } } },
+        { "name": "notes", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "read", "run": { "records": { "op": "list", "kind": "note" } } },
+        { "name": "github", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "upstream": "github", "tool": "create_issue", "args": {} } }
+      ],
+      "expected": [
+        { "index": 0, "code": "template" },
+        { "index": 1, "code": "kind" },
+        { "index": 2, "code": "upstream" }
+      ]
+    },
+    {
+      "name": "destructive is never exposed",
+      "context": { "kinds": ["entry"], "upstreams": ["m5"] },
+      "exposes": [
+        { "name": "drop_entry", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "records": { "op": "delete", "kind": "entry", "id": "x" } } },
+        { "name": "drop_issue", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.issues.delete", "args": {} } },
+        { "name": "merge", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.pr.merge", "args": {} } },
+        { "name": "invite", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.people.invites_create", "args": {} } },
+        { "name": "drop_customer", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "upstream": "m5", "tool": "delete_customer", "args": {} } },
+        { "name": "stop_run", "title": "A", "description": "A.", "input": { "type": "object", "properties": { "session": { "type": "string" } } }, "access": "write", "run": { "action": "exponential.sessions.send", "args": { "sessionId": "${input.session}", "stop": true } } }
+      ],
+      "expected": [
+        { "index": 0, "code": "destructive" },
+        { "index": 1, "code": "destructive" },
+        { "index": 2, "code": "destructive" },
+        { "index": 3, "code": "ownerOnly" },
+        { "index": 4, "code": "destructive" },
+        { "index": 5, "code": "destructive" }
+      ]
+    },
+    {
+      "name": "unknown actions and read bindings that write",
+      "context": { "kinds": ["entry"], "upstreams": [] },
+      "exposes": [
+        { "name": "toast", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "harness.toast", "args": {} } },
+        { "name": "add_entry", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "read", "run": { "records": { "op": "upsert", "kind": "entry", "data": {} } } },
+        { "name": "new_issue", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "read", "run": { "action": "exponential.issues.create", "args": {} } }
+      ],
+      "expected": [
+        { "index": 0, "code": "action" },
+        { "index": 1, "code": "accessTooLow" },
+        { "index": 2, "code": "accessTooLow" }
+      ]
+    }
+  ],
+  "tooManyCase": { "count": 33, "expected": [{ "index": null, "code": "tooMany" }] },
+  "upstreamCallCases": [
+    { "name": "a read binding over a read-only tool", "access": "read", "tool": "search_customers", "annotations": { "readOnlyHint": true }, "expected": null },
+    { "name": "a read binding over an unannotated tool", "access": "read", "tool": "search_customers", "annotations": null, "expected": "accessTooLow" },
+    { "name": "a write binding over an unannotated tool", "access": "write", "tool": "create_customer", "annotations": null, "expected": null },
+    { "name": "a tool that says it is destructive", "access": "write", "tool": "archive_customer", "annotations": { "destructiveHint": true }, "expected": "destructive" }
+  ],
+  "resolveCases": [
+    { "name": "a whole template keeps the type", "args": { "hours": "${input.hours}", "done": "${input.done}" }, "input": { "hours": 3.5, "done": false }, "expected": { "hours": 3.5, "done": false } },
+    { "name": "an absent value drops the key", "args": { "issueId": "${input.issue}", "body": "x" }, "input": {}, "expected": { "body": "x" } },
+    { "name": "an absent value in an array is null", "args": { "ids": ["${input.a}", "${input.b}"] }, "input": { "a": "A-1" }, "expected": { "ids": ["A-1", null] } },
+    { "name": "templates inside text", "args": { "body": "Logged ${input.hours} h on ${input.day} (${input.billable})" }, "input": { "hours": 3, "day": "2026-10-31", "billable": true }, "expected": { "body": "Logged 3 h on 2026-10-31 (true)" } },
+    { "name": "absent and null inside text are empty", "args": { "body": "[${input.a}][${input.b}]" }, "input": { "b": null }, "expected": { "body": "[][]" } },
+    { "name": "objects inside text are compact JSON", "args": { "body": "tags: ${input.tags}" }, "input": { "tags": ["a", "b"] }, "expected": { "body": "tags: [\"a\",\"b\"]" } },
+    { "name": "dotted paths", "args": { "q": "${input.filter.status}", "who": "${input.filter.who.email}" }, "input": { "filter": { "status": "open", "who": { "email": "a@b.c" } } }, "expected": { "q": "open", "who": "a@b.c" } },
+    { "name": "a whole object value", "args": { "data": "${input.entry}" }, "input": { "entry": { "day": "2026-10-31", "hours": 2 } }, "expected": { "data": { "day": "2026-10-31", "hours": 2 } } },
+    { "name": "a path through a non-object is absent", "args": { "a": "${input.s.x}", "b": "x${input.s.x}" }, "input": { "s": "text" }, "expected": { "b": "x" } },
+    { "name": "no other variables", "args": { "a": "${member.email}", "b": "$input.x", "c": 4, "d": null }, "input": { "x": 1 }, "expected": { "a": "${member.email}", "b": "$input.x", "c": 4, "d": null } },
+    { "name": "records runs resolve the same way", "args": { "records": { "op": "get", "kind": "entry", "id": "${input.id}" } }, "input": { "id": "r1" }, "expected": { "records": { "op": "get", "kind": "entry", "id": "r1" } } }
+  ],
+  "nameCases": [
+    { "slug": "timesheet", "name": "list_entries", "expected": "timesheet__list_entries" },
+    { "slug": "a", "name": "b", "expected": "a__b" },
+    { "slug": "customer-relationship-management-for-the-sales-team", "name": "find_customer_by_name", "expected": "customer-relationship-management-f-m6eydx__find_customer_by_name" },
+    { "slug": "customer-relationship-management-for-the-sales-team-v2", "name": "find_customer_by_name", "expected": "customer-relationship-management-f-mgw53k__find_customer_by_name" },
+    { "slug": "customer-relationship-management-for-the-sales-team", "name": "find_customer_by_email", "expected": "customer-relationship-management-m6eydx__find_customer_by_email" },
+    { "slug": "weekly-review", "name": "a_name_of_exactly_forty_characters_xxxxx", "expected": "weekly-review__a_name_of_exactly_forty_characters_xxxxx" }
+  ],
+  "hashCases": [
+    { "text": "", "expected": "4oymiq" },
+    { "text": "customer-relationship-management-for-the-sales-team", "expected": "m6eydx" }
+  ],
+  "splitCases": [
+    { "name": "timesheet__list_entries", "expected": { "app": "timesheet", "tool": "list_entries" } },
+    { "name": "crm-abcdef__find", "expected": { "app": "crm-abcdef", "tool": "find" } },
+    { "name": "exponential_issues", "expected": null },
+    { "name": "__list", "expected": null },
+    { "name": "app__", "expected": null },
+    { "name": "a__b__c", "expected": null }
+  ],
+  "listCases": [
+    {
+      "name": "apps sorted by slug, a collision drops the later name",
+      "apps": [
+        { "slug": "timesheet", "exposes": [{ "name": "list_entries" }, { "name": "log" }] },
+        { "slug": "crm", "exposes": [{ "name": "find" }] },
+        { "slug": "customer-relationship-management-for-the-sales-team", "exposes": [{ "name": "find_customer_by_name" }] },
+        { "slug": "customer-relationship-management-for-the-sales-team", "exposes": [{ "name": "find_customer_by_name" }] }
+      ],
+      "expected": [{"app":"crm","tool":"find","name":"crm__find"},{"app":"customer-relationship-management-for-the-sales-team","tool":"find_customer_by_name","name":"customer-relationship-management-f-m6eydx__find_customer_by_name"},{"app":"timesheet","tool":"list_entries","name":"timesheet__list_entries"},{"app":"timesheet","tool":"log","name":"timesheet__log"}]
+    }
+  ],
+  "metaCases": [
+    { "slug": "timesheet", "expose": { "name": "list_entries", "run": { "records": { "op": "list", "kind": "entry" } } }, "expected": { "at.exponential/app": "timesheet", "at.exponential/tool": "list_entries", "at.exponential/via": "records" } },
+    { "slug": "timesheet", "expose": { "name": "log_comment", "run": { "action": "exponential.comments.create", "args": {} } }, "expected": { "at.exponential/app": "timesheet", "at.exponential/tool": "log_comment", "at.exponential/via": "action" } },
+    { "slug": "crm", "expose": { "name": "find_customer", "run": { "upstream": "m5", "tool": "search_customers" } }, "expected": { "at.exponential/app": "crm", "at.exponential/tool": "find_customer", "at.exponential/via": "upstream", "at.exponential/upstream": "m5" } }
+  ]
+}
