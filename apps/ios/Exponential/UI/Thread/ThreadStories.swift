@@ -65,7 +65,8 @@ struct StoryTabView: View {
 /// kind word) with `meta` muted at the end (a waiting one leads with the
 /// tint dot and tints its meta); the description (muted, wrapping)
 /// `tile.textGap` under it; then its body `tile.gap` under that, by the
-/// frame rule: a PLAN (#EXP-1493) = its counts line then its pictures row,
+/// frame rule: a PLAN (#EXP-1493) = its counts line (after the description)
+/// then its pictures row,
 /// a tap anywhere opening THE plan page; else ONE sideways row of pictures
 /// (a muted caption-or-label line under each), else THE surface card inline
 /// (no title over it, presses reply like the chat), else nothing. THE kind
@@ -107,13 +108,6 @@ struct StoryTile: View {
                             .lineLimit(1)
                             .fixedSize()
                     }
-                    if plan, !counts.isEmpty {
-                        Text(counts)
-                            .font(.system(size: 12))
-                            .foregroundStyle(DesignTokens.Palette.mutedForeground)
-                            .lineLimit(1)
-                            .accessibilityIdentifier("story-tile-counts")
-                    }
                     if let description = story.description, !description.isEmpty {
                         Text(description)
                             .font(.system(size: 14))
@@ -121,6 +115,13 @@ struct StoryTile: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .multilineTextAlignment(.leading)
+                    }
+                    if plan, !counts.isEmpty {
+                        Text(counts)
+                            .font(.system(size: 12))
+                            .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("story-tile-counts")
                     }
                 }
                 .contentShape(Rectangle())
