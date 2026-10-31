@@ -30,11 +30,11 @@ impl emcp::ToolProvider for Provider {
     }
 
     fn call(&self, caller: &emcp::Caller, name: &str, arguments: Value) -> Value {
-        self.0.call(&caller.session_id, &caller.label, name, arguments)
+        self.0.call(caller.session_id.as_str(), &caller.label, name, arguments)
     }
 
-    fn ended(&self, session_id: &str) {
-        self.0.end(session_id);
+    fn ended(&self, session_id: &emcp::SessionId) {
+        self.0.end(session_id.as_str());
     }
 }
 
@@ -89,11 +89,15 @@ mod tests {
         }
     }
 
+    fn id(session_id: &str) -> emcp::SessionId {
+        emcp::SessionId::new(session_id).unwrap()
+    }
+
     fn client(server: &emcp::Server, token: &str) -> Result<emcp::Client, emcp::ClientError> {
         let upstream = emcp::Upstream {
             name: SERVER_NAME.into(),
             url: server.url().to_string(),
-            headers: vec![("Authorization".into(), format!("Bearer {token}"))],
+            headers: vec![("Authorization".into(), emcp::ecore::bearer_header(token))],
         };
         emcp::Client::connect(&upstream, "test", T)
     }
@@ -102,15 +106,15 @@ mod tests {
     fn calls_reach_the_runs_session_with_its_label_and_the_tools_are_listed() {
         let host = Arc::new(FakeHost::default());
         let server = serve(host.clone()).unwrap();
-        let (one, two) = (server.grant("s1", "EXP-1"), server.grant("s2", "Chat"));
-        let first = client(&server, &one).unwrap();
+        let (one, two) = (server.grant(&id("s1"), "EXP-1"), server.grant(&id("s2"), "Chat"));
+        let first = client(&server, one.as_str()).unwrap();
         let names: Vec<String> =
             first.list_tools(T).unwrap().iter().map(|tool| tool["name"].as_str().unwrap().to_string()).collect();
         assert_eq!(names, ["click", "list_windows"]);
         let args = json!({ "x": 10, "y": 10 });
         let reply = first.call("click", args.clone(), T).unwrap();
         assert_eq!(reply["structuredContent"]["effect"], "confirmed");
-        client(&server, &two).unwrap().call("list_windows", json!({}), T).unwrap();
+        client(&server, two.as_str()).unwrap().call("list_windows", json!({}), T).unwrap();
         assert_eq!(
             host.calls.lock().unwrap().as_slice(),
             [format!("s1/EXP-1 click {args}"), "s2/Chat list_windows {}".to_string()]
@@ -121,12 +125,12 @@ mod tests {
     fn a_new_grant_replaces_the_runs_old_token_and_a_revoke_ends_its_session() {
         let host = Arc::new(FakeHost::default());
         let server = serve(host.clone()).unwrap();
-        let old = server.grant("s1", "EXP-1");
-        let new = server.grant("s1", "EXP-1");
-        assert!(matches!(client(&server, &old), Err(emcp::ClientError::Http(401))));
-        assert!(client(&server, &new).is_ok());
-        server.revoke("s1");
-        assert!(matches!(client(&server, &new), Err(emcp::ClientError::Http(401))));
+        let old = server.grant(&id("s1"), "EXP-1");
+        let new = server.grant(&id("s1"), "EXP-1");
+        assert!(matches!(client(&server, old.as_str()), Err(emcp::ClientError::Http(401))));
+        assert!(client(&server, new.as_str()).is_ok());
+        server.revoke(&id("s1"));
+        assert!(matches!(client(&server, new.as_str()), Err(emcp::ClientError::Http(401))));
         assert_eq!(host.ended.lock().unwrap().as_slice(), ["s1"]);
     }
 }

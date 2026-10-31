@@ -57,6 +57,19 @@ impl std::fmt::Display for ClientError {
 
 impl std::error::Error for ClientError {}
 
+impl ClientError {
+    /// How a failed `tools/call` ended (#EXP-1517, eCore's verdict): a
+    /// non-2xx status or a JSON-RPC error = the tool never ran; `None` =
+    /// unknown (a timeout or a broken connection may have run it), so a
+    /// blind retry could double its effect.
+    pub fn delivery(&self) -> Option<ecore::DeliveryVerdict> {
+        match self {
+            ClientError::Http(_) | ClientError::Rpc { .. } => Some(ecore::DeliveryVerdict::NotDelivered),
+            ClientError::Transport(_) | ClientError::Timeout => None,
+        }
+    }
+}
+
 /// The HTTP status buried in a transport error, if there is one.
 fn http_status(error: &(dyn std::error::Error + 'static)) -> Option<u16> {
     let mut at: Option<&(dyn std::error::Error + 'static)> = Some(error);
@@ -149,7 +162,9 @@ impl Client {
             headers.insert(name, value);
         }
         let mut config = StreamableHttpClientTransportConfig::with_uri(upstream.url.clone()).custom_headers(headers);
-        // rmcp sends `Authorization: Bearer <auth_header>`.
+        // rmcp sends `Authorization: Bearer <auth_header>`. The value is
+        // the host's credential (an `expu_` key, an OAuth token), not always
+        // an eCore token, so it is split verbatim, never `parse_bearer`ed.
         if let Some(value) = auth {
             match value.strip_prefix("Bearer ") {
                 Some(token) => config = config.auth_header(token.to_string()),

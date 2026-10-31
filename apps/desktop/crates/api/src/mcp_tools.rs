@@ -480,7 +480,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let info = emcp::ServerInfo { name: "exponential".into(), version: "1".into(), instructions: None };
         let server = emcp::Server::serve_at(info, Arc::new(Fake { text: text.to_string(), seen: seen.clone() }), Vec::new(), "/api/mcp").unwrap();
-        let token = server.grant("cli", "cli");
+        let token = server.grant(&emcp::SessionId::new("cli").unwrap(), "cli").into();
         let base = server.base().to_string();
         std::mem::forget(server);
         (TrpcClient::new(&base, Arc::new(StaticToken(token))), seen)

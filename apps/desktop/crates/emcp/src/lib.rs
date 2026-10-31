@@ -23,5 +23,9 @@ pub mod oauth;
 mod runtime;
 pub mod server;
 
+/// eCore, the types emcp's API speaks (#EXP-1517): a host names them
+/// through emcp and needs no second pin.
+pub use ecore;
+pub use ecore::{DeliveryVerdict, ErrorCode, Failure, SessionId, Token};
 pub use client::{Client, ClientError, Upstream};
 pub use server::{Caller, RawRequest, RawResponse, RawRoute, Server, ServerInfo, ToolProvider};

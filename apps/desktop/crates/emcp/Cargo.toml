@@ -19,6 +19,11 @@ publish = false
 # (api, domain, coding, ui, app, …) and no other lib of this repo. The hosts
 # (codemode, epilot, epilot-screen, api, ui) depend on emcp, never the reverse.
 [dependencies]
+# #EXP-1517: eCore, the types every module shares (the run token, the
+# session id, the refusal, the delivery verdict). The ONE path dependency
+# allowed (tests/dependency_gate.rs): serde-only, and a git consumer's
+# checkout of the emcp tag carries it at the same commit.
+ecore = { path = "../ecore" }
 # The MCP protocol, server and client: the official Rust SDK. Stateless
 # Streamable HTTP with JSON responses on the server, the reqwest transport
 # and OAuth (`auth`: discovery, DCR, PKCE, refresh) on the client.

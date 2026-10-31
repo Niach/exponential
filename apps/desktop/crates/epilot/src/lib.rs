@@ -296,15 +296,17 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
     if let Some(reason) = backend::unsupported() {
         return Err(reason);
     }
+    let id = emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
     let live = live()?;
-    Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(session_id, label) })
+    Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
 }
 
 /// The run ended: its token is dead, its abort state gone, the lock
 /// released when it was the last user.
 pub fn revoke(session_id: &str) {
-    if let Some(Ok(live)) = LIVE.get() {
-        live.server.revoke(session_id);
+    // An id that breaks the id rule was never granted.
+    if let (Some(Ok(live)), Ok(id)) = (LIVE.get(), emcp::SessionId::new(session_id)) {
+        live.server.revoke(&id);
     }
 }
 

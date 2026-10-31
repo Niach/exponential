@@ -223,14 +223,16 @@ pub fn grant(session_id: &str) -> Result<Grant, String> {
     if RUNNING.lock().unwrap().is_none() {
         return Err(fixture::copy("off").to_string());
     }
+    let id = emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
     let live = live()?;
-    Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(session_id, session_id) })
+    Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, session_id).into() })
 }
 
 /// The run ended: its token is dead.
 pub fn revoke(session_id: &str) {
-    if let Some(Ok(live)) = LIVE.get() {
-        live.server.revoke(session_id);
+    // An id that breaks the id rule was never granted.
+    if let (Some(Ok(live)), Ok(id)) = (LIVE.get(), emcp::SessionId::new(session_id)) {
+        live.server.revoke(&id);
     }
 }
 

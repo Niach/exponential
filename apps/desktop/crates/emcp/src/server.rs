@@ -8,12 +8,16 @@
 //!
 //! [`RawRoute`]s share the listener for what is not an MCP server of ours
 //! (codemode's gateway, a transparent proxy): they own their auth.
+//!
+//! #EXP-1517: the token, the session id and the refusal are eCore's
+//! ([`Token`], [`SessionId`], [`Failure`]).
 
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
+use ecore::{ErrorCode, Failure, SessionId, Token};
 use http_body_util::{combinators::BoxBody, BodyExt, Full, Limited};
 use hyper::body::Incoming;
 use hyper::{Request, Response, StatusCode};
@@ -43,7 +47,7 @@ pub struct ServerInfo {
 /// The run a call belongs to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Caller {
-    pub session_id: String,
+    pub session_id: SessionId,
     /// The run's name, for logs and banners.
     pub label: String,
 }
@@ -59,7 +63,7 @@ pub trait ToolProvider: Send + Sync + 'static {
     /// agent must read, never a protocol error.
     fn call(&self, caller: &Caller, name: &str, arguments: Value) -> Value;
     /// The run's grant ended ([`Server::revoke`]).
-    fn ended(&self, _session_id: &str) {}
+    fn ended(&self, _session_id: &SessionId) {}
 }
 
 /// A request to a [`RawRoute`].
@@ -79,7 +83,8 @@ impl RawRequest {
         self.headers.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.as_str())
     }
 
-    /// The `Authorization: Bearer` token.
+    /// The `Authorization: Bearer` token, verbatim: a raw route's tokens
+    /// are its own (codemode's gateway mints `gw…`), not eCore [`Token`]s.
     pub fn bearer(&self) -> Option<&str> {
         self.header("authorization").and_then(|value| value.strip_prefix("Bearer "))
     }
@@ -108,18 +113,20 @@ pub trait RawRoute: Send + Sync + 'static {
 /// Token → run.
 #[derive(Default)]
 struct Grants {
-    runs: Mutex<HashMap<String, Caller>>,
+    runs: Mutex<HashMap<Token, Caller>>,
 }
 
 impl Grants {
-    fn get(&self, token: &str) -> Option<Caller> {
+    fn get(&self, token: &Token) -> Option<Caller> {
         self.runs.lock().unwrap().get(token).cloned()
     }
 }
 
-/// A fresh bearer token: 64 hex characters of two v4 UUIDs.
-pub fn new_token() -> String {
-    format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
+/// A fresh bearer token: 64 hex characters of two v4 UUIDs (eCore does no
+/// randomness, so the minting stays here).
+pub fn new_token() -> Token {
+    Token::new(format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple()))
+        .expect("two simple v4 UUIDs are 64 lowercase hex")
 }
 
 /// A running loopback server. It lives for the process (hosts keep it in a
@@ -200,17 +207,17 @@ impl Server {
     }
 
     /// A fresh token for `session_id`; an earlier one of the same run dies.
-    pub fn grant(&self, session_id: &str, label: &str) -> String {
+    pub fn grant(&self, session_id: &SessionId, label: &str) -> Token {
         let token = new_token();
         let mut runs = self.grants.runs.lock().unwrap();
-        runs.retain(|_, run| run.session_id != session_id);
-        runs.insert(token.clone(), Caller { session_id: session_id.to_string(), label: label.to_string() });
+        runs.retain(|_, run| run.session_id != *session_id);
+        runs.insert(token.clone(), Caller { session_id: session_id.clone(), label: label.to_string() });
         token
     }
 
     /// The run's token dies and the provider hears it ended.
-    pub fn revoke(&self, session_id: &str) {
-        self.grants.runs.lock().unwrap().retain(|_, run| run.session_id != session_id);
+    pub fn revoke(&self, session_id: &SessionId) {
+        self.grants.runs.lock().unwrap().retain(|_, run| run.session_id != *session_id);
         self.provider.ended(session_id);
     }
 
@@ -223,7 +230,7 @@ impl Server {
     }
 
     /// The run a token admits.
-    pub fn admitted(&self, token: &str) -> Option<Caller> {
+    pub fn admitted(&self, token: &Token) -> Option<Caller> {
         self.grants.get(token)
     }
 }
@@ -256,8 +263,8 @@ impl Listener {
             .headers()
             .get(http::header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "));
-        let Some(caller) = token.and_then(|token| self.grants.get(token)) else {
+            .and_then(Token::from_header);
+        let Some(caller) = token.and_then(|token| self.grants.get(&token)) else {
             return status(401);
         };
         let (mut parts, body) = request.into_parts();
@@ -312,6 +319,13 @@ pub(crate) fn tool_from_value(mut tool: Value) -> Option<Tool> {
     serde_json::from_value(tool).ok()
 }
 
+/// A refusal at the JSON-RPC level (the caller is not admitted, so no tool
+/// result reaches it): the server error code, the failure's message.
+fn refusal(failure: Failure) -> ErrorData {
+    debug_assert!(failure.is_refusal());
+    ErrorData::new(rmcp::model::ErrorCode(-32000), failure.message, None)
+}
+
 pub(crate) fn error_result(text: String) -> CallToolResult {
     serde_json::from_value(json!({ "content": [{ "type": "text", "text": text }], "isError": true }))
         .expect("a text error result")
@@ -354,7 +368,7 @@ impl ServerHandler for Handler {
             .get::<http::request::Parts>()
             .and_then(|parts| parts.extensions.get::<Caller>())
             .cloned()
-            .ok_or_else(|| ErrorData::new(rmcp::model::ErrorCode(-32000), "This session's grant ended.", None))?;
+            .ok_or_else(|| refusal(Failure::new(ErrorCode::Unauthorized, "This session's grant ended.")))?;
         let provider = self.provider.clone();
         let name = request.name.to_string();
         let arguments = request.arguments.map(Value::Object).unwrap_or_else(|| json!({}));

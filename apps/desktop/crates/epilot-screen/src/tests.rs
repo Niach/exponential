@@ -190,8 +190,8 @@ fn frames_flow_from_the_capturer_to_get_screenshots_within_the_cap() {
         tool::call(Some(&store), name, arguments, engine::now_ms(), &[1, 2])
     }))
     .unwrap();
-    let token = server.grant("voice-run", "voice-run");
-    let live = server::tests::client(server.url(), &token).unwrap();
+    let token = server.grant(&emcp::SessionId::new("voice-run").unwrap(), "voice-run");
+    let live = server::tests::client(server.url(), token.as_str()).unwrap();
     let wait = std::time::Duration::from_secs(20);
     let reply = live.call("get_screenshots", json!({}), wait).unwrap();
     let content = reply["content"].as_array().unwrap();

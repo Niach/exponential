@@ -18,7 +18,7 @@ fn main() {
     let url = grant.url.trim_start_matches("http://");
     let (host, path) = url.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((url, "/".into()));
     let mut stream = std::net::TcpStream::connect(host).expect("connect");
-    write!(stream, "POST {path} HTTP/1.0\r\nHost: {host}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", grant.token, body.len()).unwrap();
+    write!(stream, "POST {path} HTTP/1.0\r\nHost: {host}\r\nAuthorization: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", emcp::ecore::bearer_header(&grant.token), body.len()).unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     let json = response.split_once("\r\n\r\n").map(|(_, b)| b).unwrap_or("");
