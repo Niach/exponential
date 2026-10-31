@@ -202,3 +202,29 @@ describe.skipIf(!ready.ok)(`MCP revocation (real db, VAPP-184)`, () => {
     expect(await db.select().from(mcpCredentials).where(eq(mcpCredentials.serverId, server!.id))).toHaveLength(0)
   })
 })
+
+describe.skipIf(!ready.ok)(`Settings › MCP reads (real db, VAPP-185)`, () => {
+  it(`activity: an owner reads the team's calls, a member their own; servers name the apps that use them`, async () => {
+    const w = await world()
+    const { clientId } = await client(w.mate)
+    await db.execute(sql`
+      INSERT INTO mcp_calls (team_id, user_id, client_id, app_id, tool, status, latency_ms, args_hash)
+      VALUES (${w.teamId}, ${w.mate}, ${clientId}, ${w.appId}, 'notes__list', 'ok', 5, 'sha256:a'),
+             (${w.teamId}, ${w.owner}, NULL, NULL, 'exponential_issues', 'denied', 5, 'sha256:b')
+    `)
+    const owner = await (await asUser(w.owner)).mcpActivity.list({ teamId: w.teamId })
+    expect(owner.owner).toBe(true)
+    expect(owner.calls.map((c) => [c.tool, c.appName, c.clientName]).sort()).toEqual([
+      [`exponential_issues`, null, null],
+      [`notes__list`, `Notes`, `Claude Code`],
+    ])
+    const mine = await (await asUser(w.mate)).mcpActivity.list({ teamId: w.teamId })
+    expect(mine.calls.map((c) => c.tool)).toEqual([`notes__list`])
+    await db.execute(sql`DELETE FROM mcp_calls WHERE team_id = ${w.teamId}`)
+
+    await db.insert(mcpServers).values({ teamId: w.teamId, name: `m5`, transport: `http`, url: MCP_URL, auth: `none` })
+    await db.update(apps).set({ package: sql`package || '{"upstreams":["m5"]}'::jsonb` }).where(eq(apps.id, w.appId))
+    const servers = await (await asUser(w.mate)).mcpServers.list({ teamId: w.teamId })
+    expect(servers.map((s) => [s.name, s.usedBy])).toEqual([[`m5`, [`Notes`]]])
+  })
+})

@@ -120,7 +120,7 @@ export function AppsConsent({
 
   const connect = async (serverId: string, auth: string | null) => {
     if (auth !== `oauth`) {
-      window.open(`/t/${team?.slug}/settings/mcp-servers?connect=${serverId}`, `_blank`, `noopener`)
+      window.open(`/t/${team?.slug}/settings/mcp?connect=${serverId}`, `_blank`, `noopener`)
       return
     }
     setPending(serverId)

@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, desc, eq, inArray, max, or, sql } from "drizzle-orm"
-import { mcpCalls, mcpGrants, oauthApplications, teamMembers } from "@/db/schema"
+import { apps, mcpCalls, mcpGrants, oauthApplications, teamMembers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { getTeamMember } from "@/lib/auth/membership"
 import { revokeClient } from "@/lib/emcp/revoke"
@@ -117,5 +117,50 @@ export const mcpClientsRouter = router({
       const revoked = await revokeClient(ctx.db, target, input.clientId)
       if (revoked === 0) throw new TRPCError({ code: `NOT_FOUND`, message: `Client not found` })
       return { ok: true as const }
+    }),
+})
+
+export interface McpActivityRow {
+  id: string
+  tool: string
+  status: string
+  error: string | null
+  appName: string | null
+  userName: string
+  clientName: string | null
+  createdAt: string
+}
+
+// #VAPP-185: Settings › MCP › Activity: the `mcp_calls` audit, newest first
+// (90 days by retention): owners the team's calls, a member their own.
+export const mcpActivityRouter = router({
+  list: authedProcedure
+    .input(z.object({ teamId: uuid, limit: z.number().int().min(1).max(200).default(100) }))
+    .query(async ({ ctx, input }): Promise<{ owner: boolean; calls: McpActivityRow[] }> => {
+      const me = await getTeamMember(ctx.session.user.id, input.teamId)
+      if (!me) throw new TRPCError({ code: `NOT_FOUND`, message: `Team not found` })
+      const owner = me.role === `owner`
+      const rows = await ctx.db
+        .select({
+          id: mcpCalls.id,
+          tool: mcpCalls.tool,
+          status: mcpCalls.status,
+          error: mcpCalls.error,
+          appName: apps.name,
+          userName: users.name,
+          clientName: oauthApplications.name,
+          createdAt: mcpCalls.createdAt,
+        })
+        .from(mcpCalls)
+        .leftJoin(apps, eq(apps.id, mcpCalls.appId))
+        .leftJoin(users, eq(users.id, mcpCalls.userId))
+        .leftJoin(oauthApplications, eq(oauthApplications.clientId, mcpCalls.clientId))
+        .where(and(eq(mcpCalls.teamId, input.teamId), owner ? undefined : eq(mcpCalls.userId, ctx.session.user.id)))
+        .orderBy(desc(mcpCalls.createdAt))
+        .limit(input.limit)
+      return {
+        owner,
+        calls: rows.map((r) => ({ ...r, userName: r.userName ?? ``, createdAt: r.createdAt.toISOString() })),
+      }
     }),
 })

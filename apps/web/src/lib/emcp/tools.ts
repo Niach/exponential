@@ -4277,7 +4277,7 @@ export function registerExponentialTools(
 
   /** Settings → MCP servers, auto-starting the connect for `serverId`. */
   const mcpConnectUrl = (teamSlug: string, serverId: string) =>
-    `${appBaseUrl()}/t/${encodeURIComponent(teamSlug)}/settings/mcp-servers?connect=${serverId}`
+    `${appBaseUrl()}/t/${encodeURIComponent(teamSlug)}/settings/mcp?connect=${serverId}`
 
   const loadTeamSlug = async (teamId: string) => {
     const [team] = await db

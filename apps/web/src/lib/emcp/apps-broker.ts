@@ -356,7 +356,7 @@ async function runAction(ctx: BrokerContext, tool: BrokerTool, input: Record<str
 }
 
 function connectUrl(ctx: BrokerContext): string {
-  return `${appBaseUrl()}/t/${ctx.teamSlug}/settings/mcp-servers`
+  return `${appBaseUrl()}/t/${ctx.teamSlug}/settings/mcp`
 }
 
 async function runUpstream(ctx: BrokerContext, tool: BrokerTool, input: Record<string, unknown>): Promise<CallToolResult> {
