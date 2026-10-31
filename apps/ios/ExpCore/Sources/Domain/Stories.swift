@@ -9,8 +9,9 @@ public enum Stories {
         case plan, question, result
     }
 
+    /// `open` = a plan: THE plan page (plan-page.json), never a decision in a story.
     public enum Footer: String, Equatable, Sendable {
-        case plan, choices, reply, none
+        case open, choices, reply, none
     }
 
     // MARK: - Fixture constants
@@ -50,8 +51,35 @@ public enum Stories {
     public enum Progress {
         public static let height: Double = 3
         public static let gap: Double = 4
-        /// A new story's first segment starts this far after the last one.
+        /// Retired (#EXP-1493: one segment per story, `gap` apart); the
+        /// fixture keeps it for old mirrors.
         public static let storyGap: Double = 10
+    }
+
+    /// #EXP-1493 THE kind badge ×4 (eUI Badge, the pill): the concept icon +
+    /// the kind word, text in the tint, the tint at `fill` behind, at
+    /// `stroke` as its border.
+    public enum Badge {
+        public static func icon(_ kind: Kind) -> String {
+            switch kind {
+            case .plan: "coding-plan"
+            case .question: "ui-help"
+            case .result: "ui-check"
+            }
+        }
+
+        /// The ask-dock tints: plan primary, question yellow, result emerald.
+        public static func tint(_ kind: Kind) -> String {
+            switch kind {
+            case .plan: "primary"
+            case .question: "yellow"
+            case .result: "emerald"
+            }
+        }
+
+        public static let fill: Double = 0.14
+        public static let stroke: Double = 0.3
+        public static let height: Double = 20
     }
 
     public enum Viewer {
@@ -229,14 +257,15 @@ public enum Stories {
         public let description: String?
         public let pictures: [Picture]
         public let surface: Bool
-        public let text: String?
+        /// A plan's counts (plan-page `counts`), else nil.
+        public let counts: PlanPage.Counts?
         public let footer: Footer
         public let autoAdvanceMs: Double?
 
         public init(
             id: String, sessionId: String, rootId: String, sessionName: String, kind: Kind, waiting: Bool, seen: Bool,
             createdAt: Double, meta: String, title: String?, description: String? = nil, pictures: [Picture],
-            surface: Bool, text: String?, footer: Footer, autoAdvanceMs: Double?
+            surface: Bool, counts: PlanPage.Counts?, footer: Footer, autoAdvanceMs: Double?
         ) {
             self.id = id
             self.sessionId = sessionId
@@ -251,7 +280,7 @@ public enum Stories {
             self.description = description
             self.pictures = pictures
             self.surface = surface
-            self.text = text
+            self.counts = counts
             self.footer = footer
             self.autoAdvanceMs = autoAdvanceMs
         }
@@ -315,8 +344,9 @@ public enum Stories {
 
     private static let hour: Double = 3_600_000
 
-    private static func byCreated(_ a: Story, _ b: Story) -> Bool {
-        a.createdAt != b.createdAt ? a.createdAt < b.createdAt : a.id < b.id
+    /// #EXP-1493: newest first (createdAt desc, then id desc).
+    private static func byNewest(_ a: Story, _ b: Story) -> Bool {
+        a.createdAt != b.createdAt ? a.createdAt > b.createdAt : a.id > b.id
     }
 
     private static func blank(_ value: String?) -> String? {
@@ -364,9 +394,10 @@ public enum Stories {
         case .answered: "\(Copy.kind(kind)) · \(Tab.Copy.answered) · \(ageText)"
         case .superseded, nil: "\(Copy.kind(kind)) · \(ageText)"
         }
-        let footer: Footer = resolution != nil
-            ? .none
-            : kind == .plan ? .plan : kind == .question ? (card.options.isEmpty ? .reply : .choices) : .none
+        let footer: Footer = kind == .plan
+            ? .open
+            : resolution != nil ? .none
+            : kind == .question ? (card.options.isEmpty ? .reply : .choices) : .none
         let story = Story(
             id: message.id,
             sessionId: session.id,
@@ -382,7 +413,7 @@ public enum Stories {
             description: blank(card.description),
             pictures: pictures,
             surface: surface,
-            text: kind == .plan && pictures.isEmpty && !surface ? card.plan : nil,
+            counts: kind == .plan ? PlanPage.counts(card) : nil,
             footer: footer,
             autoAdvanceMs: kind == .result ? Constants.autoAdvanceMs : nil
         )
@@ -439,11 +470,16 @@ public enum Stories {
 
         var list: [StoryRing] = order.compactMap { byKey[$0] }
         for index in list.indices {
-            let stories = list[index].stories
-            let waiting = stories.filter(\.waiting).sorted(by: byCreated)
-            let unseen = stories.filter { !$0.waiting && !$0.seen }.sorted(by: byCreated)
-            let seen = stories.filter { !$0.waiting && $0.seen }.sorted(by: byCreated)
-            list[index].stories = waiting + unseen + seen
+            // #EXP-1493: a session's newer result replaces its older ones in a ring.
+            var newestResult: [String: Story] = [:]
+            for story in list[index].stories where story.kind == .result {
+                if let kept = newestResult[story.sessionId], !byNewest(story, kept) { continue }
+                newestResult[story.sessionId] = story
+            }
+            let stories = list[index].stories.filter { $0.kind != .result || newestResult[$0.sessionId]?.id == $0.id }
+            let waiting = stories.filter(\.waiting).sorted(by: byNewest)
+            let rest = stories.filter { !$0.waiting }.sorted(by: byNewest)
+            list[index].stories = waiting + rest
             list[index].waiting = waiting.count
             list[index].unseen = list[index].stories.contains { $0.waiting || !$0.seen }
         }
@@ -458,8 +494,8 @@ public enum Stories {
 
     /// THE Stories tab of a session screen (stories.json `tab`): every story
     /// the root's tree ever posted, never expiring; settled plans/questions
-    /// stay (footer none, `meta` names the outcome), a superseded plan drops.
-    /// Waiting first (oldest first), then the rest newest first. ONE ring
+    /// stay (footer none, a plan keeps `open`; `meta` names the outcome), a
+    /// superseded plan drops. Waiting first, then the rest, each newest first. ONE ring
     /// (the root's, as `rings` keys it) so the viewer opens on it; nil = the
     /// empty state. `unseen` = the tab's dot.
     public static func storyTab(
@@ -477,8 +513,8 @@ public enum Stories {
             list.append(built.story)
         }
         if list.isEmpty { return nil }
-        let waiting = list.filter(\.waiting).sorted(by: byCreated)
-        let rest = list.filter { !$0.waiting }.sorted { byCreated($1, $0) }
+        let waiting = list.filter(\.waiting).sorted(by: byNewest)
+        let rest = list.filter { !$0.waiting }.sorted(by: byNewest)
         var ring = emptyRing(root, agents: agentsById)
         ring.waiting = waiting.count
         ring.unseen = list.contains { $0.waiting || !$0.seen }
@@ -489,36 +525,32 @@ public enum Stories {
     // MARK: - Frames (STORY VIEWER)
 
     public enum FrameKind: String, Equatable, Sendable {
-        case picture, surface, text, title
+        case plan, gallery, surface, title
     }
 
-    /// One step of THE viewer: a picture OR a surface (or a plan's text / a
-    /// bare question), never both.
+    /// THE viewer's ONE step per story (#EXP-1493): a plan's cover, a
+    /// gallery (the pictures swipe inside the frame), a surface, or a bare title.
     public struct Frame: Equatable, Sendable {
         /// The story's index in the ring and its id.
         public let story: Int
         public let storyId: String
-        /// This frame's place among its story's frames.
-        public let index: Int
-        public let count: Int
         public let kind: FrameKind
-        /// The picture's index in `story.pictures` (kind `picture`), else nil.
-        public let picture: Int?
+        /// The story's resolved pictures (a plan's cover = the first).
+        public let pictures: Int
         public let title: String?
         public let description: String?
         public let footer: Footer
+        /// Per picture on a gallery (the frame lasts pictures × it), else the frame's.
         public let autoAdvanceMs: Double?
 
         public init(
-            story: Int, storyId: String, index: Int, count: Int, kind: FrameKind, picture: Int?, title: String?,
-            description: String?, footer: Footer, autoAdvanceMs: Double?
+            story: Int, storyId: String, kind: FrameKind, pictures: Int, title: String?, description: String?,
+            footer: Footer, autoAdvanceMs: Double?
         ) {
             self.story = story
             self.storyId = storyId
-            self.index = index
-            self.count = count
             self.kind = kind
-            self.picture = picture
+            self.pictures = pictures
             self.title = title
             self.description = description
             self.footer = footer
@@ -526,45 +558,28 @@ public enum Stories {
         }
     }
 
-    /// A story's frames: one per picture (pictures win: the surface stays in
-    /// the chat), else the surface, else the plan text, else the bare title.
-    static func framesOf(_ story: Story, at: Int) -> [Frame] {
-        let kinds: [(FrameKind, Int?)] = story.pictures.isEmpty
-            ? [(story.surface ? .surface : story.text != nil ? .text : .title, nil)]
-            : story.pictures.indices.map { (.picture, $0) }
-        return kinds.enumerated().map { index, entry in
-            let (kind, picture) = entry
-            let description: String? = switch kind {
-            case .picture: blank(story.pictures[picture ?? 0].caption)
-            case .text: nil
-            default: story.description
-            }
-            return Frame(
-                story: at,
-                storyId: story.id,
-                index: index,
-                count: kinds.count,
-                kind: kind,
-                picture: picture,
-                // The plan text already begins with the title line.
-                title: kind == .text ? nil : story.title,
-                description: description,
-                footer: index == kinds.count - 1 ? story.footer : .none,
-                autoAdvanceMs: story.autoAdvanceMs
-            )
-        }
+    /// A story's frame: a plan = its cover; else pictures win (a gallery: the
+    /// surface stays in the chat), else the surface, else the bare title.
+    static func frameOf(_ story: Story, at: Int) -> Frame {
+        let kind: FrameKind = story.kind == .plan ? .plan
+            : !story.pictures.isEmpty ? .gallery
+            : story.surface ? .surface : .title
+        return Frame(
+            story: at, storyId: story.id, kind: kind, pictures: story.pictures.count, title: story.title,
+            description: story.description, footer: story.footer, autoAdvanceMs: story.autoAdvanceMs
+        )
     }
 
-    /// THE viewer's steps over a ring (`frames`): every story's frames,
-    /// flattened in story order.
+    /// THE viewer's steps over a ring (`frameCases`): ONE frame per story, in
+    /// ring order.
     public static func frames(_ stories: [Story]) -> [Frame] {
-        stories.enumerated().flatMap { at, story in framesOf(story, at: at) }
+        stories.enumerated().map { at, story in frameOf(story, at: at) }
     }
 
-    /// The flat frame index of a story (and one of its pictures); -1 = none.
-    public static func frameIndex(_ frames: [Frame], storyId: String, picture: Int = 0) -> Int {
-        guard let first = frames.firstIndex(where: { $0.storyId == storyId }) else { return -1 }
-        return frames.firstIndex { $0.storyId == storyId && $0.picture == picture } ?? first
+    /// The frame index of a story; -1 = none. A thumbnail opens its story's
+    /// frame with the gallery at that picture (the host's state).
+    public static func frameIndex(_ frames: [Frame], storyId: String) -> Int {
+        frames.firstIndex { $0.storyId == storyId } ?? -1
     }
 
     /// THE STORY ROW of the chats header (#EXP-1461, `rowCases`): ONLY

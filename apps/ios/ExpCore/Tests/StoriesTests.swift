@@ -54,7 +54,9 @@ final class StoriesTests: XCTestCase {
                         ]
                     },
                     "surface": story.surface,
-                    "text": orNull(story.text),
+                    "counts": orNull(story.counts.map { counts -> [String: Any] in
+                        ["sections": counts.sections, "pictures": counts.pictures, "questions": counts.questions]
+                    }),
                     "footer": story.footer.rawValue,
                     "autoAdvanceMs": orNull(story.autoAdvanceMs),
                 ]
@@ -76,7 +78,7 @@ final class StoriesTests: XCTestCase {
         ])
         XCTAssertEqual(f["ring"] as? [String: Double], ["width": Stories.Ring.width, "gap": Stories.Ring.gap])
         XCTAssertEqual(
-            f["progress"] as? [String: Double], [
+            (f["progress"] as? [String: Any])?.filter { $0.key != "$comment" } as? [String: Double], [
                 "height": Stories.Progress.height, "gap": Stories.Progress.gap,
                 "storyGap": Stories.Progress.storyGap,
             ]
@@ -94,6 +96,14 @@ final class StoriesTests: XCTestCase {
             "itemWidth": Stories.Row.itemWidth, "gap": Stories.Row.gap,
             "labelGap": Stories.Row.labelGap, "padBottom": Stories.Row.padBottom,
         ])
+        let badge = try XCTUnwrap(f["badge"] as? [String: Any])
+        for kind in [Stories.Kind.plan, .question, .result] {
+            XCTAssertEqual((badge["icons"] as? [String: String])?[kind.rawValue], Stories.Badge.icon(kind))
+            XCTAssertEqual((badge["tints"] as? [String: String])?[kind.rawValue], Stories.Badge.tint(kind))
+        }
+        XCTAssertEqual(num(badge["fill"]), Stories.Badge.fill)
+        XCTAssertEqual(num(badge["stroke"]), Stories.Badge.stroke)
+        XCTAssertEqual(num(badge["height"]), Stories.Badge.height)
         XCTAssertEqual(f["testIds"] as? [String: String], [
             "ring": Stories.TestIds.ring, "viewer": Stories.TestIds.viewer, "progress": Stories.TestIds.progress,
             "header": Stories.TestIds.header, "next": Stories.TestIds.next, "previous": Stories.TestIds.previous,
@@ -241,14 +251,20 @@ final class StoriesTests: XCTestCase {
                 )
             },
             surface: raw["surface"] as? Bool ?? false,
-            text: raw["text"] as? String,
+            counts: (raw["counts"] as? [String: Any]).map { counts in
+                PlanPage.Counts(
+                    sections: (counts["sections"] as? Int) ?? 0,
+                    pictures: (counts["pictures"] as? Int) ?? 0,
+                    questions: (counts["questions"] as? Int) ?? 0
+                )
+            },
             footer: Stories.Footer(rawValue: raw["footer"] as? String ?? "") ?? .none,
             autoAdvanceMs: num(raw["autoAdvanceMs"])
         )
     }
 
-    /// #EXP-1432 `storyFrames(ring)` over every `frameCases` entry, the WHOLE
-    /// array.
+    /// #EXP-1493 `storyFrames(ring)` over every `frameCases` entry, the WHOLE
+    /// array: ONE frame per story.
     func testFrameCases() throws {
         let cases = try XCTUnwrap(try fixture()["frameCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)
@@ -261,10 +277,8 @@ final class StoriesTests: XCTestCase {
                 [
                     "story": frame.story,
                     "storyId": frame.storyId,
-                    "index": frame.index,
-                    "count": frame.count,
                     "kind": frame.kind.rawValue,
-                    "picture": orNull(frame.picture),
+                    "pictures": frame.pictures,
                     "title": orNull(frame.title),
                     "description": orNull(frame.description),
                     "footer": frame.footer.rawValue,
@@ -276,8 +290,8 @@ final class StoriesTests: XCTestCase {
                 NSArray(array: actual).isEqual(to: expected),
                 "\(name)\nactual: \(actual)\nexpected: \(expected)"
             )
-            // A thumbnail opens at its picture's frame; a tile at the first.
-            for (at, frame) in Stories.frames(stories).enumerated() where frame.index == 0 {
+            // A tile (or a thumbnail) opens at its story's frame.
+            for (at, frame) in Stories.frames(stories).enumerated() {
                 XCTAssertEqual(Stories.frameIndex(Stories.frames(stories), storyId: frame.storyId), at, name)
             }
         }
