@@ -1,0 +1,134 @@
+{
+  "$comment": "eAgent orchestration (#EXP-1508): the thresholds, copy and fixture defaults every other fixture here replays against. Derived from Exponential's server (apps/web/src/lib/sessions, lib/agents/triggers.ts) on 2026-10-31; apps/web/src/lib/sessions/eagent-spec.test.ts fails when the server drifts from them (contract.json sessionsSend/sessionWatchdog/device/agentTrigger, SESSION_TREE_MAX_*, BUS_COPY, askText, TRIGGER_COPY). Times are unix ms (eCore), ids follow eCore's id rule, refusals are eCore Failures. Copy placeholders are `{name}`; the composite pieces are spelled out next to each template.",
+  "caps": {
+    "$comment": "A child sits at most treeMaxDepth below its root (root = depth 0). A tree holds at most treeMaxSessions LIVE sessions (status != ended, the root included): an ended branch frees its slot. Depth refuses with eCore `invalid`, the live cap with `limit`.",
+    "treeMaxDepth": 3,
+    "treeMaxSessions": 10
+  },
+  "reuse": {
+    "$comment": "S-3: an AGENT's message (the caller's tree has an acting agent: its root's agentId, else startedByAgentId) to another tree's ROOT thread reuses it only while: the thread waits on an answer (needsInput) or on the caller (#FEED-172, `awaitsCaller`), else it ended < maxEndedHours ago (or is live), its last turn (else activity, else its last write) is < maxIdleHours old and it has < maxChildren sub-sessions (every child row ever, ended ones too). A refused reuse never fails: a fresh root starts on the same device with the same message, watched by the caller, and the result carries `warning`.",
+    "maxEndedHours": 2,
+    "maxIdleHours": 24,
+    "maxChildren": 8
+  },
+  "watchdog": {
+    "$comment": "The server watchdog (every minute). backgroundStuckMinutes: a run busy only with background tasks is alive that long without a sign of life, then measured like any busy one. onlineWindowSeconds: a device not seen this long is offline.",
+    "unclaimedMinutes": 5,
+    "nudgeMinutes": 2,
+    "resumeMinutes": 5,
+    "stuckMinutes": 30,
+    "backgroundStuckMinutes": 240,
+    "onlineWindowSeconds": 90
+  },
+  "trigger": {
+    "$comment": "A schedule firing more than caughtUpAfterMinutes after its due minute says it was caught up. catchUpHours bounds the window the host scheduler searches (cron matching is the host's, never the core's).",
+    "catchUpHours": 24,
+    "caughtUpAfterMinutes": 2
+  },
+  "report": {
+    "max": 4000,
+    "fallback": "Ended without a summary."
+  },
+  "ask": {
+    "planMax": 2000
+  },
+  "assistantSilentEvents": [
+    "pr_opened",
+    "session_claimed"
+  ],
+  "copy": {
+    "claimed": "Started working on its device.",
+    "blocked": "Hit a usage limit{detail}. It stays blocked until its login rotates or the limit resets; nothing to do unless it should move or end.",
+    "blockedDetail": {
+      "$comment": "{detail}: window + resetsAt = ` ({window} window, resets {resetsAt})`, window only = ` ({window} window)`, resetsAt only = ` (resets {resetsAt})`, neither = ``.",
+      "window": " ({window} window",
+      "resets": "resets {resetsAt})"
+    },
+    "unclaimed": "Not picked up by its device for {minutes} minutes (still queued). The device may be offline; a person sees it under Needs you.",
+    "stuck": "No sign of life for {minutes} minutes while busy (no message, tool call, push or background task). Check whether it is still needed.",
+    "unresumed": "Interrupted {minutes}+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.",
+    "prOpened": "Opened PR #{number}: {url}",
+    "private": "{lead}\nRead it with exponential_sessions({op: \"get\", id: \"{id}\"}) if your account may see it.",
+    "privateReplyLead": "A private chat replied.",
+    "privateReportLead": "A private chat finished.",
+    "privatePrLead": "A private chat opened a pull request.",
+    "askQuestionLead": "Asks: ",
+    "askPlanLead": "Proposes a plan:",
+    "askPrivateQuestionLead": "Asks a question in a private chat.",
+    "askPrivatePlanLead": "Proposes a plan in a private chat.",
+    "askQuestion": {
+      "$comment": "Lines joined by \\n, the options line only with options: `{askQuestionLead}{question}`, `Options: {a | b}{flags}` (flags = ` (several allowed, free text allowed)` from multi and custom != false, each only when set, nothing when neither), then `answer`. The plan joins its blocks by \\n\\n: askPlanLead, the plan clipped to ask.planMax (longer = the first planMax-1 characters, end-trimmed, plus `…`), `Questions:` + one `- {id}: {prompt} ({label | label})` line each (only with questions), then `decide`.",
+      "options": "Options: {options}{flags}",
+      "several": "several allowed",
+      "freeText": "free text allowed",
+      "answer": "Answer with exponential_sessions_send({sessionId: \"{id}\", answer: {…}}) where answer = {answers: [\"<option>\"]} or {answer: \"<text>\"} if you know it; otherwise end your turn, a person answers in the card.",
+      "questions": "Questions:",
+      "decide": "Decide with exponential_sessions_send({sessionId: \"{id}\", answer: {…}}) where answer = {decision: \"approved\" | \"rejected\", answers: {\"<question id>\": [\"<option>\"]}, feedback: \"<text>\"} if it is yours to decide; otherwise end your turn, a person decides in the card."
+    },
+    "askHidden": "{lead}\nRead it with exponential_sessions({op: \"get\", id: \"{id}\"}) and answer with exponential_sessions_send({sessionId: \"{id}\", answer: {…}}) if you may see it; otherwise end your turn, a person answers in the card.",
+    "schedule": "Schedule `{cron}`{tz} fired{caughtUp}.",
+    "scheduleTz": " ({tz})",
+    "scheduleCaughtUp": " (caught up: this tick was missed earlier)",
+    "event": "Event `{name}` (from {from}):\n\n```json\n{payload}\n```",
+    "eventFrom": {
+      "session": "a session",
+      "user": "a person",
+      "server": "the server"
+    },
+    "reuseEnded": "it ended more than {hours} h ago",
+    "reuseIdle": "its last turn is more than {hours} h old",
+    "reuseCrowded": "it already has {children} sub-sessions",
+    "freshThread": "Started a fresh thread instead of reusing {id}: {reason}. You watch the new one.",
+    "tooDeep": "Sub-sessions nest at most {max} deep",
+    "tooMany": "A chat runs at most {max} sessions at once",
+    "endedNeedsMessage": "This session has ended: send a message to continue it",
+    "endedNothingToAnswer": "This session has ended: nothing to answer",
+    "otherDevice": "This session runs on another device",
+    "claimEnded": "This session has ended",
+    "replyEmpty": "A reply needs a body or a card",
+    "notFound": "Session not found"
+  },
+  "defaults": {
+    "$comment": "What a fixture's `given` omits. rootId/depth follow parentId (a root is its own root at depth 0) and a child shares its root's `shared` unless it names its own. A device omitted from `given` is offline; a session's host is the device its deviceId names. A given session is claimed (startedAt 0) unless it says `startedAt: null`.",
+    "session": {
+      "parentId": null,
+      "teamId": "t1",
+      "userId": "u1",
+      "shared": true,
+      "agentId": null,
+      "startedByAgentId": null,
+      "deviceId": "d1",
+      "status": "idle",
+      "busy": false,
+      "background": false,
+      "needsInput": false,
+      "blocked": null,
+      "wakeOn": [],
+      "createdAt": 0,
+      "startedAt": 0,
+      "endedAt": null,
+      "lastTurnAt": null,
+      "lastActivityAt": null,
+      "updatedAt": 0
+    },
+    "message": {
+      "authorKind": "user",
+      "authorSessionId": null,
+      "body": "",
+      "card": null,
+      "sealed": false,
+      "pending": false,
+      "answered": false,
+      "at": 0
+    },
+    "device": {
+      "lastSeenAt": 0,
+      "liveSessionIds": null
+    },
+    "agent": {
+      "role": "agent",
+      "triggers": [],
+      "firedAt": {}
+    }
+  }
+}

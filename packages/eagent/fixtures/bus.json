@@ -1,0 +1,1658 @@
+{
+  "$comment": "THE BUS (lib/sessions/bus.ts, trpc sessions.reply/report, lib/integrations/pr-sync.ts). Every transition of a session S is posted into its LISTENERS: its parent (whatever its status), then every LIVE session whose wakeOn names S, by id, each once. A line authored BY S (`authorSessionId` = S) and WAKING is pending input for its reader (the reader's device delivers it: that is the wake-up); a reader that has ended keeps the row, not waking. With no listener at all an event line lands on S itself, not waking (`session_claimed` excepted: it never falls back). WHAT WAKES: S's turn reply (agent-authored; a watching team agent conversation that is not S's parent hears no turns), S's question/plan (an `ask` mirror card naming the card row; askText, or the neutral askHidden line), S's wall (`session_blocked`, once: only when S was not blocked and the device does not handle it), S's PR (`pr_opened`, with the PR id), S's END (a `report` card: the summary, else S's last plain reply, else rules.report.fallback, clipped to report.max; a sealed summary or reply is never read). After its report nobody watches S (it leaves every wakeOn). Silent events (rules.assistantSilentEvents) skip an Assistant's conversation. PRIVACY: a listener whose readers may not see S (S private and the listener shared, or another member's) gets a NEUTRAL line for a reply, a report, a PR and an ask (copy.private* / askHidden). SEALED (EXP-1458): a sealed reply reaches listeners in S's own tree as a byte copy, listeners in another tree as the copy the device sealed for that tree (`copies[rootId]`), else the neutral line. A blank reply with no card is refused.",
+  "cases": [
+    {
+      "name": "a child's turn reply wakes its parent as the child's own message",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "body": "  Done: the iOS screens are in.  "
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "  Done: the iOS screens are in.  ",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Done: the iOS screens are in.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "lastActivityAt": 60000
+          }
+        },
+        "messages": {
+          "m2": {
+            "sessionId": "r1",
+            "pending": true
+          }
+        }
+      }
+    },
+    {
+      "name": "a reply needs a body or a card",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "body": "   "
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "A reply needs a body or a card",
+            "retryable": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "parent first, then live watchers by id; an ended watcher and a watching team agent conversation hear no turn",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "w2",
+            "wakeOn": [
+              "c1"
+            ]
+          },
+          {
+            "id": "w1",
+            "wakeOn": [
+              "c1"
+            ]
+          },
+          {
+            "id": "w3",
+            "wakeOn": [
+              "c1"
+            ],
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "wakeOn": [
+              "c1"
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "body": "Progress."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "Progress.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Progress.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "w1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Progress.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "w2",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Progress.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an ended parent keeps the line without being woken",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "body": "Late news."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "Late news.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Late news.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a private thread's reply reaches a shared watcher as the neutral line, its owner's own watcher in full",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "shared": false,
+            "userId": "u1"
+          },
+          {
+            "id": "w1",
+            "shared": true,
+            "userId": "u1",
+            "wakeOn": [
+              "r1"
+            ]
+          },
+          {
+            "id": "w2",
+            "shared": false,
+            "userId": "u1",
+            "wakeOn": [
+              "r1"
+            ]
+          },
+          {
+            "id": "w3",
+            "shared": false,
+            "userId": "u2",
+            "wakeOn": [
+              "r1"
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "body": "Private result."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "Private result.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "w1",
+              "authorKind": "agent",
+              "authorSessionId": "r1",
+              "body": "A private chat replied.\nRead it with exponential_sessions({op: \"get\", id: \"r1\"}) if your account may see it.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "w2",
+              "authorKind": "agent",
+              "authorSessionId": "r1",
+              "body": "Private result.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "w3",
+              "authorKind": "agent",
+              "authorSessionId": "r1",
+              "body": "A private chat replied.\nRead it with exponential_sessions({op: \"get\", id: \"r1\"}) if your account may see it.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a question card: needs input, the ask mirror (question, options, flags) wakes the parent",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "card": {
+                "kind": "question",
+                "question": "Which database?",
+                "options": [
+                  "Postgres",
+                  "SQLite"
+                ],
+                "multi": true
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "question",
+                "question": "Which database?",
+                "options": [
+                  "Postgres",
+                  "SQLite"
+                ],
+                "multi": true
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Asks: Which database?\nOptions: Postgres | SQLite (several allowed, free text allowed)\nAnswer with exponential_sessions_send({sessionId: \"c1\", answer: {…}}) where answer = {answers: [\"<option>\"]} or {answer: \"<text>\"} if you know it; otherwise end your turn, a person answers in the card.",
+              "card": {
+                "kind": "ask",
+                "sessionId": "c1",
+                "messageId": "m1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "needsInput": true,
+            "updatedAt": 60000
+          }
+        }
+      }
+    },
+    {
+      "name": "a plan card: the plan, its questions and how to decide; a hidden listener gets the neutral line",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "shared": false,
+            "userId": "u1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "w1",
+            "shared": true,
+            "wakeOn": [
+              "c1"
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "card": {
+                "kind": "plan",
+                "plan": "## Plan\n1. Schema\n2. API",
+                "questions": [
+                  {
+                    "id": "db",
+                    "prompt": "Database?",
+                    "options": [
+                      {
+                        "label": "Postgres"
+                      },
+                      {
+                        "label": "SQLite"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "plan",
+                "plan": "## Plan\n1. Schema\n2. API",
+                "questions": [
+                  {
+                    "id": "db",
+                    "prompt": "Database?",
+                    "options": [
+                      {
+                        "label": "Postgres"
+                      },
+                      {
+                        "label": "SQLite"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Proposes a plan:\n\n## Plan\n1. Schema\n2. API\n\nQuestions:\n- db: Database? (Postgres | SQLite)\n\nDecide with exponential_sessions_send({sessionId: \"c1\", answer: {…}}) where answer = {decision: \"approved\" | \"rejected\", answers: {\"<question id>\": [\"<option>\"]}, feedback: \"<text>\"} if it is yours to decide; otherwise end your turn, a person decides in the card.",
+              "card": {
+                "kind": "ask",
+                "sessionId": "c1",
+                "messageId": "m1"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "w1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Proposes a plan in a private chat.\nRead it with exponential_sessions({op: \"get\", id: \"c1\"}) and answer with exponential_sessions_send({sessionId: \"c1\", answer: {…}}) if you may see it; otherwise end your turn, a person answers in the card.",
+              "card": {
+                "kind": "ask",
+                "sessionId": "c1",
+                "messageId": "m1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a question with no options and free text off",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "card": {
+                "kind": "question",
+                "question": "Ready?",
+                "custom": false
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "question",
+                "question": "Ready?",
+                "custom": false
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Asks: Ready?\nAnswer with exponential_sessions_send({sessionId: \"c1\", answer: {…}}) where answer = {answers: [\"<option>\"]} or {answer: \"<text>\"} if you know it; otherwise end your turn, a person answers in the card.",
+              "card": {
+                "kind": "ask",
+                "sessionId": "c1",
+                "messageId": "m1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a usage wall is said once, waking; the device's next clear report re-derives needs input",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "blocked": {
+                "kind": "rate_limit",
+                "agent": "claude",
+                "window": "weekly",
+                "resetsAt": "2026-11-03T19:00:00.000Z"
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Hit a usage limit (weekly window, resets 2026-11-03T19:00:00.000Z). It stays blocked until its login rotates or the limit resets; nothing to do unless it should move or end.",
+              "card": {
+                "kind": "event",
+                "event": "session_blocked",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 120000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "blocked": {
+                "kind": "rate_limit",
+                "window": "session"
+              }
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 180000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "blocked": null,
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "blocked": null,
+            "needsInput": false,
+            "busy": true
+          }
+        }
+      }
+    },
+    {
+      "name": "a wall the device handles itself (it rotates the login) is not said",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "blocked": {
+                "kind": "rate_limit",
+                "handled": true
+              }
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "needsInput": true
+          }
+        }
+      }
+    },
+    {
+      "name": "the wall copy: a reset alone, and neither window nor reset",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "c2",
+            "parentId": "r1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "blocked": {
+                "kind": "rate_limit",
+                "resetsAt": "2026-11-01T00:00:00.000Z"
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Hit a usage limit (resets 2026-11-01T00:00:00.000Z). It stays blocked until its login rotates or the limit resets; nothing to do unless it should move or end.",
+              "card": {
+                "kind": "event",
+                "event": "session_blocked",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "c2",
+              "deviceId": "d1",
+              "blocked": {
+                "kind": "rate_limit"
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c2",
+              "body": "Hit a usage limit. It stays blocked until its login rotates or the limit resets; nothing to do unless it should move or end.",
+              "card": {
+                "kind": "event",
+                "event": "session_blocked",
+                "sessionId": "c2"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a PR opened wakes the parent with the PR named; a hidden watcher gets the neutral line",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "shared": false
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "w1",
+            "shared": true,
+            "wakeOn": [
+              "c1"
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.pr_opened",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "number": 1530,
+              "url": "https://github.com/Niach/exponential/pull/1530",
+              "pullRequestId": "pr1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Opened PR #1530: https://github.com/Niach/exponential/pull/1530",
+              "card": {
+                "kind": "event",
+                "event": "pr_opened",
+                "sessionId": "c1",
+                "pullRequestId": "pr1"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "w1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "A private chat opened a pull request.\nRead it with exponential_sessions({op: \"get\", id: \"c1\"}) if your account may see it.",
+              "card": {
+                "kind": "event",
+                "event": "pr_opened",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "silent events skip an Assistant's conversation; a plain agent's still hears them",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "wakeOn": []
+          },
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "wakeOn": [
+              "r1"
+            ]
+          },
+          {
+            "id": "pa1",
+            "agentId": "ag2",
+            "wakeOn": [
+              "r1"
+            ]
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "role": "assistant",
+            "conversationId": "as1"
+          },
+          {
+            "id": "ag2",
+            "ownerId": "u1",
+            "role": "agent",
+            "conversationId": "pa1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.pr_opened",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "number": 7,
+              "url": "https://example.test/pr/7",
+              "pullRequestId": "pr7"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "pa1",
+              "authorKind": "system",
+              "authorSessionId": "r1",
+              "body": "Opened PR #7: https://example.test/pr/7",
+              "card": {
+                "kind": "event",
+                "event": "pr_opened",
+                "sessionId": "r1",
+                "pullRequestId": "pr7"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an event line nobody listens to lands on the session itself, not waking",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "running",
+            "busy": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d1",
+              "blocked": {
+                "kind": "rate_limit",
+                "window": "session"
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "Hit a usage limit (session window). It stays blocked until its login rotates or the limit resets; nothing to do unless it should move or end.",
+              "card": {
+                "kind": "event",
+                "event": "session_blocked",
+                "sessionId": "r1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "r1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "the report: the summary when given, then nobody watches it",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "w1",
+            "wakeOn": [
+              "c1",
+              "x9"
+            ]
+          },
+          {
+            "id": "x9"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "summary": "  Shipped #1530.  "
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Shipped #1530.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Shipped #1530.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "w1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Shipped #1530.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Shipped #1530.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "endedIds": [
+              "c1"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "w1": {
+            "wakeOn": [
+              "x9"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "the report: no summary = the last plain reply; a sealed last reply = the fallback",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "c2",
+            "parentId": "r1"
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "body": "First.",
+            "at": 1000
+          },
+          {
+            "id": "g2",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "body": "",
+            "card": {
+              "kind": "question",
+              "question": "?"
+            },
+            "at": 2000
+          },
+          {
+            "id": "g3",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "body": "Last words.",
+            "at": 3000
+          },
+          {
+            "id": "g4",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "authorSessionId": "r1",
+            "body": "From the parent.",
+            "at": 4000
+          },
+          {
+            "id": "g5",
+            "sessionId": "c2",
+            "authorKind": "agent",
+            "body": "ev1.sealed",
+            "sealed": true,
+            "at": 5000
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Last words.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Last words.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "endedIds": [
+              "c1"
+            ]
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "c2"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "c2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c2"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c2",
+              "body": "Ended without a summary.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c2",
+                "summary": "Ended without a summary.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c2"
+            }
+          ],
+          "result": {
+            "sessionId": "c2",
+            "endedIds": [
+              "c2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "the report: a sealed summary is never read",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "summary": "ev1.sealed",
+              "summarySealed": true
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Ended without a summary.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Ended without a summary.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "endedIds": [
+              "c1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a private child's report reaches another member's watcher as the neutral report",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "shared": false,
+            "userId": "u1"
+          },
+          {
+            "id": "w1",
+            "shared": false,
+            "userId": "u2",
+            "wakeOn": [
+              "r1"
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "summary": "Secret result."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "r1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "w1",
+              "authorKind": "agent",
+              "authorSessionId": "r1",
+              "body": "A private chat finished.\nRead it with exponential_sessions({op: \"get\", id: \"r1\"}) if your account may see it.",
+              "card": {
+                "kind": "report",
+                "sessionId": "r1",
+                "summary": "A private chat finished.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "r1"
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "endedIds": [
+              "r1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ending a session closes its open ask mirrors",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "needsInput": true
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "card": {
+              "kind": "question",
+              "question": "Which?"
+            }
+          },
+          {
+            "id": "g2",
+            "sessionId": "r1",
+            "authorKind": "agent",
+            "authorSessionId": "c1",
+            "body": "Asks: Which?",
+            "card": {
+              "kind": "ask",
+              "sessionId": "c1",
+              "messageId": "g1"
+            },
+            "pending": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Ended without a summary.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Ended without a summary.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "endedIds": [
+              "c1"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "messages": {
+          "g2": {
+            "answered": true
+          }
+        },
+        "sessions": {
+          "c1": {
+            "needsInput": false
+          }
+        }
+      }
+    },
+    {
+      "name": "a sealed reply: a byte copy in its own tree, the device's copy for another tree, else the neutral line",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "w1",
+            "wakeOn": [
+              "c1"
+            ]
+          },
+          {
+            "id": "w2",
+            "wakeOn": [
+              "c1"
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "body": "ev1.tree-r1",
+              "sealed": true,
+              "copies": {
+                "w1": "ev1.tree-w1"
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "ev1.tree-r1",
+              "card": null,
+              "sealed": true,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "ev1.tree-r1",
+              "card": null,
+              "sealed": true,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "w1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "ev1.tree-w1",
+              "card": null,
+              "sealed": true,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "w2",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "A private chat replied.\nRead it with exponential_sessions({op: \"get\", id: \"c1\"}) if your account may see it.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    }
+  ]
+}

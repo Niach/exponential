@@ -1,0 +1,26 @@
+{
+  "name": "@exp/eagent",
+  "version": "0.0.0",
+  "description": "eAgent's orchestration spec: the session tree, the bus, wake-ups, reports, caps and the watchdog as fixtures plus a pure TypeScript reference reducer (Exponential's server and eagent-hub-core replay them)",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "bun test ./src",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@exp/ecore": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./reduce": "./src/reduce.ts",
+    "./copy": "./src/copy.ts",
+    "./model": "./src/model.ts",
+    "./fixtures/*": "./fixtures/*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}

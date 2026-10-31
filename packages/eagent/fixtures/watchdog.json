@@ -1,0 +1,1206 @@
+{
+  "$comment": "THE WATCHDOG (lib/sessions/watchdog.ts, trpc devices.heartbeat, sessions.report). `watchdog.tick` runs every minute; within one tick the rules run in this order, each over the sessions oldest first: (1) UNCLAIMED: queued, never started, not blocked, created more than unclaimedMinutes ago = blocked `unclaimed` + needsInput, said once (waking; with nobody listening, on itself). The claim clears it. (2) NUDGE: a running/idle session not parked `device_offline` whose host device is known and which holds pending input older than nudgeMinutes = a `nudge` of its device, once per device per tick, every tick while it lasts (no row write). (3) STUCK: running/idle, busy, not blocked, NO SIGN OF LIFE for stuckMinutes (liveness = the later of updatedAt and lastActivityAt: a report, a reply, the heartbeat's per-session activity), not listed live by its ONLINE host; a `background` run is alive for backgroundStuckMinutes first = blocked `stuck` + needsInput, said once (copy.stuck with the whole silent minutes, never fewer than the threshold). The device's next report or a heartbeat listing it clears it (needsInput re-derived from open cards). (4) OFFLINE: a busy running/idle session whose host was not seen within onlineWindowSeconds = idle, not busy, blocked `device_offline` with resume (mid-turn) and resumeSince null: an INTERRUPTION, SILENT (no line, needsInput untouched); a running one between turns on a dead host just reads idle. (5) UNRESUMED: an interruption with resume whose resumeSince is more than resumeMinutes ago and that is not yet on a person = needsInput, said once as `session_interrupted` (copy.unresumed, waking). (6) WALLS: a `rate_limit` whose RFC 3339 resetsAt has passed = cleared silently (unparseable = the device's to clear). HEARTBEAT (`device.heartbeat {liveSessionIds?, activity?}`): the device is seen now; its `device_offline` sessions: no list (an older device) or not mid-turn = cleared; listed = running + busy again; unlisted mid-turn = keeps the flag, `resumeSince` stamped now (the resume clock starts when the device is back). Activity entries (valid ids, never later than now) move lastActivityAt forward on its running/idle sessions. With a list: every running + busy session of the device NOT listed (an empty list = all of them) = idle + blocked `restarted`, resume, resumeSince now (its process died; silent); a listed `stuck` one is cleared. ANY device report clears `stuck` and the interruptions (the device is back on it); a `lost` report (process_lost / daemon_restart) never ends: idle, and mid-turn = `restarted` with resume (silent), a usage wall stays. Ids in the live list follow eCore's id rule; anything else is dropped (`liveIdCases`).",
+  "cases": [
+    {
+      "name": "unclaimed: not before unclaimedMinutes, then flagged once and said to the parent",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "queued",
+            "startedAt": null,
+            "createdAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 300000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 300001
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Not picked up by its device for 5 minutes (still queued). The device may be offline; a person sees it under Needs you.",
+              "card": {
+                "kind": "event",
+                "event": "session_unclaimed",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 360000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.claim",
+            "at": 400000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "brief",
+              "sessionId": "c1",
+              "messageId": null,
+              "sealed": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Started working on its device.",
+              "card": {
+                "kind": "event",
+                "event": "session_claimed",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "running",
+            "blocked": null,
+            "needsInput": false
+          }
+        }
+      }
+    },
+    {
+      "name": "nudge: pending input older than nudgeMinutes nudges its device once per tick; a parked session is skipped",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "deviceId": "d1"
+          },
+          {
+            "id": "r2",
+            "deviceId": "d1"
+          },
+          {
+            "id": "r3",
+            "deviceId": "d2",
+            "blocked": {
+              "kind": "device_offline",
+              "since": 0,
+              "resume": true,
+              "resumeSince": null
+            }
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 0
+          },
+          {
+            "id": "d2",
+            "lastSeenAt": 0
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "r1",
+            "body": "Hi",
+            "pending": true,
+            "at": 0
+          },
+          {
+            "id": "g2",
+            "sessionId": "r2",
+            "authorKind": "agent",
+            "authorSessionId": "x1",
+            "body": "Report",
+            "pending": true,
+            "at": 0
+          },
+          {
+            "id": "g3",
+            "sessionId": "r3",
+            "body": "Hi",
+            "pending": true,
+            "at": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 120000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 180000
+          },
+          "effects": [
+            {
+              "kind": "nudge",
+              "deviceId": "d1"
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.consume",
+            "at": 190000,
+            "data": {
+              "sessionId": "r1",
+              "messageIds": [
+                "g1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "r1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.consume",
+            "at": 190000,
+            "data": {
+              "sessionId": "r2",
+              "messageIds": [
+                "g2"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "r2"
+          }
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 240000
+          },
+          "effects": [],
+          "result": {}
+        }
+      ]
+    },
+    {
+      "name": "stuck: busy with no sign of life for stuckMinutes, said once with the silent minutes",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true,
+            "updatedAt": 0,
+            "lastActivityAt": 600000
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 2400000,
+            "liveSessionIds": []
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 2400000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": [
+                "c1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 2460000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 2500000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": null
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 2520000
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "No sign of life for 32 minutes while busy (no message, tool call, push or background task). Check whether it is still needed.",
+              "card": {
+                "kind": "event",
+                "event": "session_stuck",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 2580000
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "blocked": {
+              "kind": "stuck",
+              "since": 2520000,
+              "window": null,
+              "resetsAt": null
+            },
+            "needsInput": true
+          }
+        }
+      }
+    },
+    {
+      "name": "stuck: activity from the heartbeat is a sign of life; a report clears the flag",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true,
+            "updatedAt": 0
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 1700000,
+            "data": {
+              "deviceId": "d1",
+              "activity": [
+                {
+                  "sessionId": "c1",
+                  "at": 1690000
+                },
+                {
+                  "sessionId": "c1",
+                  "at": 9999999999
+                }
+              ]
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 1750000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 3500000,
+            "data": {
+              "deviceId": "d1"
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 3550000
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "No sign of life for 30 minutes while busy (no message, tool call, push or background task). Check whether it is still needed.",
+              "card": {
+                "kind": "event",
+                "event": "session_stuck",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 3700000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "blocked": null,
+            "needsInput": false,
+            "lastActivityAt": 3700000
+          }
+        }
+      }
+    },
+    {
+      "name": "stuck: a background run is alive for backgroundStuckMinutes, then measured like any busy one",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "running",
+            "busy": true,
+            "background": true,
+            "updatedAt": 0
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 14400000
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 14400000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 14460000
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "No sign of life for 241 minutes while busy (no message, tool call, push or background task). Check whether it is still needed.",
+              "card": {
+                "kind": "event",
+                "event": "session_stuck",
+                "sessionId": "r1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {}
+        }
+      ]
+    },
+    {
+      "name": "offline: a busy run on a silent host is interrupted silently; one between turns just reads idle",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true,
+            "updatedAt": 0
+          },
+          {
+            "id": "c2",
+            "parentId": "r1",
+            "status": "running",
+            "busy": false,
+            "updatedAt": 0
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 90000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 90001
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": {
+              "kind": "device_offline",
+              "since": 90001,
+              "window": null,
+              "resetsAt": null,
+              "resume": true,
+              "resumeSince": null
+            }
+          },
+          "c2": {
+            "status": "idle",
+            "blocked": null
+          }
+        }
+      }
+    },
+    {
+      "name": "the device is back: a listed run is busy again, an unlisted mid-turn one starts the resume clock, an older device clears all",
+      "given": {
+        "sessions": [
+          {
+            "id": "s1",
+            "deviceId": "d1",
+            "blocked": {
+              "kind": "device_offline",
+              "since": 0,
+              "resume": true,
+              "resumeSince": null
+            }
+          },
+          {
+            "id": "s2",
+            "deviceId": "d1",
+            "blocked": {
+              "kind": "device_offline",
+              "since": 0,
+              "resume": true,
+              "resumeSince": null
+            }
+          },
+          {
+            "id": "s3",
+            "deviceId": "d1",
+            "blocked": {
+              "kind": "device_offline",
+              "since": 0,
+              "resume": false,
+              "resumeSince": null
+            }
+          },
+          {
+            "id": "s4",
+            "deviceId": "d2",
+            "blocked": {
+              "kind": "device_offline",
+              "since": 0,
+              "resume": true,
+              "resumeSince": null
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 600000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": [
+                "s1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 660000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": [
+                "s1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 600000,
+            "data": {
+              "deviceId": "d2"
+            }
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "s1": {
+            "status": "running",
+            "busy": true,
+            "blocked": null
+          },
+          "s2": {
+            "status": "idle",
+            "blocked": {
+              "kind": "device_offline",
+              "since": 0,
+              "resume": true,
+              "resumeSince": 600000
+            }
+          },
+          "s3": {
+            "blocked": null
+          },
+          "s4": {
+            "blocked": null
+          }
+        }
+      }
+    },
+    {
+      "name": "a busy run the living device no longer lists died: restarted, resume, silent; an empty list = all of them",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true
+          },
+          {
+            "id": "c2",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true
+          },
+          {
+            "id": "c3",
+            "parentId": "r1",
+            "status": "idle",
+            "busy": false
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 60000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": [
+                "c2",
+                "not an id",
+                7
+              ]
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 120000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": []
+            }
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "idle",
+            "busy": false,
+            "blocked": {
+              "kind": "restarted",
+              "since": 60000,
+              "window": null,
+              "resetsAt": null,
+              "resume": true,
+              "resumeSince": 60000
+            }
+          },
+          "c2": {
+            "status": "idle",
+            "blocked": {
+              "kind": "restarted",
+              "since": 120000,
+              "window": null,
+              "resetsAt": null,
+              "resume": true,
+              "resumeSince": 120000
+            }
+          },
+          "c3": {
+            "blocked": null
+          }
+        }
+      }
+    },
+    {
+      "name": "unresumed: not continued resumeMinutes after the device could = Needs you, said once",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "blocked": {
+              "kind": "restarted",
+              "since": 0,
+              "resume": true,
+              "resumeSince": 0
+            }
+          },
+          {
+            "id": "c2",
+            "parentId": "r1",
+            "blocked": {
+              "kind": "device_offline",
+              "since": 0,
+              "resume": true,
+              "resumeSince": null
+            }
+          },
+          {
+            "id": "c3",
+            "parentId": "r1",
+            "blocked": {
+              "kind": "restarted",
+              "since": 0,
+              "resume": false,
+              "resumeSince": 0
+            }
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 300000
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 300000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 300001
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Interrupted 5+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.",
+              "card": {
+                "kind": "event",
+                "event": "session_interrupted",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 360000
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "needsInput": true
+          },
+          "c2": {
+            "needsInput": false
+          },
+          "c3": {
+            "needsInput": false
+          }
+        }
+      }
+    },
+    {
+      "name": "a message to an interrupted run waits for its device; any device report clears the interruption",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "needsInput": true,
+            "blocked": {
+              "kind": "restarted",
+              "since": 0,
+              "resume": true,
+              "resumeSince": 0
+            }
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 600000
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 600000,
+            "data": {
+              "sessionId": "r1",
+              "userId": "u1",
+              "text": "Carry on."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Carry on.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 610000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d1",
+              "status": "running",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "r1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "blocked": null,
+            "needsInput": false,
+            "busy": true,
+            "status": "running"
+          }
+        }
+      }
+    },
+    {
+      "name": "a lost process never ends the session: idle, mid-turn = restarted with resume; a usage wall stays",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true
+          },
+          {
+            "id": "c2",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true,
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "weekly",
+              "resetsAt": null
+            }
+          },
+          {
+            "id": "c3",
+            "parentId": "r1",
+            "status": "idle",
+            "busy": false
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "lost": "daemon_restart"
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "c2",
+              "deviceId": "d1",
+              "lost": "process_lost"
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c2"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "c3",
+              "deviceId": "d1",
+              "lost": "process_lost"
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c3"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "idle",
+            "blocked": {
+              "kind": "restarted",
+              "since": 60000,
+              "window": null,
+              "resetsAt": null,
+              "resume": true,
+              "resumeSince": 60000
+            }
+          },
+          "c2": {
+            "status": "idle",
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "weekly",
+              "resetsAt": null
+            }
+          },
+          "c3": {
+            "status": "idle",
+            "blocked": null
+          }
+        }
+      }
+    },
+    {
+      "name": "a usage wall whose reset passed is cleared silently; an unparseable one stays the device's",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "needsInput": true,
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "session",
+              "resetsAt": "1970-01-01T00:05:00.000Z"
+            }
+          },
+          {
+            "id": "r2",
+            "needsInput": true,
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "session",
+              "resetsAt": "soon"
+            }
+          },
+          {
+            "id": "r3",
+            "needsInput": true,
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "session",
+              "resetsAt": "1970-01-01T00:05:00.000Z"
+            }
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 300000
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "r3",
+            "authorKind": "agent",
+            "card": {
+              "kind": "question",
+              "question": "Which?"
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 299999
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 300000
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "blocked": null,
+            "needsInput": false
+          },
+          "r2": {
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "session",
+              "resetsAt": "soon"
+            }
+          },
+          "r3": {
+            "blocked": null,
+            "needsInput": true
+          }
+        }
+      }
+    }
+  ],
+  "silentCases": [
+    {
+      "alive": 0,
+      "now": 1800000,
+      "expected": 30
+    },
+    {
+      "alive": 0,
+      "now": 5459999,
+      "expected": 90
+    },
+    {
+      "alive": 100000,
+      "now": 0,
+      "expected": 30
+    },
+    {
+      "alive": null,
+      "now": 0,
+      "expected": 30
+    }
+  ],
+  "liveIdCases": [
+    {
+      "ids": [
+        "c1",
+        "c1",
+        "8296328e-d2e8-4e99-a79f-c8fcc620fd86"
+      ],
+      "expected": {
+        "ids": [
+          "c1",
+          "8296328e-d2e8-4e99-a79f-c8fcc620fd86"
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "ids": [
+        "",
+        "-x",
+        "has space",
+        7,
+        null
+      ],
+      "expected": {
+        "ids": [],
+        "dropped": 5
+      }
+    }
+  ]
+}
