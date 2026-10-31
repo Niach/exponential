@@ -17,7 +17,6 @@ import { usePrompts } from "@/hooks/use-prompts"
 import { useSession } from "@/hooks/use-session"
 import {
   NEW_AGENT_LABEL,
-  NEW_APP_LABEL,
   SETTINGS_LIST_SECTIONS,
   settingsRouteOf,
   settingsSectionLabel,
@@ -123,7 +122,6 @@ function SubPageTitle({
 }) {
   if (sub === `new`) {
     if (section === `agents`) return <>{NEW_AGENT_LABEL}</>
-    if (section === `apps`) return <>{NEW_APP_LABEL}</>
     if (section === `prompts`) return <>{NEW_PROMPT_LABEL}</>
   }
   switch (section) {

@@ -22,6 +22,18 @@ export function editorLayout(stored: string | null | undefined): AppEditorLayout
   return stored === `floating` || stored === `docked` ? stored : (APPS_LAYOUT.default as AppEditorLayout)
 }
 
+/** VAPP-176: a DRAFT (no version yet) is always docked: nothing to
+ *  preview, the chat is the whole job. */
+export function editorLayoutFor(stored: string | null | undefined, headVersion: number): AppEditorLayout {
+  return isDraftApp({ headVersion }) ? `docked` : editorLayout(stored)
+}
+
+/** VAPP-176: a DRAFT = an app with no version yet (New app's "Untitled app"
+ *  until the editor session publishes). */
+export function isDraftApp(app: { headVersion: number }): boolean {
+  return app.headVersion === 0
+}
+
 export const APP_SLUG_MAX = contract.apps.slugMax
 export const APP_NAME_MAX = contract.apps.nameMax
 export const APP_DESCRIPTION_MAX = contract.apps.descriptionMax
@@ -76,6 +88,9 @@ export function sortApps<T extends AppListLike>(apps: readonly T[]): T[] {
 export function editorBrief(app: { name: string; slug: string; headVersion: number; description?: string | null }): string {
   const lines = [
     `You are the editor session of the Exponential app "${app.name}" (slug \`${app.slug}\`, ${versionLabel(app.headVersion)}).${app.description?.trim() ? ` It is for: ${app.description.trim()}` : ``}`,
+    ...(isDraftApp(app)
+      ? [`It is a new DRAFT with a placeholder name: on your FIRST exponential_apps {op: "upsert"} also pass name, icon, color and description that fit what the person asks for. The slug follows the new name; use the slug the upsert returns from then on.`]
+      : []),
     `An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "${app.slug}"}; learn the components, bindings, host functions and records with exponential_apps {op: "catalog"}; publish every change as a new version with exponential_apps {op: "upsert", slug: "${app.slug}", package, note}. An app keeps its own data as RECORDS (declare the kinds in the manifest, bind exp:records, write with harness.records.upsert); seed or inspect them with exponential_apps {op: "records_upsert" | "records_list", slug: "${app.slug}", kind, data}. The person sees the live preview beside this chat, so keep replies to one or two lines and publish early.`,
   ]
   return lines.join(`\n`)

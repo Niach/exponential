@@ -9,6 +9,7 @@ import {
   APP_NOTE_MAX,
   APP_SLUG_MAX,
   APP_SLUG_PATTERN,
+  isDraftApp,
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -132,7 +133,8 @@ export async function writeVersionInTx(
 // Release train 2026-10-23: strip mode, so a newer client's extra field never 400s.
 export const appCreateInputSchema = z.object({
   teamId: uuid,
-  name: nameSchema,
+  /** VAPP-176: none = a DRAFT named "Untitled app" (New app ×4). */
+  name: nameSchema.optional(),
   slug: slugSchema.optional(),
   icon: boardIconSchema.nullable().optional(),
   color: colorSchema.nullable().optional(),
@@ -276,16 +278,17 @@ export const appsRouter = router({
       const pkg = input.package ? validateAppPackage(input.package) : null
       // Release train 2026-10-23: hoisted so the CONFLICT message names a derived slug too.
       let slug = input.slug
+      const name = input.name ?? APPS_COPY.untitled
       try {
         return await ctx.db.transaction(async (tx) => {
           const txId = await generateTxId(tx)
-          slug = input.slug ?? slugify(input.name, await takenSlugs(tx, input.teamId))
+          slug = input.slug ?? slugify(name, await takenSlugs(tx, input.teamId))
           const [app] = await tx
             .insert(apps)
             .values({
               teamId: input.teamId,
               slug,
-              name: input.name,
+              name,
               icon: input.icon ?? null,
               color: input.color ?? null,
               description: input.description ?? ``,
@@ -398,9 +401,16 @@ export const appsRouter = router({
             throw new TRPCError({ code: `BAD_REQUEST`, message: `The app's package does not declare ${undeclared.join(`, `)}: a grant names only what the head version calls` })
           }
         }
+        // VAPP-176: a DRAFT (no version yet) renamed = its slug follows the
+        // name (its own slug not counted as taken); the editors key by id.
+        const [current] = await tx.select({ slug: apps.slug, headVersion: apps.headVersion }).from(apps).where(eq(apps.id, id)).for(`update`)
+        const slug =
+          patch.name && current && isDraftApp(current)
+            ? slugify(patch.name, (await takenSlugs(tx, app.teamId)).filter((taken) => taken !== current.slug))
+            : undefined
         const [updated] = await tx
           .update(apps)
-          .set({ ...patch, updatedAt: new Date() })
+          .set({ ...patch, ...(slug ? { slug } : {}), updatedAt: new Date() })
           .where(eq(apps.id, id))
           .returning()
         return { txid: txId, app: updated! }
@@ -571,6 +581,30 @@ export const appsRouter = router({
         })
       }),
   }),
+
+  /** VAPP-176: leaving the editor of an EMPTY draft (no version, no editor
+   *  session: nothing was ever sent) deletes it for good, so abandoned New
+   *  app drafts never pile up. Only its creator; anything else = a no-op. */
+  discardDraft: authedProcedure
+    .input(z.object({ id: uuid }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const deleted = await tx
+          .delete(apps)
+          .where(
+            and(
+              eq(apps.id, input.id),
+              eq(apps.createdBy, userId),
+              eq(apps.headVersion, 0),
+              sql`NOT EXISTS (SELECT 1 FROM ${sessions} WHERE ${sessions.appId} = ${apps.id})`
+            )
+          )
+          .returning({ id: apps.id })
+        return { txid: txId, discarded: deleted.length > 0 }
+      })
+    }),
 
   /** Trash (the shape's `deleted_at` mirror). The creator or an owner. */
   delete: authedProcedure

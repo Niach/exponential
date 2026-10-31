@@ -161,8 +161,8 @@ async function recipeOpenAppExport(page: Page): Promise<void> {
  *  server's issue rows listed. */
 async function recipeOpenAppImport(page: Page): Promise<void> {
   const { default: fixture } = await import(`@exp/domain-contract/fixtures/app-export.json`, { with: { type: `json` } })
-  await page.getByRole(`button`, { name: `New app` }).first().click()
-  const importButton = page.getByTestId(`app-import`)
+  // VAPP-176: Import is the Apps list band's own pill (New app has no dialog).
+  const importButton = page.getByTestId(`apps-import`)
   await importButton.waitFor({ state: `visible`, timeout: 15_000 })
   await importButton.click()
   await page.getByTestId(`app-import-text`).fill(fixture.capture.importText)

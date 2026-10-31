@@ -98,6 +98,39 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(renamed.app.name).toBe(`Renamed`)
   })
 
+  it(`VAPP-176: New app = an "Untitled app" draft; a draft's rename re-derives the slug, a published app's never`, async () => {
+    const w = await world()
+    const first = await caller(w.mate).create({ teamId: w.teamId })
+    expect(first.app).toMatchObject({ name: `Untitled app`, slug: `untitled-app`, headVersion: 0 })
+    const second = await caller(w.mate).create({ teamId: w.teamId })
+    expect(second.app.slug).toBe(`untitled-app-2`)
+
+    const renamed = await caller(w.mate).update({ id: second.app.id, name: `Untitled app` })
+    expect(renamed.app.slug).toBe(`untitled-app-2`)
+    const named = await caller(w.mate).update({ id: second.app.id, name: `Working hours`, icon: `clock` })
+    expect(named.app).toMatchObject({ slug: `working-hours`, icon: `clock` })
+
+    await caller(w.mate).upsertPackage({ id: second.app.id, package: { id: `p` } })
+    const published = await caller(w.mate).update({ id: second.app.id, name: `Hours` })
+    expect(published.app).toMatchObject({ name: `Hours`, slug: `working-hours` })
+  })
+
+  it(`VAPP-176: discardDraft deletes only the creator's EMPTY draft`, async () => {
+    const w = await world()
+    const empty = await caller(w.mate).create({ teamId: w.teamId })
+    expect((await caller(w.owner).discardDraft({ id: empty.app.id })).discarded).toBe(false)
+    expect((await caller(w.mate).discardDraft({ id: empty.app.id })).discarded).toBe(true)
+    expect(await db.select().from(apps).where(eq(apps.id, empty.app.id))).toHaveLength(0)
+
+    const chatted = await caller(w.mate).create({ teamId: w.teamId })
+    await editorSession(w.teamId, w.mate, chatted.app.id)
+    expect((await caller(w.mate).discardDraft({ id: chatted.app.id })).discarded).toBe(false)
+
+    const published = await caller(w.mate).create({ teamId: w.teamId, name: `Pub`, package: { id: `p` } })
+    expect((await caller(w.mate).discardDraft({ id: published.app.id })).discarded).toBe(false)
+    expect(await db.select().from(apps).where(eq(apps.id, published.app.id))).toHaveLength(1)
+  })
+
   it(`strips unknown keys on create and update`, async () => {
     const w = await world()
     const { app } = await caller(w.owner).create({ teamId: w.teamId, name: `Strip`, future: 1 } as never)

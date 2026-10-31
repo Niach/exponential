@@ -202,6 +202,7 @@ export function SessionComposer({
   className,
   opaque = false,
   hideReplies = false,
+  autoFocus = false,
 }: {
   teamId: string
   /** The session messaged; null = an agent chat with no conversation yet
@@ -233,6 +234,8 @@ export function SessionComposer({
   /** EXP-1211: the host draws `SessionComposerReplies` itself (the phones'
    *  FloatingComposer keeps them over its collapsed capsule). */
   hideReplies?: boolean
+  /** VAPP-176: a new app draft's editor opens with the field focused. */
+  autoFocus?: boolean
 }) {
   const [text, setText] = useState(``)
   const [files, setFiles] = useState<PendingFile[]>([])
@@ -591,6 +594,7 @@ export function SessionComposer({
               addFiles(Array.from(event.clipboardData.files))
             }}
             placeholder={placeholder}
+            autoFocus={autoFocus}
             className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
             maxLength={SESSIONS_SEND_TEXT_MAX}
           />
