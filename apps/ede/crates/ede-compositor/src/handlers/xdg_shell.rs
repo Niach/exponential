@@ -44,6 +44,7 @@ impl XdgShellHandler for Ede {
         let gone = self.space.elements().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned();
         if let Some(window) = gone {
             let had_focus = self.focused_window().as_ref() == Some(&window);
+            self.window_event(ede_protocol::events::WINDOW_CLOSED, &window);
             self.space.unmap_elem(&window);
             if had_focus {
                 // Focus falls to the window now on top, as on Cinnamon.
