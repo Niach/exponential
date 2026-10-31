@@ -18,6 +18,8 @@ import SwiftUI
 struct PlanPageScreen: View {
     let sessionId: String
     let messageId: String
+    /// The styleguide capture's card (no store read); nil = the synced row.
+    var specimen: TreeMessageCard?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -37,13 +39,13 @@ struct PlanPageScreen: View {
 
     private static let space = "plan-document"
 
-    private var card: TreeMessageCard? { TreeMessageCard.parse(message?.card) }
+    private var card: TreeMessageCard? { specimen ?? TreeMessageCard.parse(message?.card) }
 
     var body: some View {
         ZStack {
             AppBackground()
-            if let message, let card, card.kind == "plan" {
-                page(message, card)
+            if let card, card.kind == "plan" {
+                page(card)
             } else if resolved {
                 EmptyState(title: "Not found", description: "It may still be syncing, or it was deleted.",
                            icon: AppIcons.codingPlan)
@@ -74,7 +76,7 @@ struct PlanPageScreen: View {
 
     // MARK: - The page
 
-    private func page(_ message: SessionMessage, _ card: TreeMessageCard) -> some View {
+    private func page(_ card: TreeMessageCard) -> some View {
         let plan = card.plan ?? ""
         let blocks = Self.leadTrimmed(PlanPage.blocks(plan))
         let outline = PlanPage.outline(plan)
@@ -117,7 +119,7 @@ struct PlanPageScreen: View {
                     renderSheet: { row, close in
                         AnyView(ThreadPlanSheet(
                             row: row,
-                            card: threadPlanRow(message, card),
+                            card: threadPlanRow(card),
                             canAnswer: true,
                             busy: busy,
                             markdownContext: markdownContext,
@@ -241,9 +243,9 @@ struct PlanPageScreen: View {
         )
     }
 
-    private func threadPlanRow(_ message: SessionMessage, _ card: TreeMessageCard) -> ThreadPlanRow {
+    private func threadPlanRow(_ card: TreeMessageCard) -> ThreadPlanRow {
         ThreadPlanRow(
-            id: message.id, sessionId: message.sessionId, plan: card.plan ?? "", questions: card.questions,
+            id: messageId, sessionId: sessionId, plan: card.plan ?? "", questions: card.questions,
             surface: card.surface, decision: card.decision, fresh: card.fresh, answers: card.planAnswers,
             feedback: card.feedback, surfaceData: card.surfaceData
         )
@@ -317,6 +319,7 @@ struct PlanPageScreen: View {
     }
 
     private func observe() async {
+        guard specimen == nil else { return }
         guard let pool = try? deps.db.pool(forAccountId: accountId) else {
             resolved = true
             return
@@ -355,6 +358,10 @@ struct PlanPictureImage: View {
             }
         }
         .task(id: src) {
+            if let tile = SpecimenPicture.image(src) {
+                image = tile
+                return
+            }
             let loader = AttachmentImageLoader(
                 baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                 accountId: accountId,
@@ -362,6 +369,32 @@ struct PlanPictureImage: View {
                 pendingImages: [:]
             )
             image = try? await loader.load(src)
+        }
+    }
+}
+
+/// Styleguide captures only: an attachment id `specimen-<n>` paints a
+/// generated tile (the captures run without a server).
+enum SpecimenPicture {
+    private static let hues: [Double] = [0.62, 0.38, 0.08, 0.55, 0.75, 0.3]
+
+    static func image(_ src: String) -> UIImage? {
+        guard let range = src.range(of: "specimen-") else { return nil }
+        let n = Int(src[range.upperBound...].prefix { $0.isNumber }) ?? 0
+        let size = CGSize(width: 480, height: 300)
+        let hue = hues[n % hues.count]
+        return UIGraphicsImageRenderer(size: size).image { context in
+            let colors = [
+                UIColor(hue: hue, saturation: 0.35, brightness: 0.32, alpha: 1).cgColor,
+                UIColor(hue: hue, saturation: 0.25, brightness: 0.16, alpha: 1).cgColor,
+            ] as CFArray
+            let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1])!
+            context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            let inner = CGRect(x: 60, y: 45, width: 360, height: 210)
+            UIColor.white.withAlphaComponent(0.06).setFill()
+            UIBezierPath(roundedRect: inner, cornerRadius: 12).fill()
+            UIColor.white.withAlphaComponent(0.14).setStroke()
+            UIBezierPath(roundedRect: inner, cornerRadius: 12).stroke()
         }
     }
 }

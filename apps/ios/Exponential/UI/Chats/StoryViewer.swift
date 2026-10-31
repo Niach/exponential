@@ -552,6 +552,10 @@ struct StoryPicture: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel(picture.caption ?? picture.label)
         .task(id: picture.attachmentId) {
+            if let tile = SpecimenPicture.image(picture.attachmentId) {
+                image = tile
+                return
+            }
             let loader = AttachmentImageLoader(
                 baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                 accountId: accountId,
