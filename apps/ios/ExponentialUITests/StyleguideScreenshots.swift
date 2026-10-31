@@ -29,7 +29,7 @@ import XCTest
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
-///   sg_app-export · sg_app-import · sg_voice-call · sg_call-controls · sg_device-readiness ·
+///   sg_app-export · sg_app-import · sg_app-draft · sg_voice-call · sg_call-controls · sg_device-readiness ·
 ///   sg_story-ring · sg_story-viewer · sg_plan-page
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
@@ -161,6 +161,11 @@ final class StyleguideScreenshots: XCTestCase {
     /// records), whose editor's Preview tab is the `app` shot.
     private static let appSlug = "working-hours"
     private static let appName = "Working hours"
+    /// VAPP-176: the seeded Release checklist app (`DEMO_APP_EMPTY_ID`): no
+    /// version and no editor session = a DRAFT (Jonas's, so leaving its
+    /// editor never discards it).
+    private static let draftAppSlug = "release-checklist"
+    private static let draftAppName = "Release checklist"
 
     @MainActor
     func testCaptureStyleguideScreenshots() throws {
@@ -228,7 +233,8 @@ final class StyleguideScreenshots: XCTestCase {
         // Gated: opening the editor and leaving it ENDS the seeded editor
         // session, so only a run that wants these shots visits.
         // VAPP-121: sg_app-export · sg_app-import ride the same walk.
-        if ["sg_apps", "sg_app", "sg_app-export", "sg_app-import"].map(ScreenshotShots.isWanted).contains(true) {
+        // VAPP-176: sg_app-draft too (the Release checklist draft's editor).
+        if ["sg_apps", "sg_app", "sg_app-export", "sg_app-import", "sg_app-draft"].map(ScreenshotShots.isWanted).contains(true) {
             walkApps(app)
         }
 
@@ -1060,6 +1066,9 @@ final class StyleguideScreenshots: XCTestCase {
         if ScreenshotShots.isWanted("sg_app-import") {
             walkAppImport(app)
         }
+        if ScreenshotShots.isWanted("sg_app-draft") {
+            walkAppDraft(app)
+        }
         guard ScreenshotShots.isWanted("sg_app") else { return }
         appRow.tap()
         expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The editor drew no Chat | Preview | Versions control")
@@ -1100,16 +1109,33 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
     }
 
-    /// VAPP-121: Apps list → New app → Import… → the capture text typed →
-    /// the server's `/package: is required` row → sg_app-import → dismissed.
+    /// VAPP-176 (apps.json NEW APP): Apps list → the seeded Release checklist
+    /// row (a draft: no version, no editor session) → its editor on the Chat
+    /// tab: the Draft badge, `What should this app do?` with the starter
+    /// pills, the composer → sg_app-draft → back to the Apps list.
+    @MainActor
+    private func walkAppDraft(_ app: XCUIApplication) {
+        let row = anyElement(app, identified: "apps-row-\(Self.draftAppSlug)")
+        expect(row, within: Wait.sync, "The Apps list has no \(Self.draftAppName) row — reseed with `bun run seed:screenshots`")
+        row.tap()
+        expect(
+            anyElement(app, identified: "app-editor-starter"),
+            within: Wait.sync,
+            "The \(Self.draftAppName) draft's editor drew no starter pills (has it a version or an editor session?)"
+        )
+        snapshot("sg_app-draft", settle: 2)
+        goBack(app)
+        settle(1)
+    }
+
+    /// VAPP-121 + VAPP-176: Apps list → the band's Import… pill → the capture
+    /// text typed → the server's `/package: is required` row → sg_app-import
+    /// → dismissed.
     @MainActor
     private func walkAppImport(_ app: XCUIApplication) {
-        let newApp = anyElement(app, identified: "apps-new")
-        expect(newApp, within: Wait.nav, "The Apps band has no New app pill")
-        newApp.tap()
-        let importButton = anyElement(app, identified: "app-import")
-        expect(importButton, within: Wait.nav, "New app has no Import… button")
-        importButton.tap()
+        let importPill = anyElement(app, identified: "apps-import")
+        expect(importPill, within: Wait.nav, "The Apps band has no Import… pill")
+        importPill.tap()
         let field = anyElement(app, identified: "app-import-text")
         expect(field, within: Wait.nav, "The import step has no text field")
         focus(field)

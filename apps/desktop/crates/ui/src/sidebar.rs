@@ -298,10 +298,9 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "agents" => Some(S::Agents),
         "agent" => Some(S::Agent(String::new())),
         "new-agent" => Some(S::NewAgent),
-        // VAPP-110: the Apps index, New app, and one app's page (`app` =
-        // the team's first app, `app:<slug or id>` that one).
+        // VAPP-110: the Apps index and one app's page (`app` = the team's
+        // first app, `app:<slug or id>` that one). VAPP-176: no create page.
         "apps" => Some(S::Apps),
-        "new-app" => Some(S::NewApp),
         "app" => Some(S::App(String::new())),
         spec if spec.starts_with("app:") => Some(S::App(spec["app:".len()..].to_string())),
         // NEW-6: Settings → Prompts, and its create page.
@@ -2209,11 +2208,8 @@ impl Render for RailView {
                         .icon(registry::UI_ADD)
                         .tooltip(domain::apps::APPS.copy.new_app.clone())
                         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                            crate::app_form_dialog::open(
-                                window,
-                                cx,
-                                crate::app_form_dialog::AppFormTarget::New { team_id: team_id.clone() },
-                            );
+                            // VAPP-176: a draft and its editor, no dialog.
+                            crate::apps_view::new_app(team_id.clone(), window, cx);
                         })),
                 )
                 .into_any_element()

@@ -5,6 +5,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -33,9 +37,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -99,7 +107,10 @@ import dev.chrisbanes.haze.rememberHazeState
 // yet = the empty chat whose first send opens it); Preview = the head
 // package's first template through the app host; Versions = newest first,
 // a row previews that version (Restore = a new head). Leaving the editor ENDS
-// the live editor session; the next send continues it.
+// the live editor session; the next send continues it. VAPP-176: a DRAFT
+// (no version yet) opens on Chat with the starters and the composer focused;
+// leaving an empty draft discards it. The route keys the app by ID, so a
+// draft's slug following its new name changes nothing here.
 
 private enum class EditorTab { Chat, Preview, Versions }
 
@@ -366,7 +377,7 @@ private fun AppVersionsList(
 ) {
     Column(modifier = modifier.testTag(Apps.TestIds.VERSIONS)) {
         if (versions.isEmpty()) {
-            EmptyState(title = Apps.Copy.NO_VERSION, icon = ExpIcons.uiHistory, size = EmptyStateSize.List)
+            EmptyState(title = Apps.Copy.VERSIONS_EMPTY, icon = ExpIcons.uiHistory, size = EmptyStateSize.List)
             return@Column
         }
         val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
@@ -436,10 +447,17 @@ private fun AppChatPane(
     }
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val deviceId by viewModel.deviceId.collectAsStateWithLifecycle()
-    var draft by rememberSaveable { mutableStateOf("") }
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    // VAPP-176: a DRAFT (no version yet) with an empty chat = the starters +
+    // the composer open and focused on `draftPlaceholder`.
+    val draft = Apps.isDraft(app.headVersion)
+    var text by rememberSaveable { mutableStateOf("") }
+    var expanded by rememberSaveable { mutableStateOf(draft) }
     val bottomInset = padding.calculateBottomPadding()
-    val placeholder = if (deviceId != null) Apps.Copy.COMPOSER_PLACEHOLDER else Apps.Copy.NO_DEVICE
+    val placeholder = when {
+        deviceId == null -> Apps.Copy.NO_DEVICE
+        draft -> Apps.Copy.DRAFT_PLACEHOLDER
+        else -> Apps.Copy.COMPOSER_PLACEHOLDER
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -447,12 +465,26 @@ private fun AppChatPane(
             .imePadding()
             .testTag(Apps.TestIds.CHAT),
     ) {
-        EmptyState(
-            title = Apps.Copy.CHAT_EMPTY,
-            icon = ExpIcons.navApps,
-            size = EmptyStateSize.List,
-            modifier = Modifier.padding(padding).padding(horizontal = 24.dp).align(Alignment.Center),
-        )
+        if (draft) {
+            BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight),
+                ) {
+                    AppStarters(
+                        enabled = deviceId != null && !sending,
+                        onStart = { starter -> viewModel.send(starter) {} },
+                    )
+                }
+            }
+        } else {
+            EmptyState(
+                title = Apps.Copy.CHAT_EMPTY,
+                icon = ExpIcons.navApps,
+                size = EmptyStateSize.List,
+                modifier = Modifier.padding(padding).padding(horizontal = 24.dp).align(Alignment.Center),
+            )
+        }
         FloatingBarEdge(
             bottomInset = bottomInset,
             visible = !expanded,
@@ -462,27 +494,45 @@ private fun AppChatPane(
                 expanded = expanded,
                 onExpandedChange = { expanded = it },
                 placeholder = placeholder,
-                hasDraft = draft.isNotBlank(),
+                hasDraft = text.isNotBlank(),
                 capsuleTestTag = "app-composer-capsule",
                 modifier = Modifier.testTag(Apps.TestIds.COMPOSER),
             ) {
+                val focus = remember { FocusRequester() }
+                var focused by remember { mutableStateOf(false) }
+                if (draft && deviceId != null) {
+                    LaunchedEffect(Unit) {
+                        // requestFocus on an unplaced node no-ops: retry until it lands.
+                        var attempts = 0
+                        while (attempts < 10 && !focused) {
+                            runCatching { focus.requestFocus() }
+                            withFrameNanos { }
+                            attempts++
+                        }
+                    }
+                }
                 GlassComposer(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     submit = {
                         ComposerSubmitButton(
                             ExpIcons.uiSubmit,
                             contentDescription = ThreadUiCopy.SEND,
-                            onClick = { viewModel.send(draft) { draft = "" } },
-                            enabled = draft.isNotBlank() && deviceId != null,
+                            onClick = { viewModel.send(text) { text = "" } },
+                            enabled = text.isNotBlank() && deviceId != null,
                             sending = sending,
                             modifier = Modifier.testTag("app-composer-submit"),
                         )
                     },
                 ) {
                     GlassTextField(
-                        value = draft,
-                        onValueChange = { draft = it },
-                        modifier = Modifier.fillMaxWidth().testTag("app-composer-field").then(fieldModifier),
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("app-composer-field")
+                            .focusRequester(focus)
+                            .onFocusChanged { focused = it.isFocused }
+                            .then(fieldModifier),
                         placeholder = placeholder,
                         enabled = deviceId != null,
                         minLines = 2,
@@ -493,6 +543,35 @@ private fun AppChatPane(
             }
         }
     }
+}
+
+/** VAPP-176: a draft's empty chat = the page-size EmptyState
+ *  `starterTitle` whose actions are one pill per starter; a tap SENDS that
+ *  text as the first message (disabled like the composer without a device). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AppStarters(enabled: Boolean, onStart: (String) -> Unit) {
+    EmptyState(
+        title = Apps.Copy.STARTER_TITLE,
+        icon = ExpIcons.navApps,
+        size = EmptyStateSize.Page,
+        action = {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Apps.Copy.STARTERS.forEach { starter ->
+                    GlassPill(
+                        starter,
+                        onClick = { onStart(starter) },
+                        enabled = enabled,
+                        modifier = Modifier.testTag(Apps.TestIds.STARTER),
+                    )
+                }
+            }
+        },
+    )
 }
 
 /** The editor session's conversation: the agent channel's rows (the app's
@@ -588,7 +667,7 @@ private fun AppEditorConversation(
                     viewModel = rootSession,
                     expanded = composerExpanded,
                     onExpandedChange = { composerExpanded = it },
-                    placeholder = Apps.Copy.COMPOSER_PLACEHOLDER,
+                    placeholder = if (Apps.isDraft(app.headVersion)) Apps.Copy.DRAFT_PLACEHOLDER else Apps.Copy.COMPOSER_PLACEHOLDER,
                     capsuleTestTag = "app-composer-capsule",
                     showQueue = false,
                     modifier = Modifier.testTag(Apps.TestIds.COMPOSER),

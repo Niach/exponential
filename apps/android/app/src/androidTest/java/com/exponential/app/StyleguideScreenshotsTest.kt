@@ -138,7 +138,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
+ *   sg_app-export · sg_app-import · sg_app-draft · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
  *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
@@ -242,6 +242,10 @@ class StyleguideScreenshotsTest {
 
         /** VAPP-122: the seeded Working hours app, with records (web `DEMO_APP_SLUG`). */
         private const val DEMO_APP_SLUG = "working-hours"
+
+        /** VAPP-176: the seeded Release checklist app, a DRAFT (no version, no
+         *  editor session; Jonas's, so leaving it never discards it). */
+        private const val DEMO_DRAFT_APP_SLUG = "release-checklist"
 
         /** VAPP-121: app-export.json `capture.importText` and its one issue. */
         private const val APP_IMPORT_CAPTURE_TEXT = """{"format":"exponential-app/1","app":{"name":"Todos"}}"""
@@ -835,9 +839,31 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
         flow.settle()
 
+        // --- sg_app-draft (VAPP-176, apps.json NEW APP): the Release
+        // checklist row = a draft, its editor opens on the Chat tab: the
+        // Draft pill, `What should this app do?` with the starter pills and
+        // the composer open on `Describe your app…` (the keyboard put away
+        // so the starters show, as on iOS).
+        if (ScreenshotFlow.anyRequested("sg_app-draft")) {
+            val draftRow = hasTestTag("${Apps.TestIds.ROW}-$DEMO_DRAFT_APP_SLUG")
+            flow.waitFor(draftRow, SYNC_TIMEOUT)
+            composeRule.onNode(draftRow).performClick()
+            flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag(Apps.TestIds.STARTER), SYNC_TIMEOUT)
+            flow.settle(longer = true)
+            Espresso.closeSoftKeyboard()
+            flow.settle()
+            flow.screenshot("sg_app-draft")
+            Espresso.pressBack()
+            flow.settle()
+            if (!flow.exists(hasTestTag(Apps.TestIds.LIST))) Espresso.pressBack()
+            flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
+            flow.settle()
+        }
+
         // --- sg_app-export / sg_app-import (VAPP-121, app-export.json
         // `capture`): Working hours' row menu → Export with "Include records"
-        // switched on; New app → Import… holding the fixture's capture text
+        // switched on; the band's Import… holding the fixture's capture text
         // and the server's ONE issue. A scoped run not naming them skips both.
         if (ScreenshotFlow.anyRequested("sg_app-export")) {
             composeRule.onNode(hasContentDescription("Menu for Working hours")).performClick()
@@ -855,9 +881,8 @@ class StyleguideScreenshotsTest {
             flow.settle()
         }
         if (ScreenshotFlow.anyRequested("sg_app-import")) {
-            composeRule.onNode(hasTestTag(Apps.TestIds.NEW_APP)).performClick()
-            flow.waitFor(hasTestTag("app-import"), NAV_TIMEOUT)
-            composeRule.onNode(hasTestTag("app-import")).performClick()
+            // VAPP-176: Import… is the list band's own pill (its own sheet).
+            composeRule.onNode(hasTestTag(Apps.TestIds.IMPORT_APP)).performClick()
             flow.waitFor(hasTestTag("app-import-text"), NAV_TIMEOUT)
             composeRule.onNode(hasTestTag("app-import-text")).performTextInput(APP_IMPORT_CAPTURE_TEXT)
             Espresso.closeSoftKeyboard()
@@ -866,8 +891,8 @@ class StyleguideScreenshotsTest {
             flow.screenshot("sg_app-import")
             Espresso.pressBack()
             flow.settle()
-            if (flow.exists(hasTestTag("app-form-dialog"))) Espresso.pressBack()
-            flow.waitForGone(hasTestTag("app-form-dialog"), NAV_TIMEOUT)
+            if (flow.exists(hasTestTag("app-import-dialog"))) Espresso.pressBack()
+            flow.waitForGone(hasTestTag("app-import-dialog"), NAV_TIMEOUT)
             flow.settle()
         }
         composeRule.onNode(hasTestTag("tab-threads")).performClick()

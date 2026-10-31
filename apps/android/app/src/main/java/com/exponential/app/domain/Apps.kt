@@ -11,8 +11,11 @@ object Apps {
         const val NAV = "Apps"
         const val TITLE = "Apps"
         const val NEW_APP = "New app"
+        // VAPP-176: New app = a DRAFT with this name (the agent renames it).
+        const val UNTITLED = "Untitled app"
+        const val IMPORT = "Import…"
         const val VERSION = "v{n}"
-        const val NO_VERSION = "No version yet"
+        const val NO_VERSION = "Draft"
         const val VERSIONS = "Versions"
         const val HEAD = "Current"
         const val NO_NOTE = "No note"
@@ -24,16 +27,18 @@ object Apps {
         const val EMPTY = "No apps yet"
         const val CHAT_EMPTY = "Describe the app you want. The editor session builds it and the preview follows."
         const val PREVIEW_EMPTY = "No version yet"
+        const val VERSIONS_EMPTY = "No versions yet"
         const val COMPOSER_PLACEHOLDER = "Ask for a change…"
+        // VAPP-176: a draft's empty chat: the starters (a tap sends it).
+        const val DRAFT_PLACEHOLDER = "Describe your app…"
+        const val STARTER_TITLE = "What should this app do?"
+        val STARTERS = listOf("Log working hours", "Release checklist", "Admin console for an API", "Team dashboard")
         const val NO_DEVICE = "Start a device to edit this app"
         const val NAME_PLACEHOLDER = "Name"
         const val DESCRIPTION_PLACEHOLDER = "What is it for? (optional)"
-        const val CREATE = "Create app"
-        const val RENAME = "Save"
         const val DELETE_TITLE = "Delete {name}?"
         const val DELETE_BODY = "Its versions go with it. This cannot be undone."
         const val DELETE = "Delete"
-        const val MENU_RENAME = "Rename"
         const val MENU_DELETE = "Delete app"
         const val TAB_CHAT = "Chat"
         const val TAB_PREVIEW = "Preview"
@@ -67,7 +72,28 @@ object Apps {
         const val CHAT_CARD = "app-editor-chat-card"
         const val DOCK_TO_SIDE = "app-editor-dock-side"
         const val FLOAT = "app-editor-float"
+        // VAPP-176: the list band's Import pill + a draft's starter pills.
+        const val IMPORT_APP = "apps-import"
+        const val STARTER = "app-editor-starter"
     }
+
+    /** VAPP-129 / VAPP-176: the editor layouts on web ≥ md and the IDE
+     *  (phones keep the tabs); mirrored for the fixture's `layoutCases`. */
+    object Layout {
+        const val FLOATING = "floating"
+        const val DOCKED = "docked"
+        const val DEFAULT = FLOATING
+    }
+
+    fun editorLayout(stored: String?): String =
+        if (stored == Layout.FLOATING || stored == Layout.DOCKED) stored else Layout.DEFAULT
+
+    /** VAPP-176: a draft (no version yet) is always docked. */
+    fun editorLayoutFor(stored: String?, headVersion: Int): String =
+        if (isDraft(headVersion)) Layout.DOCKED else editorLayout(stored)
+
+    /** VAPP-176: a DRAFT = an app with no version yet (head_version 0). */
+    fun isDraft(headVersion: Int): Boolean = headVersion == 0
 
     // Contract `apps` (packages/domain-contract/contract.json), locked by AppsTest.
     const val SLUG_MAX = 64

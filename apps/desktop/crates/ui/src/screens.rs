@@ -1166,7 +1166,7 @@ impl ScreensPanel {
     fn sync_app_editor(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match resolved_screen(&self.nav, cx) {
             Some(Screen::App { app }) => {
-                let current = self.app_editor.as_ref().is_some_and(|view| view.read(cx).requested() == app);
+                let current = self.app_editor.as_ref().is_some_and(|view| view.read(cx).shows(&app));
                 if !current {
                     if let Some(old) = self.app_editor.take() {
                         old.update(cx, |view, cx| view.leave(cx));
@@ -3025,7 +3025,7 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
         DevDialogTarget::Composer { seed } => crate::composer_dialog::open(window, cx, seed),
         DevDialogTarget::GettingStarted => crate::getting_started::open_dialog(window, cx),
         DevDialogTarget::AppExport { app_id } => crate::app_export_dialog::open(window, cx, app_id, true),
-        DevDialogTarget::AppImport { team_id } => crate::app_form_dialog::open_import(
+        DevDialogTarget::AppImport { team_id } => crate::app_import_dialog::open_import(
             window,
             cx,
             team_id,

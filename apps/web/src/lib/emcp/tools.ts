@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { boardIconSchema } from "@exp/db-schema/domain"
 import { TRPCError } from "@trpc/server"
 import { contract } from "@exp/domain-contract"
 import { CARD_CLEAR_FIELDS } from "@exp/domain-contract/sealed-content"
@@ -3833,7 +3834,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_apps_upsert`,
     {
-      description: `Publish a NEW VERSION of an app's package (the editor previews it live); a new slug creates the app (name required). package = the format exponential_apps {op: "catalog"} describes; note = one line on what changed.`,
+      description: `Publish a NEW VERSION of an app's package (the editor previews it live); a new slug creates the app (name required); on a draft (no version yet) name/icon/color/description rename it and the slug follows (use the returned slug). package = the format exponential_apps {op: "catalog"} describes; note = one line on what changed.`,
       inputSchema: strictInput({
         slug: appSlug,
         teamId: uuidString.optional(),
@@ -3866,8 +3867,22 @@ export function registerExponentialTools(
           })
           return ok({ ok: true, id: created.app.id, slug, version: created.app.headVersion, created: true })
         }
-        const result = await api.upsertPackage({ slug, teamId: team, package: pkg, note, sessionId })
-        return ok({ ok: true, id: existing.app.id, slug, version: result.version, created: false })
+        // VAPP-176: a DRAFT takes its identity from the agent's first
+        // upsert; the slug follows the name.
+        let current = slug
+        if (existing.app.headVersion === 0 && (name || icon || color || description !== undefined)) {
+          const validIcon = boardIconSchema.safeParse(icon)
+          const renamed = await api.update({
+            id: existing.app.id,
+            name,
+            icon: validIcon.success ? validIcon.data : undefined,
+            color,
+            description,
+          })
+          current = renamed.app.slug
+        }
+        const result = await api.upsertPackage({ id: existing.app.id, package: pkg, note, sessionId })
+        return ok({ ok: true, id: existing.app.id, slug: current, version: result.version, created: false })
       } catch (e) {
         return err(e)
       }

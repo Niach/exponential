@@ -1,16 +1,19 @@
-import { useEffect, useState } from "react"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { useEffect, useRef, useState } from "react"
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { APPS_COPY } from "@exp/domain-contract/apps"
 import { conceptIcon, EmptyState, SkeletonRows } from "@exp/ui"
 import { AppEditor } from "@/components/apps/app-editor"
-import { useApp } from "@/hooks/use-apps"
+import { useApp, useApps } from "@/hooks/use-apps"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 
 // VAPP-110: one app's EDITOR (fixtures/apps.json): chat beside the live
-// preview, versions. `$appSlug` = the app's slug in the team.
+// preview, versions. `$appSlug` = the app's slug in the team. VAPP-176: a
+// draft's slug follows its new name, so the page keys the app by ID and
+// replaces the route in place (the editor never remounts: that would end
+// the editor session mid-turn).
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const SYNC_GRACE_MS = 4_000
@@ -30,7 +33,17 @@ function AppEditorPage() {
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const permissions = useTeamPermissions(team)
-  const { app, isReady } = useApp(team?.id, appSlug)
+  const navigate = useNavigate()
+  const { app: bySlug, isReady } = useApp(team?.id, appSlug)
+  const { apps } = useApps(team?.id)
+  const lastId = useRef<string | null>(null)
+  const app = bySlug ?? (lastId.current ? (apps.find((row) => row.id === lastId.current) ?? null) : null)
+  if (app) lastId.current = app.id
+  useEffect(() => {
+    if (app && app.slug !== appSlug) {
+      void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug }, replace: true })
+    }
+  }, [app, appSlug, teamSlug, navigate])
   usePageTitle(app ? pageTitle(app.name, APPS_COPY.title) : undefined)
 
   const [graceOver, setGraceOver] = useState(false)

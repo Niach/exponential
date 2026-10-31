@@ -57,6 +57,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_135: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-31-editor-first-apps",
+    date: "2026-10-31",
+    title: "New app opens the editor",
+    summary: "New app starts a draft and opens the editor; the agent names it.",
+    body: r#"- **New app**: no form any more. New app opens an untitled draft in the editor with the chat ready and a few starting ideas; the agent picks the name, icon and colour.
+- **Drafts**: an app without a version shows a Draft badge. Leaving a draft you never wrote anything in removes it.
+- **Import**: importing an app file is its own button on the Apps list."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_134: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-updates-within-minutes",
     date: "2026-10-31",

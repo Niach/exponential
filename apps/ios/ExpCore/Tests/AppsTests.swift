@@ -35,14 +35,17 @@ final class AppsTests: XCTestCase {
         let copy = try XCTUnwrap(try fixture()["copy"] as? [String: Any])
         let flat: [String: String] = [
             "nav": Apps.Copy.nav, "title": Apps.Copy.title, "newApp": Apps.Copy.newApp,
+            "untitled": Apps.Copy.untitled, "import": Apps.Copy.import,
             "version": Apps.Copy.version, "noVersion": Apps.Copy.noVersion,
             "versions": Apps.Copy.versions, "head": Apps.Copy.head, "noNote": Apps.Copy.noNote,
             "byAgent": Apps.Copy.byAgent, "viewing": Apps.Copy.viewing, "restore": Apps.Copy.restore,
             "restored": Apps.Copy.restored, "restoredNote": Apps.Copy.restoredNote, "empty": Apps.Copy.empty,
             "chatEmpty": Apps.Copy.chatEmpty, "previewEmpty": Apps.Copy.previewEmpty,
+            "versionsEmpty": Apps.Copy.versionsEmpty, "draftPlaceholder": Apps.Copy.draftPlaceholder,
+            "starterTitle": Apps.Copy.starterTitle,
             "composerPlaceholder": Apps.Copy.composerPlaceholder, "noDevice": Apps.Copy.noDevice,
             "namePlaceholder": Apps.Copy.namePlaceholder, "descriptionPlaceholder": Apps.Copy.descriptionPlaceholder,
-            "create": Apps.Copy.create, "rename": Apps.Copy.rename, "deleteTitle": Apps.Copy.deleteTitle,
+            "deleteTitle": Apps.Copy.deleteTitle,
             "deleteBody": Apps.Copy.deleteBody, "delete": Apps.Copy.delete,
             "openEditor": Apps.Copy.openEditor, "settingsTitle": Apps.Copy.settingsTitle,
             "dockToSide": Apps.Copy.dockToSide, "float": Apps.Copy.float, "working": Apps.Copy.working,
@@ -53,7 +56,8 @@ final class AppsTests: XCTestCase {
         // Every string key of `copy`, both ways.
         let strings = copy.compactMapValues { $0 as? String }
         XCTAssertEqual(strings, flat)
-        XCTAssertEqual(copy["menu"] as? [String: String], ["rename": Apps.Copy.Menu.rename, "delete": Apps.Copy.Menu.delete])
+        XCTAssertEqual(copy["menu"] as? [String: String], ["delete": Apps.Copy.Menu.delete])
+        XCTAssertEqual(copy["starters"] as? [String], Apps.Copy.starters)
         XCTAssertEqual(copy["tabs"] as? [String: String], [
             "chat": Apps.Copy.Tabs.chat, "preview": Apps.Copy.Tabs.preview, "versions": Apps.Copy.Tabs.versions,
         ])
@@ -82,6 +86,7 @@ final class AppsTests: XCTestCase {
             "versions": Apps.TestIds.versions, "versionRow": Apps.TestIds.versionRow, "tabs": Apps.TestIds.tabs,
             "composer": Apps.TestIds.composer, "viewing": Apps.TestIds.viewing,
             "chatCard": Apps.TestIds.chatCard, "dockToSide": Apps.TestIds.dockToSide, "float": Apps.TestIds.float,
+            "importApp": Apps.TestIds.importApp, "starter": Apps.TestIds.starter,
         ])
     }
 
@@ -122,6 +127,27 @@ final class AppsTests: XCTestCase {
         }
     }
 
+    func testLayoutCases() throws {
+        let layout = try XCTUnwrap(try fixture()["layout"] as? [String: Any])
+        XCTAssertEqual(layout["default"] as? String, Apps.Layout.default)
+        XCTAssertEqual(layout["values"] as? [String], Apps.Layout.values)
+        XCTAssertEqual(layout["storageKey"] as? String, Apps.Layout.storageKey)
+        for item in try cases("layoutCases") {
+            let head = try XCTUnwrap(item["headVersion"] as? Int)
+            let stored = item["stored"] as? String
+            XCTAssertEqual(
+                Apps.editorLayoutFor(stored: stored, headVersion: head),
+                item["layout"] as? String,
+                "\(stored ?? "nil") @ \(head)"
+            )
+        }
+    }
+
+    func testIsDraft() {
+        XCTAssertTrue(Apps.isDraft(headVersion: 0))
+        XCTAssertFalse(Apps.isDraft(headVersion: 1))
+    }
+
     func testSortAppsCases() throws {
         struct Row { let slug: String; let name: String }
         for item in try cases("sortAppsCases") {
@@ -140,6 +166,9 @@ final class AppsTests: XCTestCase {
             "You are the editor session of the Exponential app \"Team dashboard\" (slug `team-dashboard`, v3). It is for: Feedback at a glance\n"
         ))
         XCTAssertTrue(brief.contains("exponential_apps {op: \"upsert\", slug: \"team-dashboard\", package, note}"))
+        XCTAssertFalse(brief.contains("DRAFT"))
+        let draft = Apps.editorBrief(name: Apps.Copy.untitled, slug: "untitled-app", headVersion: 0, description: nil)
+        XCTAssertTrue(draft.contains("(slug `untitled-app`, Draft).\nIt is a new DRAFT with a placeholder name"))
     }
 
     func testFirstTemplateIdFollowsTheTextOrder() {

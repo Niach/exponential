@@ -2992,6 +2992,7 @@ impl SteerSessionView {
             tokens: self.feed.turn_tokens(),
             now_ms: chrono::Utc::now().timestamp_millis(),
             workflow: workflow.as_deref(),
+            writing: self.feed.turn_writing(),
         })
     }
 

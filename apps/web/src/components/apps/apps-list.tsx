@@ -15,7 +15,8 @@ import {
   SETTINGS_LIST_CLASS,
 } from "@exp/ui"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
-import { AppFormDialog } from "@/components/apps/app-form-dialog"
+import { AppImportDialog } from "@/components/apps/app-import-dialog"
+import { useNewApp } from "@/hooks/use-new-app"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection } from "@/lib/collections"
@@ -23,12 +24,12 @@ import { trpc } from "@/lib/trpc-client"
 
 // VAPP-110 (fixtures/apps.json): the Apps list = the band with `New app` as
 // its trailing pill, then one ListRow per app (glyph, name, the version
-// pill, the `…` menu: Rename, Delete). Manage = create, rename, delete, open.
+// pill, the `…` menu: Export, Delete). VAPP-176: New app = a draft and its
+// editor (no dialog); Import is the band's second pill.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiMoreIcon = conceptIcon(`ui-more`)
-const UiEditIcon = conceptIcon(`ui-edit`)
 const UiShareIcon = conceptIcon(`ui-share`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 
@@ -49,8 +50,8 @@ export function AppsList({
   rowsOpen?: `editor` | `settings`
 }) {
   const navigate = useNavigate()
-  const [creating, setCreating] = useState(false)
-  const [renaming, setRenaming] = useState<AppListEntry | null>(null)
+  const newApp = useNewApp(teamId, teamSlug)
+  const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState<AppListEntry | null>(null)
   const [deleting, setDeleting] = useState<AppListEntry | null>(null)
   const [busy, setBusy] = useState(false)
@@ -81,10 +82,15 @@ export function AppsList({
       <GlassSectionHeader
         label={APPS_COPY.title}
         trailing={
-          <Pill mode="action" onClick={() => setCreating(true)} data-testid={APPS_TEST_IDS.newApp}>
-            <UiAddIcon className="size-3" />
-            {APPS_COPY.newApp}
-          </Pill>
+          <div className="flex items-center gap-2">
+            <Pill mode="action" onClick={() => setImporting(true)} data-testid={APPS_TEST_IDS.importApp}>
+              {APPS_COPY.import}
+            </Pill>
+            <Pill mode="action" onClick={() => void newApp.create()} disabled={newApp.pending} data-testid={APPS_TEST_IDS.newApp}>
+              <UiAddIcon className="size-3" />
+              {APPS_COPY.newApp}
+            </Pill>
+          </div>
         }
       />
       {apps.length === 0 ? (
@@ -117,7 +123,6 @@ export function AppsList({
                         : []),
                       ...(canManage(app)
                         ? [
-                            { kind: `item` as const, id: `rename`, label: APPS_COPY.menu.rename, icon: UiEditIcon, onSelect: () => setRenaming(app) },
                             {
                               kind: `item` as const,
                               id: `delete`,
@@ -142,18 +147,8 @@ export function AppsList({
         </div>
       )}
 
-      <AppFormDialog open={creating} onOpenChange={setCreating} teamId={teamId} teamSlug={teamSlug} />
+      <AppImportDialog open={importing} onOpenChange={setImporting} teamId={teamId} teamSlug={teamSlug} />
       <AppExportDialog app={exporting} onOpenChange={(next) => !next && setExporting(null)} />
-      {renaming && (
-        <AppFormDialog
-          key={renaming.id}
-          open
-          onOpenChange={(next) => !next && setRenaming(null)}
-          teamId={teamId}
-          teamSlug={teamSlug}
-          app={renaming}
-        />
-      )}
       <Prompt
         open={deleting !== null}
         onOpenChange={(next) => !next && !busy && setDeleting(null)}

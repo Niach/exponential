@@ -31,7 +31,7 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
         package = row.package
     }
 
-    /// The pill: `v{n}`, or `No version yet` (muted).
+    /// The pill: `v{n}`, or the `Draft` badge (muted).
     var pillLabel: String { Apps.versionLabel(headVersion) }
     var pillMuted: Bool { headVersion == 0 }
 

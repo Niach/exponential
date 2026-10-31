@@ -6,7 +6,7 @@ import { APPS_COPY, APP_DESCRIPTION_MAX, versionLabel } from "@exp/domain-contra
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions } from "@exp/domain-contract/app-actions"
 import { APP_EXPORT_COPY } from "@exp/domain-contract/app-export"
-import { Button, conceptIcon, FEEDBACK_WORDS, GlassGroup, Pill, Prompt, Switch, Textarea } from "@exp/ui"
+import { Button, conceptIcon, GlassGroup, Pill, Prompt, Switch, Textarea } from "@exp/ui"
 import type { Team } from "@/db/schema"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
@@ -19,8 +19,8 @@ import { grantableTools } from "@/lib/app-grants"
 // VAPP-110: Settings → Apps → one app (the agent page's layout, fixture
 // apps.json): the identity row (icon + colour + name, the name a deferred
 // write on blur/Enter), the description card (saved on blur), Open in the
-// editor, and Delete (the creator or an owner). `app` null = the create
-// page: every field local until Create app, which opens the editor.
+// editor, and Delete (the creator or an owner). VAPP-176: no create mode,
+// New app opens a draft's editor.
 
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 const NavAppsIcon = conceptIcon(`nav-apps`)
@@ -35,8 +35,8 @@ export function AppSettingsPage({
   canGrant = false,
 }: {
   team: Team
-  /** The live app entry; null = the create page. */
-  app: AppListEntry | null
+  /** The live app entry. */
+  app: AppListEntry
   /** The creator or an owner may rename, describe and delete. */
   canManage: boolean
   /** VAPP-120 (the ruling): only a team OWNER sets the app's grants; the
@@ -44,13 +44,11 @@ export function AppSettingsPage({
   canGrant?: boolean
 }) {
   const navigate = useNavigate()
-  const creating = app === null
   const readOnly = !canManage
-  const [name, setName] = useState(app?.name ?? ``)
-  const [icon, setIcon] = useState<BoardIcon>((app?.icon as BoardIcon | null) ?? DEFAULT_ICON)
-  const [color, setColor] = useState(app?.color ?? DEFAULT_COLOR)
-  const [description, setDescription] = useState(app?.description ?? ``)
-  const [busy, setBusy] = useState(false)
+  const [name, setName] = useState(app.name ?? ``)
+  const [icon, setIcon] = useState<BoardIcon>((app.icon as BoardIcon | null) ?? DEFAULT_ICON)
+  const [color, setColor] = useState(app.color ?? DEFAULT_COLOR)
+  const [description, setDescription] = useState(app.description ?? ``)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -58,14 +56,14 @@ export function AppSettingsPage({
   // (null = unlimited: self-hosted, or the plan still loading).
   const { data: records } = useLiveQuery(
     (query) => (app ? query.from({ r: appRecordCollection }).where(({ r }) => eq(r.appId, app.id)) : undefined),
-    [app?.id]
+    [app.id]
   )
   const [recordsMax, setRecordsMax] = useState<number | null>(null)
   // VAPP-120: the typed actions the head package declares, each with its
   // grant (the synced row); a toggle writes the whole list.
-  const declared = useMemo(() => declaredActions(((app?.row?.package as { functions?: string[] } | null)?.functions ?? []) as string[]), [app?.row?.package])
+  const declared = useMemo(() => declaredActions(((app.row?.package as { functions?: string[] } | null)?.functions ?? []) as string[]), [app.row?.package])
   // FEED-159: a stored grant that is no longer grantable reads as none.
-  const granted = grantableTools(app?.row?.grantedTools as string[] | null | undefined)
+  const granted = grantableTools(app.row?.grantedTools as string[] | null | undefined)
   const [toolBusy, setToolBusy] = useState<string | null>(null)
   const toggleTool = async (name: string, on: boolean) => {
     if (!app || !canGrant || !actionGrantable(name)) return
@@ -100,12 +98,12 @@ export function AppSettingsPage({
   }, [app, team.id])
 
   // Seed when the APP changes, never on a resync of the same one.
-  const appId = app?.id ?? null
+  const appId = app.id ?? null
   useEffect(() => {
-    setName(app?.name ?? ``)
-    setIcon((app?.icon as BoardIcon | null) ?? DEFAULT_ICON)
-    setColor(app?.color ?? DEFAULT_COLOR)
-    setDescription(app?.description ?? ``)
+    setName(app.name ?? ``)
+    setIcon((app.icon as BoardIcon | null) ?? DEFAULT_ICON)
+    setColor(app.color ?? DEFAULT_COLOR)
+    setDescription(app.description ?? ``)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId])
 
@@ -128,23 +126,6 @@ export function AppSettingsPage({
     void patch({ name: trimmed })
   }
 
-  const create = async () => {
-    if (busy || !name.trim()) return
-    setBusy(true)
-    try {
-      const result = await trpc.apps.create.mutate(
-        { teamId: team.id, name: name.trim(), icon, color, description: description.trim() || undefined },
-        SKIP_ERROR_TOAST
-      )
-      await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-      void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug: team.slug, appSlug: result.app.slug } })
-    } catch (error) {
-      failedAction(`create`, `the app`, error)
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const confirmDelete = async () => {
     if (!app) return
     setDeleting(true)
@@ -165,7 +146,7 @@ export function AppSettingsPage({
         <BoardIdentityRow
           name={name}
           onNameChange={setName}
-          onNameBlur={creating ? undefined : saveName}
+          onNameBlur={saveName}
           placeholder={APPS_COPY.namePlaceholder}
           icon={icon}
           onIconChange={(next) => {
@@ -178,7 +159,6 @@ export function AppSettingsPage({
             void patch({ color: next })
           }}
           disabled={readOnly}
-          autoFocus={creating}
         />
       </GlassGroup>
 
@@ -196,14 +176,11 @@ export function AppSettingsPage({
         />
       </div>
 
-      {!creating && (
-        <p className="px-1 text-sm text-muted-foreground" data-testid="app-settings-records">
-          {recordsCountLabel(records?.length ?? 0, recordsMax)}
-        </p>
-      )}
+      <p className="px-1 text-sm text-muted-foreground" data-testid="app-settings-records">
+        {recordsCountLabel(records?.length ?? 0, recordsMax)}
+      </p>
 
-      {!creating && (
-        <div className="space-y-1" data-testid="app-settings-tools">
+      <div className="space-y-1" data-testid="app-settings-tools">
           <div className="px-1">
             <h2 className="text-sm font-medium">{APP_ACTIONS_COPY.title}</h2>
             <p className="text-sm text-muted-foreground">{APP_ACTIONS_COPY.hint}</p>
@@ -234,15 +211,7 @@ export function AppSettingsPage({
             )}
           </GlassGroup>
         </div>
-      )}
 
-      {creating ? (
-        <div className="flex justify-end pt-2">
-          <Button onClick={() => void create()} disabled={!name.trim()} pending={busy} pendingLabel={FEEDBACK_WORDS.pending.save} data-testid="app-create">
-            {APPS_COPY.create}
-          </Button>
-        </div>
-      ) : (
         <div className="flex flex-wrap items-center gap-2 pt-2">
           <Button
             variant="outline"
@@ -267,14 +236,13 @@ export function AppSettingsPage({
             </Button>
           )}
         </div>
-      )}
 
-      {!creating && <AppExportDialog app={exportOpen ? app : null} onOpenChange={setExportOpen} />}
+      <AppExportDialog app={exportOpen ? app : null} onOpenChange={setExportOpen} />
       <Prompt
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         busy={deleting}
-        title={APPS_COPY.deleteTitle.replace(`{name}`, app?.name ?? ``)}
+        title={APPS_COPY.deleteTitle.replace(`{name}`, app.name ?? ``)}
         body={APPS_COPY.deleteBody}
         actions={[
           { label: `Cancel`, role: `cancel` },

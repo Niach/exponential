@@ -8,6 +8,7 @@ import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamBoards, useTeamBySlug } from "@/hooks/use-team-data"
 import { useAgents } from "@/hooks/use-session-tree"
 import { useApps } from "@/hooks/use-apps"
+import { useNewApp } from "@/hooks/use-new-app"
 import { useSession } from "@/hooks/use-session"
 import { AGENT_SETTINGS_TEST_IDS } from "@/components/team/agents-section"
 import { getRuntimeConfigCached, type RuntimeConfig } from "@/lib/runtime-config"
@@ -147,6 +148,7 @@ export function SettingsSidebar({
   const { agents } = useAgents(team?.id, authSession?.user?.id)
   const teamAgents = agents.filter((agent) => !agent.assistant)
   const { apps } = useApps(team?.id)
+  const newApp = useNewApp(team?.id, teamSlug)
   const onSettings = useRouterState({ select: (state) => state.location.pathname.includes(`/settings`) })
   useEnsureAssistant(onSettings ? team?.id : null)
 
@@ -223,11 +225,10 @@ export function SettingsSidebar({
       case `@new-app`:
         return (
           <SidebarMenuItem key={list}>
-            <SidebarMenuButton asChild className="text-muted-foreground">
-              <Link to="/t/$teamSlug/settings/apps/new" params={{ teamSlug }}>
-                <AddIcon className="h-4 w-4" />
-                <span>{NEW_APP_LABEL}</span>
-              </Link>
+            {/* VAPP-176: a draft and its editor, no create page. */}
+            <SidebarMenuButton className="text-muted-foreground" onClick={() => void newApp.create()} disabled={newApp.pending}>
+              <AddIcon className="h-4 w-4" />
+              <span>{NEW_APP_LABEL}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         )
