@@ -555,6 +555,37 @@ describe(`connection lifecycle`, () => {
       })
     }
 
+    // VAPP-173: the feed answers before the row flips running.
+    it(`a run back whose feed answers before the row flips goes live on the flip`, async () => {
+      const { store, sockets, comeBack } = await offlineStore()
+      comeBack()
+      store.kick(`device-online`)
+      await vi.advanceTimersByTimeAsync(0)
+      sockets[0].open()
+      sockets[0].frame({ t: `activity_reset` })
+      sockets[0].frame({ t: `activity_synced` })
+      await vi.advanceTimersByTimeAsync(100)
+      expect(store.getSnapshot().phase).toEqual({ kind: `ended` })
+      sockets[0].frame({ t: `keepalive` })
+      store.noteSessionStatus(`running`)
+      expect(store.getSnapshot().phase).toEqual({ kind: `live` })
+      store.dispose()
+    })
+
+    it(`a bye-ended transcript stays ended when the row flips`, async () => {
+      const { store, sockets, comeBack } = await offlineStore()
+      comeBack()
+      store.kick(`device-online`)
+      await vi.advanceTimersByTimeAsync(0)
+      sockets[0].open()
+      sockets[0].frame({ t: `activity_reset` })
+      sockets[0].frame({ t: `activity_synced` })
+      sockets[0].frame({ t: `bye`, outcome: `history` })
+      store.noteSessionStatus(`running`)
+      expect(store.getSnapshot().phase).toEqual({ kind: `ended` })
+      store.dispose()
+    })
+
     it(`a redial that finds no feed again keeps the copy and the timer`, async () => {
       const { store, sockets, comeBack } = await offlineStore()
       store.kick(`device-online`)

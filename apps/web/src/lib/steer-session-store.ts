@@ -805,6 +805,10 @@ export function createSteerSessionStore(
    *  ended row), which keeps redialing: the stale timer, a wakeup, the
    *  device's presence flip online (fixtures/steer-enet.json OFFLINE REDIAL). */
   let deviceOffline = false
+  /** VAPP-173: a redial's feed answered while the row still read ended, so
+   *  the phase went `ended` from the ROW, not from `bye`: the row flipping
+   *  back to running under that open feed lifts it to live. */
+  let endedByRow = false
   // EXP-625: dial liveness, so a wakeup can tell a dial that is merely young
   // from one that is stuck. The timer is generation-scoped.
   let joinAckTimer: ReturnType<typeof setTimeout> | null = null
@@ -1039,7 +1043,8 @@ export function createSteerSessionStore(
     if (phase.kind === `ended`) {
       if (!deviceOffline) return false
       deviceOffline = false
-      phase = sessionStatus === `ended` ? { kind: `ended` } : { kind: `live` }
+      endedByRow = sessionStatus === `ended`
+      phase = endedByRow ? { kind: `ended` } : { kind: `live` }
       return true
     }
     phase = { kind: `live` }
@@ -1996,6 +2001,7 @@ export function createSteerSessionStore(
           // caption. The device drops this viewer and the socket closes.
           const f = frame as Extract<ServerFrame, { t: `bye` }>
           sawEnd = true
+          endedByRow = false
           detail =
             f.outcome && f.outcome !== `ended` && f.outcome !== `history`
               ? f.outcome
@@ -2026,6 +2032,7 @@ export function createSteerSessionStore(
       clearDialTimers()
       ws = null
       connected = false
+      endedByRow = false
       // A half-delivered replay is worth less than the last complete
       // picture — the reader keeps what they were reading (EXP-656).
       discardStaging()
@@ -2264,6 +2271,12 @@ export function createSteerSessionStore(
     },
     noteSessionStatus(status) {
       sessionStatus = status
+      // VAPP-173: a run that came back = live (steer-enet.json OFFLINE REDIAL).
+      if (status !== `ended` && endedByRow && connected && phase.kind === `ended`) {
+        endedByRow = false
+        phase = { kind: `live` }
+        commit()
+      }
     },
     noteDeviceLabel(label) {
       deviceLabel = label

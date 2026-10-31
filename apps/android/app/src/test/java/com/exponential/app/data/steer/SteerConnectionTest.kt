@@ -1191,6 +1191,30 @@ class SteerConnectionTest {
     }
 
     @Test
+    fun aRunBackWhoseFeedAnswersBeforeTheRowFlipsGoesLiveOnTheFlip() = runBlocking {
+        val transport = FakeTransport().apply { noFeed = { it == 1 } }
+        val row = endedRow()
+        val connection = connection(transport, stagingTimings.copy(offlineRedialMs = 50), row)
+        try {
+            connection.connect()
+            // VAPP-173: the feed answers while the row still reads ended.
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the row-ended phase") {
+                connection.connected.value && connection.phase.value == AgentPhase.Ended(null)
+            }
+            assertNull(connection.history.value)
+            // An idle run sends only keepalives: nothing re-evaluates but the row.
+            socket.emit("""{"t":"keepalive"}""")
+            row.value = runningRow()
+            waitUntil("live") { connection.phase.value == AgentPhase.Live }
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
     fun aParkedOfflineCopyKeepsItsPhaseAndTheForegroundRedials() = runBlocking {
         val transport = FakeTransport().apply { noFeed = { true } }
         val connection = connection(transport, stagingTimings.copy(offlineRedialMs = 50), endedRow())
