@@ -43,6 +43,7 @@ vi.mock(`@/components/session-account-switch`, () => ({
 let messages: unknown[] = []
 const answerMutate = vi.fn(async (_input: unknown, _opts?: unknown) => ({ txid: 1 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({ useSessionMessages: () => messages }))
+vi.mock(`@/hooks/use-open-plan`, () => ({ useOpenPlan: () => () => undefined }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: { sessions: { answer: { mutate: answerMutate } } } }))
 vi.mock(`@/lib/collections`, () => ({
   messageCollection: { utils: { awaitTxId: async () => undefined }, get: () => undefined },
