@@ -63,7 +63,8 @@ How spezl (or anyone) depends on the `publish = false` crates:
    `include_str!` from `packages/`, which a git checkout carries.
    **Another lib comes in through ITS release tag** (#EXP-1460): `etalk-gpui`
    takes `eui-core`/`eui-gpui` with `git = "https://github.com/Niach/exponential",
-   tag = "eui-v…"` and `epilot`/`epilot-screen` at `epilot-v…`; a path
+   tag = "eui-v…"` and `epilot`/`epilot-screen` at `epilot-v…`, and
+   `epilot`/`epilot-screen` take `emcp` at `emcp-v…` (#EXP-1492); a path
    dependency would resolve inside the etalk tag's checkout and hand a
    consumer a second eui-gpui whose types never unify with its own. The
    desktop workspace's `[patch."https://github.com/Niach/exponential"]` builds
@@ -122,4 +123,4 @@ Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 | eNet | 0.1.0 | crates.io `enet-core` (the bindings are not published yet) | `enet-v0.1.0` |
 | eUI (old name) | 0.1.1 | npm `@exponential_app/ui*` (deprecated), crates.io `exponential-ui`, Maven `at.exponential:ui-compose*` | `ui-v0.1.1` |
 | agent-runtime | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
-| eMCP | 0.1.0 (tag pending) | GitHub release (git dependency on the tag) | `emcp-v0.1.0` |
+| eMCP | 0.1.0 | GitHub release (git dependency on the tag) | `emcp-v0.1.0` |

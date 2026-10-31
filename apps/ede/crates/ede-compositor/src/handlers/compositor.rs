@@ -24,7 +24,15 @@ impl CompositorHandler for Ede {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
-        &client.get_data::<ClientState>().expect("every client is inserted with ClientState").compositor_state
+        #[cfg(feature = "xwayland")]
+        if let Some(state) = super::xwayland::client_compositor_state(client) {
+            return state;
+        }
+        &client.get_data::<ClientState>().expect("every other client is inserted with ClientState").compositor_state
+    }
+
+    fn new_surface(&mut self, surface: &WlSurface) {
+        super::dmabuf::install_blockers(surface);
     }
 
     fn commit(&mut self, surface: &WlSurface) {

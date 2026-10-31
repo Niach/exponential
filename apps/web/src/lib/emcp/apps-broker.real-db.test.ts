@@ -8,7 +8,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { apps, appRecords, comments, issues, mcpCalls, mcpGrants, teamMembers, teams } from "@/db/schema"
+import { appAccess, apps, appRecords, comments, issues, mcpCalls, mcpGrants, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { createTestBoard } from "@/test/factories"
 
@@ -284,5 +284,47 @@ describe.skipIf(!ready.ok)(`the apps consent (real db, VAPP-182)`, () => {
     await writeAppsGrant(w.owner, clientId, { ...selection!, access: `full` })
     expect(toolNames((await rpc(token, `tools/list`)).body)).toHaveLength(4)
     expect(await db.select().from(mcpGrants).where(eq(mcpGrants.clientId, clientId))).toHaveLength(1)
+  })
+})
+
+describe.skipIf(!ready.ok)(`the member policy and the tool switch (real db, VAPP-183)`, () => {
+  const asUser = async (id: string) => {
+    const { caller } = await import(`./tools`)
+    const [row] = await db.execute(sql`SELECT id, name, email, image, email_verified AS "emailVerified", is_admin AS "isAdmin" FROM users WHERE id = ${id}`).then((r) => r.rows)
+    return caller(row as never, new Request(`http://localhost/api/trpc`))
+  }
+
+  it(`a member's Read only policy caps a full grant; None hides the app; the owner switches a tool off`, async () => {
+    const w = await world()
+    const mate = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: mate, role: `member` })
+    const { clientId, token } = await client(mate)
+    await grant(mate, clientId, w.teamId, `full`)
+    expect(toolNames((await rpc(token, `tools/list`)).body)).toHaveLength(4)
+
+    const owner = await asUser(w.owner)
+    const member = await asUser(mate)
+    // Only an owner sets a level; a member reads only their own row.
+    await expect(member.appAccess.set({ appId: w.appId, userId: mate, level: `write` })).rejects.toThrow(/owner/)
+    await owner.appAccess.set({ appId: w.appId, userId: mate, level: `read` })
+    expect(toolNames((await rpc(token, `tools/list`)).body)).toEqual([`timesheet__find_customer`, `timesheet__list_entries`])
+    const mine = await member.appAccess.list({ teamId: w.teamId })
+    expect(mine.canEdit).toBe(false)
+    expect(mine.rows.map((r) => [r.userId, r.levels[w.appId]])).toEqual([[mate, `read`]])
+    expect((await owner.appAccess.list({ teamId: w.teamId })).rows).toHaveLength(2)
+
+    await owner.appAccess.set({ appId: w.appId, userId: mate, level: `none` })
+    expect(toolNames((await rpc(token, `tools/list`)).body)).toEqual([])
+    // Full = no row.
+    await owner.appAccess.set({ appId: w.appId, userId: mate, level: `write` })
+    expect(await db.select().from(appAccess).where(eq(appAccess.appId, w.appId))).toHaveLength(0)
+
+    await expect(member.appAccess.setToolEnabled({ appId: w.appId, tool: `add_entry`, enabled: false })).rejects.toThrow(/owner/)
+    await owner.appAccess.setToolEnabled({ appId: w.appId, tool: `add_entry`, enabled: false })
+    expect(toolNames((await rpc(token, `tools/list`)).body)).toEqual([`timesheet__find_customer`, `timesheet__list_entries`, `timesheet__log_comment`])
+    const tools = await member.appAccess.appTools({ appId: w.appId })
+    expect(tools.canToggle).toBe(false)
+    expect(tools.tools.find((t) => t.name === `add_entry`)).toMatchObject({ enabled: false, access: `write`, via: `records` })
+    expect(tools.upstreams).toEqual([{ name: `m5`, serverId: null, auth: null, state: null }])
   })
 })

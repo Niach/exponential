@@ -6,6 +6,7 @@ use std::{cell::RefCell, ffi::OsString, sync::Arc, time::Instant};
 
 use smithay::{
     desktop::{layer_map_for_output, PopupManager, Space, Window, WindowSurfaceType},
+    wayland::seat::WaylandFocus,
     input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat, SeatState},
     output::Output,
     reexports::{
@@ -60,7 +61,33 @@ pub struct Ede {
     /// What the pointer looks like (a client's cursor surface, hidden, or
     /// the default arrow); backends that draw their own cursor read it.
     pub cursor_status: CursorImageStatus,
+
+    /// Set by a backend that owns a seat session: switch to VT n.
+    pub vt_switch: Option<Box<dyn FnMut(i32)>>,
+    /// Commands started once clients can connect (after Xwayland is up).
+    pub autostart: Vec<Vec<String>>,
+    pub dmabuf_state: smithay::wayland::dmabuf::DmabufState,
+    /// Set by the backend that owns the renderer: can it import this buffer?
+    pub dmabuf_importer: Option<DmabufImporter>,
+    /// Explicit sync (drm-syncobj), when the primary GPU supports it.
+    #[cfg(feature = "udev")]
+    pub syncobj_state: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
+
+    #[cfg(feature = "xwayland")]
+    pub xwayland_shell_state: smithay::wayland::xwayland_shell::XWaylandShellState,
+    /// The X11 window manager once Xwayland is up.
+    #[cfg(feature = "xwayland")]
+    pub xwm: Option<smithay::xwayland::X11Wm>,
+    /// Xwayland's display number (`DISPLAY=:N`).
+    #[cfg(feature = "xwayland")]
+    pub xdisplay: Option<u32>,
+    /// An X11 window that was focused before it had a wl_surface.
+    #[cfg(feature = "xwayland")]
+    pub pending_x11_focus: Option<smithay::xwayland::X11Surface>,
 }
+
+/// Tries a client's dmabuf on the backend's renderer.
+pub type DmabufImporter = Box<dyn FnMut(&smithay::backend::allocator::dmabuf::Dmabuf) -> bool>;
 
 /// Per-window floating state, kept in the window's user data.
 #[derive(Debug, Default, Clone, Copy)]
@@ -68,6 +95,8 @@ pub struct WindowState {
     pub tile: Option<Tile>,
     /// The floating geometry to go back to when the window leaves a tile.
     pub restore: Option<Rect>,
+    /// Fullscreen, with the geometry to go back to.
+    pub fullscreen: Option<Rect>,
 }
 
 pub fn window_state(window: &Window) -> WindowState {
@@ -109,7 +138,7 @@ impl Ede {
 
         Self {
             start_time: Instant::now(),
-            display_handle: dh,
+            display_handle: dh.clone(),
             loop_handle,
             loop_signal,
             socket_name: None,
@@ -126,6 +155,20 @@ impl Ede {
             data_device_state,
             seat,
             cursor_status: CursorImageStatus::default_named(),
+            vt_switch: None,
+            autostart: Vec::new(),
+            dmabuf_state: smithay::wayland::dmabuf::DmabufState::new(),
+            dmabuf_importer: None,
+            #[cfg(feature = "udev")]
+            syncobj_state: None,
+            #[cfg(feature = "xwayland")]
+            xwayland_shell_state: smithay::wayland::xwayland_shell::XWaylandShellState::new::<Self>(&dh),
+            #[cfg(feature = "xwayland")]
+            xwm: None,
+            #[cfg(feature = "xwayland")]
+            xdisplay: None,
+            #[cfg(feature = "xwayland")]
+            pending_x11_focus: None,
         }
     }
 
@@ -142,6 +185,41 @@ impl Ede {
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         self.socket_name = Some(name.clone());
         Ok(name)
+    }
+
+    /// Starts Xwayland if enabled, then the autostart commands.
+    pub fn start_session(&mut self) {
+        #[cfg(feature = "xwayland")]
+        if self.config.xwayland {
+            // Autostart runs from the Ready/Error event.
+            self.start_xwayland();
+            return;
+        }
+        self.run_autostart();
+    }
+
+    pub fn run_autostart(&mut self) {
+        for argv in std::mem::take(&mut self.autostart) {
+            self.spawn(&argv);
+        }
+    }
+
+    /// Starts `argv` as our client: our Wayland socket, our Xwayland (never
+    /// the parent session's displays).
+    pub fn spawn(&self, argv: &[String]) {
+        let Some((program, args)) = argv.split_first() else { return };
+        let mut cmd = std::process::Command::new(program);
+        cmd.args(args).env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
+        if let Some(socket) = &self.socket_name {
+            cmd.env("WAYLAND_DISPLAY", socket);
+        }
+        #[cfg(feature = "xwayland")]
+        if let Some(n) = self.xdisplay {
+            cmd.env("DISPLAY", format!(":{n}"));
+        }
+        if let Err(e) = cmd.spawn() {
+            tracing::warn!("{program}: {e}");
+        }
     }
 
     /// Lays outputs out left to right in the order they were added.
@@ -186,7 +264,7 @@ impl Ede {
             self.untile(&w, None);
             let taken: Vec<_> = self.space.elements().filter(|o| *o != &w).filter_map(|o| self.space.element_location(o)).collect();
             let loc = layout::place_new(size, area, &taken, 32);
-            self.space.map_element(w, loc, false);
+            self.move_window(&w, loc, false);
         }
     }
 
@@ -203,11 +281,7 @@ impl Ede {
     }
 
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
-        self.space
-            .elements()
-            .chain(self.unmapped.iter())
-            .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
-            .cloned()
+        self.space.elements().chain(self.unmapped.iter()).find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).cloned()
     }
 
     /// The topmost surface under `pos`: overlay/top layers, then windows, then
@@ -242,12 +316,22 @@ impl Ede {
         let keyboard = self.seat.get_keyboard().unwrap();
         if let Some(window) = &window {
             self.space.raise_element(window, true);
+            #[cfg(feature = "xwayland")]
+            if let (Some(xwm), Some(x11)) = (self.xwm.as_mut(), window.x11_surface()) {
+                let _ = xwm.raise_window(x11);
+            }
         } else {
             for w in self.space.elements() {
                 w.set_activated(false);
             }
         }
-        let surface = window.as_ref().and_then(|w| w.toplevel()).map(|t| t.wl_surface().clone());
+        let surface = window.as_ref().and_then(|w| w.wl_surface()).map(|s| s.into_owned());
+        // A fresh X11 window has no wl_surface until Xwayland associates
+        // one; focus follows then (see the xwayland shell handler).
+        #[cfg(feature = "xwayland")]
+        {
+            self.pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
+        }
         keyboard.set_focus(self, surface, serial);
         for w in self.space.elements() {
             if let Some(t) = w.toplevel() {
@@ -261,19 +345,62 @@ impl Ede {
         self.window_for_surface(&focus)
     }
 
+    /// Moves `window` to `loc` in the space; X11 windows also learn where
+    /// they are (their position is part of their state).
+    pub fn move_window(&mut self, window: &Window, loc: Point<i32, Logical>, activate: bool) {
+        self.space.map_element(window.clone(), loc, activate);
+        #[cfg(feature = "xwayland")]
+        if let Some(x11) = window.x11_surface() {
+            let _ = x11.configure(Some(Rectangle::new(loc, x11.geometry().size)));
+        }
+    }
+
     /// First buffer arrived: pick a spot on the pointer's output and map.
     pub fn place_new_window(&mut self, window: Window) {
         self.unmapped.retain(|w| w != &window);
         let pointer = self.seat.get_pointer().unwrap().current_location();
-        let Some(area) = self.output_at(pointer).and_then(|o| self.work_area(&o)) else {
-            self.space.map_element(window.clone(), (0, 0), true);
-            self.focus(Some(window));
-            return;
+        let loc = match self.output_at(pointer).and_then(|o| self.work_area(&o)) {
+            Some(area) => {
+                let taken: Vec<_> = self.space.elements().filter_map(|w| self.space.element_location(w)).collect();
+                layout::place_new(window.geometry().size, area, &taken, 32)
+            }
+            None => (0, 0).into(),
         };
-        let taken: Vec<_> = self.space.elements().filter_map(|w| self.space.element_location(w)).collect();
-        let loc = layout::place_new(window.geometry().size, area, &taken, 32);
-        self.space.map_element(window.clone(), loc, true);
+        self.move_window(&window, loc, true);
         self.focus(Some(window));
+    }
+
+    /// Gives `window` the geometry `rect` with the xdg states of `tile`
+    /// (`None` = floating), on either shell.
+    fn configure_window(&self, window: &Window, rect: Option<Rect>, tile: Option<Tile>, fullscreen: bool) {
+        if let Some(t) = window.toplevel() {
+            t.with_pending_state(|s| {
+                s.size = rect.map(|r| r.size);
+                for st in TILE_STATES {
+                    s.states.unset(st);
+                }
+                s.states.unset(xdg_toplevel::State::Maximized);
+                s.states.unset(xdg_toplevel::State::Fullscreen);
+                if fullscreen {
+                    s.states.set(xdg_toplevel::State::Fullscreen);
+                } else if tile == Some(Tile::Maximized) {
+                    s.states.set(xdg_toplevel::State::Maximized);
+                } else if let Some(t) = tile {
+                    for st in tile_edges(t) {
+                        s.states.set(st);
+                    }
+                }
+            });
+            t.send_pending_configure();
+        }
+        #[cfg(feature = "xwayland")]
+        if let Some(x11) = window.x11_surface() {
+            let _ = x11.set_fullscreen(fullscreen);
+            let _ = x11.set_maximized(tile == Some(Tile::Maximized));
+            if let Some(rect) = rect {
+                let _ = x11.configure(Some(rect));
+            }
+        }
     }
 
     /// Tiles `window` into `tile` on the output under its centre, remembering
@@ -283,32 +410,16 @@ impl Ede {
         let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
         let Some(area) = self.output_at(center).and_then(|o| self.work_area(&o)) else { return };
         let mut st = window_state(window);
+        if st.fullscreen.is_some() {
+            return;
+        }
         if st.tile.is_none() {
             st.restore = Some(geo);
         }
         st.tile = Some(tile);
         set_window_state(window, st);
         let rect = tile.rect(area);
-        if let Some(t) = window.toplevel() {
-            t.with_pending_state(|s| {
-                s.size = Some(rect.size);
-                for st in TILE_STATES {
-                    s.states.unset(st);
-                }
-                s.states.unset(xdg_toplevel::State::Maximized);
-                match tile {
-                    Tile::Maximized => {
-                        s.states.set(xdg_toplevel::State::Maximized);
-                    }
-                    t => {
-                        for st in tile_edges(t) {
-                            s.states.set(st);
-                        }
-                    }
-                }
-            });
-            t.send_pending_configure();
-        }
+        self.configure_window(window, Some(rect), Some(tile), false);
         self.space.map_element(window.clone(), rect.loc, true);
     }
 
@@ -321,19 +432,69 @@ impl Ede {
         }
         let restore = st.restore.take();
         set_window_state(window, st);
-        if let Some(t) = window.toplevel() {
-            t.with_pending_state(|s| {
-                s.size = restore.map(|r| r.size);
-                for st in TILE_STATES {
-                    s.states.unset(st);
-                }
-                s.states.unset(xdg_toplevel::State::Maximized);
-            });
-            t.send_pending_configure();
-        }
-        if let Some(loc) = at.or(restore.map(|r| r.loc)) {
+        let loc = at.or(restore.map(|r| r.loc));
+        let rect = restore.map(|r| Rectangle::new(loc.unwrap_or(r.loc), r.size));
+        self.configure_window(window, rect, None, false);
+        if let Some(loc) = loc {
             self.space.map_element(window.clone(), loc, true);
         }
+    }
+
+    /// Fullscreen covers the whole output, panel included, and the output
+    /// then draws only that window (games, video).
+    pub fn set_fullscreen(&mut self, window: &Window, on: bool) {
+        let mut st = window_state(window);
+        if on == st.fullscreen.is_some() {
+            return;
+        }
+        if on {
+            let Some(geo) = self.space.element_geometry(window).or_else(|| {
+                let p = self.seat.get_pointer().unwrap().current_location();
+                Some(Rectangle::new(p.to_i32_round(), window.geometry().size))
+            }) else {
+                return;
+            };
+            let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
+            let Some(out) = self.output_at(center).and_then(|o| self.space.output_geometry(&o)) else { return };
+            st.fullscreen = Some(geo);
+            set_window_state(window, st);
+            self.configure_window(window, Some(out), None, true);
+            self.space.map_element(window.clone(), out.loc, true);
+            self.focus(Some(window.clone()));
+        } else {
+            let back = st.fullscreen.take();
+            set_window_state(window, st);
+            match (st.tile, back) {
+                (Some(tile), _) => {
+                    let center = back.map(|b| b.loc.to_f64()).unwrap_or_default();
+                    if let Some(area) = self.output_at(center).and_then(|o| self.work_area(&o)) {
+                        let rect = tile.rect(area);
+                        self.configure_window(window, Some(rect), Some(tile), false);
+                        self.space.map_element(window.clone(), rect.loc, true);
+                    }
+                }
+                (None, Some(back)) => {
+                    self.configure_window(window, Some(back), None, false);
+                    self.space.map_element(window.clone(), back.loc, true);
+                }
+                (None, None) => {}
+            }
+        }
+    }
+
+    /// The output background until the shell draws a wallpaper.
+    pub fn clear_color(&self) -> [f32; 4] {
+        self.config.background_rgba().unwrap_or([0.04, 0.04, 0.04, 1.0])
+    }
+
+    /// The window filling `output` fullscreen, if any (topmost wins).
+    pub fn fullscreen_on(&self, output: &Output) -> Option<Window> {
+        let out = self.space.output_geometry(output)?;
+        self.space
+            .elements()
+            .rev()
+            .find(|w| window_state(w).fullscreen.is_some() && self.space.element_location(w) == Some(out.loc))
+            .cloned()
     }
 
     /// The floating size a window returns to, if it is tiled.
@@ -343,8 +504,13 @@ impl Ede {
 
     /// Asks the focused window to close (Alt+F4).
     pub fn close_focused(&mut self) {
-        if let Some(t) = self.focused_window().and_then(|w| w.toplevel().cloned()) {
+        let Some(w) = self.focused_window() else { return };
+        if let Some(t) = w.toplevel() {
             t.send_close();
+        }
+        #[cfg(feature = "xwayland")]
+        if let Some(x11) = w.x11_surface() {
+            let _ = x11.close();
         }
     }
 }

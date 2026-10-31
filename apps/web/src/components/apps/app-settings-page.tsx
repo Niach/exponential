@@ -15,6 +15,7 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection, appRecordCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { grantableTools } from "@/lib/app-grants"
+import { AppMcpSections } from "@/components/apps/app-mcp-sections"
 
 // VAPP-110: Settings → Apps → one app (the agent page's layout, fixture
 // apps.json): the identity row (icon + colour + name, the name a deferred
@@ -211,6 +212,8 @@ export function AppSettingsPage({
             )}
           </GlassGroup>
         </div>
+
+        <AppMcpSections appId={app.id} teamSlug={team.slug} headVersion={app.headVersion} />
 
         <div className="flex flex-wrap items-center gap-2 pt-2">
           <Button

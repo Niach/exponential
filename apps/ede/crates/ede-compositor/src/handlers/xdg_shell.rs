@@ -12,7 +12,7 @@ use smithay::{
     reexports::{
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::{
-            protocol::{wl_seat, wl_surface::WlSurface},
+            protocol::{wl_output, wl_seat, wl_surface::WlSurface},
             Resource,
         },
     },
@@ -119,6 +119,25 @@ impl XdgShellHandler for Ede {
         }
     }
 
+    fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<wl_output::WlOutput>) {
+        match self.window_for_surface(surface.wl_surface()) {
+            Some(window) if self.space.element_location(&window).is_some() => self.set_fullscreen(&window, true),
+            // Not mapped yet: it opens fullscreen once its first buffer arrives.
+            _ => {
+                surface.with_pending_state(|s| s.states.set(xdg_toplevel::State::Fullscreen));
+                if surface.is_initial_configure_sent() {
+                    surface.send_pending_configure();
+                }
+            }
+        }
+    }
+
+    fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
+        if let Some(window) = self.window_for_surface(surface.wl_surface()) {
+            self.set_fullscreen(&window, false);
+        }
+    }
+
     fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
         // Popup grabs (menus that close on an outside click) come with the shell.
     }
@@ -153,10 +172,17 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
             toplevel.with_pending_state(|s| s.bounds = bounds);
             toplevel.send_configure();
         } else if with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false) {
-            let wants_max = toplevel.with_pending_state(|s| s.states.contains(xdg_toplevel::State::Maximized));
+            let (wants_max, wants_full) = toplevel.with_pending_state(|s| {
+                let full = s.states.contains(xdg_toplevel::State::Fullscreen);
+                s.states.unset(xdg_toplevel::State::Fullscreen);
+                (s.states.contains(xdg_toplevel::State::Maximized), full)
+            });
             state.place_new_window(window.clone());
             if wants_max {
                 state.tile(&window, Tile::Maximized);
+            }
+            if wants_full {
+                state.set_fullscreen(&window, true);
             }
         }
     }

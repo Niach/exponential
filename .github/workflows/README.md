@@ -37,7 +37,8 @@ shell, `/api/health` must say `{"ok":true}`), and the image's HEALTHCHECK
 matches that body. A dead server can answer `/api/health` with 200 and an
 error page, so Coolify's own health check on the web app must match the
 response text too: path `/api/health`, return code 200, response text
-`"ok":true`. Locally after `bun run build`: `cd apps/web && bun run
+`"ok":true`, host `127.0.0.1` (busybox wget resolves `localhost` to ::1 and
+the server listens on IPv4 only, so `localhost` fails every probe). Locally after `bun run build`: `cd apps/web && bun run
 smoke:server -- --boot` (needs `DATABASE_URL` + `BETTER_AUTH_SECRET`).
 
 The device-shares gate (FEED-149/FEED-155) is a production deploy step, not

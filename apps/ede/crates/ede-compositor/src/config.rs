@@ -16,6 +16,8 @@ pub struct Config {
     /// The colour behind every window until the shell draws a wallpaper,
     /// `#rrggbb`. Defaults to the design-token `background` (oklch 0.145).
     pub background: String,
+    /// Run X11 apps through Xwayland.
+    pub xwayland: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -52,6 +54,7 @@ impl Default for Config {
             keyboard: Keyboard::default(),
             windows: Windows::default(),
             background: "#0a0a0a".into(),
+            xwayland: true,
         }
     }
 }

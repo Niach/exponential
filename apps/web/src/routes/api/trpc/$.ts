@@ -36,6 +36,8 @@ import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
 import { notificationsRouter } from "@/lib/trpc/notifications"
 import { voiceRouter } from "@/lib/trpc/voice"
 import { widgetsRouter } from "@/lib/trpc/widgets"
+import { appAccessRouter } from "@/lib/trpc/app-access"
+import { mcpClientsRouter } from "@/lib/trpc/mcp-clients"
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
 import { pinsRouter } from "@/lib/trpc/pins"
@@ -81,6 +83,8 @@ export const appRouter = router({
   voice: voiceRouter,
   widgets: widgetsRouter,
   mcpGrants: mcpGrantsRouter,
+  appAccess: appAccessRouter,
+  mcpClients: mcpClientsRouter,
   mcpServers: mcpServersRouter,
   pins: pinsRouter,
   imports: importsRouter,
