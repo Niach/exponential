@@ -1,0 +1,602 @@
+{
+  "$comment": "REUSE (lib/sessions/agent-reuse.ts, send.ts agentFreshThread; rules.reuse). Only an AGENT's message (the calling session's tree has an acting agent) into ANOTHER tree's ROOT thread (not a child, not an agent's conversation) with plain text (never an answer, never sealed: a sealed text cannot move trees) can fork. It reuses the thread when it waits on an answer (needsInput) or on the CALLER (#FEED-172: the thread's tree has the last word with the caller, `awaitsCaller`), else while it is live or ended under maxEndedHours, its last turn (else activity, else last write) is under maxIdleHours old and it has fewer than maxChildren sub-sessions. Otherwise a FRESH root starts (id `freshId`) on the target's device with the same message, watched by the caller, and the result's warning says why (copy.freshThread). A person's message never forks. `refusalCases` replay `reuseRefusal(root, children, now, awaitsCaller)` alone (null = reuse).",
+  "refusalCases": [
+    {
+      "name": "a live, recent, small thread is reused",
+      "root": {
+        "status": "idle",
+        "needsInput": false,
+        "endedAt": null,
+        "lastTurnAt": 356400000,
+        "lastActivityAt": 356400000,
+        "updatedAt": 356400000
+      },
+      "children": 0,
+      "now": 360000000,
+      "expected": null
+    },
+    {
+      "name": "ended under maxEndedHours: reused",
+      "root": {
+        "status": "ended",
+        "needsInput": false,
+        "endedAt": 356400000,
+        "lastTurnAt": 356400000,
+        "lastActivityAt": null,
+        "updatedAt": 356400000
+      },
+      "children": 0,
+      "now": 360000000,
+      "expected": null
+    },
+    {
+      "name": "ended maxEndedHours ago: refused",
+      "root": {
+        "status": "ended",
+        "needsInput": false,
+        "endedAt": 352800000,
+        "lastTurnAt": 356400000,
+        "lastActivityAt": null,
+        "updatedAt": 352800000
+      },
+      "children": 0,
+      "now": 360000000,
+      "expected": "it ended more than 2 h ago"
+    },
+    {
+      "name": "ended with no endedAt: its last write counts",
+      "root": {
+        "status": "ended",
+        "needsInput": false,
+        "endedAt": null,
+        "lastTurnAt": 356400000,
+        "lastActivityAt": null,
+        "updatedAt": 352800000
+      },
+      "children": 0,
+      "now": 360000000,
+      "expected": "it ended more than 2 h ago"
+    },
+    {
+      "name": "last turn maxIdleHours old: refused",
+      "root": {
+        "status": "idle",
+        "needsInput": false,
+        "endedAt": null,
+        "lastTurnAt": 273600000,
+        "lastActivityAt": 359000000,
+        "updatedAt": 359000000
+      },
+      "children": 0,
+      "now": 360000000,
+      "expected": "its last turn is more than 24 h old"
+    },
+    {
+      "name": "no turn yet: the last activity counts",
+      "root": {
+        "status": "idle",
+        "needsInput": false,
+        "endedAt": null,
+        "lastTurnAt": null,
+        "lastActivityAt": 270000000,
+        "updatedAt": 359000000
+      },
+      "children": 0,
+      "now": 360000000,
+      "expected": "its last turn is more than 24 h old"
+    },
+    {
+      "name": "neither: the last write counts",
+      "root": {
+        "status": "idle",
+        "needsInput": false,
+        "endedAt": null,
+        "lastTurnAt": null,
+        "lastActivityAt": null,
+        "updatedAt": 359000000
+      },
+      "children": 0,
+      "now": 360000000,
+      "expected": null
+    },
+    {
+      "name": "maxChildren - 1 sub-sessions: reused",
+      "root": {
+        "status": "idle",
+        "needsInput": false,
+        "endedAt": null,
+        "lastTurnAt": 356400000,
+        "lastActivityAt": null,
+        "updatedAt": 356400000
+      },
+      "children": 7,
+      "now": 360000000,
+      "expected": null
+    },
+    {
+      "name": "maxChildren sub-sessions: refused",
+      "root": {
+        "status": "idle",
+        "needsInput": false,
+        "endedAt": null,
+        "lastTurnAt": 356400000,
+        "lastActivityAt": null,
+        "updatedAt": 356400000
+      },
+      "children": 8,
+      "now": 360000000,
+      "expected": "it already has 8 sub-sessions"
+    },
+    {
+      "name": "waiting on an answer: always reused",
+      "root": {
+        "status": "idle",
+        "needsInput": true,
+        "endedAt": null,
+        "lastTurnAt": 0,
+        "lastActivityAt": null,
+        "updatedAt": 0
+      },
+      "children": 8,
+      "now": 360000000,
+      "expected": null
+    },
+    {
+      "name": "#FEED-172 waiting on the caller: always reused",
+      "root": {
+        "status": "running",
+        "needsInput": false,
+        "endedAt": null,
+        "lastTurnAt": 0,
+        "lastActivityAt": null,
+        "updatedAt": 0
+      },
+      "children": 8,
+      "now": 360000000,
+      "awaitsCaller": true,
+      "expected": null
+    }
+  ],
+  "cases": [
+    {
+      "name": "an agent's message to a crowded thread starts a fresh one on its device, watched, with a warning",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d9"
+          },
+          {
+            "id": "r1",
+            "deviceId": "d2",
+            "lastTurnAt": 356400000,
+            "updatedAt": 356400000
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c2",
+            "parentId": "r1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c3",
+            "parentId": "r1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c4",
+            "parentId": "r1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c5",
+            "parentId": "r1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c6",
+            "parentId": "r1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c7",
+            "parentId": "r1"
+          },
+          {
+            "id": "c8",
+            "parentId": "c7"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "r1",
+              "callerId": "a1",
+              "text": "Now do the Android half.",
+              "freshId": "r2"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": "a1",
+              "body": "Now do the Android half.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "a1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "thread_started",
+                "sessionId": "r2"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m1",
+            "warning": "Started a fresh thread instead of reusing r1: it already has 8 sub-sessions. You watch the new one."
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r2": {
+            "parentId": null,
+            "deviceId": "d2",
+            "status": "queued",
+            "startedByAgentId": "ag1"
+          },
+          "a1": {
+            "wakeOn": [
+              "r2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "the same message from a person, from inside the thread, sealed, or to a thread waiting on an answer never forks",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1"
+          },
+          {
+            "id": "r1",
+            "lastTurnAt": 0,
+            "updatedAt": 0
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "startedByAgentId": "ag1"
+          },
+          {
+            "id": "r3",
+            "lastTurnAt": 0,
+            "updatedAt": 0,
+            "needsInput": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "r1",
+              "userId": "u1",
+              "text": "From a person."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "From a person.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "r1",
+              "callerId": "c1",
+              "text": "From inside.",
+              "freshId": "x1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "From inside.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m2"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "r1",
+              "callerId": "a1",
+              "text": "ev1.sealed",
+              "sealed": true,
+              "freshId": "x2"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "a1",
+              "body": "ev1.sealed",
+              "card": null,
+              "sealed": true,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m3"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "r3",
+              "callerId": "a1",
+              "text": "Postgres.",
+              "freshId": "x3"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "r3",
+              "authorKind": "agent",
+              "authorSessionId": "a1",
+              "body": "Postgres.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r3",
+            "messageId": "m4"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "x1": null,
+          "x2": null,
+          "x3": null
+        }
+      }
+    },
+    {
+      "name": "a caller without an acting agent never forks",
+      "given": {
+        "sessions": [
+          {
+            "id": "s1"
+          },
+          {
+            "id": "r1",
+            "lastTurnAt": 0,
+            "updatedAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "r1",
+              "callerId": "s1",
+              "text": "Hi.",
+              "freshId": "x1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "s1",
+              "body": "Hi.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "x1": null
+        }
+      }
+    },
+    {
+      "name": "an agent's message to a thread ended long ago forks; to one ended recently it revives it",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1"
+          },
+          {
+            "id": "r1",
+            "status": "ended",
+            "endedAt": 0,
+            "lastTurnAt": 0,
+            "updatedAt": 0
+          },
+          {
+            "id": "r3",
+            "status": "ended",
+            "endedAt": 359000000,
+            "lastTurnAt": 359000000,
+            "updatedAt": 359000000
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "r1",
+              "callerId": "a1",
+              "text": "Again?",
+              "freshId": "r2"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": "a1",
+              "body": "Again?",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "a1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "thread_started",
+                "sessionId": "r2"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m1",
+            "warning": "Started a fresh thread instead of reusing r1: it ended more than 2 h ago. You watch the new one."
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "r3",
+              "callerId": "a1",
+              "text": "Again?",
+              "freshId": "r4"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "r3",
+              "authorKind": "agent",
+              "authorSessionId": "a1",
+              "body": "Again?",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r3",
+            "messageId": "m3"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "status": "ended"
+          },
+          "r2": {
+            "status": "queued"
+          },
+          "r3": {
+            "status": "idle"
+          },
+          "r4": null
+        }
+      }
+    }
+  ]
+}

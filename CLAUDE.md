@@ -19,6 +19,7 @@ packages/db-schema        Drizzle schema + zod/domain types (authoritative; neve
 packages/domain-contract  contract.json → per-language enums + the fixtures (×4 replay) + pure TS references
 packages/etalk            @exp/etalk: eTalk's contract (voice, voice-call, talk-listen, meeting fixtures ×4 + TS references); Rust = crates/etalk*
 packages/ecore            @exp/ecore: eCore's contract.json → Rust crate `ecore` + TS/Swift/Kotlin (ids, grants, verdicts, errors, envelope; types only, gated)
+packages/eagent           @exp/eagent: eAgent's orchestration spec (tree, bus, wake-ups, reports, caps, watchdog fixtures + a pure TS reducer); the server (lib/sessions) and eagent-hub-core replay it
 packages/emcp             @exp/emcp: eMCP's contract (exposes, access, audit, vault, upstream fixtures + TS references); server half = apps/web/src/lib/emcp, Rust = crate emcp
 packages/ui               @exp/ui: theme, shadcn set, shared primitives, islands
 packages/design-tokens · icons (icons.json → TS/Swift/Kotlin/Rust) · emoji · electric-protocol · steer-ticket · widget · view-catalog (views.json, drift-gated) · site-shell · shots (capture pipeline) · exponential-ui{,-react,-solid,-swift,-compose} (the SDK; `-solid` = the Solid renderer + `./primitives` on `src/behaviors/`, parity-gated against React; both web renderers take their classes from the shared recipes `@exponential_app/eui/web/primitives`)

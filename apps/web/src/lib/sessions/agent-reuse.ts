@@ -12,15 +12,18 @@ const HOUR = 60 * 60 * 1000
  * ended or ended less than `sessionsSend.reuseMaxEndedHours` ago, its last
  * turn (else activity) is under `reuseMaxIdleHours` old and the tree holds
  * fewer than `reuseMaxChildren` sub-sessions. A thread waiting on an answer
- * (`needsInput`) is always reused: the reply answers it, never forks. Null =
- * reuse; else the reason (the fresh thread's `warning`).
+ * (`needsInput`) or on the caller (#FEED-172 `awaitsCaller`: it asked in a
+ * plain message) is always reused: the reply answers it, never forks. Null =
+ * reuse; else the reason (the fresh thread's `warning`). Spec:
+ * packages/eagent/fixtures/reuse.json.
  */
 export function agentReuseRefusal(
   root: Pick<Session, `status` | `needsInput` | `endedAt` | `lastTurnAt` | `lastActivityAt` | `updatedAt`>,
   children: number,
-  now: Date
+  now: Date,
+  awaitsCaller = false
 ): string | null {
-  if (root.needsInput) return null
+  if (root.needsInput || awaitsCaller) return null
   const rules = contract.sessionsSend
   const age = (at: Date | null) => (at ? now.getTime() - at.getTime() : 0)
   if (root.status === `ended` && age(root.endedAt ?? root.updatedAt) >= rules.reuseMaxEndedHours * HOUR) {

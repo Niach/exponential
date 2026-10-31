@@ -1,0 +1,646 @@
+{
+  "$comment": "THE FIELD FAILURES of 2026-10-30/31, replayed so neither implementation regresses. (1) #FEED-172: a crowded thread (8 sub-sessions) asked its team agent a question in a PLAIN message (no card, so no needsInput); the agent's reply forked a fresh thread with no context instead of reaching the asker. Rule: a thread whose tree has the last word with the caller (`awaitsCaller`, reuse.json) is always reused; the crowding rule applies to NEW work only, so once the caller has spoken last its next message may fork again. (2) #EXP-1500: a message was consumed and its turn started, then a self-update killed the run and the new app treated the contended claim as settled, so the run was never continued. From the hub's side the run reads `restarted` (resume) once the living device stops listing it, the consumed message is not redelivered (never nudged), and `resumeMinutes` later the watchdog puts it on a person and wakes the parent once; a message continues it and any device report clears it. (3) INTERRUPTED, NEVER CONTINUED: a host going offline mid-turn is a silent `device_offline` (resume) for as long as the device is away (its presence shows that); the resume clock starts only when it is back, and a run it does not continue within resumeMinutes reaches a person. (4) #FEED-178: threads started with a SEALED first brief replied only \"Waiting for your next message\": the first claim must deliver the first input as the Request whether sealed or not (`brief` names it, sealed: true; the device opens it), consume it, and never hand the device an empty brief while a first input exists.",
+  "cases": [
+    {
+      "name": "#FEED-172: the team agent's reply to a crowded thread that asked it reaches the thread",
+      "given": {
+        "sessions": [
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "deviceId": "d9"
+          },
+          {
+            "id": "da1",
+            "startedByAgentId": "ag1",
+            "status": "running",
+            "busy": true,
+            "lastTurnAt": 356400000,
+            "updatedAt": 356400000
+          },
+          {
+            "id": "c1",
+            "parentId": "da1"
+          },
+          {
+            "id": "c2",
+            "parentId": "da1"
+          },
+          {
+            "id": "c3",
+            "parentId": "da1"
+          },
+          {
+            "id": "c4",
+            "parentId": "da1"
+          },
+          {
+            "id": "c5",
+            "parentId": "da1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c6",
+            "parentId": "da1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c7",
+            "parentId": "da1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c8",
+            "parentId": "da1",
+            "status": "ended",
+            "endedAt": 0
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "role": "assistant",
+            "conversationId": "as1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 359000000,
+            "data": {
+              "sessionId": "as1",
+              "callerId": "da1",
+              "text": "Should the spec cover Windows too?"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "as1",
+              "authorKind": "agent",
+              "authorSessionId": "da1",
+              "body": "Should the spec cover Windows too?",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "as1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "da1",
+              "callerId": "as1",
+              "text": "No: Linux and macOS only.",
+              "freshId": "x1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "da1",
+              "authorKind": "agent",
+              "authorSessionId": "as1",
+              "body": "No: Linux and macOS only.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "da1",
+            "messageId": "m2"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360060000,
+            "data": {
+              "sessionId": "da1",
+              "callerId": "as1",
+              "text": "New work: also write the migration guide.",
+              "freshId": "x2"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "x2",
+              "authorKind": "agent",
+              "authorSessionId": "as1",
+              "body": "New work: also write the migration guide.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "as1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "thread_started",
+                "sessionId": "x2"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "x2",
+            "messageId": "m3",
+            "warning": "Started a fresh thread instead of reusing da1: it already has 8 sub-sessions. You watch the new one."
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "x1": null,
+          "x2": {
+            "status": "queued",
+            "deviceId": "d1"
+          },
+          "as1": {
+            "wakeOn": [
+              "x2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "#EXP-1500: a consumed message whose run died is never left silent",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "running"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 0,
+            "liveSessionIds": [
+              "c1"
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 960000,
+            "data": {
+              "sessionId": "c1",
+              "userId": "u1",
+              "text": "Approve the plan and go."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Approve the plan and go.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.consume",
+            "at": 961000,
+            "data": {
+              "sessionId": "c1",
+              "messageIds": [
+                "m1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 961000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "status": "running",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 990000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": [
+                "c1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 1020000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": []
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 1080000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": []
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 1260000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 1300000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": []
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 1320000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 1380000
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Interrupted 5+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.",
+              "card": {
+                "kind": "event",
+                "event": "session_interrupted",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 1400000,
+            "data": {
+              "sessionId": "c1",
+              "userId": "u1",
+              "text": "Continue."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "c1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Continue.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m3"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 1410000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "status": "running",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "running",
+            "busy": true,
+            "blocked": null,
+            "needsInput": false
+          }
+        },
+        "messages": {
+          "m1": {
+            "pending": false
+          }
+        }
+      }
+    },
+    {
+      "name": "interrupted and never continued: silent while its host is away, on a person resumeMinutes after it is back",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true,
+            "updatedAt": 0
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 120000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 3600000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 7200000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": []
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 7500000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 7510000,
+            "data": {
+              "deviceId": "d1",
+              "liveSessionIds": []
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 7560000
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Interrupted 5+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.",
+              "card": {
+                "kind": "event",
+                "event": "session_interrupted",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": {
+              "kind": "device_offline",
+              "since": 120000,
+              "window": null,
+              "resetsAt": null,
+              "resume": true,
+              "resumeSince": 7200000
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "#FEED-178: a sealed first brief is delivered as the Request, never an empty start",
+      "given": {
+        "sessions": [
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "deviceId": "d1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r1",
+              "callerId": "as1",
+              "text": "ev1.brief-sealed-to-r1",
+              "sealed": true
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "as1",
+              "body": "ev1.brief-sealed-to-r1",
+              "card": null,
+              "sealed": true,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "as1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "thread_started",
+                "sessionId": "r1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.claim",
+            "at": 61000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "brief",
+              "sessionId": "r1",
+              "messageId": "m1",
+              "sealed": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "as1",
+              "authorKind": "system",
+              "authorSessionId": "r1",
+              "body": "Started working on its device.",
+              "card": {
+                "kind": "event",
+                "event": "session_claimed",
+                "sessionId": "r1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "r1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "status": "running",
+            "startedAt": 61000
+          }
+        },
+        "messages": {
+          "m1": {
+            "pending": false,
+            "sealed": true
+          }
+        }
+      }
+    }
+  ]
+}

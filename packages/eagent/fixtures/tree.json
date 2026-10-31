@@ -1,0 +1,1523 @@
+{
+  "$comment": "THE TREE (lib/sessions/send.ts startRoot/startChild/reviveRoot/continueSession, lifecycle.ts, trpc sessions.claim/report). ONE tree per thread: a root (depth 0, rootId = its id) and children (parentId, rootId inherited, depth + 1). Every new session is `queued` on a device with its first message PENDING: a caller session's message is agent-authored (`authorSessionId` = the caller), a person's is user-authored; a blank text posts nothing. A child posts a `session` card on its parent (informational). A root started from inside a session is WATCHED by it (wakeOn) and posts `thread_started` on it; its device defaults to the caller root's when that tree has an acting agent, else none = refused (`invalid`). CAPS (rules.caps): a child deeper than treeMaxDepth = `invalid`, a tree already at treeMaxSessions LIVE sessions = `limit`; an ended branch frees its slot. CLAIM: only the named device (`conflict`), never an ended row; queued → running, startedAt stamped once, an `unclaimed` flag clears; the FIRST claim delivers the first input as the brief's Request (consumed, the `brief` effect names it, sealed or not: #FEED-178) and says `session_claimed` to the listeners (non-waking, no self fallback). A message to an ENDED thread root REVIVES the same row (idle, nothing flagged, message pending); to an ENDED child it CONTINUES as a new sibling (`freshId`; same parent and depth; the caps apply; a `session` card on the parent); with no text it is refused. END: a root's End ends its whole live tree, a child's its subtree, deepest first then oldest first; each row flips ended (busy/needsInput/blocked cleared), its open ask mirrors close, it says `session_ended` on itself and REPORTS into its parent and watchers (bus.json); then each is killed. An agent's conversation never ends (its children do). A device report `status: ended` (the process is gone) ends a child and a root that never finished a turn (a refused launch); a root that finished one and an agent's conversation go idle instead.",
+  "cases": [
+    {
+      "name": "a person starts a root: queued, its first message pending",
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r1",
+              "userId": "u1",
+              "deviceId": "d1",
+              "text": "Make the login page load faster."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Make the login page load faster.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "parentId": null,
+            "rootId": "r1",
+            "depth": 0,
+            "status": "queued",
+            "startedAt": null,
+            "createdAt": 60000,
+            "deviceId": "d1"
+          }
+        },
+        "messages": {
+          "m1": {
+            "sessionId": "r1",
+            "authorKind": "user",
+            "pending": true
+          }
+        }
+      }
+    },
+    {
+      "name": "a session starts a child: one below it, the caller's message agent-authored, a session card on the parent",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "running",
+            "busy": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c1",
+              "parentId": "r1",
+              "callerId": "r1",
+              "text": "Write the iOS half."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "r1",
+              "body": "Write the iOS half.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "session",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "parentId": "r1",
+            "rootId": "r1",
+            "depth": 1,
+            "status": "queued",
+            "deviceId": "d1",
+            "shared": true
+          }
+        }
+      }
+    },
+    {
+      "name": "a child of a private root is private too",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "shared": false
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c1",
+              "parentId": "r1",
+              "text": "Go."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Go.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "session",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "shared": false
+          }
+        }
+      }
+    },
+    {
+      "name": "depth cap: a child below depth 3 is refused",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "c2",
+            "parentId": "c1"
+          },
+          {
+            "id": "c3",
+            "parentId": "c2"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c4",
+              "parentId": "c3",
+              "text": "Deeper."
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "Sub-sessions nest at most 3 deep",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c4",
+              "parentId": "c2",
+              "text": "As deep as allowed."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c4",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "As deep as allowed.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "session",
+                "sessionId": "c4"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c4",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c4": {
+            "depth": 3,
+            "parentId": "c2"
+          }
+        }
+      }
+    },
+    {
+      "name": "live cap: a tree with 10 live sessions takes no 11th",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "c2",
+            "parentId": "r1"
+          },
+          {
+            "id": "c3",
+            "parentId": "r1"
+          },
+          {
+            "id": "c4",
+            "parentId": "r1"
+          },
+          {
+            "id": "c5",
+            "parentId": "r1"
+          },
+          {
+            "id": "c6",
+            "parentId": "r1"
+          },
+          {
+            "id": "c7",
+            "parentId": "r1"
+          },
+          {
+            "id": "c8",
+            "parentId": "r1"
+          },
+          {
+            "id": "c9",
+            "parentId": "c8"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c10",
+              "parentId": "c1",
+              "text": "One more."
+            }
+          },
+          "failure": {
+            "code": "limit",
+            "message": "A chat runs at most 10 sessions at once",
+            "retryable": false
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c10": null
+        }
+      }
+    },
+    {
+      "name": "live cap: an ended branch frees its slot",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "c2",
+            "parentId": "r1"
+          },
+          {
+            "id": "c3",
+            "parentId": "r1"
+          },
+          {
+            "id": "c4",
+            "parentId": "r1"
+          },
+          {
+            "id": "c5",
+            "parentId": "r1"
+          },
+          {
+            "id": "c6",
+            "parentId": "r1"
+          },
+          {
+            "id": "c7",
+            "parentId": "r1"
+          },
+          {
+            "id": "c8",
+            "parentId": "r1"
+          },
+          {
+            "id": "c9",
+            "parentId": "r1",
+            "status": "ended",
+            "endedAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c10",
+              "parentId": "c1",
+              "text": "One more."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c10",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "One more.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "session",
+                "sessionId": "c10"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c10",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c10": {
+            "depth": 2,
+            "status": "queued"
+          }
+        }
+      }
+    },
+    {
+      "name": "an agent's conversation starts a thread: watched by it, on its device, startedByAgentId",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d9"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r2",
+              "callerId": "a1",
+              "text": "Fix EXP-12."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": "a1",
+              "body": "Fix EXP-12.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "a1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "thread_started",
+                "sessionId": "r2"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r2": {
+            "parentId": null,
+            "depth": 0,
+            "deviceId": "d9",
+            "startedByAgentId": "ag1",
+            "status": "queued"
+          },
+          "a1": {
+            "wakeOn": [
+              "r2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a root with no device and no agent caller is refused",
+      "given": {
+        "sessions": [
+          {
+            "id": "s1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r2",
+              "callerId": "s1",
+              "text": "Go."
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "Pick a device for the new session",
+            "retryable": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "first claim: running, the Request delivered as the brief, session_claimed to the parent without waking it",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "running"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "queued",
+            "startedAt": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "authorSessionId": "r1",
+            "body": "Write the iOS half.",
+            "pending": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.claim",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "brief",
+              "sessionId": "c1",
+              "messageId": "g1",
+              "sealed": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Started working on its device.",
+              "card": {
+                "kind": "event",
+                "event": "session_claimed",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.claim",
+            "at": 120000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1"
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "running",
+            "startedAt": 60000
+          }
+        },
+        "messages": {
+          "g1": {
+            "pending": false
+          }
+        }
+      }
+    },
+    {
+      "name": "a root nobody listens to says nothing on its claim; no first input = an empty brief",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "queued",
+            "startedAt": null
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.claim",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "brief",
+              "sessionId": "r1",
+              "messageId": null,
+              "sealed": false
+            }
+          ],
+          "result": {
+            "sessionId": "r1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a claim from another device or of an ended session is refused",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "queued",
+            "startedAt": null
+          },
+          {
+            "id": "r2",
+            "status": "ended",
+            "endedAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.claim",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d2"
+            }
+          },
+          "failure": {
+            "code": "conflict",
+            "message": "This session runs on another device",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "device.claim",
+            "at": 60000,
+            "data": {
+              "sessionId": "r2",
+              "deviceId": "d1"
+            }
+          },
+          "failure": {
+            "code": "conflict",
+            "message": "This session has ended",
+            "retryable": false
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "status": "queued"
+          }
+        }
+      }
+    },
+    {
+      "name": "an ended thread root revives in place with the message pending",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "ended",
+            "endedAt": 0,
+            "lastTurnAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "userId": "u1",
+              "text": "One more thing."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "One more thing.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "status": "idle",
+            "endedAt": null,
+            "busy": false,
+            "needsInput": false,
+            "blocked": null
+          }
+        }
+      }
+    },
+    {
+      "name": "an ended child continues as its sibling: same parent and depth, a session card on the parent",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "g1",
+            "parentId": "c1",
+            "status": "ended",
+            "endedAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "g1",
+              "userId": "u1",
+              "text": "Also the tests.",
+              "freshId": "g2"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "g2",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Also the tests.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "session",
+                "sessionId": "g2"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "g2",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "g1": {
+            "status": "ended"
+          },
+          "g2": {
+            "parentId": "c1",
+            "rootId": "r1",
+            "depth": 2,
+            "status": "queued"
+          }
+        }
+      }
+    },
+    {
+      "name": "an ended session needs text to continue",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "ended",
+            "endedAt": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "userId": "u1",
+              "text": "  "
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "This session has ended: send a message to continue it",
+            "retryable": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "a message to a live session is pending input (it wakes it)",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "idle"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "userId": "u1",
+              "text": "Status?"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Status?",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "End of a root ends its live tree deepest first, each child reporting into its parent",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "running",
+            "busy": true
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "createdAt": 1000
+          },
+          {
+            "id": "c2",
+            "parentId": "r1",
+            "createdAt": 2000,
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "g1",
+            "parentId": "c1",
+            "createdAt": 3000,
+            "busy": true,
+            "status": "running"
+          }
+        ],
+        "messages": [
+          {
+            "id": "g0",
+            "sessionId": "g1",
+            "authorKind": "agent",
+            "body": "Halfway through the iOS screens."
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "summary": "Shipped."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "g1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "g1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "g1",
+              "body": "Halfway through the iOS screens.",
+              "card": {
+                "kind": "report",
+                "sessionId": "g1",
+                "summary": "Halfway through the iOS screens.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Ended without a summary.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Ended without a summary.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m5",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "r1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "kill",
+              "sessionId": "g1"
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            },
+            {
+              "kind": "kill",
+              "sessionId": "r1"
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "endedIds": [
+              "g1",
+              "c1",
+              "r1"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "status": "ended",
+            "busy": false,
+            "endedAt": 60000
+          },
+          "c1": {
+            "status": "ended"
+          },
+          "g1": {
+            "status": "ended"
+          }
+        }
+      }
+    },
+    {
+      "name": "End of a child ends only its subtree",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "c2",
+            "parentId": "r1"
+          },
+          {
+            "id": "g1",
+            "parentId": "c1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "g1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "g1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "g1",
+              "body": "Ended without a summary.",
+              "card": {
+                "kind": "report",
+                "sessionId": "g1",
+                "summary": "Ended without a summary.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Ended without a summary.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Ended without a summary.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "g1"
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "endedIds": [
+              "g1",
+              "c1"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "status": "idle"
+          },
+          "c2": {
+            "status": "idle"
+          },
+          "c1": {
+            "status": "ended"
+          },
+          "g1": {
+            "status": "ended"
+          }
+        }
+      }
+    },
+    {
+      "name": "an agent's conversation never ends; its children do",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1"
+          },
+          {
+            "id": "c1",
+            "parentId": "a1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "a1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "a1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Ended without a summary.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Ended without a summary.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            }
+          ],
+          "result": {
+            "sessionId": "a1",
+            "endedIds": [
+              "c1"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "a1": {
+            "status": "idle"
+          },
+          "c1": {
+            "status": "ended"
+          }
+        }
+      }
+    },
+    {
+      "name": "a child's process going away ends it and reports; a root that finished a turn idles",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "running",
+            "busy": true,
+            "lastTurnAt": 0
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "status": "ended"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Ended without a summary.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Ended without a summary.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "endedIds": [
+              "c1"
+            ]
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 120000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d1",
+              "status": "ended"
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "r1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "ended"
+          },
+          "r1": {
+            "status": "idle",
+            "busy": false,
+            "lastTurnAt": 120000
+          }
+        }
+      }
+    },
+    {
+      "name": "a root that never finished a turn ends on its process going (a refused launch)",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "running",
+            "lastTurnAt": null
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d1",
+              "status": "ended"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "r1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "kill",
+              "sessionId": "r1"
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "endedIds": [
+              "r1"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "status": "ended"
+          }
+        }
+      }
+    },
+    {
+      "name": "an ended row ignores late reports; a report from a device the session left is ignored",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "r2",
+            "deviceId": "d2"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d1",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "r2",
+              "deviceId": "d1",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "status": "ended",
+            "busy": false
+          },
+          "r2": {
+            "busy": false
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1046 @@
+{
+  "$comment": "WAKE-UPS (lib/sessions/bus.ts watchSessions, trpc sessions.consume, lib/agents/triggers.ts, lib/agents/assistant-chat.ts memberChatsChanged). A session wakes ONLY on pending input: a person's message, another session's message or bus line (bus.json), an answered card, a trigger firing. Its device delivers pending input and CONSUMES it (`device.consume`); the watchdog nudges the host again while input stays pending (watchdog.json). WATCH (`send.watch`, `sessions_send {wakeOn}`): the watcher adds LIVE sessions of its team its account may see (shared, or its own user's), never itself; unknown, ended, foreign or private-to-another ids drop silently; idempotent. SCHEDULES fire into the agent OWNER's conversation with it as a user-authored, pending `trigger_fired` card (triggerId set, eventId null). The host scheduler decides which minutes are due (cron + tz, a first-seen trigger armed not fired, the window capped at rules.trigger.catchUpHours) and sends `trigger.schedule {due}`; the hub then: (1) skips the tick when it already fired once (`firedAt`) and nothing moved since the latest firing (no session in the agent's trees, i.e. the threads it started plus its conversations' children, has lastActivityAt after it; an agent with no tree always counts as moved; an Assistant counts every session of its member in the team except its own conversation root); (2) folds every due schedule into ONE card body (one copy.schedule line each, `caught up` when fired more than caughtUpAfterMinutes after the due minute); (3) NEVER STACKS: an unread tick card takes the new text in place (edit, no nudge); a read one no person message came after is edited and re-armed (pending again, nudged); otherwise a new card (nudged); (4) records `firedAt` per due trigger. EVENTS (`trigger.event`, an `events` row landing): every enabled event trigger on that name in the team fires a user-authored pending `trigger_fired` card (triggerId, eventId = the envelope id, name) into its owner's conversation, agents by id, never the agent whose own tree emitted it; each firing nudges.",
+  "cases": [
+    {
+      "name": "watch: live, same team, visible sessions only; never itself; idempotent",
+      "given": {
+        "sessions": [
+          {
+            "id": "w1",
+            "userId": "u1"
+          },
+          {
+            "id": "s1"
+          },
+          {
+            "id": "s2",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "s3",
+            "teamId": "t2"
+          },
+          {
+            "id": "s4",
+            "shared": false,
+            "userId": "u2"
+          },
+          {
+            "id": "s5",
+            "shared": false,
+            "userId": "u1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.watch",
+            "at": 60000,
+            "data": {
+              "watcherId": "w1",
+              "ids": [
+                "s1",
+                "s2",
+                "s3",
+                "s4",
+                "s5",
+                "w1",
+                "nope"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "w1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.watch",
+            "at": 120000,
+            "data": {
+              "watcherId": "w1",
+              "ids": [
+                "s1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "w1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "w1": {
+            "wakeOn": [
+              "s1",
+              "s5"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a pending message is the wake-up; the device consumes what it delivered",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "userId": "u1",
+              "text": "Next step?"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Next step?",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.consume",
+            "at": 61000,
+            "data": {
+              "sessionId": "r1",
+              "messageIds": [
+                "m1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "r1"
+          }
+        }
+      ],
+      "expect": {
+        "messages": {
+          "m1": {
+            "pending": false
+          }
+        }
+      }
+    },
+    {
+      "name": "a schedule's first firing posts a tick card in the owner's conversation and nudges its device",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d7"
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "conversationId": "a1",
+            "triggers": [
+              {
+                "id": "tr1",
+                "kind": "schedule"
+              }
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 3600000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "0 * * * *",
+                  "at": 3600000
+                }
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "a1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Schedule `0 * * * *` fired.",
+              "card": {
+                "kind": "event",
+                "event": "trigger_fired",
+                "agentId": "ag1",
+                "triggerId": "tr1",
+                "eventId": null,
+                "name": null
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d7"
+            }
+          ],
+          "result": {
+            "sessionId": "a1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "agents": {
+          "ag1": {
+            "firedAt": {
+              "tr1": 3600000
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "an unread tick takes the next firing's text in place (never stacks, no nudge)",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d7"
+          },
+          {
+            "id": "r9",
+            "startedByAgentId": "ag1",
+            "lastActivityAt": 5000000
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "conversationId": "a1",
+            "triggers": [
+              {
+                "id": "tr1",
+                "kind": "schedule"
+              }
+            ],
+            "firedAt": {
+              "tr1": 3600000
+            }
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "a1",
+            "body": "Schedule `0 * * * *` fired.",
+            "card": {
+              "kind": "event",
+              "event": "trigger_fired",
+              "agentId": "ag1",
+              "triggerId": "tr1",
+              "eventId": null,
+              "name": null
+            },
+            "pending": true,
+            "at": 3600000
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 7200000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "0 * * * *",
+                  "tz": "Europe/Vienna",
+                  "at": 7200000
+                }
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "edit",
+              "messageId": "g1",
+              "body": "Schedule `0 * * * *` (Europe/Vienna) fired.",
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "a1",
+            "messageId": "g1"
+          }
+        }
+      ],
+      "expect": {
+        "messages": {
+          "g1": {
+            "pending": true,
+            "body": "Schedule `0 * * * *` (Europe/Vienna) fired."
+          }
+        }
+      }
+    },
+    {
+      "name": "a read tick nobody answered is edited and re-armed",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d7"
+          },
+          {
+            "id": "r9",
+            "startedByAgentId": "ag1",
+            "lastActivityAt": 5000000
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "conversationId": "a1",
+            "triggers": [
+              {
+                "id": "tr1",
+                "kind": "schedule"
+              }
+            ],
+            "firedAt": {
+              "tr1": 3600000
+            }
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "a1",
+            "body": "Schedule `0 * * * *` fired.",
+            "card": {
+              "kind": "event",
+              "event": "trigger_fired",
+              "agentId": "ag1",
+              "triggerId": "tr1",
+              "eventId": null,
+              "name": null
+            },
+            "pending": false,
+            "at": 3600000
+          },
+          {
+            "id": "g2",
+            "sessionId": "a1",
+            "authorKind": "agent",
+            "body": "Checked: all quiet.",
+            "at": 3700000
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 7200000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "0 * * * *",
+                  "at": 7200000
+                }
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "edit",
+              "messageId": "g1",
+              "body": "Schedule `0 * * * *` fired.",
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d7"
+            }
+          ],
+          "result": {
+            "sessionId": "a1",
+            "messageId": "g1"
+          }
+        }
+      ],
+      "expect": {
+        "messages": {
+          "g1": {
+            "pending": true
+          }
+        }
+      }
+    },
+    {
+      "name": "a tick a person answered stays; the next firing is a new card",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d7"
+          },
+          {
+            "id": "r9",
+            "startedByAgentId": "ag1",
+            "lastActivityAt": 5000000
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "conversationId": "a1",
+            "triggers": [
+              {
+                "id": "tr1",
+                "kind": "schedule"
+              }
+            ],
+            "firedAt": {
+              "tr1": 3600000
+            }
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "a1",
+            "body": "Schedule `0 * * * *` fired.",
+            "card": {
+              "kind": "event",
+              "event": "trigger_fired",
+              "agentId": "ag1",
+              "triggerId": "tr1",
+              "eventId": null,
+              "name": null
+            },
+            "pending": false,
+            "at": 3600000
+          },
+          {
+            "id": "g2",
+            "sessionId": "a1",
+            "authorKind": "user",
+            "body": "Look at EXP-12 next.",
+            "at": 3700000
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 7200000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "0 * * * *",
+                  "at": 7200000
+                }
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "a1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Schedule `0 * * * *` fired.",
+              "card": {
+                "kind": "event",
+                "event": "trigger_fired",
+                "agentId": "ag1",
+                "triggerId": "tr1",
+                "eventId": null,
+                "name": null
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d7"
+            }
+          ],
+          "result": {
+            "sessionId": "a1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "quiet tick: nothing moved in its trees since the last firing = skipped",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d7"
+          },
+          {
+            "id": "c1",
+            "parentId": "a1",
+            "lastActivityAt": 3000000
+          },
+          {
+            "id": "r9",
+            "startedByAgentId": "ag1",
+            "lastActivityAt": 3500000
+          },
+          {
+            "id": "x1",
+            "lastActivityAt": 7000000
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "conversationId": "a1",
+            "triggers": [
+              {
+                "id": "tr1",
+                "kind": "schedule"
+              }
+            ],
+            "firedAt": {
+              "tr1": 3600000
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 7200000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "0 * * * *",
+                  "at": 7200000
+                }
+              ]
+            }
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "agents": {
+          "ag1": {
+            "firedAt": {
+              "tr1": 3600000
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a conversation's child moving counts; the conversation's own turns do not",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d7",
+            "lastActivityAt": 7000000
+          },
+          {
+            "id": "c1",
+            "parentId": "a1",
+            "lastActivityAt": 3000000
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "conversationId": "a1",
+            "triggers": [
+              {
+                "id": "tr1",
+                "kind": "schedule"
+              }
+            ],
+            "firedAt": {
+              "tr1": 3600000
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 7200000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "0 * * * *",
+                  "at": 7200000
+                }
+              ]
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 7300000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        },
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 10800000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "0 * * * *",
+                  "at": 10800000
+                }
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "a1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Schedule `0 * * * *` fired.",
+              "card": {
+                "kind": "event",
+                "event": "trigger_fired",
+                "agentId": "ag1",
+                "triggerId": "tr1",
+                "eventId": null,
+                "name": null
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d7"
+            }
+          ],
+          "result": {
+            "sessionId": "a1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an agent with no tree always fires; two due schedules fold into one card; a late one says it was caught up",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d7"
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "conversationId": "a1",
+            "triggers": [
+              {
+                "id": "tr1",
+                "kind": "schedule"
+              },
+              {
+                "id": "tr2",
+                "kind": "schedule"
+              },
+              {
+                "id": "tr3",
+                "kind": "schedule",
+                "enabled": false
+              }
+            ],
+            "firedAt": {
+              "tr1": 0
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 7200000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "0 * * * *",
+                  "at": 7200000
+                },
+                {
+                  "triggerId": "tr2",
+                  "cron": "0 9 * * 1-5",
+                  "tz": "Europe/Vienna",
+                  "at": 3600000
+                },
+                {
+                  "triggerId": "tr3",
+                  "cron": "* * * * *",
+                  "at": 7200000
+                }
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "a1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Schedule `0 * * * *` fired.\nSchedule `0 9 * * 1-5` (Europe/Vienna) fired (caught up: this tick was missed earlier).",
+              "card": {
+                "kind": "event",
+                "event": "trigger_fired",
+                "agentId": "ag1",
+                "triggerId": "tr1",
+                "eventId": null,
+                "name": null
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d7"
+            }
+          ],
+          "result": {
+            "sessionId": "a1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "agents": {
+          "ag1": {
+            "firedAt": {
+              "tr1": 7200000,
+              "tr2": 3600000
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "an Assistant's quiet tick: any of its member's sessions moving counts, its own conversation does not",
+      "given": {
+        "sessions": [
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "deviceId": "d7",
+            "userId": "u1",
+            "lastActivityAt": 7000000
+          },
+          {
+            "id": "o1",
+            "userId": "u2",
+            "lastActivityAt": 7000000
+          },
+          {
+            "id": "m1t",
+            "userId": "u1",
+            "lastActivityAt": 3000000
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "role": "assistant",
+            "conversationId": "as1",
+            "triggers": [
+              {
+                "id": "tr1",
+                "kind": "schedule"
+              }
+            ],
+            "firedAt": {
+              "tr1": 3600000
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 7200000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "*/30 * * * *",
+                  "at": 7200000
+                }
+              ]
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 7300000,
+            "data": {
+              "sessionId": "m1t",
+              "deviceId": "d1",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "m1t"
+          }
+        },
+        {
+          "event": {
+            "kind": "trigger.schedule",
+            "at": 9000000,
+            "data": {
+              "agentId": "ag1",
+              "due": [
+                {
+                  "triggerId": "tr1",
+                  "cron": "*/30 * * * *",
+                  "at": 9000000
+                }
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "as1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Schedule `*/30 * * * *` fired.",
+              "card": {
+                "kind": "event",
+                "event": "trigger_fired",
+                "agentId": "ag1",
+                "triggerId": "tr1",
+                "eventId": null,
+                "name": null
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d7"
+            }
+          ],
+          "result": {
+            "sessionId": "as1",
+            "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an event fires every listening agent of the team, never the emitting tree's own agent",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d7"
+          },
+          {
+            "id": "a2",
+            "agentId": "ag2",
+            "deviceId": "d8",
+            "userId": "u2"
+          },
+          {
+            "id": "a3",
+            "agentId": "ag3",
+            "deviceId": "d9",
+            "teamId": "t2"
+          },
+          {
+            "id": "r1",
+            "startedByAgentId": "ag1"
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "conversationId": "a1",
+            "triggers": [
+              {
+                "id": "te1",
+                "kind": "event",
+                "name": "session.ended"
+              }
+            ]
+          },
+          {
+            "id": "ag2",
+            "ownerId": "u2",
+            "conversationId": "a2",
+            "triggers": [
+              {
+                "id": "te2",
+                "kind": "event",
+                "name": "session.ended"
+              },
+              {
+                "id": "te3",
+                "kind": "event",
+                "name": "session.ended",
+                "enabled": false
+              }
+            ]
+          },
+          {
+            "id": "ag3",
+            "ownerId": "u3",
+            "teamId": "t2",
+            "conversationId": "a3",
+            "triggers": [
+              {
+                "id": "te4",
+                "kind": "event",
+                "name": "session.ended"
+              }
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "trigger.event",
+            "id": "ev1",
+            "at": 60000,
+            "data": {
+              "name": "session.ended",
+              "teamId": "t1",
+              "sessionId": "r1",
+              "emittedBy": "server",
+              "payload": {
+                "sessionId": "r1",
+                "rootId": "r1"
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "a2",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Event `session.ended` (from the server):\n\n```json\n{\n  \"sessionId\": \"r1\",\n  \"rootId\": \"r1\"\n}\n```",
+              "card": {
+                "kind": "event",
+                "event": "trigger_fired",
+                "agentId": "ag2",
+                "triggerId": "te2",
+                "eventId": "ev1",
+                "name": "session.ended"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d8"
+            }
+          ],
+          "result": {}
+        }
+      ]
+    }
+  ]
+}

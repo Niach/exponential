@@ -111,6 +111,7 @@
         "@electric-sql/client": "^1.2.0",
         "@exp/db-schema": "workspace:*",
         "@exp/domain-contract": "workspace:*",
+        "@exp/eagent": "workspace:*",
         "@exp/emcp": "workspace:*",
         "@exp/emoji": "workspace:*",
         "@exp/etalk": "workspace:*",
@@ -211,6 +212,17 @@
         "@noble/hashes": "^2.2.0",
       },
     },
+    "packages/eagent": {
+      "name": "@exp/eagent",
+      "version": "0.0.0",
+      "dependencies": {
+        "@exp/ecore": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.7.2",
+      },
+    },
     "packages/ecore": {
       "name": "@exp/ecore",
       "version": "0.0.0",
@@ -246,7 +258,7 @@
     },
     "packages/exponential-ui": {
       "name": "@exponential_app/eui",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "dependencies": {
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -271,7 +283,7 @@
     },
     "packages/exponential-ui-bench": {
       "name": "@exponential_app/eui-bench",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "devDependencies": {
         "@exp/tsconfig": "workspace:*",
         "@exponential_app/eui": "workspace:*",
@@ -285,7 +297,7 @@
     },
     "packages/exponential-ui-element": {
       "name": "@exponential_app/eui-element",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "dependencies": {
         "@exponential_app/eui": "workspace:*",
         "@exponential_app/eui-solid": "workspace:*",
@@ -311,7 +323,7 @@
     },
     "packages/exponential-ui-react": {
       "name": "@exponential_app/eui-react",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "dependencies": {
         "@exponential_app/eui": "workspace:*",
         "class-variance-authority": "^0.7.1",
@@ -348,7 +360,7 @@
     },
     "packages/exponential-ui-solid": {
       "name": "@exponential_app/eui-solid",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "dependencies": {
         "@exponential_app/eui": "workspace:*",
         "@floating-ui/dom": "^1.7.0",
@@ -831,6 +843,8 @@
     "@exp/design-tokens": ["@exp/design-tokens@workspace:packages/design-tokens"],
 
     "@exp/domain-contract": ["@exp/domain-contract@workspace:packages/domain-contract"],
+
+    "@exp/eagent": ["@exp/eagent@workspace:packages/eagent"],
 
     "@exp/ecore": ["@exp/ecore@workspace:packages/ecore"],
 
