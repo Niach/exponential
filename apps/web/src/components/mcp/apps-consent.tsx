@@ -113,6 +113,10 @@ export function AppsConsent({
   const team = tree?.find((t) => t.id === choice.teamId) ?? null
   const chosenApps = team ? (choice.allApps ? team.apps : team.apps.filter((a) => choice.appIds.includes(a.id))) : []
   const canAllow = team !== null && team.apps.length > 0 && chosenApps.length > 0
+  // #VAPP-183: the member's policy caps the grant: when no chosen app allows
+  // writes, Full has nothing to add.
+  const readCapped = chosenApps.length > 0 && chosenApps.every((a) => a.level !== `write`)
+  const access: Access = readCapped ? `read` : choice.access
 
   const connect = async (serverId: string, auth: string | null) => {
     if (auth !== `oauth`) {
@@ -142,7 +146,7 @@ export function AppsConsent({
           teamId: choice.teamId ?? undefined,
           allApps: choice.allApps,
           appIds: choice.allApps ? [] : choice.appIds,
-          access: choice.access,
+          access,
         },
         SKIP_ERROR_TOAST
       )
@@ -245,14 +249,14 @@ export function AppsConsent({
       )}
 
       <SegmentedControl<Access>
-        value={choice.access}
-        onValueChange={(access) => setChoice({ ...choice, access })}
-        options={ACCESS_OPTIONS}
+        value={access}
+        onValueChange={(next) => setChoice({ ...choice, access: next })}
+        options={ACCESS_OPTIONS.map((o) => (o.value === `full` && readCapped ? { ...o, disabled: true } : o))}
       />
 
       <p className="text-xs text-muted-foreground">
         {clientName ?? `The client`} runs the chosen apps' tools as you.
-        {choice.access === `read` ? ` Read only hides every tool that writes.` : ``}
+        {access === `read` ? ` Read only hides every tool that writes.` : ``}
       </p>
 
       <div className="flex gap-2">

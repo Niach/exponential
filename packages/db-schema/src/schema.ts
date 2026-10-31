@@ -2296,6 +2296,10 @@ export const apps = pgTable(
     // names) the app may run as the viewer WITHOUT the consent card; the
     // creator or an owner grants them on the app's settings page.
     grantedTools: jsonb(`granted_tools`).$type<string[]>().notNull().default([]),
+    // #VAPP-183: the exposed MCP tools (`exposes[].name`) an owner switched
+    // off: the broker (`/api/mcp/apps`) never lists or runs them. SERVER-ONLY
+    // (behind the apps shape's column allowlist; tRPC `apps.mcp`).
+    mcpDisabledTools: jsonb(`mcp_disabled_tools`).$type<string[]>().notNull().default([]),
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
     ...timestamps,
   },
@@ -3419,6 +3423,36 @@ export const mcpGrants = pgTable(
     ...timestamps,
   },
   (table) => [unique(`mcp_grants_user_client_kind_unique`).on(table.userId, table.clientId, table.kind)]
+)
+
+// #VAPP-183 (@exp/emcp access.json `memberPolicy`): the member × app access
+// policy, the Settings › MCP Access table. One row per (app, member) an
+// owner set: `level` none | read | write; no row = `write` (a member's
+// default is Full). The broker intersects it with the client's grant and the
+// tool's level. SERVER-ONLY (tRPC `appAccess`), never a shape. Rows go with
+// the app (cascade) and with the member's leaving the team (B5,
+// lib/emcp/revoke.ts).
+export const appAccess = pgTable(
+  `app_access`,
+  {
+    id: uuidPk(),
+    appId: uuid(`app_id`)
+      .notNull()
+      .references(() => apps.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // Documented varchar (@exp/emcp POLICY_LEVELS): none | read | write.
+    level: varchar({ length: 8 }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    unique(`app_access_app_user_unique`).on(table.appId, table.userId),
+    index(`idx_app_access_team_user`).on(table.teamId, table.userId),
+  ]
 )
 
 // #EXP-1491: the eMCP audit, one row per MCP tool call on /api/mcp (and the
