@@ -469,7 +469,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         record(`template-items`, `reduce: ${c.name}`, () => canon(c.nested ? reduceNested(c.nested, { catalogId: c.catalogId }) : reduceSurface(c.components!, { catalogId: c.catalogId })) === canon(c.expected))
     })
 
-    await block(`text-direction, resizable, virtual-list, animations: painted in Chromium`, async () => {
+    await block(`text-direction, resizable, virtual-list, carousel, animations: painted in Chromium`, async () => {
       const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 1 })
       const page = await context.newPage()
       await page.goto(url({ view: `mount` }))
@@ -634,6 +634,80 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
           [c.scroll, c.index, c.align] as const
         )
         record(`virtual-list`, `sectionedScrollTo: ${c.name}`, Math.abs(got - c.expected) <= 0.5, String(got))
+      }
+
+      // carousel (EXP-1493, round 6 §3): the Carousel painted per case at the
+      // fixture's width; the root's flow parts, the counter line and the dots
+      // read off the real boxes and computed colours (hex incl. alpha).
+      const cr = fixture(`carousel.json`)
+      type CarouselExpected = { order: string[]; gap: number; counter: { text: string; color: string; fontSize: number; height: number } | null; dots: { color: string; width: number; height: number }[] }
+      for (const c of cr.cases as { name: string; theme: string; mode: `light` | `dark`; direction: `ltr` | `rtl`; pages: number; props: Record<string, unknown>; expected: CarouselExpected }[]) {
+        const children = Array.from({ length: c.pages }, (_, i) => ({ id: `cr-p${i + 1}`, component: `Text`, props: { text: `Page ${i + 1}` } }))
+        await mount({ id: `cr`, component: `Carousel`, props: c.props, children }, { theme: c.theme, mode: c.mode, dir: c.direction, width: cr.width })
+        const got = await page.evaluate(() => {
+          const canvas = document.createElement(`canvas`)
+          canvas.width = canvas.height = 1
+          const g = canvas.getContext(`2d`, { willReadFrequently: true })!
+          const hex = (css: string) => {
+            const h = (n: number) => Math.round(n).toString(16).padStart(2, `0`)
+            const m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/.exec(css)
+            let rgba: number[]
+            if (m) {
+              const a = m[4] === undefined ? 1 : m[4].endsWith(`%`) ? Number.parseFloat(m[4]) / 100 : Number(m[4])
+              rgba = [Number(m[1]), Number(m[2]), Number(m[3]), a * 255]
+            } else {
+              g.clearRect(0, 0, 1, 1)
+              g.fillStyle = css
+              g.fillRect(0, 0, 1, 1)
+              rgba = Array.from(g.getImageData(0, 0, 1, 1).data)
+            }
+            return `#${h(rgba[0]!)}${h(rgba[1]!)}${h(rgba[2]!)}${Math.round(rgba[3]!) === 255 ? `` : h(rgba[3]!)}`
+          }
+          const root = document.querySelector<HTMLElement>(`[data-xui-id="cr"]`)!
+          const box = (el: Element) => {
+            const r = el.getBoundingClientRect()
+            return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }
+          }
+          const flow = Array.from(root.children)
+            .filter((el) => getComputedStyle(el).position !== `absolute` && getComputedStyle(el).display !== `none`)
+            .map((el) => ({ part: el.classList.contains(`xui-carousel-track`) ? `page` : (el.getAttribute(`data-xui-part`) ?? ``).replace(/^Carousel\//, ``), ...box(el) }))
+            .sort((a, b) => a.top - b.top)
+          const counterEl = root.querySelector<HTMLElement>(`[data-xui-part="Carousel/counter"]`)
+          const counter = counterEl ? { text: counterEl.textContent ?? ``, color: hex(getComputedStyle(counterEl).color), fontSize: Number.parseFloat(getComputedStyle(counterEl).fontSize), background: hex(getComputedStyle(counterEl).backgroundColor), ...box(counterEl) } : null
+          const track = root.querySelector(`.xui-carousel-track`)
+          const dots = Array.from(root.querySelectorAll<HTMLElement>(`[data-xui-part="Carousel/indicators"] > [data-xui-part="Carousel/indicator"]`)).map((el) => ({ color: hex(getComputedStyle(el).backgroundColor), width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height }))
+          return { root: box(root), flow, counter, track: track ? box(track) : null, dots }
+        })
+        const e = c.expected
+        record(`carousel`, c.name, () => {
+          const order = got.flow.map((f) => f.part)
+          if (canon(order) !== canon(e.order)) return `order ${canon(order)}`
+          for (let i = 1; i < got.flow.length; i++) {
+            const gap = got.flow[i]!.top - got.flow[i - 1]!.bottom
+            if (Math.abs(gap - e.gap) > 1) return `gap ${order[i - 1]}→${order[i]} ${gap}`
+          }
+          if (e.counter === null) {
+            if (got.counter) return `counter painted`
+          } else {
+            const k = got.counter
+            if (!k) return `no counter`
+            if (!got.track || k.bottom > got.track.top + 0.5) return `counter intersects the track`
+            const edge = c.direction === `rtl` ? Math.abs(k.right - got.root.right) : Math.abs(k.left - got.root.left)
+            if (edge > 1) return `counter start edge off by ${edge}`
+            if (k.text !== e.counter.text) return `counter text ${k.text}`
+            if (k.color !== e.counter.color) return `counter colour ${k.color}`
+            if (Math.abs(k.fontSize - e.counter.fontSize) > 0.01) return `counter font ${k.fontSize}`
+            if (Math.abs(k.height - e.counter.height) > 0.5) return `counter height ${k.height}`
+            // No pill: the counter paints no fill.
+            if (!/^#[0-9a-f]{6}00$/.test(k.background)) return `counter fill ${k.background}`
+          }
+          if (got.dots.length !== e.dots.length) return `dots ${got.dots.length}`
+          for (const [i, d] of e.dots.entries()) {
+            const p = got.dots[i]!
+            if (p.color !== d.color || Math.abs(p.width - d.width) > 0.5 || Math.abs(p.height - d.height) > 0.5) return `dot ${i} ${canon(p)}`
+          }
+          return true
+        })
       }
 
       // animations: the CSS this renderer paints per theme (duration, easing,

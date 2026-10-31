@@ -5,9 +5,9 @@ import { cn } from "./cn"
 
 export { CAROUSEL_GEOMETRY, carouselCounterText } from "@exponential_app/eui/web/primitives"
 
-/** EXP-1495: the Carousel's `counter` part as a primitive: the `i / n` pill
- *  over the slide's top-start corner (its parent is `relative`), hidden from
- *  AT, never intercepting a press. `page` is 0-based. */
+/** EXP-1495 / EXP-1493: the Carousel's `counter` part as a primitive: the
+ *  `i / n` line ABOVE the slide (render it before the track), start-aligned,
+ *  muted, no pill; hidden from AT, never intercepting a press. `page` is 0-based. */
 export function CarouselCounter({ page, total, className, ...props }: Omit<ComponentProps<`span`>, `children`> & { page: number; total: number }) {
   return (
     <span data-slot="carousel-counter" aria-hidden="true" className={cn(CAROUSEL_CLASSES.counter, className)} {...props}>

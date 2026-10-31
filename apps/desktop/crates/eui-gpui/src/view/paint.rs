@@ -1377,8 +1377,21 @@ impl SurfaceView {
             let size = px_prop(&props, "width").unwrap_or(8.0).min(lcx.h.max(1.0));
             let fallback = if i == page { lcx.theme_color("primary") } else { lcx.theme_color("border") };
             let s = PaintStyle { bg: s.bg.or(fallback), radii: [size / 2.0; 4], ..s };
+            let dot_id = format!("{}.dot.{i}", lcx.node.id);
+            if let Some(fills) = &self.debug_fills {
+                fills.borrow_mut().insert(dot_id.clone(), s.bg);
+            }
+            let probe = self.debug_bounds.clone().map(|map| {
+                let key = dot_id.clone();
+                canvas(move |b, _, _| {
+                    map.borrow_mut().insert(key.clone(), b);
+                }, |_, _, _, _| {})
+                .absolute()
+                .size_full()
+            });
             row = row.child(
-                styled_box(div().id(SharedString::from(format!("{}.dot.{i}", lcx.node.id))).flex_none().size(px(size)), &s, size, size)
+                styled_box(div().id(SharedString::from(dot_id)).flex_none().size(px(size)), &s, size, size)
+                    .children(probe)
                     .cursor_pointer()
                     .role(gpui::Role::Tab)
                     .aria_label(SharedString::from(self.carousel_dot_label(i, count)))

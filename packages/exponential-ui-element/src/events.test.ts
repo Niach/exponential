@@ -329,7 +329,7 @@ describe(`plugin.qrScanner`, () => {
   })
 })
 
-// EXP-1495 (round-6 contract §3): the Carousel's counter pill and thumbnail
+// EXP-1495 (round-6 contract §3): the Carousel's counter line and thumbnail
 // strip paint through the Solid painter inside the element; a thumbnail
 // press pages and fires `change {page}` as `xui-action`, like a dot.
 describe(`Carousel counter + thumbnails`, () => {
@@ -347,6 +347,11 @@ describe(`Carousel counter + thumbnails`, () => {
     el.addEventListener(`xui-action`, (e) => void seen.push(e.detail))
     await tick()
     expect(el.querySelector(`[data-xui-part="Carousel/counter"]`)?.textContent).toBe(`1 / 3`)
+    // EXP-1493: the counter is the root's first flow child, the track right under it.
+    const counter = el.querySelector(`[data-xui-part="Carousel/counter"]`)!
+    expect(counter.parentElement!.getAttribute(`data-xui-id`)).toBe(`cr`)
+    expect(counter.parentElement!.firstElementChild).toBe(counter)
+    expect(counter.nextElementSibling!.classList.contains(`xui-carousel-track`)).toBe(true)
     const thumbs = el.querySelectorAll<HTMLButtonElement>(`[data-xui-part="Carousel/thumbnail"]`)
     expect(thumbs).toHaveLength(3)
     thumbs[2]!.click()

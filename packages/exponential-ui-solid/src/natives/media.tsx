@@ -204,11 +204,17 @@ export function CarouselNative(props: NativeProps): JSX.Element {
   const pages = () => props.node.children
   const external = () => num(props.props.page, 0)
   const [page, setPage] = createBoundState(() => props.node, () => props.scope, `page`, external)
-  const scrollTo = (i: number) => {
+  const scrollTo = (i: number, instant = false) => {
     const el = track
-    if (el && el.children[i] && typeof el.scrollTo === `function`) el.scrollTo({ left: (el.children[i] as HTMLElement).offsetLeft, behavior: ctx.reducedMotion ? `auto` : `smooth` })
+    if (el && el.children[i] && typeof el.scrollTo === `function`) el.scrollTo({ left: (el.children[i] as HTMLElement).offsetLeft, behavior: instant || ctx.reducedMotion ? `auto` : `smooth` })
   }
-  createEffect(on(external, (p) => scrollTo(p)))
+  // The opening page lands at once (EXP-1493: a smooth first scroll fired
+  // `onScroll` from page 0 and paged the Carousel back to it).
+  let opened = false
+  createEffect(on(external, (p) => {
+    scrollTo(p, !opened)
+    opened = true
+  }))
   const onScroll = () => {
     const el = track
     if (!el || el.clientWidth === 0) return
@@ -230,7 +236,7 @@ export function CarouselNative(props: NativeProps): JSX.Element {
   const byId = createMemo(() => new Map(pages().map((n, i) => [n.id, { node: n, index: i }])))
   const ids = createMemo(() => pages().map((n) => n.id), undefined, { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) })
   const pageOf = (i: number) => ctx.t(`pageOf`, { page: i + 1, total: pages().length })
-  // EXP-1495 (round 6 §3): the counter pill and the thumbnail strip, both
+  // EXP-1495 / EXP-1493 (round 6 §3): the counter (its own line above the track) and the thumbnail strip, both
   // only with two or more pages.
   const counter = () => many() && bool(props.props.counter)
   const thumbnails = createMemo(() => (many() && Array.isArray(props.props.thumbnails) ? (props.props.thumbnails as unknown[]) : null))
@@ -283,14 +289,12 @@ export function CarouselNative(props: NativeProps): JSX.Element {
         else if (e.key === `ArrowLeft`) go(page() + (rtl ? 1 : -1))
       }}
     >
-      <Show when={counter()} fallback={trackView}>
-        <div class="xui-carousel-stage">
-          {trackView}
-          <span {...part(`counter`)} aria-hidden="true">
-            {ctx.t(`pageCounter`, { page: page() + 1, total: pages().length })}
-          </span>
-        </div>
+      <Show when={counter()}>
+        <span {...part(`counter`)} aria-hidden="true">
+          {ctx.t(`pageCounter`, { page: page() + 1, total: pages().length })}
+        </span>
       </Show>
+      {trackView}
       <Show when={thumbnails()}>
         {(urls) => (
           <div ref={strip} {...part(`thumbnails`)}>

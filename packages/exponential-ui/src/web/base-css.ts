@@ -108,8 +108,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-carousel-dots{display:flex;justify-content:center;gap:var(--xui-spacing-xs);padding-top:var(--xui-spacing-sm)}
 .xui-Carousel-indicator{width:6px;height:6px;border-radius:9999px;background:var(--xui-color-border);padding:0;cursor:pointer}
 .xui-Carousel-indicator[data-xs~="selected"]{background:var(--xui-color-primary)}
-.xui-carousel-stage{position:relative;display:flex;flex-direction:column;min-width:0}
-.xui-Carousel-counter{position:absolute;top:var(--xui-spacing-sm);inset-inline-start:var(--xui-spacing-sm);z-index:1;pointer-events:none;display:inline-flex;align-items:center;white-space:nowrap;font-variant-numeric:tabular-nums}
+.xui-Carousel-counter{display:block;align-self:flex-start;flex-shrink:0;pointer-events:none;white-space:nowrap;font-variant-numeric:tabular-nums}
 .xui-Carousel-thumbnails{display:flex;flex-direction:row;justify-content:flex-start;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
 .xui-Carousel-thumbnails::-webkit-scrollbar{display:none}
 .xui-Carousel-thumbnail{position:relative;flex:0 0 auto;overflow:hidden;cursor:pointer;padding:0;border-style:solid}

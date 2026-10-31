@@ -429,6 +429,108 @@ fn replay_suite(p: &mut Painter) -> Vec<Case> {
     out
 }
 
+/// `#rgb[a]` / `#rrggbb[aa]` → [r, g, b, a] bytes.
+fn rgba_of(hex: &str) -> Option<[u8; 4]> {
+    let h = hex.trim().trim_start_matches('#');
+    let h: String = if h.len() <= 4 { h.chars().flat_map(|c| [c, c]).collect() } else { h.to_string() };
+    let h = if h.len() == 6 { format!("{h}ff") } else { h };
+    let b = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok();
+    Some([b(0)?, b(2)?, b(4)?, b(6)?])
+}
+
+/// A painted colour equals the fixture's within one step per channel (the
+/// HSLA round trip).
+fn same_color(got: Option<gpui::Hsla>, want: &str) -> Result<(), String> {
+    let w = rgba_of(want).ok_or_else(|| format!("bad colour {want}"))?;
+    let g = got.map(|c| {
+        let r = gpui::Rgba::from(c);
+        [r.r, r.g, r.b, r.a].map(|x| (x * 255.0).round() as u8)
+    });
+    ensure(g.is_some_and(|g| g.iter().zip(w).all(|(a, b)| a.abs_diff(b) <= 1)), || format!("painted {g:?}, expected {want}"))
+}
+
+/// EXP-1493 (round-6 contract §3, `fixtures/carousel.json`): PAINT the
+/// case's Carousel and check what the painter drew: the root's flow parts
+/// top to bottom (`gap` apart), the counter line above the track on the
+/// start edge in its recipe colour (no fill: the old pill is gone), each dot
+/// its own `Carousel/indicator` recipe (`selected` = the current page).
+fn carousel_suite(p: &mut Painter) -> Vec<Case> {
+    let f = fixture("carousel.json");
+    let width = f["width"].as_f64().unwrap_or(360.0) as f32;
+    let mut out = Vec::new();
+    for c in list(&f, "cases") {
+        let result = (|| {
+            let theme = builtin_theme(c["theme"].as_str().unwrap_or("")).ok_or("not a built-in")?;
+            let mode = Mode::parse(c["mode"].as_str().unwrap_or("")).ok_or("bad mode")?;
+            let rtl = c["direction"] == "rtl";
+            let pages = c["pages"].as_u64().unwrap_or(0);
+            let children: Vec<Value> = (1..=pages).map(|n| json!({"id": format!("p{n}"), "component": "Text", "props": {"text": format!("Page {n}")}})).collect();
+            let tree: NestedNode = serde_json::from_value(json!({"id": "deck", "component": "Carousel", "props": c["props"], "style": {"direction": c["direction"]}, "children": children})).map_err(|e| e.to_string())?;
+            let mut issues = Vec::new();
+            let view = p.paint(SurfaceViewOptions { surface_id: "carousel".into(), theme: Some(theme), mode, ..Default::default() }, width, |v, cx| {
+                v.record_bounds(true);
+                issues = v.set_nested(tree, cx).issues;
+            });
+            ensure(issues.is_empty(), || format!("issues {issues:?}"))?;
+            let e = &c["expected"];
+            p.read(&view, |v| {
+                painted_clean(v)?;
+                let b = |id: &str| v.painted_bounds(id).map(|b| (f32::from(b.origin.x), f32::from(b.origin.y), f32::from(b.size.width), f32::from(b.size.height)));
+                let root = b("deck").ok_or("the root not painted")?;
+                let root_i = v.index_of("deck").ok_or("no root")?;
+                let mut flow: Vec<(String, (f32, f32, f32, f32))> = v
+                    .placed_nodes()
+                    .iter()
+                    .filter(|n| n.parent == Some(root_i) && !n.removed && !n.hidden)
+                    .filter_map(|n| Some((n.part.clone()?, b(&n.id)?)))
+                    .collect();
+                flow.sort_by(|a, b| a.1 .1.total_cmp(&b.1 .1));
+                let order: Vec<&str> = flow.iter().map(|(p, _)| p.as_str()).collect();
+                let want: Vec<&str> = e["order"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+                ensure(order == want, || format!("painted {order:?}, expected {want:?}"))?;
+                let gap = e["gap"].as_f64().unwrap_or(0.0) as f32;
+                for w in flow.windows(2) {
+                    let d = w[1].1 .1 - (w[0].1 .1 + w[0].1 .3);
+                    ensure((d - gap).abs() <= 1.0, || format!("{} → {}: {d} apart, expected {gap}", w[0].0, w[1].0))?;
+                }
+                match &e["counter"] {
+                    Value::Null => ensure(b("deck.counter").is_none(), || "a counter painted, expected none".into())?,
+                    want => {
+                        let cb = b("deck.counter").ok_or("no counter painted")?;
+                        let track = b("deck.page").ok_or("no track painted")?;
+                        ensure(cb.1 + cb.3 <= track.1 + 0.5, || format!("the counter {cb:?} intersects the track {track:?}"))?;
+                        let edge = if rtl { (root.0 + root.2) - (cb.0 + cb.2) } else { cb.0 - root.0 };
+                        ensure(edge.abs() <= 1.0, || format!("{edge} px off the root's start edge"))?;
+                        ensure((cb.3 - want["height"].as_f64().unwrap() as f32).abs() <= 1.0, || format!("counter height {}", cb.3))?;
+                        let i = v.index_of("deck.counter").ok_or("no counter")?;
+                        let text = v.placed_nodes()[i as usize].props.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+                        ensure(text == want["text"].as_str().unwrap(), || format!("counter text {text:?}"))?;
+                        let st = v.painted_style("deck.counter").ok_or("no counter style")?;
+                        same_color(st.color, want["color"].as_str().unwrap()).map_err(|x| format!("counter colour: {x}"))?;
+                        ensure(st.bg.is_none_or(|c| c.a == 0.0), || format!("the counter paints a fill {:?} (the pill is gone)", st.bg))?;
+                        ensure(st.radii.iter().all(|r| *r == 0.0) && st.padding.iter().all(|x| *x == 0.0), || format!("the counter has pill chrome: radii {:?} padding {:?}", st.radii, st.padding))?;
+                        let size = v.surface().text_style(i).map(|t| t.font_size);
+                        ensure(size == want["fontSize"].as_f64().map(|x| x as f32), || format!("counter font size {size:?}"))?;
+                    }
+                }
+                let dots = e["dots"].as_array().unwrap();
+                ensure(v.painted_fill(&format!("deck.indicator.dot.{}", dots.len())).is_none(), || "more dots painted than pages".into())?;
+                for (k, want) in dots.iter().enumerate() {
+                    let id = format!("deck.indicator.dot.{k}");
+                    let fill = v.painted_fill(&id).ok_or_else(|| format!("{id} not painted"))?;
+                    same_color(fill, want["color"].as_str().unwrap()).map_err(|x| format!("{id} fill: {x}"))?;
+                    let db = b(&id).ok_or_else(|| format!("{id} has no bounds"))?;
+                    let (w, h) = (want["width"].as_f64().unwrap() as f32, want["height"].as_f64().unwrap() as f32);
+                    ensure((db.2 - w).abs() <= 0.5 && (db.3 - h).abs() <= 0.5, || format!("{id} {}x{}, expected {w}x{h}", db.2, db.3))?;
+                }
+                Ok(())
+            })
+        })();
+        out.push((c["name"].as_str().unwrap_or("").to_string(), result));
+    }
+    out
+}
+
 // --- pure suites (the core, linked directly) ------------------------------------
 
 fn macros_suite() -> Vec<Case> {
@@ -663,6 +765,7 @@ fn suite(id: &str, p: &mut Painter) -> Vec<Case> {
         "resizable" => round2::resizable_cases(),
         "virtual-list" => round2::virtual_list_cases(),
         "animations" => round2::animation_cases(),
+        "carousel" => carousel_suite(p),
         "pointer" => round2::pointer_cases(),
         other => panic!("the runner does not know the suite {other}: add it"),
     }

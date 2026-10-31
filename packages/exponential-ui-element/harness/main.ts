@@ -360,6 +360,8 @@ interface MountOptions {
   dir?: `ltr` | `rtl`
   /** A built-in theme id (default neutral). */
   theme?: string
+  /** `light` (default) or `dark`. */
+  mode?: `light` | `dark`
   /** `$control.hairline` override (a Resizable handle's thickness). */
   hairline?: number
 }
@@ -385,7 +387,7 @@ function Mount(): Node {
     const base = options.theme ?? `neutral`
     const theme = options.hairline === undefined ? base : ({ $schema: THEME_SCHEMA_ID, id: `hairline`, name: `Hairline`, extends: base, tokens: { control: { hairline: options.hairline } } } as never)
     const box = remount()
-    const el = surfaceEl({ surfaceId: `m`, root, templates, data: options.data, theme, mode: `light`, width: options.width ?? `100%`, direction: options.dir, plugin: { icons: harnessIcons } })
+    const el = surfaceEl({ surfaceId: `m`, root, templates, data: options.data, theme, mode: options.mode ?? `light`, width: options.width ?? `100%`, direction: options.dir, plugin: { icons: harnessIcons } })
     onAction(el, (e) => void window.__xuiLog.push({ action: e.name, context: e.context }))
     window.__xuiHandle = () => el.handle
     box.appendChild(el)

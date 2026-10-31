@@ -1,5 +1,8 @@
 package at.exponential.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
@@ -8,8 +11,13 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.extension.ExtensionContext
 import at.exponential.ui.extension.ExtensionLeaf
@@ -50,6 +58,9 @@ import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.model.toRect
 import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.ThemeHandle
+import com.github.takahirom.roborazzi.RoborazziOptions
+import com.github.takahirom.roborazzi.RoborazziTaskType
+import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
@@ -62,6 +73,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * VAPP-91: the Compose painter's Exponential UI conformance runner
@@ -110,12 +122,22 @@ class ConformanceTest {
 
     // The one composition every painted suite swaps its model into.
     private var current: SurfaceModel? by mutableStateOf(null)
+    private var backdrop: Color? by mutableStateOf(null)
     private var composed = false
 
     @Composable
     private fun Stage() {
         val m = current ?: return
-        key(m) { Box(Modifier.fillMaxWidth()) { ExponentialSurface(m) } }
+        val bg = backdrop
+        key(m) { Box(Modifier.testTag("stage").fillMaxWidth().then(if (bg != null) Modifier.background(bg) else Modifier)) { ExponentialSurface(m) } }
+    }
+
+    /** The stage's pixels (Roborazzi's Robolectric capture; mdpi, so 1 px = 1 dp). */
+    private fun capture(name: String): Bitmap {
+        val file = File("build/tmp/conformance/$name.png")
+        file.parentFile.mkdirs()
+        compose.onNodeWithTag("stage").captureRoboImage(file.path, RoborazziOptions(taskType = RoborazziTaskType.Record))
+        return BitmapFactory.decodeFile(file.absolutePath)
     }
 
     /** Paint `m` through `ExponentialSurface`; the node indices composed, in paint order. */
@@ -537,6 +559,120 @@ class ConformanceTest {
         return out
     }
 
+    /** `#rrggbb` / `#rrggbbaa` as ARGB. */
+    private fun hexArgb(hex: String): Int {
+        val h = hex.removePrefix("#")
+        val rgb = h.substring(0, 6).toLong(16).toInt()
+        val a = if (h.length == 8) h.substring(6, 8).toInt(16) else 255
+        return (a shl 24) or rgb
+    }
+
+    /** [fg] (with its alpha) over the opaque [bg]. */
+    private fun over(fg: Int, bg: Int): Int {
+        val a = (fg ushr 24 and 255) / 255f
+        fun ch(sh: Int) = ((fg shr sh and 255) * a + (bg shr sh and 255) * (1f - a)).roundToInt()
+        return (0xff shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+    }
+
+    private fun near(a: Int, b: Int, tol: Int = 6) = listOf(16, 8, 0).all { abs((a shr it and 255) - (b shr it and 255)) <= tol }
+    private fun rgb(c: Int) = "#%06x".format(c and 0xffffff)
+
+    /**
+     * EXP-1493 (`fixtures/carousel.json`): each case's Carousel PAINTED by
+     * `ExponentialSurface` at the fixture's width over the theme's
+     * background; the flow parts, the counter line and what the painter
+     * drew for every dot (size and fill, read off the pixels).
+     */
+    private fun carouselSuite(): List<Case> {
+        val fx = json("carousel.json")
+        val width = fx["width"]!!.number!!
+        return list(fx, "cases").mapIndexed { ci, c ->
+            case(s(c, "name")) {
+                val mode = Mode.of(s(c, "mode")) ?: return@case "mode ${s(c, "mode")}"
+                val pages = c["pages"]!!.number!!.toInt()
+                val kids = (0 until pages).joinToString(", ") { """{"id": "p$it", "component": "Text", "props": {"text": "Page ${it + 1}"}}""" }
+                val node = """{"id": "c", "component": "Carousel", "props": ${c["props"]!!.json}, "style": {"width": $width, "direction": "${s(c, "direction")}"}, "children": [$kids]}"""
+                val m = paintedModel("carousel", s(c, "theme"), mode)
+                val out = m.setNested(node)
+                if (out.issuesJson != "[]") return@case "issues ${out.issuesJson}"
+                val bg = m.color("background") ?: return@case "no background colour"
+                backdrop = bg
+                val painted = paint(m).toSet()
+                val e = c["expected"]!!
+                val rootIdx = m.indexOf("c") ?: return@case "no root"
+                val root = m.frame(rootIdx)
+                // The flow parts, top to bottom, `gap` apart.
+                val flow = m.nodes.filter { it.parent == rootIdx }.sortedBy { m.frame(it.index).top }
+                val order = flow.map { it.part ?: it.id }
+                val want = e["order"]!!.array!!.map { it.string!! }
+                if (order != want) return@case "order $order"
+                val gap = e["gap"]!!.number!!
+                for ((a, b) in flow.zipWithNext()) {
+                    val g = m.frame(b.index).top - m.frame(a.index).bottom
+                    if (abs(g - gap) > 1.0) return@case "gap ${a.part}→${b.part} = $g"
+                }
+                val rtl = s(c, "direction") == "rtl"
+                val counter = m.indexOf("c.counter")
+                val ec = e["counter"]
+                if (ec == null || ec is JsonValue.Null) {
+                    if (counter != null) return@case "a counter where none is expected"
+                } else {
+                    counter ?: return@case "no counter"
+                    if (counter !in painted) return@case "counter not painted"
+                    val f = m.frame(counter)
+                    val track = m.frame(m.indexOf("c.page") ?: return@case "no track")
+                    if (f.overlaps(track) || f.bottom > track.top + 0.5f) return@case "the counter $f is not above the track $track"
+                    val edge = if (rtl) abs(f.right - root.right) else abs(f.left - root.left)
+                    if (edge > 0.5f) return@case "counter off the start edge ($f in $root)"
+                    val text = m.node(counter)!!.props["text"]?.string
+                    if (text != s(ec, "text")) return@case "counter text $text"
+                    val ink = m.ink(counter).toArgb()
+                    if (!near(ink, hexArgb(s(ec, "color")), 1)) return@case "counter colour ${rgb(ink)}"
+                    ec["fontSize"]?.number?.let { if (abs(m.textStyle(counter).fontSize - it) > 0.01) return@case "counter font ${m.textStyle(counter).fontSize}" }
+                    ec["height"]?.number?.let { if (abs(f.height - it) > 0.5) return@case "counter height ${f.height}" }
+                }
+                // The dots, read off the painted pixels.
+                val dots = e["dots"]?.array ?: emptyList()
+                val ind = m.nodes.firstOrNull { it.owner == "c" && it.part == "indicator" }
+                if (dots.isEmpty()) {
+                    if (ind != null && (ind.props["count"]?.number ?: 0.0) > 0.0 && !ind.hidden && m.frame(ind.index).width > 0f) return@case "dots where none are expected"
+                } else {
+                    ind ?: return@case "no indicator"
+                    if (ind.index !in painted) return@case "indicator not painted"
+                    val px = capture("carousel-$ci")
+                    val bgArgb = bg.toArgb()
+                    val f: Rect = m.frame(ind.index)
+                    val size = dots[0]["width"]!!.number!!.toFloat()
+                    val dotGap = m.spacing("xs")
+                    val strip = dots.size * size + (dots.size - 1) * dotGap
+                    val start = (f.left + f.right) / 2f - strip / 2f
+                    val cy = ((f.top + f.bottom) / 2f).toInt()
+                    for ((i, d) in dots.withIndex()) {
+                        // Visual slot: mirrored under rtl (dot 0 = the right-most).
+                        val slot = if (rtl) dots.size - 1 - i else i
+                        val cx = (start + slot * (size + dotGap) + size / 2f).toInt()
+                        val fill = over(hexArgb(s(d, "color")), bgArgb)
+                        val got = px.getPixel(cx, cy)
+                        if (!near(got, fill)) return@case "dot $i fill ${rgb(got)}, expected ${rgb(fill)}"
+                        fun run(dx: Int, dy: Int): Int {
+                            var n = 0
+                            var x = cx + dx
+                            var y = cy + dy
+                            while (x in 0 until px.width && y in 0 until px.height && near(px.getPixel(x, y), fill, 24) && n < 40) {
+                                n++; x += dx; y += dy
+                            }
+                            return n
+                        }
+                        val w = 1 + run(-1, 0) + run(1, 0)
+                        val h = 1 + run(0, -1) + run(0, 1)
+                        if (abs(w - d["width"]!!.number!!) > 1.0 || abs(h - d["height"]!!.number!!) > 1.0) return@case "dot $i painted ${w}x$h"
+                    }
+                }
+                null
+            }
+        }.also { backdrop = null }
+    }
+
     private fun suite(id: String): List<Case> = when (id) {
         "catalog" -> catalogSuite()
         "macros" -> macrosSuite()
@@ -563,6 +699,7 @@ class ConformanceTest {
         "virtual-list" -> Round2Suites.virtualList().map(::Case)
         "animations" -> Round2Suites.animations().map(::Case)
         "pointer" -> Round2Suites.pointer().map(::Case)
+        "carousel" -> carouselSuite()
         else -> error("the runner does not know the suite $id: add it")
     }
 

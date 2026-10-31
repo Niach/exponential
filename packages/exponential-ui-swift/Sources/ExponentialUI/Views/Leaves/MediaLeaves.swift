@@ -360,22 +360,46 @@ enum TreeGuideGeometry {
     }
 }
 
-/// The Carousel dot strip, centred on the core's single-dot leaf.
+/// The Carousel dot strip, centred on the core's single-dot leaf. EXP-1493
+/// (round-6 §3): EVERY dot is painted from the `Carousel/indicator` recipe
+/// resolved with its own state (the current page's adds `selected` =
+/// `$color.primary`), never a tint or an opacity of one colour.
 struct CarouselIndicatorLeaf: View {
     let cx: LeafContext
 
+    /// One dot per page: its recipe-resolved size + fill.
+    struct Dot: Equatable {
+        var width: CGFloat
+        var height: CGFloat
+        var fill: Color?
+    }
+
+    /// The dots the leaf at `index` paints (also what the conformance
+    /// runner checks).
+    @MainActor static func dots(_ model: SurfaceModel, _ index: Int) -> [Dot] {
+        guard let node = model.node(index) else { return [] }
+        let count = Int(max(node.props.num("count") ?? 0, 0))
+        let page = Int(node.props.num("page") ?? 0)
+        let owner = model.ownerProps(index)
+        return (0..<count).map { i in
+            let r = model.part("Carousel", "indicator", props: owner, states: i == page ? ["selected"] : [])
+            let w = r.width ?? 8
+            return Dot(width: w, height: r.height ?? w, fill: r.style.background)
+        }
+    }
+
     var body: some View {
-        let count = Int(max(cx.props.num("count") ?? 0, 0))
+        let dots = Self.dots(cx.model, cx.index)
+        let count = dots.count
         let page = Int(cx.props.num("page") ?? 0)
-        let dot = cx.part("Carousel", "indicator")
-        let size = dot.width ?? 8
         let gap = cx.spacing("xs")
         HStack(spacing: gap) {
-            ForEach(0..<max(count, 0), id: \.self) { i in
+            ForEach(0..<count, id: \.self) { i in
+                let dot = dots[i]
                 Button {
                     cx.model.carouselPage(cx.index, page: i)
                 } label: {
-                    Circle().fill(i == page ? (dot.style.background ?? cx.ink) : (dot.style.background ?? cx.ink).opacity(0.35)).frame(width: size, height: size)
+                    Capsule().fill(dot.fill ?? .clear).frame(width: dot.width, height: dot.height)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(cx.model.builtinString("pageOf", ["page": .number(Double(i + 1)), "total": .number(Double(count))]))

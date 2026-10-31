@@ -1,5 +1,5 @@
 // EXP-1495 (docs/round-6-contract.md): the React halves of round 6 — the
-// Carousel's `counter` pill (over the track, `$string.pageCounter`, hidden
+// Carousel's `counter` line (above the track, EXP-1493; `$string.pageCounter`, hidden
 // from AT, never hit) and `thumbnails` strip (one button per PAGE before
 // the controls, the current one `selected` + aria-current, a press pages
 // like a dot), only with 2+ pages; the Outline and Mosaic macros painting
@@ -27,16 +27,18 @@ const pages = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`,
 const carousel = (props: Record<string, unknown>, n = 3) => tree({ id: `cr`, component: `Carousel`, props, on: { change: { event: { name: `paged` } } }, children: pages(n) } as unknown as NestedNode)
 
 describe(`Carousel counter`, () => {
-  it(`paints "page / total" over the track, hidden from AT, never hit`, () => {
+  it(`paints "page / total" as its own line above the track, hidden from AT, never hit`, () => {
     const { container } = render(<ExponentialSurface root={carousel({ counter: true, page: 1 })} theme="neutral" id="c1" />)
     const counter = container.querySelector<HTMLElement>(`[data-xui-part="Carousel/counter"]`)!
     expect(counter.textContent).toBe(`2 / 3`)
     expect(counter.getAttribute(`aria-hidden`)).toBe(`true`)
     expect(counter.getAttribute(`data-xui-id`)).toBe(`cr.counter`)
     expect(counter.className).toContain(`xui-Carousel-counter`)
-    // Its positioned parent holds the track (the pill stays put while the track scrolls).
-    expect(counter.parentElement!.classList.contains(`xui-carousel-stage`)).toBe(true)
-    expect(counter.parentElement!.querySelector(`.xui-carousel-track`)).not.toBeNull()
+    // EXP-1493: its own line ABOVE the track: the root's first flow child, the track next.
+    expect(counter.parentElement!.getAttribute(`data-xui-id`)).toBe(`cr`)
+    expect(counter.parentElement!.firstElementChild).toBe(counter)
+    expect(counter.nextElementSibling!.classList.contains(`xui-carousel-track`)).toBe(true)
+    expect(container.querySelector(`.xui-carousel-stage`)).toBeNull()
   })
 
   it(`follows the page`, () => {
@@ -199,6 +201,9 @@ describe(`the primitive twins`, () => {
     const counter = container.querySelector(`[data-slot="carousel-counter"]`)!
     expect(counter.textContent).toBe(`1 / 4`)
     expect(counter.getAttribute(`aria-hidden`)).toBe(`true`)
+    // EXP-1493: a plain muted line above the slide, no pill over it.
+    expect(counter.className).toContain(`text-muted-foreground`)
+    expect(counter.className).not.toMatch(/absolute|bg-black|rounded-full/)
     const thumbs = container.querySelectorAll(`[data-slot="carousel-thumbnail"]`)
     expect(thumbs).toHaveLength(3)
     expect(thumbs[1]!.getAttribute(`data-current`)).toBe(`true`)

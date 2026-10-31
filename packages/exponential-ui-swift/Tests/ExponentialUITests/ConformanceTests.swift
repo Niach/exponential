@@ -495,6 +495,72 @@ final class ConformanceTests: XCTestCase {
         return out
     }
 
+    /// EXP-1493 (round-6 §3, fixtures/carousel.json): each case's Carousel
+    /// PAINTED at `width`; the root's flow parts top to bottom, the counter
+    /// line above the track (text, ink, start edge), every dot's size + fill
+    /// as `CarouselIndicatorLeaf` paints it.
+    func carouselSuite() throws -> [Case] {
+        let fx = try Fixtures.json("carousel.json")
+        let width = CGFloat(fx["width"]?.number ?? 360)
+        return (fx["cases"]?.array ?? []).map { c in
+            run(c["name"]?.string ?? "?") {
+                let want = c["expected"]!
+                let rtl = c["direction"]?.string == "rtl"
+                let m = try model("carousel", theme: c["theme"]!.string!, mode: c["mode"]?.string == "dark" ? .dark : .light)
+                let pages = (1...max(Int(c["pages"]!.number!), 1)).map { JSONValue.object(["id": .string("p\($0)"), "component": .string("Text"), "props": .object(["text": .string("Page \($0)")])]) }
+                try m.setNested(json: JSONValue.object([
+                    "id": .string("c"), "component": .string("Carousel"),
+                    "props": c["props"] ?? .object([:]),
+                    "style": .object(["direction": .string(rtl ? "rtl" : "ltr")]),
+                    "children": .array(pages),
+                ]).json)
+                let painted = paint(m, width: width)
+                if let e = checkPainted(m, painted) { return e }
+                guard let root = m.node(id: "c") else { return "no root" }
+                let rf = m.frame(root.index)
+                let flow = m.nodes.filter { $0.parent == root.index && !$0.removed && !$0.hidden && $0.layer == 0 }
+                    .sorted { m.frame($0.index).minY < m.frame($1.index).minY }
+                let order = flow.map { $0.part ?? $0.id }
+                let wantOrder = (want["order"]?.array ?? []).compactMap(\.string)
+                if order != wantOrder { return "order \(order) ≠ \(wantOrder)" }
+                let gap = CGFloat(want["gap"]?.number ?? 0)
+                for (a, b) in zip(flow, flow.dropFirst()) {
+                    let g = m.frame(b.index).minY - m.frame(a.index).maxY
+                    if abs(g - gap) > 1 { return "gap \(a.part ?? a.id)→\(b.part ?? b.id) = \(g), expected \(gap)" }
+                }
+                let counter = m.nodes.first { $0.ownerComponent == "Carousel" && $0.part == "counter" && !$0.removed }
+                if let wc = want["counter"], wc != .null {
+                    guard let counter else { return "no counter" }
+                    guard let track = flow.first(where: { $0.part == "page" }) else { return "no track" }
+                    let cf = m.frame(counter.index), tf = m.frame(track.index)
+                    if cf.intersects(tf) || cf.maxY > tf.minY + 0.5 { return "counter \(cf) not above the track \(tf)" }
+                    let edge = rtl ? cf.maxX - rf.maxX : cf.minX - rf.minX
+                    if abs(edge) > 0.5 { return "counter start edge off by \(edge)" }
+                    if let t = wc["text"]?.string, counter.props["text"]?.string != t { return "counter text \(counter.props["text"]?.string ?? "nil") ≠ \(t)" }
+                    let ink = m.ink(counter.index).hexRGBA()
+                    if let col = wc["color"]?.string, ink != col.lowercased() { return "counter colour \(ink) ≠ \(col)" }
+                    if let fs = wc["fontSize"]?.number, abs(Double(m.textStyle(counter.index).fontSize) - fs) > 0.01 { return "counter fontSize \(m.textStyle(counter.index).fontSize) ≠ \(fs)" }
+                    if let h = wc["height"]?.number, abs(Double(cf.height) - h) > 0.5 { return "counter height \(cf.height) ≠ \(h)" }
+                    let style = m.style(counter.index)
+                    if style.background != nil || style.radius > 0 || style.paddingHorizontal > 0 || style.paddingVertical > 0 { return "counter paints a box (fill/radius/padding)" }
+                } else if counter != nil {
+                    return "a counter where the case has none"
+                }
+                let wantDots = want["dots"]?.array ?? []
+                let indicator = m.nodes.first { $0.ownerComponent == "Carousel" && $0.part == "indicator" && !$0.removed }
+                let dots = indicator.map { CarouselIndicatorLeaf.dots(m, $0.index) } ?? []
+                if dots.count != wantDots.count { return "\(dots.count) dots, expected \(wantDots.count)" }
+                if let indicator, !wantDots.isEmpty, !painted.contains(indicator.index) { return "dots not painted" }
+                for (i, (d, w)) in zip(dots, wantDots).enumerated() {
+                    let fill = d.fill?.hexRGBA() ?? "none"
+                    if fill != w["color"]?.string?.lowercased() { return "dot \(i) fill \(fill) ≠ \(w["color"]?.string ?? "nil")" }
+                    if abs(Double(d.width) - (w["width"]?.number ?? 0)) > 0.5 || abs(Double(d.height) - (w["height"]?.number ?? 0)) > 0.5 { return "dot \(i) \(d.width)×\(d.height)" }
+                }
+                return nil
+            }
+        }
+    }
+
     func suite(_ id: String) throws -> [Case] {
         switch id {
         case "catalog": try catalogSuite()
@@ -512,6 +578,7 @@ final class ConformanceTests: XCTestCase {
         case "host-transport": try transportSuite()
         case "host-policy": try policySuite()
         case "host-router": try routerSuite()
+        case "carousel": try carouselSuite()
         // Manifest v2 (round 2): `Round2Suites`.
         case "bind": try Round2Suites.bind()
         case "style-conditions": try Round2Suites.styleConditions()

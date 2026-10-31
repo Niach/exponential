@@ -705,24 +705,30 @@ internal fun treeGuideGeometry(props: Props, rtl: Boolean): TreeGuideGeometry {
     )
 }
 
-/** The Carousel dot strip (`Carousel/indicator`), centred on the core's leaf (overflowing it); a dot tap pages. */
+/** The Carousel dot strip (`Carousel/indicator`, one recipe per dot with its own state), centred on the core's leaf (overflowing it); a dot tap pages. */
 @Composable
 internal fun CarouselIndicatorLeaf(cx: LeafContext) {
     val count = max(cx.props.num("count") ?: 0.0, 0.0).toInt()
     val page = (cx.props.num("page") ?: 0.0).roundToInt()
+    // Each dot = the Carousel/indicator recipe resolved with its OWN state:
+    // the current page's dot adds `selected` ($color.primary), the rest stay base.
     val dot = cx.part("Carousel", "indicator")
+    val current = cx.part("Carousel", "indicator", listOf("selected"))
     val size = dot.width ?: 8f
     val gap = cx.spacing("xs")
     val base = dot.style.background ?: cx.ink
+    val active = current.style.background ?: base
     val model = cx.model
     val index = cx.index
     LeafFrame {
         Row(Modifier.align(Alignment.Center).wrapContentSize(unbounded = true), horizontalArrangement = Arrangement.spacedBy(gap.dp)) {
-            for (i in 0 until count) {
+            // The surface pins Ltr (the core mirrors frames); the strip is painter-side, so mirror it here.
+            for (slot in 0 until count) {
+                val i = if (cx.rtl) count - 1 - slot else slot
                 Box(
                     Modifier
                         .size(size.dp)
-                        .background(if (i == page) base else base.copy(alpha = base.alpha * 0.35f), CircleShape)
+                        .background(if (i == page) active else base, CircleShape)
                         .clickable(role = Role.Tab) { model.carouselPage(index, i) }
                         .semantics {
                             contentDescription = cx.string("pageOf", mapOf("page" to i + 1, "total" to count))

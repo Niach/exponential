@@ -31,7 +31,7 @@ data class ResolvedTextStyle(
     /**
      * EXP-1495 (round-6 §3): the parts whose figures are tabular, so a
      * counting text keeps its width as it counts (the Carousel `counter`
-     * pill, `i / n`). The measurer and the leaf apply the same rule.
+     * line, `i / n`). The measurer and the leaf apply the same rule.
      */
     fun forPart(ownerComponent: String?, part: String?): ResolvedTextStyle =
         if (ownerComponent == "Carousel" && part == "counter" && fontFeatures == null) copy(fontFeatures = "tnum") else this

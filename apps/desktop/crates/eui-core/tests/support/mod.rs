@@ -4,6 +4,7 @@
 
 #![allow(dead_code)]
 
+pub mod carousel;
 pub mod round2;
 
 use eui_core::host::{

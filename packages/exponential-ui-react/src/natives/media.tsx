@@ -164,12 +164,18 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
   const track = useRef<HTMLDivElement>(null)
   const pages = node.children
   const [page, setPage] = useBoundState(node, scope, `page`, num(props.page, 0))
-  const scrollTo = (i: number) => {
+  const scrollTo = (i: number, instant = false) => {
     const el = track.current
-    if (el && el.children[i] && typeof el.scrollTo === `function`) el.scrollTo({ left: (el.children[i] as HTMLElement).offsetLeft, behavior: ctx.reducedMotion ? `auto` : `smooth` })
+    if (el && el.children[i] && typeof el.scrollTo === `function`) el.scrollTo({ left: (el.children[i] as HTMLElement).offsetLeft, behavior: instant || ctx.reducedMotion ? `auto` : `smooth` })
   }
   const external = num(props.page, 0)
-  useEffect(() => scrollTo(external), [external])
+  // The opening page lands at once (EXP-1493: a smooth first scroll fired
+  // `onScroll` from page 0 and paged the Carousel back to it).
+  const opened = useRef(false)
+  useEffect(() => {
+    scrollTo(external, !opened.current)
+    opened.current = true
+  }, [external])
   const onScroll = () => {
     const el = track.current
     if (!el || el.clientWidth === 0) return
@@ -188,8 +194,8 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
     scrollTo(target)
   }
   const many = pages.length > 1
-  // EXP-1495 (round 6 §3): the counter pill and the thumbnail strip, both
-  // only with two or more pages.
+  // EXP-1495 / EXP-1493 (round 6 §3): the counter (its own line above the
+  // track) and the thumbnail strip, both only with two or more pages.
   const counter = many && bool(props.counter)
   const thumbnails = many && Array.isArray(props.thumbnails) ? (props.thumbnails as unknown[]) : null
   const strip = useRef<HTMLDivElement>(null)
@@ -232,15 +238,11 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
       }}
     >
       {counter ? (
-        <div className="xui-carousel-stage">
-          {trackView}
-          <span {...(part(`counter`) as Record<string, string>)} aria-hidden="true">
-            {ctx.t(`pageCounter`, { page: page + 1, total: pages.length })}
-          </span>
-        </div>
-      ) : (
-        trackView
-      )}
+        <span {...(part(`counter`) as Record<string, string>)} aria-hidden="true">
+          {ctx.t(`pageCounter`, { page: page + 1, total: pages.length })}
+        </span>
+      ) : null}
+      {trackView}
       {thumbnails ? (
         <div ref={strip} {...(part(`thumbnails`) as Record<string, string>)}>
           {pages.map((child, i) => (

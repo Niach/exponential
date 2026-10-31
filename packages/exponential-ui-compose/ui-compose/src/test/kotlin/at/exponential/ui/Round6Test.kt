@@ -49,7 +49,7 @@ import kotlin.math.roundToInt
 
 /**
  * EXP-1495 (docs/round-6-contract.md §3 + §4 Compose): the Carousel
- * `counter` pill and `thumbnails` strip painted from the core's frames
+ * `counter` line (above the track, EXP-1493) and `thumbnails` strip painted from the core's frames
  * (tabular figures, hidden from TalkBack, a thumbnail press pages through
  * the Carousel's press path, the current thumbnail kept in view, the
  * picture covering the box inside its border); the Outline and Mosaic
@@ -111,13 +111,17 @@ class Round6Test {
     }
 
     @Test
-    fun theCounterIsAPillOverTheTracksTopStartCornerInTabularFigures() {
+    fun theCounterIsItsOwnLineAboveTheTrackOnTheStartEdgeInTabularFigures() {
         val m = render(carousel(3, """"page": 0, "counter": true"""))
+        val root = m.frame(m.idx("c"))
         val page = m.frame(m.idx("c.page"))
-        val pill = m.frame(m.idx("c.counter"))
-        assertEquals("inset sm from the start", 8f, pill.left - page.left, 0.01f)
-        assertEquals("inset sm from the top", 8f, pill.top - page.top, 0.01f)
-        assertEquals(20f, pill.height, 0.01f)
+        val line = m.frame(m.idx("c.counter"))
+        // EXP-1493: the root's first flow child, start-aligned, the root's gap (sm = 8) above the track.
+        assertEquals("on the root's start edge", root.left, line.left, 0.01f)
+        assertEquals("the root's first line", root.top, line.top, 0.01f)
+        assertEquals("gap sm above the track", 8f, page.top - line.bottom, 0.01f)
+        assertTrue("never over the track", line.bottom <= page.top)
+        assertEquals(20f, line.height, 0.01f)
         val counter = m.node(m.idx("c.counter"))!!
         assertEquals("1 / 3", counter.props["text"]?.string)
         // Tabular figures, in the measurer and the leaf alike.
@@ -125,11 +129,12 @@ class Round6Test {
         assertEquals("tnum", ts.forPart(counter.ownerComponent, counter.part).fontFeatures)
         assertNull(ts.forPart("Carousel", "page").fontFeatures)
         assertEquals("tnum", robolectricShaper().style(ResolvedTextStyle(12f, 500, 20f, null, fontFeatures = "tnum")).fontFeatureSettings)
-        // The recipe's fill: black 0.55 over the dark track.
+        // Plain muted text, no pill: the line's background is the surface's.
         val px = capture("counter")
         val d = density
-        val inside = px.getPixel(((pill.left + 3f) * d).roundToInt(), ((pill.top + pill.height / 2f) * d).roundToInt())
-        assertTrue("the pill is darker than the track (${Integer.toHexString(inside)})", (inside shr 16 and 255) < 0x33 - 8)
+        val bg = (m.color("background") ?: Color.Black).toArgb()
+        val inside = px.getPixel(((line.right - 1f) * d).roundToInt(), ((line.top + 1f) * d).roundToInt())
+        assertTrue("no fill behind the counter (${Integer.toHexString(inside)})", near(inside, bg, 4))
         // Hidden from TalkBack: each page already says `page i of n`.
         // (the merged tree = what the accessibility delegate hands TalkBack).
         assertTrue(compose.onAllNodes(hasText("1 / 3")).fetchSemanticsNodes().isEmpty())

@@ -1,5 +1,6 @@
 import { useRef, useState, type TouchEvent } from "react"
 import { mosaicTiles, PLAN_PAGE_MOSAIC, PLAN_PAGE_TEST_IDS } from "@exp/domain-contract/plan-page"
+import { CarouselCounter } from "@exponential_app/eui-react/primitives/carousel"
 import { cn } from "./cn"
 
 // #EXP-1493: a group of pictures. WIDE = THE Mosaic (eUI `Mosaic`,
@@ -127,6 +128,8 @@ export function PictureCarousel({
   if (!picture) return null
   return (
     <div data-testid={PLAN_PAGE_TEST_IDS.carousel} data-index={at} className={cn(`flex min-w-0 flex-col gap-2`, className)}>
+      {/* THE eUI Carousel counter (round-6 §3): its own line above the slide, start-aligned, no pill. */}
+      {count > 1 && <CarouselCounter page={at} total={count} />}
       <div
         data-slot="carousel-slide"
         className={cn(`relative overflow-hidden`, slideClassName)}
@@ -160,14 +163,6 @@ export function PictureCarousel({
             style={{ borderRadius: fit === `cover` ? PLAN_PAGE_MOSAIC.radius : undefined }}
           />
         </button>
-        {count > 1 && (
-          <span
-            data-slot="carousel-counter"
-            className="pointer-events-none absolute top-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white tabular-nums"
-          >
-            {at + 1} / {count}
-          </span>
-        )}
       </div>
       {count > 1 &&
         (thumbnails ? (
@@ -196,7 +191,8 @@ export function PictureCarousel({
                 type="button"
                 aria-label={`${i + 1} / ${count}`}
                 onClick={() => go(i)}
-                className={cn(`size-1.5 rounded-full`, i === at ? `bg-foreground` : `bg-muted-foreground/40`)}
+                aria-current={i === at || undefined}
+                className={cn(`size-2 rounded-full`, i === at ? `bg-primary` : `bg-border`)}
               />
             ))}
           </div>

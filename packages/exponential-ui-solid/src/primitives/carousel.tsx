@@ -5,7 +5,7 @@ import { cn } from "./cn"
 
 export { CAROUSEL_GEOMETRY, carouselCounterText } from "@exponential_app/eui/web/primitives"
 
-/** EXP-1495: React's `CarouselCounter` (the `i / n` pill; `page` 0-based). */
+/** EXP-1495: React's `CarouselCounter` (the `i / n` line above the slide; `page` 0-based). */
 export function CarouselCounter(props: Omit<ComponentProps<`span`>, `children`> & { page: number; total: number }) {
   const [local, rest] = splitProps(props, [`page`, `total`, `class`])
   return (

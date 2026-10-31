@@ -374,6 +374,9 @@ pub struct SurfaceView {
     /// first draws carry an enter animation past its first frame).
     executor: gpui::BackgroundExecutor,
     debug_bounds: Option<BoundsLog>,
+    /// EXP-1493: the fill each synthesized sub-part (a Carousel dot,
+    /// `<id>.dot.N`) painted with, kept with [`Self::record_bounds`] on.
+    debug_fills: Option<Rc<RefCell<HashMap<String, Option<Hsla>>>>>,
     /// VAPP-103 rfix: component id → the props hash its painter panicked
     /// on. Until the props change it paints an empty box WITHOUT running
     /// the painter again (no panic, no backtrace, no report per frame).
@@ -552,6 +555,7 @@ impl SurfaceView {
             clock_skew: std::time::Duration::ZERO,
             executor: cx.background_executor().clone(),
             debug_bounds: None,
+            debug_fills: None,
             failed_paints: RefCell::new(HashMap::new()),
             this: cx.entity().downgrade(),
             measure_override: options.fixed_measure.map(|m| Box::new(m) as Box<dyn Measure>),
@@ -841,6 +845,14 @@ impl SurfaceView {
     /// adds one probe per node while on).
     pub fn record_bounds(&mut self, on: bool) {
         self.debug_bounds = on.then(|| Rc::new(RefCell::new(HashMap::new())));
+        self.debug_fills = on.then(|| Rc::new(RefCell::new(HashMap::new())));
+    }
+
+    /// The fill a synthesized sub-part painted with (EXP-1493: a Carousel
+    /// dot, `<indicator id>.dot.N`; with [`Self::record_bounds`] on, its
+    /// bounds are in [`Self::painted_bounds`] under the same id).
+    pub fn painted_fill(&self, id: &str) -> Option<Option<Hsla>> {
+        self.debug_fills.as_ref().and_then(|f| f.borrow().get(id).copied())
     }
 
     /// A painted node's window bounds (with [`Self::record_bounds`] on).

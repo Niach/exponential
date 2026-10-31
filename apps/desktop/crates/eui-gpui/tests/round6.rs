@@ -1,7 +1,8 @@
 //! Round 6 (`packages/exponential-ui/docs/round-6-contract.md`, EXP-1495)
 //! through the painter in a headless gpui window: the Carousel `counter`
-//! pill (the core's out-of-flow `counter` part over the track's top-start
-//! corner, mirrored under RTL, hidden from AT) and the `thumbnails` strip
+//! line (EXP-1493: the root's first flow child ABOVE the track, on the
+//! start edge, mirrored under RTL, plain muted text, hidden from AT) and
+//! the `thumbnails` strip
 //! (one 52 x 52 `thumbnail` per page, the `selected` recipe, a press goes to
 //! its page = `change`), and the two new macros (Outline, Mosaic) painting
 //! from Box / Text / Image: the Box `aspectRatio`, `position: absolute` +
@@ -124,30 +125,37 @@ fn carousel(counter: bool, thumbnails: Value) -> Value {
 }
 
 #[gpui::test]
-fn the_carousel_counter_paints_a_pill_over_the_tracks_top_start_corner(cx: &mut TestAppContext) {
+fn the_carousel_counter_paints_its_own_line_above_the_track(cx: &mut TestAppContext) {
     let (view, _log, cx) = surface(cx, carousel(true, json!(null)));
-    let (track, pill) = (frame(&view, cx, "deck.page"), frame(&view, cx, "deck.counter"));
-    assert!(near(pill.x - track.x, 8.0) && near(pill.y - track.y, 8.0), "inset $spacing.sm from the top-start corner: {pill:?} in {track:?}");
-    assert!(near(pill.h, 20.0), "a 20 px pill: {pill:?}");
+    let (deck, track, line) = (frame(&view, cx, "deck"), frame(&view, cx, "deck.page"), frame(&view, cx, "deck.counter"));
+    assert!(near(line.x, deck.x) && near(line.y, deck.y), "the root's first flow child, on the start edge: {line:?} in {deck:?}");
+    assert!(near(line.h, 20.0), "a 20 px line: {line:?}");
+    assert!(near(track.y - (line.y + line.h), 8.0), "the root's gap above the track: {line:?} {track:?}");
+    assert!(line.w < deck.w, "hugs its text: {line:?}");
     assert_eq!(text_of(&view, cx, "deck.counter"), "1 / 3");
-    let b = painted(&view, cx, "deck.counter");
-    let t = painted(&view, cx, "deck.page");
-    assert!(b.origin.y >= t.origin.y && b.origin.x >= t.origin.x, "painted over the track");
+    let (b, t) = (painted(&view, cx, "deck.counter"), painted(&view, cx, "deck.page"));
+    assert!(b.origin.y + b.size.height <= t.origin.y, "painted above the track, never over it");
     let s = style(&view, cx, "deck.counter");
-    assert_eq!(s.bg.map(hex).as_deref(), Some("#0000008c"), "the scrim fill");
-    assert!(near(s.radii[0], pill.h / 2.0) || s.radii[0] >= pill.h / 2.0, "a full radius: {:?}", s.radii);
-    assert_eq!(s.color.map(hex).as_deref(), Some("#ffffffff"), "white text");
+    assert!(s.bg.is_none_or(|c| c.a == 0.0), "no fill (the pill is gone): {:?}", s.bg);
+    assert!(s.radii.iter().all(|r| *r == 0.0) && s.padding.iter().all(|p| *p == 0.0), "no pill chrome: {:?} {:?}", s.radii, s.padding);
+    assert_eq!(s.color.map(hex).as_deref(), Some("#737373ff"), "$color.mutedForeground (neutral light)");
     assert!(view.read_with(cx, |v, _| v.accessible_info("deck.counter")).is_none(), "hidden from AT");
-    // The pill never takes a press: a click on it reaches nothing.
-    let order = view.read_with(cx, |v, _| v.placed_nodes().iter().position(|n| n.id == "deck.counter").unwrap() > v.placed_nodes().iter().position(|n| n.id == "p1").unwrap());
-    assert!(order, "the pill paints after (above) the pages");
 }
 
 #[gpui::test]
 fn the_counter_mirrors_under_rtl(cx: &mut TestAppContext) {
     let (view, cx) = mounted(cx, carousel(true, json!(null)), Recorder::default(), true);
-    let (track, pill) = (frame(&view, cx, "deck.page"), frame(&view, cx, "deck.counter"));
-    assert!(near(track.x + track.w - (pill.x + pill.w), 8.0), "the top-END corner under RTL: {pill:?} in {track:?}");
+    let (deck, line) = (frame(&view, cx, "deck"), frame(&view, cx, "deck.counter"));
+    assert!(near(deck.x + deck.w, line.x + line.w), "the right edge under RTL: {line:?} in {deck:?}");
+}
+
+#[gpui::test]
+fn each_dot_paints_its_own_indicator_recipe_the_current_one_primary(cx: &mut TestAppContext) {
+    let (view, _log, cx) = surface(cx, carousel(false, json!(null)));
+    let fills: Vec<Option<String>> = view.read_with(cx, |v, _| (0..3).map(|i| v.painted_fill(&format!("deck.indicator.dot.{i}")).flatten().map(hex)).collect());
+    assert_eq!(fills, [Some("#171717ff".to_string()), Some("#e5e5e5ff".to_string()), Some("#e5e5e5ff".to_string())], "page 1 = $color.primary, the others $color.border");
+    let d = painted(&view, cx, "deck.indicator.dot.0");
+    assert!(near(f32::from(d.size.width), 8.0) && near(f32::from(d.size.height), 8.0), "8 x 8: {d:?}");
 }
 
 #[gpui::test]

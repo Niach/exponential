@@ -15,9 +15,10 @@ import kotlin.math.roundToInt
 
 // EXP-1495 (docs/round-6-contract.md): the round-6 pieces of the Compose
 // painter. Outline and Mosaic are macros (Box / Text / Image, nothing of
-// their own here); the Carousel `counter` pill and `thumbnails` strip are
-// the core's frames: the pill a Text part over the track (out of flow,
-// `pointerEvents: none`, hidden from TalkBack), the strip a row of pressable
+// their own here); the Carousel `counter` and `thumbnails` strip are
+// the core's frames: the counter a plain Text part, the root's first flow
+// line above the track (EXP-1493: start-aligned, no fill, hidden from
+// TalkBack), the strip a row of pressable
 // 52 x 52 boxes whose press goes through the Carousel's press path (the
 // core reads the thumbnail's `target` and fires `change {page}`). What is
 // painter-side: the counter's tabular figures

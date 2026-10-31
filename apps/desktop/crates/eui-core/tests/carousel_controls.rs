@@ -1,6 +1,8 @@
 //! Round 2 §7: a Carousel with 2+ pages places a `controls` row under the
 //! pages: `previous`, the dots (`indicator`), `next`. A button press pages.
 
+mod support;
+
 use std::collections::HashMap;
 
 use eui_core::measure::FixedMeasure;
@@ -70,7 +72,7 @@ fn one_page_has_no_controls() {
     assert!(!s.nodes().iter().any(|n| n.id == "root.controls"));
 }
 
-// EXP-1495 (round-6 contract §3): the counter pill and the thumbnail strip.
+// EXP-1495 (round-6 contract §3): the counter line (EXP-1493) and the thumbnail strip.
 
 fn frame(out: &eui_core::surface::LayoutOutput, s: &mut Surface, id: &str) -> (f32, f32, f32, f32) {
     let (i, _) = find(s, id);
@@ -79,17 +81,23 @@ fn frame(out: &eui_core::surface::LayoutOutput, s: &mut Surface, id: &str) -> (f
 }
 
 #[test]
-fn the_counter_sits_over_the_tracks_top_start_corner_and_counts_from_one() {
+fn the_counter_is_its_own_line_above_the_track_and_counts_from_one() {
+    // EXP-1493 (round-6 contract §3): the root's FIRST flow child, start
+    // aligned, the root's gap (8) above the track, never over a page.
     let mut s = carousel(json!({"counter": true}));
     let out = s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
     let (_, counter) = find(&mut s, "root.counter");
     assert_eq!(counter["text"], json!("1 / 3"));
-    let (px, py, _, _) = frame(&out, &mut s, "root.page");
-    let (cx, cy, _, ch) = frame(&out, &mut s, "root.counter");
-    assert_eq!((cx - px, cy - py, ch), (8.0, 8.0, 20.0), "inset sm, 20 tall");
+    let (rx, ry, _, _) = frame(&out, &mut s, "root");
+    let (_, py, _, _) = frame(&out, &mut s, "root.page");
+    let (cx, cy, cw, ch) = frame(&out, &mut s, "root.counter");
+    assert_eq!((cx - rx, cy - ry, ch), (0.0, 0.0, 20.0), "on the root's start edge, 20 tall");
+    assert_eq!(py - (cy + ch), 8.0, "the root's gap above the track");
+    assert!(cw < 390.0, "hugs its text (alignSelf flex-start): {cw}");
     let nodes = s.nodes();
-    let page = nodes.iter().position(|n| n.id == "root.page").unwrap() as u32;
-    assert_eq!(nodes.iter().find(|n| n.id == "root.counter").unwrap().parent, Some(page), "an overlay of the track");
+    let root = nodes.iter().position(|n| n.id == "root").unwrap() as u32;
+    let kids: Vec<&str> = nodes.iter().filter(|n| n.parent == Some(root)).map(|n| n.id.as_str()).collect();
+    assert_eq!(kids, ["root.counter", "root.page", "root.controls"], "the first flow child");
     assert_eq!(nodes.iter().find(|n| n.id == "root.counter").unwrap().accessibility, Some(json!({"hidden": true})));
 
     let (next, _) = find(&mut s, "root.next");
@@ -97,6 +105,15 @@ fn the_counter_sits_over_the_tracks_top_start_corner_and_counts_from_one() {
     s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
     assert_eq!(find(&mut s, "root.counter").1["text"], json!("2 / 3"));
     assert!(!carousel(json!({})).nodes().iter().any(|n| n.id == "root.counter"));
+}
+
+#[test]
+fn the_counter_hugs_the_end_edge_under_rtl() {
+    let mut s = carousel(json!({"counter": true, "style": {"direction": "rtl"}}));
+    let out = s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
+    let (rx, _, rw, _) = frame(&out, &mut s, "root");
+    let (cx, _, cw, _) = frame(&out, &mut s, "root.counter");
+    assert!(((rx + rw) - (cx + cw)).abs() < 0.001, "the right edge under rtl: {cx}+{cw} in {rx}+{rw}");
 }
 
 #[test]
@@ -124,4 +141,13 @@ fn the_strip_holds_one_52_square_per_page_before_the_controls_and_a_press_pages(
     s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
     assert_eq!(find(&mut s, "root.indicator").1["page"], json!(2));
     assert!(s.nodes().iter().find(|n| n.id == "root.thumbnail.2").unwrap().states.iter().any(|st| st == "selected"));
+}
+
+/// EXP-1493: fixtures/carousel.json (THE Carousel spec), every case.
+#[test]
+fn the_carousel_fixture_replays() {
+    let cases = support::carousel::carousel_cases();
+    assert_eq!(cases.len(), support::fixture("carousel.json")["cases"].as_array().unwrap().len());
+    let failed: Vec<String> = cases.iter().filter_map(|(n, r)| r.as_ref().err().map(|e| format!("{n}: {e}"))).collect();
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
 }

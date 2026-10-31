@@ -3,7 +3,7 @@ import ExponentialUICore
 @testable import ExponentialUI
 
 /// EXP-1495 (docs/round-6-contract.md, the SwiftUI checklist): the Carousel
-/// `counter` pill + `thumbnails` strip from the core's frames and recipes, a
+/// `counter` line + `thumbnails` strip from the core's frames and recipes, a
 /// thumbnail press paging like a dot, and the Outline + Mosaic macros over
 /// Box / Text / Image.
 @MainActor
@@ -30,21 +30,39 @@ final class Round6Tests: XCTestCase {
 
     // MARK: - Carousel counter
 
-    /// `$string.pageCounter` over the track's top-start corner (inset sm),
-    /// the neutral pill (20 tall, full radius, black 0.55), hidden from AT.
-    func testCounterPillSitsOverTheTrackCorner() throws {
+    /// EXP-1493: `$string.pageCounter` is its own line ABOVE the track (the
+    /// root's first flow child, start-aligned, the root's gap above the
+    /// track), plain muted text: no fill, no radius, no padding; hidden
+    /// from AT.
+    func testCounterIsItsOwnLineAboveTheTrack() throws {
         let m = try model(carousel, host: RecordingHost())
         let counter = try XCTUnwrap(parts(m, "counter").first)
         XCTAssertEqual(counter.component, "Text")
         XCTAssertEqual(counter.props["text"]?.string, "1 / 3")
+        let root = try XCTUnwrap(m.node(id: "c"))
+        XCTAssertEqual(counter.parent, root.index)
         let page = try XCTUnwrap(parts(m, "page").first)
-        let (cf, pf) = (m.frame(counter.index), m.frame(page.index))
-        XCTAssertEqual(cf.minX - pf.minX, 8, accuracy: 0.5)
-        XCTAssertEqual(cf.minY - pf.minY, 8, accuracy: 0.5)
+        let (cf, pf, rf) = (m.frame(counter.index), m.frame(page.index), m.frame(root.index))
+        XCTAssertEqual(cf.minX, rf.minX, accuracy: 0.5)
+        XCTAssertEqual(cf.minY, rf.minY, accuracy: 0.5)
+        XCTAssertEqual(pf.minY - cf.maxY, 8, accuracy: 0.5)
         XCTAssertEqual(cf.height, 20, accuracy: 0.5)
         let style = m.style(counter.index)
-        XCTAssertNotNil(style.background)
+        XCTAssertNil(style.background)
+        XCTAssertEqual(style.radius, 0)
+        XCTAssertEqual(style.paddingHorizontal, 0)
+        XCTAssertEqual(m.ink(counter.index).hexRGBA(), "#a1a1a1")
         XCTAssertTrue(A11yInfo.of(counter, model: m, style: style).hidden)
+    }
+
+    /// EXP-1493: every dot from the indicator recipe with its own state:
+    /// the current page's = `selected` ($color.primary), the others $color.border.
+    func testDotsResolveTheirOwnState() throws {
+        let m = try model(carousel, host: RecordingHost())
+        let indicator = try XCTUnwrap(parts(m, "indicator").first)
+        let dots = CarouselIndicatorLeaf.dots(m, indicator.index)
+        XCTAssertEqual(dots.map { $0.fill?.hexRGBA() }, ["#e5e5e5", "#ffffff1a", "#ffffff1a"])
+        XCTAssertEqual(dots.map(\.width), [8, 8, 8])
     }
 
     // MARK: - Carousel thumbnails

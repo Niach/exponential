@@ -455,8 +455,9 @@ export const SPECIMENS: Record<string, () => ReactElement> = {
   ),
   "plain/carousel-extras": () => (
     <div style={{ ...COLUMN, width: 240 }}>
-      <div style={{ position: `relative`, height: 120, borderRadius: 8, background: `#60a5fa` }}>
+      <div style={{ display: `flex`, flexDirection: `column`, gap: 8 }}>
         <CarouselCounter page={1} total={4} />
+        <div style={{ height: 120, borderRadius: 8, background: `#60a5fa` }} />
       </div>
       <CarouselThumbnails count={4} urls={[PICTURE, PICTURE_ALT, null, PICTURE, PICTURE]} page={1} onPageChange={noop} />
       <CarouselThumbnails count={8} urls={[]} page={0} />
