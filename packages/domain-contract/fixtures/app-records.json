@@ -1244,5 +1244,789 @@
         "purged": false
       }
     ]
+  },
+  "dataTab": {
+    "$comment": "VAPP-178 THE DATA TAB ×4 (apps.json `editorTabs`: web ≥ md + desktop the `data` tab, phones the third segment; testId apps.json `testIds.data`). It browses and edits the app's RECORDS of the HEAD package. KINDS = the head manifest's `records` keys sorted by name (`dataKinds`, `kindCases`), each with its live count (the synced rows of that app + kind, trash never reaches a client); none = the list-size EmptyState `copy.noKinds`. TOOLBAR: a Select (the existing one) whose options read `copy.kindOption` (`{kind} · {n}`), the first kind picked on open; at the end the `copy.addRecord` button (outline, `ui-add`; phones: the same button, compact). ROWS of the picked kind sorted `updatedAt` desc, ties by id (`dataRows`); none = the list-size EmptyState `copy.empty` under the toolbar. WIDE (web ≥ md + desktop): ONE grouped list (the Versions tab's group) used as a table: its first row = the HEADER (muted, text-xs): one cell per `dataColumns(schema)` (`columnCases`: the schema's `required` names in their order, then every other property sorted by name; a host's JSON layer may lose key order, so never the declaration order), then `copy.by` and `copy.updated`, then an empty menu cell; every row lays its cells on the SAME grid (schema columns share the width equally, `by` and `updated` fixed `columns.byWidth`/`columns.updatedWidth` px, the menu `columns.menuWidth` px), each cell one truncated line = `cellText` (`cellCases`: null/missing = empty, a boolean = `copy.yes`/`copy.no`, a number as written (`3`, `6.5`, never `3.0`), a list = its items joined `, `, an object = its JSON), `by` = the author's name (else `copy.byAgent` of apps.json), `updated` = the relative time; the trailing `…` (ghost icon button, `ui-more`) opens a menu `copy.edit` / `copy.delete` (destructive). PHONES: the same group without the header: a row = title `cellText` of the FIRST column (`copy.emptyTitle` when empty), subtitle (muted) = the other schema columns' non-empty cells joined ` · `, trailing the relative `updated` + the same `…` menu. ADD / EDIT = a FORM (web ≥ md + desktop: the existing Dialog; phones: a sheet) titled `copy.newTitle`/`copy.editTitle` (`{kind}`): one labelled field per `dataColumns` name (label = the name, `copy.optional` muted after an optional one), the control from `formFields` (`formCases`): `text` (a string; `placeholder` for a date/time/date-time format), `number` (number + integer), `switch` (boolean), `select` (a string enum: its values, an optional one adds `copy.none` first = null), `list` (an array: ONE text field, `copy.listHint` as its placeholder); edit pre-fills with `formInput` (a list joined `, `, a number as written, null = empty). SAVE (`copy.save`; `copy.cancel` closes) turns the inputs into data with `formData` (`parseCases`): empty text/number/select/list = null, a number field parses (anything unparsable stays the raw text so the server names it), a list splits on `,`, trims, drops empties and parses number/integer/boolean items; CREATE omits the nulls, EDIT keeps them (null clears an optional field, host-router.json `records`) and is a shallow patch of the row. Writes = tRPC `apps.records.upsert {id: appId, kind, data, recordId?}` / `apps.records.delete {id: appId, recordId}` as the viewer (no consent card: the app's own data). A refused write: BAD_REQUEST (the schema's issues) shows the server's message INLINE under the form (invalid input, feedback-states.json), anything else (the plan limit included) = the failed-action toast. DELETE asks first: the Prompt `copy.deleteTitle` / `copy.deleteBody` with `copy.delete` destructive. Every member may add, edit and delete (records are team data the app owns, VAPP-122). Model = `app-records.ts` (`dataKinds`, `dataColumns`, `dataRows`, `cellText`, `formFields`, `formInput`, `formData`); desktop `domain::app_records`, iOS `AppRecords.swift`, Android `AppRecords.kt` replay every `*Cases` here.",
+    "copy": {
+      "kindOption": "{kind} · {n}",
+      "addRecord": "Add record",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleteTitle": "Delete this record?",
+      "deleteBody": "The app stops showing it. This cannot be undone.",
+      "by": "by",
+      "updated": "updated",
+      "empty": "No records yet",
+      "noKinds": "This app keeps no records",
+      "emptyTitle": "—",
+      "newTitle": "New {kind}",
+      "editTitle": "Edit {kind}",
+      "save": "Save",
+      "cancel": "Cancel",
+      "yes": "Yes",
+      "no": "No",
+      "none": "None",
+      "optional": "optional",
+      "listHint": "Comma-separated"
+    },
+    "columns": {
+      "byWidth": 120,
+      "updatedWidth": 104,
+      "menuWidth": 40
+    },
+    "placeholders": {
+      "date": "YYYY-MM-DD",
+      "time": "HH:MM",
+      "date-time": "YYYY-MM-DDTHH:MM"
+    },
+    "testIds": {
+      "kind": "app-data-kind",
+      "add": "app-data-add",
+      "row": "app-data-row",
+      "menu": "app-data-row-menu",
+      "form": "app-data-form",
+      "save": "app-data-save",
+      "error": "app-data-error"
+    },
+    "kindCases": [
+      {
+        "$why": "manifest kinds sorted by name, each with its count; a row of an undeclared kind is ignored",
+        "manifest": {
+          "records": {
+            "target": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            "entry": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "hours": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 24
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "billable": {
+                    "type": "boolean"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "work",
+                      "meeting"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "date",
+                  "hours"
+                ]
+              }
+            }
+          }
+        },
+        "rows": [
+          {
+            "kind": "entry"
+          },
+          {
+            "kind": "entry"
+          },
+          {
+            "kind": "target"
+          },
+          {
+            "kind": "old"
+          }
+        ],
+        "kinds": [
+          {
+            "kind": "entry",
+            "count": 2
+          },
+          {
+            "kind": "target",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "$why": "a declared kind without rows counts 0",
+        "manifest": {
+          "records": {
+            "entry": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "hours": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 24
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "billable": {
+                    "type": "boolean"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "work",
+                      "meeting"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "date",
+                  "hours"
+                ]
+              }
+            }
+          }
+        },
+        "rows": [],
+        "kinds": [
+          {
+            "kind": "entry",
+            "count": 0
+          }
+        ]
+      },
+      {
+        "$why": "no records block = no kinds",
+        "manifest": {},
+        "rows": [
+          {
+            "kind": "entry"
+          }
+        ],
+        "kinds": []
+      },
+      {
+        "$why": "no package (a draft) = no kinds",
+        "manifest": null,
+        "rows": [],
+        "kinds": []
+      }
+    ],
+    "columnCases": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "hours": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "billable": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "work",
+                "meeting"
+              ]
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "columns": [
+          "date",
+          "hours",
+          "billable",
+          "count",
+          "kind",
+          "note",
+          "tags"
+        ]
+      },
+      {
+        "$why": "a required name the schema does not declare is skipped",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "b": {
+              "type": "string"
+            },
+            "a": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "zz",
+            "b"
+          ]
+        },
+        "columns": [
+          "b",
+          "a"
+        ]
+      },
+      {
+        "schema": {
+          "type": "object",
+          "properties": {}
+        },
+        "columns": []
+      }
+    ],
+    "rowsCases": [
+      {
+        "$why": "updatedAt desc, ties by id asc, other kinds dropped",
+        "kind": "entry",
+        "rows": [
+          {
+            "id": "b",
+            "kind": "entry",
+            "updatedAt": "2026-10-20T10:00:00.000Z"
+          },
+          {
+            "id": "a",
+            "kind": "entry",
+            "updatedAt": "2026-10-20T10:00:00.000Z"
+          },
+          {
+            "id": "c",
+            "kind": "entry",
+            "updatedAt": "2026-10-22T08:00:00.000Z"
+          },
+          {
+            "id": "d",
+            "kind": "target",
+            "updatedAt": "2026-10-23T08:00:00.000Z"
+          }
+        ],
+        "order": [
+          "c",
+          "a",
+          "b"
+        ]
+      }
+    ],
+    "cellCases": [
+      {
+        "value": null,
+        "text": ""
+      },
+      {
+        "$why": "missing",
+        "text": ""
+      },
+      {
+        "value": "2026-10-23",
+        "text": "2026-10-23"
+      },
+      {
+        "value": 3,
+        "text": "3"
+      },
+      {
+        "value": 6.5,
+        "text": "6.5"
+      },
+      {
+        "value": 0,
+        "text": "0"
+      },
+      {
+        "value": -1.25,
+        "text": "-1.25"
+      },
+      {
+        "value": true,
+        "text": "Yes"
+      },
+      {
+        "value": false,
+        "text": "No"
+      },
+      {
+        "value": [
+          "support",
+          "admin"
+        ],
+        "text": "support, admin"
+      },
+      {
+        "value": [
+          1,
+          2.5,
+          true
+        ],
+        "text": "1, 2.5, Yes"
+      },
+      {
+        "value": [],
+        "text": ""
+      },
+      {
+        "value": {
+          "a": 1
+        },
+        "text": "{\"a\":1}"
+      }
+    ],
+    "formCases": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "hours": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "billable": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "work",
+                "meeting"
+              ]
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "fields": [
+          {
+            "name": "date",
+            "control": "text",
+            "required": true,
+            "placeholder": "YYYY-MM-DD"
+          },
+          {
+            "name": "hours",
+            "control": "number",
+            "required": true
+          },
+          {
+            "name": "billable",
+            "control": "switch",
+            "required": false
+          },
+          {
+            "name": "count",
+            "control": "number",
+            "required": false
+          },
+          {
+            "name": "kind",
+            "control": "select",
+            "required": false,
+            "options": [
+              "work",
+              "meeting"
+            ]
+          },
+          {
+            "name": "note",
+            "control": "text",
+            "required": false
+          },
+          {
+            "name": "tags",
+            "control": "list",
+            "required": false,
+            "itemType": "string"
+          }
+        ]
+      },
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "at": {
+              "type": "string",
+              "format": "time"
+            },
+            "when": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "nums": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "fields": [
+          {
+            "name": "at",
+            "control": "text",
+            "required": false,
+            "placeholder": "HH:MM"
+          },
+          {
+            "name": "nums",
+            "control": "list",
+            "required": false,
+            "itemType": "integer"
+          },
+          {
+            "name": "when",
+            "control": "text",
+            "required": false,
+            "placeholder": "YYYY-MM-DDTHH:MM"
+          }
+        ]
+      }
+    ],
+    "inputCases": [
+      {
+        "control": "text",
+        "value": "2026-10-23",
+        "input": "2026-10-23"
+      },
+      {
+        "control": "text",
+        "value": null,
+        "input": ""
+      },
+      {
+        "control": "number",
+        "value": 6.5,
+        "input": "6.5"
+      },
+      {
+        "control": "number",
+        "value": 3,
+        "input": "3"
+      },
+      {
+        "control": "list",
+        "value": [
+          "support",
+          "admin"
+        ],
+        "input": "support, admin"
+      },
+      {
+        "control": "list",
+        "value": [
+          1,
+          2
+        ],
+        "input": "1, 2"
+      },
+      {
+        "control": "select",
+        "value": "work",
+        "input": "work"
+      },
+      {
+        "control": "select",
+        "value": null,
+        "input": ""
+      },
+      {
+        "control": "switch",
+        "value": true,
+        "input": true
+      },
+      {
+        "control": "switch",
+        "value": null,
+        "input": false
+      }
+    ],
+    "parseCases": [
+      {
+        "$why": "create: nulls are omitted; numbers and lists parse",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "hours": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "billable": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "work",
+                "meeting"
+              ]
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "editing": false,
+        "inputs": {
+          "date": "2026-10-23",
+          "hours": "6.5",
+          "billable": true,
+          "count": "",
+          "kind": "",
+          "note": "  ",
+          "tags": "support,  admin , ,"
+        },
+        "data": {
+          "date": "2026-10-23",
+          "hours": 6.5,
+          "billable": true,
+          "note": "  ",
+          "tags": [
+            "support",
+            "admin"
+          ]
+        }
+      },
+      {
+        "$why": "edit: an emptied optional field is sent as null (it clears)",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "hours": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "billable": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "work",
+                "meeting"
+              ]
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "editing": true,
+        "inputs": {
+          "date": "2026-10-23",
+          "hours": "3",
+          "billable": false,
+          "count": "",
+          "kind": "work",
+          "note": "",
+          "tags": ""
+        },
+        "data": {
+          "date": "2026-10-23",
+          "hours": 3,
+          "billable": false,
+          "count": null,
+          "kind": "work",
+          "note": null,
+          "tags": null
+        }
+      },
+      {
+        "$why": "an unparsable number stays the raw text, so the server names it",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "hours": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "billable": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "work",
+                "meeting"
+              ]
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "editing": false,
+        "inputs": {
+          "date": "",
+          "hours": "three",
+          "billable": false
+        },
+        "data": {
+          "hours": "three",
+          "billable": false
+        }
+      },
+      {
+        "$why": "list items parse by their item type",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "nums": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "flags": {
+              "type": "array",
+              "items": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "editing": false,
+        "inputs": {
+          "nums": "1, 2,x",
+          "flags": "true, false"
+        },
+        "data": {
+          "nums": [
+            1,
+            2,
+            "x"
+          ],
+          "flags": [
+            true,
+            false
+          ]
+        }
+      }
+    ]
   }
 }
