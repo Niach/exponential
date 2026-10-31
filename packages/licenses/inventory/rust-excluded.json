@@ -28,6 +28,10 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "ascii@1.1.0",
+      "reason": "dev-dependency only — compiled for tests and benchmarks, never linked into a distributed artifact"
+    },
+    {
       "package": "async_io_stream@0.3.3",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
@@ -38,6 +42,10 @@
     {
       "package": "cesu8@1.1.0",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "chunked_transfer@1.5.0",
+      "reason": "dev-dependency only — compiled for tests and benchmarks, never linked into a distributed artifact"
     },
     {
       "package": "cocoa-foundation@0.1.2",
@@ -104,7 +112,7 @@
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "emcp@0.1.0",
+      "package": "emcp@0.2.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -418,6 +426,10 @@
     {
       "package": "thread_local@1.1.10",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "tiny_http@0.12.0",
+      "reason": "dev-dependency only — compiled for tests and benchmarks, never linked into a distributed artifact"
     },
     {
       "package": "tokio-socks@0.5.3",
