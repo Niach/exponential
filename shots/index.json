@@ -1306,8 +1306,8 @@
         "file": "shots/exponential-ui-carousel/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 7994,
-        "sha256": "5a0879073517b1dc1c76412a83f00794b340a3da58851fafb485a1f94025564e"
+        "bytes": 7918,
+        "sha256": "5208655a8b473318164fb1b0959eaa2e90d92f17c7d0468d9c5ed5017bbad505"
       },
       "web": {
         "file": "shots/exponential-ui-carousel/web.webp",
@@ -2314,6 +2314,15 @@
         "sha256": "5e6d2ad8cc56093b946b83986d168fe2a73b050b4bae357584c5bb8214932d83"
       }
     },
+    "exponential-ui-mosaic": {
+      "ios": {
+        "file": "shots/exponential-ui-mosaic/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 7222,
+        "sha256": "7d455082d103d96eeb27e782f62d0997db8ca054cace75dc68aaa6665e6cb60c"
+      }
+    },
     "exponential-ui-number-field": {
       "android": {
         "file": "shots/exponential-ui-number-field/android.webp",
@@ -2342,6 +2351,15 @@
         "height": 1200,
         "bytes": 6254,
         "sha256": "142af50349b96d945936627415f52d9dd1b7507e51a145b8517ad259d4eae491"
+      }
+    },
+    "exponential-ui-outline": {
+      "ios": {
+        "file": "shots/exponential-ui-outline/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 10806,
+        "sha256": "b11a86b933837ae20d2b662378b5b95f6d2a5778bc710f6b3b871116a3f452ec"
       }
     },
     "exponential-ui-page": {
