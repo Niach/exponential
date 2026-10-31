@@ -10,10 +10,7 @@ use std::{
 };
 
 use smithay::{
-    backend::{
-        allocator::Fourcc,
-        renderer::{damage::OutputDamageTracker, pixman::PixmanRenderer, Bind, Offscreen},
-    },
+    backend::renderer::pixman::PixmanRenderer,
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
         calloop::{
@@ -23,7 +20,7 @@ use smithay::{
         },
         wayland_server::Display,
     },
-    utils::{Size, Transform},
+    utils::Transform,
 };
 
 use crate::{
@@ -85,27 +82,7 @@ impl Headless {
 
     fn draw(&mut self, state: &Ede, index: usize, shared: bool) -> Result<Frame, String> {
         let output = self.outputs.get(index).ok_or("no such output")?.clone();
-        let mode = output.current_mode().ok_or("output has no mode")?;
-        let size: Size<i32, smithay::utils::Buffer> = (mode.size.w, mode.size.h).into();
-        let mut image = Offscreen::<smithay::reexports::pixman::Image<'static, 'static>>::create_buffer(&mut self.renderer, Fourcc::Argb8888, size)
-            .map_err(|e| e.to_string())?;
-        {
-            let mut fb = self.renderer.bind(&mut image).map_err(|e| e.to_string())?;
-            let mut damage_tracker = OutputDamageTracker::from_output(&output);
-            let rendered = if shared {
-                super::render_capture(state, &output, &mut self.renderer, &mut fb, 0, &mut damage_tracker)
-            } else {
-                super::render(state, &output, &mut self.renderer, &mut fb, 0, &mut damage_tracker)
-            };
-            rendered.map_err(|e| format!("{e:?}"))?;
-        }
-        let (w, h) = (mode.size.w, mode.size.h);
-        let stride = image.stride() / 4;
-        // Safety: the image is ours, `h` rows of `stride` u32s, and no
-        // renderer holds it any more (the framebuffer above is dropped).
-        let data = unsafe { std::slice::from_raw_parts(image.data(), stride * h as usize) };
-        let pixels = data.chunks(stride).flat_map(|row| row[..w as usize].iter().copied()).collect();
-        Ok(Frame { width: w, height: h, pixels })
+        super::draw_output(&mut self.renderer, state, &output, shared)
     }
 }
 
@@ -191,6 +168,23 @@ impl Harness {
             state.display_handle.insert_client(theirs, Arc::new(ClientState::default())).expect("insert client");
         });
         ours
+    }
+
+    /// An `ede-protocol` connection with the root grant (every capability).
+    pub fn ipc(&self) -> ede_protocol::Client {
+        let (ours, theirs) = UnixStream::pair().expect("socketpair");
+        let token = self.with(move |state| {
+            state.ipc_insert(theirs);
+            state.ipc.root_grant().token
+        });
+        ede_protocol::Client::over(ours, token).expect("ede-protocol hello")
+    }
+
+    /// An `ede-protocol` connection with `token`.
+    pub fn ipc_with(&self, token: ede_protocol::Token) -> Result<ede_protocol::Client, ede_protocol::Error> {
+        let (ours, theirs) = UnixStream::pair().expect("socketpair");
+        self.with(move |state| state.ipc_insert(theirs));
+        ede_protocol::Client::over(ours, token)
     }
 
     pub fn capture(&self, output: usize) -> Frame {

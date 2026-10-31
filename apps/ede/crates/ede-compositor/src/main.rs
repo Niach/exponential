@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if udev && headless.is_none() {
         #[cfg(feature = "udev")]
         {
-            return ede_compositor::backend::udev::run(config, command);
+            return ede_compositor::backend::udev::run(config, config_path, command);
         }
         #[cfg(not(feature = "udev"))]
         return Err("no display to nest in, and built without the udev backend (cargo build --features udev)".into());
@@ -77,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_loop: EventLoop<'static, Ede> = EventLoop::try_new()?;
     let display: Display<Ede> = Display::new()?;
     let mut state = Ede::new(display, event_loop.handle(), event_loop.get_signal(), config);
+    state.config_path = config_path;
     let socket = state.listen()?;
     tracing::info!("listening on {}", socket.to_string_lossy());
     if !command.is_empty() {
