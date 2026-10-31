@@ -93,6 +93,7 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
         fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
         fontFamily = family(family ?: ts.fontFamily),
         letterSpacing = ts.letterSpacing?.takeIf { it != 0f }?.sp ?: TextUnit.Unspecified,
+        fontFeatureSettings = ts.fontFeatures,
         textAlign = align ?: TextAlign.Unspecified,
         // The bidi paragraph direction = the node's direction (round 2 §2).
         textDirection = when (rtl) {
