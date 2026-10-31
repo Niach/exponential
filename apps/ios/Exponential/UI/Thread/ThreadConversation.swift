@@ -614,6 +614,28 @@ struct ThreadConversationRow: View, Equatable {
 
 /// #EXP-1464 `copy.openChat`: trailing an expanded card's label line, it
 /// opens that card's session.
+/// #EXP-1493: THE plan card's header action (a ghost button, `ui-fullscreen`
+/// + `copy.openPlan`) opening THE plan page.
+struct PlanPageOpenButton: View {
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 4) {
+                AppIcon(AppIcons.uiFullscreen, size: 12)
+                Text(PlanPage.Copy.openPlan)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(PlanPage.TestIds.openPlan)
+    }
+}
+
 private struct ThreadOpenChatLink: View {
     let onOpen: () -> Void
 
@@ -1058,6 +1080,8 @@ struct ThreadAskCard: View {
     var headerTrailing: AnyView?
     var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
 
+    @Environment(\.pushRoute) private var pushRoute
+    @Environment(\.accountId) private var accountId
     @State private var draft = PlanCardDraft()
     /// FEED-140: a waiting plan's inline No-keep-planning field.
     @State private var rejecting = false
@@ -1213,7 +1237,13 @@ struct ThreadAskCard: View {
             hidesOptions: true,
             resolutionNote: card.feedback,
             richBody: true,
-            headerTrailing: headerTrailing
+            headerTrailing: AnyView(HStack(spacing: 10) {
+                // #EXP-1493: THE plan page (plan-page.json `copy.openPlan`).
+                PlanPageOpenButton {
+                    pushRoute(.planPage(accountId: accountId, sessionId: card.sessionId, messageId: card.id))
+                }
+                headerTrailing
+            })
         )
     }
 

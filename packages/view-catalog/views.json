@@ -5475,6 +5475,10 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_plan-page",
+        "lane": "styleguide"
+      },
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -5485,7 +5489,7 @@
       "notes": {
         "web": "The DEV-ONLY `?dev=plan-page` on the Agent route: `@exp/ui` `PlanPageSpecimen` (plan-page.json `specimen`) at 1280 × 720, placeholder pictures.",
         "web-mobile": "Inherits web: the phone specimen (390 × 760) under the phone frame.",
-        "ios": "Lands with #EXP-1498 (sg_plan-page).",
+        "ios": "The specimen in ChatSpecimens / StyleguideScreenshots (plan-page.json `specimen`, phone), shot sg_plan-page.",
         "android": "Lands with #EXP-1499 (sg_plan-page).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:plan-page`: the IDE styleguide entry `plan_page.rs` drawn full-window."
       }

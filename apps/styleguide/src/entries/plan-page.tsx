@@ -19,7 +19,12 @@ export const entry: StyleguideEntry = {
       note: `route: apps/web/src/routes/t/$teamSlug/sessions/$sessionId_.plan.$messageId.tsx; rail: session-thread-view.tsx PlanRail`,
     },
     desktop: { state: `leftover`, note: `#EXP-1497: the desktop child of #EXP-1493 lands it` },
-    ios: { state: `leftover`, note: `#EXP-1498: the iOS child of #EXP-1493 lands it` },
+    ios: {
+      state: `ok`,
+      symbol: `PlanPageScreen`,
+      file: `apps/ios/Exponential/UI/Plan/PlanPageScreen.swift`,
+      note: `parts: ExpUI PlanPage.swift (StoryKindBadge, PlanPictureCarousel, PlanOutlineList); specimen: ChatSpecimens StorySpecimensScreen \`plan-page\``,
+    },
     android: { state: `leftover`, note: `#EXP-1499: the Android child of #EXP-1493 lands it` },
   },
   island: () => (

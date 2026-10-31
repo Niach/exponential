@@ -57,6 +57,10 @@ enum AppRoute: Hashable {
     /// or a team agent's channel — `ThreadScreen`, its strip as the pager.
     /// `child` opens it on one page (nil = the Conversation).
     case thread(accountId: String, threadId: String, child: ThreadPage? = nil)
+    /// #EXP-1493: THE plan page (plan-page.json) of one plan card
+    /// (`messageId`) a session posted: a story's Open plan, the chat card's
+    /// header action, an inbox / Needs-you row of a waiting plan.
+    case planPage(accountId: String, sessionId: String, messageId: String)
     /// EXP-825: Home's composer pushed with a preselection (a play button's
     /// `seed`); an empty seed IS the Home tab.
     case agent(accountId: String, seed: AgentComposerSeed)
@@ -91,6 +95,33 @@ extension AppRoute {
         case let .session(id):
             .agentSession(accountId: accountId, sessionId: id)
         }
+    }
+
+    /// #EXP-1493 (plan-page.json WAYS IN): an inbox row / push naming a
+    /// session with a waiting plan of its own (`PlanPage.planPageFor`) opens
+    /// THE plan page; else `openingSession`.
+    @MainActor static func openingInbox(_ sessionId: String, accountId: String, deps: AppDependencies) -> AppRoute {
+        if let messageId = planPageTarget(sessionId, accountId: accountId, deps: deps) {
+            return .planPage(accountId: accountId, sessionId: sessionId, messageId: messageId)
+        }
+        return openingSession(sessionId, accountId: accountId, deps: deps)
+    }
+
+    /// The session's waiting plan message (`PlanPage.planPageFor`), else nil.
+    @MainActor static func planPageTarget(_ sessionId: String, accountId: String, deps: AppDependencies) -> String? {
+        let rows = (try? deps.db.pool(forAccountId: accountId).read { db in
+            try SessionMessage.fetchAll(db, sql: """
+                \(SessionQueries.keyedMessagesSQL)
+                AND "conversations"."session_id" = ?
+                AND json_extract("messages"."card", '$.kind') = 'plan'
+                """, arguments: [sessionId])
+        }) ?? []
+        return PlanPage.planPageFor(sessionId, rows.map { row in
+            PlanPage.Message(
+                id: row.id, sessionId: row.sessionId, authorSessionId: row.authorSessionId,
+                createdAt: Stories.ms(row.createdAt) ?? 0, card: TreeMessageCard.parse(row.card)
+            )
+        })
     }
 
     /// `opening(_:)` for a session id read from the account's store.
@@ -618,7 +649,7 @@ struct MainNavigator: View {
                 _ = deps.deepLinkBus.consumeSession()
                 navigate {
                     activateTeam(forSession: sessionId, accountId: accountId)
-                    path.append(AppRoute.openingSession(sessionId, accountId: accountId, deps: deps))
+                    path.append(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
                 }
             }
         }
@@ -669,7 +700,7 @@ struct MainNavigator: View {
             if let sessionId = deps.deepLinkBus.consumeSession() {
                 let accountId = issueAccountId(forUserId: sessionUserId)
                 activateTeam(forSession: sessionId, accountId: accountId)
-                path.append(AppRoute.openingSession(sessionId, accountId: accountId, deps: deps))
+                path.append(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
             }
             if let target = deps.deepLinkBus.consumeThread() {
                 activateTeam(forSession: target.threadId, accountId: target.accountId)
@@ -1106,6 +1137,10 @@ extension MainNavigator {
                 }
             )
             .environment(\.accountId, accountId)
+        case let .planPage(accountId, sessionId, messageId):
+            PlanPageScreen(sessionId: sessionId, messageId: messageId)
+                .id(messageId)
+                .environment(\.accountId, accountId)
         case let .agentSession(accountId, sessionId):
             AgentSessionScreen(sessionId: sessionId)
                 .id(sessionId)

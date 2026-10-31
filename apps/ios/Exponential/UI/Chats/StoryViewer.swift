@@ -3,31 +3,32 @@ import ExpUI
 import SwiftUI
 import UIKit
 
-/// S-3 STORY VIEWER (stories.json, styleguide `story-viewer`; #EXP-1432
-/// FRAMES): full screen over everything on the phone, Instagram-like. The
-/// viewer steps through FRAMES (`Stories.frames`: one per picture, else the
-/// surface, else the plan text, else the bare title), never through stories
-/// with an inner pager. The frame's body fills the screen on black edge to
-/// edge (a picture fitted behind the status bar; a surface through THE
-/// surface renderer with no card chrome, scrolling when taller; the plan's
-/// markdown); THE StoryProgress (one segment per frame of the ring, a
-/// `storyGap` between stories), the header (the ring's avatar, the story's
+/// S-3 STORY VIEWER (stories.json, styleguide `story-viewer`; #EXP-1493 ONE
+/// FRAME PER STORY): full screen over everything on the phone, Instagram-like.
+/// The viewer steps through the ring's stories (`Stories.frames`): a PLAN =
+/// its cover (the first picture fitted on black, the counts line, up to 4
+/// thumbnails + `+N`, ONE full-width `Open plan` opening THE plan page); a
+/// GALLERY = the story's pictures, one at a time (a swipe inside steps the
+/// picture first, the "i / n" counter top-right, the caption muted under it,
+/// the filmstrip over the bottom scrim when n > 1); a SURFACE through THE
+/// surface renderer with no card chrome; a TITLE = nothing. THE StoryProgress
+/// (one segment per story), the header (the ring's avatar, the story's
 /// session name, its meta muted, the close ghost glyph; a tap on the avatar
-/// or name opens that session), the frame's title and description FLOAT over
-/// the top on a scrim; the footer (on a story's last frame) floats over the
+/// or name opens that session), the KIND BADGE leading the title, and the
+/// description FLOAT over the top on a scrim; the footer floats over the
 /// bottom on the mirrored scrim. NAVIGATION: the right third / a swipe left
-/// = next frame (past the ring's last = the next ring, past the last ring =
-/// close), the left third / a swipe right = previous, a swipe down = close,
-/// a held press pauses; every frame runs its own timer (`autoAdvanceMs`, a
-/// decision's never). The order is the rings' as the viewer OPENED (marking
-/// a story seen reorders the live fold); an answered story drops out and the
-/// viewer moves on.
+/// = next (a gallery's next picture first; past the ring's last = the next
+/// ring, past the last ring = close), the left third / a swipe right =
+/// previous, a swipe down = close, a held press pauses; a gallery's timer
+/// steps its pictures every `autoAdvanceMs` then the story (a decision's
+/// never). The order is the rings' as the viewer OPENED; an answered story
+/// drops out and the viewer moves on.
 struct StoryViewer: View {
     /// The live rings (the fold recomputes from sync while the viewer is up).
     let rings: [Stories.StoryRing]
     let startKey: String
-    /// stories.json STORIES TAB: a tile opens the viewer at its story's first
-    /// frame, a thumbnail at its picture's frame; nil = the ring's first.
+    /// stories.json STORIES TAB: a tile opens the viewer at its story's
+    /// frame, a thumbnail at that picture of its gallery; nil = the ring's first.
     var startStory: String?
     var startPicture = 0
     var card: (String) -> TreeMessageCard? = { _ in nil }
@@ -39,6 +40,9 @@ struct StoryViewer: View {
     /// The card answer (`sessions.answer`); true = sent.
     var onAnswer: (ThreadCardAnswer) async -> Bool = { _ in false }
     var onOpenSession: (Stories.Story) -> Void = { _ in }
+    /// #EXP-1493: a plan frame's `Open plan` (the host closes the viewer and
+    /// pushes THE plan page).
+    var onOpenPlan: (Stories.Story) -> Void = { _ in }
     var onClose: () -> Void
 
     private struct Entry: Equatable {
@@ -50,8 +54,8 @@ struct StoryViewer: View {
 
     @State private var order: [Entry] = []
     @State private var position = 0
-    /// The frame's place among its story's frames.
-    @State private var frame = 0
+    /// A gallery's current picture.
+    @State private var picture = 0
     @State private var elapsed: Double = 0
     @State private var paused = false
     @State private var shown: Set<String> = []
@@ -99,16 +103,13 @@ struct StoryViewer: View {
             if let current {
                 let live = storiesById
                 let frames = Stories.frames(ringStories(current.ring.key, live))
-                let at = max(0, frames.firstIndex { $0.storyId == current.story.id && $0.index == frame }
-                    ?? frames.firstIndex { $0.storyId == current.story.id } ?? 0)
+                let at = max(0, Stories.frameIndex(frames, storyId: current.story.id))
                 if frames.indices.contains(at) {
                     let shownFrame = frames[at]
                     navigable(current.story, shownFrame)
-                        .task(id: "\(current.story.id):\(shownFrame.index)") { await run(current.story, shownFrame) }
+                        .task(id: "\(current.story.id):\(picture)") { await run(current.story, shownFrame) }
                     top(current.ring, current.story, shownFrame, frames: frames, at: at)
-                    if shownFrame.footer != Stories.Footer.none {
-                        footer(current.story, shownFrame)
-                    }
+                    footer(current.story, shownFrame)
                 }
             }
         }
@@ -122,41 +123,43 @@ struct StoryViewer: View {
         .onChange(of: rings) { _, _ in settle() }
     }
 
-    /// The floating top band: progress, header, the frame's title and
+    /// The current segment's fill: a gallery = (picture + its fraction) / n.
+    private func progress(_ shownFrame: Stories.Frame) -> Double {
+        if let fraction { return fraction }
+        let own = shownFrame.autoAdvanceMs.map { elapsed / $0 } ?? 1
+        guard shownFrame.kind == .gallery, shownFrame.pictures > 0 else { return own }
+        return (Double(picture) + min(own, 1)) / Double(shownFrame.pictures)
+    }
+
+    /// The floating top band: progress, header, the badge + title and the
     /// description, on the scrim.
     private func top(
         _ ring: Stories.StoryRing, _ story: Stories.Story, _ shownFrame: Stories.Frame, frames: [Stories.Frame],
         at: Int
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            StoryProgress(
-                count: frames.count,
-                index: at,
-                fraction: fraction ?? shownFrame.autoAdvanceMs.map { elapsed / $0 } ?? 1,
-                groups: frames.map(\.story)
-            )
-            .allowsHitTesting(false)
-            header(ring, story)
-            if shownFrame.title != nil || shownFrame.description != nil {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let title = shownFrame.title {
-                        Text(title)
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .accessibilityIdentifier("story-title")
-                    }
-                    if let description = shownFrame.description {
-                        Text(description)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .lineLimit(3)
-                            .accessibilityIdentifier("story-description")
-                    }
-                }
-                .padding(.horizontal, 2)
+            StoryProgress(count: frames.count, index: at, fraction: progress(shownFrame))
                 .allowsHitTesting(false)
+            header(ring, story)
+            VStack(alignment: .leading, spacing: 6) {
+                StoryKindBadge(kind: story.kind)
+                if let title = shownFrame.title {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .accessibilityIdentifier("story-title")
+                }
+                if let description = shownFrame.description {
+                    Text(description)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(3)
+                        .accessibilityIdentifier("story-description")
+                }
             }
+            .padding(.horizontal, 2)
+            .allowsHitTesting(false)
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
@@ -193,10 +196,34 @@ struct StoryViewer: View {
         .accessibilityIdentifier(Stories.TestIds.header)
     }
 
-    /// The footer floating over the bottom on the mirrored scrim.
+    /// The footer floating over the bottom on the mirrored scrim: a plan's
+    /// cover footer, a gallery's filmstrip, the story's answer footer.
+    @ViewBuilder
     private func footer(_ story: Stories.Story, _ shownFrame: Stories.Frame) -> some View {
-        StoryFooter(story: story, footer: shownFrame.footer, card: card(story.id), onAnswer: onAnswer)
-            .id(story.id)
+        let filmstrip = shownFrame.kind == .gallery && story.pictures.count > 1
+        if shownFrame.kind == .plan || filmstrip || shownFrame.footer == .choices || shownFrame.footer == .reply {
+            VStack(alignment: .leading, spacing: 12) {
+                if shownFrame.kind == .plan {
+                    planFooter(story)
+                } else {
+                    if filmstrip {
+                        StoryThumbnailStrip(
+                            count: story.pictures.count, current: picture, height: 52,
+                            onPick: { index in
+                                picture = index
+                                elapsed = 0
+                            }
+                        ) { index in
+                            StoryPicture(picture: story.pictures[index], fill: true, cover: true)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    if shownFrame.footer != .none {
+                        StoryFooter(story: story, footer: shownFrame.footer, card: card(story.id), onAnswer: onAnswer)
+                            .id(story.id)
+                    }
+                }
+            }
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 12)
@@ -204,16 +231,40 @@ struct StoryViewer: View {
             .frame(maxWidth: .infinity)
             .background(alignment: .bottom) { StoryScrim(edge: .bottom).allowsHitTesting(false) }
             .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+    }
+
+    /// A plan cover's foot: the counts line, up to 4 thumbnails + `+N`, ONE
+    /// full-width primary `Open plan`.
+    private func planFooter(_ story: Stories.Story) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let counts = story.counts, !PlanPage.countsLine(counts).isEmpty {
+                Text(PlanPage.countsLine(counts))
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .accessibilityIdentifier("story-plan-counts")
+            }
+            if !story.pictures.isEmpty {
+                StoryThumbnailStrip(
+                    count: story.pictures.count, current: 0, height: 40, width: 56, limit: 4,
+                    onPick: { _ in onOpenPlan(story) }
+                ) { index in
+                    StoryPicture(picture: story.pictures[index], fill: true, cover: true)
+                }
+            }
+            GlassSubmitButton(PlanPage.Copy.openPlan) { onOpenPlan(story) }
+                .accessibilityIdentifier(PlanPage.TestIds.openPlan)
+        }
     }
 
     /// The frame's body under the bands: the tap thirds, the swipes and the
     /// held press.
     private func navigable(_ story: Stories.Story, _ shownFrame: Stories.Frame) -> some View {
         StoryFrameBody(
-            story: story, frame: shownFrame, card: card(story.id), top: topHeight, bottom: footerHeight,
-            scrollAtTop: $scrollAtTop
+            story: story, frame: shownFrame, picture: picture, card: card(story.id), top: topHeight,
+            bottom: footerHeight, scrollAtTop: $scrollAtTop, onOpenPlan: { onOpenPlan(story) }
         )
-        .id("\(story.id):\(shownFrame.index)")
+        .id("\(story.id):\(picture)")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .simultaneousGesture(
@@ -233,8 +284,9 @@ struct StoryViewer: View {
 
     // MARK: - Navigation
 
-    private func frameCount(_ story: Stories.Story) -> Int {
-        max(1, story.pictures.count)
+    /// The steps inside a story: a gallery's pictures, else one.
+    private func pictureCount(_ story: Stories.Story) -> Int {
+        story.kind != .plan ? max(1, story.pictures.count) : 1
     }
 
     private func open() {
@@ -242,11 +294,10 @@ struct StoryViewer: View {
         order = rings.flatMap { ring in ring.stories.map { Entry(ringKey: ring.key, storyId: $0.id) } }
         position = startStory.flatMap { id in order.firstIndex { $0.storyId == id } }
             ?? order.firstIndex { $0.ringKey == startKey } ?? 0
-        // A thumbnail opens at its picture's frame (`storyFrameIndex`).
+        // A thumbnail opens its story's frame with the gallery at that picture.
         if let startStory, order.indices.contains(position), order[position].storyId == startStory,
            let story = storiesById[startStory]?.story {
-            let frames = Stories.frames([story])
-            frame = max(0, Stories.frameIndex(frames, storyId: startStory, picture: startPicture))
+            picture = min(max(0, startPicture), pictureCount(story) - 1)
         }
         if order.isEmpty { onClose() }
     }
@@ -257,7 +308,7 @@ struct StoryViewer: View {
         let live = storiesById
         guard !present(position, live) else { return }
         if let next = order.indices.first(where: { $0 > position && present($0, live) }) {
-            go(next, frame: 0)
+            go(next, picture: 0)
         } else {
             onClose()
         }
@@ -265,11 +316,11 @@ struct StoryViewer: View {
 
     private func next() {
         let live = storiesById
-        if let story = current?.story, frame + 1 < frameCount(story) {
-            frame += 1
+        if let story = current?.story, picture + 1 < pictureCount(story) {
+            picture += 1
             elapsed = 0
         } else if let next = order.indices.first(where: { $0 > position && present($0, live) }) {
-            go(next, frame: 0)
+            go(next, picture: 0)
         } else {
             onClose()
         }
@@ -277,20 +328,19 @@ struct StoryViewer: View {
 
     private func previous() {
         let live = storiesById
-        if frame > 0 {
-            frame -= 1
+        if picture > 0 {
+            picture -= 1
             elapsed = 0
-        } else if let previous = order.indices.last(where: { $0 < position && present($0, live) }),
-                  let story = live[order[previous].storyId]?.story {
-            go(previous, frame: frameCount(story) - 1)
+        } else if let previous = order.indices.last(where: { $0 < position && present($0, live) }) {
+            go(previous, picture: 0)
         } else {
             elapsed = 0
         }
     }
 
-    private func go(_ index: Int, frame: Int) {
+    private func go(_ index: Int, picture: Int) {
         position = index
-        self.frame = frame
+        self.picture = picture
         elapsed = 0
         scrollAtTop = true
     }
@@ -317,7 +367,8 @@ struct StoryViewer: View {
         }
     }
 
-    /// Marks the frame's story seen once, then runs the frame's own timer.
+    /// Marks the frame's story seen once, then runs the timer (a gallery's
+    /// per picture).
     private func run(_ story: Stories.Story, _ shownFrame: Stories.Frame) async {
         if !shown.contains(story.id) {
             shown.insert(story.id)
@@ -367,46 +418,72 @@ private struct StoryScrim: View {
 
 // MARK: - Body
 
-/// One frame's body: a picture fitted on black edge to edge, THE surface
-/// with no card chrome, the plan text, or nothing (a `title` frame).
+/// One frame's body: a plan's cover (its first picture fitted on black, a
+/// tap = Open plan), a gallery's current picture fitted on black edge to
+/// edge (the "i / n" counter, its caption under it), THE surface with no
+/// card chrome, or nothing (a `title` frame).
 private struct StoryFrameBody: View {
     let story: Stories.Story
     let frame: Stories.Frame
+    let picture: Int
     let card: TreeMessageCard?
     /// The floating bands' heights (a scrolling body starts under the top
     /// band and ends above the footer).
     let top: CGFloat
     let bottom: CGFloat
     @Binding var scrollAtTop: Bool
+    let onOpenPlan: () -> Void
 
-    @Environment(AppDependencies.self) private var deps
-    @Environment(\.accountId) private var accountId
     @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
         switch frame.kind {
-        case .picture:
-            if let index = frame.picture, story.pictures.indices.contains(index) {
-                StoryPicture(picture: story.pictures[index], fill: true)
+        case .plan:
+            if let first = story.pictures.first {
+                StoryPicture(picture: first, fill: true)
                     .ignoresSafeArea()
+                    .onTapGesture(perform: onOpenPlan)
+            } else {
+                Color.clear
+            }
+        case .gallery:
+            if story.pictures.indices.contains(picture) {
+                let shown = story.pictures[picture]
+                ZStack {
+                    StoryPicture(picture: shown, fill: true)
+                        .ignoresSafeArea()
+                    VStack(spacing: 0) {
+                        Spacer(minLength: top)
+                        HStack {
+                            Spacer()
+                            if story.pictures.count > 1 {
+                                Text("\(picture + 1) / \(story.pictures.count)")
+                                    .font(.caption2.weight(.semibold).monospacedDigit())
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.black.opacity(0.55)))
+                                    .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+                                    .accessibilityIdentifier("story-gallery-counter")
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        Spacer()
+                        Text(shown.caption?.isEmpty == false ? shown.caption! : shown.label)
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, bottom + 8)
+                    }
+                    .allowsHitTesting(false)
+                }
             }
         case .surface:
             if let surface = card?.surface {
                 scroller { PlanCardSurfaceView(surface: surface, handle: handle, editable: false, bare: true) }
-            }
-        case .text:
-            if let text = story.text {
-                scroller {
-                    AgentMarkdownText(
-                        text: PlanCard.renderableMarkdown(text),
-                        context: AgentMarkdownContext(
-                            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-                            accountId: accountId,
-                            httpClient: deps.httpClient
-                        ),
-                        options: [.hardLineBreaks]
-                    )
-                }
             }
         case .title:
             Color.clear
@@ -441,6 +518,8 @@ private struct StoryScrollTop: PreferenceKey {
 struct StoryPicture: View {
     let picture: Stories.Picture
     var fill = false
+    /// A thumbnail: the picture FILLS its box (cropped).
+    var cover = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -452,7 +531,9 @@ struct StoryPicture: View {
             if let image {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFit()
+                    .aspectRatio(contentMode: cover ? .fill : .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
                     .clipShape(shape)
             } else if fill {
                 AppIcon(AppIcons.editorImage, size: 28)
@@ -471,6 +552,10 @@ struct StoryPicture: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel(picture.caption ?? picture.label)
         .task(id: picture.attachmentId) {
+            if let tile = SpecimenPicture.image(picture.attachmentId) {
+                image = tile
+                return
+            }
             let loader = AttachmentImageLoader(
                 baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                 accountId: accountId,
@@ -489,59 +574,24 @@ struct StoryPicture: View {
 
 // MARK: - Footer
 
-/// The story's footer: THE plan options (Approve = approve, Change = reject
-/// + its feedback field), the question's option chips (+ the free text when
-/// custom), a reply field, or nothing. Answers go through `sessions.answer`.
+/// The story's answer footer: the question's option chips (+ the free text
+/// when custom) or a reply field. A plan never decides in a story (#EXP-1493:
+/// its cover's `Open plan`). Answers go through `sessions.answer`.
 private struct StoryFooter: View {
     let story: Stories.Story
-    /// The frame's footer (the story's, on its last frame).
     let footer: Stories.Footer
     let card: TreeMessageCard?
     let onAnswer: (ThreadCardAnswer) async -> Bool
 
     @State private var draft = PlanCardDraft()
-    @State private var rejecting = false
     @State private var reply = ""
     @State private var busy = false
 
     var body: some View {
         switch footer {
-        case .plan: plan
         case .choices: choices
         case .reply: replyField
-        case .none: EmptyView()
-        }
-    }
-
-    private var plan: some View {
-        VStack(alignment: .trailing, spacing: PlanCard.Stepper.buttonGap) {
-            if rejecting {
-                PlanCardField(
-                    placeholder: AskDock.Copy.feedbackPlaceholder,
-                    text: $draft.feedback,
-                    multiline: true,
-                    identifier: PlanCard.TestIds.feedback
-                )
-            }
-            HStack(spacing: PlanCard.Stepper.buttonGap) {
-                Spacer(minLength: 0)
-                if rejecting {
-                    GlassPill(PlanCard.Copy.cancel, size: .md, mode: .action { rejecting = false })
-                    GlassPill(
-                        Stories.Copy.change, size: .md, mode: .action { decide(AskDock.planRejectKey) },
-                        primary: true, enabled: !busy
-                    )
-                    .accessibilityIdentifier("story-change")
-                } else {
-                    GlassPill(Stories.Copy.change, size: .md, mode: .action { rejecting = true }, enabled: !busy)
-                        .accessibilityIdentifier("story-change")
-                    GlassPill(
-                        Stories.Copy.approve, size: .md, mode: .action { decide("approve") },
-                        primary: true, enabled: !busy
-                    )
-                    .accessibilityIdentifier("story-approve")
-                }
-            }
+        case .open, .none: EmptyView()
         }
     }
 
@@ -590,18 +640,6 @@ private struct StoryFooter: View {
                 enabled: !busy && !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ) { submit([reply]) }
         }
-    }
-
-    private func decide(_ key: String) {
-        guard let option = AskDock.planOption(key: key) else { return }
-        let approved = option.decision == PlanDecision.approved.rawValue
-        let typed = approved ? "" : draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines)
-        send(ThreadCardAnswer(
-            messageId: story.id,
-            decision: approved ? .approved : .rejected,
-            fresh: approved && option.fresh,
-            feedback: typed.isEmpty ? nil : typed
-        ))
     }
 
     private func submit(_ labels: [String]) {
