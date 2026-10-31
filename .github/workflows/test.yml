@@ -47,7 +47,7 @@ jobs:
           set -euo pipefail
           if [ -z "$PR" ]; then printf 'desktop=true\neui=true\nede=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
-          desktop='^(apps/desktop/|packages/(domain-contract|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/workflows/test\.yml$)'
+          desktop='^(apps/desktop/|packages/(domain-contract|ecore|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
@@ -133,6 +133,10 @@ jobs:
         # EXP-519: --locked is load-bearing (Cargo.lock is the one pin of the
         # floating zed git deps).
         run: cargo check --workspace --locked
+      # #EXP-1504: eCore's size/dependency gate and its fixture replay (seconds).
+      - name: eCore gate
+        working-directory: apps/desktop
+        run: cargo test --locked -p ecore
 
   # eDE (#NEW-101): the compositor's own workspace. Its tests are headless
   # (pixman renders into memory, real Wayland clients over a socketpair), so

@@ -211,6 +211,10 @@
         "@noble/hashes": "^2.2.0",
       },
     },
+    "packages/ecore": {
+      "name": "@exp/ecore",
+      "version": "0.0.0",
+    },
     "packages/electric-protocol": {
       "name": "@exp/electric-protocol",
       "version": "0.0.0",
@@ -827,6 +831,8 @@
     "@exp/design-tokens": ["@exp/design-tokens@workspace:packages/design-tokens"],
 
     "@exp/domain-contract": ["@exp/domain-contract@workspace:packages/domain-contract"],
+
+    "@exp/ecore": ["@exp/ecore@workspace:packages/ecore"],
 
     "@exp/electric-protocol": ["@exp/electric-protocol@workspace:packages/electric-protocol"],
 

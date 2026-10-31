@@ -1,0 +1,17 @@
+{
+  "name": "@exp/ecore",
+  "version": "0.0.0",
+  "description": "eCore's contract: ids, the grant + token format, the delivery verdict, the error shape, the event envelope and capability names (generated for Rust, TS, Swift and Kotlin)",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "generate": "bun run ./scripts/generate.ts",
+    "test": "bun test ./src"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./contract": "./contract.json",
+    "./fixtures/*": "./fixtures/*"
+  }
+}

@@ -36,6 +36,7 @@ consumes them as dependencies.
 | **eApps** | inside `eui-core` for now | inside `@exponential_app/eui/host` | | | rides `eui-v*` | exponential.at/apps/ |
 | agent-runtime | `exponential-agent-runtime` (from `coding` + `engine`, #EXP-1426; git dependency on the tag) | none | none | none | `agent-runtime-v*` → `release-agent-runtime.yml` | in the repo README only |
 | **eMCP** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/mcp/ |
+| **eCore** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | the crate README |
 
 eTalk, ePilot, eMCP and agent-runtime are git dependencies (`publish = false`: the
 fixtures are compiled in with `include_str!` from outside the crate), so their
