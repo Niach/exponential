@@ -2,7 +2,11 @@
 //! missing. The checks are pure functions over what was read from the
 //! system, so they are tested without the hardware.
 
-use std::{path::Path, process::Command};
+use std::{
+    ffi::{OsStr, OsString},
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -29,19 +33,41 @@ pub fn parse_xwayland_version(output: &str) -> Option<(u32, u32, u32)> {
     Some((parts.next()??, parts.next()??, parts.next().flatten().unwrap_or(0)))
 }
 
-pub fn check_xwayland(version_output: Option<&str>) -> Check {
+/// Where the .deb puts its own Xwayland (#NEW-120): Ubuntu noble ships 23.2.
+pub const BUNDLED_XWAYLAND_DIR: &str = "/usr/lib/ede/bin";
+
+/// The `PATH` Xwayland is spawned with: the bundled directory first when it
+/// holds an Xwayland, so it wins over the distro's.
+pub fn xwayland_search_path(path: Option<&OsStr>, bundled_dir: &Path) -> OsString {
+    let path = path.unwrap_or_default();
+    if !bundled_dir.join("Xwayland").is_file() {
+        return path.to_os_string();
+    }
+    let dirs = std::iter::once(bundled_dir.to_path_buf()).chain(std::env::split_paths(path).filter(|d| !d.as_os_str().is_empty() && d != bundled_dir));
+    std::env::join_paths(dirs).unwrap_or_else(|_| path.to_os_string())
+}
+
+/// The Xwayland a spawn with `path` runs: the first one on it.
+pub fn xwayland_binary(path: &OsStr) -> Option<PathBuf> {
+    std::env::split_paths(path).map(|d| d.join("Xwayland")).find(|b| b.is_file())
+}
+
+pub fn check_xwayland(binary: Option<&Path>, version_output: Option<&str>) -> Check {
     let name = "Xwayland";
-    match version_output.map(parse_xwayland_version) {
-        None => Check { name, level: Level::Warn, detail: "not installed: X11 apps and most games won't run (apt install xwayland)".into() },
-        Some(None) => Check { name, level: Level::Warn, detail: "installed, version unreadable".into() },
-        Some(Some((major, minor, patch))) if (major, minor) >= XWAYLAND_MIN => {
-            Check { name, level: Level::Ok, detail: format!("{major}.{minor}.{patch}, explicit sync") }
+    let (Some(binary), Some(output)) = (binary, version_output) else {
+        return Check { name, level: Level::Warn, detail: "not installed: X11 apps and most games won't run (apt install xwayland)".into() };
+    };
+    let binary = binary.display();
+    match parse_xwayland_version(output) {
+        None => Check { name, level: Level::Warn, detail: format!("{binary}, version unreadable") },
+        Some((major, minor, patch)) if (major, minor) >= XWAYLAND_MIN => {
+            Check { name, level: Level::Ok, detail: format!("{binary} {major}.{minor}.{patch}, explicit sync") }
         }
-        Some(Some((major, minor, patch))) => Check {
+        Some((major, minor, patch)) => Check {
             name,
             level: Level::Warn,
             detail: format!(
-                "{major}.{minor}.{patch} has no explicit sync: X11 games may flicker on NVIDIA; needs >= {}.{}",
+                "{binary} {major}.{minor}.{patch} has no explicit sync: X11 games may flicker on NVIDIA; needs >= {}.{}",
                 XWAYLAND_MIN.0, XWAYLAND_MIN.1
             ),
         },
@@ -107,7 +133,9 @@ pub fn check_render_nodes(nodes: &[String]) -> Check {
 
 /// Reads the system and runs every check.
 pub fn run_checks() -> Vec<Check> {
-    let xwayland = Command::new("Xwayland").arg("-version").output().ok().map(|o| {
+    let path = xwayland_search_path(std::env::var_os("PATH").as_deref(), Path::new(BUNDLED_XWAYLAND_DIR));
+    let binary = xwayland_binary(&path);
+    let xwayland = binary.as_ref().and_then(|b| Command::new(b).arg("-version").output().ok()).map(|o| {
         let mut s = String::from_utf8_lossy(&o.stdout).into_owned();
         s.push_str(&String::from_utf8_lossy(&o.stderr));
         s
@@ -117,7 +145,7 @@ pub fn run_checks() -> Vec<Check> {
         .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with("renderD")).collect())
         .unwrap_or_default();
     nodes.sort();
-    let mut checks = vec![check_render_nodes(&nodes), check_xwayland(xwayland.as_deref())];
+    let mut checks = vec![check_render_nodes(&nodes), check_xwayland(binary.as_deref(), xwayland.as_deref())];
     let nvidia = Path::new("/sys/module/nvidia_drm").exists().then(|| Nvidia {
         version: read("/sys/module/nvidia/version"),
         modeset_param: read("/sys/module/nvidia_drm/parameters/modeset"),
@@ -155,10 +183,38 @@ mod tests {
 
     #[test]
     fn xwayland_below_24_1_warns_about_explicit_sync() {
-        assert_eq!(check_xwayland(Some("Xwayland Version 23.2.6")).level, Level::Warn);
-        assert_eq!(check_xwayland(Some("Xwayland Version 24.1.4")).level, Level::Ok);
-        assert_eq!(check_xwayland(Some("Xwayland Version 25.0.0")).level, Level::Ok);
-        assert!(check_xwayland(None).detail.contains("apt install xwayland"));
+        let bin = Some(Path::new("/usr/bin/Xwayland"));
+        assert_eq!(check_xwayland(bin, Some("Xwayland Version 23.2.6")).level, Level::Warn);
+        assert_eq!(check_xwayland(bin, Some("Xwayland Version 24.1.4")).level, Level::Ok);
+        assert_eq!(check_xwayland(bin, Some("Xwayland Version 25.0.0")).level, Level::Ok);
+        assert!(check_xwayland(None, None).detail.contains("apt install xwayland"));
+    }
+
+    #[test]
+    fn doctor_names_the_xwayland_it_checked() {
+        let check = check_xwayland(Some(Path::new("/usr/lib/ede/bin/Xwayland")), Some("Xwayland Version 24.1.14"));
+        assert_eq!(check.detail, "/usr/lib/ede/bin/Xwayland 24.1.14, explicit sync");
+    }
+
+    #[test]
+    fn the_bundled_xwayland_goes_first_on_path_only_when_it_exists() {
+        let root = std::env::temp_dir().join(format!("ede-xwl-{}", std::process::id()));
+        let (bundled, system) = (root.join("ede-bin"), root.join("usr-bin"));
+        std::fs::create_dir_all(&bundled).unwrap();
+        std::fs::create_dir_all(&system).unwrap();
+        std::fs::write(system.join("Xwayland"), "").unwrap();
+        let path = std::env::join_paths([&system, &bundled]).unwrap();
+
+        let without = xwayland_search_path(Some(&path), &bundled);
+        assert_eq!(without, path);
+        assert_eq!(xwayland_binary(&without), Some(system.join("Xwayland")));
+
+        std::fs::write(bundled.join("Xwayland"), "").unwrap();
+        let with = xwayland_search_path(Some(&path), &bundled);
+        assert_eq!(std::env::split_paths(&with).collect::<Vec<_>>(), [bundled.clone(), system.clone()]);
+        assert_eq!(xwayland_binary(&with), Some(bundled.join("Xwayland")));
+        assert_eq!(xwayland_search_path(None, &bundled), bundled.as_os_str());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
