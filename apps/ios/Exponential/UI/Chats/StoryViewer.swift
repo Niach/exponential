@@ -262,7 +262,7 @@ struct StoryViewer: View {
     private func navigable(_ story: Stories.Story, _ shownFrame: Stories.Frame) -> some View {
         StoryFrameBody(
             story: story, frame: shownFrame, picture: picture, card: card(story.id), top: topHeight,
-            bottom: footerHeight, scrollAtTop: $scrollAtTop, onOpenPlan: { onOpenPlan(story) }
+            bottom: footerHeight, scrollAtTop: $scrollAtTop
         )
         .id("\(story.id):\(picture)")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -278,7 +278,7 @@ struct StoryViewer: View {
                         paused = true
                     }
                 }
-                .onEnded(end)
+                .onEnded { end($0, openPlan: shownFrame.kind == .plan ? { onOpenPlan(story) } : nil) }
         )
     }
 
@@ -345,7 +345,9 @@ struct StoryViewer: View {
         scrollAtTop = true
     }
 
-    private func end(_ value: DragGesture.Value) {
+    /// `openPlan` = a plan frame: a tap ANYWHERE on its cover opens the plan
+    /// (stories.json: the cover is one target, never the tap thirds).
+    private func end(_ value: DragGesture.Value, openPlan: (() -> Void)? = nil) {
         holdTask?.cancel()
         holdTask = nil
         let wasHeld = held
@@ -357,6 +359,8 @@ struct StoryViewer: View {
             if dx < 0 { next() } else { previous() }
         } else if dy > Self.swipe, dy > 2 * abs(dx), scrollAtTop {
             onClose()
+        } else if !wasHeld, abs(dx) < 10, abs(dy) < 10, let openPlan {
+            openPlan()
         } else if !wasHeld, abs(dx) < 10, abs(dy) < 10 {
             let width = UIScreen.main.bounds.width
             if value.startLocation.x > width * 2 / 3 {
@@ -418,8 +422,8 @@ private struct StoryScrim: View {
 
 // MARK: - Body
 
-/// One frame's body: a plan's cover (its first picture fitted on black, a
-/// tap = Open plan), a gallery's current picture fitted on black edge to
+/// One frame's body: a plan's cover (its first picture fitted on black; a
+/// tap anywhere on it = Open plan, `end`), a gallery's current picture fitted on black edge to
 /// edge (the "i / n" counter, its caption under it), THE surface with no
 /// card chrome, or nothing (a `title` frame).
 private struct StoryFrameBody: View {
@@ -432,7 +436,6 @@ private struct StoryFrameBody: View {
     let top: CGFloat
     let bottom: CGFloat
     @Binding var scrollAtTop: Bool
-    let onOpenPlan: () -> Void
 
     @State private var handle = PlanCardSurfaceHandle()
 
@@ -442,7 +445,6 @@ private struct StoryFrameBody: View {
             if let first = story.pictures.first {
                 StoryPicture(picture: first, fill: true)
                     .ignoresSafeArea()
-                    .onTapGesture(perform: onOpenPlan)
             } else {
                 Color.clear
             }

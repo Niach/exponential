@@ -24,12 +24,13 @@ extension Stories.Kind {
 
 /// THE kind badge (stories.json `badge` = THE Pill, sm, readonly): the
 /// concept icon + the kind word in the tint, the tint at `fill` behind and
-/// at `stroke` as its border. `waiting` = the plan page's ` · waiting`.
+/// at `stroke` as its border. `waiting` = the plan page's waiting dot after
+/// it (plan-page.json: a 6 pt needs-you yellow dot, no word; #1455's token).
 public struct StoryKindBadge: View {
     let kind: Stories.Kind
     var waiting = false
 
-    public static let waitingWord = "waiting"
+    public static let waitingDot: CGFloat = 6
 
     public init(kind: Stories.Kind, waiting: Bool = false) {
         self.kind = kind
@@ -37,10 +38,23 @@ public struct StoryKindBadge: View {
     }
 
     public var body: some View {
+        HStack(spacing: 8) {
+            pill
+            if waiting {
+                Circle()
+                    .fill(DesignTokens.Semantic.yellow)
+                    .frame(width: Self.waitingDot, height: Self.waitingDot)
+                    .accessibilityHidden(true)
+            }
+        }
+        .fixedSize()
+    }
+
+    private var pill: some View {
         let tint = kind.tint
-        HStack(spacing: 4) {
+        return HStack(spacing: 4) {
             AppIcon(AppIcons.conceptOrName(Stories.Badge.icon(kind)) ?? AppIcons.codingPlan, size: 11, weight: .semibold)
-            Text(waiting ? "\(Stories.Copy.kind(kind)) · \(Self.waitingWord)" : Stories.Copy.kind(kind))
+            Text(Stories.Copy.kind(kind))
                 .font(.caption2.weight(.medium))
                 .lineLimit(1)
         }
@@ -49,7 +63,6 @@ public struct StoryKindBadge: View {
         .padding(.vertical, 3)
         .background(Capsule().fill(tint.opacity(Stories.Badge.fill)))
         .overlay(Capsule().stroke(tint.opacity(Stories.Badge.stroke), lineWidth: 1))
-        .fixedSize()
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("story-badge")
     }

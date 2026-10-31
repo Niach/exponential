@@ -172,6 +172,9 @@ struct PlanPageScreen: View {
                 imageCornerRadius: PlanCard.Card.pictureRadius,
                 imageStroke: PlanCard.Card.pictureStroke
             )
+            // A picture in the prose (alone on its line or mid-sentence) opens
+            // THE plan lightbox too, never a plain image preview.
+            .environment(\.markdownImageTapHandler) { src in openLightbox(src: src, plan: plan) }
         case let .section(id, title):
             AgentMarkdownText(text: "## \(title)", context: markdownContext, options: [])
                 .id(id)
@@ -277,6 +280,14 @@ struct PlanPageScreen: View {
             lightboxItems = urls
             lightbox = selected ?? urls.first
         }
+    }
+
+    private func openLightbox(src: String, plan: String) {
+        let all = PlanPage.pictures(plan)
+        let id = Self.attachmentId(src)
+        guard let picture = all.first(where: { $0.src == src }) ?? all.first(where: { Self.attachmentId($0.src) == id })
+        else { return }
+        openLightbox(at: picture, plan: plan)
     }
 
     private func download(_ src: String) async -> URL? {
