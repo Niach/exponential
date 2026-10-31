@@ -476,7 +476,10 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         .iter()
         .copied()
         .filter(|m| is_pending_input(m))
-        .map(|m| MessageRow { body: Some(input_text(m, input.sessions)), ..m.clone() })
+        .map(|m| MessageRow {
+            body: Some(with_attachment_embeds(&input_text(m, input.sessions), &m.attachment_ids)),
+            ..m.clone()
+        })
         .collect();
     let mut pending: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
     for message in &inputs {
@@ -838,6 +841,24 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
     format!("Message from {name} (session {from}): {body}")
 }
 
+/// FEED-180: `body` with an embed for every attachment it does not name
+/// yet. A plaintext body already carries its attachments' lines (the server
+/// appends them); a SEALED one cannot, so its clear `attachment_ids` become
+/// `![image](/api/attachments/<id>)` embeds here, the composer's own shape,
+/// which the engine localizes into `.exp-steer-images/` for the agent (a
+/// non-image lands there as a file under its server filename).
+pub fn with_attachment_embeds(body: &str, attachment_ids: &[String]) -> String {
+    let missing: Vec<String> = attachment_ids
+        .iter()
+        .filter(|id| !id.is_empty() && !body.contains(&format!("/api/attachments/{id}")))
+        .cloned()
+        .collect();
+    if missing.is_empty() {
+        return body.to_string();
+    }
+    domain::image_message::build_steer_image_message(body, &missing)
+}
+
 fn message_order(a: &MessageRow, b: &MessageRow) -> std::cmp::Ordering {
     (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id))
 }
@@ -999,6 +1020,21 @@ pub fn brief_with_request(brief: &str, request: &str) -> String {
     cut_to_bytes(&composed, domain::contract::SESSIONS_SEND_BRIEF_MAX_BYTES)
 }
 
+/// FEED-180 (`fixtures/session-brief.json`): the opened sealed request with
+/// its attachments' lines (`sealedAttachments`) appended, each after a blank
+/// line, as a plaintext body carries them.
+pub fn request_with_attachments(request: &str, lines: &[String]) -> String {
+    let lines: Vec<&str> = lines
+        .iter()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty() && !request.contains(*line))
+        .collect();
+    if lines.is_empty() {
+        return request.to_string();
+    }
+    std::iter::once(request.trim_end()).filter(|text| !text.is_empty()).chain(lines).collect::<Vec<_>>().join("\n\n")
+}
+
 /// `composeBrief`'s cut: whole lines that fit in `max` UTF-8 bytes, then a
 /// `…` line.
 fn cut_to_bytes(text: &str, max: usize) -> String {
@@ -1038,7 +1074,7 @@ fn fetch_brief_waiting(
             log::warn!("pickup: the sealed request of session {session_id} stays locked on this install");
         }
         let request = opened.unwrap_or_else(|| crate::sealing::LOCKED_TEXT.to_string());
-        brief.brief = brief_with_request(&brief.brief, &request);
+        brief.brief = brief_with_request(&brief.brief, &request_with_attachments(&request, &brief.sealed_attachments));
     }
     Ok(brief)
 }
@@ -3695,6 +3731,65 @@ mod tests {
         assert_eq!(bodies(messages), expected);
         let [PickupAction::Deliver { messages, .. }] = live.as_slice() else { panic!("{live:?}") };
         assert_eq!(bodies(messages), expected);
+    }
+
+    /// FEED-180: a SEALED message's attachments (clear `attachment_ids`, the
+    /// server cannot append their lines to a sealed body) reach the agent as
+    /// image embeds after the opened text, on a wake and a live delivery
+    /// alike; a plaintext body that already names its attachment is left
+    /// alone.
+    #[test]
+    fn sealed_attachments_reach_the_agent() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let row = SessionRow { root_id: Some("si".to_string()), ..session("si", "idle", DEV, "2026-10-01T00:00:00Z") };
+        fake.keyring.note_sessions(std::slice::from_ref(&row));
+        const SHOT: &str = "11111111-2222-3333-4444-555555555555";
+        const PLAIN: &str = "66666666-7777-8888-9999-000000000000";
+        let sealed = MessageRow {
+            body: Some(sealing::seal_body("si", "cant answer plan: [Image #1] newest IDE").unwrap()),
+            attachment_ids: vec![SHOT.to_string()],
+            ..message("sm1", "si", "2026-10-02T00:00:01Z")
+        };
+        let plain_body = format!("see\n\n![a.png](/api/attachments/{PLAIN})");
+        let plain = MessageRow {
+            body: Some(plain_body.clone()),
+            attachment_ids: vec![PLAIN.to_string()],
+            ..message("sm2", "si", "2026-10-02T00:00:02Z")
+        };
+        let rows = vec![sealed, plain];
+        let woke = Pass::new(vec![row.clone()], rows.clone()).run();
+        let live = Pass::new(vec![row], rows).live("si", LiveView::default()).run();
+        sealing::uninstall();
+        let expected = vec![
+            format!("cant answer plan: [Image #1] newest IDE\n\n![image](/api/attachments/{SHOT})"),
+            plain_body,
+        ];
+        let bodies = |messages: &[MessageRow]| messages.iter().map(|m| m.body.clone().unwrap_or_default()).collect::<Vec<_>>();
+        let [PickupAction::Resume { messages, .. }] = woke.as_slice() else { panic!("{woke:?}") };
+        assert_eq!(bodies(messages), expected);
+        let [PickupAction::Deliver { messages, .. }] = live.as_slice() else { panic!("{live:?}") };
+        assert_eq!(bodies(messages), expected);
+    }
+
+    /// FEED-180 (`fixtures/session-brief.json`): a sealed first message's
+    /// `sealedAttachments` follow its opened text into the Request.
+    #[test]
+    fn sealed_request_carries_its_attachments() {
+        let line = "![shot.png](/api/attachments/11111111-2222-3333-4444-555555555555)".to_string();
+        let file = "[run.log](/api/attachments/66666666-7777-8888-9999-000000000000)".to_string();
+        let request = request_with_attachments("Match [Image #1] ", &[line.clone(), file.clone()]);
+        assert_eq!(request, format!("Match [Image #1]\n\n{line}\n\n{file}"));
+        assert_eq!(
+            brief_with_request(BRIEF_EMPTY, &request),
+            format!("## Request\n\nMatch [Image #1]\n\n{line}\n\n{file}")
+        );
+        assert_eq!(request_with_attachments("", &[line.clone()]), line);
+        assert_eq!(request_with_attachments("words", &[]), "words");
+        let wire: api::session_device::SessionBrief =
+            serde_json::from_value(serde_json::json!({"brief": "", "sealedAttachments": [line]})).unwrap();
+        assert_eq!(wire.sealed_attachments.len(), 1);
     }
 
     /// EXP-1458: an engine card answered in the card reaches the engine

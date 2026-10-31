@@ -1,14 +1,15 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
 import { db } from "@/db/connection"
-import { agents, issues, messages, sessionIssues, sessions, teams, userVoiceSettings, type Session } from "@/db/schema"
+import { agents, attachments, issues, messages, sessionIssues, sessions, teams, userVoiceSettings, type Session } from "@/db/schema"
 import { ASSISTANT } from "@exp/domain-contract/agent-settings"
 import { voiceAgentIsPrivate } from "@/lib/sessions/meeting-access"
 import { deriveSessionTitle } from "@/lib/sessions/title"
 import type { Db } from "@/lib/sessions/tx"
 import { inSession } from "@/lib/sessions/messages"
 import { isSealedBody } from "@/lib/sessions/sealed"
+import { attachmentLine } from "@/lib/sessions/attachment-lines"
 
 export { deriveSessionTitle }
 
@@ -21,14 +22,29 @@ export { deriveSessionTitle }
 // alike); a root works them itself. A prompt run carries its body inside
 // the first message (no Action section any more).
 
-async function firstPersonMessage(sessionId: string): Promise<string | null> {
+async function firstPersonMessage(sessionId: string): Promise<{ body: string | null; attachmentIds: string[] }> {
   const [row] = await db
-    .select({ body: messages.body })
+    .select({ body: messages.body, attachmentIds: messages.attachmentIds })
     .from(messages)
     .where(and(inSession(sessionId), eq(messages.authorKind, `user`)))
     .orderBy(asc(messages.createdAt))
     .limit(1)
-  return row?.body ?? null
+  return { body: row?.body ?? null, attachmentIds: row?.attachmentIds ?? [] }
+}
+
+/** FEED-180: the attachment lines of a sealed first message, in its order
+ *  (a plaintext body already carries them, `claimAttachments`). */
+async function sealedAttachmentLines(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return []
+  const rows = await db
+    .select({ id: attachments.id, filename: attachments.filename, contentType: attachments.contentType })
+    .from(attachments)
+    .where(inArray(attachments.id, ids))
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  return ids.flatMap((id) => {
+    const row = byId.get(id)
+    return row ? [attachmentLine(row)] : []
+  })
 }
 
 async function sessionIssueRows(session: Pick<Session, `id`>) {
@@ -58,6 +74,10 @@ export async function composeSessionBrief(sessionId: string): Promise<{
    *  device opens this itself and composes the brief with it. Null =
    *  plaintext (or no message): `brief` is complete. */
   sealedText: string | null
+  /** FEED-180: `sealedText`'s attachments as the lines a plaintext body
+   *  gets appended (fixtures/session-brief.json); the device appends them
+   *  to the opened text. Empty for a plaintext message. */
+  sealedAttachments: string[]
   /** NEW-58 (screen-memory.json TOOL): `voicePolicy` AND the conversation is
    *  private to its member (the agent on their own device shared with no
    *  team, the conversation not `shared`): only then may the device attach
@@ -74,8 +94,9 @@ export async function composeSessionBrief(sessionId: string): Promise<{
 
   // EXP-1458: the server never reads a sealed first message.
   const first = await firstPersonMessage(session.id)
-  const sealedText = isSealedBody(first) ? first : null
-  const input: BriefInput = { text: sealedText ? null : first }
+  const sealedText = isSealedBody(first.body) ? first.body : null
+  const sealedAttachments = sealedText ? await sealedAttachmentLines(first.attachmentIds) : []
+  const input: BriefInput = { text: sealedText ? null : first.body }
 
   input.issues = await sessionIssueRows(session)
 
@@ -113,6 +134,7 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   return {
     brief: composeBrief(input),
     sealedText,
+    sealedAttachments,
     voicePolicy,
     screenMemory: voicePolicy && !session.shared && (await voiceAgentIsPrivate(db, session.userId, session.agentId!)),
     teamPrompt: team?.agentPrompt?.trim() || null,

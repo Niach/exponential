@@ -930,6 +930,11 @@ pub struct MessageRow {
     pub body: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub card: Option<serde_json::Value>,
+    /// FEED-180: the message's attachments, in clear even when the body is
+    /// sealed (a plaintext body also carries their lines; a sealed one
+    /// cannot, so the device adds them to what the agent reads).
+    #[serde(default, deserialize_with = "tolerant_id_list")]
+    pub attachment_ids: Vec<String>,
     #[serde(default)]
     pub answered_at: Option<String>,
     #[serde(default)]

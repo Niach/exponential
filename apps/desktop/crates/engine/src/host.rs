@@ -143,4 +143,39 @@ mod tests {
         assert!(!localizer.wants("just words"));
         assert_eq!(embeds.snapshot().len(), 2);
     }
+
+    /// FEED-180: a sealed message's image reaches the agent. The pickup
+    /// embeds its clear `attachment_ids` after the opened text, and a
+    /// sealed first message's `sealedAttachments` follow it into the
+    /// Request; the localizer downloads each into the steer images dir and
+    /// the agent reads its path, never a bare `[Image #1]`.
+    #[test]
+    fn a_sealed_messages_image_reaches_the_agent() {
+        const SHOT: &str = "11111111-2222-3333-4444-555555555555";
+        let hook: steer::AttachmentHook = Arc::new(|id, name| {
+            assert_eq!((id, name), (SHOT, None));
+            Ok(PathBuf::from("/wt/.exp-steer-images/shot.png"))
+        });
+        let localizer = steer_localizer(&hook, &steer::ImageEmbeds::default());
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let steered = coding::pickup::with_attachment_embeds("cant answer plan: [Image #1] newest IDE", &[SHOT.to_string()]);
+        assert!(localizer.wants(&steered));
+        assert_eq!(
+            runtime.block_on(localizer.localize(steered)),
+            "cant answer plan: [Image #1] newest IDE\n\nImage #1: /wt/.exp-steer-images/shot.png"
+        );
+        let request = coding::pickup::request_with_attachments(
+            "Match [Image #1]",
+            &[format!("![image.png](/api/attachments/{SHOT})")],
+        );
+        let brief = coding::pickup::brief_with_request("Wait for the next message.", &request);
+        assert_eq!(
+            runtime.block_on(localizer.localize(brief)),
+            "## Request\n\nMatch [Image #1]\n\nImage #1: /wt/.exp-steer-images/shot.png"
+        );
+    }
 }

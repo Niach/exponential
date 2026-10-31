@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { agents, boards, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, attachments, boards, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { inRollback, probeRealDb } from "@/test/real-db"
 import { inSession, insertMessage, messageWithSession } from "@/lib/sessions/messages"
 
@@ -144,6 +144,28 @@ describe.skipIf(!ready.ok)(`EXP-1458: title + brief`, () => {
     expect(brief.sealedText).toBe(ENVELOPE)
     expect(brief.brief).not.toContain(`exp-sealed:`)
     expect(brief.brief).not.toContain(`placeholder`)
+  })
+
+  it(`FEED-180: a sealed first message's attachments ride as sealedAttachments, in their order`, async () => {
+    const w = await world()
+    const upload = async (filename: string, contentType: string) =>
+      (
+        await db
+          .insert(attachments)
+          .values({ teamId: w.teamId, uploaderId: w.owner, filename, contentType, sizeBytes: 3, storageKey: `k-${id8()}`, url: `x` })
+          .returning({ id: attachments.id })
+      )[0]!.id
+    const shot = await upload(`shot [1].png`, `image/png`)
+    const log = await upload(`run.log`, `text/plain`)
+    const sealed = await w.root(`placeholder`)
+    await sealFirst(sealed)
+    await db.update(messages).set({ attachmentIds: [shot, log] }).where(and(inSession(sealed), eq(messages.authorKind, `user`)))
+    const brief = await composeSessionBrief(sealed)
+    expect(brief.sealedAttachments).toEqual([`![shot 1.png](/api/attachments/${shot})`, `[run.log](/api/attachments/${log})`])
+
+    // Plaintext: the body already carries its lines.
+    const plain = await w.root(`Rotate the key`)
+    expect((await composeSessionBrief(plain)).sealedAttachments).toEqual([])
   })
 })
 

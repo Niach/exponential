@@ -72,6 +72,11 @@ pub struct SessionBrief {
     /// and the device opens it and puts it in as the Request itself.
     #[serde(default)]
     pub sealed_text: Option<String>,
+    /// FEED-180: `sealed_text`'s attachments as the lines a plaintext body
+    /// gets appended (`![name](/api/attachments/<id>)` for an image, a plain
+    /// link otherwise); the device appends them to the opened text.
+    #[serde(default)]
+    pub sealed_attachments: Vec<String>,
 }
 
 impl SessionBrief {
@@ -465,7 +470,7 @@ mod tests {
     fn brief_queries_with_the_session_id_and_decodes_the_layers() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0","voicePolicy":true,"screenMemory":true,"sealedText":"exp-sealed:v1:1:AAAA"}}}"#,
+            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0","voicePolicy":true,"screenMemory":true,"sealedText":"exp-sealed:v1:1:AAAA","sealedAttachments":["![a.png](/api/attachments/a-1)"]}}}"#,
         );
         let brief = brief(&client(&base), SESSION).unwrap();
         assert_eq!(
@@ -479,6 +484,7 @@ mod tests {
                 voice_policy: true,
                 screen_memory: true,
                 sealed_text: Some("exp-sealed:v1:1:AAAA".to_string()),
+                sealed_attachments: vec!["![a.png](/api/attachments/a-1)".to_string()],
             }
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
