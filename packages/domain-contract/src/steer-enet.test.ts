@@ -7,6 +7,7 @@ import {
   parseSteerEnvelope,
   steerBatches,
   steerOfflineRedial,
+  steerShowConnectionLost,
   type SteerRedialPhase,
   type SteerRedialTrigger,
   steerViewerAllowed,
@@ -37,6 +38,11 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
   for (const c of fixture.offlineRedial) {
     test(`offlineRedial: ${c.name}`, () => {
       expect(steerOfflineRedial(c.phase as SteerRedialPhase, c.trigger as SteerRedialTrigger)).toBe(c.redial)
+    })
+  }
+  for (const c of fixture.lostBannerCases) {
+    test(`lostBanner: ${c.name}`, () => {
+      expect(steerShowConnectionLost(c.downMs, c.failedRedials)).toBe(c.show)
     })
   }
   test(`encode round-trips`, () => {

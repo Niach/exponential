@@ -118,3 +118,15 @@ export function steerOfflineRedial(phase: SteerRedialPhase, trigger: SteerRedial
   if (phase === `offline`) return true
   return trigger !== `staleTimer`
 }
+
+export const STEER_ENET_LOST_GRACE_MS = fixture.lostBanner.graceMs
+export const STEER_ENET_LOST_FAILED_REDIALS = fixture.lostBanner.failedRedials
+
+/**
+ * EXP-1487: whether a dropped live feed shows "Connection lost". The drop
+ * redials silently; the banner waits for `graceMs` down AND
+ * `failedRedials` failed redials since the drop.
+ */
+export function steerShowConnectionLost(downMs: number, failedRedials: number): boolean {
+  return downMs >= STEER_ENET_LOST_GRACE_MS && failedRedials >= STEER_ENET_LOST_FAILED_REDIALS
+}
