@@ -397,6 +397,15 @@ async fn the_desktop_viewer_steers_over_enet_and_has_no_fallback() {
         }
     }
     assert!(nowhere.is_active(), "VAPP-169: the device-offline end is not terminal");
+    // VAPP-174: the row flips back to running — the next NO FEED is
+    // `starting` again, not the sticky device-offline copy.
+    nowhere.note_session_status(false);
+    nowhere.kick();
+    loop {
+        if let ViewerEvent::Phase(ViewerPhase::Starting) = next_event(&events).await {
+            break;
+        }
+    }
     nowhere.shutdown();
     // No node at all: the same.
     let (events_tx, events) = flume::unbounded();

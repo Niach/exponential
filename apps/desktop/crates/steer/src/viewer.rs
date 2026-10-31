@@ -377,7 +377,14 @@ impl ViewerHandle {
     /// park the viewer in [`ViewerPhase::Starting`] forever, because the
     /// publisher is gone (web `noteSessionStatus`, EXP-639).
     pub fn note_session_ended(&self) {
-        self.session_ended.store(true, Ordering::SeqCst);
+        self.note_session_status(true);
+    }
+
+    /// The synced `sessions` row's liveness, reported on every row change.
+    /// A row flipping back to running clears an earlier end, so its NO FEED
+    /// redials read [`ViewerPhase::Starting`] again (VAPP-174).
+    pub fn note_session_status(&self, ended: bool) {
+        self.session_ended.store(ended, Ordering::SeqCst);
     }
 
     /// Close the connection for good (the tab closed, the app is signing

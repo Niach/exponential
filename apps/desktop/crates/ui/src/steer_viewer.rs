@@ -1596,13 +1596,14 @@ impl SteerSessionView {
             .read(cx)
             .get(&self.session_id)
             .cloned();
+        // EXP-639: the redial loops treat the synced row as the truth —
+        // a `no_such_session` for an ended run would otherwise park the
+        // viewer in `Starting` forever. VAPP-174: both ways, so a row back
+        // to running redials under `Starting` again.
+        if let (Some(row), Some(handle)) = (row.as_ref(), self.source.handle()) {
+            handle.note_session_status(row.is_ended());
+        }
         if row.as_ref().is_some_and(domain::rows::SessionRow::is_ended) {
-            // EXP-639: the redial loops treat the synced row as the truth —
-            // a `no_such_session` for an ended run would otherwise park the
-            // viewer in `Starting` forever.
-            if let Some(handle) = self.source.handle() {
-                handle.note_session_ended();
-            }
             // EXP-724: a run that ended mid-compaction never sends `ended`.
             self.feed.clear_compaction();
         }
