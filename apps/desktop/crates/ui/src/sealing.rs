@@ -15,7 +15,8 @@ use std::time::Duration;
 use api::sessions::{AnswerInput, SealWrap, SendInput, SendOutput, SendSeal};
 use coding::sealing::{self, NewRootSeal};
 use domain::plan_card::{CardAnswerInput, CardAnswers};
-use domain::rows::SessionRow;
+use domain::rows::{MessageRow, SessionRow};
+use domain::sealed::SealState;
 use gpui::App;
 use serde_json::Value;
 use steer::enet::InstallNode;
@@ -273,19 +274,36 @@ pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan)
     Ok(out)
 }
 
-/// An answer's sealing facts: the card's tree and the card as opened.
+/// An answer's sealing facts: the card's tree and, for a SEALED card, the
+/// card as opened (EXP-1486: the stored card alone picks the wire,
+/// `sealed-content.json` `answerCases`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AnswerPlan {
     pub root_id: Option<String>,
+    /// The opened card of a sealed row; `None` = a plaintext card, answered
+    /// in clear even inside a keyed tree.
     pub card: Option<Value>,
+    /// A sealed card this install cannot open: refused locally.
+    pub locked: bool,
 }
+
+/// What a sealed card this install cannot answer says (Android's
+/// `LOCKED_ANSWER`).
+pub const LOCKED_ANSWER: &str = "This card can't be answered on this device yet.";
 
 pub fn plan_answer(message_id: &str, cx: &App) -> AnswerPlan {
     let messages = Store::global(cx).collections().messages.read(cx);
-    let Some(row) = messages.get(message_id) else {
-        return AnswerPlan::default();
-    };
-    AnswerPlan { root_id: row.root_id.clone(), card: row.card.clone().filter(|_| !domain::sealed::is_closed(row.seal)) }
+    messages.get(message_id).map(answer_plan_for).unwrap_or_default()
+}
+
+/// A synced row's [`AnswerPlan`]: `seal` is `None` for a plaintext row.
+fn answer_plan_for(row: &MessageRow) -> AnswerPlan {
+    let root_id = row.root_id.clone();
+    match row.seal {
+        None => AnswerPlan { root_id, ..AnswerPlan::default() },
+        Some(SealState::Opened) => AnswerPlan { root_id, card: row.card.clone(), locked: false },
+        Some(_) => AnswerPlan { root_id, card: None, locked: true },
+    }
 }
 
 /// `input` as a sealed answer: the FULL card re-sealed with the answer, the
@@ -308,7 +326,7 @@ fn seal_answer(writer: &dyn Writer, input: &AnswerInput, plan: &AnswerPlan) -> O
             surface_data: input.surface_data.clone(),
         },
     )?;
-    let sealed = writer.seal_card(root_id, &answered).map_err(|err| log::warn!("[sealing] answer stays plaintext: {err}")).ok()?;
+    let sealed = writer.seal_card(root_id, &answered).map_err(|err| log::warn!("[sealing] can't seal the answer: {err}")).ok()?;
     Some(AnswerInput {
         message_id: input.message_id.clone(),
         decision: input.decision.clone(),
@@ -318,10 +336,25 @@ fn seal_answer(writer: &dyn Writer, input: &AnswerInput, plan: &AnswerPlan) -> O
     })
 }
 
+/// The answer that leaves: a plaintext card's as given, a sealed card's
+/// re-sealed; a sealed card this install can't (re)seal is refused, since a
+/// plaintext answer would leak it.
+fn answer_wire(writer: Option<&dyn Writer>, input: &AnswerInput, plan: &AnswerPlan) -> Result<AnswerInput, String> {
+    if plan.locked {
+        return Err(LOCKED_ANSWER.into());
+    }
+    if plan.card.is_none() {
+        return Ok(input.clone());
+    }
+    writer.and_then(|writer| seal_answer(writer, input, plan)).ok_or_else(|| LOCKED_ANSWER.into())
+}
+
 /// THE sealed `sessions.answer` (BLOCKING, off the UI thread).
 pub fn answer_blocking(trpc: &api::TrpcClient, input: &AnswerInput, plan: &AnswerPlan) -> Result<api::sessions::TxOutput, api::ApiError> {
-    let sealed = sealing::service().and_then(|_| seal_answer(&Live(None), input, plan));
-    api::sessions::answer(trpc, sealed.as_ref().unwrap_or(input))
+    let live = sealing::service().map(|_| Live(None));
+    let wire = answer_wire(live.as_ref().map(|w| w as &dyn Writer), input, plan)
+        .map_err(|message| api::ApiError::Http { status: 400, message })?;
+    api::sessions::answer(trpc, &wire)
 }
 
 #[cfg(test)]
@@ -409,7 +442,7 @@ mod tests {
             answers: Some(serde_json::json!(["A"])),
             ..AnswerInput::default()
         };
-        let plan = AnswerPlan { root_id: Some("r1".into()), card: Some(card) };
+        let plan = AnswerPlan { root_id: Some("r1".into()), card: Some(card), locked: false };
         let sealed = seal_answer(&writer, &input, &plan).unwrap();
         assert_eq!((sealed.answer.clone(), sealed.answers.clone(), sealed.feedback.clone()), (None, None, None));
         let wire = serde_json::to_value(&sealed).unwrap();
@@ -419,7 +452,7 @@ mod tests {
         assert_eq!(opened["answers"], serde_json::json!(["A"]));
         assert_eq!(opened["question"], "Which?");
 
-        let plan_card = AnswerPlan { root_id: Some("r1".into()), card: Some(serde_json::json!({"kind": "plan", "plan": "p"})) };
+        let plan_card = AnswerPlan { root_id: Some("r1".into()), card: Some(serde_json::json!({"kind": "plan", "plan": "p"})), locked: false };
         let decide = AnswerInput { message_id: "m2".into(), decision: Some("rejected".into()), feedback: Some("no".into()), ..AnswerInput::default() };
         let sealed = seal_answer(&writer, &decide, &plan_card).unwrap();
         assert_eq!((sealed.decision.as_deref(), sealed.feedback.as_deref()), (Some("rejected"), None));
@@ -428,5 +461,76 @@ mod tests {
         assert_eq!(writer.open_card(&wire["sealedCard"]).card["feedback"], "no");
         // An unknown card (not synced, or closed here) never seals.
         assert!(seal_answer(&writer, &decide, &AnswerPlan::default()).is_none());
+    }
+
+    /// EXP-1486 (`sealed-content.json` `answerCases`): the STORED card picks
+    /// the wire. A plaintext plan inside a keyed tree answers in clear (0.14.88
+    /// sealed it and the server refused), a sealed one re-seals, a locked one
+    /// never leaves.
+    #[test]
+    fn the_fixture_answer_cases_pick_the_wire_by_the_stored_card() {
+        struct FixtureKeys(Option<[u8; 32]>);
+        impl Opens for FixtureKeys {
+            fn open_body(&self, _root_id: &str, body: &str) -> OpenedBody {
+                contract::open_body(body, &|epoch| (epoch == 1).then_some(self.0).flatten())
+            }
+            fn open_card(&self, _root_id: &str, card: &Value) -> OpenedCard {
+                contract::open_card(card, &|epoch| (epoch == 1).then_some(self.0).flatten())
+            }
+            fn open_title(&self, _row: &SessionRow) -> Option<String> {
+                None
+            }
+        }
+        let fixture: Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/sealed-content.json")).unwrap();
+        let hex = |text: &str| -> [u8; 32] {
+            let bytes: Vec<u8> = (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect();
+            bytes.try_into().unwrap()
+        };
+        let secret = hex(fixture["tree"]["secret"].as_str().unwrap());
+        let public = contract::public_key_from_b64(fixture["tree"]["publicKey"].as_str().unwrap()).unwrap();
+        let writer = OneTree { key: contract::TreeKey { secret, public }, devices: Mutex::new(Vec::new()) };
+        let splits = fixture["card"]["splits"].as_array().unwrap();
+        let cases = fixture["answerCases"].as_array().unwrap();
+        assert!(cases.len() >= 5);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let stored = match case["stored"]["split"].as_str() {
+                Some(split) => splits.iter().find(|s| s["name"] == split).unwrap()["envelope"].clone(),
+                None => case["stored"].clone(),
+            };
+            let with_key = case["keys"] == "tree";
+            let mut row = MessageRow { id: "m1".into(), root_id: Some("r1".into()), body: Some(String::new()), card: Some(stored), ..MessageRow::default() };
+            Opener::new(Arc::new(FixtureKeys(with_key.then_some(secret)))).open_message(&mut row);
+            let plan = answer_plan_for(&row);
+            let given = &case["input"];
+            let text = |field: &str| given[field].as_str().map(str::to_string);
+            let input = AnswerInput {
+                message_id: "m1".into(),
+                answer: text("answer"),
+                decision: text("decision"),
+                fresh: given["fresh"].as_bool(),
+                feedback: text("feedback"),
+                answers: given.get("answers").cloned(),
+                ..AnswerInput::default()
+            };
+            let wire = answer_wire(Some(&writer), &input, &plan);
+            match case["wire"].as_str().unwrap() {
+                "refused" => assert_eq!(wire, Err(LOCKED_ANSWER.to_string()), "{name}"),
+                "clear" => assert_eq!(wire.as_ref(), Ok(&input), "{name}"),
+                "sealed" => {
+                    let wire = serde_json::to_value(wire.unwrap()).unwrap();
+                    let keys: Vec<&String> = wire.as_object().unwrap().keys().filter(|k| *k != "messageId").collect();
+                    assert!(keys.iter().all(|k| ["sealedCard", "decision", "fresh"].contains(&k.as_str())), "{name}: {keys:?}");
+                    for (field, value) in case["clear"].as_object().unwrap() {
+                        assert_eq!(&wire["sealedCard"][field], value, "{name}: clear {field}");
+                    }
+                    let opened = writer.open_card(&wire["sealedCard"]).card;
+                    for (field, value) in case["opened"].as_object().unwrap() {
+                        assert_eq!(&opened[field], value, "{name}: opened {field}");
+                    }
+                }
+                other => panic!("{name}: unknown wire {other}"),
+            }
+        }
     }
 }

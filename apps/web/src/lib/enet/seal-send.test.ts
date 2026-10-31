@@ -5,6 +5,7 @@ import { b64urlEncode, openBody, openCard, pushPublicKey, unwrapTreeKey } from "
 import { KeyHolder, type SessionKeysApi } from "./key-holder"
 import { sealAnswerInput, sealSendInput, type InstallRow, type SealDeps, type SealSessionRow } from "./seal-send"
 import { memoryTreeKeyStore } from "./tree-key-store"
+import { answeredCard } from "@/lib/sessions/card-answer"
 
 // EXP-1459: what the web sends (contract addenda 1+2 of #EXP-1458):
 // sealed text, `seal` inline for a root the send creates, `sealedName`,
@@ -180,4 +181,40 @@ describe(`sealAnswerInput (escalated stand-in)`, () => {
     const opened = openCard(out.sealedCard, new Map([[2, hex(fixture.rotatedTree.secret)]]))
     expect(opened.card).toMatchObject({ kind: `question`, answer: `SQLite` })
   })
+})
+
+// EXP-1486: the fixture's answer cases end to end: the stored card alone
+// picks the wire, and the server's `answeredCard` accepts every one.
+describe(`sealAnswerInput (fixture answerCases)`, () => {
+  type Card = Record<string, unknown>
+  const storedCard = (stored: Card): Card =>
+    typeof stored.split === `string` ? (fixture.card.splits.find((s) => s.name === stored.split)!.envelope as Card) : stored
+  for (const c of fixture.answerCases as Array<Record<string, unknown> & { name: string; input: Record<string, unknown> }>) {
+    it(c.name, async () => {
+      const card = storedCard(c.stored as Card)
+      let holder: KeyHolder | undefined
+      if (c.keys === `tree`) {
+        holder = holderWith({ mine: async () => [{ rootId: `r1`, epoch: 1, wrapped: fixture.wrap.wrapped }] }).holder
+        await holder.start()
+      }
+      const root = c.keys === `tree` ? keyedRoot : { ...keyedRoot, sealPublicKey: null, sealEpoch: null }
+      const run = () => sealAnswerInput({ card: card as never, rootId: `r1` }, root, c.input as never, holder)
+      if (c.wire === `refused`) {
+        expect(run).toThrow()
+        return
+      }
+      const out = run() as Record<string, unknown>
+      if (c.wire === `clear`) {
+        expect(out).toBe(c.input)
+      } else {
+        const sealedCard = out.sealedCard as Card
+        expect(Object.keys(out).sort()).toEqual([`sealedCard`, ...Object.keys(c.input).filter((k) => k === `decision` || k === `fresh`)].sort())
+        expect(sealedCard).toMatchObject(c.clear as Card)
+        expect(openCard(sealedCard, new Map([[1, hex(fixture.tree.secret)]])).card).toMatchObject(c.opened as Card)
+      }
+      const stamped = answeredCard(card as never, out as never)
+      expect(stamped.ok).toBe(true)
+      expect(stamped.ok && stamped.card).toMatchObject(c.server as Card)
+    })
+  }
 })
