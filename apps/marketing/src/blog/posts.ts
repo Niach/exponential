@@ -6,11 +6,11 @@ import type { ComponentType } from "react"
 import type { PostMeta } from "./types"
 import * as uiAsData from "./ui-as-data-down-to-the-compositor"
 import * as sessionUi from "./session-as-interface"
-import * as agentSeats from "./agents-get-their-own-seat"
+import * as exponentialOs from "./exponentialos"
 
 export type BlogPost = { meta: PostMeta; Post: ComponentType }
 
-const POSTS: BlogPost[] = [agentSeats, uiAsData, sessionUi].map((m) => ({ meta: m.meta, Post: m.Post }))
+const POSTS: BlogPost[] = [exponentialOs, uiAsData, sessionUi].map((m) => ({ meta: m.meta, Post: m.Post }))
 
 export const BLOG_POSTS: BlogPost[] = [...POSTS].sort((a, b) => (a.meta.date < b.meta.date ? 1 : a.meta.date > b.meta.date ? -1 : 0))
 

@@ -48,7 +48,7 @@ export const EXPENSE_SURFACE: Nested = {
   ],
 }
 
-/** "Agents get their own seat": the desktop's agent chat (Super+Space), one
+/** "ExponentialOS": the desktop's agent chat (Super+Space), one
  *  request done in the background, written as a core-catalog tree. */
 export const DESKTOP_CHAT_SURFACE: Nested = {
   id: `root`,

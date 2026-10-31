@@ -3,7 +3,56 @@
    (sd-*), the agent that manages agents (oa-*) and an agent editing the
    desktop's own UI (ue-*). Drawn in HTML and CSS with CSS-only
    motion (styles/blog-agent-desktop.css), one loop per figure. */
-import { Bot, Calendar, Code, FileText, Folder, Gamepad2, Globe, Keyboard, MessageSquare, Mic, Monitor, MousePointer2, Search, TriangleAlert, Wifi } from "lucide-react"
+import { Bot, Calendar, Code, Cpu, FileText, Folder, Gamepad2, Globe, HardDrive, Keyboard, MessageSquare, Mic, Monitor, MousePointer2, Network, Package, Search, Settings, TriangleAlert, Usb, Wifi } from "lucide-react"
+
+/* ── 0. The whole system: one request walks the layers ── */
+
+type Part = { name: string; note?: string; step?: number }
+const LAYERS: { label: string; tone?: string; parts: Part[] }[] = [
+  { label: `you`, parts: [{ name: `“put my September payouts in the tax folder”`, note: `voice or text`, step: 1 }] },
+  { label: `apps`, parts: [{ name: `desktop`, note: `eUI shell` }, { name: `eUI apps` }, { name: `Linux apps`, note: `Wayland · X11` }] },
+  {
+    label: `libraries`,
+    parts: [
+      { name: `eTalk`, note: `voice`, step: 2 },
+      { name: `eAgent`, note: `agents`, step: 3 },
+      { name: `ePilot`, note: `computer use`, step: 5 },
+      { name: `eUI`, note: `screens` },
+      { name: `eNet`, note: `devices` },
+    ],
+  },
+  { label: `glue`, tone: `glue`, parts: [{ name: `eMCP`, note: `tools · grants · audit`, step: 4 }, { name: `eCore`, note: `shared types` }] },
+  { label: `services`, parts: [{ name: `files` }, { name: `network` }, { name: `packages` }, { name: `settings` }, { name: `devices` }] },
+  { label: `compositor`, tone: `comp`, parts: [{ name: `seats`, note: `yours + one per agent`, step: 6 }, { name: `spaces` }, { name: `scene tree` }] },
+  { label: `Linux`, tone: `base`, parts: [{ name: `kernel` }, { name: `drivers` }, { name: `systemd` }] },
+]
+
+const SERVICE_ICON: Record<string, typeof Folder> = { files: Folder, network: Network, packages: Package, settings: Settings, devices: Usb, kernel: Cpu, drivers: HardDrive }
+
+export function OsStack() {
+  return (
+    <div className="os" role="img" aria-label="ExponentialOS as layers: you; apps (the desktop, eUI apps, Linux apps); libraries (eTalk, eAgent, ePilot, eUI, eNet); the glue (eMCP and eCore); system services as MCP servers (files, network, packages, settings, devices); the compositor (seats, spaces, the scene tree); Linux. A spoken request walks from you through eTalk and eAgent, through eMCP to ePilot, and lands in an agent's own seat in the compositor">
+      {LAYERS.map((layer) => (
+        <div key={layer.label} className={`os-layer${layer.tone ? ` os-layer--${layer.tone}` : ``}`}>
+          <span className="os-label">{layer.label}</span>
+          <span className="os-parts">
+            {layer.parts.map((part) => {
+              const Icon = SERVICE_ICON[part.name]
+              return (
+                <span key={part.name} className={`os-part${part.step ? ` os-step os-step--${part.step}` : ``}`}>
+                  {Icon ? <Icon size={11} /> : null}
+                  <b>{part.name}</b>
+                  {part.note ? <em>{part.note}</em> : null}
+                  {part.step ? <i className="os-num">{part.step}</i> : null}
+                </span>
+              )
+            })}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 /* ── 1. Seats: your input and an agent's never share a route ── */
 
