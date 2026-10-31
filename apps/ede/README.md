@@ -28,8 +28,9 @@ is focused there, not necessarily eDE: script input against a private
 cargo run -- doctor
 ```
 
-Checks the GPU render nodes, Xwayland (24.1+ has explicit sync; older
-versions flicker with X11 games on NVIDIA), and on NVIDIA that
+Checks the GPU render nodes, Xwayland (the binary the compositor will run
+and its version: 24.1+ has explicit sync; older versions flicker with X11
+games on NVIDIA), and on NVIDIA that
 `nvidia-drm.modeset` is on (the parameter, the kernel command line, or the
 driver default from 560).
 
@@ -64,6 +65,21 @@ the other display server owns the GPU. The login screen entry is
 apps/ede/packaging/build-deb.sh          # → apps/ede/target-deb/ede_<version>_amd64.deb
 sudo apt install ./apps/ede/target-deb/ede_*_amd64.deb
 ```
+
+The .deb bundles Xwayland 24.1 at `/usr/lib/ede/bin/Xwayland`, because
+Mint 22 / Ubuntu noble ships 23.2.6, which has no explicit sync.
+`packaging/xwayland/build.sh` builds it: a pinned, sha256-checked tarball,
+built with meson against noble's own libraries. It runs in an
+`ubuntu:24.04` container when the host has no meson, and the result is
+reused until the script changes. The compositor puts `/usr/lib/ede/bin`
+first on Xwayland's `PATH`. `--no-xwayland` skips the bundled build (quick
+local builds) and depends on the distro's `xwayland`. CI: `build-ede.yml`
+(`ede-v*` tags, by hand, PRs that touch `packaging/`).
+
+Check on the real machine after installing: `ede-compositor doctor` shows
+`ok Xwayland /usr/lib/ede/bin/Xwayland 24.1.x, explicit sync`. In the
+session, an X11 game (Steam/Proton) on NVIDIA no longer flickers, and
+`pgrep -a Xwayland` shows `/usr/lib/ede/bin/Xwayland`.
 
 Log out; LightDM's session menu now has **Exponential** and **Exponential
 (safe mode)** next to Cinnamon. Safe mode starts with the stock settings

@@ -44,7 +44,9 @@ impl Ede {
                 tracing::warn!("{}: {e}", dir.display());
             }
         }
-        let spawned = XWayland::spawn(&self.display_handle, None, std::iter::empty::<(String, String)>(), true, Stdio::null(), Stdio::inherit(), |_| ());
+        // smithay runs `Xwayland` from PATH: the .deb's own 24.1+ goes first.
+        let path = crate::doctor::xwayland_search_path(std::env::var_os("PATH").as_deref(), std::path::Path::new(crate::doctor::BUNDLED_XWAYLAND_DIR));
+        let spawned = XWayland::spawn(&self.display_handle, None, [("PATH", path)], true, Stdio::null(), Stdio::inherit(), |_| ());
         let (xwayland, client) = match spawned {
             Ok(x) => x,
             Err(e) => {
