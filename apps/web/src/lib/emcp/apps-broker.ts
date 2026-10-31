@@ -49,7 +49,7 @@ import {
 } from "@exp/emcp/exposes"
 import { UPSTREAM_ERRORS } from "@exp/emcp/upstream"
 import { db } from "@/db/connection"
-import { appRecords, apps, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
+import { appAccess, appRecords, apps, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
 import type { EmcpCaller, ServeOptions, ToolProvider } from "@/lib/emcp/gate"
 import { resolveMcpToolGates } from "@/lib/emcp/gates"
 import { jsonResponse } from "@/lib/emcp/helpers"
@@ -146,13 +146,22 @@ function actionListable(app: BrokerApp, action: string): boolean {
   return actionGrantable(action) && app.grantedTools.includes(action)
 }
 
-/** The tools a grant shows, in listing order (apps by slug). `policyOf` =
- * the member × app policy rows (Settings › MCP Access, #VAPP-183); none =
- * Full. */
+/** The member's policy rows in a team (Settings › MCP Access, #VAPP-183):
+ * app id → level; an app without a row is Full (`memberPolicy`). */
+export async function memberPolicies(userId: string, teamId: string): Promise<Map<string, Level>> {
+  const rows = await db
+    .select({ appId: appAccess.appId, level: appAccess.level })
+    .from(appAccess)
+    .where(and(eq(appAccess.teamId, teamId), eq(appAccess.userId, userId)))
+  return new Map(rows.map((r) => [r.appId, r.level as Level]))
+}
+
+/** The tools a grant shows, in listing order (apps by slug), filtered by
+ * the member's policy (#VAPP-183) and without the tools an owner switched
+ * off. */
 export async function brokerTools(
   userId: string,
-  grant: Grant,
-  policyOf: (appId: string) => Level | null = () => null
+  grant: Grant
 ): Promise<{ teamId: string; teamSlug: string; tools: BrokerTool[] }> {
   const teamId = grant.teamIds[0]!
   const [team] = await db.select({ slug: teams.slug }).from(teams).where(eq(teams.id, teamId)).limit(1)
@@ -162,10 +171,21 @@ export async function brokerTools(
     .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
     .limit(1)
   const rows = await db
-    .select({ id: apps.id, slug: apps.slug, name: apps.name, icon: apps.icon, color: apps.color, teamId: apps.teamId, package: apps.package, grantedTools: apps.grantedTools })
+    .select({
+      id: apps.id,
+      slug: apps.slug,
+      name: apps.name,
+      icon: apps.icon,
+      color: apps.color,
+      teamId: apps.teamId,
+      package: apps.package,
+      grantedTools: apps.grantedTools,
+      disabledTools: apps.mcpDisabledTools,
+    })
     .from(apps)
     .where(and(eq(apps.teamId, teamId), isNull(apps.deletedAt)))
-  const listed: { app: BrokerApp; exposes: Expose[] }[] = []
+  const policies = await memberPolicies(userId, teamId)
+  const listed: { app: BrokerApp; exposes: Expose[]; disabled: Set<string> }[] = []
   for (const row of rows) {
     const pkg = (row.package ?? {}) as { exposes?: unknown; records?: Record<string, unknown>; upstreams?: unknown }
     if (!Array.isArray(pkg.exposes) || pkg.exposes.length === 0) continue
@@ -175,10 +195,11 @@ export async function brokerTools(
     // row) is simply not offered.
     const broken = new Set(validateExposes(exposes, { kinds: Object.keys(pkg.records ?? {}), upstreams }).map((e) => e.index))
     if (broken.has(null)) continue
-    const level = effectiveAccess({ grant, appId: row.id, teamId: row.teamId, appDeleted: false, role: member?.role ?? null, policy: policyOf(row.id) })
+    const level = effectiveAccess({ grant, appId: row.id, teamId: row.teamId, appDeleted: false, role: member?.role ?? null, policy: policies.get(row.id) ?? null })
     listed.push({
       app: { id: row.id, slug: row.slug, name: row.name, icon: row.icon, color: row.color, teamId: row.teamId, grantedTools: row.grantedTools, upstreams, level },
       exposes: exposes.filter((_, i) => !broken.has(i)),
+      disabled: new Set(row.disabledTools),
     })
   }
   // Names over every offered binding (stable whatever this caller sees),
@@ -188,6 +209,7 @@ export async function brokerTools(
   for (const named of listToolNames(listed.map((l) => ({ slug: l.app.slug, exposes: l.exposes })))) {
     const entry = bySlug.get(named.app)!
     const expose = entry.exposes.find((e) => e.name === named.tool)!
+    if (entry.disabled.has(expose.name)) continue
     if (!toolVisible(entry.app.level, expose.access)) continue
     if (runVia(expose.run) === `action` && !actionListable(entry.app, (expose.run as ActionRun).action)) continue
     tools.push({ name: named.name, app: entry.app, expose })

@@ -5,7 +5,7 @@
 // member's own connection to each), plus the member's cap from the access
 // policy. `grantApps` writes the `apps` row of `mcp_grants`.
 import { and, asc, eq, inArray } from "drizzle-orm"
-import { type GrantAccess } from "@exp/emcp/access"
+import { type GrantAccess, type Level } from "@exp/emcp/access"
 import type { UpstreamState } from "@exp/emcp/upstream"
 import { db } from "@/db/connection"
 import { mcpCredentials, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
@@ -37,6 +37,9 @@ export interface ConsentApp {
   icon: string | null
   color: string | null
   toolCount: number
+  /** The member's policy for the app (#VAPP-183): `read` caps the grant at
+   * Read only. */
+  level: Level
   upstreams: ConsentUpstream[]
 }
 
@@ -94,7 +97,7 @@ export async function appsConsentTree(userId: string): Promise<ConsentTeam[]> {
         const status = connectionFor(server, credentialOf.get(server.id)).status
         return { name, serverId: server.id, auth: server.auth, state: upstreamState(status) }
       })
-      byApp.set(tool.app.id, { id: tool.app.id, slug: tool.app.slug, name: tool.app.name, icon: tool.app.icon, color: tool.app.color, toolCount: 1, upstreams })
+      byApp.set(tool.app.id, { id: tool.app.id, slug: tool.app.slug, name: tool.app.name, icon: tool.app.icon, color: tool.app.color, toolCount: 1, level: tool.app.level, upstreams })
     }
     out.push({ ...team, apps: [...byApp.values()].sort((a, b) => a.name.localeCompare(b.name)) })
   }
