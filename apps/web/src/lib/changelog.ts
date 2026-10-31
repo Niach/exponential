@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-31-plan-page`,
+    date: `2026-10-31`,
+    title: `Plans get their own page`,
+    summary: `A plan opens full screen with an outline and its pictures, and stories show one card per plan or result.`,
+    body: `- **Plan page**: open a plan from its card, a story or the inbox to read it full screen, with an outline to jump between sections, its pictures in a grid or carousel, and the questions beside it.
+- **Calmer stories**: every story is one card: a plan shows its cover and an "Open plan" button, a result shows its pictures as a carousel. Each card has a Plan, Question or Result badge.
+- **Ring order**: stories waiting for you come first, then the rest, newest first. A session's newer result replaces its older ones.`,
+  },
+  {
     id: `2026-10-31-steer-flicker`,
     date: `2026-10-31`,
     title: `The live view stops flickering`,
