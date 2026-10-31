@@ -40,7 +40,8 @@ mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
 // candidates + picker are shared with the New agent dialog.
 pub(crate) mod agent_detail;
-mod app_detail;
+// VAPP-177: the app editor's Settings tab (rendered by the app screen).
+pub(crate) mod app_detail;
 mod new_agent;
 mod agents;
 mod agents_index;
@@ -231,8 +232,9 @@ pub(crate) enum SettingsSection {
     /// VAPP-110: the Apps index (the Agents index's twin): the list band.
     /// The Apps group's LABEL opens it. Member-visible.
     Apps,
-    /// VAPP-110: one app's settings page (identity, description, Delete);
-    /// the payload is the `apps` row id. The creator's and the owners'.
+    /// VAPP-110: one app's settings (the payload is the `apps` row id or a
+    /// slug). VAPP-177: no page of its own any more: selecting it opens the
+    /// app's EDITOR on its Settings tab (the dev `app:<slug>` drive).
     App(String),
     /// NEW-6: the team's saved prompts (web `settings/prompts`) — the
     /// Agents group's Prompts entry. Member-visible (members read them);
@@ -652,9 +654,9 @@ pub struct SettingsView {
     new_agent: Option<(String, Entity<NewAgentPane>)>,
     /// NEW-6: the Agents index (the agents + the Events band).
     agents_index: Entity<agents_index::AgentsIndexPane>,
-    /// VAPP-110: the Apps index and ONE per-app page (the agents' twins).
+    /// VAPP-110: the Apps index (the agents' twin). VAPP-177: one app's
+    /// settings are its editor's Settings tab.
     apps_index: Entity<crate::apps_view::AppsIndexPane>,
-    app_detail: Entity<app_detail::AppDetailPane>,
     /// NEW-6: the Prompts list (live off the synced `prompts` shape).
     prompts: Entity<PromptsPane>,
     /// NEW-6: the open prompt page, keyed by its prompt id (`new:<team>` in
@@ -723,7 +725,6 @@ impl SettingsView {
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let apps_index = cx.new(|cx| crate::apps_view::AppsIndexPane::new(nav.clone(), cx));
-        let app_detail = cx.new(|cx| app_detail::AppDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
         let mcp_servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
@@ -768,7 +769,6 @@ impl SettingsView {
             new_agent: None,
             agents_index,
             apps_index,
-            app_detail,
             prompts,
             prompt_page: None,
             repositories,
@@ -931,7 +931,26 @@ impl Render for SettingsView {
             }
             SettingsSection::Agents => self.agents_index.clone().into_any_element(),
             SettingsSection::Apps => self.apps_index.clone().into_any_element(),
-            SettingsSection::App(_) => self.app_detail.clone().into_any_element(),
+            // VAPP-177: an app's settings = its editor's Settings tab (the
+            // web's redirect): the selection resolved to a synced app hands
+            // over to the editor (replace) and Settings falls back to the
+            // Apps index; until the apps sync, nothing.
+            SettingsSection::App(id) => {
+                let team_id = active_team_id(&self.nav, cx);
+                if let Some(app) = crate::apps_view::find_app(id, team_id.as_deref(), cx) {
+                    cx.defer_in(window, move |_, window, cx| {
+                        select_settings_section(window, cx, SettingsSection::Apps);
+                        crate::app_screen::open_app_tab(
+                            window,
+                            cx,
+                            app.id,
+                            domain::apps::EditorTab::Settings,
+                            true,
+                        );
+                    });
+                }
+                div().into_any_element()
+            }
             SettingsSection::Prompts => self.prompts.clone().into_any_element(),
             SettingsSection::NewPrompt => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
@@ -1226,19 +1245,24 @@ impl Render for SettingsNavPanel {
                         })),
                 );
                 for app in &apps {
-                    let section = SettingsSection::App(app.id.clone());
-                    let selected = section == effective;
+                    let app_id = app.id.clone();
                     list = list.child(
                         Self::row(
                             SharedString::from(format!("settings-nav-app-{}", app.id)),
                             app.name.clone(),
                             Some(app.icon()),
-                            selected,
+                            false,
                             cx,
                         )
                         .on_click(cx.listener(move |_, _, window, cx| {
-                            select_settings_section(window, cx, section.clone());
-                            navigate(window, cx, Screen::Settings);
+                            // VAPP-177: the app's editor on its Settings tab.
+                            crate::app_screen::open_app_tab(
+                                window,
+                                cx,
+                                app_id.clone(),
+                                domain::apps::EditorTab::Settings,
+                                false,
+                            );
                         })),
                     );
                 }

@@ -24,6 +24,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.theme.glassGroup
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -100,24 +109,27 @@ import com.exponential.app.ui.thread.clockTime
 import com.exponential.app.ui.work.WorkTopBar
 import dev.chrisbanes.haze.rememberHazeState
 
-// VAPP-110 (fixtures/apps.json, web `components/apps/app-editor.tsx`): THE
-// EDITOR on a phone = the header (glyph + name + the version pill) with the
-// Chat | Preview | Versions segmented control under it, and ONE pane. Chat =
-// the member's EDITOR SESSION (the agent channel's rows + THE composer; none
-// yet = the empty chat whose first send opens it); Preview = the head
-// package's first template through the app host; Versions = newest first,
-// a row previews that version (Restore = a new head). Leaving the editor ENDS
-// the live editor session; the next send continues it. VAPP-176: a DRAFT
-// (no version yet) opens on Chat with the starters and the composer focused;
-// leaving an empty draft discards it. The route keys the app by ID, so a
-// draft's slug following its new name changes nothing here.
+// VAPP-110 / VAPP-177 (fixtures/apps.json THE EDITOR + PHONES, web
+// `components/apps/app-editor.tsx`): THE EDITOR on a phone = the header
+// (glyph + name + the version pill + the trailing `…` menu: Versions with its
+// count, Settings, Export once there is a version, Delete app for the creator
+// or an owner) with the Chat | Preview segmented control under it, and ONE
+// pane. Chat = the member's EDITOR SESSION (the agent channel's rows + THE
+// composer; none yet = the empty chat whose first send opens it); Preview =
+// the head package's first template through the app host. Versions and
+// Settings open THE SAME bodies as the wide tabs, as sheets titled by the
+// item: a Versions row's Preview closes the sheet onto the Preview tab with
+// the viewing banner, Restore = a new head. Leaving the editor ENDS the live
+// editor session; the next send continues it. VAPP-176: a DRAFT (no version
+// yet) opens on Chat with the starters and the composer focused; leaving an
+// empty draft discards it. The route keys the app by ID, so a draft's slug
+// following its new name changes nothing here.
 
-private enum class EditorTab { Chat, Preview, Versions }
+private enum class EditorTab(val id: String) { Chat(Apps.EditorTabs.CHAT), Preview(Apps.EditorTabs.PREVIEW) }
 
 private fun tabLabel(tab: EditorTab) = when (tab) {
     EditorTab.Chat -> Apps.Copy.TAB_CHAT
     EditorTab.Preview -> Apps.Copy.TAB_PREVIEW
-    EditorTab.Versions -> Apps.Copy.TAB_VERSIONS
 }
 
 @Composable
@@ -135,9 +147,14 @@ fun AppEditorScreen(
     val restoring by viewModel.restoring.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     val me by viewModel.me.collectAsStateWithLifecycle()
+    val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
+    val deleting by viewModel.deleting.collectAsStateWithLifecycle()
     val toastLine by viewModel.toast.collectAsStateWithLifecycle()
     val records by viewModel.records.collectAsStateWithLifecycle()
     var exportOpen by rememberSaveable { mutableStateOf(false) }
+    var deleteOpen by rememberSaveable { mutableStateOf(false) }
+    // VAPP-177: the `…` menu's sheet (`versions` / `settings`), null = none.
+    var sheet by rememberSaveable { mutableStateOf(viewModel.initialTab.sheet) }
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     val toaster = LocalToaster.current
     LaunchedEffect(toastLine) {
@@ -153,8 +170,11 @@ fun AppEditorScreen(
         onDispose { if (activity?.isChangingConfigurations != true) viewModel.leave() }
     }
 
-    var tab by rememberSaveable { mutableStateOf(EditorTab.Chat) }
+    var tab by rememberSaveable {
+        mutableStateOf(EditorTab.entries.firstOrNull { it.id == viewModel.initialTab.tab } ?: EditorTab.Chat)
+    }
     val entry = app
+    val canManage = entry != null && (isOwner || (me != null && entry.createdBy == me))
     CompositionLocalProvider(LocalDetailHaze provides rememberHazeState()) {
         Scaffold(
             containerColor = Color.Transparent,
@@ -180,16 +200,17 @@ fun AppEditorScreen(
                     verb = null,
                     verbEnabled = false,
                     onVerb = {},
-                    // VAPP-121: Export = the header's trailing round button
-                    // (web phones' `app-editor-export`), once there is a version.
-                    menu = if (entry != null && entry.headVersion > 0) {
+                    // VAPP-177: the header's trailing `…` (`editorTabs.menu`).
+                    menu = if (entry != null) {
                         {
-                            CircleIconButton(
-                                ExpIcons.uiShare,
-                                contentDescription = AppExport.Copy.EXPORT,
-                                onClick = { exportOpen = true },
-                                glyphSize = 16.dp,
-                                modifier = Modifier.padding(end = 8.dp).testTag("app-editor-export"),
+                            AppEditorMenu(
+                                versionCount = versions.size,
+                                canExport = entry.headVersion > 0,
+                                canDelete = canManage,
+                                onVersions = { sheet = Apps.EditorTabs.VERSIONS },
+                                onSettings = { sheet = Apps.EditorTabs.SETTINGS },
+                                onExport = { exportOpen = true },
+                                onDelete = { deleteOpen = true },
                             )
                         }
                     } else {
@@ -201,7 +222,7 @@ fun AppEditorScreen(
                             selected = tab,
                             label = ::tabLabel,
                             onSelect = { tab = it },
-                            testTag = { "app-editor-tab-${it.name.lowercase()}" },
+                            testTag = { "app-editor-tab-${it.id}" },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -237,26 +258,147 @@ fun AppEditorScreen(
                     me = me,
                     modifier = Modifier.padding(padding),
                 )
-                EditorTab.Versions -> AppVersionsList(
+            }
+        }
+    }
+    if (entry != null) {
+        when (sheet) {
+            Apps.EditorTabs.VERSIONS -> GlassSheet(title = Apps.Copy.MENU_VERSIONS, onDismiss = { sheet = null }) {
+                AppVersionsList(
                     versions = versions,
                     head = entry.headVersion,
-                    viewing = viewing?.number,
                     users = users,
-                    onPick = { number ->
+                    restoring = restoring,
+                    onPreview = { number ->
                         viewModel.pick(number)
+                        sheet = null
                         tab = EditorTab.Preview
                     },
+                    onRestore = viewModel::restoreVersion,
                     modifier = Modifier
-                        .padding(padding)
-                        .fillMaxSize()
+                        .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            Apps.EditorTabs.SETTINGS -> GlassSheet(title = Apps.Copy.MENU_SETTINGS, onDismiss = { sheet = null }) {
+                AppSettingsBody(
+                    app = entry,
+                    viewModel = viewModel,
+                    records = records.size,
+                    canManage = canManage,
+                    canGrant = isOwner,
+                    onExport = {
+                        // One sheet at a time: Export replaces Settings.
+                        sheet = null
+                        exportOpen = true
+                    },
+                    onDelete = { deleteOpen = true },
                 )
             }
         }
     }
     if (exportOpen && entry != null) {
         AppExportSheet(app = entry, records = records, onDismiss = { exportOpen = false })
+    }
+    if (deleteOpen && entry != null) {
+        GlassAlert(
+            title = Apps.deleteTitle(entry.name),
+            body = Apps.Copy.DELETE_BODY,
+            onDismiss = { if (!deleting) deleteOpen = false },
+            trailing = listOf(
+                GlassAlertAction("Cancel", onClick = { deleteOpen = false }),
+                GlassAlertAction(
+                    Apps.Copy.DELETE,
+                    destructive = true,
+                    loading = deleting,
+                    testTag = "app-delete-confirm",
+                    onClick = {
+                        viewModel.delete {
+                            deleteOpen = false
+                            sheet = null
+                            onBack()
+                        }
+                    },
+                ),
+            ),
+            defaultAction = 0,
+        )
+    }
+}
+
+/** VAPP-177: the phone header's `…` (`editorTabs.menu`): Versions (the
+ *  count as trailing meta), Settings, Export (a version exists), Delete app
+ *  (destructive; the creator or an owner). */
+@Composable
+private fun AppEditorMenu(
+    versionCount: Int,
+    canExport: Boolean,
+    canDelete: Boolean,
+    onVersions: () -> Unit,
+    onSettings: () -> Unit,
+    onExport: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Box {
+        CircleIconButton(
+            ExpIcons.uiMore,
+            contentDescription = "App actions",
+            onClick = { open = true },
+            borderless = true,
+            modifier = Modifier.padding(end = 8.dp).testTag(Apps.TestIds.MENU),
+        )
+        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            GlassMenuItem(
+                leadingIcon = { Icon(ExpIcons.uiHistory, contentDescription = null) },
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(Apps.Copy.MENU_VERSIONS, modifier = Modifier.weight(1f, fill = false))
+                        Spacer(Modifier.width(16.dp))
+                        Text(versionCount.toString(), color = muted)
+                    }
+                },
+                onClick = {
+                    open = false
+                    onVersions()
+                },
+                modifier = Modifier.testTag("app-editor-menu-versions"),
+            )
+            GlassMenuItem(
+                leadingIcon = { Icon(ExpIcons.navSettings, contentDescription = null) },
+                text = { Text(Apps.Copy.MENU_SETTINGS) },
+                onClick = {
+                    open = false
+                    onSettings()
+                },
+                modifier = Modifier.testTag("app-editor-menu-settings"),
+            )
+            if (canExport) {
+                GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
+                    text = { Text(Apps.Copy.MENU_EXPORT) },
+                    onClick = {
+                        open = false
+                        onExport()
+                    },
+                    modifier = Modifier.testTag("app-editor-export"),
+                )
+            }
+            if (canDelete) {
+                GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
+                    text = { Text(Apps.Copy.MENU_DELETE) },
+                    destructive = true,
+                    onClick = {
+                        open = false
+                        onDelete()
+                    },
+                    modifier = Modifier.testTag("app-editor-delete"),
+                )
+            }
+        }
     }
 }
 
@@ -365,14 +507,17 @@ private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit
     AppConsentCard(consent)
 }
 
-/** The Versions list: newest first, the head marked, a row previews it. */
+/** VERSIONS (VAPP-177): ONE grouped list, newest first: the `v{n}` pill +
+ *  the note over a muted `who · when`; the head row carries `Current`, every
+ *  other row a ghost Preview + an outlined Restore. */
 @Composable
 private fun AppVersionsList(
     versions: List<AppVersionEntity>,
     head: Int,
-    viewing: Int?,
     users: Map<String, UserEntity>,
-    onPick: (Int) -> Unit,
+    restoring: Boolean,
+    onPreview: (Int) -> Unit,
+    onRestore: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.testTag(Apps.TestIds.VERSIONS)) {
@@ -381,48 +526,62 @@ private fun AppVersionsList(
             return@Column
         }
         val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-        versions.forEach { version ->
-            val number = version.number ?: 0
-            val author = version.createdBy?.let { users[it] }
-            val active = if (viewing == null) number == head else viewing == number
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("${Apps.TestIds.VERSION_ROW}-$number")
-                    .flatRow(active = active)
-                    .clickable { onPick(number) }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Text(
-                    Apps.versionLabel(number),
-                    fontWeight = FontWeight.Medium,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.width(40.dp),
-                )
-                Text(
-                    version.note?.trim()?.takeIf { it.isNotEmpty() } ?: Apps.Copy.NO_NOTE,
-                    color = muted,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (number == head) GlassPill(Apps.Copy.HEAD, size = PillSize.Sm)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (author != null) UserAvatar(author, author.name, size = 16.dp)
-                    Text(
-                        listOfNotNull(
-                            author?.let { userDisplayName(it, it.id) } ?: Apps.Copy.BY_AGENT,
-                            WireTimestamps.parseEpochMs(version.createdAt)?.let { userMessageTime(it) },
-                        ).joinToString(" · "),
-                        color = muted,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 140.dp),
-                    )
+        Column(Modifier.fillMaxWidth().glassGroup()) {
+            versions.forEachIndexed { index, version ->
+                if (index > 0) GroupDivider()
+                val number = version.number ?: 0
+                val author = version.createdBy?.let { users[it] }
+                val note = version.note?.trim()?.takeIf { it.isNotEmpty() }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("${Apps.TestIds.VERSION_ROW}-$number")
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    GlassPill(Apps.versionLabel(number), size = PillSize.Sm)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            note ?: Apps.Copy.NO_NOTE,
+                            color = if (note == null) muted else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            listOfNotNull(
+                                author?.let { userDisplayName(it, it.id) } ?: Apps.Copy.BY_AGENT,
+                                version.createdAt?.let { relativeTime(it) }?.takeIf { it.isNotEmpty() },
+                            ).joinToString(" · "),
+                            color = muted,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (number == head) {
+                        GlassPill(Apps.Copy.HEAD, size = PillSize.Sm)
+                    } else {
+                        Text(
+                            Apps.Copy.PREVIEW,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = muted,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(GlassTokens.RowRadius))
+                                .clickable { onPreview(number) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                .testTag(Apps.TestIds.VERSION_PREVIEW),
+                        )
+                        GlassPill(
+                            Apps.Copy.RESTORE,
+                            size = PillSize.Sm,
+                            onClick = { onRestore(number) },
+                            enabled = !restoring,
+                            modifier = Modifier.testTag(Apps.TestIds.VERSION_RESTORE),
+                        )
+                    }
                 }
             }
         }

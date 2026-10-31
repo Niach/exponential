@@ -209,13 +209,14 @@ export function SettingsSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
         )
-      // VAPP-110: the team's apps + "New app".
+      // VAPP-110: the team's apps + "New app". VAPP-177: an app opens its
+      // editor on the Settings tab.
       case `@apps`:
         if (!permissions.isMember) return null
         return apps.map((app) => (
           <SidebarMenuItem key={app.id}>
             <SidebarMenuButton asChild>
-              <Link to="/t/$teamSlug/settings/apps/$appId" params={{ teamSlug, appId: app.id }}>
+              <Link to="/t/$teamSlug/apps/$appSlug" params={{ teamSlug, appSlug: app.slug }} search={{ tab: `settings` }}>
                 <BoardGlyph board={{ icon: app.icon, color: app.color }} />
                 <span>{app.name}</span>
               </Link>

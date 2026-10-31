@@ -1,9 +1,12 @@
-//! VAPP-110: Settings → Apps → one app (web `app-settings-page.tsx`, the
-//! agent page's layout): the board form's identity row (icon + colour +
-//! name: icon and colour save at once, the name on blur / Enter), the
-//! description card (saved on blur), then Open in the editor, the version
-//! pill, Export (VAPP-121, once there is a version) and "Delete app" (the creator or an owner). Everyone else reads the
-//! page. VAPP-120: under the records line, the Tools group: one row per
+//! VAPP-110 / VAPP-177: one app's SETTINGS TAB (apps.json THE SETTINGS TAB,
+//! web `app-settings-tab.tsx`), rendered by the app editor
+//! ([`crate::app_screen::AppScreenView`]) on its Settings tab: the board
+//! form's identity row (icon + colour + name: icon and colour save at once,
+//! the name on blur / Enter), the description card (saved on blur), the
+//! records line, the Tools group, then Export (VAPP-121, once there is a
+//! version) and "Delete app" (the creator or an owner; it leaves for the
+//! Apps list), at most `editorTabs.settingsMaxWidth` px wide. Everyone else
+//! reads the tab. VAPP-120: under the records line, the Tools group: one row per
 //! typed action the head package declares, its title, the function name
 //! muted and a switch = the app's grant (`apps.granted_tools`). VAPP-176:
 //! no create mode (New app = a draft and its editor).
@@ -24,12 +27,11 @@ use domain::app_actions::{action_grantable, action_title, can_grant_actions, dec
 use domain::apps::{APPS, APPS_CAPS};
 use domain::rows::AppRow;
 
-use super::{section, SettingsSection};
+use super::section;
 use crate::apps_view::AppEntry;
 use crate::controls::{glass_input, WebControl as _};
 use crate::icons::registry;
-use crate::navigation::{active_team_id, navigate, Navigation, Screen};
-use crate::sidebar::{select_settings_section, RailShared};
+use crate::navigation::{navigate, Screen};
 
 /// The web form's defaults (an app saved without an icon or a colour).
 const DEFAULT_ICON: &str = "puzzle";
@@ -95,8 +97,8 @@ pub(crate) fn toggled_grants(granted: &[String], name: &str, on: bool) -> Vec<St
 }
 
 pub struct AppDetailPane {
-    nav: Entity<Navigation>,
-    shared: Entity<RailShared>,
+    /// The `apps` row id this tab edits.
+    app_id: String,
     name_input: Entity<InputState>,
     description: Entity<TextareaState>,
     /// The app id the inputs were seeded for.
@@ -111,12 +113,7 @@ pub struct AppDetailPane {
 }
 
 impl AppDetailPane {
-    pub fn new(
-        nav: Entity<Navigation>,
-        shared: Entity<RailShared>,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Self {
+    pub fn new(app_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let copy = &APPS.copy;
         let name_input = cx.new(|cx| InputState::new(window, cx).placeholder(copy.name_placeholder.clone()));
         let description = cx.new(|cx| {
@@ -124,7 +121,6 @@ impl AppDetailPane {
         });
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
-            cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&collections.apps, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.app_records, |_, _, cx| cx.notify()),
@@ -141,8 +137,7 @@ impl AppDetailPane {
             }),
         ];
         Self {
-            nav,
-            shared,
+            app_id,
             name_input,
             description,
             loaded: None,
@@ -153,17 +148,9 @@ impl AppDetailPane {
         }
     }
 
-    /// The app id on show (`None` = not an app page).
-    fn page(&self, cx: &App) -> Option<String> {
-        match self.shared.read(cx).settings_section() {
-            // The dev `app:<slug>` seed names a slug: resolve it to the id.
-            SettingsSection::App(id) => Some(
-                crate::apps_view::find_app(&id, active_team_id(&self.nav, cx).as_deref(), cx)
-                    .map(|app| app.id)
-                    .unwrap_or(id),
-            ),
-            _ => None,
-        }
+    /// The app id on show.
+    fn page(&self) -> Option<String> {
+        Some(self.app_id.clone())
     }
 
     fn loaded_row(&self, cx: &App) -> Option<AppRow> {
@@ -403,7 +390,7 @@ impl AppDetailPane {
 
 impl Render for AppDetailPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let Some(page) = self.page(cx) else {
+        let Some(page) = self.page() else {
             return v_flex().into_any_element();
         };
         // The nav clamps a stale App(id) selection away before this pane
@@ -415,7 +402,6 @@ impl Render for AppDetailPane {
         let manage = self.can_manage(&row, cx);
         let copy = &APPS.copy;
         let entry = AppEntry::from_row(&row);
-        let open = row.id.clone();
         let export_id = row.id.clone();
         let (delete_id, delete_name) = (row.id.clone(), row.name.clone());
         let actions = h_flex()
@@ -423,16 +409,6 @@ impl Render for AppDetailPane {
             .flex_wrap()
             .items_center()
             .gap_2()
-            .child(
-                Button::new("app-open-editor")
-                    .outline()
-                    .cursor_pointer()
-                    .web_sm()
-                    .icon(Icon::new(registry::NAV_APPS).small())
-                    .label(copy.open_editor.clone())
-                    .on_click(move |_, window, cx| navigate(window, cx, Screen::App { app: open.clone() })),
-            )
-            .child(crate::apps_view::version_pill("app-detail-version", &entry, cx))
             // VAPP-121: any member exports an app that has a version.
             .when(entry.head_version > 0, |actions| {
                 actions.child(
@@ -441,7 +417,7 @@ impl Render for AppDetailPane {
                         .cursor_pointer()
                         .web_sm()
                         .icon(Icon::new(registry::UI_SHARE).small())
-                        .label(domain::app_export::APP_EXPORT_COPY.export.clone())
+                        .label(copy.menu.export.clone())
                         .on_click(move |_, window, cx| {
                             crate::app_export_dialog::open(window, cx, export_id.clone(), false)
                         }),
@@ -460,8 +436,10 @@ impl Render for AppDetailPane {
                             crate::apps_view::confirm_delete(
                                 delete_id.clone(),
                                 delete_name.clone(),
+                                // The delete leaves for the Apps list
+                                // (Settings → Apps on desktop).
                                 |window, cx| {
-                                    select_settings_section(window, cx, SettingsSection::Apps);
+                                    crate::sidebar::select_settings_section(window, cx, super::SettingsSection::Apps);
                                     navigate(window, cx, Screen::Settings);
                                 },
                                 window,
@@ -471,7 +449,8 @@ impl Render for AppDetailPane {
                 )
             });
         let body = section(cx)
-            .id("app-settings-page")
+            .id(SharedString::from(APPS.test_ids.settings.clone()))
+            .max_w(gpui::px(APPS.editor_tabs.settings_max_width as f32))
             .gap_4()
             .child(crate::surface::glass_group_rows(vec![self.identity_row(&row, manage, window, cx)]))
             .child(

@@ -1,29 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import {
   APPS_COPY,
-  APPS_DOCK_CARD,
-  APPS_LAYOUT,
+  APPS_EDITOR_TABS,
   APPS_PANES,
   APPS_TEST_IDS,
-  chatCard,
-  editorLayout,
-  editorLayoutFor,
+  editorTab,
   isDraftApp,
   versionLabel,
-  type AppEditorLayout,
+  type AppEditorSheet,
+  type AppEditorTab,
 } from "@exp/domain-contract/apps"
-import { APP_EXPORT_COPY } from "@exp/domain-contract/app-export"
 import {
   BoardGlyph,
   Button,
   conceptIcon,
-  Dock,
-  DockSheetBody,
   EmptyState,
   JumpToBottomButton,
   ListRow,
+  Menu,
+  type MenuEntry,
   Pill,
+  Prompt,
   SegmentedControl,
   SETTINGS_LIST_CLASS,
   Sheet,
@@ -33,15 +31,15 @@ import {
   ThreadConversation,
   toast,
   useIsMobile,
-  UserAvatar,
-  useDockSheetMeta,
   userMessageCaption,
 } from "@exp/ui"
 import type { SyncedAppVersion, User } from "@/db/schema"
 import { AppPreview } from "@/components/apps/app-preview"
+import { AppSettingsTab } from "@/components/apps/app-settings-tab"
 import { SessionComposer } from "@/components/session-composer"
-import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
+import { relativeTime } from "@/components/comment-rows/format"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useAnswerMessage, useConversationRows } from "@/hooks/use-answer-message"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
@@ -53,78 +51,29 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection, sessionCollection } from "@/lib/collections"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { resolveLaunchDeviceId } from "@/lib/launch-device"
-import { toTreeMessage, type SessionRow } from "@/lib/session-tree"
-import { useKeyVersion } from "@/lib/enet/use-key-holder"
+import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 
-// VAPP-110 (fixtures/apps.json): THE EDITOR. Header = glyph + name + the
-// version pill + Versions (+ count) + …; body on md+ = two panes, the chat
-// (the member's editor session: THE thread conversation rows + THE session
-// composer) beside
-// the live preview; on phones a Chat | Preview | Versions segmented control
-// and one pane. Leaving the editor ENDS the member's live editor session
-// (the tree); the next send revives it. Versions preview read-only with
-// a Restore banner; Restore = a new head.
+// VAPP-110 (fixtures/apps.json): THE EDITOR. Leaving the editor ENDS the
+// member's live editor session (the tree); the next send revives it.
 //
-// VAPP-129 (md+, apps.json `layout`): FLOATING = the preview fills the body
-// and the chat lives in THE Dock (N-12) over its bottom edge: ONE chat
-// DockCard (`chatCard`) over the composer; the card opens the chat as the
-// Dock sheet; its action (and the sheet's header button) docks it to the
-// side = DOCKED, today's two panes, whose Minimize floats it back. The
-// choice is kept per browser.
+// VAPP-177 (`editorTabs`): on md+ the header (glyph + name + the version
+// pill) ends in the Preview | Versions | Settings segmented control and the
+// body = two panes, the chat (the member's editor session: THE thread
+// conversation rows + THE session composer, no header strip) beside the
+// selected tab. Phones: Chat | Preview under the header, one pane, and the
+// header's `…` menu: Versions and Settings open THE SAME bodies as a bottom
+// sheet, Export the export sheet, Delete app the delete prompt. A version's
+// Preview shows it read-only on the Preview tab with a Restore banner;
+// Restore = a new head. VAPP-129's floating layout is gone.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiHistoryIcon = conceptIcon(`ui-history`)
+const UiMoreIcon = conceptIcon(`ui-more`)
+const NavSettingsIcon = conceptIcon(`nav-settings`)
 const UiShareIcon = conceptIcon(`ui-share`)
-const DockSideIcon = conceptIcon(APPS_DOCK_CARD.dockIcon as Parameters<typeof conceptIcon>[0])
-const FloatIcon = conceptIcon(APPS_DOCK_CARD.floatIcon as Parameters<typeof conceptIcon>[0])
-
-/** The stored layout (apps.json `layout.storageKey`), per browser. */
-function useEditorLayout(): [AppEditorLayout, (next: AppEditorLayout) => void] {
-  const [layout, setLayout] = useState<AppEditorLayout>(() =>
-    editorLayout(typeof window === `undefined` ? null : window.localStorage.getItem(APPS_LAYOUT.storageKey))
-  )
-  const set = useCallback((next: AppEditorLayout) => {
-    setLayout(next)
-    try {
-      window.localStorage.setItem(APPS_LAYOUT.storageKey, next)
-    } catch {
-      // Private mode: the choice lasts this visit.
-    }
-  }, [])
-  return [layout, set]
-}
-
-/** The "Move to the side" button: the chat card's action and the sheet's
- *  header meta. */
-function DockToSideButton({ onClick }: { onClick: () => void }) {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-7 gap-1.5 px-2 text-xs"
-      onClick={(event) => {
-        event.stopPropagation()
-        onClick()
-      }}
-      data-testid={APPS_TEST_IDS.dockToSide}
-    >
-      <DockSideIcon className="size-3.5" />
-      {APPS_COPY.dockToSide}
-    </Button>
-  )
-}
-
-/** The chat card's sheet: the channel rows as the ONE scrolling body; its
- *  header's meta slot carries "Move to the side". */
-function ChatSheet({ onDock, children }: { onDock: () => void; children: ReactNode }) {
-  const meta = useMemo(() => <DockToSideButton onClick={onDock} />, [onDock])
-  useDockSheetMeta(meta)
-  return <DockSheetBody>{children}</DockSheetBody>
-}
-
-type Tab = `chat` | `preview` | `versions`
+const UiDeleteIcon = conceptIcon(`ui-delete`)
 
 /** VAPP-176: `apps.discardDraft` on leaving an EMPTY draft's editor
  *  (keepalive); the server deletes it only while it is still empty. */
@@ -150,45 +99,70 @@ function endEditorSession(sessionId: string) {
   }).catch(() => undefined)
 }
 
+/** VAPP-177 (fixtures/apps.json VERSIONS): ONE grouped list, newest first:
+ *  the `v{n}` pill + the note over `who · when`; the head row carries
+ *  Current, every other row Preview + Restore. The Versions tab's body and
+ *  the phone menu's Versions sheet alike. */
 function VersionRows({
   versions,
   head,
   viewing,
   users,
-  onPick,
+  restoring,
+  onPreview,
+  onRestore,
 }: {
   versions: readonly SyncedAppVersion[]
   head: number
   viewing: number | null
   users: readonly User[]
-  onPick: (number: number) => void
+  restoring: number | null
+  onPreview: (number: number) => void
+  onRestore: (number: number) => void
 }) {
   const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
   if (versions.length === 0) {
     return <EmptyState icon={UiHistoryIcon} title={APPS_COPY.versionsEmpty} size="list" />
   }
   return (
-    <div className={SETTINGS_LIST_CLASS} data-testid={APPS_TEST_IDS.versions}>
+    <div className={SETTINGS_LIST_CLASS}>
       {versions.map((version) => {
         const author = version.createdBy ? usersById.get(version.createdBy) : undefined
-        const active = viewing === null ? version.number === head : viewing === version.number
+        const note = version.note?.trim()
         return (
           <ListRow
             key={version.id}
-            interactive
-            onClick={() => onPick(version.number)}
-            className={cn(`gap-3 px-3 py-2 text-sm`, active && `bg-accent/40`)}
+            className={cn(`gap-3 px-3 py-2 text-sm`, viewing === version.number && `bg-accent/40`)}
             data-testid={`${APPS_TEST_IDS.versionRow}-${version.number}`}
           >
-            <span className="w-10 shrink-0 font-medium tabular-nums">{versionLabel(version.number)}</span>
-            <span className="min-w-0 flex-1 truncate text-muted-foreground">{version.note?.trim() || APPS_COPY.noNote}</span>
-            {version.number === head && <Pill size="sm">{APPS_COPY.head}</Pill>}
-            <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-              {author ? <UserAvatar user={author} size={16} /> : null}
-              <span className="max-w-24 truncate">{author?.name ?? APPS_COPY.byAgent}</span>
-              <span>·</span>
-              <span>{userMessageCaption({ at: new Date(version.createdAt) })}</span>
-            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <Pill size="sm" className="shrink-0 tabular-nums">{versionLabel(version.number)}</Pill>
+                <span className={cn(`min-w-0 truncate`, note ? `font-medium` : `text-muted-foreground`)}>{note || APPS_COPY.noNote}</span>
+              </div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                {author?.name ?? APPS_COPY.byAgent} · {relativeTime(version.createdAt)}
+              </div>
+            </div>
+            {version.number === head ? (
+              <Pill size="sm" className="shrink-0">{APPS_COPY.head}</Pill>
+            ) : (
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Button variant="ghost" size="sm" onClick={() => onPreview(version.number)} data-testid={APPS_TEST_IDS.versionPreview}>
+                  {APPS_COPY.preview}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onRestore(version.number)}
+                  pending={restoring === version.number}
+                  disabled={restoring !== null}
+                  data-testid={APPS_TEST_IDS.versionRestore}
+                >
+                  {APPS_COPY.restore}
+                </Button>
+              </div>
+            )}
           </ListRow>
         )
       })}
@@ -202,23 +176,50 @@ export function AppEditor({
   teamSlug,
   me,
   isMember,
+  canManage,
+  canGrant,
+  requestedTab,
 }: {
   app: AppListEntry
   teamId: string
   teamSlug: string
   me: string | null
   isMember: boolean
+  /** The creator or an owner: rename, describe, delete. */
+  canManage: boolean
+  /** VAPP-120: a team OWNER sets the grants. */
+  canGrant: boolean
+  /** VAPP-177: the route's `?tab=` (read once: no tab is kept). */
+  requestedTab: string | null
 }) {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
-  const [tab, setTab] = useState<Tab>(`chat`)
-  const [versionsOpen, setVersionsOpen] = useState(false)
+  const [initial] = useState(() => editorTab(requestedTab, isMobile))
+  const [tab, setTab] = useState<AppEditorTab>(initial.tab)
+  const [sheet, setSheet] = useState<AppEditorSheet | null>(initial.sheet)
   const [viewing, setViewing] = useState<number | null>(null)
   const [viewingPackage, setViewingPackage] = useState<Record<string, unknown> | null>(null)
-  const [restoring, setRestoring] = useState(false)
-  const [layout, setLayout] = useEditorLayout()
-  const [chatOpen, setChatOpen] = useState(false)
-  const [bandHeight, setBandHeight] = useState(0)
+  const [restoring, setRestoring] = useState<number | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  // Crossing md keeps the pane on screen: a wide Versions/Settings tab
+  // becomes the phone's sheet over Chat, and back.
+  useEffect(() => {
+    if (isMobile) {
+      if (tab === `versions` || tab === `settings`) {
+        setSheet(tab)
+        setTab(`chat`)
+      }
+    } else if (sheet) {
+      setTab(sheet)
+      setSheet(null)
+    } else if (tab === `chat`) {
+      setTab(APPS_EDITOR_TABS.default as AppEditorTab)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile])
 
   const { users } = useTeamUsers(teamId)
   const { root, teamSessions } = useEditorSession(teamId, app.id, me)
@@ -275,18 +276,33 @@ export function AppEditor({
     }
   }, [viewing, head, app.id])
 
-  const restore = async () => {
-    if (viewing === null || restoring) return
-    setRestoring(true)
+  const restore = async (number: number | null) => {
+    if (number === null || restoring !== null) return
+    setRestoring(number)
     try {
-      const result = await trpc.apps.restore.mutate({ id: app.id, number: viewing }, SKIP_ERROR_TOAST)
+      const result = await trpc.apps.restore.mutate({ id: app.id, number }, SKIP_ERROR_TOAST)
       await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
       toast(APPS_COPY.restored.replace(`{n}`, String(result.restored)).replace(`{m}`, String(result.version)))
       setViewing(null)
     } catch (error) {
       failedAction(`restore`, `the version`, error)
     } finally {
-      setRestoring(false)
+      setRestoring(null)
+    }
+  }
+
+  // The delete prompt (the Settings tab's button and the phone menu's item):
+  // leaves for the Apps list.
+  const confirmDelete = async () => {
+    setDeleting(true)
+    try {
+      await trpc.apps.delete.mutate({ id: app.id }, SKIP_ERROR_TOAST)
+      setDeleteOpen(false)
+      void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug }, replace: true })
+    } catch (error) {
+      failedAction(`delete`, `the app`, error)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -301,34 +317,16 @@ export function AppEditor({
       {versionLabel(head)}
     </Pill>
   )
-  // VAPP-121: Export beside Versions (desktop) / the header's trailing button (phones).
-  const [exportOpen, setExportOpen] = useState(false)
-  const exportButton =
-    app.headVersion > 0 ? (
-      <Button variant="outline" size={isMobile ? `icon-sm` : `sm`} onClick={() => setExportOpen(true)} aria-label={APP_EXPORT_COPY.export} data-testid="app-editor-export">
-        <UiShareIcon className="size-4" />
-        {!isMobile && APP_EXPORT_COPY.export}
-      </Button>
-    ) : null
   const exportDialog = <AppExportDialog app={exportOpen ? app : null} onOpenChange={setExportOpen} />
 
-  const versionsButton = (
-    <Button variant="outline" size="sm" onClick={() => setVersionsOpen(true)} data-testid="app-editor-versions-button">
-      <UiHistoryIcon className="size-4" />
-      {APPS_COPY.versions}
-      {versions.length > 0 && <Pill size="sm" className="tabular-nums">{versions.length}</Pill>}
-    </Button>
-  )
-
-  const pickVersion = (number: number) => {
+  // A version's Preview: the Preview tab showing it (phones: the sheet closes).
+  const previewVersion = (number: number) => {
     setViewing(number === head ? null : number)
-    setVersionsOpen(false)
-    if (isMobile) setTab(`preview`)
+    setSheet(null)
+    setTab(`preview`)
   }
 
-  // VAPP-129: md+: the chat floats in THE Dock. VAPP-176: a draft is docked.
   const draft = isDraftApp(app)
-  const floating = !isMobile && editorLayoutFor(layout, head) === `floating`
 
   // VAPP-176: a draft's starters: a tap sends that text as the first message.
   const [starting, setStarting] = useState(false)
@@ -408,7 +406,7 @@ export function AppEditor({
       busy={root?.busy ?? false}
       canStop
       testId="app-composer"
-      className={floating ? undefined : `mx-auto max-w-3xl`}
+      className="mx-auto max-w-3xl"
     />
   ) : null
 
@@ -434,28 +432,15 @@ export function AppEditor({
     </div>
   )
 
-  const keyVersion = useKeyVersion()
-  // VAPP-129: the floating chat's ONE DockCard.
-  const chatRow = useMemo(
-    // EXP-1459: opened bodies (a locked one reads as none).
-    () => chatCard(messages.map((message) => toTreeMessage(message).body), root?.busy === true),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [messages, root?.busy, keyVersion]
-  )
-  const dockToSide = useCallback(() => {
-    setChatOpen(false)
-    setLayout(`docked`)
-  }, [setLayout])
-
   const preview = (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4" style={floating ? { paddingBottom: bandHeight + 16 } : undefined}>
+    <div className="flex h-full min-h-0 flex-col gap-3 p-4">
       {viewing !== null && (
         <div
           className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-sm"
           data-testid={APPS_TEST_IDS.viewing}
         >
           <span className="flex-1 font-medium">{APPS_COPY.viewing.replace(`{n}`, String(viewing))}</span>
-          <Button size="sm" onClick={() => void restore()} pending={restoring}>
+          <Button size="sm" onClick={() => void restore(viewing)} pending={restoring !== null}>
             {APPS_COPY.restore}
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setViewing(null)}>
@@ -468,11 +453,98 @@ export function AppEditor({
     </div>
   )
 
-  const versionsList = (
-    <VersionRows versions={versions} head={head} viewing={viewing} users={users as User[]} onPick={pickVersion} />
+  // VAPP-177: the Versions and Settings bodies, THE SAME on the wide tab and
+  // in the phone menu's sheet (the views' anchors live on them).
+  const versionsBody = (
+    <div data-testid={APPS_TEST_IDS.versions}>
+      <VersionRows
+        versions={versions}
+        head={head}
+        viewing={viewing}
+        users={users as User[]}
+        restoring={restoring}
+        onPreview={previewVersion}
+        onRestore={(number) => void restore(number)}
+      />
+    </div>
+  )
+  const settingsBody = (
+    <div className="w-full" style={isMobile ? undefined : { maxWidth: APPS_EDITOR_TABS.settingsMaxWidth }} data-testid={APPS_TEST_IDS.settings}>
+      <AppSettingsTab
+        teamId={teamId}
+        app={app}
+        canManage={canManage}
+        canGrant={canGrant}
+        onExport={() => setExportOpen(true)}
+        onDelete={() => setDeleteOpen(true)}
+      />
+    </div>
   )
 
+  const deletePrompt = (
+    <Prompt
+      open={deleteOpen}
+      onOpenChange={(next) => !deleting && setDeleteOpen(next)}
+      busy={deleting}
+      title={APPS_COPY.deleteTitle.replace(`{name}`, app.name ?? ``)}
+      body={APPS_COPY.deleteBody}
+      actions={[
+        { label: `Cancel`, role: `cancel` },
+        { label: APPS_COPY.delete, role: `destructive`, busy: deleting, onSelect: confirmDelete, testId: `app-delete-confirm` },
+      ]}
+    />
+  )
+
+  const tabOptions = (ids: readonly string[]) =>
+    ids.map((id) => ({ value: id as AppEditorTab, label: APPS_COPY.tabs[id as AppEditorTab] }))
+
   if (isMobile) {
+    // The header's `…` (apps.json `editorTabs.menu`).
+    const menuEntries: MenuEntry[] = [
+      {
+        kind: `item`,
+        id: `versions`,
+        label: APPS_COPY.menu.versions,
+        icon: UiHistoryIcon,
+        value: versions.length > 0 ? <span className="tabular-nums">{versions.length}</span> : undefined,
+        onSelect: () => setSheet(`versions`),
+        "data-testid": `${APPS_TEST_IDS.menu}-versions`,
+      },
+      {
+        kind: `item`,
+        id: `settings`,
+        label: APPS_COPY.menu.settings,
+        icon: NavSettingsIcon,
+        onSelect: () => setSheet(`settings`),
+        "data-testid": `${APPS_TEST_IDS.menu}-settings`,
+      },
+      ...(head > 0
+        ? [
+            {
+              kind: `item` as const,
+              id: `export`,
+              label: APPS_COPY.menu.export,
+              icon: UiShareIcon,
+              onSelect: () => setExportOpen(true),
+              "data-testid": `${APPS_TEST_IDS.menu}-export`,
+            },
+          ]
+        : []),
+      ...(canManage
+        ? [
+            { kind: `separator` as const, id: `sep` },
+            {
+              kind: `item` as const,
+              id: `delete`,
+              label: APPS_COPY.menu.delete,
+              icon: UiDeleteIcon,
+              destructive: true,
+              onSelect: () => setDeleteOpen(true),
+              "data-testid": `${APPS_TEST_IDS.menu}-delete`,
+            },
+          ]
+        : []),
+    ]
     return (
       <div className="flex h-dvh min-h-0 flex-col" data-testid={APPS_TEST_IDS.editor}>
         <MobileDetailHeader
@@ -484,28 +556,42 @@ export function AppEditor({
             </span>
           }
           onBack={() => void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
-          menu={exportButton ?? undefined}
+          menu={
+            <Menu
+              align="end"
+              aria-label={`${app.name} actions`}
+              title={app.name}
+              entries={menuEntries}
+              trigger={
+                <Button variant="ghost" size="icon-sm" className={HEADER_BUTTON_CLASS} aria-label={`Menu for ${app.name}`} data-testid={APPS_TEST_IDS.menu}>
+                  <UiMoreIcon />
+                </Button>
+              }
+            />
+          }
           below={
             <div className="px-4 pb-2" data-testid={APPS_TEST_IDS.tabs}>
-              <SegmentedControl
-                value={tab}
-                onValueChange={setTab}
-                fill
-                options={[
-                  { value: `chat`, label: APPS_COPY.tabs.chat },
-                  { value: `preview`, label: APPS_COPY.tabs.preview },
-                  { value: `versions`, label: APPS_COPY.tabs.versions },
-                ]}
-              />
+              <SegmentedControl value={tab} onValueChange={setTab} fill options={tabOptions(APPS_EDITOR_TABS.phone)} />
             </div>
           }
         />
         <div className="min-h-0 flex-1">
           {tab === `chat` && chat}
           {tab === `preview` && preview}
-          {tab === `versions` && <div className="h-full overflow-y-auto p-4">{versionsList}</div>}
         </div>
+        <Sheet open={sheet !== null} onOpenChange={(open) => !open && setSheet(null)}>
+          <SheetContent side="bottom" className="gap-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <SheetHeader className="px-4 pt-2 pb-1">
+              <SheetTitle>{sheet === `settings` ? APPS_COPY.menu.settings : APPS_COPY.menu.versions}</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-2">
+              {sheet === `versions` && versionsBody}
+              {sheet === `settings` && settingsBody}
+            </div>
+          </SheetContent>
+        </Sheet>
         {exportDialog}
+        {deletePrompt}
       </div>
     )
   }
@@ -517,58 +603,23 @@ export function AppEditor({
         <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight">{app.name}</h1>
         {versionPill}
         <div className="flex-1" />
-        {exportButton}
-        {versionsButton}
-        {exportDialog}
+        <div className="shrink-0" data-testid={APPS_TEST_IDS.tabs}>
+          <SegmentedControl value={tab} onValueChange={setTab} options={tabOptions(APPS_EDITOR_TABS.wide)} />
+        </div>
       </div>
-      {floating ? (
-        <div className="relative min-h-0 flex-1" data-layout="floating">
-          {preview}
-          <Dock
-            rows={[chatRow]}
-            openId={chatOpen ? chatRow.id : null}
-            onOpenChange={(id) => setChatOpen(id !== null)}
-            renderSheet={() => <ChatSheet onDock={dockToSide}>{channel}</ChatSheet>}
-            composer={composer ? <div data-testid={APPS_TEST_IDS.composer}>{composer}</div> : undefined}
-            onHeight={setBandHeight}
-          />
+      <div
+        className="grid min-h-0 flex-1"
+        style={{ gridTemplateColumns: `minmax(${APPS_PANES.chatMinWidth}px, ${APPS_PANES.chat}fr) ${APPS_PANES.preview}fr` }}
+      >
+        <div className="flex min-h-0 flex-col border-r border-border">{chat}</div>
+        <div className="min-h-0 min-w-0">
+          {tab === `preview` && preview}
+          {tab === `versions` && <div className="h-full overflow-y-auto p-4">{versionsBody}</div>}
+          {tab === `settings` && <div className="h-full overflow-y-auto p-4">{settingsBody}</div>}
         </div>
-      ) : (
-        <div
-          className="grid min-h-0 flex-1"
-          data-layout="docked"
-          style={{ gridTemplateColumns: `minmax(${APPS_PANES.chatMinWidth}px, ${APPS_PANES.chat}fr) ${APPS_PANES.preview}fr` }}
-        >
-          <div className="flex min-h-0 flex-col border-r border-border">
-            <div
-              className="flex shrink-0 items-center justify-between border-b border-border px-4 text-sm text-muted-foreground"
-              style={{ height: APPS_PANES.headerHeight }}
-            >
-              <span>{APPS_COPY.tabs.chat}</span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={APPS_COPY.float}
-                title={APPS_COPY.float}
-                onClick={() => setLayout(`floating`)}
-                data-testid={APPS_TEST_IDS.float}
-              >
-                <FloatIcon />
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1">{chat}</div>
-          </div>
-          <div className="min-h-0">{preview}</div>
-        </div>
-      )}
-      <Sheet open={versionsOpen} onOpenChange={setVersionsOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md">
-          <SheetHeader>
-            <SheetTitle>{APPS_COPY.versions}</SheetTitle>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">{versionsList}</div>
-        </SheetContent>
-      </Sheet>
+      </div>
+      {exportDialog}
+      {deletePrompt}
     </div>
   )
 }

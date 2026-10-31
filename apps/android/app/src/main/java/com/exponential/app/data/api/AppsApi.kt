@@ -22,13 +22,19 @@ data class AppCreateInput(
     val description: String? = null,
 )
 
+/** `apps.update`: every field but [id] optional (null = omitted, the
+ *  client's `explicitNulls = false`). VAPP-120/156: [grantedTools] is the
+ *  WHOLE grant list and rides with the [headVersion] on screen (a newer head
+ *  = CONFLICT); only a team owner grants. */
 @Serializable
 data class AppUpdateInput(
     val id: String,
-    val name: String,
+    val name: String? = null,
     val icon: String? = null,
     val color: String? = null,
-    val description: String,
+    val description: String? = null,
+    val headVersion: Int? = null,
+    val grantedTools: List<String>? = null,
 )
 
 @Serializable
@@ -100,7 +106,7 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
             outputSerializer = AppWriteResult.serializer(),
         ).app
 
-    /** Rename: name, icon, colour and description. */
+    /** Rename (name, icon, colour, description) or VAPP-120 the grants. */
     suspend fun update(accountId: String, input: AppUpdateInput) {
         trpc.mutation(
             accountId,

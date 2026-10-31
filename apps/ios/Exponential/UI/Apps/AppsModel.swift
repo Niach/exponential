@@ -17,6 +17,8 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
     let teamId: String?
     /// The head package's JSON text (nil = no version yet).
     let package: String?
+    /// VAPP-120: the typed actions granted (the synced row, as stored).
+    let grantedTools: [String]
 
     init(row: AppEntity) {
         id = row.id
@@ -29,6 +31,22 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
         createdBy = row.createdBy
         teamId = row.teamId
         package = row.package
+        grantedTools = row.grantedTools
+    }
+
+    /// VAPP-120: the typed actions the head package's `functions` declare
+    /// (`AppActions.declaredActions`, the fixture's order).
+    var declaredActions: [String] {
+        guard let text = package,
+              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+              let functions = object["functions"] as? [Any]
+        else { return [] }
+        return AppActions.declaredActions(functions.compactMap { $0 as? String })
+    }
+
+    /// FEED-159: a stored grant that is no longer grantable reads as none.
+    var grantableGranted: [String] {
+        grantedTools.filter { AppActions.actionGrantable($0) }
     }
 
     /// The pill: `v{n}`, or the `Draft` badge (muted).
@@ -108,9 +126,19 @@ final class AppEditorModel {
     private(set) var rootLive = false
     private(set) var deviceId: String?
     private(set) var missing = false
+    /// VAPP-177: I own the app's team (grants; delete and edit any app).
+    private(set) var isOwner = false
+    /// VAPP-122: the app's synced records (the Settings sheet's line).
+    private(set) var recordsCount = 0
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var graceTask: Task<Void, Never>?
+
+    /// The creator or a team owner edits, describes and deletes the app.
+    func canManage(userId: String?) -> Bool {
+        guard let app else { return false }
+        return isOwner || (userId != nil && app.createdBy == userId)
+    }
 
     nonisolated init() {}
 
@@ -120,6 +148,8 @@ final class AppEditorModel {
         let users: [UserEntity]
         let root: SessionEntity?
         let devices: [DeviceEntity]
+        let isOwner: Bool
+        let recordsCount: Int
     }
 
     func bind(accountId: String, appId: String, userId: String?, db: DatabaseManager) {
@@ -140,7 +170,18 @@ final class AppEditorModel {
                 .filter(Column("parent_id") == nil)
                 .fetchOne(db)
             let devices = try DeviceEntity.filter(Column("user_id") == me).fetchAll(db)
-            return Snapshot(app: app, versions: versions, users: users, root: root, devices: devices)
+            let role = try app.flatMap { row in
+                try String.fetchOne(
+                    db,
+                    sql: #"SELECT "role" FROM "team_members" WHERE "team_id" = ? AND "user_id" = ? LIMIT 1"#,
+                    arguments: [row.teamId, me]
+                )
+            }
+            let recordsCount = try AppRecordEntity.filter(Column("app_id") == appId).fetchCount(db)
+            return Snapshot(
+                app: app, versions: versions, users: users, root: root, devices: devices,
+                isOwner: role == "owner", recordsCount: recordsCount
+            )
         }
         task = Task { [weak self] in
             do {
@@ -158,6 +199,8 @@ final class AppEditorModel {
                     self.rootId = snapshot.root?.id
                     self.rootLive = snapshot.root?.isLive ?? false
                     self.deviceId = Self.launchDevice(snapshot.devices)
+                    self.isOwner = snapshot.isOwner
+                    self.recordsCount = snapshot.recordsCount
                 }
             } catch {}
         }

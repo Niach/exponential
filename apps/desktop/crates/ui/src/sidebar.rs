@@ -1395,7 +1395,7 @@ impl RailView {
 
     /// VAPP-110: one Apps row (the Agents row's twin): the app's glyph and
     /// name, lit while its editor is up; click = the editor. The hover gear
-    /// (the creator's and the owners') opens Settings → Apps → the app.
+    /// (the creator's and the owners') opens the editor on its Settings tab.
     fn rail_app_row(
         &self,
         index: usize,
@@ -1433,12 +1433,14 @@ impl RailView {
                     .tooltip("App settings")
                     .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                         cx.stop_propagation();
-                        select_settings_section(
+                        // VAPP-177: the app's editor on its Settings tab.
+                        crate::app_screen::open_app_tab(
                             window,
                             cx,
-                            crate::settings::SettingsSection::App(settings_id.clone()),
+                            settings_id.clone(),
+                            domain::apps::EditorTab::Settings,
+                            false,
                         );
-                        navigate(window, cx, Screen::Settings);
                     })),
             ))
         })

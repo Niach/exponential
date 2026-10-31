@@ -269,8 +269,8 @@ fn row_menu(index: usize, row: AppRow, manage: bool, cx: &App) -> gpui::AnyEleme
 fn app_row(index: usize, entry: &AppEntry, manage: bool, to_settings: bool, cx: &App) -> gpui::AnyElement {
     let row_hover = cx.theme().list_hover;
     let target = entry.id.clone();
-    // Settings → Apps opens an app's settings page, the band elsewhere its
-    // editor.
+    // Settings → Apps opens an app's editor on its Settings tab, the band
+    // elsewhere its editor (default tab).
     crate::surface::list_row(
         crate::surface::flat_row()
             .id(SharedString::from(format!("{}-{}", APPS.test_ids.row, entry.slug)))
@@ -286,12 +286,14 @@ fn app_row(index: usize, entry: &AppEntry, manage: bool, to_settings: bool, cx: 
             .hover(move |this| this.bg(row_hover))
             .on_click(move |_: &ClickEvent, window, cx| {
                 if to_settings {
-                    crate::sidebar::select_settings_section(
+                    // VAPP-177: the app's editor on its Settings tab.
+                    crate::app_screen::open_app_tab(
                         window,
                         cx,
-                        crate::settings::SettingsSection::App(target.clone()),
+                        target.clone(),
+                        domain::apps::EditorTab::Settings,
+                        false,
                     );
-                    crate::navigation::navigate(window, cx, Screen::Settings);
                 } else {
                     crate::navigation::navigate(window, cx, Screen::App { app: target.clone() });
                 }

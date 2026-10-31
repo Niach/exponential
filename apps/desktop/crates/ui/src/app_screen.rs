@@ -1,60 +1,119 @@
 //! VAPP-110 — one app's EDITOR ([`Screen::App`], web `app-editor.tsx`,
-//! fixtures/apps.json). Header = the app's glyph + name + the version pill +
-//! `Export` (VAPP-121, once there is a version) + `Versions` (a count pill); body = two panes `5fr : 7fr` with a hairline
-//! between: the CHAT (the member's editor session,
-//! [`crate::agent_screen::AgentScreenView::for_app`]: the agent channel's
-//! rows and THE composer; the first send `sessions.send({appId, text,
-//! deviceId})`) beside the live PREVIEW: the IDE's Exponential UI host
-//! ([`crate::exponential_ui_host::IdeHost`]) installs the head package and
-//! applies its first template (`applyTemplate`, surface `app`) in a 12px
-//! frame, repainting on every synced upsert. Versions = a right sheet, rows
-//! newest first; a row PREVIEWS that version under the `Viewing v{n}` banner
-//! with Restore (`apps.restore` = a NEW head, toast `Restored v{n} as v{m}`).
+//! fixtures/apps.json THE EDITOR). VAPP-177 (`editorTabs`): header = the
+//! app's glyph + name + the version pill, then the SegmentedControl of
+//! `editorTabs.wide` (Preview | Versions | Settings, `copy.tabs.*`); body =
+//! two panes `5fr : 7fr` with a hairline between: the CHAT (the member's
+//! editor session, [`crate::agent_screen::AgentScreenView::for_app`]: the
+//! agent channel's rows and THE composer; the first send
+//! `sessions.send({appId, text, deviceId})`; no header strip of its own)
+//! beside the TAB pane:
+//! - PREVIEW: the IDE's Exponential UI host ([`crate::exponential_ui_host::IdeHost`])
+//!   installs the head package and applies its first template
+//!   (`applyTemplate`, surface `app`) in a 12px frame, repainting on every
+//!   synced upsert; a previewed older version sits under the `Viewing v{n}`
+//!   banner with Restore and Current.
+//! - VERSIONS: one grouped list, newest first: `v{n}` + the note over
+//!   `who · relative time`; the head row = the `Current` badge, every other
+//!   row = Preview (ghost, → the Preview tab on that version) + Restore
+//!   (outline, `apps.restore` = a NEW head, toast `Restored v{n} as v{m}`).
+//! - SETTINGS: [`crate::settings::app_detail::AppDetailPane`], ≤
+//!   `editorTabs.settingsMaxWidth` px.
 //!
-//! VAPP-129 (apps.json `layout`, kept per device in the settings'
-//! `appEditorLayout`): FLOATING = the preview fills the body and the chat is
-//! THE Dock's chat card over its bottom edge (the channel view's floating
-//! mode, layered over the preview); the card opens the chat as the Dock
-//! sheet whose "Move to the side" docks it = DOCKED, the two panes, the
-//! chat pane led by a header strip with Minimize, which floats it back.
+//! The editor opens on `editorTabs.default` (no tab is kept); the settings
+//! nav (Settings → Apps, the sidebar's hover gear, the dev `app:<slug>`
+//! settings drive) opens it on Settings ([`open_app_tab`]), the dev screen
+//! `app:<slug>:<tab>` on that tab. VAPP-129's floating layout is gone.
 //!
 //! LIFETIME: entering starts nothing; leaving (a navigation off the screen,
 //! the window closing) ENDS the member's live editor session
 //! (`sessions.end` on the root); the next send continues it.
 //!
-//! VAPP-176 (apps.json NEW APP): a DRAFT (no version yet) is always DOCKED
-//! whatever the stored layout (`editor_layout_for`); its empty chat shows
-//! the starters ([`crate::agent_screen`]). The editor keys the app by ID: a
-//! draft's slug follows the name the agent gives it, so the screen resolves
-//! the requested slug once, then follows the id (the navigation entry is
+//! VAPP-176 (apps.json NEW APP): a DRAFT's empty chat shows the starters
+//! ([`crate::agent_screen`]). The editor keys the app by ID: a draft's slug
+//! follows the name the agent gives it, so the screen resolves the
+//! requested slug once, then follows the id (the navigation entry is
 //! replaced by the id, in place). Leaving an EMPTY draft (no editor
 //! session) fires `apps.discardDraft`.
 
 use eui_core::theme::Mode;
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, AnyElement, App, AppContext as _, Entity, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _,
-    Styled, Subscription, WeakEntity, Window,
+    Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use serde_json::{json, Value};
 use sync::Store;
 
-use domain::apps::{editor_layout, editor_layout_for, is_draft, version_label, viewing_label, EditorLayout, APPS};
+use domain::apps::{editor_tab, is_draft, version_label, viewing_label, EditorTab, APPS};
 use domain::rows::AppVersionRow;
 
 use crate::apps_view::{find_app, version_pill, AppEntry};
 use crate::controls::WebControl as _;
 use crate::exponential_ui_host::{IdeHost, THEME_ID};
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, resolved_screen, Navigation};
+use crate::navigation::{active_team_id, nav_for_window, resolved_screen, Navigation, Screen};
 
 /// The header glyph (the web's `size-5`).
 const HEADER_GLYPH_PX: f32 = 20.;
+/// One header segment's width (the segmented control sizes to its tabs).
+const TAB_SEGMENT_PX: f32 = 96.;
+
+/// VAPP-177: the tab the next editor of `app` opens on (the settings nav's
+/// request), consumed by the editor that shows that app.
+#[derive(Default)]
+struct AppTabRequest(Option<(String, EditorTab)>);
+
+impl gpui::Global for AppTabRequest {}
+
+/// VAPP-177: open `app`'s editor (id or slug) on `tab` (Settings → Apps,
+/// the sidebar's hover gear, the `app:<slug>` settings drive); `replace` =
+/// the web's redirect (the navigation entry replaced in place).
+pub(crate) fn open_app_tab(window: &Window, cx: &mut App, app: String, tab: EditorTab, replace: bool) {
+    cx.set_global(AppTabRequest(Some((app.clone(), tab))));
+    let screen = Screen::App { app };
+    if replace {
+        crate::navigation::navigate_replace(window, cx, screen);
+    } else {
+        crate::navigation::navigate(window, cx, screen);
+    }
+}
+
+/// The pending tab request for the editor `shows` answers for, consumed.
+fn take_tab_request(shows: impl Fn(&str) -> bool, cx: &mut App) -> Option<EditorTab> {
+    let request = cx.try_global::<AppTabRequest>()?.0.as_ref()?;
+    if !shows(&request.0) {
+        return None;
+    }
+    let tab = request.1;
+    cx.set_global(AppTabRequest(None));
+    Some(tab)
+}
+
+/// VAPP-177: a dev-screen app spec `<slug>[:<tab>]` → the app and the tab
+/// asked for (`app:working-hours:versions`; slugs and ids carry no `:`).
+pub(crate) fn split_app_spec(spec: &str) -> (&str, Option<&str>) {
+    match spec.split_once(':') {
+        Some((app, tab)) => (app, Some(tab)),
+        None => (spec, None),
+    }
+}
+
+/// DEV-ONLY: the tab `EXP_DEV_SCREEN=app:<slug>:<tab>` asks of the first
+/// editor that shows that app (once).
+fn dev_tab(shows: impl Fn(&str) -> bool) -> Option<EditorTab> {
+    static TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let spec = std::env::var("EXP_DEV_SCREEN").ok()?;
+    let (app, tab) = split_app_spec(spec.trim().strip_prefix("app:")?);
+    let tab = tab?;
+    if !shows(app) || TAKEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
+    Some(editor_tab(Some(tab), false).0)
+}
 
 fn ide_mode(cx: &App) -> Mode {
     if cx.theme().mode.is_dark() {
@@ -104,8 +163,6 @@ pub struct AppScreenView {
     /// VAPP-176: the `apps` row id once resolved; the screen follows it
     /// (a draft's slug changes when the agent names it).
     app_id: Option<String>,
-    /// VAPP-176: the floating flag last handed to the chat.
-    chat_floating: Option<bool>,
     /// The leave already ran (the panel's `leave`, then the release).
     left: bool,
     nav: Entity<Navigation>,
@@ -121,8 +178,12 @@ pub struct AppScreenView {
     /// The live editor root this screen saw last (ended on leave).
     live_root: Option<String>,
     preview_scroll: ScrollHandle,
-    /// VAPP-129: floating (the chat in THE Dock) or docked (two panes).
-    layout: EditorLayout,
+    versions_scroll: ScrollHandle,
+    settings_scroll: ScrollHandle,
+    /// VAPP-177: the tab on screen (`editorTabs.wide`).
+    tab: EditorTab,
+    /// VAPP-177: the Settings tab's body, built once the app resolves.
+    settings: Option<Entity<crate::settings::app_detail::AppDetailPane>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -146,13 +207,20 @@ impl AppScreenView {
             }));
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         }
+        // VAPP-177: the settings nav asking this editor for a tab.
+        subscriptions.push(cx.observe_global::<AppTabRequest>(|this, cx| {
+            let shows = |app: &str| this.shows(app);
+            if let Some(tab) = take_tab_request(shows, cx) {
+                this.tab = tab;
+                cx.notify();
+            }
+        }));
         // Leaving ends the live editor session: the screens panel drops this
         // view on a navigation off it, the window drops it on close.
         cx.on_release(|this, cx| this.end_live_session(cx)).detach();
         let mut this = Self {
             requested,
             app_id: None,
-            chat_floating: None,
             left: false,
             nav,
             app: None,
@@ -164,52 +232,27 @@ impl AppScreenView {
             restoring: false,
             live_root: None,
             preview_scroll: ScrollHandle::new(),
-            layout: editor_layout(
-                crate::coding_flow::CodingHub::global(cx).read(cx).settings.app_editor_layout.as_deref(),
-            ),
+            versions_scroll: ScrollHandle::new(),
+            settings_scroll: ScrollHandle::new(),
+            tab: editor_tab(None, false).0,
+            settings: None,
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
+        // VAPP-177: the editor opens on the default tab unless the settings
+        // nav (or the dev screen) asked for one.
+        let requested = take_tab_request(|app| this.shows(app), cx).or_else(|| dev_tab(|app| this.shows(app)));
+        if let Some(tab) = requested {
+            this.tab = editor_tab(Some(tab.as_str()), false).0;
+        }
         this
     }
 
-    /// VAPP-176: the layout on screen: a draft is always docked.
-    fn effective_layout(&self) -> EditorLayout {
-        let head = self.app.as_ref().map_or(0, |app| app.head_version);
-        editor_layout_for(Some(self.layout.as_str()), head)
-    }
-
-    /// VAPP-129: switch the layout, keep it per device (the settings'
-    /// `appEditorLayout`), and tell the chat.
-    fn set_layout(&mut self, layout: EditorLayout, cx: &mut gpui::Context<Self>) {
-        if self.layout == layout {
-            return;
+    fn set_tab(&mut self, tab: EditorTab, cx: &mut gpui::Context<Self>) {
+        if self.tab != tab {
+            self.tab = tab;
+            cx.notify();
         }
-        self.layout = layout;
-        let hub = crate::coding_flow::CodingHub::global(cx);
-        let mut settings = hub.read(cx).settings.clone();
-        settings.app_editor_layout = Some(layout.as_str().to_string());
-        if let Err(err) = crate::coding_flow::CodingHub::save_settings(&hub, settings, cx) {
-            log::warn!("[ui] persisting the app editor layout failed: {err}");
-        }
-        self.sync_chat_layout(cx);
-        cx.notify();
-    }
-
-    /// The chat view's mode follows the layout; its sheet's "Move to the
-    /// side" docks it.
-    fn sync_chat_layout(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(chat) = self.chat.clone() else { return };
-        let floating = self.effective_layout() == EditorLayout::Floating;
-        if self.chat_floating == Some(floating) {
-            return;
-        }
-        self.chat_floating = Some(floating);
-        let this = cx.entity().downgrade();
-        let dock_side: std::rc::Rc<dyn Fn(&mut Window, &mut App)> = std::rc::Rc::new(move |_, cx| {
-            let _ = this.update(cx, |this, cx| this.set_layout(EditorLayout::Docked, cx));
-        });
-        chat.update(cx, |chat, cx| chat.set_floating(floating, Some(dock_side), cx));
     }
 
     /// Whether this view shows `app` (the id or slug it was opened with,
@@ -257,15 +300,14 @@ impl AppScreenView {
         if let Some(app_id) = &app_id {
             if self.chat.is_none() {
                 let app_id = app_id.clone();
-                self.chat = Some(cx.new(|cx| crate::agent_screen::AgentScreenView::for_app(app_id, window, cx)));
-                self.sync_chat_layout(cx);
+                self.chat = Some(cx.new(|cx| crate::agent_screen::AgentScreenView::for_app(app_id.clone(), window, cx)));
+                self.settings =
+                    Some(cx.new(|cx| crate::settings::app_detail::AppDetailPane::new(app_id, window, cx)));
             }
             if let Some(root) = crate::session_data::my_editor_session(app_id, cx) {
                 self.live_root = Some(root.id);
             }
         }
-        // VAPP-176: the first version moves a draft off the forced dock.
-        self.sync_chat_layout(cx);
         // The head moved past the version being viewed: it is the head now.
         if self.viewing.is_some() && self.viewing == self.app.as_ref().map(|app| app.head_version) {
             self.viewing = None;
@@ -343,8 +385,7 @@ impl AppScreenView {
 
     /// Preview version `number` (the head clears it); its package loads on
     /// demand.
-    fn pick_version(&mut self, number: i64, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        window.close_sheet(cx);
+    fn pick_version(&mut self, number: i64, cx: &mut gpui::Context<Self>) {
         let Some(app) = self.app.clone() else { return };
         if number == app.head_version {
             self.viewing = None;
@@ -385,8 +426,10 @@ impl AppScreenView {
         cx.notify();
     }
 
-    fn restore(&mut self, cx: &mut gpui::Context<Self>) {
-        let (Some(number), Some(app)) = (self.viewing, self.app.clone()) else { return };
+    /// Restore version `number` (a Versions row's button, or the viewing
+    /// banner's) = a NEW head; the preview back on the head.
+    fn restore(&mut self, number: i64, cx: &mut gpui::Context<Self>) {
+        let Some(app) = self.app.clone() else { return };
         if self.restoring {
             return;
         }
@@ -419,70 +462,24 @@ impl AppScreenView {
         .detach();
     }
 
-    fn open_versions(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let view = cx.entity().downgrade();
-        window.open_sheet(cx, move |sheet, _window, cx| {
-            let body = view
-                .upgrade()
-                .map(|view| {
-                    let this = view.read(cx);
-                    let head = this.app.as_ref().map(|app| app.head_version).unwrap_or(0);
-                    let (versions, viewing) = (this.versions.clone(), this.viewing);
-                    version_rows(&versions, head, viewing, view.downgrade(), cx)
-                })
-                .unwrap_or_else(|| div().into_any_element());
-            sheet
-                .size(px(448.))
-                .title(div().text_base().font_weight(FontWeight::SEMIBOLD).child(APPS.copy.versions.clone()))
-                .child(div().id("app-versions-scroll").size_full().overflow_y_scroll().p_4().child(body))
-        });
-    }
-
     fn render_header(&self, app: &AppEntry, cx: &mut gpui::Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        let versions = {
-            let count = self.versions.len();
-            Button::new("app-editor-versions-button")
-                .outline()
-                .web_sm()
-                .cursor_pointer()
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .child(Icon::new(registry::UI_HISTORY).small())
-                        .child(APPS.copy.versions.clone())
-                        .when(count > 0, |this| {
-                            this.child(
-                                crate::surface::glass_pill(
-                                    "app-versions-count",
-                                    crate::surface::PillSize::Sm,
-                                    crate::surface::PillMode::Readonly,
-                                    cx,
-                                )
-                                .child(SharedString::from(count.to_string())),
-                            )
-                        }),
-                )
-                .on_click(cx.listener(|this, _, window, cx| this.open_versions(window, cx)))
-        };
-        // VAPP-121: Export beside Versions, once the app has a version.
-        let export = (app.head_version > 0).then(|| {
-            let app_id = app.id.clone();
-            Button::new("app-editor-export")
-                .outline()
-                .web_sm()
-                .cursor_pointer()
-                .icon(Icon::new(registry::UI_SHARE).small())
-                .label(domain::app_export::APP_EXPORT_COPY.export.clone())
-                .on_click(move |_, window, cx| crate::app_export_dialog::open(window, cx, app_id.clone(), false))
-        });
+        let tabs = EditorTab::wide();
+        let segments: Vec<_> = tabs
+            .iter()
+            .map(|&tab| {
+                crate::controls::segmented_item(self.tab == tab, cx)
+                    .id(SharedString::from(format!("{}-{}", APPS.test_ids.tabs, tab.as_str())))
+                    .child(tab.label())
+                    .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| this.set_tab(tab, cx)))
+            })
+            .collect();
         h_flex()
             .flex_shrink_0()
             .items_center()
             .gap_3()
             .px_6()
-            .py_4()
+            .py_3()
             .border_b_1()
             .border_color(theme.border)
             .child(app.icon().with_size(px(HEADER_GLYPH_PX)))
@@ -497,8 +494,14 @@ impl AppScreenView {
             )
             .child(version_pill("app-editor-version", app, cx))
             .child(div().flex_1())
-            .children(export)
-            .child(versions)
+            .child(
+                crate::controls::segmented(cx)
+                    .id(SharedString::from(APPS.test_ids.tabs.clone()))
+                    .flex_shrink_0()
+                    .w(px(TAB_SEGMENT_PX * tabs.len() as f32))
+                    .h(px(32.))
+                    .children(segments),
+            )
             .into_any_element()
     }
 
@@ -532,7 +535,7 @@ impl AppScreenView {
                         .cursor_pointer()
                         .label(APPS.copy.restore.clone())
                         .loading(self.restoring)
-                        .on_click(cx.listener(|this, _, _, cx| this.restore(cx))),
+                        .on_click(cx.listener(move |this, _, _, cx| this.restore(number, cx))),
                 )
                 .child(
                     Button::new("app-viewing-head")
@@ -605,100 +608,161 @@ impl AppScreenView {
     }
 }
 
-/// The Versions rows (web `VersionRows`): newest first, `v{n}` + the note
-/// (muted, `No note`) + `Current` on the head + who · when; the row being
-/// previewed (else the head) is lit; a press previews that version.
-fn version_rows(
-    versions: &[AppVersionRow],
-    head: i64,
-    viewing: Option<i64>,
-    view: WeakEntity<AppScreenView>,
-    cx: &mut App,
-) -> AnyElement {
-    let copy = &APPS.copy;
-    if versions.is_empty() {
-        return crate::controls::empty_state_list(Icon::new(registry::UI_HISTORY), copy.versions_empty.clone(), cx)
-            .into_any_element();
-    }
-    let theme = cx.theme();
-    let (muted, hover, lit) = (theme.muted_foreground, theme.list_hover, theme.accent.opacity(0.4));
-    let users = Store::try_global(cx).map(|store| store.collections().users.clone());
-    let rows: Vec<AnyElement> = versions
-        .iter()
-        .map(|version| {
-            let number = version.number.unwrap_or(0);
-            let author: Option<(String, Option<String>, Option<String>)> =
-                version.created_by.as_deref().and_then(|id| {
-                    let user = users.as_ref()?.read(cx).get(id)?.clone();
-                    Some((id.to_string(), user.name, user.image))
-                });
-            let active = viewing.map_or(number == head, |viewing| viewing == number);
-            let name = author
-                .as_ref()
-                .and_then(|(_, name, _)| name.clone())
-                .unwrap_or_else(|| copy.by_agent.clone());
-            let avatar = author.as_ref().map(|(id, _, image)| {
-                crate::user_avatar::user_avatar(id, &name, image.as_deref(), gpui_component::Size::XSmall, cx)
-            });
-            let note = version
-                .note
-                .as_deref()
-                .map(str::trim)
-                .filter(|note| !note.is_empty())
-                .unwrap_or(copy.no_note.as_str())
-                .to_string();
-            let view = view.clone();
-            crate::surface::list_row(
-                crate::surface::flat_row()
-                    .id(SharedString::from(format!("{}-{number}", APPS.test_ids.version_row)))
-                    .flex()
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .gap_3()
-                    .px_3()
-                    .py_2()
-                    .text_sm()
-                    .cursor_pointer()
-                    .when(active, |row| row.bg(lit))
-                    .hover(move |row| row.bg(hover))
-                    .on_click(move |_, window, cx| {
-                        let _ = view.update(cx, |this, cx| this.pick_version(number, window, cx));
-                    })
-                    .child(div().w(px(40.)).flex_shrink_0().font_weight(FontWeight::MEDIUM).child(version_label(number)))
-                    .child(div().flex_1().min_w_0().truncate().text_color(muted).child(note))
-                    .when(number == head, |row| {
-                        row.child(
-                            crate::surface::glass_pill(
-                                ("app-version-head", number as usize),
-                                crate::surface::PillSize::Sm,
-                                crate::surface::PillMode::Readonly,
-                                cx,
-                            )
-                            .child(copy.head.clone()),
+impl AppScreenView {
+    /// VAPP-177: the Versions tab (web `VersionsTab`): ONE grouped list,
+    /// newest first; a row = the `v{n}` pill + the note (`No note` muted)
+    /// over a muted `who · relative time`; trailing: the head row's
+    /// `Current` badge, every other row's Preview (ghost) + Restore
+    /// (outline). None yet = the list-size EmptyState.
+    fn render_versions(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let copy = &APPS.copy;
+        let head = self.app.as_ref().map_or(0, |app| app.head_version);
+        let body = if self.versions.is_empty() {
+            crate::controls::empty_state_list(Icon::new(registry::UI_HISTORY), copy.versions_empty.clone(), cx)
+                .into_any_element()
+        } else {
+            let muted = cx.theme().muted_foreground;
+            let users = Store::try_global(cx).map(|store| store.collections().users.clone());
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let rows: Vec<gpui::Div> = self
+                .versions
+                .iter()
+                .map(|version| {
+                    let number = version.number.unwrap_or(0);
+                    let author = version
+                        .created_by
+                        .as_deref()
+                        .and_then(|id| users.as_ref()?.read(cx).get(id)?.name.clone());
+                    let who = author.unwrap_or_else(|| copy.by_agent.clone());
+                    let when = version
+                        .created_at
+                        .as_deref()
+                        .map(|at| crate::comments::relative_time(at, now))
+                        .unwrap_or_default();
+                    let caption = if when.is_empty() { who } else { format!("{who} · {when}") };
+                    let note = version.note.as_deref().map(str::trim).filter(|note| !note.is_empty());
+                    let trailing = if number == head {
+                        crate::surface::glass_pill(
+                            ("app-version-head", number as usize),
+                            crate::surface::PillSize::Sm,
+                            crate::surface::PillMode::Readonly,
+                            cx,
                         )
-                    })
-                    .child(
+                        .child(copy.head.clone())
+                        .into_any_element()
+                    } else {
                         h_flex()
                             .flex_shrink_0()
                             .items_center()
-                            .gap_1p5()
-                            .text_xs()
-                            .text_color(muted)
-                            .children(avatar)
-                            .child(div().max_w(px(96.)).truncate().child(name))
-                            .child("·")
-                            .child(crate::thread_screen::clock(version.created_at.as_deref())),
-                    ),
-            )
-            .into_any_element()
-        })
-        .collect();
-    v_flex()
-        .id(SharedString::from(APPS.test_ids.versions.clone()))
-        .w_full()
-        .children(rows)
+                            .gap_2()
+                            .child(
+                                Button::new(SharedString::from(format!("{}-{number}", APPS.test_ids.version_preview)))
+                                    .ghost()
+                                    .web_sm()
+                                    .cursor_pointer()
+                                    .label(copy.preview.clone())
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.pick_version(number, cx);
+                                        this.set_tab(EditorTab::Preview, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!("{}-{number}", APPS.test_ids.version_restore)))
+                                    .outline()
+                                    .web_sm()
+                                    .cursor_pointer()
+                                    .label(copy.restore.clone())
+                                    .disabled(self.restoring)
+                                    .on_click(cx.listener(move |this, _, _, cx| this.restore(number, cx))),
+                            )
+                            .into_any_element()
+                    };
+                    crate::surface::glass_row_shell().child(
+                        h_flex()
+                            .id(SharedString::from(format!("{}-{number}", APPS.test_ids.version_row)))
+                            .flex_1()
+                            .min_w_0()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap_0p5()
+                                    .child(
+                                        h_flex()
+                                            .min_w_0()
+                                            .items_center()
+                                            .gap_2()
+                                            .text_sm()
+                                            .child(
+                                                crate::surface::glass_pill(
+                                                    ("app-version-pill", number as usize),
+                                                    crate::surface::PillSize::Sm,
+                                                    crate::surface::PillMode::Readonly,
+                                                    cx,
+                                                )
+                                                .flex_shrink_0()
+                                                .child(version_label(number)),
+                                            )
+                                            .child(match note {
+                                                Some(note) => div()
+                                                    .min_w_0()
+                                                    .truncate()
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .child(note.to_string()),
+                                                None => div()
+                                                    .min_w_0()
+                                                    .truncate()
+                                                    .text_color(muted)
+                                                    .child(copy.no_note.clone()),
+                                            }),
+                                    )
+                                    .child(div().min_w_0().truncate().text_xs().text_color(muted).child(caption)),
+                            )
+                            .child(trailing),
+                    )
+                })
+                .collect();
+            crate::surface::glass_group_rows(rows).into_any_element()
+        };
+        crate::scroll_pane::v_scroll_pane(
+            "app-versions-scroll",
+            &self.versions_scroll,
+            div()
+                .id(SharedString::from(APPS.test_ids.versions.clone()))
+                .w_full()
+                .p_4()
+                .child(body),
+        )
         .into_any_element()
+    }
+
+    /// VAPP-177: the Settings tab: the app's settings column (≤
+    /// `editorTabs.settingsMaxWidth`, left-aligned), scrollable.
+    fn render_settings(&self) -> AnyElement {
+        let Some(settings) = self.settings.clone() else {
+            return div().into_any_element();
+        };
+        crate::scroll_pane::v_scroll_pane(
+            "app-settings-scroll",
+            &self.settings_scroll,
+            div().w_full().px_6().py_4().child(settings),
+        )
+        .into_any_element()
+    }
+
+    /// The tab pane on the right of the chat.
+    fn render_tab(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        match self.tab {
+            EditorTab::Versions => self.render_versions(cx),
+            EditorTab::Settings => self.render_settings(),
+            EditorTab::Preview | EditorTab::Chat => self.render_preview(cx),
+        }
+    }
 }
 
 impl Render for AppScreenView {
@@ -729,67 +793,29 @@ impl Render for AppScreenView {
         };
         let panes = &APPS.panes;
         let chat_share = panes.chat / (panes.chat + panes.preview);
-        let body = match (&self.chat, self.effective_layout()) {
-            // The chat is built with the app (refresh): the preview alone
-            // until then.
-            (None, _) => div().flex_1().min_h_0().w_full().child(self.render_preview(cx)).into_any_element(),
-            (Some(chat), EditorLayout::Floating) => {
-                let band = chat.read(cx).band_height(cx);
-                div()
-                    .id("app-editor-floating")
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .child(div().size_full().pb(px(band + crate::dock::DOCK_GAP)).child(self.render_preview(cx)))
-                    .child(div().absolute().top_0().left_0().size_full().child(chat.clone()))
-                    .into_any_element()
-            }
-            (Some(chat), EditorLayout::Docked) => {
-                let chat = chat.clone();
-                let header = h_flex()
-                    .flex_shrink_0()
-                    .h(px(panes.header_height))
-                    .w_full()
-                    .px_4()
-                    .items_center()
-                    .justify_between()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(APPS.copy.tabs.chat.clone()))
-                    .child(
-                        Button::new(SharedString::from(APPS.test_ids.float.clone()))
-                            .ghost()
-                            .web_icon_sm()
-                            .cursor_pointer()
-                            .icon(Icon::new(
-                                registry::concept_by_name(&APPS.dock_card.float_icon).unwrap_or(registry::UI_INFO),
-                            ))
-                            .tooltip(APPS.copy.float.clone())
-                            .on_click(cx.listener(|this, _, _, cx| this.set_layout(EditorLayout::Floating, cx))),
-                    );
-                h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .items_stretch()
-                    .child(
-                        v_flex()
-                            .h_full()
-                            .min_h_0()
-                            .w(relative(chat_share))
-                            .min_w(px(panes.chat_min_width))
-                            .flex_shrink_0()
-                            .border_r_1()
-                            .border_color(cx.theme().border)
-                            .child(header)
-                            .child(div().flex_1().min_h_0().child(self.render_chat(&chat))),
-                    )
-                    .child(div().h_full().min_h_0().min_w_0().flex_1().child(self.render_preview(cx)))
-                    .into_any_element()
-            }
+        let tab_pane = v_flex().h_full().min_h_0().min_w_0().flex_1().child(self.render_tab(cx));
+        // The chat is built with the app (refresh): the tab pane alone until
+        // then. The chat pane has no header strip of its own.
+        let body = match self.chat.clone() {
+            None => div().flex_1().min_h_0().w_full().child(tab_pane).into_any_element(),
+            Some(chat) => h_flex()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .items_stretch()
+                .child(
+                    v_flex()
+                        .h_full()
+                        .min_h_0()
+                        .w(relative(chat_share))
+                        .min_w(px(panes.chat_min_width))
+                        .flex_shrink_0()
+                        .border_r_1()
+                        .border_color(cx.theme().border)
+                        .child(div().flex_1().min_h_0().child(self.render_chat(&chat))),
+                )
+                .child(tab_pane)
+                .into_any_element(),
         };
         v_flex()
             .id(SharedString::from(APPS.test_ids.editor.clone()))
@@ -814,6 +840,15 @@ mod tests {
         assert_eq!(message["applyTemplate"]["templateId"], "devices");
         assert_eq!(message["applyTemplate"]["packageId"], "exponential.devices");
         assert!(apply_template_message(&json!({"id": "x", "templates": {}})).is_none());
+    }
+
+    #[test]
+    fn a_dev_app_spec_names_its_tab() {
+        assert_eq!(split_app_spec("working-hours:versions"), ("working-hours", Some("versions")));
+        assert_eq!(split_app_spec("working-hours"), ("working-hours", None));
+        // An unknown or phone-only tab = the default (`editorTabCases`).
+        assert_eq!(editor_tab(Some("chat"), false).0, EditorTab::Preview);
+        assert_eq!(editor_tab(Some("settings"), false).0, EditorTab::Settings);
     }
 
     /// The seeded Team dashboard package (the app catalog's Stack, Grid,

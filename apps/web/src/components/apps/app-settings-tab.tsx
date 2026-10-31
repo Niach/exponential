@@ -1,40 +1,39 @@
 import { useEffect, useMemo, useState } from "react"
-import { useNavigate } from "@tanstack/react-router"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { APPS_COPY, APP_DESCRIPTION_MAX, versionLabel } from "@exp/domain-contract/apps"
+import { APPS_COPY, APP_DESCRIPTION_MAX } from "@exp/domain-contract/apps"
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions } from "@exp/domain-contract/app-actions"
-import { APP_EXPORT_COPY } from "@exp/domain-contract/app-export"
-import { Button, conceptIcon, GlassGroup, Pill, Prompt, Switch, Textarea } from "@exp/ui"
-import type { Team } from "@/db/schema"
+import { Button, conceptIcon, GlassGroup, Switch, Textarea } from "@exp/ui"
 import { BoardIdentityRow } from "@/components/board-form-fields"
-import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection, appRecordCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { grantableTools } from "@/lib/app-grants"
 
-// VAPP-110: Settings → Apps → one app (the agent page's layout, fixture
-// apps.json): the identity row (icon + colour + name, the name a deferred
-// write on blur/Enter), the description card (saved on blur), Open in the
-// editor, and Delete (the creator or an owner). VAPP-176: no create mode,
-// New app opens a draft's editor.
+// VAPP-110 → VAPP-177 (fixtures/apps.json THE SETTINGS TAB): the editor's
+// Settings tab (web ≥ md) and the phone menu's Settings sheet: the identity
+// row (icon + colour + name, the name a deferred write on blur/Enter), the
+// description card (saved on blur), the records line, the Tools group (the
+// grant switches, an owner only), then Export (head > 0) and Delete app (the
+// creator or an owner). The editor owns the export sheet and the delete
+// prompt (the phone menu opens the same ones). Everyone else reads it.
 
 const UiDeleteIcon = conceptIcon(`ui-delete`)
-const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiShareIcon = conceptIcon(`ui-share`)
 const DEFAULT_COLOR = `#6366f1`
 const DEFAULT_ICON: BoardIcon = `puzzle`
 
-export function AppSettingsPage({
-  team,
+export function AppSettingsTab({
+  teamId,
   app,
   canManage,
   canGrant = false,
+  onExport,
+  onDelete,
 }: {
-  team: Team
+  teamId: string
   /** The live app entry. */
   app: AppListEntry
   /** The creator or an owner may rename, describe and delete. */
@@ -42,16 +41,16 @@ export function AppSettingsPage({
   /** VAPP-120 (the ruling): only a team OWNER sets the app's grants; the
    *  creator gets no grant power from creating it. */
   canGrant?: boolean
+  /** Opens the editor's export sheet. */
+  onExport: () => void
+  /** Opens the editor's delete prompt. */
+  onDelete: () => void
 }) {
-  const navigate = useNavigate()
   const readOnly = !canManage
   const [name, setName] = useState(app.name ?? ``)
   const [icon, setIcon] = useState<BoardIcon>((app.icon as BoardIcon | null) ?? DEFAULT_ICON)
   const [color, setColor] = useState(app.color ?? DEFAULT_COLOR)
   const [description, setDescription] = useState(app.description ?? ``)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
-  const [deleting, setDeleting] = useState(false)
   // VAPP-122: the app's records (the synced shape) against the team's quota
   // (null = unlimited: self-hosted, or the plan still loading).
   const { data: records } = useLiveQuery(
@@ -87,7 +86,7 @@ export function AppSettingsPage({
     if (!app) return
     let live = true
     void trpc.billing.teamPlan
-      .query({ teamId: team.id })
+      .query({ teamId: teamId })
       .then((plan) => {
         if (live) setRecordsMax(Number.isFinite(plan.limits.appRecords) ? plan.limits.appRecords : null)
       })
@@ -95,7 +94,7 @@ export function AppSettingsPage({
     return () => {
       live = false
     }
-  }, [app, team.id])
+  }, [app, teamId])
 
   // Seed when the APP changes, never on a resync of the same one.
   const appId = app.id ?? null
@@ -126,22 +125,8 @@ export function AppSettingsPage({
     void patch({ name: trimmed })
   }
 
-  const confirmDelete = async () => {
-    if (!app) return
-    setDeleting(true)
-    try {
-      await trpc.apps.delete.mutate({ id: app.id }, SKIP_ERROR_TOAST)
-      setDeleteOpen(false)
-      void navigate({ to: `/t/$teamSlug/settings/apps`, params: { teamSlug: team.slug }, replace: true })
-    } catch (error) {
-      failedAction(`delete`, `the app`, error)
-    } finally {
-      setDeleting(false)
-    }
-  }
-
   return (
-    <div className="space-y-4" data-testid="app-settings-page">
+    <div className="space-y-4">
       <GlassGroup>
         <BoardIdentityRow
           name={name}
@@ -212,43 +197,22 @@ export function AppSettingsPage({
           </GlassGroup>
         </div>
 
+        {(app.headVersion > 0 || canManage) && (
         <div className="flex flex-wrap items-center gap-2 pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug: team.slug, appSlug: app.slug } })}
-            data-testid="app-open-editor"
-          >
-            <NavAppsIcon />
-            {APPS_COPY.openEditor}
-          </Button>
-          <Pill size="sm" className="tabular-nums">{versionLabel(app.headVersion)}</Pill>
           {app.headVersion > 0 && (
-            <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} data-testid="app-export">
+            <Button variant="outline" size="sm" onClick={onExport} data-testid="app-export">
               <UiShareIcon />
-              {APP_EXPORT_COPY.export}
+              {APPS_COPY.menu.export}
             </Button>
           )}
           {canManage && (
-            <Button variant="destructive" size="sm" className="ml-auto" onClick={() => setDeleteOpen(true)} data-testid="app-delete">
+            <Button variant="destructive" size="sm" className="ml-auto" onClick={onDelete} data-testid="app-delete">
               <UiDeleteIcon />
               {APPS_COPY.menu.delete}
             </Button>
           )}
         </div>
-
-      <AppExportDialog app={exportOpen ? app : null} onOpenChange={setExportOpen} />
-      <Prompt
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        busy={deleting}
-        title={APPS_COPY.deleteTitle.replace(`{name}`, app.name ?? ``)}
-        body={APPS_COPY.deleteBody}
-        actions={[
-          { label: `Cancel`, role: `cancel` },
-          { label: APPS_COPY.delete, role: `destructive`, busy: deleting, onSelect: confirmDelete, testId: `app-delete-confirm` },
-        ]}
-      />
+        )}
     </div>
   )
 }

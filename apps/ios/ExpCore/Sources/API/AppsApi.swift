@@ -17,20 +17,36 @@ public struct AppCreateInput: Encodable, Sendable, Equatable {
     }
 }
 
-/// `apps.update` (Rename: the New app form prefilled).
+/// `apps.update` = a PATCH (VAPP-177: the editor's Settings sheet): every
+/// field but `id` is optional and an unset one is left out of the JSON (the
+/// synthesized `encodeIfPresent`). The identity + description = the creator
+/// or a team owner; `grantedTools` = an owner only and names the head
+/// version on screen (`headVersion`, VAPP-156: a newer head = CONFLICT).
 public struct AppUpdateInput: Encodable, Sendable, Equatable {
     public let id: String
-    public let name: String
+    public let name: String?
     public let icon: String?
     public let color: String?
-    public let description: String
+    public let description: String?
+    public let grantedTools: [String]?
+    public let headVersion: Int?
 
-    public init(id: String, name: String, icon: String?, color: String?, description: String) {
+    public init(
+        id: String,
+        name: String? = nil,
+        icon: String? = nil,
+        color: String? = nil,
+        description: String? = nil,
+        grantedTools: [String]? = nil,
+        headVersion: Int? = nil
+    ) {
         self.id = id
         self.name = name
         self.icon = icon
         self.color = color
         self.description = description
+        self.grantedTools = grantedTools
+        self.headVersion = headVersion
     }
 }
 
@@ -202,7 +218,8 @@ public final class AppsApi: Sendable {
         return result.discarded
     }
 
-    /// `apps.update` — the creator or a team owner.
+    /// `apps.update` (a patch) — the creator or a team owner; grants an
+    /// owner only.
     public func update(accountId: String, _ input: AppUpdateInput) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "apps.update", input: input)
     }
