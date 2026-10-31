@@ -153,6 +153,7 @@ eui-core = { path = "crates/eui-core" }
 eui-gpui = { path = "crates/eui-gpui" }
 epilot = { path = "crates/epilot" }
 epilot-screen = { path = "crates/epilot-screen" }
+emcp = { path = "crates/emcp" }
 
 # Debuginfo is the bulk of a debug tree on this dependency set (EXP-76: ~8GB
 # per fresh build, most of it dep debuginfo plus the ~7k .o files macOS's

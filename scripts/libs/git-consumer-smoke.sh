@@ -30,6 +30,7 @@ esac
 # tag this lib's manifests name for it, else at that lib's newest tag.
 case "$lib" in
   etalk) peers="eui:eui-core,eui-gpui epilot:epilot,epilot-screen" ;;
+  epilot) peers="emcp:emcp" ;;
   *) peers="" ;;
 esac
 manifests="$(for c in $crates; do git -C "$repo" show "$rev:apps/desktop/crates/$c/Cargo.toml"; done)"
