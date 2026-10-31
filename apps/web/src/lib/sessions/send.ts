@@ -61,6 +61,7 @@ import {
   postPersonMessage,
   postSessionInput,
   postSystemCard,
+  sessionConversation,
 } from "@/lib/sessions/messages"
 import { markTreesReadBy } from "@/lib/sessions/reads"
 import {
@@ -899,6 +900,27 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
   await postMovedMessage(tx, session, movedText(from, target.name))
 }
 
+/** #FEED-172 (packages/eagent/fixtures/reuse.json): the target's tree has
+ *  the last word with the caller: its newest agent-authored line in the
+ *  caller's conversation is newer than the caller's newest message into the
+ *  target's tree. Such a send is a REPLY (the thread asked in a plain
+ *  message), never new work, so it never forks. */
+async function awaitsCaller(caller: Session, target: Session): Promise<boolean> {
+  const result = await db.execute(sql`
+    SELECT
+      (SELECT max(m.created_at) FROM messages m
+        WHERE m.conversation_id = ${sessionConversation(caller.id)} AND m.author_kind = 'agent'
+          AND m.author_session_id IN (SELECT id FROM sessions WHERE root_id = ${target.rootId})) AS "from",
+      (SELECT max(m.created_at) FROM messages m JOIN conversations c ON c.id = m.conversation_id
+        WHERE m.author_session_id = ${caller.id}
+          AND c.session_id IN (SELECT id FROM sessions WHERE root_id = ${target.rootId})) AS "to"
+  `)
+  const row = result.rows[0] as { from: string | Date | null; to: string | Date | null } | undefined
+  const from = row?.from ? new Date(row.from).getTime() : null
+  const to = row?.to ? new Date(row.to).getTime() : null
+  return from !== null && (to === null || from > to)
+}
+
 /** S-3: an agent's message to a thread it may not reuse never fails: it
  *  starts a FRESH thread on the same device and repository with the same
  *  message (watched by the caller, `startRoot`), the result's `warning`
@@ -923,7 +945,7 @@ async function agentFreshThread(
     .select({ count: sql<number>`count(*)::int` })
     .from(sessions)
     .where(and(eq(sessions.rootId, target.id), ne(sessions.id, target.id)))
-  const reason = agentReuseRefusal(target, count, new Date())
+  const reason = agentReuseRefusal(target, count, new Date(), await awaitsCaller(caller, target))
   if (!reason) return null
   const fresh: SessionsSendInput = {
     ...input,
