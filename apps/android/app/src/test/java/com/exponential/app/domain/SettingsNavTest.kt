@@ -142,6 +142,6 @@ class SettingsNavTest {
         assertEquals(listOf("general", "members", "issues", "repositories", "prompts", "widget", "storage"), owner["team"])
         assertEquals(listOf("account", "notifications", "security", "about"), owner["personal"])
         val member = SettingsNavGroups.groups(isOwner = false)
-        assertEquals(listOf("@assistant", "@agents", "mcp-servers"), member["agents"])
+        assertEquals(listOf("@assistant", "@agents", "mcp"), member["agents"])
     }
 }

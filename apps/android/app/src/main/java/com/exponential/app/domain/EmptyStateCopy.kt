@@ -58,6 +58,8 @@ object EmptyStateCopy {
     val devices = State("devices", Size.List, "nav-devices", "No devices yet", null, null)
     val signedInDevices = State("signed-in-devices", Size.List, "ui-device", "No signed-in devices", null, null)
     val mcpServers = State("mcp-servers", Size.List, "settings-mcp", "No MCP servers yet", null, null)
+    val mcpClients = State("mcp-clients", Size.List, "settings-mcp", "No MCP clients yet", null, null)
+    val mcpActivity = State("mcp-activity", Size.List, "ui-history", "No MCP calls yet", null, null)
     val builtinToolsNoMatch = State("builtin-tools-no-match", Size.List, "ui-empty-search", "No tools match", null, null)
     val widgets = State("widgets", Size.List, "settings-widget", "No widgets yet", null, null)
     val labels = State("labels", Size.List, "settings-labels", "No labels yet", null, null)
@@ -95,6 +97,8 @@ object EmptyStateCopy {
         devices,
         signedInDevices,
         mcpServers,
+        mcpClients,
+        mcpActivity,
         builtinToolsNoMatch,
         widgets,
         labels,
@@ -133,6 +137,7 @@ object EmptyStateCopy {
         "ui-clock" -> ExpIcons.uiClock
         "ui-device" -> ExpIcons.uiDevice
         "ui-empty-search" -> ExpIcons.uiEmptySearch
+        "ui-history" -> ExpIcons.uiHistory
         "ui-issue" -> ExpIcons.uiIssue
         "ui-team" -> ExpIcons.uiTeam
         "work-faces" -> ExpIcons.workFaces
