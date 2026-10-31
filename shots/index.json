@@ -2352,6 +2352,13 @@
       }
     },
     "exponential-ui-mosaic": {
+      "android": {
+        "file": "shots/exponential-ui-mosaic/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 6624,
+        "sha256": "a04adee0e34a6b954d5542be06d7cd88f46d1ebfbd8d76127445b1548e01b81b"
+      },
       "desktop": {
         "file": "shots/exponential-ui-mosaic/desktop.webp",
         "width": 1800,
@@ -2365,6 +2372,13 @@
         "height": 1800,
         "bytes": 7222,
         "sha256": "7d455082d103d96eeb27e782f62d0997db8ca054cace75dc68aaa6665e6cb60c"
+      },
+      "web": {
+        "file": "shots/exponential-ui-mosaic/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 5644,
+        "sha256": "e1d14e7c22fb0abce34617740982248b2d2b32a74141adb033c3516558869220"
       }
     },
     "exponential-ui-number-field": {
@@ -2398,6 +2412,13 @@
       }
     },
     "exponential-ui-outline": {
+      "android": {
+        "file": "shots/exponential-ui-outline/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 10328,
+        "sha256": "db6f0fab59483038812b684fb5288c2a990c6b560372be22ee98ba10b693755a"
+      },
       "desktop": {
         "file": "shots/exponential-ui-outline/desktop.webp",
         "width": 1800,
@@ -2411,6 +2432,13 @@
         "height": 1800,
         "bytes": 10806,
         "sha256": "b11a86b933837ae20d2b662378b5b95f6d2a5778bc710f6b3b871116a3f452ec"
+      },
+      "web": {
+        "file": "shots/exponential-ui-outline/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 9102,
+        "sha256": "4d8ce112b85b94cd09f8d267e92ea88b91aea5445421bbe9dbff2a354a69240d"
       }
     },
     "exponential-ui-page": {
@@ -4313,6 +4341,20 @@
         "height": 1800,
         "bytes": 49280,
         "sha256": "4ad7faa7d50224ea447bcc86aeb51120e9ea36288b46e995d333a3fde06d4ff3"
+      },
+      "web": {
+        "file": "shots/plan-page/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 63420,
+        "sha256": "b6fcf7931a8e01979240342ed4456e59002940139cf5718cb2681a33bfcb87ff"
+      },
+      "web-mobile": {
+        "file": "shots/plan-page/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 49004,
+        "sha256": "c60bcd55ebe1d3f039079390c95a87560d4a995491c9f6b14fdf4bd9f4e06dce"
       }
     },
     "pr-row": {
