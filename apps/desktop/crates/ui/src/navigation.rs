@@ -918,10 +918,11 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 });
             }
             // VAPP-110: one app's editor, by id or by slug. VAPP-177:
-            // `app:<slug>:<tab>` opens it on that tab (the editor reads the
-            // tab off the env itself: `app_screen::dev_tab`).
+            // `app:<slug>:<tab>` opens it on that tab, VAPP-179
+            // `app:<slug>:<tab>:<frame>` on that preview frame (the editor
+            // reads both off the env itself: `app_screen::dev_tab`/`dev_frame`).
             if let Some(app) = spec.strip_prefix("app:") {
-                let (app, _) = crate::app_screen::split_app_spec(app);
+                let (app, _, _) = crate::app_screen::split_app_spec(app);
                 return Some(Screen::App { app: app.to_string() });
             }
             if let Some(id) = spec.strip_prefix("agent:") {

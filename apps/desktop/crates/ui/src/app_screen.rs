@@ -11,7 +11,11 @@
 //!   installs the head package and applies its first template
 //!   (`applyTemplate`, surface `app`) in a 12px frame, repainting on every
 //!   synced upsert; a previewed older version sits under the `Viewing v{n}`
-//!   banner with Restore and Current.
+//!   banner with Restore and Current. VAPP-179 (`preview.$comment`): a
+//!   toolbar row above both = the Desktop | Phone segmented control (the
+//!   frame's width: the pane's, or `preview.phoneWidth` px centred) and,
+//!   only when the shown package has more than one template, the template
+//!   picker (`previewTemplates`, sorted ids); both kept per editor only.
 //! - DATA (VAPP-178): the head package's records, browsed and edited
 //!   ([`crate::app_data_tab::AppDataTab`]).
 //! - VERSIONS: one grouped list, newest first: `v{n}` + the note over
@@ -24,7 +28,8 @@
 //! The editor opens on `editorTabs.default` (no tab is kept); the settings
 //! nav (Settings → Apps, the sidebar's hover gear, the dev `app:<slug>`
 //! settings drive) opens it on Settings ([`open_app_tab`]), the dev screen
-//! `app:<slug>:<tab>` on that tab. VAPP-129's floating layout is gone.
+//! `app:<slug>:<tab>` on that tab (`app:<slug>:preview:phone` = the
+//! Phone frame). VAPP-129's floating layout is gone.
 //!
 //! LIFETIME: entering starts nothing; leaving (a navigation off the screen,
 //! the window closing) ENDS the member's live editor session
@@ -38,6 +43,7 @@
 //! session) fires `apps.discardDraft`.
 
 use eui_core::theme::Mode;
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, AnyElement, App, AppContext as _, Entity, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _,
@@ -50,11 +56,14 @@ use gpui_component::{
 use serde_json::{json, Value};
 use sync::Store;
 
-use domain::apps::{editor_tab, is_draft, version_label, viewing_label, EditorTab, APPS};
+use domain::apps::{
+    editor_tab, is_draft, preview_template, preview_templates, version_label, viewing_label, EditorTab, PreviewFrame,
+    APPS,
+};
 use domain::rows::AppVersionRow;
 
 use crate::apps_view::{find_app, version_pill, AppEntry};
-use crate::controls::WebControl as _;
+use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
 use crate::exponential_ui_host::{IdeHost, THEME_ID};
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, resolved_screen, Navigation, Screen};
@@ -63,6 +72,8 @@ use crate::navigation::{active_team_id, nav_for_window, resolved_screen, Navigat
 const HEADER_GLYPH_PX: f32 = 20.;
 /// One header segment's width (the segmented control sizes to its tabs).
 const TAB_SEGMENT_PX: f32 = 96.;
+/// VAPP-179: one frame segment's width in the preview toolbar.
+const FRAME_SEGMENT_PX: f32 = 88.;
 
 /// VAPP-177: the tab the next editor of `app` opens on (the settings nav's
 /// request), consumed by the editor that shows that app.
@@ -95,13 +106,14 @@ fn take_tab_request(shows: impl Fn(&str) -> bool, cx: &mut App) -> Option<Editor
     Some(tab)
 }
 
-/// VAPP-177: a dev-screen app spec `<slug>[:<tab>]` → the app and the tab
-/// asked for (`app:working-hours:versions`; slugs and ids carry no `:`).
-pub(crate) fn split_app_spec(spec: &str) -> (&str, Option<&str>) {
-    match spec.split_once(':') {
-        Some((app, tab)) => (app, Some(tab)),
-        None => (spec, None),
-    }
+/// VAPP-177: a dev-screen app spec `<slug>[:<tab>[:<frame>]]` → the app,
+/// the tab and (VAPP-179) the preview frame asked for
+/// (`app:working-hours:versions`, `app:team-dashboard:preview:phone`;
+/// slugs and ids carry no `:`).
+pub(crate) fn split_app_spec(spec: &str) -> (&str, Option<&str>, Option<&str>) {
+    let mut parts = spec.splitn(3, ':');
+    let app = parts.next().unwrap_or(spec);
+    (app, parts.next(), parts.next())
 }
 
 /// DEV-ONLY: the tab `EXP_DEV_SCREEN=app:<slug>:<tab>` asks of the first
@@ -109,12 +121,25 @@ pub(crate) fn split_app_spec(spec: &str) -> (&str, Option<&str>) {
 fn dev_tab(shows: impl Fn(&str) -> bool) -> Option<EditorTab> {
     static TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     let spec = std::env::var("EXP_DEV_SCREEN").ok()?;
-    let (app, tab) = split_app_spec(spec.trim().strip_prefix("app:")?);
+    let (app, tab, _) = split_app_spec(spec.trim().strip_prefix("app:")?);
     let tab = tab?;
     if !shows(app) || TAKEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return None;
     }
     Some(editor_tab(Some(tab), false).0)
+}
+
+/// DEV-ONLY (VAPP-179): the preview frame `EXP_DEV_SCREEN=app:<slug>:<tab>:<frame>`
+/// asks of the first editor that shows that app (once).
+fn dev_frame(shows: impl Fn(&str) -> bool) -> Option<PreviewFrame> {
+    static TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let spec = std::env::var("EXP_DEV_SCREEN").ok()?;
+    let (app, _, frame) = split_app_spec(spec.trim().strip_prefix("app:")?);
+    let frame = PreviewFrame::parse(frame?)?;
+    if !shows(app) || TAKEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
+    Some(frame)
 }
 
 fn ide_mode(cx: &App) -> Mode {
@@ -133,14 +158,11 @@ pub(crate) fn app_tab_title(app: &str, cx: &App) -> SharedString {
         .unwrap_or_else(|| APPS.copy.title.clone().into())
 }
 
-/// The first template of a package (`Object.keys(pkg.templates)[0]`).
-pub(crate) fn first_template(pkg: &Value) -> Option<String> {
-    pkg.get("templates")?.as_object()?.keys().next().cloned()
-}
-
-/// The `applyTemplate` message the preview sends (the web's, byte for byte).
-pub(crate) fn apply_template_message(pkg: &Value) -> Option<Value> {
-    let template = first_template(pkg)?;
+/// The `applyTemplate` message the preview sends (the web's, byte for
+/// byte): VAPP-179 the `picked` template while the package has it, else the
+/// first of the sorted ids (`previewTemplate`, `templateCases`).
+pub(crate) fn apply_template_message(pkg: &Value, picked: Option<&str>) -> Option<Value> {
+    let template = preview_template(Some(pkg), picked)?;
     Some(json!({
         "version": "v0.9",
         "applyTemplate": {
@@ -188,6 +210,11 @@ pub struct AppScreenView {
     settings: Option<Entity<crate::settings::app_detail::AppDetailPane>>,
     /// VAPP-178: the Data tab's body, built once the app resolves.
     data: Option<Entity<crate::app_data_tab::AppDataTab>>,
+    /// VAPP-179: the preview frame (`preview.defaultFrame` on open).
+    frame: PreviewFrame,
+    /// VAPP-179: the picked template (`None` = the default; an id the shown
+    /// package lacks falls back to it).
+    picked_template: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -241,6 +268,8 @@ impl AppScreenView {
             tab: editor_tab(None, false).0,
             settings: None,
             data: None,
+            frame: PreviewFrame::default_frame(),
+            picked_template: None,
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
@@ -250,7 +279,24 @@ impl AppScreenView {
         if let Some(tab) = requested {
             this.tab = editor_tab(Some(tab.as_str()), false).0;
         }
+        if let Some(frame) = dev_frame(|app| this.shows(app)) {
+            this.frame = frame;
+        }
         this
+    }
+
+    fn set_frame(&mut self, frame: PreviewFrame, cx: &mut gpui::Context<Self>) {
+        if self.frame != frame {
+            self.frame = frame;
+            cx.notify();
+        }
+    }
+
+    /// VAPP-179: show `template` (the host re-syncs on the new key).
+    fn pick_template(&mut self, template: String, cx: &mut gpui::Context<Self>) {
+        self.picked_template = Some(template);
+        self.sync_preview(cx);
+        cx.notify();
     }
 
     fn set_tab(&mut self, tab: EditorTab, cx: &mut gpui::Context<Self>) {
@@ -338,7 +384,13 @@ impl AppScreenView {
         let pkg = self.shown_package();
         // The key carries the viewing flag: the head's host reads the grants,
         // an older version's never does (a grant is about the HEAD package).
-        let key = format!("{}:{}", self.viewing.is_some(), pkg.as_ref().map(Value::to_string).unwrap_or_default());
+        // VAPP-179: and the template shown (a pick = a fresh host).
+        let template = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
+        let key = format!(
+            "{}:{template}:{}",
+            self.viewing.is_some(),
+            pkg.as_ref().map(Value::to_string).unwrap_or_default()
+        );
         if self.preview.as_ref().map(|p| p.key.as_str()) == Some(key.as_str()) {
             return;
         }
@@ -355,7 +407,7 @@ impl AppScreenView {
             grants: self.viewing.is_none(),
         });
         let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
-        if let Some(message) = apply_template_message(&pkg) {
+        if let Some(message) = apply_template_message(&pkg, self.picked_template.as_deref()) {
             ide.host.update(cx, |host, cx| {
                 host.receive(&message, cx);
             });
@@ -520,6 +572,67 @@ impl AppScreenView {
             .into_any_element()
     }
 
+    /// VAPP-179: the preview toolbar (testId `previewToolbar`): the frame's
+    /// segmented control at the start; at the end, only when the shown
+    /// package has more than one template, the template picker.
+    fn render_preview_toolbar(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let frames = PreviewFrame::all();
+        let segments: Vec<_> = frames
+            .iter()
+            .map(|&frame| {
+                crate::controls::segmented_item(self.frame == frame, cx)
+                    .id(SharedString::from(format!("{}-{}", APPS.test_ids.preview_frame, frame.as_str())))
+                    .child(frame.label())
+                    .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| this.set_frame(frame, cx)))
+            })
+            .collect();
+        let pkg = self.shown_package();
+        let templates = preview_templates(pkg.as_ref());
+        let picker = (templates.len() > 1).then(|| {
+            let current = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
+            let view = cx.entity().downgrade();
+            Button::new(SharedString::from(APPS.test_ids.preview_template.clone()))
+                .outline()
+                .web_sm()
+                .cursor_pointer()
+                .child(div().min_w_0().truncate().child(current.clone()))
+                .child(Icon::new(registry::UI_CHEVRON_DOWN).size(px(14.)).text_color(cx.theme().muted_foreground))
+                .pointer_menu(move |mut menu, _window, _cx| {
+                    menu = crate::pickers::single_select_menu(menu);
+                    for id in &templates {
+                        let view = view.clone();
+                        let value = id.clone();
+                        menu = menu.item(
+                            crate::controls::pointer_label_item(id.clone(), false)
+                                .checked(*id == current)
+                                .on_click(move |_, _, cx| {
+                                    let value = value.clone();
+                                    let _ = view.update(cx, |this, cx| this.pick_template(value, cx));
+                                }),
+                        );
+                    }
+                    menu
+                })
+        });
+        h_flex()
+            .id(SharedString::from(APPS.test_ids.preview_toolbar.clone()))
+            .flex_shrink_0()
+            .w_full()
+            .items_center()
+            .gap_2()
+            .child(
+                crate::controls::segmented(cx)
+                    .id(SharedString::from(APPS.test_ids.preview_frame.clone()))
+                    .flex_shrink_0()
+                    .w(px(FRAME_SEGMENT_PX * frames.len() as f32))
+                    .h(px(32.))
+                    .children(segments),
+            )
+            .child(div().flex_1())
+            .children(picker)
+            .into_any_element()
+    }
+
     fn render_preview(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let banner = self.viewing.map(|number| {
@@ -592,8 +705,15 @@ impl AppScreenView {
             .relative()
             .flex()
             .flex_col()
-            .flex_1()
+            .h_full()
             .min_h_0()
+            .map(|frame| match self.frame.width() {
+                // VAPP-179: Phone = `phoneWidth` px, centred (never wider
+                // than the pane); no flex_1 here, its 0 basis would win
+                // over the width in the row.
+                Some(width) => frame.w(px(width)).max_w_full(),
+                None => frame.flex_1().min_w_0(),
+            })
             .rounded(px(APPS.preview.radius))
             .border_1()
             .border_color(theme.border)
@@ -608,8 +728,11 @@ impl AppScreenView {
             .min_h_0()
             .gap_3()
             .p_4()
+            .child(self.render_preview_toolbar(cx))
             .children(banner)
-            .child(frame)
+            // The frame's row: a flex parent so the frame keeps its height
+            // (flex_1) and centres at the Phone width.
+            .child(h_flex().flex_1().min_h_0().w_full().items_stretch().justify_center().child(frame))
             .into_any_element()
     }
 }
@@ -842,23 +965,46 @@ mod tests {
     #[test]
     fn the_preview_applies_the_first_template_of_the_package() {
         let pkg: Value = serde_json::from_str(crate::exponential_ui_host::DEVICES_PACKAGE_JSON).unwrap();
-        let message = apply_template_message(&pkg).expect("the Devices package has a template");
+        let message = apply_template_message(&pkg, None).expect("the Devices package has a template");
         assert_eq!(message["applyTemplate"]["surfaceId"], "app");
         assert_eq!(message["applyTemplate"]["templateId"], "devices");
         assert_eq!(message["applyTemplate"]["packageId"], "exponential.devices");
-        assert!(apply_template_message(&json!({"id": "x", "templates": {}})).is_none());
+        assert!(apply_template_message(&json!({"id": "x", "templates": {}}), None).is_none());
+    }
+
+    /// VAPP-179: the picked template while the package has it, else the
+    /// first of the SORTED ids (`templateCases`).
+    #[test]
+    fn the_preview_applies_the_picked_template() {
+        let pkg = json!({"id": "x", "templates": {"week": {}, "dashboard": {}, "month": {}}});
+        let id = |picked| apply_template_message(&pkg, picked).unwrap()["applyTemplate"]["templateId"].clone();
+        assert_eq!(id(None), "dashboard");
+        assert_eq!(id(Some("week")), "week");
+        assert_eq!(id(Some("missing")), "dashboard");
     }
 
     #[test]
     fn a_dev_app_spec_names_its_tab() {
-        assert_eq!(split_app_spec("working-hours:versions"), ("working-hours", Some("versions")));
-        assert_eq!(split_app_spec("working-hours"), ("working-hours", None));
+        assert_eq!(split_app_spec("working-hours:versions"), ("working-hours", Some("versions"), None));
+        assert_eq!(split_app_spec("working-hours"), ("working-hours", None, None));
         // An unknown or phone-only tab = the default (`editorTabCases`).
         assert_eq!(editor_tab(Some("chat"), false).0, EditorTab::Preview);
         assert_eq!(editor_tab(Some("settings"), false).0, EditorTab::Settings);
         // VAPP-178: `app:<slug>:data` opens the Data tab.
-        assert_eq!(split_app_spec("working-hours:data"), ("working-hours", Some("data")));
+        assert_eq!(split_app_spec("working-hours:data"), ("working-hours", Some("data"), None));
         assert_eq!(editor_tab(Some("data"), false).0, EditorTab::Data);
+    }
+
+    /// VAPP-179: `app:<slug>:<tab>:<frame>` (the catalog's
+    /// `app-preview-phone` drive = `app:team-dashboard:preview:phone`).
+    #[test]
+    fn a_dev_app_spec_names_its_frame() {
+        let (app, tab, frame) = split_app_spec("team-dashboard:preview:phone");
+        assert_eq!((app, tab, frame), ("team-dashboard", Some("preview"), Some("phone")));
+        assert_eq!(editor_tab(tab, false).0, EditorTab::Preview);
+        assert_eq!(frame.and_then(PreviewFrame::parse), Some(PreviewFrame::Phone));
+        assert_eq!(PreviewFrame::default_frame(), PreviewFrame::Desktop);
+        assert_eq!(PreviewFrame::parse("tablet"), None);
     }
 
     /// The seeded Team dashboard package (the app catalog's Stack, Grid,
@@ -870,7 +1016,7 @@ mod tests {
         let ide = cx.update(|cx| IdeHost::with_packages(Mode::Dark, std::slice::from_ref(&pkg), None, None, cx));
         let host = ide.host.clone();
         let issues = host.update(cx, |host, cx| {
-            let ops = host.receive(&apply_template_message(&pkg).unwrap(), cx);
+            let ops = host.receive(&apply_template_message(&pkg, None).unwrap(), cx);
             (ops.len(), format!("{:?}", host.issues()))
         });
         cx.run_until_parked();
