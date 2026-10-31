@@ -21,7 +21,7 @@ object DevicesList {
         const val ADD_ACCOUNT = "Add account"
         const val ATTENTION = "Needs attention"
         const val UPDATE_AVAILABLE = "Update available · v{version}"
-        const val UPDATE_QUEUED = "Update queued until all sessions are closed."
+        const val UPDATE_QUEUED = "Update queued: restarts within 10 minutes."
         const val NEEDS_RELOGIN = "{label} · Needs re-login"
         const val SIGNED_OUT = "{label} · Signed out"
         const val UPDATE = "Update"

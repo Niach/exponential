@@ -890,7 +890,7 @@ describe(`deviceProfileUsage`, () => {
 // FEED-36 / EXP-1075: the blocker line is one fixed sentence.
 describe(`update blockers (FEED-36)`, () => {
   it(`says the update waits on every session, with no count and no names`, () => {
-    expect(UPDATE_QUEUED_LINE).toBe(`Update queued until all sessions are closed.`)
+    expect(UPDATE_QUEUED_LINE).toBe(`Update queued: restarts within 10 minutes.`)
   })
 })
 

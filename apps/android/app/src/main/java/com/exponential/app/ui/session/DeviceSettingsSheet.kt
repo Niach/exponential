@@ -565,8 +565,8 @@ fun DeviceSettingsSheet(
                     if (device.updateQueued) {
                         // FEED-36, the pinned sentence ×4 (web QUEUED_UPDATE_TOOLTIP).
                         Text(
-                            "Live sessions hold this update — the device restarts itself once " +
-                                "every session ends or sits idle for 2 hours.",
+                            "Live sessions hold this update for at most 10 minutes — the device " +
+                                "then restarts itself and every session continues.",
                             style = MaterialTheme.typography.labelSmall,
                             color = NeedsInputAmber,
                             modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),

@@ -17,7 +17,7 @@ public enum DevicesList {
         public static let addAccount = "Add account"
         public static let attention = "Needs attention"
         public static let updateAvailable = "Update available · v{version}"
-        public static let updateQueued = "Update queued until all sessions are closed."
+        public static let updateQueued = "Update queued: restarts within 10 minutes."
         public static let needsRelogin = "{label} · Needs re-login"
         public static let signedOut = "{label} · Signed out"
         public static let update = "Update"

@@ -60,6 +60,8 @@ const RECHECK_INTERVAL: Duration = Duration::from_secs(4 * 60 * 60);
 const BLOCKED_RETRY_INTERVAL: Duration = Duration::from_secs(60);
 /// GitHub rejects API calls without a User-Agent.
 const USER_AGENT: &str = "exp-desktop-update-check";
+/// EXP-1489: how often the auto-restart watcher reads the gate.
+const RESTART_WATCH_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Whether this build channel checks for updates at all. Production does;
 /// staging is skipped (see the module doc). A runtime `const` rather than a
@@ -161,6 +163,9 @@ pub struct UpdateState {
     /// Unlike a normal update it cannot be dismissed — the app is unusable
     /// until it updates.
     blocked: bool,
+    /// EXP-1489: since when the swapped build waits for its restart (the
+    /// [`updater::restart::MAX_WAIT`] clock).
+    ready_since: Option<Instant>,
 }
 
 impl UpdateState {
@@ -275,6 +280,7 @@ impl UpdateState {
             CHANNEL_CHECKS_UPDATES
                 && model_needs_plan(state)
         });
+        auto_install(cx);
         if !need_fetch {
             return;
         }
@@ -289,6 +295,7 @@ impl UpdateState {
                 if let Ok(Some(info)) = result {
                     let _ = cx.update(|cx| {
                         model.update(cx, |state, cx| state.offer(info, cx));
+                        auto_install(cx);
                     });
                 }
                 let needs_plan = cx.update(|cx| model_needs_plan(model.read(cx)));
@@ -308,6 +315,78 @@ impl UpdateState {
 
 struct UpdateGlobal(Entity<UpdateState>);
 impl Global for UpdateGlobal {}
+
+/// EXP-1489: the desktop installs like the CLI daemon does — a release this
+/// install can swap itself to is downloaded at once (no click), and the
+/// restart follows by [`watch_restart`]'s rule. Banner-only installs (dev
+/// builds, unwritable dirs, no asset) keep the banner.
+fn auto_install(cx: &mut App) {
+    let Some(model) = UpdateState::global_ref(cx) else {
+        return;
+    };
+    let installable = {
+        let state = model.read(cx);
+        matches!(state.phase, UpdatePhase::Available)
+            && state.available.as_ref().is_some_and(|info| info.plan.is_some())
+    };
+    if installable && matches!(updater::capability(), updater::Capability::SelfUpdate(_)) {
+        log::info!("[ui] update: installing the new release in the background");
+        start_update(cx);
+    }
+}
+
+/// EXP-1489: the restart of a swapped build, by the CLI daemon's rule
+/// ([`updater::restart::restart_gate`]): once every session this app hosts
+/// pauses between turns, at most [`updater::restart::MAX_WAIT`], and at
+/// once when the server refuses this build. A person at the app (a focused
+/// window) is never restarted under unless the build is refused: the
+/// banner's "Restart to update" is theirs. The quit hook suspends every
+/// run; one cut mid-turn reads `restarted` and the next launch continues
+/// it by itself.
+fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
+    cx.spawn(async move |cx| {
+        let mut last_busy = Instant::now();
+        loop {
+            cx.background_executor().timer(RESTART_WATCH_INTERVAL).await;
+            let restart = cx.update(|cx| {
+                let engines: Vec<engine::EngineSession> = crate::coding_flow::LocalSessions::global_ref(cx)
+                    .map(|sessions| sessions.read(cx).acp_hosts())
+                    .unwrap_or_default();
+                let live: Vec<_> = engines.iter().filter(|engine| !engine.is_done()).collect();
+                let now = Instant::now();
+                if live.iter().any(|engine| !engine.turn_signal().is_idle()) {
+                    last_busy = now;
+                }
+                let state = model.read(cx);
+                let (UpdatePhase::ReadyToRestart { restart_path }, Some(ready_since)) =
+                    (&state.phase, state.ready_since)
+                else {
+                    return None;
+                };
+                let paused = (!live.is_empty()).then(|| Some(now.saturating_duration_since(last_busy)));
+                let gate = updater::restart::restart_gate(
+                    paused,
+                    now.saturating_duration_since(ready_since),
+                    state.blocked,
+                );
+                let attended = cx.active_window().is_some();
+                (gate == updater::restart::RestartGate::Now && (state.blocked || !attended))
+                    .then(|| restart_path.clone())
+            });
+            if let Some(restart_path) = restart {
+                log::info!("[ui] update: restarting on the new version");
+                cx.update(|cx| {
+                    if let Some(path) = restart_path {
+                        cx.set_restart_path(path);
+                    }
+                    cx.restart();
+                });
+                return;
+            }
+        }
+    })
+    .detach();
+}
 
 /// Whether the blocked-mode poll still has work to do: no release with an
 /// install plan is known yet (EXP-316).
@@ -339,6 +418,7 @@ pub fn check_for_updates(cx: &mut App) {
     cx.background_executor()
         .spawn(async move { updater::cleanup_staging() })
         .detach();
+    watch_restart(cx, model.clone());
 
     cx.spawn(async move |cx| {
         loop {
@@ -350,6 +430,7 @@ pub fn check_for_updates(cx: &mut App) {
             if let Ok(Some(info)) = result {
                 cx.update(|cx| {
                     model.update(cx, |state, cx| state.offer(info, cx));
+                    auto_install(cx);
                 });
             }
 
@@ -413,6 +494,7 @@ pub fn start_update(cx: &mut App) {
                         }
                         UpdateEvent::Installing => UpdatePhase::Installing,
                         UpdateEvent::Ready { restart_path } => {
+                            state.ready_since = Some(Instant::now());
                             UpdatePhase::ReadyToRestart { restart_path }
                         }
                         UpdateEvent::Failed { message } => UpdatePhase::Failed { message },

@@ -2347,7 +2347,10 @@ fn deliver(
 /// engine for it ([`PickupAction::Revive`]): resumed natively from its run
 /// record with NO prompt (it waits idle for its next message), or with no
 /// record left launched afresh from its brief (an agent's empty brief says
-/// to wait). Once per absence: a failure backs off
+/// to wait). EXP-1489: a root its device cut MID-TURN (a restart for an
+/// update: `blocked` = an interruption with resume) resumes with
+/// [`revive_prompt`]'s continuation turn instead, so its turn is finished,
+/// never silently dropped. Once per absence: a failure backs off
 /// ([`LiveRegistry::revive_held`]) up to [`MAX_LAUNCH_ATTEMPTS`], then the
 /// row idles and stays down until a message wakes it; a refusal idles it at
 /// once (a persistent session never ends).
@@ -2386,7 +2389,7 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
         issue_identifiers: identifiers,
         resume: record.map(|record| ResumeRun {
             record,
-            prompt: String::new(),
+            prompt: revive_prompt(row),
             message_id: None,
             reconfigure: None,
             fresh: false,
@@ -2522,6 +2525,13 @@ pub fn continue_after_restart(row: &SessionRow, deps: &PickupDeps) -> Result<boo
 pub fn continue_prompt(kind: &str) -> String {
     let reason = if kind == "device_offline" { "device offline" } else { "runner restarted" };
     format!("Your run was interrupted ({reason}) and continues now. Pick up exactly where you left off.")
+}
+
+/// EXP-1489: the seed turn a [`revive_session`] resumes a persistent root
+/// with — empty (it idles, waiting) unless the root was cut mid-turn
+/// ([`SessionRow::continue_interruption`]): then [`continue_prompt`].
+pub fn revive_prompt(row: &SessionRow) -> String {
+    row.continue_interruption().map(continue_prompt).unwrap_or_default()
 }
 
 /// EXP-1374: [`PickupAction::Continue`] — resume an interrupted mid-turn
@@ -3524,6 +3534,26 @@ mod tests {
             .run()
             .iter()
             .any(|action| matches!(action, PickupAction::Revive { session } if session.id == "a1")));
+    }
+
+    /// EXP-1489: a team agent a restart cut mid-turn (an update) revives
+    /// WITH the continuation turn; one that was between turns, or flagged
+    /// without resume, revives silently and waits.
+    #[test]
+    fn a_persistent_root_cut_mid_turn_revives_with_its_continuation() {
+        let cut = interrupted(agent("a1", SESSION_STATUS_IDLE), "restarted", Some(true));
+        let pass = Pass::new(vec![cut.clone()], Vec::new());
+        assert!(pass
+            .run()
+            .iter()
+            .any(|action| matches!(action, PickupAction::Revive { session } if session.id == "a1")));
+        assert_eq!(
+            revive_prompt(&cut),
+            "Your run was interrupted (runner restarted) and continues now. Pick up exactly where you left off."
+        );
+        assert_eq!(revive_prompt(&agent("a2", SESSION_STATUS_IDLE)), "");
+        let unresumable = interrupted(agent("a3", SESSION_STATUS_IDLE), "restarted", Some(false));
+        assert_eq!(revive_prompt(&unresumable), "");
     }
 
     /// EXP-1374: once per absence — the registry's hold (an engine that ran

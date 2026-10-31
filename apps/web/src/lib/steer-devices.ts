@@ -239,7 +239,7 @@ export function isUnpinnedAccount(account: string | null | undefined): boolean {
  * parked behind live sessions. ONE dumb sentence: a machine serves every
  * team the caller is in, so any count or name here would either leak
  * another team's runs or lie about the number. */
-export const UPDATE_QUEUED_LINE = `Update queued until all sessions are closed.`
+export const UPDATE_QUEUED_LINE = `Update queued: restarts within 10 minutes.`
 
 /** The two synced usage slots, as either a `SteerDevice` (absent = undefined)
  * or a raw `devices` ROW (absent = null) — the start path reads the row
