@@ -1763,6 +1763,10 @@ async fn a_claude_session_publishes_under_the_account_it_runs_on() {
     let work = workdir("live-usage-account");
     let mut launch = spec("rate-limit", &work.0, false);
     launch.options.account = Some("prof-9".to_string());
+    // The previous test's run may still be giving its ambient slot back
+    // (the release trails the turn's end): wait for it, or the baseline
+    // counts a session that ends while this one runs.
+    settle(|| live_usage().sessions == 0).await;
     let ambient_before = live_usage();
     let adapter = ClaudeAgent::new(launch).expect("the adapter builds");
     let during = Arc::new(Mutex::new(None));
