@@ -43,8 +43,13 @@ export interface Replayed {
   state: HubState
 }
 
-export function replay(entry: FixtureCase, reduce: (state: HubState, event: HubEvent) => Outcome): Replayed {
-  let state = hydrate(entry.given ?? {})
+/** `hydrateGiven` defaults to the TS reference's; the WASM replay passes eagent-hub-core's. */
+export function replay(
+  entry: FixtureCase,
+  reduce: (state: HubState, event: HubEvent) => Outcome,
+  hydrateGiven: (given: NonNullable<FixtureCase[`given`]>) => HubState = hydrate
+): Replayed {
+  let state = hydrateGiven(entry.given ?? {})
   const outcomes: Outcome[] = []
   const errors: string[][] = []
   entry.steps.forEach((step, index) => {
