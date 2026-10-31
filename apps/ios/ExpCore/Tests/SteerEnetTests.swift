@@ -189,6 +189,22 @@ final class SteerEnetTests: XCTestCase {
         }
     }
 
+    // EXP-1487 LOST BANNER: a dropped feed redials silently; "Connection
+    // lost" only after `graceMs` down AND `failedRedials` failed redials.
+    func testLostBannerCases() throws {
+        let rule = try XCTUnwrap(try fixture()["lostBanner"] as? [String: Any])
+        XCTAssertEqual(rule["graceMs"] as? Int, SteerLostBanner.graceMs)
+        XCTAssertEqual(rule["failedRedials"] as? Int, SteerLostBanner.failedRedials)
+        let lost = try cases("lostBannerCases")
+        XCTAssertFalse(lost.isEmpty)
+        for c in lost {
+            let name = c["name"] as? String ?? "?"
+            let downMs = try XCTUnwrap(c["downMs"] as? Int, name)
+            let failedRedials = try XCTUnwrap(c["failedRedials"] as? Int, name)
+            XCTAssertEqual(SteerLostBanner.show(downMs: downMs, failedRedials: failedRedials), c["show"] as? Bool, name)
+        }
+    }
+
     // VAPP-43 STORED REPLAY: an ended row's journal comes back as reset,
     // replay, synced, then `bye {outcome:"history"}` — the join completes on
     // `activity_synced`, and a `bye` batched into the marker's envelope is

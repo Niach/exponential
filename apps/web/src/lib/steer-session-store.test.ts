@@ -18,7 +18,9 @@ import enetFixture from "@exp/domain-contract/fixtures/steer-enet.json"
 import {
   encodeSteerEnvelope,
   parseSteerEnvelope,
+  STEER_ENET_LOST_GRACE_MS,
   STEER_ENET_STALE_MS,
+  steerShowConnectionLost,
   type SteerFrame,
 } from "@exp/domain-contract/steer-enet"
 import { CLOSE_ENET_LOST, openEnetSteer, type SteerCarrier } from "@/lib/enet/steer-enet-viewer"
@@ -115,6 +117,18 @@ async function goLive(store: SteerSessionStore, sockets: FakeSocket[]) {
   socket.frame({ t: `activity_synced` })
   await vi.advanceTimersByTimeAsync(100)
   return socket
+}
+
+/** EXP-1487 (steer-enet.json LOST BANNER): drop the live feed, then fail
+ *  every redial (each past the 30s backoff cap) until "Connection lost". */
+async function dropUntilLost(store: SteerSessionStore, sockets: FakeSocket[], code = 1006) {
+  sockets[sockets.length - 1].serverClose(code)
+  while (store.getSnapshot().phase.kind === `live`) {
+    const dialed = sockets.length
+    await vi.advanceTimersByTimeAsync(30_100)
+    expect(sockets).toHaveLength(dialed + 1)
+    sockets[sockets.length - 1].serverClose(code)
+  }
 }
 
 beforeEach(() => {
@@ -630,16 +644,29 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
-  it(`a no_such_session on a live row goes back to starting and redials`, async () => {
+  it(`a no_such_session on a live row redials silently, then goes back to starting`, async () => {
     const { store, sockets } = makeStore()
     store.noteSessionStatus(`running`)
     const socket = await goLive(store, sockets)
     socket.frame({ t: `error`, code: `no_such_session` })
     expect(socket.closed).toBe(true)
     socket.serverClose(1000)
-    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+    // EXP-1487: the drop of a live feed is silent.
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
     await vi.advanceTimersByTimeAsync(3_100)
     expect(sockets).toHaveLength(2)
+    // Past the grace and two failed redials, `starting` keeps its own rule.
+    for (let i = 0; i < 2; i++) {
+      const last = sockets[sockets.length - 1]
+      last.open()
+      last.frame({ t: `error`, code: `no_such_session` })
+      last.serverClose(1000)
+      if (i === 0) {
+        expect(store.getSnapshot().phase.kind).toBe(`live`)
+        await vi.advanceTimersByTimeAsync(30_100)
+      }
+    }
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
     store.dispose()
   })
 
@@ -713,16 +740,100 @@ describe(`a lost eNet feed (CLOSE_ENET_LOST)`, () => {
     store.dispose()
   })
 
-  it(`other unexpected close codes stay terminal (manual Reconnect)`, async () => {
+  it(`a drop shown as lost stays closed (manual Reconnect)`, async () => {
     const { store, sockets } = makeStore()
-    const socket = await goLive(store, sockets)
-    socket.serverClose(1006)
+    await goLive(store, sockets)
+    await dropUntilLost(store, sockets)
     expect(store.getSnapshot().phase.kind).toBe(`closed`)
+    const dialed = sockets.length
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(sockets).toHaveLength(1)
+    expect(sockets).toHaveLength(dialed)
     store.reconnect()
     await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(dialed + 1)
+    store.dispose()
+  })
+})
+
+// EXP-1487 (steer-enet.json LOST BANNER): a live feed that drops redials
+// silently; "Connection lost" only after graceMs down AND failedRedials.
+describe(`the lost banner (EXP-1487)`, () => {
+  it(`replays lostBannerCases`, () => {
+    for (const c of enetFixture.lostBannerCases) {
+      expect(steerShowConnectionLost(c.downMs, c.failedRedials), c.name).toBe(c.show)
+    }
+  })
+
+  it(`a transient drop never shows closed; a successful join resets the count`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `keep` } })
+    await vi.advanceTimersByTimeAsync(100)
+    socket.serverClose(1006)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    // One failed redial, well past the grace: still silent.
+    await vi.advanceTimersByTimeAsync(3_100)
     expect(sockets).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(STEER_ENET_LOST_GRACE_MS)
+    sockets[1].serverClose(1006)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    // The next redial joins: the drop is over.
+    await vi.advanceTimersByTimeAsync(30_100)
+    expect(sockets).toHaveLength(3)
+    sockets[2].open()
+    sockets[2].frame({ t: `activity_reset` })
+    sockets[2].frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().connected).toBe(true)
+    // A fresh drop counts from zero: one failure is silent again.
+    sockets[2].serverClose(1006)
+    await vi.advanceTimersByTimeAsync(30_100)
+    expect(sockets).toHaveLength(4)
+    sockets[3].serverClose(1006)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    store.dispose()
+  })
+
+  it(`two quick failures inside the grace stay silent; past it the drop shows`, async () => {
+    vi.spyOn(Math, `random`).mockReturnValue(0)
+    const { store, sockets } = makeStore()
+    await goLive(store, sockets)
+    sockets[0].serverClose(1006)
+    // Backoff 1.5s, then 3s: two failures 4.5s after the drop.
+    await vi.advanceTimersByTimeAsync(1_500)
+    sockets[1].serverClose(1006)
+    await vi.advanceTimersByTimeAsync(3_000)
+    sockets[2].serverClose(1006)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    await vi.advanceTimersByTimeAsync(6_000)
+    expect(sockets).toHaveLength(4)
+    sockets[3].serverClose(1006)
+    expect(store.getSnapshot().phase).toEqual({ kind: `closed`, terminal: false })
+    vi.mocked(Math.random).mockRestore()
+    store.dispose()
+  })
+
+  it(`no feed on the redials of a live row shows lost after the rule, never starting`, async () => {
+    let reachable = true
+    const { store, sockets } = makeStore({ feed: () => reachable })
+    store.noteSessionStatus(`running`)
+    await goLive(store, sockets)
+    reachable = false
+    sockets[0].serverClose(CLOSE_ENET_LOST)
+    await vi.advanceTimersByTimeAsync(3_100)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    await vi.advanceTimersByTimeAsync(30_100)
+    expect(store.getSnapshot().phase).toEqual({ kind: `closed`, terminal: false })
+    store.dispose()
+  })
+
+  it(`an unauthorized refusal is never held`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `error`, code: `unauthorized` })
+    socket.serverClose(1000)
+    expect(store.getSnapshot().phase).toMatchObject({ kind: `closed`, terminal: true })
     store.dispose()
   })
 })
@@ -750,12 +861,13 @@ describe(`stuck dials`, () => {
 describe(`kick (wakeup nudge)`, () => {
   it(`redials a closed store whose session is still running`, async () => {
     const { store, sockets } = makeStore()
-    const socket = await goLive(store, sockets)
-    socket.serverClose(1006)
+    await goLive(store, sockets)
+    await dropUntilLost(store, sockets)
     expect(store.getSnapshot().phase.kind).toBe(`closed`)
+    const dialed = sockets.length
     store.kick(`visible`)
     await vi.advanceTimersByTimeAsync(0)
-    expect(sockets).toHaveLength(2)
+    expect(sockets).toHaveLength(dialed + 1)
     store.dispose()
   })
 
@@ -1431,12 +1543,13 @@ describe(`terminal closes (EXP-648)`, () => {
 
   it(`other closes stay retryable`, async () => {
     const { store, sockets } = makeStore()
-    const socket = await goLive(store, sockets)
-    socket.serverClose(1006)
+    await goLive(store, sockets)
+    await dropUntilLost(store, sockets)
     expect(store.getSnapshot().phase).toMatchObject({ kind: `closed`, terminal: false })
+    const dialed = sockets.length
     store.kick(`visible`)
     await vi.advanceTimersByTimeAsync(0)
-    expect(sockets).toHaveLength(2)
+    expect(sockets).toHaveLength(dialed + 1)
     store.dispose()
   })
 })
@@ -2565,7 +2678,8 @@ describe(`replay staging (EXP-751)`, () => {
     // A half-delivered replay is worth less than the last complete picture
     // — the reader keeps what they were reading.
     expect(texts(store)).toEqual([`original one`])
-    expect(store.getSnapshot().phase.kind).toBe(`closed`)
+    // EXP-1487: the drop itself redials silently.
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
     store.dispose()
   })
 
@@ -3312,9 +3426,13 @@ describe(`steer over eNet`, () => {
     expect(store.getSnapshot().feed).toHaveLength(1)
     expect(store.getSnapshot().connected).toBe(false)
     expect(CLOSE_ENET_LOST).toBe(4901)
-    // The redial tries eNet again (unanswered now): no feed on a live row.
+    // The redial tries eNet again (unanswered now): no feed on a live row
+    // is a failed redial, silent until the LOST BANNER rule (EXP-1487).
     await vi.advanceTimersByTimeAsync(3_100 + 8_000 + 10)
-    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(6_100 + 8_000 + 10)
+    expect(store.getSnapshot().phase).toEqual({ kind: `closed`, terminal: false })
     expect(store.getSnapshot().feed).toHaveLength(1)
     store.dispose()
   })

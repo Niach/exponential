@@ -86,3 +86,20 @@ fun steerOfflineRedial(phase: SteerRedialPhase, trigger: SteerRedialTrigger): Bo
     phase == SteerRedialPhase.Offline -> true
     else -> trigger != SteerRedialTrigger.StaleTimer
 }
+
+/** EXP-1487: fixtures/steer-enet.json `lostBanner` (the fixture test pins them). */
+internal const val STEER_LOST_GRACE_MS = 5_000L
+internal const val STEER_LOST_FAILED_REDIALS = 2
+
+/**
+ * EXP-1487 (fixtures/steer-enet.json "LOST BANNER"): whether a live feed that
+ * dropped shows "Connection lost". Until it has been down [downMs] >= the
+ * grace AND [failedRedials] redials since the drop failed, it redials
+ * silently, holding the phase.
+ */
+fun steerShowConnectionLost(
+    downMs: Long,
+    failedRedials: Int,
+    graceMs: Long = STEER_LOST_GRACE_MS,
+    minFailedRedials: Int = STEER_LOST_FAILED_REDIALS,
+): Boolean = downMs >= graceMs && failedRedials >= minFailedRedials

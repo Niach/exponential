@@ -159,6 +159,29 @@ class SteerEnetTest {
     }
 
     @Test
+    fun theLostBannerCasesAreTheFixtures() {
+        // EXP-1487: fixtures/steer-enet.json `lostBanner` + `lostBannerCases`.
+        val lostBanner = fixture["lostBanner"]!!.jsonObject
+        assertEquals(lostBanner["graceMs"]!!.jsonPrimitive.long, STEER_LOST_GRACE_MS)
+        assertEquals(lostBanner["failedRedials"]!!.jsonPrimitive.long.toInt(), STEER_LOST_FAILED_REDIALS)
+        assertEquals(STEER_LOST_GRACE_MS, SteerTimings().lostGraceMs)
+        assertEquals(STEER_LOST_FAILED_REDIALS, SteerTimings().lostFailedRedials)
+        val cases = fixture["lostBannerCases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        cases.forEach { element ->
+            val case = element.jsonObject
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                case["show"]!!.jsonPrimitive.boolean,
+                steerShowConnectionLost(
+                    case["downMs"]!!.jsonPrimitive.long,
+                    case["failedRedials"]!!.jsonPrimitive.long.toInt(),
+                ),
+            )
+        }
+    }
+
+    @Test
     fun anEncodedEnvelopeParsesBackWithItsFramesUnchanged() {
         val frames = listOf(frame("""{"t":"input","data":"hello"}"""), frame("""{"t":"input","data":"\r"}"""))
         val parsed = parseSteerEnvelope(encodeSteerEnvelope("s1", frames).decodeToString())!!

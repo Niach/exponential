@@ -406,6 +406,23 @@ public enum SteerOfflineRedial {
     }
 }
 
+/// LOST BANNER (EXP-1487, the fixture's `lostBanner` + `lostBannerCases`): a
+/// feed that was live and drops redials SILENTLY (the phase holds, no
+/// "Connection lost"); the banner shows only once the feed has been down at
+/// least `graceMs` since the drop AND at least `failedRedials` redials since
+/// the drop failed. A successful join resets both.
+public enum SteerLostBanner {
+    public static let graceMs = 5_000
+    public static let failedRedials = 2
+
+    /// - Parameters:
+    ///   - downMs: milliseconds since the drop.
+    ///   - failedRedials: redials since the drop that failed.
+    public static func show(downMs: Int, failedRedials: Int) -> Bool {
+        downMs >= graceMs && failedRedials >= Self.failedRedials
+    }
+}
+
 /// The transport choice: `installs.forSession` → `join` the first endpoint →
 /// on `error no_such_session` (or `unauthorized`, or a failed send) the next
 /// → no node / no endpoint / every endpoint refused / no `activity_synced`

@@ -185,6 +185,9 @@ data class SteerTimings(
     /** VAPP-169: the device-offline ended's redial cadence while it shows
      *  (fixtures/steer-enet.json `staleMs`). */
     val offlineRedialMs: Long = SteerEnetTimings().staleMs,
+    /** EXP-1487: fixtures/steer-enet.json `lostBanner` ([steerShowConnectionLost]). */
+    val lostGraceMs: Long = STEER_LOST_GRACE_MS,
+    val lostFailedRedials: Int = STEER_LOST_FAILED_REDIALS,
 )
 
 /**
@@ -340,6 +343,12 @@ class SteerConnection internal constructor(
      *  on a successful (live) connection and on an explicit connect(). */
     private var reconnectAttempts = 0
 
+    /** EXP-1487: when a LIVE feed dropped (null = no drop in progress) and how
+     *  many redials since then failed. While [steerShowConnectionLost] says
+     *  no, the loop redials silently under the held phase; a join resets. */
+    private var droppedAtMs: Long? = null
+    private var failedRedialsSinceDrop = 0
+
     /** Set once the synced row has actually been observed — [session] starts
      *  null (nothing loaded yet), so only a null AFTER a real row proves the
      *  row is gone rather than still on its way. */
@@ -389,13 +398,18 @@ class SteerConnection internal constructor(
         val dialActive = connectJob?.isActive == true
         val sinceFrame = nowMs() - lastFrameAtMs
         val stale = _connected.value && sinceFrame > timings.liveStaleMs
-        val action = steerRevivalAction(
-            phase = _phase.value,
-            dialActive = dialActive,
-            finished = isFinished,
-            socketStale = stale,
-            deviceOffline = isDeviceOffline,
-        )
+        val action = if (droppedAtMs != null && dialActive && !isFinished) {
+            // EXP-1487: a silent drop holds Live while it waits out a backoff.
+            SteerRevivalAction.WakeRetry
+        } else {
+            steerRevivalAction(
+                phase = _phase.value,
+                dialActive = dialActive,
+                finished = isFinished,
+                socketStale = stale,
+                deviceOffline = isDeviceOffline,
+            )
+        }
         // sinceFrame is the number the "it reconnects every 30s" reports turn
         // on (EXP-656): a stale verdict is only ever as good as it.
         Log.i(
@@ -423,6 +437,7 @@ class SteerConnection internal constructor(
         if (closed) return
         connectJob?.cancel()
         reconnectAttempts = 0
+        clearDrop()
         Log.i(TAG, "[$sid] connect(silent=$silent)")
         connectJob = scope.launch {
             val me = currentCoroutineContext()[Job]
@@ -441,7 +456,15 @@ class SteerConnection internal constructor(
                 }
                 quiet = false
                 when (outcome) {
-                    DialOutcome.RetryStarting -> {
+                    DialOutcome.RetryStarting -> if (droppedAtMs != null) {
+                        // EXP-1487: NO FEED on the redial of a dropped live
+                        // feed is a failed redial, not a Starting row.
+                        failedRedialsSinceDrop++
+                        quiet = holdThroughDrop(null)
+                        delayOrWake(reconnectDelayMs(reconnectAttempts++))
+                        if (connectJob !== me) return@launch
+                        quiet = holdThroughDrop(null)
+                    } else {
                         // No feed yet (VAPP-43: no eNet endpoint answered, and
                         // there is no relay behind it). Keep redialing while
                         // the synced row still says running; a row that ended
@@ -452,6 +475,7 @@ class SteerConnection internal constructor(
                         if (connectJob !== me) return@launch
                     }
                     is DialOutcome.Ended -> {
+                        clearDrop()
                         setPhase(AgentPhase.Ended(outcome.detail), "ended")
                         return@launch
                     }
@@ -459,6 +483,7 @@ class SteerConnection internal constructor(
                         // VAPP-169: not terminal. Redial every staleMs while
                         // the copy shows (a revival cuts it short), holding
                         // the phase; NO FEED again lands back here.
+                        clearDrop()
                         setPhase(AgentPhase.Ended(), "device offline")
                         delayOrWake(timings.offlineRedialMs)
                         if (connectJob !== me) return@launch
@@ -466,20 +491,33 @@ class SteerConnection internal constructor(
                     }
                     is DialOutcome.Closed -> {
                         if (!outcome.retryable) {
+                            clearDrop()
                             setPhase(AgentPhase.Closed(outcome.detail), "terminal")
                             return@launch
+                        }
+                        // EXP-1487: a LIVE feed that drops redials silently
+                        // (the phase holds) until [steerShowConnectionLost];
+                        // every later failure counts against it.
+                        if (droppedAtMs != null) {
+                            failedRedialsSinceDrop++
+                        } else if (_phase.value == AgentPhase.Live) {
+                            droppedAtMs = nowMs()
+                            failedRedialsSinceDrop = 0
                         }
                         // Never park on a dead socket behind a manual button
                         // (EXP-243) — auto-redial on backoff; the phase
                         // carries the reconnecting flag so the UI shows
                         // "Reconnecting…" instead of a Reconnect action.
-                        setPhase(AgentPhase.Closed(outcome.detail, reconnecting = true), "drop")
+                        quiet = holdThroughDrop(outcome.detail)
+                        if (!quiet) setPhase(AgentPhase.Closed(outcome.detail, reconnecting = true), "drop")
                         delayOrWake(reconnectDelayMs(reconnectAttempts++))
                         if (connectJob !== me) return@launch
                         if (sessionIsOver()) {
+                            clearDrop()
                             setPhase(AgentPhase.Ended(), "row ended")
                             return@launch
                         }
+                        quiet = holdThroughDrop(outcome.detail)
                     }
                 }
             }
@@ -512,6 +550,7 @@ class SteerConnection internal constructor(
         // A page asked for on that socket is not coming either (EXP-795):
         // the device drops the ask with the viewer, so a new one may go out.
         historyRequest = null
+        clearDrop()
         setPhase(AgentPhase.Idle, "park")
     }
 
@@ -588,6 +627,29 @@ class SteerConnection internal constructor(
             delay((COMPACTION_TIMEOUT_MS - age).coerceAtLeast(0L))
             _activity.value = _activity.value.clearCompaction()
         }
+    }
+
+    private fun clearDrop() {
+        droppedAtMs = null
+        failedRedialsSinceDrop = 0
+    }
+
+    /**
+     * EXP-1487: true while a dropped live feed is still inside its silent
+     * window (the next dial must hold the phase); once [steerShowConnectionLost]
+     * says so, the "Connection lost" banner shows (Closed, reconnecting).
+     */
+    private fun holdThroughDrop(detail: String?): Boolean {
+        val since = droppedAtMs ?: return false
+        val downMs = nowMs() - since
+        if (!steerShowConnectionLost(downMs, failedRedialsSinceDrop, timings.lostGraceMs, timings.lostFailedRedials)) {
+            return true
+        }
+        setPhase(
+            AgentPhase.Closed(detail, reconnecting = true),
+            "connection lost (${downMs}ms, $failedRedialsSinceDrop failed)",
+        )
+        return false
     }
 
     /** Wait [ms], or return early when [kick] wakes us. A token left over from
@@ -718,6 +780,9 @@ class SteerConnection internal constructor(
                     // A feed answered, so any earlier no-feed line is over:
                     // what arrives next IS the transcript.
                     _history.value = null
+                    // EXP-1487: a successful join ends any drop.
+                    clearDrop()
+                    reconnectAttempts = 0
                     if (sessionIsOver()) {
                         // VAPP-43: the device replays an ENDED row's stored
                         // journal and then says `bye {outcome:"history"}`;
