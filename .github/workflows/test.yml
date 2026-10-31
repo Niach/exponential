@@ -52,7 +52,7 @@ jobs:
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
           echo "eui=$(grep -qE "$eui" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
-          ede='^(apps/ede/|\.github/workflows/test\.yml$)'
+          ede='^(apps/ede/|apps/desktop/crates/ecore/|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:

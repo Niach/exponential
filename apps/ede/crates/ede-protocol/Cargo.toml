@@ -1,0 +1,14 @@
+[package]
+name = "ede-protocol"
+description = "eDE's control plane: the wire types, framing and a blocking client for ede-compositor's capability-token socket"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+# A client crate (ePilot, eos-agent, the shell link it): eCore's shared types,
+# serde, nothing of the compositor.
+[dependencies]
+ecore = { path = "../../../desktop/crates/ecore" }
+serde.workspace = true
+serde_json = "1"

@@ -95,6 +95,7 @@ impl Ede {
         if l.pending.is_some() && outputs.iter().all(|o| l.shown_on.contains(o)) {
             l.pending.take().unwrap().lock();
             tracing::info!("session locked");
+            self.emit(ede_protocol::events::SESSION_LOCKED, serde_json::Value::Null);
         }
     }
 
@@ -187,6 +188,7 @@ impl SessionLockHandler for Ede {
         self.lock = LockState::Unlocked;
         self.idle.activity();
         tracing::info!("session unlocked");
+        self.emit(ede_protocol::events::SESSION_UNLOCKED, serde_json::Value::Null);
         let top = self.space.elements().last().cloned();
         self.focus(top);
         let pos = self.seat.get_pointer().unwrap().current_location();

@@ -110,7 +110,7 @@ type Shared = Rc<RefCell<Udev>>;
 
 /// Runs eDE as the session's compositor until the loop stops; `autostart`
 /// (if any) starts once clients can connect.
-pub fn run(config: Config, autostart: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     let mut event_loop: EventLoop<'static, Ede> = EventLoop::try_new()?;
     let display: Display<Ede> = Display::new()?;
 
@@ -127,6 +127,7 @@ pub fn run(config: Config, autostart: Vec<String>) -> Result<(), Box<dyn std::er
     tracing::info!("primary GPU {primary_gpu}");
 
     let mut state = Ede::new(display, event_loop.handle(), event_loop.get_signal(), config);
+    state.config_path = config_path;
     let socket = state.listen()?;
     tracing::info!("listening on {}", socket.to_string_lossy());
     std::env::set_var("WAYLAND_DISPLAY", &socket);

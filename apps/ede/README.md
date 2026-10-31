@@ -7,6 +7,7 @@ libraries, never the other way round.
 | Crate | Role |
 |---|---|
 | `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
+| `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on eCore's `Capability`/`Grant`/`Failure`/`Envelope`. ePilot, eos-agent and the shell link it. |
 | `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## Run it nested (Cinnamon/X11)
@@ -87,6 +88,34 @@ Log out; LightDM's session menu now has **Exponential** and **Exponential
 shell). Super+Shift+E logs out; Ctrl+Alt+F1…F12 switch VTs. Logs:
 `journalctl --user -b` and `~/.xsession-errors`. Remove with `sudo apt
 remove ede`; Cinnamon is untouched.
+
+## ede-protocol
+
+`$XDG_RUNTIME_DIR/ede/<wayland-N>.sock` (directory 0700): frames of a
+little-endian `u32` length plus JSON (`{"id": 1, "op": "list_windows"}`),
+the pixels of a capture as the frame after its reply. `hello` with a token
+first; each op needs the eCore capability it names:
+
+| Op | Capability |
+|---|---|
+| `list_windows`, `list_outputs`, `subscribe` (events: `window.opened/closed/focused`, `session.locked/unlocked`, `config.reloaded`) | any grant |
+| `focus_window`, `close_window`, `move_window` | `ui` |
+| `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
+| `input` (key, pointer motion, button; refused on protected surfaces and the lock) | `input:person` |
+| `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
+
+The compositor writes the root token (every capability) to
+`$XDG_RUNTIME_DIR/ede/<wayland-N>.token` (0600) for the shell; `mint_grant`
+hands narrower, expiring grants to agents (never more than the minting grant
+holds, never outliving it). Any process of the same user can read the token
+file, so the boundary is between the shell and the agents it mints for (an
+agent sandbox does not see `$XDG_RUNTIME_DIR/ede`). Agent spaces and window
+lending come with their own issues; captures are drawn in software for now.
+
+```rust
+let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
+for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
+```
 
 ## Config
 

@@ -127,6 +127,9 @@ impl XwmHandler for Ede {
     fn unmapped_window(&mut self, _xwm: XwmId, surface: X11Surface) {
         if let Some(window) = self.x11_window(&surface) {
             let had_focus = self.focused_window().as_ref() == Some(&window);
+            if !surface.is_override_redirect() {
+                self.window_event(ede_protocol::events::WINDOW_CLOSED, &window);
+            }
             self.space.unmap_elem(&window);
             if had_focus {
                 let next = self.space.elements().rev().find(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect())).cloned();

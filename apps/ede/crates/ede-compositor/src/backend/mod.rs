@@ -149,6 +149,73 @@ where
     damage_tracker.render_output(renderer, framebuffer, age, &elements, state.clear_color())
 }
 
+/// Draws `output` in software (pixman) into memory: `shared` = what a
+/// capture may see ([`capture_elements`]).
+pub fn draw_output(renderer: &mut smithay::backend::renderer::pixman::PixmanRenderer, state: &Ede, output: &Output, shared: bool) -> Result<headless::Frame, String> {
+    let mode = output.current_mode().ok_or("output has no mode")?;
+    let size = (mode.size.w, mode.size.h);
+    draw_offscreen(renderer, size, state.clear_color(), |renderer| {
+        if shared {
+            capture_elements(state, output, renderer)
+        } else {
+            output_elements(state, output, renderer)
+        }
+    })
+}
+
+fn draw_offscreen(
+    renderer: &mut smithay::backend::renderer::pixman::PixmanRenderer,
+    (w, h): (i32, i32),
+    clear: [f32; 4],
+    elements: impl FnOnce(&mut smithay::backend::renderer::pixman::PixmanRenderer) -> Vec<OutputElements<smithay::backend::renderer::pixman::PixmanRenderer>>,
+) -> Result<headless::Frame, String> {
+    use smithay::{
+        backend::{
+            allocator::Fourcc,
+            renderer::{Bind, Offscreen},
+        },
+        utils::{Physical, Rectangle, Transform},
+    };
+    let size: smithay::utils::Size<i32, smithay::utils::Buffer> = (w, h).into();
+    let mut image = Offscreen::<smithay::reexports::pixman::Image<'static, 'static>>::create_buffer(renderer, Fourcc::Argb8888, size).map_err(|e| e.to_string())?;
+    {
+        let elements = elements(renderer);
+        let mut fb = renderer.bind(&mut image).map_err(|e| e.to_string())?;
+        let mut damage_tracker = OutputDamageTracker::new(Rectangle::<i32, Physical>::from_size((w, h).into()).size, 1.0, Transform::Normal);
+        damage_tracker.render_output(renderer, &mut fb, 0, &elements, clear).map_err(|e| format!("{e:?}"))?;
+    }
+    let stride = image.stride() / 4;
+    // Safety: the image is ours, `h` rows of `stride` u32s, and no renderer
+    // holds it any more (the framebuffer above is dropped).
+    let data = unsafe { std::slice::from_raw_parts(image.data(), stride * h as usize) };
+    let pixels = data.chunks(stride).flat_map(|row| row[..w as usize].iter().copied()).collect();
+    Ok(headless::Frame { width: w, height: h, pixels })
+}
+
+/// An output as `ede-protocol` captures it, drawn in software. Clients
+/// whose buffers pixman cannot read (a GPU-only dmabuf) are missing from it
+/// until the backends read back from their own renderer.
+pub fn capture_output(state: &Ede, output: &Output) -> Result<headless::Frame, String> {
+    let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().map_err(|e| e.to_string())?;
+    draw_output(&mut renderer, state, output, true)
+}
+
+/// One window alone (popups included) at its own size, on transparent black.
+/// The caller checks it may be captured.
+pub fn capture_window(window: &smithay::desktop::Window) -> Result<headless::Frame, String> {
+    use smithay::{backend::renderer::element::AsRenderElements, desktop::space::SpaceElement};
+    let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().map_err(|e| e.to_string())?;
+    let bbox = SpaceElement::bbox(window);
+    let size = (bbox.size.w.max(1), bbox.size.h.max(1));
+    draw_offscreen(&mut renderer, size, [0.0, 0.0, 0.0, 0.0], |renderer| {
+        let at = smithay::utils::Point::<i32, smithay::utils::Logical>::from((-bbox.loc.x, -bbox.loc.y)).to_physical(1);
+        AsRenderElements::<_>::render_elements::<WaylandSurfaceRenderElement<_>>(window, renderer, at, 1.0.into(), 1.0)
+            .into_iter()
+            .map(OutputElements::Surface)
+            .collect()
+    })
+}
+
 /// After a frame went out: frame callbacks so clients draw the next one,
 /// then housekeeping and a flush.
 pub fn frame_done(state: &mut Ede, output: &Output) {
