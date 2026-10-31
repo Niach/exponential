@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-31-native-enet-dial`,
+    date: `2026-10-31`,
+    title: `Watching sessions connects on iOS and Android`,
+    summary: `The iOS and Android apps now find the device that runs a session, so watching it live works.`,
+    body: `- **Connects**: the iOS and Android apps learn each teammate device's relay address, so watching a session no longer fails with "No addressing information available".
+- **Self-hosting**: this release removes server support for iOS below 0.14.78 and Android below 0.14.80. Set \`CLIENT_MIN_VERSION_*\` to those versions before upgrading (see \`selfhost/.env.example\`).`,
+  },
+  {
     id: `2026-10-31-enet-viewer-release`,
     date: `2026-10-31`,
     title: `Watching sessions works again on every app`,

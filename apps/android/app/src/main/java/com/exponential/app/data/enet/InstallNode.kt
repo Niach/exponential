@@ -35,7 +35,11 @@ interface PeerNode {
 class FfiPeerNode(val node: EnetNode) : PeerNode {
     override val endpointId: String = node.endpointId()
     override fun allowedPeers(): Set<String> = node.allowedPeers().toSet()
-    override fun allow(peer: String) = node.allowPeer(peer)
+    /** EXP-1471: an allowed peer is also taught its address on our relay (else every dial fails). */
+    override fun allow(peer: String) {
+        node.allowPeer(peer)
+        RelayTicket.encode(peer)?.let { runCatching { node.addTicket(it) } }
+    }
     override fun revoke(peer: String) = node.revokePeer(peer)
 
     override suspend fun sendChat(peer: String, body: ByteArray) {
