@@ -3154,15 +3154,19 @@ impl DaemonHost {
                     // EXP-1341: the registry backs a failed revive off on its
                     // own (`revive_held`), so either way it is settled here.
                     coding::pickup::PickupAction::Revive { session } => {
-                        if let Err(err) = coding::pickup::revive_session(session, &deps) {
-                            log::warn!("pickup: revive of {session_id}: {err}");
+                        // #EXP-1492: a contended claim is held and retried
+                        // by the registry, unlogged.
+                        match coding::pickup::revive_session(session, &deps) {
+                            Ok(()) | Err(coding::pickup::WakeError::Contended) => {}
+                            Err(err) => log::warn!("pickup: revive of {session_id}: {err}"),
                         }
                         true
                     }
                     // EXP-1374: same for an interrupted run's continuation.
                     coding::pickup::PickupAction::Continue { session } => {
-                        if let Err(err) = coding::pickup::continue_interrupted(session, &deps) {
-                            log::warn!("pickup: continuation of {session_id}: {err}");
+                        match coding::pickup::continue_interrupted(session, &deps) {
+                            Ok(()) | Err(coding::pickup::WakeError::Contended) => {}
+                            Err(err) => log::warn!("pickup: continuation of {session_id}: {err}"),
                         }
                         true
                     }
