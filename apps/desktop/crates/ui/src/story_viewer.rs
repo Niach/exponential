@@ -18,7 +18,8 @@
 //!   kind badge leading the frame's title (one line) and the description
 //!   (muted, up to 3 lines), each ONCE.
 //! - Body: a PLAN = its cover (the first picture fitted on black, none = the
-//!   bare black body; a click on the cover's middle = Open plan); a GALLERY =
+//!   bare black body; a click ANYWHERE on the cover = Open plan: its
+//!   prev/next stay on the arrows and the keys); a GALLERY =
 //!   the current picture fitted on black, the `i / n` counter top-right, its
 //!   caption (else its label) muted under it; a surface frame = THE surface
 //!   renderer with no card chrome; a title frame = nothing. A scrolling body
@@ -866,8 +867,9 @@ pub(crate) fn story_panel(
             linear_color_stop(gpui::black().opacity(0.), 1.),
         )));
     let StoryContent { fill, body, footer } = content;
-    // A click on a plan's cover (the middle third) = Open plan.
-    let cover_open = (frame.kind == StoryFrameKind::Plan && !story.pictures.is_empty())
+    // A click anywhere on a plan's cover (picture or not) = Open plan (no thirds:
+    // the side arrows and the keys still step).
+    let cover_open = (frame.kind == StoryFrameKind::Plan)
         .then(|| handlers.open_plan.clone())
         .flatten();
     let base = div()
@@ -996,10 +998,11 @@ pub(crate) fn story_panel(
 /// press that no interactive element claimed (they stop the mouse-down: the
 /// footer, the header's controls, eUI's pressable nodes, the side arrows)
 /// and that moved the keyboard focus nowhere (a text field took it) is a
-/// tap: the left third = previous, the right third = next, the middle =
-/// `middle` (a plan's cover = Open plan); a held press pauses the timer and
-/// never steps; a drag never steps.
-fn tap_to_step(panel: gpui::Stateful<Div>, middle: Option<Action>) -> gpui::Stateful<Div> {
+/// tap: the left third = previous, the right third = next ([`tap_at`]); on
+/// a plan's cover (`cover` set) the WHOLE panel = Open plan
+/// (stories.json NAVIGATION: 'a tap ANYWHERE on a plan cover'); a held press
+/// pauses the timer and never steps; a drag never steps.
+fn tap_to_step(panel: gpui::Stateful<Div>, cover: Option<Action>) -> gpui::Stateful<Div> {
     panel
         .cursor_pointer()
         .capture_any_mouse_down(|_, window, cx| {
@@ -1035,12 +1038,15 @@ fn tap_to_step(panel: gpui::Stateful<Div>, middle: Option<Action>) -> gpui::Stat
             let Some(bounds) = cx.global::<Viewer>().panel_bounds else { return };
             let width = f32::from(bounds.size.width).max(1.);
             let x = (f32::from(event.position.x - bounds.origin.x)) / width;
-            if x < 1. / 3. {
-                previous(cx);
-            } else if x > 2. / 3. {
-                next(cx);
-            } else if let Some(action) = &middle {
-                action(window, cx);
+            match tap_at(x, cover.is_some()) {
+                Tap::Previous => previous(cx),
+                Tap::Next => next(cx),
+                Tap::Cover => {
+                    if let Some(action) = &cover {
+                        action(window, cx);
+                    }
+                }
+                Tap::Nothing => {}
             }
         })
         .on_mouse_up_out(MouseButton::Left, |_, _, cx| {
@@ -1049,6 +1055,30 @@ fn tap_to_step(panel: gpui::Stateful<Div>, middle: Option<Action>) -> gpui::Stat
                 pause(false, cx);
             }
         })
+}
+
+/// What a tap at `x` (0..1 across the panel) does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tap {
+    Previous,
+    Next,
+    Cover,
+    Nothing,
+}
+
+/// #EXP-1493: a plan's cover takes the WHOLE panel (Open plan);
+/// else the left third = previous, the right third = next, the middle =
+/// nothing.
+fn tap_at(x: f32, cover: bool) -> Tap {
+    if cover {
+        Tap::Cover
+    } else if x < 1. / 3. {
+        Tap::Previous
+    } else if x > 2. / 3. {
+        Tap::Next
+    } else {
+        Tap::Nothing
+    }
 }
 
 /// One frame's body and footer (#EXP-1493): a plan's cover + its Open plan
@@ -1323,6 +1353,18 @@ mod tests {
         assert_eq!(step_place(&rings, &place(&rings, 1, 0, 0), false), Step::To(0, 2, 0));
         assert_eq!(step_place(&rings, &place(&rings, 0, 0, 0), false), Step::Stay);
         assert_eq!(step_place(&rings, &place(&rings, 1, 0, 0), true), Step::Close);
+    }
+
+    /// #EXP-1493: a plan's cover opens the plan from ANY x (the
+    /// arrows and keys still step); other frames keep the thirds.
+    #[test]
+    fn a_plan_cover_opens_the_plan_from_anywhere() {
+        for x in [0., 0.1, 0.5, 0.9, 1.] {
+            assert_eq!(tap_at(x, true), Tap::Cover);
+        }
+        assert_eq!(tap_at(0.1, false), Tap::Previous);
+        assert_eq!(tap_at(0.5, false), Tap::Nothing);
+        assert_eq!(tap_at(0.9, false), Tap::Next);
     }
 
     /// The modal sizes by a gallery's current picture / a plan's cover.
