@@ -5531,15 +5531,15 @@
         "file": "shots/thread-stories/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 65278,
-        "sha256": "72b93078c5b814a2092aef3d14c03b7a8257407e46afc348e88924a2e9c7197e"
+        "bytes": 66040,
+        "sha256": "878bc1b21b084dc683357ea530c1dec420a052fbffd6489840eb83e8756f40e0"
       },
       "web-mobile": {
         "file": "shots/thread-stories/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 55138,
-        "sha256": "59ca44bc8fb81e891ca3b19ca6ba326cb962f5de8ef277902fda1397f7653f82"
+        "bytes": 57524,
+        "sha256": "2d9575238294a28b5a903b29d473898a39b3e2aba37a8172698806c123c9ab97"
       }
     },
     "threads": {
