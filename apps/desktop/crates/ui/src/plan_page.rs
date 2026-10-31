@@ -208,6 +208,18 @@ fn prose_pieces(text: &str) -> Vec<Piece> {
     out
 }
 
+/// The header's waiting dot: THE needs-you yellow (#EXP-1480, the rail's
+/// needs-you dot), never the primary (white on the forced dark theme).
+fn waiting_dot_color() -> gpui::Hsla {
+    theme::tokens::YELLOW.to_hsla()
+}
+
+/// The lightbox index of a pressed picture's `src` (a mosaic tile, a lone
+/// picture or an INLINE one): its first place in [`document_pictures`].
+fn picture_index(pictures: &[GalleryPicture], src: &str) -> usize {
+    pictures.iter().position(|picture| picture.url == src).unwrap_or(0)
+}
+
 /// Every picture the document shows, in order (groups and inline; a fenced
 /// code block shows none): THE lightbox's set.
 fn document_pictures(blocks: &[PlanBlock]) -> Vec<GalleryPicture> {
@@ -281,9 +293,9 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         questions: facts.questions.len(),
     });
     let waiting = facts.decision.is_none();
-    let (muted, foreground, border, sidebar, primary) = {
+    let (muted, foreground, border, sidebar) = {
         let theme = cx.theme();
-        (theme.muted_foreground, theme.foreground, theme.border, theme.sidebar, theme.primary)
+        (theme.muted_foreground, theme.foreground, theme.border, theme.sidebar)
     };
 
     // Section → its child index in the document's scroll.
@@ -310,7 +322,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
     let open_picture: Rc<dyn Fn(&str, &mut Window, &mut App)> = {
         let (pictures, images) = (pictures.clone(), props.images.clone());
         Rc::new(move |src: &str, window: &mut Window, cx: &mut App| {
-            let index = pictures.iter().position(|picture| picture.url == src).unwrap_or(0);
+            let index = picture_index(&pictures, src);
             crate::image_preview::open_picture_gallery((*pictures).clone(), index, images.clone(), window, cx);
         })
     };
@@ -346,7 +358,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         )
         .child(div().flex_shrink_0().child(crate::story_badge::kind_badge("plan-page-badge", StoryKind::Plan, cx)))
         .when(waiting, |row| {
-            row.child(div().id("plan-page-waiting").flex_shrink_0().size(px(6.)).rounded_full().bg(primary))
+            row.child(div().id("plan-page-waiting").flex_shrink_0().size(px(6.)).rounded_full().bg(waiting_dot_color()))
         })
         .child(div().flex_1())
         .when(!counts.is_empty(), |row| {
@@ -456,12 +468,17 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
                 for (at, piece) in prose_pieces(text).into_iter().enumerate() {
                     prose = prose.child(match piece {
                         Piece::Text(text) => {
-                            let view = crate::thread_screen::message_markdown(
+                            let mut view = crate::thread_screen::message_markdown(
                                 SharedString::from(format!("plan-page-{message_id}-{ix}-{at}")),
                                 &crate::plan_card::strip_pending_uploads(&text),
                                 props.text,
                                 props.images,
                             );
+                            // An inline picture (mid-sentence) opens THE plan
+                            // lightbox too, never the lone image preview.
+                            if let Some(open) = open_picture.clone() {
+                                view = view.on_open_image(move |src, window, cx| open(src, window, cx));
+                            }
                             crate::steer_viewer::ask_body_text(cx).child(view).into_any_element()
                         }
                         Piece::Picture { alt, src } => {
@@ -682,6 +699,22 @@ mod tests {
         let urls: Vec<String> = document_pictures(&blocks).into_iter().map(|picture| picture.url).collect();
         let expected: Vec<String> = ["a1", "a2", "a3", "a4", "a5", "a6", "a7"].iter().map(|id| format!("/api/attachments/{id}")).collect();
         assert_eq!(urls, expected);
+    }
+
+    /// #EXP-1493: an INLINE picture (mid-sentence) opens THE lightbox at
+    /// its own document index, like a lone one.
+    #[test]
+    fn plan_page_inline_picture_opens_the_lightbox_at_its_index() {
+        let blocks = plan_blocks("Intro\n\n![lone](/api/attachments/a)\n\nSee ![inline](/api/attachments/b) here.");
+        let pictures = document_pictures(&blocks);
+        assert_eq!(picture_index(&pictures, "/api/attachments/a"), 0);
+        assert_eq!(picture_index(&pictures, "/api/attachments/b"), 1);
+    }
+
+    /// #EXP-1493: the header's waiting dot is THE needs-you yellow.
+    #[test]
+    fn plan_page_waiting_dot_is_the_needs_you_yellow() {
+        assert_eq!(waiting_dot_color(), theme::tokens::YELLOW.to_hsla());
     }
 
     #[test]

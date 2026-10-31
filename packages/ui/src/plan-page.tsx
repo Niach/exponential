@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react"
 import { dockRows } from "@exp/domain-contract/dock"
 import {
   PLAN_PAGE_COPY,
@@ -106,6 +106,21 @@ export function PlanPage({
     [pictures]
   )
   const shown = lightbox === null ? null : (pictures[lightbox] ?? null)
+  // A picture inside the prose (a lone one or one mid-sentence) opens THE
+  // lightbox too, never the renderer's own preview: matched by its path.
+  const openInlinePicture = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      const target = event.target
+      if (!(target instanceof HTMLImageElement)) return
+      const path = (src: string) => new URL(src, window.location.href).pathname
+      const at = pictures.findIndex((entry) => path(entry.src) === path(target.currentSrc || target.src))
+      if (at < 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      setLightbox(at)
+    },
+    [pictures]
+  )
 
   // ── scroll-spy: the last section whose heading passed the column top ──
   const scroller = useRef<HTMLDivElement | null>(null)
@@ -174,7 +189,7 @@ export function PlanPage({
             <Mosaic key={at} pictures={block.pictures} onOpen={(index) => openPicture(block.pictures[index]!)} />
           )
         ) : (
-          <div key={at} className="min-w-0 text-sm">
+          <div key={at} className="min-w-0 text-sm" onClickCapture={openInlinePicture}>
             {renderText(block.text)}
           </div>
         )
@@ -236,7 +251,7 @@ export function PlanPage({
           <span className="text-xs text-muted-foreground">/</span>
           <span className="text-sm font-semibold">{PLAN_PAGE_COPY.title}</span>
           <StoryKindBadge kind="plan" />
-          {waiting && <span aria-hidden className="size-1.5 rounded-full bg-primary" />}
+          {waiting && <span aria-hidden className="size-1.5 rounded-full bg-yellow-400" />}
           <span className="flex-1" />
           {counts && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{counts}</span>}
           {onOpenChat && (

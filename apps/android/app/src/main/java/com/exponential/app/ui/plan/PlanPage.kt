@@ -182,12 +182,15 @@ fun PlanPageContent(
                                         questionsOnly = true,
                                     )
                                 } else {
-                                    // Decided: the same sheet shows the closed card.
+                                    // Decided: the same sheet shows the closed card (no
+                                    // "Question n of m" left over from the stepper).
+                                    androidx.compose.runtime.SideEffect { sheetScope.meta = null }
                                     DockSheetBody {
                                         PlanAskCard(
                                             row = state.row,
                                             onAnswer = { _, _, settled -> settled(false) },
                                             onDecidePlan = onDecidePlan,
+                                            questionsOnly = true,
                                         )
                                     }
                                 }

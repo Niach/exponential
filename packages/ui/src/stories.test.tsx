@@ -124,6 +124,17 @@ describe(`StoryViewer frames`, () => {
     expect(onOpenPlan).toHaveBeenCalledWith(expect.objectContaining({ id: plan.id }))
   })
 
+  it(`a tap ANYWHERE on a plan cover opens the plan, the side thirds included`, () => {
+    const plan = ring.stories.find((story) => story.kind === `plan`)!
+    const onOpenPlan = vi.fn()
+    render(viewer({ openStory: plan.id, onOpenPlan }))
+    const panel = screen.getByTestId(STORIES_TEST_IDS.viewer)
+    fireEvent.pointerDown(panel, { clientX: 0, clientY: 0 })
+    fireEvent.pointerUp(panel, { clientX: 0, clientY: 0 })
+    expect(onOpenPlan).toHaveBeenCalledWith(expect.objectContaining({ id: plan.id }))
+    expect(screen.getByTestId(STORIES_TEST_IDS.progress).dataset.index).toBe(String(storyFrameIndex(frames, plan.id)))
+  })
+
   it(`ArrowRight past the last story of the last ring closes`, () => {
     const onClose = vi.fn()
     render(viewer({ openStory: frames.at(-1)!.storyId, onClose }))
