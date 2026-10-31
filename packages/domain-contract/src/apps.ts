@@ -122,3 +122,16 @@ export function appMediaAllowed(src: string, origin: string): boolean {
   }
   return ATTACHMENT_PATH.test(path)
 }
+
+/** VAPP-179: the preview's templates, sorted by id (a JSON layer, Postgres
+ *  JSONB included, does not keep the declared order). */
+export function previewTemplates(pkg: { templates?: Record<string, unknown> } | null | undefined): string[] {
+  return Object.keys(pkg?.templates ?? {}).sort()
+}
+
+/** The template the preview shows: the picked one while the package has it,
+ *  else the first (`templateCases`). */
+export function previewTemplate(pkg: { templates?: Record<string, unknown> } | null | undefined, picked: string | null): string | null {
+  const list = previewTemplates(pkg)
+  return picked !== null && list.includes(picked) ? picked : (list[0] ?? null)
+}

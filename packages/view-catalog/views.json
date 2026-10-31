@@ -2314,6 +2314,35 @@
       }
     },
     {
+      "id": "app-preview-phone",
+      "group": "coding",
+      "title": "App editor · Phone preview",
+      "blurb": "VAPP-179 (fixtures/apps.json `preview.$comment`): the Preview tab's toolbar: Desktop | Phone (here Phone: the surface in a 390 px frame centred in the pane) and, for a package with more than one template, the template Select (the ids sorted by name). Web ≥ md and desktop only.",
+      "order": 58,
+      "web": {
+        "route": "/t/$teamSlug/apps/team-dashboard?frame=phone",
+        "anchor": {
+          "testId": "app-preview-template",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "app:team-dashboard:preview:phone"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The seeded Team dashboard app (two templates since VAPP-179: dashboard and list); `?frame=phone` opens the Phone frame.",
+        "web-mobile": "Phones have no preview toolbar (VAPP-179 is web ≥ md + desktop).",
+        "desktop": "`app:<slug>:<tab>:<frame>` opens the editor on that tab and frame.",
+        "ios": "Phones have no preview toolbar (VAPP-179 is web ≥ md + desktop).",
+        "android": "Phones have no preview toolbar (VAPP-179 is web ≥ md + desktop)."
+      }
+    },
+    {
       "id": "app-draft",
       "group": "coding",
       "title": "App editor · new draft",
