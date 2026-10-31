@@ -388,3 +388,11 @@ export function formData(schema: DataSchema, inputs: Record<string, string | boo
   }
   return data
 }
+
+/** A column's fixed width in px (`columns.typeWidths`), or null = it shares
+ *  the rest of the row. */
+export function columnWidth(field: DataField): number | null {
+  const widths = APP_DATA_TAB.columns.typeWidths as Record<string, number>
+  if (field.type === `string`) return field.format ? (widths[field.format] ?? null) : null
+  return widths[field.type] ?? null
+}

@@ -7,7 +7,8 @@ import SwiftUI
 /// trailing `…` (`app-editor-menu`, THE Menu in its sheet presentation):
 /// Versions (the count as trailing meta) · Settings · Export (once the app
 /// has a version) · Delete app (destructive; the creator or an owner).
-/// Under the header THE segmented control Chat | Preview and ONE pane:
+/// Under the header THE segmented control Chat | Preview | Data and ONE
+/// pane:
 ///
 /// * Chat = the member's EDITOR SESSION with the app (a root with `app_id` +
 ///   `user_id` = me) as THE thread screen's channel (`ThreadScreen` with an
@@ -20,6 +21,9 @@ import SwiftUI
 ///   (`AppPreview`); a version previewed from the Versions sheet re-renders
 ///   with the `Viewing v{n}` banner + Restore (a NEW head, toast
 ///   `copy.restored`) + Current.
+/// * Data (VAPP-178, app-records.json `dataTab`) = the app's records
+///   (`AppDataTab`): the kind picker + Add record, one grouped list, the
+///   form as a sheet.
 ///
 /// The menu's Versions and Settings open the wide clients' TAB bodies as
 /// sheets titled by the item (`AppVersionsSheet`, `AppSettingsSheet`).
@@ -65,12 +69,13 @@ struct AppEditorScreen: View {
 
     /// The phones' tabs (`editorTabs.phone`).
     enum Tab: Hashable, CaseIterable {
-        case chat, preview
+        case chat, preview, data
 
         var label: String {
             switch self {
             case .chat: Apps.Copy.Tabs.chat
             case .preview: Apps.Copy.Tabs.preview
+            case .data: Apps.Copy.Tabs.data
             }
         }
     }
@@ -254,6 +259,8 @@ struct AppEditorScreen: View {
             return nil
         case .preview:
             return AnyView(preview(app))
+        case .data:
+            return AnyView(AppDataTab(app: app))
         }
     }
 

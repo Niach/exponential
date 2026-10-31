@@ -36,6 +36,7 @@ import {
 import type { SyncedAppVersion, User } from "@/db/schema"
 import { AppPreview } from "@/components/apps/app-preview"
 import { AppSettingsTab } from "@/components/apps/app-settings-tab"
+import { AppDataTab } from "@/components/apps/app-data-tab"
 import { SessionComposer } from "@/components/session-composer"
 import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
@@ -67,6 +68,9 @@ import { cn } from "@/lib/utils"
 // sheet, Export the export sheet, Delete app the delete prompt. A version's
 // Preview shows it read-only on the Preview tab with a Restore banner;
 // Restore = a new head. VAPP-129's floating layout is gone.
+
+// VAPP-178: the Data tab (wide + phones); the shared tab type may not name it yet.
+type EditorTab = AppEditorTab
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiHistoryIcon = conceptIcon(`ui-history`)
@@ -195,7 +199,7 @@ export function AppEditor({
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [initial] = useState(() => editorTab(requestedTab, isMobile))
-  const [tab, setTab] = useState<AppEditorTab>(initial.tab)
+  const [tab, setTab] = useState<EditorTab>(initial.tab)
   const [sheet, setSheet] = useState<AppEditorSheet | null>(initial.sheet)
   const [viewing, setViewing] = useState<number | null>(null)
   const [viewingPackage, setViewingPackage] = useState<Record<string, unknown> | null>(null)
@@ -216,7 +220,7 @@ export function AppEditor({
       setTab(sheet)
       setSheet(null)
     } else if (tab === `chat`) {
-      setTab(APPS_EDITOR_TABS.default as AppEditorTab)
+      setTab(APPS_EDITOR_TABS.default as EditorTab)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile])
@@ -481,6 +485,13 @@ export function AppEditor({
     </div>
   )
 
+  // VAPP-178: the Data tab's body (the wide tab and the phone segment).
+  const dataBody = (
+    <div className="w-full" data-testid={APPS_TEST_IDS.data}>
+      <AppDataTab appId={app.id} pkg={headPackage} users={users as User[]} isMobile={isMobile} />
+    </div>
+  )
+
   const deletePrompt = (
     <Prompt
       open={deleteOpen}
@@ -496,7 +507,7 @@ export function AppEditor({
   )
 
   const tabOptions = (ids: readonly string[]) =>
-    ids.map((id) => ({ value: id as AppEditorTab, label: APPS_COPY.tabs[id as AppEditorTab] }))
+    ids.map((id) => ({ value: id as EditorTab, label: APPS_COPY.tabs[id as keyof typeof APPS_COPY.tabs] }))
 
   if (isMobile) {
     // The header's `…` (apps.json `editorTabs.menu`).
@@ -578,6 +589,7 @@ export function AppEditor({
         <div className="min-h-0 flex-1">
           {tab === `chat` && chat}
           {tab === `preview` && preview}
+          {tab === `data` && <div className="h-full overflow-y-auto px-4 pt-2 pb-4">{dataBody}</div>}
         </div>
         <Sheet open={sheet !== null} onOpenChange={(open) => !open && setSheet(null)}>
           <SheetContent side="bottom" className="gap-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -614,6 +626,7 @@ export function AppEditor({
         <div className="flex min-h-0 flex-col border-r border-border">{chat}</div>
         <div className="min-h-0 min-w-0">
           {tab === `preview` && preview}
+          {tab === `data` && <div className="h-full overflow-y-auto p-4">{dataBody}</div>}
           {tab === `versions` && <div className="h-full overflow-y-auto p-4">{versionsBody}</div>}
           {tab === `settings` && <div className="h-full overflow-y-auto p-4">{settingsBody}</div>}
         </div>

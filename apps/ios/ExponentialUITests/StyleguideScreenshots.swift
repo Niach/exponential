@@ -29,7 +29,7 @@ import XCTest
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
-///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_voice-call · sg_call-controls · sg_device-readiness ·
+///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_device-readiness ·
 ///   sg_story-ring · sg_story-viewer
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
@@ -235,7 +235,8 @@ final class StyleguideScreenshots: XCTestCase {
         // VAPP-121: sg_app-export · sg_app-import ride the same walk.
         // VAPP-176: sg_app-draft too (the Release checklist draft's editor).
         // VAPP-177: sg_app-versions · sg_app-settings (the editor's … menu).
-        if ["sg_apps", "sg_app", "sg_app-export", "sg_app-import", "sg_app-draft", "sg_app-versions", "sg_app-settings"]
+        // VAPP-178: sg_app-data (the editor's Data segment).
+        if ["sg_apps", "sg_app", "sg_app-export", "sg_app-import", "sg_app-draft", "sg_app-versions", "sg_app-settings", "sg_app-data"]
             .map(ScreenshotShots.isWanted).contains(true) {
             walkApps(app)
         }
@@ -1052,8 +1053,9 @@ final class StyleguideScreenshots: XCTestCase {
     /// VAPP-110: the Apps TAB (#EXP-1384) → the list (gated on the seeded
     /// Working hours row) → its editor → the Preview tab (VAPP-122: the app
     /// rendered through the host over its records, gated on the preview
-    /// frame) → VAPP-177: the header's … → Versions, then … → Settings (each
-    /// a sheet, dismissed) → back to the Apps list.
+    /// frame) → VAPP-178: the Data tab (the records list) → VAPP-177: the
+    /// header's … → Versions, then … → Settings (each a sheet, dismissed) →
+    /// back to the Apps list.
     @MainActor
     private func walkApps(_ app: XCUIApplication) {
         let appsTab = app.buttons["tab-apps"]
@@ -1071,7 +1073,7 @@ final class StyleguideScreenshots: XCTestCase {
         if ScreenshotShots.isWanted("sg_app-draft") {
             walkAppDraft(app)
         }
-        guard ["sg_app", "sg_app-versions", "sg_app-settings"].map(ScreenshotShots.isWanted).contains(true) else { return }
+        guard ["sg_app", "sg_app-versions", "sg_app-settings", "sg_app-data"].map(ScreenshotShots.isWanted).contains(true) else { return }
         appRow.tap()
         expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The editor drew no Chat | Preview control")
         if ScreenshotShots.isWanted("sg_app") {
@@ -1084,6 +1086,25 @@ final class StyleguideScreenshots: XCTestCase {
                 "The \(Self.appName) editor never drew its preview"
             )
             snapshot("sg_app", settle: 3)
+        }
+        if ScreenshotShots.isWanted("sg_app-data") {
+            // VAPP-178 (app-records.json `dataTab`, PHONES): the Data
+            // segment = the kind picker + Add record over the seeded
+            // records' grouped list.
+            let dataTab = anyElement(app, identified: "app-editor-tabs-data")
+            expect(dataTab, within: Wait.nav, "The editor's control has no Data segment")
+            dataTab.tap()
+            expect(
+                anyElement(app, identified: "app-data-kind"),
+                within: Wait.sync,
+                "The \(Self.appName) Data tab drew no kind picker (the head package declares no records?)"
+            )
+            expect(
+                anyElement(app, identified: "app-data-row"),
+                within: Wait.sync,
+                "The \(Self.appName) Data tab listed no record — reseed with `bun run seed:screenshots`"
+            )
+            snapshot("sg_app-data", settle: 2)
         }
         if ScreenshotShots.isWanted("sg_app-versions") {
             walkAppMenuSheet(app, item: "app-menu-versions", sheet: "app-editor-versions", shot: "sg_app-versions")

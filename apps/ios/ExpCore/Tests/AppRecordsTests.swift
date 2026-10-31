@@ -5,7 +5,9 @@ import XCTest
 // VAPP-122: app records, replayed ×4 against
 // packages/domain-contract/fixtures/app-records.json (TS `app-records.test.ts`,
 // desktop `domain::app_records`, Android `AppRecordsTest`): `queryCases`,
-// `sourceCases`, `valueCases` and `countLabelCases`, plus the query constants.
+// `sourceCases`, `valueCases` and `countLabelCases`, plus the query constants;
+// VAPP-178 the Data tab's `dataTab.*Cases` and its copy / columns /
+// placeholders / testIds.
 final class AppRecordsTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -151,5 +153,140 @@ final class AppRecordsTests: XCTestCase {
         let row = AppRecords.Row(entity)
         XCTAssertEqual(row.createdAt, "2026-10-05T18:00:00.000Z")
         XCTAssertEqual(row.updatedAt, "2026-10-06T07:30:00.500Z")
+    }
+
+    // MARK: - The Data tab (VAPP-178)
+
+    private func dataTab() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["dataTab"] as? [String: Any])
+    }
+
+    private func dataCases(_ key: String) throws -> [[String: Any]] {
+        let list = try XCTUnwrap(try dataTab()[key] as? [[String: Any]], key)
+        XCTAssertFalse(list.isEmpty, key)
+        return list
+    }
+
+    private func json(_ value: Any?) -> CardJSON {
+        CardJSON(any: value) ?? .null
+    }
+
+    func testDataTabConstantsMatchTheFixture() throws {
+        let tab = try dataTab()
+        typealias C = AppRecords.DataTab.Copy
+        XCTAssertEqual(tab["copy"] as? [String: String], [
+            "kindOption": C.kindOption, "addRecord": C.addRecord, "edit": C.edit, "delete": C.delete,
+            "deleteTitle": C.deleteTitle, "deleteBody": C.deleteBody, "by": C.by, "updated": C.updated,
+            "empty": C.empty, "noKinds": C.noKinds, "emptyTitle": C.emptyTitle, "newTitle": C.newTitle,
+            "editTitle": C.editTitle, "save": C.save, "cancel": C.cancel, "yes": C.yes, "no": C.no,
+            "none": C.none, "optional": C.optional, "listHint": C.listHint,
+        ])
+        let columns = try XCTUnwrap(tab["columns"] as? [String: Any])
+        XCTAssertEqual(columns["byWidth"] as? Double, AppRecords.DataTab.Columns.byWidth)
+        XCTAssertEqual(columns["updatedWidth"] as? Double, AppRecords.DataTab.Columns.updatedWidth)
+        XCTAssertEqual(columns["menuWidth"] as? Double, AppRecords.DataTab.Columns.menuWidth)
+        XCTAssertEqual(columns["minWidth"] as? Double, AppRecords.DataTab.Columns.minWidth)
+        XCTAssertEqual(columns["gap"] as? Double, AppRecords.DataTab.Columns.gap)
+        XCTAssertEqual(columns["typeWidths"] as? [String: Double], AppRecords.DataTab.Columns.typeWidths)
+        XCTAssertEqual(columns.count, 6)
+        XCTAssertEqual(tab["placeholders"] as? [String: String], AppRecords.DataTab.placeholders)
+        typealias T = AppRecords.DataTab.TestIds
+        XCTAssertEqual(tab["testIds"] as? [String: String], [
+            "kind": T.kind, "add": T.add, "row": T.row, "menu": T.menu, "form": T.form, "save": T.save, "error": T.error,
+        ])
+        XCTAssertEqual(C.kindOption("entry", count: 2), "entry · 2")
+        XCTAssertEqual(C.newTitle("entry"), "New entry")
+        XCTAssertEqual(C.editTitle("entry"), "Edit entry")
+    }
+
+    func testDataKindCases() throws {
+        for item in try dataCases("kindCases") {
+            let manifest: CardJSON? = item["manifest"] is NSNull ? nil : json(item["manifest"])
+            let rowKinds = try XCTUnwrap(item["rows"] as? [[String: Any]]).map { $0["kind"] as? String ?? "" }
+            let expected = try XCTUnwrap(item["kinds"] as? [[String: Any]]).map {
+                AppRecords.DataKind(kind: $0["kind"] as? String ?? "", count: $0["count"] as? Int ?? -1)
+            }
+            XCTAssertEqual(AppRecords.dataKinds(manifest: manifest, rowKinds: rowKinds), expected, item["$why"] as? String ?? "")
+        }
+    }
+
+    func testDataColumnCases() throws {
+        for item in try dataCases("columnCases") {
+            XCTAssertEqual(AppRecords.dataColumns(json(item["schema"])), item["columns"] as? [String])
+        }
+    }
+
+    func testDataRowsCases() throws {
+        for item in try dataCases("rowsCases") {
+            let rows = try XCTUnwrap(item["rows"] as? [[String: Any]]).map { row in
+                AppRecords.Row(
+                    id: row["id"] as? String ?? "",
+                    kind: row["kind"] as? String ?? "",
+                    data: [:],
+                    createdBy: nil,
+                    createdAt: row["updatedAt"] as? String ?? "",
+                    updatedAt: row["updatedAt"] as? String ?? ""
+                )
+            }
+            let kind = try XCTUnwrap(item["kind"] as? String)
+            XCTAssertEqual(AppRecords.dataRows(rows, kind: kind).map(\.id), item["order"] as? [String])
+        }
+    }
+
+    func testDataCellCases() throws {
+        for item in try dataCases("cellCases") {
+            // A missing `value` = nil (the field is absent), null = .null.
+            let value: CardJSON? = item.keys.contains("value") ? json(item["value"]) : nil
+            XCTAssertEqual(AppRecords.cellText(value), item["text"] as? String, "\(item["value"] ?? "missing")")
+        }
+    }
+
+    private func fieldObject(_ field: AppRecords.DataFormField) -> NSDictionary {
+        var object: [String: Any] = ["name": field.name, "control": field.control.rawValue, "required": field.required]
+        if let placeholder = field.placeholder { object["placeholder"] = placeholder }
+        if let options = field.options { object["options"] = options }
+        if let itemType = field.itemType { object["itemType"] = itemType }
+        return object as NSDictionary
+    }
+
+    func testDataFormCases() throws {
+        for item in try dataCases("formCases") {
+            let fields = AppRecords.formFields(json(item["schema"])).map(fieldObject)
+            let expected = try XCTUnwrap(item["fields"] as? [NSDictionary])
+            XCTAssertEqual(fields, expected)
+        }
+    }
+
+    func testDataInputCases() throws {
+        for item in try dataCases("inputCases") {
+            let control = try XCTUnwrap(AppRecords.DataControl(rawValue: try XCTUnwrap(item["control"] as? String)))
+            let input = AppRecords.formInput(control, json(item["value"]))
+            let expected: AppRecords.DataInput
+            if let text = item["input"] as? String {
+                expected = .text(text)
+            } else {
+                let flag = try XCTUnwrap(item["input"] as? Bool)
+                expected = .flag(flag)
+            }
+            XCTAssertEqual(input, expected, "\(control) \(item["value"] ?? "nil")")
+        }
+    }
+
+    func testDataParseCases() throws {
+        for item in try dataCases("parseCases") {
+            var inputs: [String: AppRecords.DataInput] = [:]
+            for (name, raw) in try XCTUnwrap(item["inputs"] as? [String: Any]) {
+                if let text = raw as? String {
+                    inputs[name] = .text(text)
+                } else {
+                    let flag = try XCTUnwrap(raw as? Bool)
+                    inputs[name] = .flag(flag)
+                }
+            }
+            let data = AppRecords.formData(
+                json(item["schema"]), inputs: inputs, editing: try XCTUnwrap(item["editing"] as? Bool)
+            )
+            XCTAssertEqual(CardJSON.object(data), json(item["data"]), item["$why"] as? String ?? "")
+        }
     }
 }

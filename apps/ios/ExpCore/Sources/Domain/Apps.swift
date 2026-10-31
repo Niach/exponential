@@ -68,6 +68,8 @@ public enum Apps {
         public enum Tabs {
             public static let chat = "Chat"
             public static let preview = "Preview"
+            /// VAPP-178: the records browser (app-records.json `dataTab`).
+            public static let data = "Data"
             public static let versions = "Versions"
             public static let settings = "Settings"
         }
@@ -121,15 +123,17 @@ public enum Apps {
         public static let settings = "app-editor-settings"
         public static let versionPreview = "app-version-preview"
         public static let versionRestore = "app-version-restore"
+        // VAPP-178: the Data tab's body.
+        public static let data = "app-editor-data"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and
-    /// desktop = Preview | Versions | Settings beside the chat; phones = Chat
-    /// | Preview + the `…` menu, whose Versions and Settings open the same
-    /// bodies as sheets.
+    /// desktop = Preview | Data | Versions | Settings beside the chat;
+    /// phones = Chat | Preview | Data (VAPP-178) + the `…` menu, whose
+    /// Versions and Settings open the same bodies as sheets.
     public enum EditorTabs {
-        public static let wide = ["preview", "versions", "settings"]
-        public static let phone = ["chat", "preview"]
+        public static let wide = ["preview", "data", "versions", "settings"]
+        public static let phone = ["chat", "preview", "data"]
         public static let menu = ["versions", "settings", "export", "delete"]
         public static let `default` = "preview"
         public static let phoneDefault = "chat"

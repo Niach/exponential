@@ -130,4 +130,138 @@ class AppRecordsTest {
         assertEquals(29, AppRecords.monthDays("2028-02").size)
         assertEquals("Thu", AppRecords.monthDays("2026-10").first().weekday)
     }
+
+    // VAPP-178: the Data tab (`dataTab`).
+    private val dataTab = fixture["dataTab"]!!
+
+    private fun dataCases(key: String): List<JsonValue> = dataTab[key]!!.array!!
+
+    @Test
+    fun `the data tab constants match the fixture`() {
+        val copy = dataTab["copy"]!!
+        val expected = mapOf(
+            "kindOption" to AppRecords.DataCopy.KIND_OPTION, "addRecord" to AppRecords.DataCopy.ADD_RECORD,
+            "edit" to AppRecords.DataCopy.EDIT, "delete" to AppRecords.DataCopy.DELETE,
+            "deleteTitle" to AppRecords.DataCopy.DELETE_TITLE, "deleteBody" to AppRecords.DataCopy.DELETE_BODY,
+            "by" to AppRecords.DataCopy.BY, "updated" to AppRecords.DataCopy.UPDATED,
+            "empty" to AppRecords.DataCopy.EMPTY, "noKinds" to AppRecords.DataCopy.NO_KINDS,
+            "emptyTitle" to AppRecords.DataCopy.EMPTY_TITLE, "newTitle" to AppRecords.DataCopy.NEW_TITLE,
+            "editTitle" to AppRecords.DataCopy.EDIT_TITLE, "save" to AppRecords.DataCopy.SAVE,
+            "cancel" to AppRecords.DataCopy.CANCEL, "yes" to AppRecords.DataCopy.YES, "no" to AppRecords.DataCopy.NO,
+            "none" to AppRecords.DataCopy.NONE, "optional" to AppRecords.DataCopy.OPTIONAL,
+            "listHint" to AppRecords.DataCopy.LIST_HINT,
+        )
+        assertEquals(copy.obj!!.keys, expected.keys)
+        for ((key, value) in expected) assertEquals(key, copy[key]!!.string, value)
+        val columns = dataTab["columns"]!!
+        assertEquals(columns["byWidth"]!!.number!!.toInt(), AppRecords.DataColumns.BY_WIDTH)
+        assertEquals(columns["updatedWidth"]!!.number!!.toInt(), AppRecords.DataColumns.UPDATED_WIDTH)
+        assertEquals(columns["menuWidth"]!!.number!!.toInt(), AppRecords.DataColumns.MENU_WIDTH)
+        assertEquals(columns["minWidth"]!!.number!!.toInt(), AppRecords.DataColumns.MIN_WIDTH)
+        assertEquals(columns["typeWidths"]!!.obj!!.mapValues { it.value.number!!.toInt() }, AppRecords.DataColumns.TYPE_WIDTHS)
+        assertEquals(params(dataTab["placeholders"]), AppRecords.DATA_PLACEHOLDERS)
+        val ids = dataTab["testIds"]!!
+        val expectedIds = mapOf(
+            "kind" to AppRecords.DataTestIds.KIND, "add" to AppRecords.DataTestIds.ADD, "row" to AppRecords.DataTestIds.ROW,
+            "menu" to AppRecords.DataTestIds.MENU, "form" to AppRecords.DataTestIds.FORM,
+            "save" to AppRecords.DataTestIds.SAVE, "error" to AppRecords.DataTestIds.ERROR,
+        )
+        assertEquals(ids.obj!!.keys, expectedIds.keys)
+        for ((key, value) in expectedIds) assertEquals(key, ids[key]!!.string, value)
+    }
+
+    @Test
+    fun `dataKinds replays kindCases`() {
+        val all = dataCases("kindCases")
+        assert(all.isNotEmpty())
+        for (case in all) {
+            val got = AppRecords.dataKinds(case["manifest"], case["rows"]!!.array!!.map { it["kind"]!!.string!! })
+            val want = case["kinds"]!!.array!!.map { AppRecords.DataKind(it["kind"]!!.string!!, it["count"]!!.number!!.toInt()) }
+            assertEquals(case.json, want, got)
+        }
+    }
+
+    @Test
+    fun `dataColumns replays columnCases`() {
+        val all = dataCases("columnCases")
+        assert(all.isNotEmpty())
+        for (case in all) assertEquals(case.json, strings(case["columns"]), AppRecords.dataColumns(case["schema"]))
+    }
+
+    @Test
+    fun `dataRows replays rowsCases`() {
+        val all = dataCases("rowsCases")
+        assert(all.isNotEmpty())
+        for (case in all) {
+            val rows = case["rows"]!!.array!!.map {
+                AppRecords.Row(it["id"]!!.string!!, it["kind"]!!.string!!, emptyMap(), null, "", it["updatedAt"]!!.string!!)
+            }
+            assertEquals(case.json, strings(case["order"]), AppRecords.dataRows(rows, case["kind"]!!.string!!).map { it.id })
+        }
+    }
+
+    @Test
+    fun `cellText replays cellCases`() {
+        val all = dataCases("cellCases")
+        assert(all.isNotEmpty())
+        for (case in all) assertEquals(case.json, case["text"]!!.string, AppRecords.cellText(case["value"]))
+    }
+
+    private fun fieldJson(f: AppRecords.FormField): String {
+        val m = linkedMapOf<String, Any?>("name" to f.name, "control" to f.control, "required" to f.required)
+        f.placeholder?.let { m["placeholder"] = it }
+        f.options?.let { m["options"] = it }
+        f.itemType?.let { m["itemType"] = it }
+        return JsonValue.of(m).json
+    }
+
+    @Test
+    fun `formFields replays formCases`() {
+        val all = dataCases("formCases")
+        assert(all.isNotEmpty())
+        for (case in all) {
+            assertEquals(
+                case.json,
+                case["fields"]!!.array!!.map { it.json },
+                AppRecords.formFields(case["schema"]).map(::fieldJson),
+            )
+        }
+    }
+
+    @Test
+    fun `formInput replays inputCases`() {
+        val all = dataCases("inputCases")
+        assert(all.isNotEmpty())
+        for (case in all) {
+            val want: Any = when (val input = case["input"]!!) {
+                is JsonValue.Bool -> input.v
+                else -> input.string!!
+            }
+            assertEquals(case.json, want, AppRecords.formInput(case["control"]!!.string!!, case["value"]))
+        }
+    }
+
+    @Test
+    fun `formData replays parseCases`() {
+        val all = dataCases("parseCases")
+        assert(all.isNotEmpty())
+        for (case in all) {
+            val inputs = case["inputs"]!!.obj!!.mapValues { (_, v) -> if (v is JsonValue.Bool) v.v else v.string }
+            val got = AppRecords.formData(case["schema"], inputs, case["editing"]!!.bool!!)
+            assertEquals(case["\$why"]?.string, case["data"]!!.json, JsonValue.Obj(got).json)
+        }
+    }
+
+    @Test
+    fun `the phone row reads title and subtitle`() {
+        val row = AppRecords.Row(
+            "r", "entry",
+            mapOf("date" to JsonValue.Str("2026-10-23"), "hours" to JsonValue.Num(6.0), "tags" to JsonValue.Arr(listOf(JsonValue.Str("a"), JsonValue.Str("b")))),
+            null, "", "",
+        )
+        val columns = listOf("date", "hours", "note", "tags")
+        assertEquals("2026-10-23", AppRecords.rowTitle(columns, row))
+        assertEquals("6 · a, b", AppRecords.rowSubtitle(columns, row))
+        assertEquals(AppRecords.DataCopy.EMPTY_TITLE, AppRecords.rowTitle(listOf("note"), row))
+    }
 }

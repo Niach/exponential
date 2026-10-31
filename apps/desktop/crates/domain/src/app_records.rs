@@ -531,6 +531,367 @@ pub fn records_count_label(count: u64, max: Option<u64>) -> String {
     }
 }
 
+// VAPP-178 THE DATA TAB (fixture `dataTab`): the editor's records browser
+// and form, pure so the four clients replay the same cases.
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataTabCopy {
+    /// `{kind} · {n}`.
+    pub kind_option: String,
+    pub add_record: String,
+    pub edit: String,
+    pub delete: String,
+    pub delete_title: String,
+    pub delete_body: String,
+    pub by: String,
+    pub updated: String,
+    pub empty: String,
+    pub no_kinds: String,
+    pub empty_title: String,
+    /// `New {kind}`.
+    pub new_title: String,
+    /// `Edit {kind}`.
+    pub edit_title: String,
+    pub save: String,
+    pub cancel: String,
+    pub yes: String,
+    pub no: String,
+    pub none: String,
+    pub optional: String,
+    pub list_hint: String,
+}
+
+/// The wide table's fixed columns (px).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataTabColumns {
+    pub by_width: f32,
+    pub updated_width: f32,
+    pub menu_width: f32,
+    /// A sharing column's floor.
+    pub min_width: f32,
+    /// The px between two cells.
+    pub gap: f32,
+    /// A typed column's fixed width (a string `format`, else the `type`).
+    pub type_widths: BTreeMap<String, f32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DataTabTestIds {
+    pub kind: String,
+    pub add: String,
+    pub row: String,
+    pub menu: String,
+    pub form: String,
+    pub save: String,
+    pub error: String,
+}
+
+/// `dataTab` minus its cases.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DataTabSpec {
+    pub copy: DataTabCopy,
+    pub columns: DataTabColumns,
+    /// A string `format` → the text field's placeholder.
+    pub placeholders: BTreeMap<String, String>,
+    #[serde(rename = "testIds")]
+    pub test_ids: DataTabTestIds,
+}
+
+pub static DATA_TAB: LazyLock<DataTabSpec> = LazyLock::new(|| {
+    let fixture: Value = serde_json::from_str(RECORDS_JSON).expect("app-records.json parses");
+    serde_json::from_value(fixture["dataTab"].clone()).expect("dataTab parses")
+});
+
+/// A list's item type.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DataItems {
+    #[serde(rename = "type", default)]
+    pub ty: String,
+}
+
+/// A kind's schema field (the SDK's JSON Schema subset, host/records.ts).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DataField {
+    #[serde(rename = "type", default)]
+    pub ty: String,
+    #[serde(rename = "enum", default)]
+    pub enum_values: Option<Vec<String>>,
+    #[serde(default)]
+    pub items: Option<DataItems>,
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+/// A kind's schema.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DataSchema {
+    #[serde(default)]
+    pub properties: BTreeMap<String, DataField>,
+    #[serde(default)]
+    pub required: Vec<String>,
+}
+
+impl DataSchema {
+    /// A schema JSON (lenient: anything unreadable = no fields).
+    pub fn from_value(value: &Value) -> Self {
+        serde_json::from_value(value.clone()).unwrap_or_default()
+    }
+}
+
+/// A head manifest's kind schema (`records.<kind>.schema`).
+pub fn kind_schema(manifest: Option<&Value>, kind: &str) -> Option<DataSchema> {
+    let schema = manifest?.get("records")?.get(kind)?.get("schema")?;
+    Some(DataSchema::from_value(schema))
+}
+
+/// The head manifest's kinds, sorted by name, each with its live count
+/// (`kindCases`); a row of an undeclared kind is ignored.
+pub fn data_kinds<'a>(manifest: Option<&Value>, row_kinds: impl IntoIterator<Item = &'a str>) -> Vec<(String, usize)> {
+    let Some(records) = manifest.and_then(|m| m.get("records")).and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let mut kinds: Vec<(String, usize)> = records.keys().map(|k| (k.clone(), 0)).collect();
+    kinds.sort_by(|a, b| a.0.cmp(&b.0));
+    for kind in row_kinds {
+        if let Ok(i) = kinds.binary_search_by(|(k, _)| k.as_str().cmp(kind)) {
+            kinds[i].1 += 1;
+        }
+    }
+    kinds
+}
+
+/// A column's fixed width in px (`columns.typeWidths`), `None` = it
+/// shares the rest of the row.
+pub fn column_width(field: &DataField) -> Option<f32> {
+    let widths = &DATA_TAB.columns.type_widths;
+    if field.ty == "string" {
+        return field.format.as_ref().and_then(|format| widths.get(format)).copied();
+    }
+    widths.get(&field.ty).copied()
+}
+
+/// The table's narrowest width (cells + gaps, no row padding): every
+/// schema column at its fixed width or the floor, then `by`, `updated`
+/// and the menu; a pane narrower than this scrolls sideways.
+pub fn table_min_width(widths: &[Option<f32>]) -> f32 {
+    let c = &DATA_TAB.columns;
+    let cells: f32 = widths.iter().map(|w| w.unwrap_or(c.min_width)).sum();
+    cells + c.by_width + c.updated_width + c.menu_width + c.gap * (widths.len() + 2) as f32
+}
+
+/// `{kind} · {n}`.
+pub fn kind_option(kind: &str, count: usize) -> String {
+    DATA_TAB.copy.kind_option.replace("{kind}", kind).replace("{n}", &count.to_string())
+}
+
+/// The columns (`columnCases`): the `required` names in their order, then
+/// every other property sorted by name.
+pub fn data_columns(schema: &DataSchema) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in &schema.required {
+        if schema.properties.contains_key(name) && !out.contains(name) {
+            out.push(name.clone());
+        }
+    }
+    // BTreeMap keys iterate sorted (code points, as JS `.sort()` for ASCII).
+    for name in schema.properties.keys() {
+        if !out.contains(name) {
+            out.push(name.clone());
+        }
+    }
+    out
+}
+
+/// A kind's rows, `updated_at` desc, ties by id (`rowsCases`).
+pub fn data_rows<'r, 'a>(rows: &'r [RecordRowInput<'a>], kind: &str) -> Vec<&'r RecordRowInput<'a>> {
+    let mut out: Vec<&RecordRowInput> = rows.iter().filter(|r| r.kind == kind).collect();
+    out.sort_by(|a, b| b.updated_at.cmp(a.updated_at).then_with(|| a.id.cmp(b.id)));
+    out
+}
+
+/// JS `String(n)` of a JSON number.
+fn number_text(n: &serde_json::Number) -> String {
+    if n.is_i64() || n.is_u64() {
+        n.to_string()
+    } else {
+        n.as_f64().map(js_number_text).unwrap_or_else(|| n.to_string())
+    }
+}
+
+/// One cell's text (`cellCases`); `None` = missing.
+pub fn cell_text(value: Option<&Value>) -> String {
+    match value {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::Bool(b)) => if *b { DATA_TAB.copy.yes.clone() } else { DATA_TAB.copy.no.clone() },
+        Some(Value::Number(n)) => number_text(n),
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(items)) => items.iter().map(|v| cell_text(Some(v))).collect::<Vec<_>>().join(", "),
+        Some(other) => serde_json::to_string(other).unwrap_or_default(),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DataControl {
+    Text,
+    Number,
+    Switch,
+    Select,
+    List,
+}
+
+impl DataControl {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Number => "number",
+            Self::Switch => "switch",
+            Self::Select => "select",
+            Self::List => "list",
+        }
+    }
+
+    pub fn parse(id: &str) -> Option<Self> {
+        match id {
+            "text" => Some(Self::Text),
+            "number" => Some(Self::Number),
+            "switch" => Some(Self::Switch),
+            "select" => Some(Self::Select),
+            "list" => Some(Self::List),
+            _ => None,
+        }
+    }
+}
+
+/// One form field (`formCases`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataFormField {
+    pub name: String,
+    pub control: DataControl,
+    pub required: bool,
+    pub placeholder: Option<String>,
+    pub options: Option<Vec<String>>,
+    pub item_type: Option<String>,
+}
+
+/// The form's fields, in column order (`formCases`).
+pub fn form_fields(schema: &DataSchema) -> Vec<DataFormField> {
+    data_columns(schema)
+        .into_iter()
+        .map(|name| {
+            let field = &schema.properties[&name];
+            let mut out = DataFormField {
+                required: schema.required.contains(&name),
+                name,
+                control: DataControl::Text,
+                placeholder: None,
+                options: None,
+                item_type: None,
+            };
+            match field.ty.as_str() {
+                "boolean" => out.control = DataControl::Switch,
+                "number" | "integer" => out.control = DataControl::Number,
+                "array" => {
+                    out.control = DataControl::List;
+                    let ty = field.items.as_ref().map(|i| i.ty.clone()).filter(|t| !t.is_empty());
+                    out.item_type = Some(ty.unwrap_or_else(|| "string".into()));
+                }
+                _ => {
+                    if let Some(values) = &field.enum_values {
+                        out.control = DataControl::Select;
+                        out.options = Some(values.clone());
+                    } else {
+                        out.placeholder = field.format.as_ref().and_then(|f| DATA_TAB.placeholders.get(f)).cloned();
+                    }
+                }
+            }
+            out
+        })
+        .collect()
+}
+
+/// A control's input: a switch takes a boolean, every other control text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormInput {
+    Text(String),
+    Bool(bool),
+}
+
+/// A stored value → the control's initial input (`inputCases`).
+pub fn form_input(control: DataControl, value: Option<&Value>) -> FormInput {
+    if control == DataControl::Switch {
+        return FormInput::Bool(matches!(value, Some(Value::Bool(true))));
+    }
+    FormInput::Text(match value {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::Array(items)) if control == DataControl::List => {
+            items.iter().map(|v| cell_text(Some(v))).collect::<Vec<_>>().join(", ")
+        }
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => number_text(n),
+        Some(Value::Bool(b)) => b.to_string(),
+        Some(other) => serde_json::to_string(other).unwrap_or_default(),
+    })
+}
+
+/// JS `Number(text)` when finite and non-blank, else the raw text.
+fn parse_number(text: &str) -> Value {
+    match num_text(text) {
+        Some(n) => number_value(n),
+        None => Value::String(text.to_string()),
+    }
+}
+
+fn parse_item(text: &str, item_type: Option<&str>) -> Value {
+    match item_type {
+        Some("number" | "integer") => parse_number(text),
+        Some("boolean") => match text {
+            "true" => Value::Bool(true),
+            "false" => Value::Bool(false),
+            _ => Value::String(text.to_string()),
+        },
+        _ => Value::String(text.to_string()),
+    }
+}
+
+/// The inputs → the record's data (`parseCases`): an empty field = null,
+/// numbers and list items parse (unparsable stays the raw text, so the
+/// server names it); CREATE omits the nulls, EDIT keeps them (null clears).
+pub fn form_data(schema: &DataSchema, inputs: &HashMap<String, FormInput>, editing: bool) -> Map<String, Value> {
+    let mut data = Map::new();
+    for field in form_fields(schema) {
+        let input = inputs.get(&field.name);
+        let value = if field.control == DataControl::Switch {
+            Value::Bool(matches!(input, Some(FormInput::Bool(true))))
+        } else {
+            let text = match input {
+                Some(FormInput::Text(t)) => t.as_str(),
+                _ => "",
+            };
+            if field.control == DataControl::List {
+                let items: Vec<Value> = text
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|i| !i.is_empty())
+                    .map(|i| parse_item(i, field.item_type.as_deref()))
+                    .collect();
+                if items.is_empty() { Value::Null } else { Value::Array(items) }
+            } else if text.is_empty() {
+                Value::Null
+            } else if field.control == DataControl::Number {
+                parse_number(text)
+            } else {
+                Value::String(text.to_string())
+            }
+        };
+        if !value.is_null() || editing {
+            data.insert(field.name, value);
+        }
+    }
+    data
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,5 +996,156 @@ mod tests {
         assert_eq!(round(0.1 + 0.2), 0.3);
         assert_eq!(number_value(round(3.0 + 0.5)), json!(3.5));
         assert_eq!(number_value(0.0), json!(0));
+    }
+
+    #[test]
+    fn data_tab_spec_matches_the_fixture() {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        let tab = &fixture["dataTab"];
+        let copy: Value = tab["copy"].clone();
+        assert_eq!(copy["addRecord"], DATA_TAB.copy.add_record.as_str());
+        assert_eq!(copy["listHint"], DATA_TAB.copy.list_hint.as_str());
+        let columns = &tab["columns"];
+        assert_eq!(columns["byWidth"].as_f64().unwrap() as f32, DATA_TAB.columns.by_width);
+        assert_eq!(columns["updatedWidth"].as_f64().unwrap() as f32, DATA_TAB.columns.updated_width);
+        assert_eq!(columns["menuWidth"].as_f64().unwrap() as f32, DATA_TAB.columns.menu_width);
+        assert_eq!(columns["minWidth"].as_f64().unwrap() as f32, DATA_TAB.columns.min_width);
+        assert_eq!(columns["gap"].as_f64().unwrap() as f32, DATA_TAB.columns.gap);
+        let c = &DATA_TAB.columns;
+        assert_eq!(table_min_width(&[]), c.by_width + c.updated_width + c.menu_width + 2. * c.gap);
+        assert_eq!(table_min_width(&[Some(10.), None]) - table_min_width(&[]), 10. + c.min_width + 2. * c.gap);
+        let widths = columns["typeWidths"].as_object().unwrap();
+        assert_eq!(widths.len(), DATA_TAB.columns.type_widths.len());
+        for (key, px) in widths {
+            assert_eq!(DATA_TAB.columns.type_widths.get(key).copied(), Some(px.as_f64().unwrap() as f32), "{key}");
+        }
+        // `columnWidth`: by format for a string, by type otherwise.
+        let field = |v: Value| serde_json::from_value::<DataField>(v).unwrap();
+        let w = |key: &str| DATA_TAB.columns.type_widths.get(key).copied();
+        assert_eq!(column_width(&field(json!({"type": "string", "format": "date"}))), w("date"));
+        assert_eq!(column_width(&field(json!({"type": "string", "format": "date-time"}))), w("date-time"));
+        assert_eq!(column_width(&field(json!({"type": "string", "format": "time"}))), w("time"));
+        assert_eq!(column_width(&field(json!({"type": "number"}))), w("number"));
+        assert_eq!(column_width(&field(json!({"type": "integer"}))), w("integer"));
+        assert_eq!(column_width(&field(json!({"type": "boolean"}))), w("boolean"));
+        assert_eq!(column_width(&field(json!({"type": "string"}))), None);
+        assert_eq!(column_width(&field(json!({"type": "string", "enum": ["a"]}))), None);
+        assert_eq!(column_width(&field(json!({"type": "array", "items": {"type": "number"}}))), None);
+        assert_eq!(tab["testIds"]["row"], DATA_TAB.test_ids.row.as_str());
+        assert_eq!(DATA_TAB.placeholders.get("date").map(String::as_str), Some("YYYY-MM-DD"));
+        assert_eq!(kind_option("entry", 2), "entry · 2");
+    }
+
+    fn data_cases(key: &str) -> Vec<Value> {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        let all = fixture["dataTab"][key].as_array().unwrap().clone();
+        assert!(!all.is_empty(), "{key}");
+        all
+    }
+
+    #[test]
+    fn kind_cases_replay_the_fixture() {
+        for case in data_cases("kindCases") {
+            let manifest = (!case["manifest"].is_null()).then(|| &case["manifest"]);
+            let rows = case["rows"].as_array().unwrap();
+            let got = data_kinds(manifest, rows.iter().map(|r| r["kind"].as_str().unwrap()));
+            let got: Vec<Value> = got.into_iter().map(|(kind, count)| json!({"kind": kind, "count": count})).collect();
+            assert_eq!(Value::Array(got), case["kinds"], "{case}");
+        }
+    }
+
+    #[test]
+    fn column_cases_replay_the_fixture() {
+        for case in data_cases("columnCases") {
+            let got = data_columns(&DataSchema::from_value(&case["schema"]));
+            assert_eq!(json!(got), case["columns"], "{case}");
+        }
+    }
+
+    #[test]
+    fn rows_cases_replay_the_fixture() {
+        let null = Value::Null;
+        for case in data_cases("rowsCases") {
+            let rows: Vec<RecordRowInput> = case["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| RecordRowInput {
+                    id: r["id"].as_str().unwrap(),
+                    kind: r["kind"].as_str().unwrap(),
+                    data: &null,
+                    created_by: None,
+                    created_at: "",
+                    updated_at: r["updatedAt"].as_str().unwrap(),
+                })
+                .collect();
+            let got: Vec<&str> = data_rows(&rows, case["kind"].as_str().unwrap()).iter().map(|r| r.id).collect();
+            assert_eq!(json!(got), case["order"], "{case}");
+        }
+    }
+
+    #[test]
+    fn cell_cases_replay_the_fixture() {
+        for case in data_cases("cellCases") {
+            assert_eq!(cell_text(case.get("value")), case["text"].as_str().unwrap(), "{case}");
+        }
+        // A whole float (a host's JSON layer) still reads `3`.
+        assert_eq!(cell_text(Some(&json!(3.0))), "3");
+    }
+
+    #[test]
+    fn form_cases_replay_the_fixture() {
+        for case in data_cases("formCases") {
+            let got: Vec<Value> = form_fields(&DataSchema::from_value(&case["schema"]))
+                .into_iter()
+                .map(|f| {
+                    let mut o = json!({"name": f.name, "control": f.control.as_str(), "required": f.required});
+                    if let Some(p) = f.placeholder {
+                        o["placeholder"] = json!(p);
+                    }
+                    if let Some(opts) = f.options {
+                        o["options"] = json!(opts);
+                    }
+                    if let Some(t) = f.item_type {
+                        o["itemType"] = json!(t);
+                    }
+                    o
+                })
+                .collect();
+            assert_eq!(Value::Array(got), case["fields"], "{case}");
+        }
+    }
+
+    #[test]
+    fn input_cases_replay_the_fixture() {
+        for case in data_cases("inputCases") {
+            let control = DataControl::parse(case["control"].as_str().unwrap()).unwrap();
+            let want = match &case["input"] {
+                Value::Bool(b) => FormInput::Bool(*b),
+                other => FormInput::Text(other.as_str().unwrap().to_string()),
+            };
+            assert_eq!(form_input(control, case.get("value")), want, "{case}");
+        }
+    }
+
+    #[test]
+    fn parse_cases_replay_the_fixture() {
+        for case in data_cases("parseCases") {
+            let schema = DataSchema::from_value(&case["schema"]);
+            let inputs: HashMap<String, FormInput> = case["inputs"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| {
+                    let input = match v {
+                        Value::Bool(b) => FormInput::Bool(*b),
+                        other => FormInput::Text(other.as_str().unwrap().to_string()),
+                    };
+                    (k.clone(), input)
+                })
+                .collect();
+            let got = form_data(&schema, &inputs, case["editing"].as_bool().unwrap());
+            assert_eq!(Value::Object(got), case["data"], "{case}");
+        }
     }
 }

@@ -46,6 +46,8 @@ object Apps {
         const val MENU_DELETE = "Delete app"
         const val TAB_CHAT = "Chat"
         const val TAB_PREVIEW = "Preview"
+        // VAPP-178: the Data tab (app-records.json `dataTab`).
+        const val TAB_DATA = "Data"
         const val TAB_VERSIONS = "Versions"
         const val TAB_SETTINGS = "Settings"
         // VAPP-177: a Versions row's ghost button (switches to that version).
@@ -84,18 +86,21 @@ object Apps {
         const val SETTINGS = "app-editor-settings"
         const val VERSION_PREVIEW = "app-version-preview"
         const val VERSION_RESTORE = "app-version-restore"
+        // VAPP-178: the Data tab's body.
+        const val DATA = "app-editor-data"
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,
-     *  desktop) = Preview | Versions | Settings; phones = Chat | Preview +
-     *  the `…` menu's Versions / Settings sheets. */
+     *  desktop) = Preview | Data | Versions | Settings; phones = Chat |
+     *  Preview | Data + the `…` menu's Versions / Settings sheets (VAPP-178). */
     object EditorTabs {
         const val CHAT = "chat"
         const val PREVIEW = "preview"
+        const val DATA = "data"
         const val VERSIONS = "versions"
         const val SETTINGS = "settings"
-        val WIDE = listOf(PREVIEW, VERSIONS, SETTINGS)
-        val PHONE = listOf(CHAT, PREVIEW)
+        val WIDE = listOf(PREVIEW, DATA, VERSIONS, SETTINGS)
+        val PHONE = listOf(CHAT, PREVIEW, DATA)
         val MENU = listOf("versions", "settings", "export", "delete")
         const val DEFAULT = PREVIEW
         const val PHONE_DEFAULT = CHAT

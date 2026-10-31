@@ -61,8 +61,8 @@ final class AppsTests: XCTestCase {
         ])
         XCTAssertEqual(copy["starters"] as? [String], Apps.Copy.starters)
         XCTAssertEqual(copy["tabs"] as? [String: String], [
-            "chat": Apps.Copy.Tabs.chat, "preview": Apps.Copy.Tabs.preview, "versions": Apps.Copy.Tabs.versions,
-            "settings": Apps.Copy.Tabs.settings,
+            "chat": Apps.Copy.Tabs.chat, "preview": Apps.Copy.Tabs.preview, "data": Apps.Copy.Tabs.data,
+            "versions": Apps.Copy.Tabs.versions, "settings": Apps.Copy.Tabs.settings,
         ])
         XCTAssertEqual(Apps.Copy.viewing(2), "Viewing v2")
         XCTAssertEqual(Apps.Copy.restored(1, as: 4), "Restored v1 as v4")
@@ -90,6 +90,7 @@ final class AppsTests: XCTestCase {
             "importApp": Apps.TestIds.importApp, "starter": Apps.TestIds.starter,
             "menu": Apps.TestIds.menu, "settings": Apps.TestIds.settings,
             "versionPreview": Apps.TestIds.versionPreview, "versionRestore": Apps.TestIds.versionRestore,
+            "data": Apps.TestIds.data,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
