@@ -4,28 +4,29 @@
 
 import fixture from "../fixtures/apps.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
-import { askDockTitle } from "./ask-dock"
-import type { DockRow } from "./dock"
 
 export const APPS_COPY = fixture.copy
 export const APPS_PANES = fixture.panes
 export const APPS_PREVIEW = fixture.preview
 export const APPS_TEST_IDS = fixture.testIds
-export const APPS_LAYOUT = fixture.layout
-export const APPS_DOCK_CARD = fixture.dockCard
+export const APPS_EDITOR_TABS = fixture.editorTabs
 
-/** VAPP-129: the editor's layout on web ≥ md and the IDE. */
-export type AppEditorLayout = `floating` | `docked`
+/** VAPP-177: the editor's tabs (web ≥ md and desktop: Preview | Versions |
+ *  Settings; phones: Chat | Preview + the `…` menu's sheets). */
+export type AppEditorTab = `chat` | `preview` | `versions` | `settings`
+/** The phone menu items that open a tab body as a sheet. */
+export type AppEditorSheet = `versions` | `settings`
 
-/** A stored layout, else the default. */
-export function editorLayout(stored: string | null | undefined): AppEditorLayout {
-  return stored === `floating` || stored === `docked` ? stored : (APPS_LAYOUT.default as AppEditorLayout)
-}
-
-/** VAPP-176: a DRAFT (no version yet) is always docked: nothing to
- *  preview, the chat is the whole job. */
-export function editorLayoutFor(stored: string | null | undefined, headVersion: number): AppEditorLayout {
-  return isDraftApp({ headVersion }) ? `docked` : editorLayout(stored)
+/** A requested tab (web `?tab=`, the desktop settings nav) → the tab on
+ *  screen and, on phones, the sheet over it (`editorTabCases`). */
+export function editorTab(requested: string | null | undefined, phone: boolean): { tab: AppEditorTab; sheet: AppEditorSheet | null } {
+  if (phone) {
+    if (requested === `versions` || requested === `settings`) return { tab: APPS_EDITOR_TABS.phoneDefault as AppEditorTab, sheet: requested }
+    const tab = APPS_EDITOR_TABS.phone.includes(requested ?? ``) ? requested! : APPS_EDITOR_TABS.phoneDefault
+    return { tab: tab as AppEditorTab, sheet: null }
+  }
+  const tab = APPS_EDITOR_TABS.wide.includes(requested ?? ``) ? requested! : APPS_EDITOR_TABS.default
+  return { tab: tab as AppEditorTab, sheet: null }
 }
 
 /** VAPP-176: a DRAFT = an app with no version yet (New app's "Untitled app"
@@ -94,26 +95,6 @@ export function editorBrief(app: { name: string; slug: string; headVersion: numb
     `An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "${app.slug}"}; learn the components, bindings, host functions and records with exponential_apps {op: "catalog"}; publish every change as a new version with exponential_apps {op: "upsert", slug: "${app.slug}", package, note}. An app keeps its own data as RECORDS (declare the kinds in the manifest, bind exp:records, write with harness.records.upsert); seed or inspect them with exponential_apps {op: "records_upsert" | "records_list", slug: "${app.slug}", kind, data}. The person sees the live preview beside this chat, so keep replies to one or two lines and publish early.`,
   ]
   return lines.join(`\n`)
-}
-
-/** VAPP-129: the floating editor's ONE DockCard (kind `chat`): the newest
- *  message's first plain line (else the empty chat copy), `Working` while
- *  the editor session is busy. `messages` = the bodies, oldest first. */
-export function chatCard(messages: readonly string[], busy: boolean): DockRow {
-  const newest = [...messages].reverse().map(askDockTitle).find((line) => line.length > 0)
-  return {
-    id: APPS_DOCK_CARD.id,
-    kind: `chat`,
-    tint: `muted`,
-    icon: APPS_DOCK_CARD.icon,
-    label: APPS_COPY.tabs.chat,
-    caption: busy ? APPS_COPY.working : null,
-    meta: null,
-    title: newest ?? APPS_COPY.chatEmpty,
-    expandable: true,
-    // The card opens (the chevron); "Move to the side" is the sheet's.
-    action: null,
-  }
 }
 
 /** VAPP-157: the app hosts' media rule (fixture `mediaPolicy`), a plain

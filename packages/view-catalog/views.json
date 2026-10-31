@@ -1936,31 +1936,48 @@
       }
     },
     {
-      "id": "settings-app",
-      "group": "settings",
-      "title": "Settings · App",
-      "blurb": "VAPP-110: one app's settings page (the agent page's layout): icon, colour and name in one row, the description card, Open in the editor, the version pill and Delete app for the creator or an owner.",
+      "id": "app-settings",
+      "group": "coding",
+      "title": "App editor · Settings",
+      "blurb": "VAPP-177 (fixtures/apps.json THE SETTINGS TAB): the editor's Settings tab: icon, colour and name in one row, the description card, the records line, the Tools group (grant switches, an owner only), Export and Delete app. The old Settings → Apps → app page redirects here; phones open it as the … menu's Settings sheet, grants included.",
       "order": 27,
       "web": {
-        "route": "/t/$teamSlug/settings/apps/$appId",
+        "route": "/t/$teamSlug/apps/$appSlug?tab=settings",
         "anchor": {
-          "testId": "app-settings-page",
-          "timeoutMs": 20000
+          "testId": "app-editor-settings",
+          "timeoutMs": 30000
         },
-        "settleMs": 800
+        "settleMs": 1000
       },
-      "webMobile": "inherit",
+      "webMobile": {
+        "route": "/t/$teamSlug/apps/$appSlug?tab=settings",
+        "anchor": {
+          "testId": "app-editor-settings",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
       "desktop": {
         "drive": {
           "kind": "settings",
           "value": "app:working-hours"
-        }
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-settings",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-settings",
+        "lane": "styleguide"
       },
       "notes": {
-        "web": "`$appId` resolves to DEMO_APP_ID (apps/web/scripts/screenshot-demo.ts), the Working hours app (VAPP-122: its records count under the identity row).",
-        "desktop": "`app:<slug>` resolves the app in the active team: the seeded Team dashboard.",
-        "ios": "Phones have no settings mirror in slice 1.",
-        "android": "Phones have no settings mirror in slice 1."
+        "web": "`$appSlug` = the seeded Working hours app (DEMO_APP_SLUG); `?tab=settings` opens the tab.",
+        "web-mobile": "`?tab=settings` opens the … menu's Settings sheet over the Chat tab.",
+        "desktop": "The settings nav's `app:<slug>` now opens the editor on its Settings tab.",
+        "ios": "The live walk: Apps → Working hours → … → Settings.",
+        "android": "See ios: the same walk in StyleguideScreenshotsTest."
       }
     },
     {
@@ -2131,7 +2148,7 @@
       "id": "app",
       "group": "coding",
       "title": "App editor",
-      "blurb": "VAPP-110 + VAPP-122: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) beside the live preview of the head package rendered by the Exponential UI renderer through the app host, its records (fixtures/app-records.json) live; Versions opens the history (restore = a new head). Phones show Chat | Preview | Versions as a segmented control and the shot opens Preview.",
+      "blurb": "VAPP-110 + VAPP-122 + VAPP-177: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) docked beside the TAB pane, the header ending in the Preview | Versions | Settings segmented control; the Preview tab = the head package rendered live by the Exponential UI renderer through the app host, its records (fixtures/app-records.json) live. Phones show Chat | Preview with a … menu (Versions, Settings, Export, Delete app) and the shot opens Preview.",
       "order": 31,
       "web": {
         "route": "/t/$teamSlug/apps/$appSlug",
@@ -2170,6 +2187,51 @@
       "android": {
         "shot": "sg_app",
         "lane": "styleguide"
+      }
+    },
+    {
+      "id": "app-versions",
+      "group": "coding",
+      "title": "App editor · Versions",
+      "blurb": "VAPP-177 (fixtures/apps.json VERSIONS): the editor's Versions tab: one grouped list newest first, each row the v{n} pill, the note and who · when; the head row carries Current, every other row Preview and Restore. Phones open it as the … menu's Versions sheet.",
+      "order": 31,
+      "web": {
+        "route": "/t/$teamSlug/apps/$appSlug?tab=versions",
+        "anchor": {
+          "testId": "app-editor-versions",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/apps/$appSlug?tab=versions",
+        "anchor": {
+          "testId": "app-editor-versions",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "app:working-hours:versions"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-versions",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-versions",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "`?tab=versions` opens the tab on the seeded Working hours app (three versions).",
+        "web-mobile": "`?tab=versions` opens the … menu's Versions sheet.",
+        "desktop": "`app:<slug>:<tab>` opens the editor on that tab.",
+        "ios": "The live walk: Apps → Working hours → … → Versions.",
+        "android": "See ios: the same walk in StyleguideScreenshotsTest."
       }
     },
     {
