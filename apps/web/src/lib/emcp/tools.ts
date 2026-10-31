@@ -156,6 +156,7 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { getSessionTree, listSessions } from "@/lib/sessions/tree"
+import { markTreesReadBy } from "@/lib/sessions/reads"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { escalateCard } from "@/lib/sessions/escalate"
@@ -346,6 +347,8 @@ interface CallerSession {
   id: string
   teamId: string
   rootId: string
+  /** The member the session runs for (its starter). */
+  userId: string
   /** NEW-2: the root is an agent's conversation (never ends). */
   rootAgentId: string | null
   unattended: boolean
@@ -675,6 +678,7 @@ export function registerExponentialTools(
       id: row.id,
       teamId: row.teamId,
       rootId: row.rootId,
+      userId: row.userId,
       rootAgentId: row.rootAgentId ?? null,
       unattended: row.parentId !== null || row.watched === true,
       planMode: row.planMode === true,
@@ -2516,15 +2520,21 @@ export function registerExponentialTools(
       try {
         // Any session of a tree resolves to its root (the core's rule).
         let target: string
+        const own = await loadCallerSession()
         if (id) {
           if (!access.full) await loadGrantedSession(id)
           target = id
         } else {
-          const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_sessions_get`, `id`))
           target = own.rootId
         }
-        return ok(await getSessionTree(user.id, target, { messages: messages ?? 20 }))
+        const tree = await getSessionTree(user.id, target, { messages: messages ?? 20 })
+        // #EXP-1452: an agent reading ANOTHER chat's messages read it for
+        // its member.
+        if ((messages ?? 20) > 0 && tree.root.id !== own?.rootId) {
+          await markTreesReadBy(db, own?.userId ?? user.id, tree.root.teamId, [tree.root.id], new Date())
+        }
+        return ok(tree)
       } catch (e) {
         return err(e)
       }

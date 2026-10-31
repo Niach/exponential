@@ -37,6 +37,7 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { composeSessionBrief, stampAgentInstructionsAt } from "@/lib/sessions/brief"
+import { markConsumedLinesRead } from "@/lib/sessions/reads"
 import { configureSession, mcpPicks } from "@/lib/sessions/configure"
 import {
   cardAnswerInput,
@@ -619,15 +620,17 @@ export const sessionsRouter = router({
             message: `This session runs on another device`,
           })
         }
-        // The brief's Request IS the session's first person message: it is
-        // delivered by the claim, so the device never feeds it twice. Only a
+        // The brief's Request IS the session's first input (a person's, or
+        // #EXP-1452 the starting agent's): it is delivered by the claim, so
+        // the device never feeds it twice. Only a
         // FIRST start: a moved session re-queues with its messages pending.
         if (session.status === `queued` && !session.startedAt) {
           await tx.execute(sql`
             UPDATE ${messages} SET consumed_at = ${now}, updated_at = ${now}
             WHERE id = (
               SELECT id FROM ${messages}
-              WHERE conversation_id = ${sessionConversation(session.id)} AND author_kind = 'user'
+              WHERE conversation_id = ${sessionConversation(session.id)} AND card IS NULL
+                AND (author_kind = 'user' OR (author_session_id IS NOT NULL AND author_session_id <> ${session.id}))
               ORDER BY created_at, id LIMIT 1
             ) AND consumed_at IS NULL`)
         }
@@ -1062,7 +1065,7 @@ export const sessionsRouter = router({
       return ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
-        await tx
+        const consumed = await tx
           .update(messages)
           .set({ consumedAt: now, updatedAt: now })
           .where(
@@ -1074,6 +1077,14 @@ export const sessionsRouter = router({
               isNull(messages.consumedAt)
             )
           )
+          .returning({ id: messages.id })
+        // #EXP-1452: the agent read another session's line, so its member
+        // has read that chat up to it.
+        await markConsumedLinesRead(
+          tx,
+          session,
+          consumed.map((row) => row.id)
+        )
         return { txid }
       })
     }),

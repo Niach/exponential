@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { boards, devices, messages, repositories, sessions, teamMembers, teams } from "@/db/schema"
+import { boards, devices, messages, repositories, sessionReads, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { inSession, messageWithSession } from "@/lib/sessions/messages"
 
@@ -452,3 +452,77 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 })
+
+const readAt = async (userId: string, sessionId: string) =>
+  (
+    await db
+      .select({ readAt: sessionReads.readAt })
+      .from(sessionReads)
+      .where(and(eq(sessionReads.userId, userId), eq(sessionReads.sessionId, sessionId)))
+  )[0]?.readAt ?? null
+
+describe.skipIf(!ready.ok)(`#EXP-1452: an agent's start and read are its member's`, () => {
+  it(`a session an agent starts opens with the agent's message, delivered by the claim`, async () => {
+    const w = await world()
+    const starter = await w.root(`starter`)
+    const spawned = await sendSession({
+      userId: w.owner,
+      callerSessionId: starter,
+      viaMcp: true,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `look into it` },
+    })
+    const [first] = await db.select().from(messages).where(eq(messages.id, spawned.messageId!))
+    expect(first).toMatchObject({ authorKind: `agent`, authorSessionId: starter, body: `look into it`, consumedAt: null })
+    // What the member's agent wrote, the member read.
+    expect(await readAt(w.owner, spawned.sessionId)).not.toBeNull()
+    const { brief } = await w.host.brief({ sessionId: spawned.sessionId })
+    expect(brief).toContain(`look into it`)
+    await w.host.claim({ sessionId: spawned.sessionId, deviceId: w.deviceId })
+    expect((await db.select().from(messages).where(eq(messages.id, first!.id)))[0]!.consumedAt).not.toBeNull()
+
+    // A child started over the parent's MCP key is the parent's message too.
+    const child = await sendSession({
+      userId: w.owner,
+      callerSessionId: starter,
+      viaMcp: true,
+      input: { parentId: starter, text: `split this` },
+    })
+    const [childFirst] = await db.select().from(messages).where(eq(messages.id, child.messageId!))
+    expect(childFirst).toMatchObject({ authorKind: `agent`, authorSessionId: starter })
+    // Over tRPC a person's start stays a person's.
+    const own = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `mine` } })
+    const [ownFirst] = await db.select().from(messages).where(eq(messages.id, own.messageId!))
+    expect(ownFirst).toMatchObject({ authorKind: `user`, authorSessionId: null })
+  })
+
+  it(`a line of another chat the agent consumes marks that chat read up to it; its own tree never`, async () => {
+    const w = await world()
+    const starter = await w.root(`starter`)
+    await w.host.claim({ sessionId: starter, deviceId: w.deviceId })
+    const spawned = await sendSession({
+      userId: w.owner,
+      callerSessionId: starter,
+      viaMcp: true,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `look into it` },
+    })
+    await w.host.setRead({ sessionIds: [spawned.sessionId], read: false })
+    await w.host.claim({ sessionId: spawned.sessionId, deviceId: w.deviceId })
+    await w.host.reply({ sessionId: spawned.sessionId, body: `Found it.` })
+    const relayed = (await fromChild(starter, spawned.sessionId)).filter((m) => m.card === null)
+    expect(relayed).toHaveLength(1)
+    const before = await readAt(w.owner, spawned.sessionId)
+    expect(before!.getTime()).toBeLessThan(relayed[0]!.createdAt.getTime())
+    await w.host.consume({ sessionId: starter, messageIds: [relayed[0]!.id] })
+    expect((await readAt(w.owner, spawned.sessionId))!.getTime()).toBeGreaterThanOrEqual(relayed[0]!.createdAt.getTime())
+
+    // A child's line in the agent's OWN tree stays news for the member.
+    const childId = await w.child(starter)
+    await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
+    const ownBefore = await readAt(w.owner, starter)
+    await w.host.reply({ sessionId: childId, body: `Child done.` })
+    const fromOwnChild = (await fromChild(starter, childId)).filter((m) => m.card === null)
+    await w.host.consume({ sessionId: starter, messageIds: [fromOwnChild[0]!.id] })
+    expect(await readAt(w.owner, starter)).toEqual(ownBefore)
+  })
+})
+
