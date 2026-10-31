@@ -80,10 +80,6 @@ pub(crate) const THEME_ID: &str = "exponential";
 /// Online-ness ages out on a clock, not on a delta (the Devices page's tick).
 const LIVENESS_TICK: Duration = Duration::from_secs(30);
 
-/// What the MCP transport requires (406 without both).
-const MCP_ACCEPT: &str = "application/json, text/event-stream";
-const MCP_TIMEOUT: Duration = Duration::from_secs(60);
-
 // ---------------------------------------------------------------------------
 // The `exp:devices` derivation (pure, tested)
 // ---------------------------------------------------------------------------
@@ -728,69 +724,17 @@ fn records_delete_fn(scope: Option<HostScope>) -> HostFunction {
     })
 }
 
-/// The id `api::mcp_tools::tool_call_body` stamps on every request.
-const MCP_REQUEST_ID: i64 = 1;
-
-/// The message with `id` in one JSON text (a message or a batch), like the
-/// web's `parseJsonRpcMessage`; not JSON / no match = `None`.
-fn json_rpc_message(text: &str, id: i64) -> Option<Value> {
-    let parsed: Value = serde_json::from_str(text).ok()?;
-    let messages = match parsed {
-        Value::Array(items) => items,
-        one => vec![one],
-    };
-    messages.into_iter().find(|m| m.get("id").and_then(Value::as_i64) == Some(id))
-}
-
-/// The answer to request `id` in a JSON or SSE body (the web's
-/// `readJsonRpcAnswer`): SSE events are read in order and notifications or
-/// foreign ids skipped.
-fn json_rpc_answer(body: &str, id: i64) -> Option<Value> {
-    if body.trim_start().starts_with(['{', '[']) {
-        return json_rpc_message(body, id);
-    }
-    let mut data: Vec<&str> = Vec::new();
-    for line in body.lines().map(|l| l.strip_suffix('\r').unwrap_or(l)) {
-        if let Some(rest) = line.strip_prefix("data:") {
-            data.push(rest.strip_prefix(' ').unwrap_or(rest));
-        } else if line.is_empty() && !data.is_empty() {
-            if let Some(message) = json_rpc_message(&data.join("\n"), id) {
-                return Some(message);
-            }
-            data.clear();
-        }
-    }
-    (!data.is_empty()).then(|| json_rpc_message(&data.join("\n"), id)).flatten()
-}
-
-/// A JSON-RPC `tools/call` response (plain JSON or SSE) → the `result` of
-/// the message answering request `id`, like the web host's `callMcp`. A
-/// JSON-RPC `error` rejects with its message and code (the web's
-/// `McpCallError`); no answer with `id` rejects too.
-pub(crate) fn mcp_result(body: &str, id: i64) -> Result<Value, String> {
-    let message = json_rpc_answer(body, id).ok_or_else(|| "MCP: no answer".to_string())?;
-    if let Some(error) = message.get("error") {
-        let text = error["message"].as_str().filter(|m| !m.is_empty()).unwrap_or("MCP error");
-        return Err(match error.get("code").and_then(Value::as_i64) {
-            Some(code) => format!("{text} (code {code})"),
-            None => text.to_string(),
-        });
-    }
-    Ok(message.get("result").cloned().unwrap_or(Value::Null))
-}
-
 /// One `tools/call` on the instance's own `/api/mcp` as the signed-in
-/// account (the web's `callMcp`), on the background executor.
+/// account (the web's `callMcp`), on the background executor: the call
+/// result whole. EXP-1492: through the emcp client (`api::mcp_tools`); a
+/// JSON-RPC error rejects with its message and code, like the web's
+/// `McpCallError`.
 fn mcp_call(tool: String, arguments: Value, cx: &mut App) -> Task<Result<Value, String>> {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         return Task::ready(Err("not signed in".to_string()));
     };
     cx.background_spawn(async move {
-        let body = api::mcp_tools::tool_call_body(&tool, &arguments);
-        let response = trpc
-            .post_json("/api/mcp", &body, MCP_ACCEPT, MCP_TIMEOUT)
-            .map_err(|e| format!("MCP {e}"))?;
-        mcp_result(&response, MCP_REQUEST_ID)
+        api::mcp_tools::call_tool_result(&trpc, &tool, &arguments).map_err(|e| format!("MCP {e}"))
     })
 }
 
@@ -1612,38 +1556,6 @@ mod tests {
         vcx.update(|window, cx| view.update(cx, |v, cx| v.press(index, window, cx)));
         vcx.run_until_parked();
         assert_eq!(*calls.borrow(), vec![json!({"id": "d1", "label": "Mac"})], "{pressable:?}");
-    }
-
-    #[test]
-    fn mcp_results_decode_json_and_sse() {
-        let json_body = r#"{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}"#;
-        assert_eq!(mcp_result(json_body, 1).unwrap()["content"][0]["text"], "ok");
-        let sse = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"x\":1}}\n\n";
-        assert_eq!(mcp_result(sse, 1).unwrap(), json!({"x": 1}));
-        assert_eq!(mcp_result(json_body, 2).unwrap_err(), "MCP: no answer");
-    }
-
-    #[test]
-    fn mcp_results_read_only_the_answer_with_our_id() {
-        // A notification, a foreign id, then ours (multi-line data, CRLF).
-        let sse = concat!(
-            ": keep-alive\n\n",
-            "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{}}\n\n",
-            "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":9,\"result\":{\"x\":\"foreign\"}}\n\n",
-            "event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\r\ndata: \"result\":{\"x\":\"ours\"}}\r\n\r\n",
-        );
-        assert_eq!(mcp_result(sse, 7).unwrap(), json!({"x": "ours"}));
-        assert_eq!(mcp_result(sse, 3).unwrap_err(), "MCP: no answer");
-        // A batch body answers by id too.
-        let batch = r#"[{"jsonrpc":"2.0","id":2,"result":{}},{"jsonrpc":"2.0","id":1,"result":{"y":1}}]"#;
-        assert_eq!(mcp_result(batch, 1).unwrap(), json!({"y": 1}));
-        // An error reply rejects with its message and code.
-        let error = "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Unknown tool\"}}\n\n";
-        assert_eq!(mcp_result(error, 1).unwrap_err(), "Unknown tool (code -32602)");
-        assert_eq!(
-            mcp_result(r#"{"jsonrpc":"2.0","id":1,"error":{"message":""}}"#, 1).unwrap_err(),
-            "MCP error"
-        );
     }
 
     #[test]

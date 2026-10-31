@@ -101,6 +101,17 @@ impl TrpcClient {
         &self.base_url
     }
 
+    /// EXP-1492: the headers [`Self::authorize`] puts on a request (the
+    /// client-version header and the bearer read NOW), for a call that does
+    /// not go through this client's HTTP stack (the MCP client).
+    pub fn auth_headers(&self) -> Vec<(String, String)> {
+        let mut headers = vec![(CLIENT_VERSION_HEADER.to_string(), client_version_header_value())];
+        if let Some(token) = self.token_provider.token() {
+            headers.push(("Authorization".to_string(), format!("Bearer {token}")));
+        }
+        headers
+    }
+
     /// GET an input-less `query` procedure (e.g. `users.listPersonalApiKeys`).
     pub fn query<O: DeserializeOwned>(&self, path: &str) -> Result<O, ApiError> {
         let url = format!("{}/api/trpc/{path}", self.base_url);

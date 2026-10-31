@@ -1,27 +1,25 @@
-//! EXP-1236: the code-mode MCP endpoint: streamable HTTP on loopback,
-//! answered with plain JSON (a `GET` is refused, which the transport
-//! allows). One listener per host process; each run reaches it with its
-//! own bearer token ([`crate::grant`]), which names the run and, with it,
-//! the upstream servers its scripts may call.
+//! EXP-1236: the code-mode MCP endpoint, served by the `emcp` crate:
+//! Streamable HTTP on loopback, one listener per host process; each run
+//! reaches it with its own bearer token ([`crate::grant`]), which names the
+//! run and, with it, the upstream servers its scripts may call. The gateway
+//! (`/gateway/*`, EXP-1458) shares the listener as a raw route.
 
 use std::collections::HashMap;
-use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use emcp::{Client, ClientError};
 use serde_json::{json, Value};
 
 use crate::catalog::Catalog;
-use crate::client::{ClientError, McpClient};
 use crate::runtime::{self, CallHost, ExecError, ExecOutcome, Limits};
 use crate::Upstream;
 
 /// The config key and server name the agents see (`mcp__codemode__exec`).
 pub const SERVER_NAME: &str = "codemode";
-const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
-/// A script plus its arguments; nothing legitimate is bigger.
-const BODY_MAX_BYTES: u64 = 4 * 1024 * 1024;
+/// The `clientInfo.name` of the host's upstream calls.
+pub(crate) const CLIENT_NAME: &str = "exponential-codemode";
 /// A script bigger than this is a mistake, not a program.
 const SCRIPT_MAX_BYTES: usize = 256 * 1024;
 /// EXP-1279: where an exec's call log rides in its result's `_meta`
@@ -37,6 +35,8 @@ pub const META_ELAPSED_KEY: &str = "exponential/elapsedMs";
 /// grace and a poll), so a hung upstream cannot pin the script forever and
 /// a slow-but-honest one is not cut short.
 const CALL_TIMEOUT: Duration = Duration::from_secs(660);
+/// The handshake with an upstream before its first call.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// A catalog loaded while some upstream was unreachable is kept this long
 /// before those servers are tried again: a dead team server must not add
 /// its connect timeout to EVERY exec/describe.
@@ -49,27 +49,21 @@ pub(crate) struct Run {
     pub label: String,
     upstreams: Vec<Upstream>,
     direct_only: Vec<String>,
-    http: reqwest::blocking::Client,
     /// The loaded catalog and when it expires (`None` = never: every
     /// upstream answered).
     catalog: Mutex<Option<(Arc<Catalog>, Option<Instant>)>>,
-    clients: Mutex<HashMap<String, Arc<McpClient>>>,
+    clients: Mutex<HashMap<String, Client>>,
     /// Set by a revoke: a script in flight ends at its next tick.
     cancelled: Arc<AtomicBool>,
 }
 
 impl Run {
     fn new(session_id: &str, label: &str, upstreams: Vec<Upstream>, direct_only: Vec<String>) -> Self {
-        let http = reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|_| reqwest::blocking::Client::new());
         Self {
             session_id: session_id.to_string(),
             label: label.to_string(),
             upstreams,
             direct_only,
-            http,
             catalog: Mutex::new(None),
             clients: Mutex::new(HashMap::new()),
             cancelled: Arc::new(AtomicBool::new(false)),
@@ -85,7 +79,7 @@ impl Run {
                 return catalog;
             }
         }
-        let loaded = Arc::new(Catalog::load(&self.upstreams, self.direct_only.clone(), &self.http));
+        let loaded = Arc::new(Catalog::load(&self.upstreams, self.direct_only.clone()));
         let expires = if loaded.unreachable.is_empty() {
             None
         } else {
@@ -100,19 +94,23 @@ impl Run {
         loaded
     }
 
-    fn client(&self, server: &str) -> Option<Arc<McpClient>> {
+    /// The run's connected client for `server` (one handshake per server
+    /// per run; a failed one is tried again on the next call).
+    fn client(&self, server: &str) -> Result<Client, String> {
         if let Some(client) = self.clients.lock().unwrap().get(server) {
-            return Some(client.clone());
+            return Ok(client.clone());
         }
-        let upstream = self.upstreams.iter().find(|upstream| upstream.name == server)?.clone();
-        let client = Arc::new(McpClient::new(self.http.clone(), upstream));
-        // The catalog load initialized its own client; this one is for the
-        // calls and does its own handshake once.
-        if let Err(err) = client.initialize(Duration::from_secs(20)) {
+        let upstream = self
+            .upstreams
+            .iter()
+            .find(|upstream| upstream.name == server)
+            .ok_or_else(|| format!("tool_unavailable: no server `{server}` in this session (see ALL_TOOLS)"))?;
+        let client = Client::connect(upstream, CLIENT_NAME, CONNECT_TIMEOUT).map_err(|err| {
             log::warn!("[codemode] {}: initialize {server} failed: {err}", self.label);
-        }
+            format!("{server} is unreachable: {err}")
+        })?;
         self.clients.lock().unwrap().insert(server.to_string(), client.clone());
-        Some(client)
+        Ok(client)
     }
 }
 
@@ -121,9 +119,7 @@ impl CallHost for Run {
         if self.direct_only.iter().any(|name| name == server) {
             return Err(format!("{server} is a stdio server: call its tools directly, not from a script"));
         }
-        let client = self
-            .client(server)
-            .ok_or_else(|| format!("tool_unavailable: no server `{server}` in this session (see ALL_TOOLS)"))?;
+        let client = self.client(server)?;
         match client.call(tool, args, CALL_TIMEOUT) {
             Ok(result) => Ok(result),
             Err(ClientError::Timeout) => Err(format!("{server}.{tool} did not answer within {} s", CALL_TIMEOUT.as_secs())),
@@ -132,8 +128,8 @@ impl CallHost for Run {
     }
 }
 
+/// The admitted runs, by session id; the tokens are the emcp server's.
 pub(crate) struct Hub {
-    /// Token → run.
     runs: Mutex<HashMap<String, Arc<Run>>>,
     /// EXP-1458: the MCP gateway's runs (their own tokens, `/gateway/*`).
     pub(crate) gateways: crate::gateway::Gateways,
@@ -144,73 +140,42 @@ impl Hub {
         Self { runs: Mutex::default(), gateways: crate::gateway::Gateways::default() }
     }
 
-    /// A fresh token for `session_id`; an earlier one of the same run dies.
-    pub fn grant(&self, session_id: &str, label: &str, upstreams: Vec<Upstream>, direct_only: Vec<String>) -> String {
-        let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-        let mut runs = self.runs.lock().unwrap();
-        runs.retain(|_, run| {
-            let stale = run.session_id == session_id;
-            if stale {
-                run.cancelled.store(true, Ordering::Release);
-            }
-            !stale
-        });
-        runs.insert(token.clone(), Arc::new(Run::new(session_id, label, upstreams, direct_only)));
-        token
+    /// Admit `session_id`; a run it held before is cancelled. The caller
+    /// mints the run's token on the server.
+    pub fn admit(&self, session_id: &str, label: &str, upstreams: Vec<Upstream>, direct_only: Vec<String>) {
+        let run = Arc::new(Run::new(session_id, label, upstreams, direct_only));
+        if let Some(old) = self.runs.lock().unwrap().insert(session_id.to_string(), run) {
+            old.cancelled.store(true, Ordering::Release);
+        }
     }
 
-    pub fn revoke(&self, session_id: &str) {
+    /// The run ended: a script in flight ends at its next tick.
+    pub fn end(&self, session_id: &str) {
+        if let Some(run) = self.runs.lock().unwrap().remove(session_id) {
+            run.cancelled.store(true, Ordering::Release);
+        }
+    }
+
+    fn run(&self, session_id: &str) -> Option<Arc<Run>> {
+        self.runs.lock().unwrap().get(session_id).cloned()
+    }
+}
+
+impl emcp::ToolProvider for Hub {
+    fn tools(&self) -> Result<Vec<Value>, String> {
+        Ok(tool_definitions().as_array().cloned().unwrap_or_default())
+    }
+
+    fn call(&self, caller: &emcp::Caller, name: &str, arguments: Value) -> Value {
+        match self.run(&caller.session_id) {
+            Some(run) => call_tool(&run, name, &arguments),
+            None => error_result("This session's code-mode grant ended.".to_string()),
+        }
+    }
+
+    fn ended(&self, session_id: &str) {
         self.gateways.revoke(session_id);
-        self.runs.lock().unwrap().retain(|_, run| {
-            let gone = run.session_id == session_id;
-            if gone {
-                run.cancelled.store(true, Ordering::Release);
-            }
-            !gone
-        });
-    }
-
-    #[cfg(test)]
-    pub fn has_token(&self, token: &str) -> bool {
-        self.runs.lock().unwrap().contains_key(token)
-    }
-
-    fn run(&self, token: &str) -> Option<Arc<Run>> {
-        self.runs.lock().unwrap().get(token).cloned()
-    }
-
-    /// One JSON-RPC message → its response (`None` for a notification).
-    pub fn handle(&self, token: &str, message: &Value) -> Option<Value> {
-        let id = message.get("id").cloned()?;
-        let method = message.get("method").and_then(Value::as_str).unwrap_or_default();
-        let params = message.get("params").cloned().unwrap_or(Value::Null);
-        let result = match method {
-            "initialize" => {
-                let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or_default();
-                let version = PROTOCOL_VERSIONS.iter().find(|version| **version == asked).unwrap_or(&PROTOCOL_VERSIONS[0]);
-                Ok(json!({
-                    "protocolVersion": version,
-                    "capabilities": { "tools": {} },
-                    "serverInfo": { "name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": INSTRUCTIONS,
-                }))
-            }
-            "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": tool_definitions() })),
-            "tools/call" => {
-                let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
-                let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-                match self.run(token) {
-                    Some(run) => Ok(call_tool(&run, name, &arguments)),
-                    None => Err(json!({ "code": -32000, "message": "This session's code-mode grant ended." })),
-                }
-            }
-            _ => Err(json!({ "code": -32601, "message": format!("Method not found: {method}") })),
-        };
-        Some(match result {
-            Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-            Err(error) => json!({ "jsonrpc": "2.0", "id": id, "error": error }),
-        })
+        self.end(session_id);
     }
 }
 
@@ -387,189 +352,104 @@ const DESCRIBE_DESCRIPTION: &str = "Input schemas of this session's MCP tools fo
 name and one-line summary (what `ALL_TOOLS` shows in a script). Stdio team servers are direct-call only \
 and listed as such.";
 
-/// Bind loopback and serve `hub` on a background thread; returns the URL.
-pub(crate) fn serve(hub: Arc<Hub>) -> Result<String, String> {
-    let server = tiny_http::Server::http("127.0.0.1:0").map_err(|err| format!("Could not start the code-mode server: {err}"))?;
-    let port = server
-        .server_addr()
-        .to_ip()
-        .map(|addr| addr.port())
-        .ok_or("The code-mode server has no TCP address.")?;
-    std::thread::Builder::new()
-        .name("codemode-mcp".into())
-        .spawn(move || {
-            for request in server.incoming_requests() {
-                let hub = hub.clone();
-                // An exec runs for minutes: never hold the accept loop for it.
-                let _ = std::thread::Builder::new().name("codemode-call".into()).spawn(move || respond(&hub, request));
-            }
-        })
-        .map_err(|err| format!("Could not start the code-mode server: {err}"))?;
-    Ok(format!("http://127.0.0.1:{port}/mcp"))
-}
-
-fn respond(hub: &Hub, mut request: tiny_http::Request) {
-    if request.url().starts_with(crate::gateway::ROUTE) {
-        return respond_gateway(hub, request);
-    }
-    let json_header = || tiny_http::Header::from_bytes("Content-Type", "application/json").expect("static header");
-    let plain = |status: u16| tiny_http::Response::empty(status).boxed();
-    let token = request
-        .headers()
-        .iter()
-        .find(|header| header.field.equiv("Authorization"))
-        .and_then(|header| header.value.as_str().strip_prefix("Bearer "))
-        .map(str::to_string)
-        .filter(|token| hub.runs.lock().unwrap().contains_key(token));
-    // Read the body before answering anything: a refusal sent over an unread
-    // body makes the socket reset under the client instead of delivering it.
-    let mut body = String::new();
-    let read = request.as_reader().take(BODY_MAX_BYTES).read_to_string(&mut body).is_ok();
-    let response = match (token, request.method()) {
-        (None, _) => plain(401),
-        (Some(token), tiny_http::Method::Post) => match read.then(|| serde_json::from_str::<Value>(&body).ok()).flatten() {
-            None => plain(400),
-            Some(message) => match hub.handle(&token, &message) {
-                None => plain(202),
-                Some(reply) => tiny_http::Response::from_string(reply.to_string()).with_header(json_header()).boxed(),
-            },
-        },
-        (Some(_), _) => plain(405),
+/// Bind loopback and serve `hub` ([`INSTRUCTIONS`] at `initialize`), the
+/// gateway on `/gateway/*`.
+pub(crate) fn serve(hub: Arc<Hub>) -> Result<emcp::Server, String> {
+    let info = emcp::ServerInfo {
+        name: SERVER_NAME.into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        instructions: Some(INSTRUCTIONS.into()),
     };
-    let _ = request.respond(response);
-}
-
-/// EXP-1458: `/gateway/*`: the run's gateway token, then forwarded
-/// upstream through its transform ([`crate::gateway::handle`]).
-fn respond_gateway(hub: &Hub, mut request: tiny_http::Request) {
-    let header = |name: &'static str| {
-        request.headers().iter().find(|header| header.field.equiv(name)).map(|header| header.value.as_str().to_string())
-    };
-    let run = header("Authorization")
-        .and_then(|value| value.strip_prefix("Bearer ").map(str::to_string))
-        .and_then(|token| hub.gateways.run(&token));
-    let passed = crate::gateway::Passed {
-        session: header("Mcp-Session-Id"),
-        protocol: header("MCP-Protocol-Version"),
-        accept: header("Accept"),
-    };
-    let mut body = String::new();
-    let read = request.as_reader().take(BODY_MAX_BYTES).read_to_string(&mut body).is_ok();
-    let response = match (run, request.method()) {
-        (None, _) => tiny_http::Response::empty(401).boxed(),
-        (Some(_), tiny_http::Method::Post) if !read => tiny_http::Response::empty(400).boxed(),
-        (Some(run), tiny_http::Method::Post) => {
-            let reply = crate::gateway::handle(&run, &body, &passed);
-            let mut response = tiny_http::Response::from_string(reply.body).with_status_code(reply.status);
-            if let Some(content_type) = reply.content_type {
-                if let Ok(header) = tiny_http::Header::from_bytes("Content-Type", content_type.as_bytes()) {
-                    response = response.with_header(header);
-                }
-            }
-            if let Some(session) = reply.session {
-                if let Ok(header) = tiny_http::Header::from_bytes("Mcp-Session-Id", session.as_bytes()) {
-                    response = response.with_header(header);
-                }
-            }
-            response.boxed()
-        }
-        (Some(_), _) => tiny_http::Response::empty(405).boxed(),
-    };
-    let _ = request.respond(response);
+    let gateway: Arc<dyn emcp::RawRoute> = Arc::new(crate::gateway::Route(hub.clone()));
+    emcp::Server::serve_with(info, hub, vec![(crate::gateway::ROUTE.to_string(), gateway)])
+        .map_err(|err| format!("Could not start the code-mode server: {err}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A fake upstream MCP server with two tools; `slow` sleeps.
-    fn upstream(name: &str) -> (Upstream, Arc<Mutex<Vec<String>>>) {
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
-        let port = server.server_addr().to_ip().unwrap().port();
-        let record = seen.clone();
-        std::thread::spawn(move || {
-            for mut request in server.incoming_requests() {
-                let auth = request
-                    .headers()
-                    .iter()
-                    .find(|h| h.field.equiv("Authorization"))
-                    .map(|h| h.value.to_string())
-                    .unwrap_or_default();
-                let mut body = String::new();
-                request.as_reader().read_to_string(&mut body).unwrap();
-                let message: Value = serde_json::from_str(&body).unwrap();
-                let Some(id) = message.get("id").cloned() else {
-                    let _ = request.respond(tiny_http::Response::empty(202));
-                    continue;
-                };
-                let reply = match message["method"].as_str().unwrap_or_default() {
-                    "initialize" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
-                    "tools/list" => {
-                        record.lock().unwrap().push("tools/list".to_string());
-                        json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": [
-                        { "name": "list_windows", "description": "List windows.", "inputSchema": { "type": "object" } },
-                        { "name": "slow", "description": "Sleep ms.", "inputSchema": { "type": "object" } },
-                    ] } })
-                    }
-                    "tools/call" => {
-                        let name = message["params"]["name"].as_str().unwrap_or_default().to_string();
-                        record.lock().unwrap().push(format!("{auth} {name}"));
-                        if name == "slow" {
-                            std::thread::sleep(Duration::from_millis(300));
-                        }
-                        json!({ "jsonrpc": "2.0", "id": id, "result": { "content": [{ "type": "text", "text": "[{\"title\":\"A\"},{\"title\":\"B\"}]" }] } })
-                    }
-                    _ => json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "nope" } }),
-                };
-                let _ = request.respond(
-                    tiny_http::Response::from_string(reply.to_string())
-                        .with_header(tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap()),
-                );
-            }
-        });
-        (
-            Upstream {
-                name: name.into(),
-                url: format!("http://127.0.0.1:{port}/mcp"),
-                headers: vec![("Authorization".into(), format!("Bearer {name}-secret"))],
-            },
-            seen,
-        )
+    /// A fake upstream MCP server (an emcp server) with two tools; `slow`
+    /// sleeps. Records `tools/list` and every call with the run its token
+    /// named, so a call proves the run's headers rode along.
+    struct FakeUpstream {
+        seen: Arc<Mutex<Vec<String>>>,
     }
 
-    fn call(hub: &Hub, token: &str, name: &str, arguments: Value) -> Value {
-        hub.handle(
-            token,
-            &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": name, "arguments": arguments } }),
-        )
-        .unwrap()
+    impl emcp::ToolProvider for FakeUpstream {
+        fn tools(&self) -> Result<Vec<Value>, String> {
+            self.seen.lock().unwrap().push("tools/list".to_string());
+            Ok(vec![
+                json!({ "name": "list_windows", "description": "List windows.", "inputSchema": { "type": "object" } }),
+                json!({ "name": "slow", "description": "Sleep ms.", "inputSchema": { "type": "object" } }),
+            ])
+        }
+
+        fn call(&self, caller: &emcp::Caller, name: &str, _arguments: Value) -> Value {
+            self.seen.lock().unwrap().push(format!("{} {name}", caller.label));
+            if name == "slow" {
+                std::thread::sleep(Duration::from_millis(300));
+            }
+            json!({ "content": [{ "type": "text", "text": "[{\"title\":\"A\"},{\"title\":\"B\"}]" }] })
+        }
+    }
+
+    fn upstream(name: &str) -> (Upstream, Arc<Mutex<Vec<String>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let info = emcp::ServerInfo { name: name.into(), version: "1".into(), instructions: None };
+        let server = emcp::Server::serve(info, Arc::new(FakeUpstream { seen: seen.clone() })).unwrap();
+        let token = server.grant("upstream-run", &format!("{name}-secret"));
+        let url = server.url().to_string();
+        // The fake lives for the test process.
+        std::mem::forget(server);
+        (Upstream { name: name.into(), url, headers: vec![("Authorization".into(), format!("Bearer {token}"))] }, seen)
+    }
+
+    fn caller(session_id: &str) -> emcp::Caller {
+        emcp::Caller { session_id: session_id.into(), label: "EXP-1".into() }
+    }
+
+    /// One `tools/call` as the server hands it to the hub, wrapped like the
+    /// old JSON-RPC answer so the assertions read `["result"]`.
+    fn call(hub: &Hub, session_id: &str, name: &str, arguments: Value) -> Value {
+        json!({ "result": emcp::ToolProvider::call(hub, &caller(session_id), name, arguments) })
+    }
+
+    fn connect(server: &emcp::Server, token: &str) -> Result<emcp::Client, ClientError> {
+        let upstream = Upstream {
+            name: SERVER_NAME.into(),
+            url: server.url().to_string(),
+            headers: vec![("Authorization".into(), format!("Bearer {token}"))],
+        };
+        Client::connect(&upstream, "test", Duration::from_secs(10))
     }
 
     #[test]
-    fn initialize_lists_exec_and_describe() {
-        let hub = Hub::new();
-        let token = hub.grant("s1", "EXP-1", Vec::new(), Vec::new());
-        let init = hub
-            .handle(&token, &json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": { "protocolVersion": "2025-03-26" } }))
-            .unwrap();
-        assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
-        assert_eq!(init["result"]["serverInfo"]["name"], "codemode");
-        assert!(init["result"]["instructions"].as_str().unwrap().contains("Promise.all"));
-        assert!(hub.handle(&token, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).is_none());
-        let tools = hub.handle(&token, &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).unwrap();
-        let names: Vec<&str> = tools["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    fn the_endpoint_lists_exec_and_describe_to_the_runs_token_only() {
+        let hub = Arc::new(Hub::new());
+        let server = serve(hub.clone()).unwrap();
+        hub.admit("s1", "EXP-1", Vec::new(), Vec::new());
+        let token = server.grant("s1", "EXP-1");
+        assert!(matches!(connect(&server, "nope"), Err(ClientError::Http(401))));
+        let client = connect(&server, &token).unwrap();
+        let tools = client.list_tools(Duration::from_secs(10)).unwrap();
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["exec", "describe"]);
-        assert_eq!(tools["result"]["tools"][0]["inputSchema"]["required"], json!(["script"]));
-        let unknown = hub.handle(&token, &json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/list" })).unwrap();
-        assert_eq!(unknown["error"]["code"], -32601);
+        assert_eq!(tools[0]["inputSchema"]["required"], json!(["script"]));
+        let reply = client.call("exec", json!({ "script": "return 1 + 1" }), Duration::from_secs(30)).unwrap();
+        assert_eq!(reply["structuredContent"]["result"], json!(2), "{reply}");
+        assert!(reply["_meta"][META_COUNT_KEY].is_u64(), "the call log's _meta survives the transport: {reply}");
+        server.revoke("s1");
+        assert!(hub.run("s1").is_none());
+        assert!(matches!(connect(&server, &token), Err(ClientError::Http(401))));
     }
 
     #[test]
     fn exec_calls_the_runs_upstreams_with_their_headers_in_parallel_and_describe_has_the_schemas() {
         let (computer, seen) = upstream("computer");
         let hub = Hub::new();
-        let token = hub.grant("s1", "EXP-1", vec![computer], vec!["playwright".into()]);
+        hub.admit("s1", "EXP-1", vec![computer], vec!["playwright".into()]);
+        let token = "s1";
         let started = std::time::Instant::now();
         let script = "const [a, b, w] = await Promise.all([tools.computer.slow({}), tools.computer.slow({}), tools.computer.list_windows({})]); console.log('n', w.length); return w.map((x) => x.title);";
         let reply = call(&hub, &token, "exec", json!({ "script": script }));
@@ -595,7 +475,7 @@ mod tests {
         assert_eq!(crate::take_report("s1", script), None);
         assert!(started.elapsed() < Duration::from_millis(1000), "two 300 ms calls overlapped: {:?}", started.elapsed());
         let seen = seen.lock().unwrap();
-        assert!(seen.iter().filter(|line| *line != "tools/list").all(|line| line.starts_with("Bearer computer-secret ")), "{seen:?}");
+        assert!(seen.iter().filter(|line| *line != "tools/list").all(|line| line.starts_with("computer-secret ")), "{seen:?}");
 
         let described = call(&hub, &token, "describe", json!({ "names": ["computer.slow", "ghost"] }));
         assert_eq!(described["result"]["structuredContent"]["tools"][0]["name"], json!("mcp__computer__slow"));
@@ -615,7 +495,8 @@ mod tests {
         let (computer, seen) = upstream("computer");
         let dead = Upstream { name: "linear".into(), url: "http://127.0.0.1:1/mcp".into(), headers: Vec::new() };
         let hub = Hub::new();
-        let token = hub.grant("s1", "EXP-1", vec![computer, dead], Vec::new());
+        hub.admit("s1", "EXP-1", vec![computer, dead], Vec::new());
+        let token = "s1";
         let lists = || seen.lock().unwrap().iter().filter(|line| *line == "tools/list").count();
         let first = call(&hub, &token, "describe", json!({}));
         let all = first["result"]["structuredContent"].to_string();
@@ -650,7 +531,8 @@ mod tests {
     #[test]
     fn exec_refuses_a_missing_or_huge_script_and_unknown_tools() {
         let hub = Hub::new();
-        let token = hub.grant("s1", "EXP-1", Vec::new(), Vec::new());
+        hub.admit("s1", "EXP-1", Vec::new(), Vec::new());
+        let token = "s1";
         assert_eq!(call(&hub, &token, "exec", json!({}))["result"]["isError"], json!(true));
         let huge = "x".repeat(SCRIPT_MAX_BYTES + 1);
         assert_eq!(call(&hub, &token, "exec", json!({ "script": huge }))["result"]["isError"], json!(true));
@@ -658,44 +540,17 @@ mod tests {
     }
 
     #[test]
-    fn a_new_grant_replaces_the_runs_old_token_and_a_revoke_cancels_it() {
+    fn a_new_admission_cancels_the_runs_old_one_and_an_end_cancels_it() {
         let hub = Hub::new();
-        let old = hub.grant("s1", "EXP-1", Vec::new(), Vec::new());
-        let new = hub.grant("s1", "EXP-1", Vec::new(), Vec::new());
-        assert!(!hub.has_token(&old));
-        assert!(hub.has_token(&new));
-        let refused = call(&hub, &old, "exec", json!({ "script": "return 1" }));
-        assert_eq!(refused["error"]["code"], -32000);
-        let run = hub.run(&new).unwrap();
-        hub.revoke("s1");
+        hub.admit("s1", "EXP-1", Vec::new(), Vec::new());
+        let old = hub.run("s1").unwrap();
+        hub.admit("s1", "EXP-1", Vec::new(), Vec::new());
+        assert!(old.cancelled.load(Ordering::Acquire));
+        let run = hub.run("s1").unwrap();
+        emcp::ToolProvider::ended(&hub, "s1");
         assert!(hub.runs.lock().unwrap().is_empty());
         assert!(run.cancelled.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn the_endpoint_wants_the_runs_bearer_token() {
-        let hub = Arc::new(Hub::new());
-        let token = hub.grant("s1", "EXP-1", Vec::new(), Vec::new());
-        let url = serve(hub).unwrap();
-        let addr = url.trim_start_matches("http://").trim_end_matches("/mcp").to_string();
-        let post = |auth: &str| {
-            use std::io::Write;
-            let body = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
-            let mut stream = std::net::TcpStream::connect(&addr).unwrap();
-            write!(
-                stream,
-                "POST /mcp HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {auth}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            )
-            .unwrap();
-            let mut reply = String::new();
-            stream.read_to_string(&mut reply).unwrap();
-            reply
-        };
-        assert!(post("nope").starts_with("HTTP/1.1 401"));
-        let ok = post(&token);
-        assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
-        let body: Value = serde_json::from_str(ok.rsplit("\r\n\r\n").next().unwrap()).unwrap();
-        assert_eq!(body, json!({ "jsonrpc": "2.0", "id": 1, "result": {} }));
+        let refused = call(&hub, "s1", "exec", json!({ "script": "return 1" }));
+        assert_eq!(refused["result"]["isError"], json!(true));
     }
 }
