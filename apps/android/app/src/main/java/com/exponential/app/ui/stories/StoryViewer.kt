@@ -532,7 +532,7 @@ private fun StoryNavigable(
 }
 
 /** One frame's body, filling the screen on black: a plan's cover (its
- *  first picture fitted, a tap = Open plan), a gallery's current picture
+ *  first picture fitted; a tap anywhere = Open plan), a gallery's current picture
  *  fitted (the "i / n" counter, its caption under it), THE surface with no
  *  card chrome, or nothing (a title frame). [top] / [bottom] = the floating
  *  bands' heights (the scrolling body starts under the top one and clears
@@ -549,7 +549,9 @@ private fun StoryFrameBody(
 ) {
     when (frame.kind) {
         Stories.FrameKind.Plan -> {
-            val cover = story.pictures.firstOrNull() ?: return
+            // stories.json NAVIGATION: a tap ANYWHERE on the cover (a picture
+            // or the bare black body) = Open plan; swipes still step.
+            val cover = story.pictures.firstOrNull()
             Box(
                 Modifier
                     .fillMaxSize()
@@ -564,7 +566,7 @@ private fun StoryFrameBody(
                             }
                         }
                     },
-            ) { StoryPicture(cover) }
+            ) { if (cover != null) StoryPicture(cover) }
         }
         Stories.FrameKind.Gallery -> {
             val shown = story.pictures.getOrNull(picture) ?: return

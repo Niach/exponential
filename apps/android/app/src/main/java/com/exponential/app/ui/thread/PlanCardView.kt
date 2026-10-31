@@ -144,7 +144,7 @@ internal fun ColumnScope.PlanAskCard(
     initialRejecting: Boolean = false,
     /** #EXP-1493: THE plan page's sheet = the stepper WITHOUT its plan page
      *  (the document is the page); below `minQuestions` = every question on
-     *  one page. */
+     *  one page; closed = the questions + the decision, no plan text. */
     questionsOnly: Boolean = false,
 ) {
     val plan = row as? SessionTree.ThreadRow.Plan
@@ -347,15 +347,19 @@ internal fun ColumnScope.PlanAskCard(
                 LocalInlineCodeStyle provides MdStyle.Chat,
             ) {
                 Column(Modifier.fillMaxWidth()) {
-                    MarkdownView(PlanCard.withoutPendingUploads(plan?.plan ?: question!!.question))
-                    val surface: CardSurface? = plan?.surface ?: question?.surface
-                    if (surface != null) {
-                        CardSurfaceView(
-                            surface,
-                            surfaceHandle,
-                            inert = !live,
-                            modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp),
-                        )
+                    // #EXP-1493: on THE plan page the document is the page; its
+                    // closed card = the questions + the decision only.
+                    if (!questionsOnly) {
+                        MarkdownView(PlanCard.withoutPendingUploads(plan?.plan ?: question!!.question))
+                        val surface: CardSurface? = plan?.surface ?: question?.surface
+                        if (surface != null) {
+                            CardSurfaceView(
+                                surface,
+                                surfaceHandle,
+                                inert = !live,
+                                modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp),
+                            )
+                        }
                     }
                     blocks.forEach { block ->
                         if (plan == null && block.options.isEmpty() && !block.custom) return@forEach
