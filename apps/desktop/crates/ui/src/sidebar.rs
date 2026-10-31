@@ -3015,9 +3015,11 @@ impl ListPanel {
         } else {
             Vec::new()
         };
+        // #EXP-1493 (plan-page.json WAYS IN): a session waiting on its own
+        // plan opens THE plan page.
         let target = entry
             .session_id()
-            .map(|id| crate::navigation::session_screen_for(&id, cx));
+            .map(|id| crate::plan_page::screen_for_session(&id, cx));
         let selected = target.as_ref().is_some_and(|screen| {
             resolved_screen(&self.nav, cx).as_ref() == Some(screen)
         });
@@ -3061,7 +3063,7 @@ impl ListPanel {
         // #EXP-1456: the screen the session opens as (inbox-route.json).
         let target = entry
             .session_id()
-            .map(|id| crate::navigation::session_screen_for(&id, cx));
+            .map(|id| crate::plan_page::screen_for_session(&id, cx));
         // EXP-1192: the run this row opened reads selected beside it, like
         // an issue row beside its detail.
         let selected = target.as_ref().is_some_and(|screen| {

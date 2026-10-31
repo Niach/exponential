@@ -147,6 +147,7 @@ import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { useSessionMessages } from "@/hooks/use-session-tree"
 import { useAnswerMessage } from "@/hooks/use-answer-message"
+import { useOpenPlan } from "@/hooks/use-open-plan"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { FeedText } from "@/components/feed-text"
 import { workingCaption, type WorkingWriting } from "@/lib/working-caption"
@@ -403,6 +404,7 @@ export function AgentSessionView({
     sendSessionMessage({ teamId: session.teamId, sessionId: session.id, text }, SKIP_ERROR_TOAST)
       .catch((error) => failedAction(`send`, `the message`, error))
   }
+  const openPlan = useOpenPlan()
   // FEED-140: a waiting tool-posted card STAYS inline (the dock holds it too).
   const renderToolCards = (ids: readonly string[], keyPrefix: string): ReactNode =>
     ids
@@ -417,6 +419,7 @@ export function AgentSessionView({
               attachmentSrc={attachmentUrl}
               onAnswer={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
               onDecide={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
+              onOpenPlan={(plan) => openPlan(plan.sessionId, plan.id)}
               pending={cardsPending}
               onSurfaceReply={sessionEnded ? undefined : replyFromSurface}
               arrived={surfaceArrived}

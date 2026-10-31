@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1495 (round 6): `Outline` and `Mosaic` paint through the Box / Text / Image paths (no painter of their own); the Carousel `counter` pill counts in tabular figures (`TextStyle.tabular`, measure = paint) and the `thumbnails` strip keeps the current page's thumbnail in view.
+
 ## 0.2.1 (2026-10-30)
 
 - YO-30: the tests replay `fixtures/text-clusters.json`. No painter change.

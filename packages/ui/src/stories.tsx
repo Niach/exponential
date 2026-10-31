@@ -17,11 +17,12 @@ import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 import { DIALOG_CLASSES } from "@exponential_app/eui/web/primitives"
 import { CHATS_SHELL } from "@exp/domain-contract/chats"
 import { joinAnswers, PLAN_CARD_COPY, type CardSurface } from "@exp/domain-contract/plan-card"
-import { PLAN_OPTIONS } from "@exp/domain-contract/ask-dock"
+import { PLAN_PAGE_COPY, planCountsLine } from "@exp/domain-contract/plan-page"
 import { cardSurface, questionOptions, type ThreadQuestionOption } from "@exp/domain-contract/session-tree"
 import {
   STORIES_COPY,
   STORIES_TEST_IDS,
+  STORY_BADGE,
   STORY_PROGRESS,
   STORY_RING,
   STORY_ROW,
@@ -34,16 +35,15 @@ import {
   type StoryFrame,
   type StoryRing as StoryRingModel,
 } from "@exp/domain-contract/stories"
-import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
 import { AgentBrandMark } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
 import { Button } from "./button"
 import { cn } from "./cn"
-import { Composer } from "./composer"
 import { Input } from "./input"
 import { conceptIcon } from "./icons.generated"
+import { PictureCarousel } from "./picture-group"
+import { Pill } from "./pill"
 import { PlanCardCustomField, PlanCardOptions, planCardHost, questionAnswer, useSurfaceDataRef } from "./plan-card"
-import { Textarea } from "./textarea"
 
 // S-3 STORIES ×web (fixtures/stories.json; desktop crates/ui stories, iOS
 // ExpUI Stories, Android ui/stories): a session's own show cards (a plan, a
@@ -252,31 +252,25 @@ export function StoryRingRow({
   )
 }
 
-/** THE progress: one segment per FRAME, the current filled to `fraction`.
- *  `groups[i]` = segment i's story: segments of one story sit
- *  `progress.gap` apart, a new story starts `progress.storyGap` after the
- *  last (absent = one group, every segment `progress.gap` apart). */
+/** THE progress (#EXP-1493): one segment per STORY, `progress.gap` apart,
+ *  the current filled to `fraction` (a gallery: (picture + its fill) / n). */
 export function StoryProgress({
   count,
   index,
   fraction,
-  groups,
   className,
 }: {
   count: number
   index: number
   /** The current segment's fill (0…1). */
   fraction: number
-  /** Each segment's story (the frame's `story`). */
-  groups?: readonly number[]
   className?: string
 }) {
   return (
     <div data-testid={STORIES_TEST_IDS.progress} data-index={index} className={cn(`flex w-full`, className)}>
       {Array.from({ length: count }, (_, at) => {
         const fill = at < index ? 1 : at === index ? Math.min(1, Math.max(0, fraction)) : 0
-        const lead =
-          at === 0 ? 0 : groups && groups[at] !== groups[at - 1] ? STORY_PROGRESS.storyGap : STORY_PROGRESS.gap
+        const lead = at === 0 ? 0 : STORY_PROGRESS.gap
         return (
           <span
             key={at}
@@ -314,13 +308,25 @@ export function storyCardDetail(card: unknown): StoryCardDetail {
   }
 }
 
-/** A plan story's decision (THE plan options: Approve = approve, Change =
- *  reject + its feedback). */
-export interface StoryDecision {
-  decision: `approved` | `rejected`
-  fresh?: boolean
-  feedback?: string
-  surfaceData?: Record<string, unknown>
+/** #EXP-1493: THE kind badge ×4 (stories.json `badge`): THE Pill (sm,
+ *  readonly), the kind's glyph + word in its tint. */
+const BADGE_TINT: Record<Story[`kind`], string> = {
+  plan: `text-primary bg-primary/14 border-primary/30`,
+  question: `text-yellow-400 bg-yellow-400/14 border-yellow-400/30`,
+  result: `text-emerald-500 bg-emerald-500/14 border-emerald-500/30`,
+}
+const BADGE_ICON = {
+  plan: conceptIcon(STORY_BADGE.icons.plan as Parameters<typeof conceptIcon>[0]),
+  question: conceptIcon(STORY_BADGE.icons.question as Parameters<typeof conceptIcon>[0]),
+  result: conceptIcon(STORY_BADGE.icons.result as Parameters<typeof conceptIcon>[0]),
+}
+export function StoryKindBadge({ kind, className }: { kind: Story[`kind`]; className?: string }) {
+  const Icon = BADGE_ICON[kind]
+  return (
+    <Pill mode="readonly" size="sm" data-slot="story-badge" data-kind={kind} className={cn(BADGE_TINT[kind], className)} leading={<Icon />}>
+      {STORIES_COPY[kind]}
+    </Pill>
+  )
 }
 
 /** A question story's answer (the in-chat card's shape). */
@@ -411,38 +417,42 @@ function useMeasuredHeight(): [(node: HTMLElement | null) => void, number] {
 
 /** The viewer's frame (fully controlled): the body fills it on black, the
  *  progress + header + the frame's title and description float over the
- *  top scrim, the footer over the bottom one. */
+ *  top scrim, the footer over the bottom one. #EXP-1493: ONE frame per
+ *  story; a gallery's picture is `picture` (its own swipe steps it). */
 export function StoryViewerPanel({
   ring,
   index,
   frames: given,
+  picture = 0,
+  onPicture,
   fraction,
   avatar,
   detail,
-  renderText,
   attachmentSrc = (id) => `/api/attachments/${id}`,
   busy = false,
   onPrev,
   onNext,
   onClose,
   onOpenSession,
-  onDecide,
+  onOpenPlan,
   onAnswer,
   onPause,
   className,
   style,
 }: {
   ring: Pick<StoryRingModel, `key` | `title` | `stories`>
-  /** The frame on show: its index in `storyFrames(ring)`. */
+  /** The frame on show: its index in `storyFrames(ring)` (= the story's). */
   index: number
   /** `storyFrames(ring)` when the host holds it already. */
   frames?: readonly StoryFrame[]
+  /** A gallery's picture on show. */
+  picture?: number
+  onPicture?: (picture: number) => void
   /** The current progress segment's fill (0…1). */
   fraction: number
   avatar: ReactNode
   /** The frame's story's card detail. */
   detail: StoryCardDetail
-  renderText?: (text: string) => ReactNode
   attachmentSrc?: (attachmentId: string) => string
   /** The answer is on its way (the footer goes inert). */
   busy?: boolean
@@ -451,7 +461,8 @@ export function StoryViewerPanel({
   onClose?: () => void
   /** A tap on the avatar or name: open that session. */
   onOpenSession?: (sessionId: string) => void
-  onDecide?: (decision: StoryDecision) => void
+  /** A plan's `Open plan` (THE plan page). */
+  onOpenPlan?: (story: Story) => void
   onAnswer?: (answer: StoryAnswer) => void
   /** A long press holds the timer (true) / lets it go (false). */
   onPause?: (paused: boolean) => void
@@ -459,7 +470,6 @@ export function StoryViewerPanel({
   style?: CSSProperties
 }) {
   const frames = useMemo(() => given ?? storyFrames(ring), [given, ring])
-  const groups = useMemo(() => frames.map((entry) => entry.story), [frames])
   const [topRef, top] = useMeasuredHeight()
   const press = useRef<{ x: number; y: number; held: boolean; timer: number | null } | null>(null)
 
@@ -535,20 +545,21 @@ export function StoryViewerPanel({
       onPointerLeave={endPress}
     >
       <StoryFrameView
-        key={`${story.id}:${frame.index}`}
+        key={story.id}
         story={story}
         frame={frame}
+        picture={picture}
+        onPicture={onPicture}
         detail={detail}
         top={top}
-        renderText={renderText}
         attachmentSrc={attachmentSrc}
         busy={busy}
-        onDecide={onDecide}
+        onOpenPlan={onOpenPlan}
         onAnswer={onAnswer}
       />
       <div data-slot="story-top" className="pointer-events-none absolute inset-x-0 top-0 z-10" style={storyScrim(`bottom`)}>
         <div ref={topRef} className="flex flex-col gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
-          <StoryProgress count={frames.length} index={at} fraction={fraction} groups={groups} />
+          <StoryProgress count={frames.length} index={at} fraction={fraction} />
           <div data-testid={STORIES_TEST_IDS.header} className="flex min-w-0 items-center gap-2.5">
             <button
               type="button"
@@ -576,20 +587,21 @@ export function StoryViewerPanel({
               <CloseIcon />
             </Button>
           </div>
-          {(frame.title || frame.description) && (
-            <div className="flex min-w-0 flex-col gap-1 px-0.5">
+          <div className="flex min-w-0 flex-col gap-1 px-0.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <StoryKindBadge kind={story.kind} />
               {frame.title && (
-                <div data-slot="story-title" className="truncate text-base font-semibold">
+                <div data-slot="story-title" className="min-w-0 truncate text-base font-semibold">
                   {frame.title}
                 </div>
               )}
-              {frame.description && (
-                <p data-slot="story-description" className="line-clamp-3 text-sm text-muted-foreground">
-                  {frame.description}
-                </p>
-              )}
             </div>
-          )}
+            {frame.description && (
+              <p data-slot="story-description" className="line-clamp-3 text-sm text-muted-foreground">
+                {frame.description}
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -623,59 +635,85 @@ function StorySurface({
   )
 }
 
-/** One frame's body (a picture fitted on black, THE surface, the plan
- *  text, or nothing) and, on a story's last frame, its footer. */
+/** One frame's body: a plan's COVER, a GALLERY (THE carousel with its
+ *  filmstrip), THE surface, or nothing (a bare title); then its footer. */
 function StoryFrameView({
   story,
   frame,
+  picture,
+  onPicture,
   detail,
   top,
-  renderText,
   attachmentSrc,
   busy,
-  onDecide,
+  onOpenPlan,
   onAnswer,
 }: {
   story: Story
   frame: StoryFrame
+  picture: number
+  onPicture?: (picture: number) => void
   detail: StoryCardDetail
   /** The floating top band's height (the scrolling body starts under it). */
   top: number
-  renderText?: (text: string) => ReactNode
   attachmentSrc: (attachmentId: string) => string
   busy: boolean
-  onDecide?: (decision: StoryDecision) => void
+  onOpenPlan?: (story: Story) => void
   onAnswer?: (answer: StoryAnswer) => void
 }) {
   const surfaceData = useSurfaceDataRef()
   const [footerRef, bottom] = useMeasuredHeight()
-  const picture = frame.kind === `picture` && frame.picture !== null ? (story.pictures[frame.picture] ?? null) : null
   const surface = frame.kind === `surface` ? detail.surface : null
-  const text = frame.kind === `text` ? story.text : null
+  const pictures = useMemo(
+    () =>
+      story.pictures.map((entry) => ({
+        src: attachmentSrc(entry.attachmentId),
+        alt: entry.caption ?? entry.label,
+        width: entry.width,
+        height: entry.height,
+      })),
+    [story.pictures, attachmentSrc]
+  )
+  const cover = frame.kind === `plan` ? (story.pictures[0] ?? null) : null
+  const shown = frame.kind === `gallery` ? (story.pictures[Math.min(picture, story.pictures.length - 1)] ?? null) : null
   return (
     <>
-      {picture && (
+      {cover && (
         <img
           data-slot="story-picture"
-          src={attachmentSrc(picture.attachmentId)}
-          alt={picture.label}
+          src={attachmentSrc(cover.attachmentId)}
+          alt={cover.label}
           draggable={false}
           className="absolute inset-0 size-full object-contain"
         />
       )}
-      {(surface || text !== null) && (
+      {frame.kind === `gallery` && (
+        <div
+          data-slot="story-gallery"
+          className="absolute inset-x-0 flex flex-col"
+          style={{ top: top + 8, bottom: (bottom || 0) + 12 }}
+        >
+          <PictureCarousel
+            pictures={pictures}
+            index={picture}
+            onIndex={onPicture}
+            fit="contain"
+            thumbnails
+            className="min-h-0 flex-1 px-0 [&>[data-slot=carousel-thumbnails]]:px-4 [&>[data-slot=carousel-thumbnails]]:pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+            slideClassName="min-h-0 flex-1 [&_[data-slot=carousel-counter]]:right-3 [&_[data-slot=carousel-counter]]:left-auto"
+          />
+          {shown && (
+            <p data-slot="story-caption" className="px-4 pt-1 text-xs text-muted-foreground">{shown.caption ?? shown.label}</p>
+          )}
+        </div>
+      )}
+      {surface && (
         <div
           data-slot="story-body"
           className="absolute inset-0 overflow-y-auto overscroll-contain px-4"
           style={{ paddingTop: top + 8, paddingBottom: bottom + 16 }}
         >
-          {surface ? (
-            <StorySurface surface={surface} dataRef={surfaceData} disabled={busy} testKey={story.id} />
-          ) : (
-            <div data-slot="story-text" className="text-sm text-foreground/90">
-              {renderText ? renderText(text!) : <p className="whitespace-pre-wrap">{text}</p>}
-            </div>
-          )}
+          <StorySurface surface={surface} dataRef={surfaceData} disabled={busy} testKey={story.id} />
         </div>
       )}
       {frame.footer !== `none` && (
@@ -684,16 +722,19 @@ function StoryFrameView({
           style={storyScrim(`top`)}
         >
           <div ref={footerRef} className="pointer-events-auto cursor-auto px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <StoryFooter
-              story={story}
-              footer={frame.footer}
-              detail={detail}
-              surfaceData={surfaceData}
-              attachmentSrc={attachmentSrc}
-              busy={busy}
-              onDecide={onDecide}
-              onAnswer={onAnswer}
-            />
+            {frame.footer === `open` ? (
+              <StoryPlanFooter story={story} attachmentSrc={attachmentSrc} onOpenPlan={onOpenPlan} />
+            ) : (
+              <StoryFooter
+                story={story}
+                footer={frame.footer}
+                detail={detail}
+                surfaceData={surfaceData}
+                attachmentSrc={attachmentSrc}
+                busy={busy}
+                onAnswer={onAnswer}
+              />
+            )}
           </div>
         </div>
       )}
@@ -701,8 +742,57 @@ function StoryFrameView({
   )
 }
 
-/** A plan's / question's footer (the in-chat card's answer controls: THE
- *  option rows / tiles, THE free-text row, THE buttons). */
+/** A plan's cover footer (#EXP-1493): the counts line, up to 4 thumbnails
+ *  (+N), then ONE full-width `Open plan` (THE plan page). */
+function StoryPlanFooter({
+  story,
+  attachmentSrc,
+  onOpenPlan,
+}: {
+  story: Story
+  attachmentSrc: (attachmentId: string) => string
+  onOpenPlan?: (story: Story) => void
+}) {
+  const line = story.counts ? planCountsLine(story.counts) : ``
+  const thumbs = story.pictures.slice(0, 4)
+  const more = story.pictures.length - thumbs.length
+  return (
+    <div data-slot="story-footer" data-footer="open" className="flex flex-col gap-3">
+      {line && <div className="text-xs text-foreground/85">{line}</div>}
+      {thumbs.length > 0 && (
+        <div className="flex items-center gap-1.5">
+          {thumbs.map((entry, at) => (
+            <img
+              key={entry.attachmentId}
+              src={attachmentSrc(entry.attachmentId)}
+              alt={entry.label}
+              draggable={false}
+              className={cn(
+                `h-10 w-14 rounded-md border object-cover`,
+                at === 0 ? `border-2 border-foreground` : `border-glass-stroke`
+              )}
+            />
+          ))}
+          {more > 0 && <span className="text-xs text-muted-foreground">+{more}</span>}
+        </div>
+      )}
+      <Button
+        type="button"
+        size="lg"
+        data-slot="story-open-plan"
+        data-testid="open-plan"
+        className="w-full"
+        disabled={!onOpenPlan}
+        onClick={() => onOpenPlan?.(story)}
+      >
+        {PLAN_PAGE_COPY.openPlan}
+      </Button>
+    </div>
+  )
+}
+
+/** A question's footer (the in-chat card's answer controls: THE option rows
+ *  / tiles, THE free-text row, THE Answer button). */
 function StoryFooter({
   story,
   footer,
@@ -710,176 +800,97 @@ function StoryFooter({
   surfaceData,
   attachmentSrc,
   busy,
-  onDecide,
   onAnswer,
 }: {
   story: Story
-  footer: Exclude<StoryFooterKind, `none`>
+  footer: Exclude<StoryFooterKind, `none` | `open`>
   detail: StoryCardDetail
   /** The shown surface's live data (null = none shown). */
   surfaceData: { current: Record<string, unknown> | null }
   attachmentSrc: (attachmentId: string) => string
   busy: boolean
-  onDecide?: (decision: StoryDecision) => void
   onAnswer?: (answer: StoryAnswer) => void
 }) {
   const [picked, setPicked] = useState<string[]>([])
   const [customText, setCustomText] = useState(``)
-  const [changing, setChanging] = useState(false)
-  const [feedback, setFeedback] = useState(``)
   const withData = () => (surfaceData.current ? { surfaceData: surfaceData.current } : {})
-  const approve = PLAN_OPTIONS.find((option) => option.key === `approve`)
-  const reject = PLAN_OPTIONS.find((option) => option.key === `reject`)
   const labels = questionAnswer(picked, customText, detail.multi)
   return (
     <div data-slot="story-footer" data-footer={footer} inert={busy || undefined} className="flex flex-col gap-2">
-      {footer === `plan` ? (
-        <>
-          {changing && (
-            <Composer>
-              <Textarea
-                value={feedback}
-                onChange={(event) => setFeedback(event.target.value)}
-                placeholder={ASK_DOCK_COPY.feedbackPlaceholder}
-                aria-label={STORIES_COPY.change}
-                rows={1}
-                autoFocus
-                className="max-h-32 border-none bg-transparent px-3 pb-1 pt-3 text-sm shadow-none focus-visible:border-transparent"
-              />
-            </Composer>
-          )}
-          <div className="flex items-center justify-end gap-2">
-            {changing ? (
-              <>
-                <Button type="button" variant="secondary" size="sm" onClick={() => setChanging(false)}>
-                  {ASK_DOCK_COPY.cancel}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  data-slot="story-decide"
-                  data-decision="rejected"
-                  disabled={busy || !onDecide || feedback.trim() === ``}
-                  onClick={() =>
-                    reject && onDecide?.({ decision: reject.decision, feedback: feedback.trim(), ...withData() })
-                  }
-                >
-                  {STORIES_COPY.change}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  data-slot="story-change"
-                  disabled={busy || !onDecide}
-                  onClick={() => setChanging(true)}
-                >
-                  {STORIES_COPY.change}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  data-slot="story-decide"
-                  data-decision="approved"
-                  disabled={busy || !onDecide}
-                  onClick={() =>
-                    approve && onDecide?.({ decision: approve.decision, fresh: approve.fresh, ...withData() })
-                  }
-                >
-                  {STORIES_COPY.approve}
-                </Button>
-              </>
-            )}
-          </div>
-        </>
-      ) : (
-        <>
-          {footer === `choices` && (
-            <PlanCardOptions
-              options={detail.options}
-              multi={detail.multi}
-              picked={picked}
-              onPick={busy || !onAnswer ? undefined : setPicked}
-              attachmentSrc={attachmentSrc}
-              label={story.title ?? STORIES_COPY.question}
-            />
-          )}
-          {footer === `reply` ? (
-            <Input
-              value={customText}
-              onChange={(event) => setCustomText(event.target.value)}
-              placeholder={STORIES_COPY.reply}
-              aria-label={story.title ?? STORIES_COPY.question}
-              data-slot="story-reply"
-              className="h-9 text-sm"
-            />
-          ) : detail.custom ? (
-            <PlanCardCustomField value={customText} onChange={setCustomText} label={story.title ?? STORIES_COPY.question} />
-          ) : null}
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              size="sm"
-              data-slot="story-answer"
-              disabled={busy || !onAnswer || labels.length === 0}
-              onClick={() => onAnswer?.({ answer: joinAnswers(labels), answers: labels, ...withData() })}
-            >
-              {PLAN_CARD_COPY.answer}
-            </Button>
-          </div>
-        </>
+      {footer === `choices` && (
+        <PlanCardOptions
+          options={detail.options}
+          multi={detail.multi}
+          picked={picked}
+          onPick={busy || !onAnswer ? undefined : setPicked}
+          attachmentSrc={attachmentSrc}
+          label={story.title ?? STORIES_COPY.question}
+        />
       )}
+      {footer === `reply` ? (
+        <Input
+          value={customText}
+          onChange={(event) => setCustomText(event.target.value)}
+          placeholder={STORIES_COPY.reply}
+          aria-label={story.title ?? STORIES_COPY.question}
+          data-slot="story-reply"
+          className="h-9 text-sm"
+        />
+      ) : detail.custom ? (
+        <PlanCardCustomField value={customText} onChange={setCustomText} label={story.title ?? STORIES_COPY.question} />
+      ) : null}
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          size="sm"
+          data-slot="story-answer"
+          disabled={busy || !onAnswer || labels.length === 0}
+          onClick={() => onAnswer?.({ answer: joinAnswers(labels), answers: labels, ...withData() })}
+        >
+          {PLAN_CARD_COPY.answer}
+        </Button>
+      </div>
     </div>
   )
 }
 
-/** Where the viewer stands: a ring (by key), a story (by id) and the
- *  frame's place among that story's frames. */
+/** Where the viewer stands: a ring (by key), a story (by id) and, on a
+ *  gallery, the picture. */
 export interface StoryPosition {
   ringKey: string
   storyId: string
-  index: number
+  picture: number
 }
 
-/** A position's flat index in its ring's frames (a frame that is gone =
- *  its story's first; -1 = the story is gone). */
-export function storyFramePosition(frames: readonly StoryFrame[], at: Pick<StoryPosition, `storyId` | `index`>): number {
-  const hit = frames.findIndex((frame) => frame.storyId === at.storyId && frame.index === at.index)
-  return hit >= 0 ? hit : frames.findIndex((frame) => frame.storyId === at.storyId)
-}
-
-const framePosition = (ringKey: string, frame: StoryFrame): StoryPosition => ({
+const storyPosition = (ringKey: string, frame: StoryFrame, picture = 0): StoryPosition => ({
   ringKey,
   storyId: frame.storyId,
-  index: frame.index,
+  picture,
 })
 
-/** The next / previous FRAME over the rings (past the last frame of the
- *  last ring = null = close; before the very first frame = stay; the first
- *  frame of a ring steps back to the previous ring's last). */
+/** The next / previous STORY over the rings (past the last story of the last
+ *  ring = null = close; before the very first = stay; the first story of a
+ *  ring steps back to the previous ring's last). */
 export function stepFrame(
   rings: readonly Pick<StoryRingModel, `key` | `stories`>[],
-  at: StoryPosition,
+  at: Pick<StoryPosition, `ringKey` | `storyId`>,
   direction: 1 | -1
 ): StoryPosition | null | `stay` {
   const r = rings.findIndex((ring) => ring.key === at.ringKey)
   if (r < 0) return null
   const ring = rings[r]!
   const frames = storyFrames(ring)
-  const f = storyFramePosition(frames, at)
+  const f = storyFrameIndex(frames, at.storyId)
   const next = f + direction
-  if (f >= 0 && next >= 0 && next < frames.length) return framePosition(ring.key, frames[next]!)
+  if (f >= 0 && next >= 0 && next < frames.length) return storyPosition(ring.key, frames[next]!)
   if (direction === 1) {
     const following = rings[r + 1]
     const first = following ? storyFrames(following)[0] : undefined
-    return following && first ? framePosition(following.key, first) : null
+    return following && first ? storyPosition(following.key, first) : null
   }
   const before = rings[r - 1]
   const last = before ? storyFrames(before).at(-1) : undefined
-  return before && last ? framePosition(before.key, last) : `stay`
+  return before && last ? storyPosition(before.key, last) : `stay`
 }
 
 /** THE story viewer: open while `openRing` names a ring. */
@@ -893,10 +904,9 @@ export function StoryViewer({
   cardFor,
   onShown,
   onOpenSession,
-  onDecide,
+  onOpenPlan,
   onAnswer,
   pending,
-  renderText,
   attachmentSrc,
 }: {
   rings: readonly StoryRingModel[]
@@ -905,7 +915,7 @@ export function StoryViewer({
   /** The story of `openRing` it opens on (null = its first; the Stories
    *  tab's tile). */
   openStory?: string | null
-  /** The picture of `openStory` it opens on (a thumbnail's index). */
+  /** The picture of `openStory`'s gallery it opens on (a thumbnail). */
   openPicture?: number
   onClose: () => void
   avatarFor: (ring: StoryRingModel) => ReactNode
@@ -914,10 +924,10 @@ export function StoryViewer({
   /** A story came on screen (mark it seen). */
   onShown?: (story: Story) => void
   onOpenSession?: (sessionId: string) => void
-  onDecide?: (story: Story, decision: StoryDecision) => Promise<unknown> | void
+  /** #EXP-1493: a plan's `Open plan` (THE plan page); the viewer closes. */
+  onOpenPlan?: (story: Story) => void
   onAnswer?: (story: Story, answer: StoryAnswer) => Promise<unknown> | void
   pending?: ReadonlySet<string>
-  renderText?: (text: string) => ReactNode
   attachmentSrc?: (attachmentId: string) => string
 }) {
   // The rings as they stood when the viewer opened: an answered story
@@ -932,14 +942,14 @@ export function StoryViewer({
     }
     const ring = rings.find((entry) => entry.key === openRing)
     const frames = ring ? storyFrames(ring) : []
-    const hit = openStory === null ? 0 : storyFrameIndex(frames, openStory, openPicture)
+    const hit = openStory === null ? 0 : storyFrameIndex(frames, openStory)
     const first = frames[Math.max(0, hit)]
     if (!ring || !first) {
       onClose()
       return
     }
     setSnapshot(rings)
-    setPosition(framePosition(ring.key, first))
+    setPosition(storyPosition(ring.key, first, hit >= 0 && openStory !== null ? openPicture : 0))
     // Opening only: later changes of `rings` refresh the stories below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRing, openStory, openPicture])
@@ -960,13 +970,18 @@ export function StoryViewer({
   )
   const ring = position ? view.find((entry) => entry.key === position.ringKey) : undefined
   const frames = useMemo(() => (ring ? storyFrames(ring) : []), [ring])
-  const at = position ? storyFramePosition(frames, position) : -1
+  const at = position ? storyFrameIndex(frames, position.storyId) : -1
   const frame = at >= 0 ? frames[at]! : null
   const story = ring && frame ? (ring.stories[frame.story] ?? null) : null
-  const picture = story && frame?.kind === `picture` && frame.picture !== null ? (story.pictures[frame.picture] ?? null) : null
+  const count = frame?.kind === `gallery` ? Math.max(1, frame.pictures) : 1
+  const pictureAt = Math.min(position?.picture ?? 0, count - 1)
+  const sized =
+    story && frame && (frame.kind === `gallery` || frame.kind === `plan`)
+      ? (story.pictures[frame.kind === `gallery` ? pictureAt : 0] ?? null)
+      : null
   const pictureSize = usePictureSize(
-    picture,
-    picture ? (attachmentSrc ? attachmentSrc(picture.attachmentId) : `/api/attachments/${picture.attachmentId}`) : null
+    sized,
+    sized ? (attachmentSrc ? attachmentSrc(sized.attachmentId) : `/api/attachments/${sized.attachmentId}`) : null
   )
   const viewport = useViewportSize()
   const frameSize = storyViewerSize(pictureSize, viewport)
@@ -981,8 +996,12 @@ export function StoryViewer({
     },
     [position, view, onClose]
   )
+  const setPicture = useCallback(
+    (picture: number) => setPosition((current) => (current ? { ...current, picture } : current)),
+    []
+  )
 
-  // Seen when one of its frames is shown.
+  // Seen when its frame is shown.
   const shownRef = useRef(onShown)
   shownRef.current = onShown
   const storyId = story?.id ?? null
@@ -991,14 +1010,15 @@ export function StoryViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storyId])
 
-  // Every frame's own timer (a decision's frames never advance on their own).
+  // One timer per frame; a gallery's steps its pictures first (a decision's
+  // frame never advances on its own).
   const [paused, setPaused] = useState(false)
   const [fraction, setFraction] = useState(0)
-  const frameKey = frame ? `${frame.storyId}:${frame.index}` : null
+  const frameKey = frame ? `${frame.storyId}:${pictureAt}` : null
   const duration = frame?.autoAdvanceMs ?? null
   useEffect(() => {
-    setFraction(duration === null ? 1 : 0)
-  }, [frameKey, duration])
+    setFraction(duration === null ? 1 : pictureAt / count)
+  }, [frameKey, duration, pictureAt, count])
   const elapsed = useRef(0)
   useEffect(() => {
     elapsed.current = 0
@@ -1011,16 +1031,17 @@ export function StoryViewer({
       if (typeof document === `undefined` || document.visibilityState !== `hidden`) elapsed.current += now - last
       last = now
       const value = elapsed.current / duration
-      setFraction(Math.min(1, value))
+      setFraction(Math.min(1, (pictureAt + Math.min(1, value)) / count))
       if (value >= 1) {
-        go(1)
+        if (pictureAt + 1 < count) setPicture(pictureAt + 1)
+        else go(1)
         return
       }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [duration, paused, frameKey, go])
+  }, [duration, paused, frameKey, go, pictureAt, count, setPicture])
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
@@ -1034,7 +1055,7 @@ export function StoryViewer({
     }
   }
 
-  // Answered = the next frame; a failed answer stays put (the host toasts).
+  // Answered = the next story; a failed answer stays put (the host toasts).
   const settle = async (work: Promise<unknown> | void) => {
     try {
       await work
@@ -1088,10 +1109,11 @@ export function StoryViewer({
                 ring={ring}
                 index={at}
                 frames={frames}
+                picture={pictureAt}
+                onPicture={setPicture}
                 fraction={fraction}
                 avatar={avatarFor(ring)}
                 detail={storyCardDetail(cardFor(story))}
-                renderText={renderText}
                 attachmentSrc={attachmentSrc}
                 busy={pending?.has(story.id) ?? false}
                 onPrev={() => go(-1)}
@@ -1105,7 +1127,14 @@ export function StoryViewer({
                       }
                     : undefined
                 }
-                onDecide={onDecide ? (decision) => void settle(onDecide(story, decision)) : undefined}
+                onOpenPlan={
+                  onOpenPlan
+                    ? (entry) => {
+                        onClose()
+                        onOpenPlan(entry)
+                      }
+                    : undefined
+                }
                 onAnswer={onAnswer ? (answer) => void settle(onAnswer(story, answer)) : undefined}
                 onPause={setPaused}
                 className={STORY_VIEWER_FRAME_CLASS}

@@ -1,37 +1,44 @@
 //! S-3 STORIES (`fixtures/stories.json` STORY VIEWER; web
 //! `packages/ui/src/stories.tsx` `StoryViewer`): THE story viewer of the
 //! IDE: a centred modal (`viewer.radius`) over a scrim, #EXP-1463 SIZED BY
-//! ITS FRAME ([`story_viewer_size`]: a picture fitted into the window less
-//! `viewer.inset`, else `viewer.width` × `viewer.height` capped), layered over the window from the Chats
-//! page and a session's Stories tab.
+//! ITS FRAME ([`story_viewer_size`]: a gallery's CURRENT picture or a plan's
+//! cover fitted into the window less `viewer.inset`, else `viewer.width` ×
+//! `viewer.height` capped), layered over the window from the Chats page and
+//! a session's Stories tab.
 //!
-//! #EXP-1432: the viewer steps FRAMES ([`story_frames`]: a picture story =
-//! one frame per picture, else its surface, else the plan text, else the
-//! bare title), never stories with an inner pager.
+//! #EXP-1493: the viewer steps ONE FRAME PER STORY ([`story_frames`]): a
+//! plan = its COVER, a picture story = ONE gallery frame (its pictures
+//! stepped inside it), else its surface, else the bare title.
 //! - Floating over a top black-to-clear scrim (`viewer.scrimHeight`, its
 //!   last `viewer.scrimFade` px fading out): THE progress ([`story_progress`],
-//!   one segment per frame, `progress.gap` within a story, `progress.storyGap`
-//!   between stories), the header (the ring's avatar, the story's
-//!   `sessionName`, its `meta` muted, the close glyph; a click on the avatar
-//!   or the name opens that session and closes the viewer), then the frame's
-//!   title (one line) and description (muted, up to 3 lines), each ONCE.
-//! - Body: a picture fills the modal fitted (contain) on black; a surface
-//!   frame = THE surface renderer with no card chrome; a text frame = the
-//!   plan's markdown; a title frame = nothing. A scrolling body ends clear of
-//!   the footer.
-//! - Footer, on a story's LAST frame only, floating over the bottom on the
-//!   mirrored scrim on every frame: a plan's / question's answer
-//!   controls are THE card's ([`crate::plan_card::plan_story_sheet`] /
-//!   [`crate::plan_card::question_story_sheet`]), answered through THE
-//!   card-answer path (`sessions.answer`); a result has none.
-//! - Navigation: → / the side arrow / a click on the right third (any
-//!   frame, never on an interactive element: [`tap_to_step`]) =
-//!   next frame (past a ring's last = the next ring, past the last ring =
-//!   close); ← / the left arrow / the left third = previous; Escape, the
-//!   close glyph or a press on the BARE scrim = close (a press on a side
-//!   arrow steps, never closes). Every frame has its own timer (a result's
-//!   `autoAdvanceMs`, a decision's never); holding a press pauses it.
-//! - Every frame SHOWN raises the viewer's stories mark of its story's root
+//!   one segment per STORY, `progress.gap` apart; a gallery's current
+//!   segment fills across its pictures), the header (the ring's avatar, the
+//!   story's `sessionName`, its `meta` muted, the close glyph; a click on the
+//!   avatar or the name opens that session and closes the viewer), then THE
+//!   kind badge leading the frame's title (one line) and the description
+//!   (muted, up to 3 lines), each ONCE.
+//! - Body: a PLAN = its cover (the first picture fitted on black, none = the
+//!   bare black body; a click on the cover's middle = Open plan); a GALLERY =
+//!   the current picture fitted on black, the `i / n` counter top-right, its
+//!   caption (else its label) muted under it; a surface frame = THE surface
+//!   renderer with no card chrome; a title frame = nothing. A scrolling body
+//!   ends clear of the footer.
+//! - Footer, floating over the bottom on the mirrored scrim: a plan = the
+//!   counts line, up to 4 thumbnails (+N) and ONE full-width `Open plan`
+//!   (THE plan page, [`crate::plan_page::open`]; the viewer closes, a story
+//!   never decides a plan); a gallery = its filmstrip (n > 1); a question's
+//!   answer controls are THE card's
+//!   ([`crate::plan_card::question_story_sheet`]), answered through THE
+//!   card-answer path (`sessions.answer`); a result has none else.
+//! - Navigation: → / the side arrow / a click on the right third (never on
+//!   an interactive element: [`tap_to_step`]) = a gallery's next PICTURE,
+//!   past its last = the next story (past a ring's last = the next ring,
+//!   past the last ring = close); ← / the left arrow / the left third = back
+//!   the same way; Escape, the close glyph or a press on the BARE scrim =
+//!   close (a press on a side arrow steps, never closes). A result's timer
+//!   steps its pictures every `autoAdvanceMs`, then the story (a decision's
+//!   never moves on its own); holding a press pauses it.
+//! - Every story SHOWN raises the viewer's stories mark of its root
 //!   (`sessions.markStoriesSeen`, the server keeps the greatest).
 
 use std::collections::HashMap;
@@ -50,18 +57,26 @@ use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
+use domain::plan_page::{plan_counts_line, PLAN_PAGE};
 use domain::rows::MessageRow;
 use domain::session_tree::SessionThreadRow;
 use domain::stories::{
-    story_frame_index, story_frames, story_viewer_size, Story, StoryFooter, StoryFrame, StoryFrameKind, StoryKind, StoryRing, STORIES,
+    story_frame_index, story_frames, story_viewer_size, Story, StoryFooter, StoryFrame, StoryFrameKind, StoryKind,
+    StoryPicture, StoryRing, STORIES,
 };
 
 use crate::icons::registry;
 use crate::markdown::{ImageCache, ImageSlot};
-use crate::thread_screen::ThreadText;
 
 /// A press held this long pauses the timer instead of navigating.
 const HOLD: Duration = Duration::from_millis(250);
+/// A plan cover's thumbnails: at most this many, then `+N` (stories.json
+/// STORY VIEWER).
+const COVER_THUMBS: usize = 4;
+/// A cover thumbnail's size (px: 40 tall, web `h-10 w-14`).
+const COVER_THUMB: (f32, f32) = (56., 40.);
+/// A gallery filmstrip square (px).
+const FILMSTRIP_THUMB: f32 = 52.;
 
 /// The viewer's place and timer.
 struct Open {
@@ -71,11 +86,12 @@ struct Open {
     tab_root: Option<String>,
     ring_key: String,
     story_id: String,
-    /// The frame's place among its story's frames.
-    frame: usize,
+    /// A gallery's picture on show (0 otherwise).
+    picture: usize,
     /// The story's index when last resolved (an answered story drops out:
     /// the viewer stays at the same place in the ring).
     story_index: usize,
+    /// When the current picture / story came on (its timer).
     shown_at: Instant,
     paused_at: Option<Instant>,
     /// The press on the panel (its start and place: hold, drag or tap).
@@ -93,7 +109,7 @@ struct Viewer {
     /// The panel's last painted bounds (the tap thirds).
     panel_bounds: Option<gpui::Bounds<gpui::Pixels>>,
     /// The floating footer's measured height per story (the scrolling body
-    /// ends clear of it).
+    /// and a gallery's caption end clear of it).
     footer_heights: HashMap<String, f32>,
     /// The focus when the current press began (capture phase): a press that
     /// moved it went to a text field, never a tap.
@@ -102,14 +118,14 @@ struct Viewer {
 
 impl gpui::Global for Viewer {}
 
-/// Opens THE viewer at `ring_key`'s first frame.
+/// Opens THE viewer at `ring_key`'s first story.
 pub(crate) fn open(team_id: &str, ring_key: &str, window: &mut Window, cx: &mut App) {
     open_with(team_id, None, ring_key, None, 0, window, cx);
 }
 
 /// Opens THE viewer on a session screen's Stories tab ring (stories.json
-/// STORIES TAB) at `story_id`'s frame of picture `picture` (a tile = its
-/// first frame, a thumbnail = that picture's, `storyFrameIndex`).
+/// STORIES TAB) at `story_id`'s frame, a gallery at picture `picture` (a
+/// tile = its first, a thumbnail = that picture, `storyFrameIndex`).
 pub(crate) fn open_tab(
     team_id: &str,
     root_id: &str,
@@ -141,6 +157,14 @@ fn open_rings(cx: &mut App) -> Option<Rc<Vec<StoryRing>>> {
     Some(rings_of(&team_id, tab_root.as_deref(), cx))
 }
 
+/// The steps inside a frame: a gallery's pictures, else one.
+fn picture_count(frame: &StoryFrame) -> usize {
+    match frame.kind {
+        StoryFrameKind::Gallery => frame.pictures.max(1),
+        _ => 1,
+    }
+}
+
 fn open_with(
     team_id: &str,
     tab_root: Option<&str>,
@@ -155,10 +179,12 @@ fn open_with(
         return;
     };
     let frames = story_frames(&ring.stories);
-    let at = story_id.and_then(|id| story_frame_index(&frames, id, picture)).unwrap_or(0);
-    let Some(frame) = frames.get(at) else {
+    let hit = story_id.and_then(|id| story_frame_index(&frames, id));
+    let Some(frame) = frames.get(hit.unwrap_or(0)) else {
         return;
     };
+    // A thumbnail opens its story's frame with the gallery at that picture.
+    let picture = if hit.is_some() { picture.min(picture_count(frame) - 1) } else { 0 };
     let focus = {
         let viewer = cx.default_global::<Viewer>();
         viewer.focus.clone()
@@ -173,7 +199,7 @@ fn open_with(
         tab_root: tab_root.map(str::to_string),
         ring_key: ring_key.to_string(),
         story_id: frame.story_id.clone(),
-        frame: frame.index,
+        picture,
         story_index: frame.story,
         shown_at: Instant::now(),
         paused_at: None,
@@ -194,62 +220,67 @@ pub(crate) fn close(cx: &mut App) {
     cx.refresh_windows();
 }
 
-/// Where the viewer stands: the ring's index, its frames and the flat frame.
+/// Where the viewer stands: the ring's index, its frames (one per story),
+/// the story's frame and a gallery's picture.
 struct Place {
     ring: usize,
     frames: Vec<StoryFrame>,
     at: usize,
+    picture: usize,
 }
 
-/// The open frame's place in `rings` (a frame that is gone = its story's
-/// first; an answered story = the frame at the same story index, clamped; a
-/// ring that is gone = `None`).
+/// The open story's place in `rings` (an answered story = the frame at the
+/// same story index, clamped; a ring that is gone = `None`); the picture is
+/// clamped to the frame's.
 fn resolve(open: &Open, rings: &[StoryRing]) -> Option<Place> {
     let ring = rings.iter().position(|ring| ring.key == open.ring_key)?;
     let frames = story_frames(&rings[ring].stories);
     if frames.is_empty() {
         return None;
     }
-    let at = frames
-        .iter()
-        .position(|frame| frame.story_id == open.story_id && frame.index == open.frame)
-        .or_else(|| frames.iter().position(|frame| frame.story_id == open.story_id))
-        .or_else(|| {
-            let story = open.story_index.min(rings[ring].stories.len().saturating_sub(1));
-            frames.iter().position(|frame| frame.story == story)
-        })
-        .unwrap_or(0);
-    Some(Place { ring, frames, at })
+    let at = story_frame_index(&frames, &open.story_id)
+        .unwrap_or_else(|| open.story_index.min(frames.len() - 1));
+    let picture = if frames[at].story_id == open.story_id { open.picture.min(picture_count(&frames[at]) - 1) } else { 0 };
+    Some(Place { ring, frames, at, picture })
 }
 
-/// A step over the frames of every ring.
+/// A step over the stories (and a gallery's pictures) of every ring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
-    /// (ring index, flat frame index in that ring).
-    To(usize, usize),
+    /// (ring index, story index in that ring, picture).
+    To(usize, usize, usize),
     Close,
     Stay,
 }
 
-/// NAVIGATION (frames): the next frame, past a ring's last = the next ring's
-/// first, past the last ring = close; the previous frame, a ring's first =
-/// the previous ring's last, the very first stays put.
-fn step_frame(rings: &[StoryRing], place: &Place, forward: bool) -> Step {
+/// NAVIGATION (#EXP-1493): forward = a gallery's next picture, past its last
+/// = the next story, past a ring's last = the next ring's first, past the
+/// last ring = close; back = the previous picture, a gallery's first = the
+/// previous story, a ring's first = the previous ring's last, the very
+/// first stays put. A story is entered at its first picture.
+fn step_place(rings: &[StoryRing], place: &Place, forward: bool) -> Step {
+    let count = picture_count(&place.frames[place.at]);
     if forward {
+        if place.picture + 1 < count {
+            return Step::To(place.ring, place.at, place.picture + 1);
+        }
         if place.at + 1 < place.frames.len() {
-            return Step::To(place.ring, place.at + 1);
+            return Step::To(place.ring, place.at + 1, 0);
         }
         return (place.ring + 1..rings.len())
             .find(|&next| !rings[next].stories.is_empty())
-            .map_or(Step::Close, |next| Step::To(next, 0));
+            .map_or(Step::Close, |next| Step::To(next, 0, 0));
+    }
+    if place.picture > 0 {
+        return Step::To(place.ring, place.at, place.picture - 1);
     }
     if place.at > 0 {
-        return Step::To(place.ring, place.at - 1);
+        return Step::To(place.ring, place.at - 1, 0);
     }
     (0..place.ring)
         .rev()
         .find(|&prev| !rings[prev].stories.is_empty())
-        .map_or(Step::Stay, |prev| Step::To(prev, story_frames(&rings[prev].stories).len() - 1))
+        .map_or(Step::Stay, |prev| Step::To(prev, rings[prev].stories.len() - 1, 0))
 }
 
 /// Moves to `to`, restarting the timer (`Close` closes).
@@ -257,14 +288,13 @@ fn go(to: Step, rings: &[StoryRing], cx: &mut App) {
     let viewer = cx.default_global::<Viewer>();
     match (to, viewer.open.as_mut()) {
         (Step::Stay, _) => return,
-        (Step::To(ring, at), Some(open)) => {
+        (Step::To(ring, at, picture), Some(open)) => {
             let target = &rings[ring];
-            let frames = story_frames(&target.stories);
-            let Some(frame) = frames.get(at) else { return };
+            let Some(story) = target.stories.get(at) else { return };
             open.ring_key = target.key.clone();
-            open.story_id = frame.story_id.clone();
-            open.frame = frame.index;
-            open.story_index = frame.story;
+            open.story_id = story.id.clone();
+            open.story_index = at;
+            open.picture = picture;
             open.shown_at = Instant::now();
             open.paused_at = None;
             open.pressed_at = None;
@@ -274,12 +304,12 @@ fn go(to: Step, rings: &[StoryRing], cx: &mut App) {
     cx.refresh_windows();
 }
 
-/// Next frame (past the last ring = close).
+/// Next picture / story (past the last ring = close).
 pub(crate) fn next(cx: &mut App) {
     step(true, cx);
 }
 
-/// Previous frame (the very first stays put).
+/// Previous picture / story (the very first stays put).
 pub(crate) fn previous(cx: &mut App) {
     step(false, cx);
 }
@@ -292,8 +322,19 @@ fn step(forward: bool, cx: &mut App) {
         close(cx);
         return;
     };
-    let to = step_frame(&rings, &place, forward);
+    let to = step_place(&rings, &place, forward);
     go(to, &rings, cx);
+}
+
+/// A gallery's filmstrip pick: that picture, its timer restarted.
+fn pick_picture(picture: usize, cx: &mut App) {
+    if let Some(open) = cx.default_global::<Viewer>().open.as_mut() {
+        open.picture = picture;
+        open.shown_at = Instant::now();
+        open.paused_at = None;
+        open.pressed_at = None;
+    }
+    cx.refresh_windows();
 }
 
 fn pause(paused: bool, cx: &mut App) {
@@ -352,25 +393,35 @@ fn images(cx: &mut App) -> Entity<ImageCache> {
 // The overlay (the Chats page hosts it)
 // ---------------------------------------------------------------------------
 
+/// The picture that sizes the modal and fills the body: a gallery's current
+/// one, a plan's cover (its first); else none.
+fn shown_picture<'a>(story: &'a Story, frame: &StoryFrame, picture: usize) -> Option<&'a StoryPicture> {
+    match frame.kind {
+        StoryFrameKind::Gallery => story.pictures.get(picture),
+        StoryFrameKind::Plan => story.pictures.first(),
+        _ => None,
+    }
+}
+
 /// THE viewer as a layer over the window, while open: resolves the frame,
 /// runs its timer, marks its story seen and paints the panel.
 pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-    let team_id = cx.try_global::<Viewer>()?.open.as_ref()?.team_id.clone();
     let mut rings = open_rings(cx)?;
     let mut place = cx.global::<Viewer>().open.as_ref().and_then(|open| resolve(open, &rings));
-    // A result's frame past its time moves on (a decision's never does).
+    // A result past its time moves on: a gallery's next picture, then the
+    // next story (a decision's never does).
     if let Some(current) = place.as_ref() {
         let open = cx.global::<Viewer>().open.as_ref()?;
         if let (Some(ms), None) = (current.frames[current.at].auto_advance_ms, open.paused_at) {
             if open.shown_at.elapsed() >= Duration::from_millis(ms) {
-                let to = step_frame(&rings, current, true);
+                let to = step_place(&rings, current, true);
                 go(to, &rings, cx);
                 rings = open_rings(cx)?;
                 place = cx.global::<Viewer>().open.as_ref().and_then(|open| resolve(open, &rings));
             }
         }
     }
-    let Some(Place { ring: ring_index, frames, at }) = place else {
+    let Some(Place { ring: ring_index, frames, at, picture }) = place else {
         cx.default_global::<Viewer>().open = None;
         return None;
     };
@@ -380,8 +431,8 @@ pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
     {
         let open = cx.global_mut::<Viewer>().open.as_mut()?;
         open.story_id = frame.story_id.clone();
-        open.frame = frame.index;
         open.story_index = frame.story;
+        open.picture = picture;
     }
     mark_seen(story, cx);
     let (fraction, timing) = {
@@ -389,7 +440,9 @@ pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         match frame.auto_advance_ms {
             Some(ms) => {
                 let elapsed = open.paused_at.unwrap_or_else(Instant::now).duration_since(open.shown_at);
-                ((elapsed.as_secs_f32() * 1000. / ms as f32).clamp(0., 1.), open.paused_at.is_none())
+                let own = (elapsed.as_secs_f32() * 1000. / ms as f32).clamp(0., 1.);
+                // A gallery fills its segment across its pictures.
+                ((picture as f32 + own) / picture_count(frame) as f32, open.paused_at.is_none())
             }
             None => (1., false),
         }
@@ -398,29 +451,31 @@ pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         window.request_animation_frame();
     }
     let images = images(cx);
-    // #EXP-1463: the modal takes its frame's size (a picture's own aspect:
-    // the card's size, else the synced attachment's, else the loaded bytes').
-    let picture = match (frame.kind, frame.picture) {
-        (StoryFrameKind::Picture, Some(index)) => story.pictures.get(index),
-        _ => None,
-    };
-    let picture_size = picture.map(|picture| picture_size(picture, &images, cx));
+    // #EXP-1463: the modal takes its frame's size (a gallery's current
+    // picture / a plan's cover: the card's size, else the synced
+    // attachment's, else the loaded bytes').
+    let picture_size = shown_picture(story, frame, picture).map(|shown| picture_size(shown, &images, cx));
     let viewport = window.viewport_size();
     let size = story_viewer_size(picture_size, (f32::from(viewport.width) as f64, f32::from(viewport.height) as f64));
     let message = message_of(&story.id, &story.session_id, cx);
-    let text = ThreadText::team(Some(&team_id)).answering(true);
-    let content = story_content(story, frame, message.as_ref(), &text, &images, window, cx);
     let avatar = crate::story_ring::store_ring_avatar(ring, HEADER_GLYPH, cx);
     let session_id = story.session_id.clone();
+    let (plan_session, plan_message) = (story.session_id.clone(), story.id.clone());
     let handlers = PanelHandlers {
         open_session: Some(Rc::new(move |window, cx| {
             close(cx);
             crate::thread_screen::open_session_card(&session_id, window, cx);
         })),
         close: Some(Rc::new(|_, cx| close(cx))),
+        open_plan: Some(Rc::new(move |window, cx| {
+            close(cx);
+            crate::plan_page::open(&plan_session, &plan_message, window, cx);
+        })),
+        pick_picture: Some(Rc::new(|picture, _, cx| pick_picture(picture, cx))),
         navigate: true,
     };
-    let panel = story_panel(ring, &frames, at, fraction, avatar, content, handlers, cx);
+    let content = story_content(story, frame, picture, message.as_ref(), &handlers, &images, window, cx);
+    let panel = story_panel(ring, &frames, at, picture, fraction, avatar, content, handlers, cx);
     let focus = cx.global::<Viewer>().focus.clone()?;
     Some(layer(panel, focus, (px(size.width as f32), px(size.height as f32)), window))
 }
@@ -428,11 +483,7 @@ pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
 /// A picture's pixel size for [`story_viewer_size`]: the card's, else the
 /// synced attachment row's, else the loaded image's natural size (`None`s
 /// while unknown: the fixed frame).
-fn picture_size(
-    picture: &domain::stories::StoryPicture,
-    images: &Entity<ImageCache>,
-    cx: &mut App,
-) -> (Option<f64>, Option<f64>) {
+fn picture_size(picture: &StoryPicture, images: &Entity<ImageCache>, cx: &mut App) -> (Option<f64>, Option<f64>) {
     if let (Some(width), Some(height)) = (picture.width, picture.height) {
         if width > 0 && height > 0 {
             return (Some(width as f64), Some(height as f64));
@@ -570,6 +621,11 @@ pub(crate) struct PanelHandlers {
     pub open_session: Option<Action>,
     /// The close glyph.
     pub close: Option<Action>,
+    /// #EXP-1493: a plan's `Open plan` (and a click on its cover): THE plan
+    /// page, the viewer closes.
+    pub open_plan: Option<Action>,
+    /// A gallery filmstrip thumbnail: that picture.
+    pub pick_picture: Option<Rc<dyn Fn(usize, &mut Window, &mut App)>>,
     /// A press on the thirds steps (every frame, off the interactive
     /// elements) and a held press pauses.
     pub navigate: bool,
@@ -577,31 +633,25 @@ pub(crate) struct PanelHandlers {
 
 /// A frame's body and footer.
 pub(crate) struct StoryContent {
-    /// `true` = `body` is a picture filling the panel on black, the footer
-    /// floats over it on the bottom scrim; `false` = `body` scrolls under the
-    /// top band, the footer sits under it.
+    /// `true` = `body` fills the panel on black (a plan's cover, a gallery's
+    /// picture), the footer floats over it on the bottom scrim; `false` =
+    /// `body` scrolls under the top band, the footer sits under it.
     pub fill: bool,
     pub body: AnyElement,
     pub footer: Option<AnyElement>,
 }
 
-/// THE progress (eUI `StoryProgress`'s look): one segment per FRAME,
-/// `progress.height` tall; `groups[i]` = segment i's story: segments of one
-/// story sit `progress.gap` apart, a new story starts `progress.storyGap`
-/// after the last (`None` = one group). Done = foreground, the current = its
-/// fill fraction, todo = the glass-stroke track.
-pub(crate) fn story_progress(
-    count: usize,
-    index: usize,
-    fraction: f32,
-    groups: Option<&[usize]>,
-    cx: &App,
-) -> gpui::Stateful<Div> {
+/// THE progress (eUI `StoryProgress`'s look, #EXP-1493): one segment per
+/// STORY, `progress.gap` apart, `progress.height` tall. Done = foreground,
+/// the current = its fill fraction (a gallery: (picture + its fraction) /
+/// n), todo = the glass-stroke track.
+pub(crate) fn story_progress(count: usize, index: usize, fraction: f32, cx: &App) -> gpui::Stateful<Div> {
     let spec = &STORIES.progress;
     let foreground = cx.theme().foreground;
     h_flex()
         .id(SharedString::from(STORIES.test_ids.progress.clone()))
         .w_full()
+        .gap(px(spec.gap))
         .children((0..count).map(|at| {
             let fill = if at < index {
                 1.
@@ -610,15 +660,9 @@ pub(crate) fn story_progress(
             } else {
                 0.
             };
-            let lead = match groups {
-                _ if at == 0 => 0.,
-                Some(groups) if groups.get(at) != groups.get(at - 1) => spec.story_gap,
-                _ => spec.gap,
-            };
             div()
                 .relative()
                 .flex_1()
-                .ml(px(lead))
                 .h(px(spec.height))
                 .rounded_full()
                 .overflow_hidden()
@@ -637,58 +681,93 @@ fn scrim_fill() -> Hsla {
     gpui::black().opacity(0.84)
 }
 
-/// The frame's title (one line, semibold) and description (muted, up to 3
-/// lines), each once; `ghost` = the same text, invisible (the scrolling
-/// body's spacer under the floating band).
-fn title_block(frame: &StoryFrame, ghost: bool, cx: &App) -> Option<Div> {
-    if frame.title.is_none() && frame.description.is_none() {
-        return None;
-    }
-    let (title, muted) = if ghost {
-        (gpui::transparent_black(), gpui::transparent_black())
-    } else {
-        (cx.theme().foreground, cx.theme().muted_foreground)
-    };
-    Some(
-        v_flex()
-            .min_w_0()
-            .gap_1()
-            .px(px(2.))
-            .when_some(frame.title.clone(), |block, text| {
-                block.child(
-                    div()
-                        .id("story-title")
-                        .w_full()
-                        .truncate()
-                        .text_base()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(title)
-                        .child(SharedString::from(text)),
-                )
-            })
-            .when_some(frame.description.clone(), |block, text| {
-                block.child(
-                    div()
-                        .id("story-description")
-                        .w_full()
-                        .line_clamp(3)
-                        .text_sm()
-                        .text_color(muted)
-                        .child(SharedString::from(text)),
-                )
-            }),
-    )
+/// THE kind badge leading the frame's title (one line, semibold), then the
+/// description (muted, up to 3 lines), each once; `ghost` = the same block,
+/// invisible (the room under the floating band).
+fn title_block(story: &Story, frame: &StoryFrame, ghost: bool, cx: &App) -> Div {
+    let theme = cx.theme();
+    v_flex()
+        .min_w_0()
+        .gap_1()
+        .px(px(2.))
+        .when(ghost, |block| block.opacity(0.))
+        .child(
+            h_flex()
+                .min_w_0()
+                .items_center()
+                .gap_2()
+                .child(crate::story_badge::kind_badge(
+                    SharedString::from(format!("story-badge-{}{}", story.id, if ghost { "-ghost" } else { "" })),
+                    story.kind,
+                    cx,
+                ))
+                .when_some(frame.title.clone(), |line, text| {
+                    line.child(
+                        div()
+                            .id(if ghost { "story-title-ghost" } else { "story-title" })
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_base()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme.foreground)
+                            .child(SharedString::from(text)),
+                    )
+                }),
+        )
+        .when_some(frame.description.clone(), |block, text| {
+            block.child(
+                div()
+                    .id(if ghost { "story-description-ghost" } else { "story-description" })
+                    .w_full()
+                    .line_clamp(3)
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(SharedString::from(text)),
+            )
+        })
 }
 
-/// THE panel: the frame's body on black, the progress + header + title +
-/// description floating over the top scrim, the footer under it (over the
-/// bottom scrim on a picture). `avatar` sits inside the ring's StoryRing at
-/// the header size (stories.json VIEWER LOOK).
+/// The room the floating top band takes (its invisible twin): a scrolling
+/// body and a gallery's counter start under it.
+fn band_spacer(story: &Story, frame: &StoryFrame, cx: &App) -> Div {
+    v_flex()
+        .flex_shrink_0()
+        .gap_3()
+        .px_3()
+        .pt_3()
+        .pb(px(12. + 8.))
+        .child(div().h(px(STORIES.progress.height)))
+        .child(div().h(px(HEADER_RING)))
+        .child(title_block(story, frame, true, cx))
+}
+
+/// A gallery's `i / n` counter (n > 1): small white digits on a dark pill.
+fn gallery_counter(picture: usize, count: usize) -> Div {
+    div()
+        .flex_shrink_0()
+        .px(px(7.))
+        .py(px(2.))
+        .rounded_full()
+        .bg(gpui::black().opacity(0.55))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .text_xs()
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(gpui::white())
+        .child(SharedString::from(format!("{} / {count}", picture + 1)))
+}
+
+/// THE panel: the frame's body on black, the progress + header + badge +
+/// title + description floating over the top scrim, the footer under it
+/// (over the bottom scrim on a cover / picture). `avatar` sits inside the
+/// ring's StoryRing at the header size (stories.json VIEWER LOOK).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn story_panel(
     ring: &StoryRing,
     frames: &[StoryFrame],
     index: usize,
+    picture: usize,
     fraction: f32,
     avatar: AnyElement,
     content: StoryContent,
@@ -698,7 +777,6 @@ pub(crate) fn story_panel(
     let theme = cx.theme();
     let frame = &frames[index.min(frames.len() - 1)];
     let story = &ring.stories[frame.story];
-    let groups: Vec<usize> = frames.iter().map(|frame| frame.story).collect();
     let arcs: Vec<crate::story_ring::RingArc> = ring.stories.iter().map(crate::story_ring::RingArc::from).collect();
     let header_open = handlers.open_session.clone();
     let close_action = handlers.close.clone();
@@ -762,8 +840,8 @@ pub(crate) fn story_panel(
         );
     let spec = &STORIES.viewer;
     let fade = px(spec.scrim_fade);
-    // The top band: progress, header, title + description over the scrim
-    // (near-opaque behind the text, clear over its last `scrimFade` px).
+    // The top band: progress, header, badge + title + description over the
+    // scrim (near-opaque behind the text, clear over its last `scrimFade` px).
     let top = v_flex()
         .absolute()
         .top_0()
@@ -778,9 +856,9 @@ pub(crate) fn story_panel(
                 .pt_3()
                 .pb_3()
                 .bg(scrim_fill())
-                .child(story_progress(frames.len(), index, fraction, Some(&groups), cx))
+                .child(story_progress(frames.len(), index, fraction, cx))
                 .child(header)
-                .children(title_block(frame, false, cx)),
+                .child(title_block(story, frame, false, cx)),
         )
         .child(div().h(fade).bg(linear_gradient(
             180.,
@@ -788,6 +866,10 @@ pub(crate) fn story_panel(
             linear_color_stop(gpui::black().opacity(0.), 1.),
         )));
     let StoryContent { fill, body, footer } = content;
+    // A click on a plan's cover (the middle third) = Open plan.
+    let cover_open = (frame.kind == StoryFrameKind::Plan && !story.pictures.is_empty())
+        .then(|| handlers.open_plan.clone())
+        .flatten();
     let base = div()
         .id(SharedString::from(STORIES.test_ids.viewer.clone()))
         .relative()
@@ -809,10 +891,10 @@ pub(crate) fn story_panel(
             .absolute()
             .size_full(),
         )
-        .when(handlers.navigate, tap_to_step);
+        .when(handlers.navigate, |panel| tap_to_step(panel, cover_open));
     // The footer floats over the bottom on the mirrored scrim (clear over
-    // its first `scrimFade` px), on EVERY frame; its height is measured so a
-    // scrolling body ends clear of it.
+    // its first `scrimFade` px); its height is measured so a scrolling body
+    // and a gallery's caption end clear of it.
     let footer_key = story.id.clone();
     let footer_height = cx
         .try_global::<Viewer>()
@@ -857,29 +939,52 @@ pub(crate) fn story_panel(
                     ),
             )
     });
-    if fill {
-        // A picture: edge to edge on black.
-        let picture = div().id("story-body").absolute().inset_0().child(body);
-        return base.child(picture).child(top).children(bottom);
-    }
-    // A surface / the plan text / a bare title: the body scrolls from under
-    // the band (an invisible twin of its text keeps the room) and ends clear
-    // of the floating footer (its measured height).
-    let spacer = v_flex()
-        .flex_shrink_0()
-        .gap_3()
-        .px_3()
-        .pt_3()
-        .pb(px(12. + 8.))
-        .child(div().h(px(STORIES.progress.height)))
-        .child(div().h(px(HEADER_RING)))
-        .children(title_block(frame, true, cx));
     let has_footer = bottom.is_some();
+    if fill {
+        // A cover / a picture: edge to edge on black; a gallery's counter
+        // sits top-right under the band, its caption over the footer.
+        let filled = div().id("story-body").absolute().inset_0().child(body);
+        let shown = (frame.kind == StoryFrameKind::Gallery).then(|| story.pictures.get(picture)).flatten();
+        let chrome = shown.map(|shown| {
+            let count = story.pictures.len();
+            v_flex()
+                .absolute()
+                .inset_0()
+                .child(band_spacer(story, frame, cx))
+                .when(count > 1, |column| {
+                    column.child(
+                        h_flex()
+                            .id("story-gallery-counter")
+                            .w_full()
+                            .justify_end()
+                            .px_4()
+                            .child(gallery_counter(picture, count)),
+                    )
+                })
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .id("story-caption")
+                        .w_full()
+                        .px_4()
+                        .pb(px(8.))
+                        .line_clamp(2)
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(SharedString::from(shown.caption.clone().unwrap_or_else(|| shown.label.clone()))),
+                )
+                .when(has_footer, |column| column.child(div().flex_shrink_0().h(px(footer_height + 12.))))
+        });
+        return base.child(filled).children(chrome).child(top).children(bottom);
+    }
+    // A surface / a bare title: the body scrolls from under the band (an
+    // invisible twin of its text keeps the room) and ends clear of the
+    // floating footer (its measured height).
     base.child(
         v_flex()
             .absolute()
             .inset_0()
-            .child(spacer)
+            .child(band_spacer(story, frame, cx))
             .child(div().id("story-body").flex_1().min_h_0().flex().flex_col().child(body))
             .when(has_footer, |column| column.child(div().flex_shrink_0().h(px(footer_height)))),
     )
@@ -891,9 +996,10 @@ pub(crate) fn story_panel(
 /// press that no interactive element claimed (they stop the mouse-down: the
 /// footer, the header's controls, eUI's pressable nodes, the side arrows)
 /// and that moved the keyboard focus nowhere (a text field took it) is a
-/// tap: the left third = previous, the right third = next; a held press
-/// pauses the timer and never steps; a drag never steps.
-fn tap_to_step(panel: gpui::Stateful<Div>) -> gpui::Stateful<Div> {
+/// tap: the left third = previous, the right third = next, the middle =
+/// `middle` (a plan's cover = Open plan); a held press pauses the timer and
+/// never steps; a drag never steps.
+fn tap_to_step(panel: gpui::Stateful<Div>, middle: Option<Action>) -> gpui::Stateful<Div> {
     panel
         .cursor_pointer()
         .capture_any_mouse_down(|_, window, cx| {
@@ -918,7 +1024,7 @@ fn tap_to_step(panel: gpui::Stateful<Div>) -> gpui::Stateful<Div> {
             }
             pause(true, cx);
         })
-        .on_mouse_up(MouseButton::Left, |event, _, cx| {
+        .on_mouse_up(MouseButton::Left, move |event, window, cx| {
             let pressed = cx.default_global::<Viewer>().open.as_mut().and_then(|open| open.pressed_at.take());
             let Some((at, from)) = pressed else { return };
             pause(false, cx);
@@ -933,6 +1039,8 @@ fn tap_to_step(panel: gpui::Stateful<Div>) -> gpui::Stateful<Div> {
                 previous(cx);
             } else if x > 2. / 3. {
                 next(cx);
+            } else if let Some(action) = &middle {
+                action(window, cx);
             }
         })
         .on_mouse_up_out(MouseButton::Left, |_, _, cx| {
@@ -943,69 +1051,64 @@ fn tap_to_step(panel: gpui::Stateful<Div>) -> gpui::Stateful<Div> {
         })
 }
 
-/// One frame's body and footer: a picture fitted on black; a result's
-/// surface bare (no card chrome); a plan's markdown; and, for a plan /
-/// question, THE card sheet (its pages and options; its answer footer only
-/// on the story's last frame while it waits).
+/// One frame's body and footer (#EXP-1493): a plan's cover + its Open plan
+/// footer; a gallery's current picture + its filmstrip; a result's surface
+/// bare (no card chrome); and, for a question, THE card sheet (its options
+/// and answer footer while it waits).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn story_content(
     story: &Story,
     frame: &StoryFrame,
+    picture: usize,
     message: Option<&MessageRow>,
-    text: &ThreadText,
+    handlers: &PanelHandlers,
     images: &Entity<ImageCache>,
     window: &mut Window,
     cx: &mut App,
 ) -> StoryContent {
+    if frame.kind == StoryFrameKind::Plan {
+        let body = match story.pictures.first() {
+            Some(cover) => picture_fill(cover, images, cx),
+            None => div().size_full().into_any_element(),
+        };
+        let footer = footer_pad(plan_footer(story, handlers.open_plan.clone(), images, cx));
+        return StoryContent { fill: true, body, footer: Some(footer) };
+    }
     let row = message.and_then(|message| match story.kind {
         StoryKind::Result => domain::session_tree::surface_card_row(message),
         _ => domain::session_tree::ask_card_row(message),
     });
-    let picture = match (frame.kind, frame.picture) {
-        (StoryFrameKind::Picture, Some(index)) => story.pictures.get(index),
+    let answering = frame.footer != StoryFooter::None;
+    // THE card sheet of a question (its body IS the options).
+    let sheet = match &row {
+        Some(row @ SessionThreadRow::Question { .. }) if story.kind == StoryKind::Question => {
+            crate::thread_screen::question_facts(row).map(|(_, _, facts)| {
+                crate::dock::sheet_host(|| {
+                    crate::plan_card::question_story_sheet(&facts, div().into_any_element(), images, window, cx)
+                })
+            })
+        }
         _ => None,
     };
-    // The plan text frame's markdown (it already starts with its title).
-    let markdown = (frame.kind == StoryFrameKind::Text)
-        .then_some(story.text.as_deref())
-        .flatten()
-        .map(|markdown| {
-            let view = crate::thread_screen::message_markdown(
-                SharedString::from(format!("story-text-{}", story.id)),
-                &crate::plan_card::strip_pending_uploads(markdown),
-                text,
-                images,
-            );
-            crate::steer_viewer::ask_body_text(cx).child(view).into_any_element()
-        });
-    let answering = frame.footer != StoryFooter::None;
-    // THE card sheet of a plan / question: every non-picture frame (its
-    // body IS the sheet) and a picture frame that carries the footer.
-    let sheet = if story.kind != StoryKind::Result && (picture.is_none() || answering) {
-        let lead = markdown.unwrap_or_else(|| div().into_any_element());
-        match &row {
-            Some(row @ SessionThreadRow::Plan { .. }) => crate::thread_screen::plan_facts(row).map(|(_, _, facts)| {
-                crate::dock::sheet_host(|| crate::plan_card::plan_story_sheet(&facts, lead, images, window, cx))
-            }),
-            Some(row @ SessionThreadRow::Question { .. }) => {
-                crate::thread_screen::question_facts(row).map(|(_, _, facts)| {
-                    crate::dock::sheet_host(|| crate::plan_card::question_story_sheet(&facts, lead, images, window, cx))
-                })
-            }
-            _ => None,
-        }
-    } else {
-        None
-    };
-    if let Some(picture) = picture {
-        let footer = sheet.map(|sheet| {
+    if frame.kind == StoryFrameKind::Gallery {
+        let shown = story.pictures.get(picture.min(story.pictures.len().saturating_sub(1)));
+        let strip = (story.pictures.len() > 1).then(|| filmstrip(story, picture, handlers.pick_picture.clone(), images, cx));
+        let controls = sheet.map(|sheet| {
             v_flex()
                 .w_full()
                 .min_h_0()
                 .child(sheet.body)
-                .children(sheet.footer.filter(|_| answering).map(footer_pad))
+                .children(sheet.footer.filter(|_| answering))
                 .into_any_element()
         });
-        return StoryContent { fill: true, body: picture_fill(picture, images, cx), footer };
+        let footer = (strip.is_some() || controls.is_some()).then(|| {
+            footer_pad(v_flex().w_full().min_h_0().gap_3().children(strip).children(controls).into_any_element())
+        });
+        let body = match shown {
+            Some(shown) => picture_fill(shown, images, cx),
+            None => div().size_full().into_any_element(),
+        };
+        return StoryContent { fill: true, body, footer };
     }
     if let Some(sheet) = sheet {
         return StoryContent { fill: false, body: sheet.body, footer: sheet.footer.filter(|_| answering).map(footer_pad) };
@@ -1015,10 +1118,6 @@ pub(crate) fn story_content(
             let surface = crate::surface_card::surface_bare(id, session_id, surface, window, cx);
             crate::dock::sheet_body("story-body-scroll", surface)
         }
-        (_, StoryFrameKind::Text) => crate::dock::sheet_body(
-            "story-body-scroll",
-            text_or_empty(story, text, images, cx),
-        ),
         _ => div().into_any_element(),
     };
     StoryContent { fill: false, body, footer: None }
@@ -1029,23 +1128,134 @@ fn footer_pad(footer: AnyElement) -> AnyElement {
     div().w_full().px_4().pt_3().pb_4().child(footer).into_any_element()
 }
 
-/// A text frame's markdown without a card behind it (a settled plan).
-fn text_or_empty(story: &Story, text: &ThreadText, images: &Entity<ImageCache>, cx: &App) -> AnyElement {
-    match story.text.as_deref() {
-        Some(markdown) => crate::steer_viewer::ask_body_text(cx)
-            .child(crate::thread_screen::message_markdown(
-                SharedString::from(format!("story-text-{}", story.id)),
-                &crate::plan_card::strip_pending_uploads(markdown),
-                text,
-                images,
-            ))
-            .into_any_element(),
-        None => div().into_any_element(),
+/// One loaded picture covering its box (cropped), else the muted fill.
+fn thumb_image(picture: &StoryPicture, images: &Entity<ImageCache>, cx: &mut App) -> Option<AnyElement> {
+    let url = format!("/api/attachments/{}", picture.attachment_id);
+    match images.update(cx, |cache, cx| cache.slot(&url, cx)) {
+        ImageSlot::Ready(image) => Some(img(image).size_full().object_fit(ObjectFit::Cover).into_any_element()),
+        _ => None,
     }
 }
 
-/// A picture frame: the picture fitted (contain) filling the panel on black.
-fn picture_fill(picture: &domain::stories::StoryPicture, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
+/// A thumbnail's box: `tab.tile.radius`, the current one a 2 px foreground
+/// ring, else the glass-stroke hairline.
+fn thumb_box(current: bool, cx: &App) -> Div {
+    let frame = div().flex_shrink_0().rounded(px(STORIES.tab.tile.radius)).overflow_hidden().bg(cx.theme().muted);
+    if current {
+        frame.border_2().border_color(cx.theme().foreground)
+    } else {
+        frame.border_1().border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+    }
+}
+
+/// A plan cover's footer (#EXP-1493): the counts line, up to 4 thumbnails
+/// (the first = current) + `+N` muted, then ONE full-width primary `Open
+/// plan` (plan-page `copy.openPlan`); a thumbnail = the same.
+fn plan_footer(story: &Story, open_plan: Option<Action>, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
+    let line = story.counts.as_ref().map(plan_counts_line).filter(|line| !line.is_empty());
+    let more = story.pictures.len().saturating_sub(COVER_THUMBS);
+    let thumbs: Vec<AnyElement> = story
+        .pictures
+        .iter()
+        .take(COVER_THUMBS)
+        .enumerate()
+        .map(|(at, picture)| {
+            let open = open_plan.clone();
+            thumb_box(at == 0, cx)
+                .id(SharedString::from(format!("story-plan-thumb-{}-{at}", story.id)))
+                .w(px(COVER_THUMB.0))
+                .h(px(COVER_THUMB.1))
+                .when(open.is_some(), |thumb| thumb.cursor_pointer())
+                .on_click(move |_, window, cx| {
+                    if let Some(open) = &open {
+                        open(window, cx);
+                    }
+                })
+                .children(thumb_image(picture, images, cx))
+                .into_any_element()
+        })
+        .collect();
+    let muted = cx.theme().muted_foreground;
+    let foreground = cx.theme().foreground;
+    v_flex()
+        .w_full()
+        .gap_3()
+        .when_some(line, |column, line| {
+            column.child(
+                div()
+                    .id("story-plan-counts")
+                    .text_xs()
+                    .text_color(foreground.opacity(0.85))
+                    .child(SharedString::from(line)),
+            )
+        })
+        .when(!thumbs.is_empty(), |column| {
+            column.child(
+                h_flex()
+                    .items_center()
+                    .gap_1p5()
+                    .children(thumbs)
+                    .when(more > 0, |row| {
+                        row.child(div().text_xs().text_color(muted).child(SharedString::from(format!("+{more}"))))
+                    }),
+            )
+        })
+        .child(
+            Button::new(SharedString::from(PLAN_PAGE.test_ids.open_plan.clone()))
+                .primary()
+                .w_full()
+                .cursor_pointer()
+                .label(PLAN_PAGE.copy.open_plan.clone())
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    if let Some(open) = &open_plan {
+                        open(window, cx);
+                    }
+                }),
+        )
+        .into_any_element()
+}
+
+/// A gallery's filmstrip (n > 1): `FILMSTRIP_THUMB` px squares, the current
+/// one a 2 px foreground ring; a click = that picture.
+fn filmstrip(
+    story: &Story,
+    current: usize,
+    pick: Option<Rc<dyn Fn(usize, &mut Window, &mut App)>>,
+    images: &Entity<ImageCache>,
+    cx: &mut App,
+) -> AnyElement {
+    let thumbs: Vec<AnyElement> = story
+        .pictures
+        .iter()
+        .enumerate()
+        .map(|(at, picture)| {
+            let pick = pick.clone();
+            thumb_box(at == current, cx)
+                .id(SharedString::from(format!("story-filmstrip-{}-{at}", story.id)))
+                .size(px(FILMSTRIP_THUMB))
+                .when(pick.is_some(), |thumb| thumb.cursor_pointer())
+                .on_click(move |_, window, cx| {
+                    if let Some(pick) = &pick {
+                        pick(at, window, cx);
+                    }
+                })
+                .children(thumb_image(picture, images, cx))
+                .into_any_element()
+        })
+        .collect();
+    h_flex()
+        .id(SharedString::from(format!("story-filmstrip-{}", story.id)))
+        .w_full()
+        .justify_center()
+        .gap_1p5()
+        .overflow_x_scroll()
+        .children(thumbs)
+        .into_any_element()
+}
+
+/// A picture fitted (contain) filling the panel on black.
+fn picture_fill(picture: &StoryPicture, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
     let url = format!("/api/attachments/{}", picture.attachment_id);
     let image = match images.update(cx, |cache, cx| cache.slot(&url, cx)) {
         ImageSlot::Ready(image) => img(image).size_full().object_fit(ObjectFit::Contain).into_any_element(),
@@ -1062,18 +1272,19 @@ fn picture_fill(picture: &domain::stories::StoryPicture, images: &Entity<ImageCa
 mod tests {
     use super::*;
 
+    /// The #EXP-1493 `frameCases` mix (a plan with a picture, a question, a
+    /// two-picture result, a surface result), split into two rings.
     fn fixture_rings() -> Vec<StoryRing> {
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/stories.json")).unwrap();
-        // Two rings out of the `frameCases` mix (its story list, split).
         let case = fixture["frameCases"]
             .as_array()
             .unwrap()
             .iter()
-            .max_by_key(|case| case["input"]["stories"].as_array().map_or(0, Vec::len))
+            .find(|case| case["input"]["stories"].as_array().is_some_and(|stories| stories.iter().any(|s| s["id"] == "res-new")))
             .unwrap();
         let stories: Vec<Story> = serde_json::from_value(case["input"]["stories"].clone()).unwrap();
-        let (first, second) = stories.split_at(2);
+        let (first, second) = stories.split_at(3);
         let ring = |key: &str, stories: &[Story]| StoryRing {
             key: key.to_string(),
             agent_id: None,
@@ -1087,23 +1298,41 @@ mod tests {
         vec![ring("a", first), ring("b", second)]
     }
 
-    fn place(rings: &[StoryRing], ring: usize, at: usize) -> Place {
-        Place { ring, frames: story_frames(&rings[ring].stories), at }
+    fn place(rings: &[StoryRing], ring: usize, at: usize, picture: usize) -> Place {
+        Place { ring, frames: story_frames(&rings[ring].stories), at, picture }
     }
 
-    /// #EXP-1432 NAVIGATION (frames): within a ring frame by frame, across
-    /// rings at the ends, past the very last = close, before the very first
-    /// = stay.
+    /// #EXP-1493 NAVIGATION: one step per story; a gallery steps its
+    /// pictures first (forward and back), across rings at the ends, past the
+    /// very last = close, before the very first = stay.
     #[test]
-    fn steps_walk_frames_across_rings() {
+    fn steps_walk_stories_and_gallery_pictures() {
         let rings = fixture_rings();
-        let first = story_frames(&rings[0].stories).len();
-        assert!(first > 2, "the picture story gives the first ring several frames");
-        assert_eq!(step_frame(&rings, &place(&rings, 0, 0), true), Step::To(0, 1));
-        assert_eq!(step_frame(&rings, &place(&rings, 0, first - 1), true), Step::To(1, 0));
-        assert_eq!(step_frame(&rings, &place(&rings, 1, 0), false), Step::To(0, first - 1));
-        assert_eq!(step_frame(&rings, &place(&rings, 0, 0), false), Step::Stay);
-        let last = story_frames(&rings[1].stories).len() - 1;
-        assert_eq!(step_frame(&rings, &place(&rings, 1, last), true), Step::Close);
+        let frames = story_frames(&rings[0].stories);
+        assert_eq!(frames.len(), 3, "one frame per story");
+        assert_eq!(frames[0].kind, StoryFrameKind::Plan);
+        assert_eq!(frames[2].kind, StoryFrameKind::Gallery);
+        assert_eq!(frames[2].pictures, 2);
+        // A plan's cover is one step even with a picture.
+        assert_eq!(step_place(&rings, &place(&rings, 0, 0, 0), true), Step::To(0, 1, 0));
+        // The gallery: its next picture first, then the next ring.
+        assert_eq!(step_place(&rings, &place(&rings, 0, 2, 0), true), Step::To(0, 2, 1));
+        assert_eq!(step_place(&rings, &place(&rings, 0, 2, 1), true), Step::To(1, 0, 0));
+        assert_eq!(step_place(&rings, &place(&rings, 0, 2, 1), false), Step::To(0, 2, 0));
+        assert_eq!(step_place(&rings, &place(&rings, 0, 2, 0), false), Step::To(0, 1, 0));
+        assert_eq!(step_place(&rings, &place(&rings, 1, 0, 0), false), Step::To(0, 2, 0));
+        assert_eq!(step_place(&rings, &place(&rings, 0, 0, 0), false), Step::Stay);
+        assert_eq!(step_place(&rings, &place(&rings, 1, 0, 0), true), Step::Close);
+    }
+
+    /// The modal sizes by a gallery's current picture / a plan's cover.
+    #[test]
+    fn the_shown_picture_is_the_current_or_the_cover() {
+        let rings = fixture_rings();
+        let frames = story_frames(&rings[0].stories);
+        let stories = &rings[0].stories;
+        assert_eq!(shown_picture(&stories[0], &frames[0], 3).map(|p| &p.attachment_id), stories[0].pictures.first().map(|p| &p.attachment_id));
+        assert_eq!(shown_picture(&stories[2], &frames[2], 1), stories[2].pictures.get(1));
+        assert_eq!(shown_picture(&stories[1], &frames[1], 0), None);
     }
 }

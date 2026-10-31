@@ -1,9 +1,11 @@
 import type { ReactNode } from "react"
 import type { CardSurface } from "@exp/domain-contract/plan-card"
+import { planCountsLine } from "@exp/domain-contract/plan-page"
 import { STORIES_COPY, STORY_TAB, type Story, type StoryPicture, type StoryRing } from "@exp/domain-contract/stories"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
 import { conceptIcon } from "./icons.generated"
+import { StoryKindBadge } from "./stories"
 import { SurfaceCard } from "./surface-card"
 
 // STORIES TAB ×web (fixtures/stories.json STORIES TAB; desktop crates/ui
@@ -14,12 +16,14 @@ import { SurfaceCard } from "./surface-card"
 //   StoryTab       the PR block slot (`lead`), then the stories INLINE in
 //                  fold order `tile.listGap` apart (#EXP-1462: the Guide's
 //                  way, never a list of title rows), else THE EmptyState
-//   StoryTile      one story's section: line 1 = the title (one line; none
-//                  = the kind word) with `meta` muted at the end (a waiting
-//                  one leads with the plan/question tint dot and tints its
-//                  meta), the description (muted, wrapping), then its body
-//                  in place: ONE row of pictures (a muted caption-or-label
-//                  under each), else THE surface card, else the plan text
+//   StoryTile      one story's section: line 1 = THE kind badge, the title
+//                  (one line; none = the kind word) with `meta` muted at the
+//                  end (a waiting one leads with the plan/question tint dot
+//                  and tints its meta), the description (muted, wrapping),
+//                  then its body in place: a plan = its counts line + its
+//                  pictures (a tap = THE plan page, #EXP-1493); else ONE row
+//                  of pictures (a muted caption-or-label under each), else
+//                  THE surface card
 
 const StoriesIcon = conceptIcon(`thread-stories`)
 const TILE = STORY_TAB.tile
@@ -47,8 +51,8 @@ export interface StoryBodyRenderers {
   surfaceFor?: (story: Story) => CardSurface | null
   /** A surface press's reply text (THE chat's `surfaceReply`). */
   onSurfaceReply?: (story: Story, text: string) => void
-  /** The plan markdown (absent = plain text). */
-  renderText?: (text: string) => ReactNode
+  /** #EXP-1493: a plan section's tap = THE plan page. */
+  onOpenPlan?: (story: Story) => void
 }
 
 export function StoryTile({
@@ -58,7 +62,7 @@ export function StoryTile({
   onOpen,
   surfaceFor,
   onSurfaceReply,
-  renderText,
+  onOpenPlan,
 }: {
   story: Story
   size: StoryTabSize
@@ -67,9 +71,11 @@ export function StoryTile({
   onOpen?: (story: Story, picture: number) => void
 } & StoryBodyRenderers) {
   const tint = story.waiting ? waitingTint(story) : null
-  // The frame rule: pictures win, else the surface, else the plan text.
-  const surface = story.pictures.length === 0 && story.surface ? (surfaceFor?.(story) ?? null) : null
-  const text = story.pictures.length === 0 && !surface ? story.text : null
+  // The frame rule: a plan opens its page; pictures win, else the surface.
+  const plan = story.kind === `plan`
+  const open = (picture: number) => (plan ? onOpenPlan?.(story) : onOpen?.(story, picture))
+  const surface = !plan && story.pictures.length === 0 && story.surface ? (surfaceFor?.(story) ?? null) : null
+  const counts = plan && story.counts ? planCountsLine(story.counts) : ``
   return (
     <div
       data-testid={STORY_TAB.testIds.tile}
@@ -82,9 +88,10 @@ export function StoryTile({
         type="button"
         className="flex min-w-0 flex-col rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
         style={{ gap: TILE.textGap }}
-        onClick={() => onOpen?.(story, 0)}
+        onClick={() => open(0)}
       >
         <span className="flex min-w-0 items-center gap-2">
+          <StoryKindBadge kind={story.kind} />
           {tint && <span aria-hidden className={cn(`size-1.5 shrink-0 rounded-full`, tint.dot)} />}
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
             {story.title ?? STORIES_COPY[story.kind]}
@@ -94,6 +101,11 @@ export function StoryTile({
         {story.description && (
           <span data-slot="story-tile-description" className="text-sm text-muted-foreground">
             {story.description}
+          </span>
+        )}
+        {counts && (
+          <span data-slot="story-tile-counts" className="text-xs text-muted-foreground">
+            {counts}
           </span>
         )}
       </button>
@@ -112,7 +124,7 @@ export function StoryTile({
                 data-slot="story-tile-picture"
                 className="flex shrink-0 flex-col gap-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 style={{ width }}
-                onClick={() => onOpen?.(story, index)}
+                onClick={() => open(index)}
               >
                 <img
                   src={attachmentSrc(picture.attachmentId)}
@@ -136,11 +148,6 @@ export function StoryTile({
           />
         </div>
       )}
-      {text && (
-        <div data-slot="story-tile-text" className="min-w-0 text-sm text-foreground/90">
-          {renderText ? renderText(text) : <p className="whitespace-pre-wrap">{text}</p>}
-        </div>
-      )}
     </div>
   )
 }
@@ -154,7 +161,7 @@ export function StoryTab({
   onOpen,
   surfaceFor,
   onSurfaceReply,
-  renderText,
+  onOpenPlan,
   className,
 }: {
   ring: Pick<StoryRing, `stories`> | null
@@ -184,7 +191,7 @@ export function StoryTab({
               onOpen={onOpen}
               surfaceFor={surfaceFor}
               onSurfaceReply={onSurfaceReply}
-              renderText={renderText}
+              onOpenPlan={onOpenPlan}
             />
           ))}
         </div>

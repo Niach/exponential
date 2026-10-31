@@ -187,8 +187,10 @@ mod tests {
         assert!(parts["Switch"].parts.iter().any(|p| p == "track"));
         assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading"]);
         // EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave;
-        // VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner.
-        assert_eq!(parts.len(), 89);
+        // VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic.
+        assert_eq!(parts.len(), 91);
+        assert!(parts["Carousel"].parts.iter().any(|p| p == "thumbnail"));
+        assert!(parts["Carousel"].props.iter().any(|p| p == "counter"));
         assert!(parts["DockCard"].parts.iter().any(|p| p == "trigger"));
     }
 

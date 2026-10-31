@@ -90,6 +90,8 @@ internal fun ScrollContainer(node: NodeInfo, model: SurfaceModel, size: Size, ki
         if (scroll.scrollY && abs(sy.value - ty) > 1) sy.scrollTo(ty)
         if (scroll.scrollX && abs(sx.value - tx) > 1) sx.scrollTo(tx)
     }
+    // EXP-1495: a Carousel's thumbnail strip keeps the current page's thumbnail in view.
+    if (scroll.scrollX) ThumbnailStripFollow(node, model, sx, size)
     val content = Size(
         if (scroll.scrollX) max(scroll.contentWidth, size.width) else size.width,
         if (scroll.scrollY) max(scroll.contentHeight, size.height) else size.height,

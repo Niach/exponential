@@ -608,8 +608,9 @@ fn land_now(route: Route, window: &mut Window, cx: &mut App) {
             sidebar::select_settings_section(window, cx, section);
         }
         // EXP-1294: beside the Inbox, like an issue the toast opens.
+        // #EXP-1493: a session waiting on its own plan = THE plan page.
         Route::Session { session_id } => {
-            let screen = navigation::session_screen_for(&session_id, cx);
+            let screen = crate::plan_page::screen_for_session(&session_id, cx);
             match inbox_origin() {
                 Some(origin) => navigation::navigate_from(window, cx, screen, origin),
                 None => navigation::navigate(window, cx, screen),

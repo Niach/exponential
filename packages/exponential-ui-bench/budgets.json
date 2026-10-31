@@ -130,11 +130,11 @@
       },
       "core": {
         "cold-start": {
-          "allocations": 219665,
+          "allocations": 232319,
           "coldStartMs": 18,
           "firstPaintMs": 11.8,
           "memoryMb": 32.1,
-          "nodes": 661
+          "nodes": 688
         },
         "card-grid": {
           "upcallsPerPass": 1,
@@ -155,7 +155,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 2.9,
-          "restyled": 661,
+          "restyled": 688,
           "themeSwitchMs": 7.4
         },
         "resize": {

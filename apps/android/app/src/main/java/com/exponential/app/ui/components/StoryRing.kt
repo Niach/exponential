@@ -2,20 +2,23 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,12 +30,15 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Dock
 import com.exponential.app.domain.Stories
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.TextEmphasis
 
 // S-3 STORIES ×4 (fixtures/stories.json `ring` + `progress`, styleguide
 // `story-ring` / `story-viewer`; web, desktop and iOS draw the same two
@@ -104,8 +110,8 @@ fun StoryRingArcs(
 }
 
 /**
- * THE story progress: one segment per FRAME of the ring (#EXP-1432),
- * grouped by story ([groups]), [Stories.Progress.HEIGHT] tall; done =
+ * THE story progress: ONE segment per STORY of the ring (#EXP-1493),
+ * [Stories.Progress.GAP] apart, [Stories.Progress.HEIGHT] tall; done =
  * foreground, the current = its fill [fraction], todo = the glass-stroke
  * track.
  */
@@ -115,10 +121,6 @@ fun StoryProgress(
     index: Int,
     fraction: Float,
     modifier: Modifier = Modifier,
-    /** #EXP-1432: each segment's story (the frame's `story`): segments of one
-     *  story sit `progress.gap` apart, a new story starts `progress.storyGap`
-     *  after the last; null = one group. */
-    groups: List<Int>? = null,
 ) {
     val foreground = MaterialTheme.colorScheme.onSurface
     val shape = RoundedCornerShape(50)
@@ -128,6 +130,7 @@ fun StoryProgress(
             .height(Stories.Progress.HEIGHT.dp)
             .semantics { contentDescription = "${minOf(index + 1, count)} / $count" }
             .testTag(Stories.TestIds.PROGRESS),
+        horizontalArrangement = Arrangement.spacedBy(Stories.Progress.GAP.dp),
     ) {
         repeat(count.coerceAtLeast(0)) { segment ->
             val fill = when {
@@ -135,12 +138,6 @@ fun StoryProgress(
                 segment == index -> fraction.coerceIn(0f, 1f)
                 else -> 0f
             }
-            val lead = when {
-                segment == 0 -> 0f
-                groups != null && groups.getOrNull(segment) != groups.getOrNull(segment - 1) -> Stories.Progress.STORY_GAP
-                else -> Stories.Progress.GAP
-            }
-            if (lead > 0f) Spacer(Modifier.width(lead.dp))
             BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
@@ -150,6 +147,112 @@ fun StoryProgress(
             ) {
                 Box(Modifier.width(maxWidth * fill).height(Stories.Progress.HEIGHT.dp).background(foreground, shape))
             }
+        }
+    }
+}
+
+/** A kind's tint (stories.json `badge`, the ask-dock tints): plan = the
+ *  primary, question = the yellow, result = the closed-check green. */
+@Composable
+fun storyKindTint(kind: Stories.Kind): Color = when (kind) {
+    Stories.Kind.Plan -> dockTint(Dock.Tint.Plan)
+    Stories.Kind.Question -> dockTint(Dock.Tint.Question)
+    Stories.Kind.Result -> DesignTokens.Semantic.Green
+}
+
+/** The word a waiting plan adds on the plan page (` · waiting`). */
+const val STORY_BADGE_WAITING = "waiting"
+
+/**
+ * #EXP-1493 THE kind badge ×4 (stories.json `badge` = THE Pill, sm,
+ * readonly): the concept icon ([Stories.Badge.icon]) + the kind word in the
+ * tint, the tint at [Stories.Badge.FILL] behind and at
+ * [Stories.Badge.STROKE] as its border, a capsule. [waiting] = the plan
+ * page's ` · waiting`.
+ */
+@Composable
+fun StoryKindBadge(kind: Stories.Kind, waiting: Boolean = false, modifier: Modifier = Modifier) {
+    val tint = storyKindTint(kind)
+    val shape = RoundedCornerShape(50)
+    val word = Stories.Copy.kind(kind)
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .background(tint.copy(alpha = Stories.Badge.FILL), shape)
+            .border(1.dp, tint.copy(alpha = Stories.Badge.STROKE), shape)
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .testTag("story-badge"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            ExpIcons.byConcept(Stories.Badge.icon(kind)) ?: ExpIcons.codingPlan,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(11.dp),
+        )
+        Text(
+            if (waiting) "$word · $STORY_BADGE_WAITING" else word,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = tint,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * The story viewer's thumbnail row (#EXP-1493): the plan cover's (40dp
+ * tall, 56dp wide, up to 4 + `+N` muted) and the gallery filmstrip (52dp
+ * squares: [width] null); the [current] = a 2dp foreground ring, the rest
+ * the glass-stroke hairline. A tap = [onPick] (index).
+ */
+@Composable
+fun StoryThumbnailStrip(
+    count: Int,
+    current: Int?,
+    height: Dp,
+    width: Dp? = null,
+    limit: Int? = null,
+    onPick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    thumb: @Composable (Int) -> Unit,
+) {
+    val shown = minOf(count, limit ?: count).coerceAtLeast(0)
+    val shape = RoundedCornerShape((Stories.Tab.Tile.RADIUS * 0.8f).dp)
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        repeat(shown) { index ->
+            val on = index == current
+            Box(
+                Modifier
+                    .size(width = width ?: height, height = height)
+                    .clip(shape)
+                    .background(DesignTokens.Palette.Muted, shape)
+                    .clickable { onPick(index) }
+                    .testTag("story-thumbnail"),
+            ) {
+                thumb(index)
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .border(
+                            if (on) 2.dp else GlassTokens.Hairline,
+                            if (on) MaterialTheme.colorScheme.onSurface else GlassTokens.StrokeCard,
+                            shape,
+                        ),
+                )
+            }
+        }
+        if (shown < count) {
+            Text(
+                "+${count - shown}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
         }
     }
 }

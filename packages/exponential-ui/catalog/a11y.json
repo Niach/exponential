@@ -244,10 +244,17 @@
     },
     "Carousel": {
       "role": "region",
-      "notes": "region, roledescription carousel; each page a group `page i of n`",
+      "notes": "region, roledescription carousel; each page a group `page i of n`; the counter `$string.pageCounter` is hidden (each page already says page i of n); each thumbnail a button `page i of n`, aria-current on the current one",
       "keys": [
         "ArrowLeft/ArrowRight: previous/next page while focus is inside",
         "Home/End: first/last page"
+      ]
+    },
+    "Mosaic": {
+      "role": "group",
+      "notes": "group labelled `label`; each tile a button named its picture's `alt`; the `+N` tile reads `alt` then `+N` ($string.morePictures).",
+      "keys": [
+        "Tab through the tiles; Enter, Space: select"
       ]
     },
     "Tabs": {
@@ -593,6 +600,13 @@
       "notes": "navigation (breadcrumb); the last item aria-current=page. Labelled `breadcrumb`; the last item aria-current=page ($a11y).",
       "keys": [
         "Tab through the links; Enter: select"
+      ]
+    },
+    "Outline": {
+      "role": "navigation",
+      "notes": "navigation labelled by `caption`; each row a link (aria-current=location on the active row) named `title` then the count; press fires `select {id}`.",
+      "keys": [
+        "Tab through the rows; Enter, Space: select"
       ]
     },
     "Stepper": {

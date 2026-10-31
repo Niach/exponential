@@ -142,6 +142,10 @@ internal fun ColumnScope.PlanAskCard(
     sheet: DockSheetScope? = null,
     /** The sheet's reject state on mount (the styleguide's specimen). */
     initialRejecting: Boolean = false,
+    /** #EXP-1493: THE plan page's sheet = the stepper WITHOUT its plan page
+     *  (the document is the page); below `minQuestions` = every question on
+     *  one page. */
+    questionsOnly: Boolean = false,
 ) {
     val plan = row as? SessionTree.ThreadRow.Plan
     val question = row as? SessionTree.ThreadRow.Question
@@ -203,10 +207,11 @@ internal fun ColumnScope.PlanAskCard(
         }
         // Page 0 = the plan (+ its questions below `minQuestions`), then one
         // page per question; "Question n of m" is the header's meta.
-        val pages = if (stepped) 1 + blocks.size else 1
+        val lead = if (questionsOnly && plan != null) 0 else 1
+        val pages = if (stepped) lead + blocks.size else 1
         val page = step.coerceIn(0, pages - 1)
-        val pageBlock = if (stepped && page > 0) blocks[page - 1] else null
-        val meta = if (pageBlock != null) PlanCard.stepLabel(page, blocks.size) else null
+        val pageBlock = if (stepped && page >= lead) blocks[page - lead] else null
+        val meta = if (pageBlock != null) PlanCard.stepLabel(page + 1 - lead, blocks.size) else null
         androidx.compose.runtime.SideEffect { sheet.meta = meta }
         DockSheetBody {
             Box(Modifier.fillMaxWidth().testTag(PlanCard.TestIds.CARD)) {
@@ -226,15 +231,17 @@ internal fun ColumnScope.PlanAskCard(
                                 topPadding = 0.dp,
                             )
                         } else {
-                            MarkdownView(PlanCard.withoutPendingUploads(plan?.plan ?: question!!.question))
-                            val surface: CardSurface? = plan?.surface ?: question?.surface
-                            if (surface != null) {
-                                CardSurfaceView(
-                                    surface,
-                                    surfaceHandle,
-                                    inert = !live,
-                                    modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp),
-                                )
+                            if (lead == 1) {
+                                MarkdownView(PlanCard.withoutPendingUploads(plan?.plan ?: question!!.question))
+                                val surface: CardSurface? = plan?.surface ?: question?.surface
+                                if (surface != null) {
+                                    CardSurfaceView(
+                                        surface,
+                                        surfaceHandle,
+                                        inert = !live,
+                                        modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp),
+                                    )
+                                }
                             }
                             if (!stepped) blocks.forEach { block ->
                                 if (plan == null && block.options.isEmpty() && !block.custom) return@forEach
@@ -898,38 +905,34 @@ private fun PlanCardTiles(
 }
 
 /**
- * S-3 STORIES (stories.json `footer`): a story's footer, drawn by THE card's
- * own controls and answered through THE card-answer path ([onAnswer] /
- * [onDecidePlan] = `sessions.answer`, the inline card's call): `plan` = the
- * plan's questions (if any) over THE decision row ([PlanSheetFooter]:
- * Approve, Change = reject + its feedback field); `choices` = THE question
+ * S-3 STORIES (stories.json `footer`): a story's answer footer, drawn by THE
+ * card's own controls and answered through THE card-answer path ([onAnswer]
+ * = `sessions.answer`, the inline card's call): `choices` = THE question
  * block (option rows / tiles + `Other…` when custom) and the Answer button;
- * `reply` = the free-text field ([Stories.Copy.REPLY]) and Answer; `none`
- * (a result) = nothing. Sent = the busy line until the answered story drops
- * out of the fold.
+ * `reply` = the free-text field ([Stories.Copy.REPLY]) and Answer; `open`
+ * (a plan: #EXP-1493, a story never decides a plan, its cover's Open plan
+ * does) / `none` (a result) = nothing. Sent = the busy line until the
+ * answered story drops out of the fold.
  */
 @Composable
 internal fun StoryAnswerFooter(
     row: SessionTree.ThreadRow?,
     footer: com.exponential.app.domain.Stories.Footer,
     onAnswer: ThreadAnswer,
-    onDecidePlan: ThreadPlanDecision,
     modifier: Modifier = Modifier,
 ) {
-    val plan = row as? SessionTree.ThreadRow.Plan
-    val question = row as? SessionTree.ThreadRow.Question
-    if (footer == com.exponential.app.domain.Stories.Footer.None || (plan == null && question == null)) return
-    var state by remember(row!!.id) { mutableStateOf<AnswerState?>(null) }
+    val question = row as? SessionTree.ThreadRow.Question ?: return
+    if (footer != com.exponential.app.domain.Stories.Footer.Choices &&
+        footer != com.exponential.app.domain.Stories.Footer.Reply
+    ) {
+        return
+    }
+    var state by remember(question.id) { mutableStateOf<AnswerState?>(null) }
     val settle: (Boolean) -> Unit = { ok -> state = if (ok) AnswerState.Acked else null }
     val locked = state.locksCard()
-    val blocks: List<ChoiceBlock> = remember(row) {
-        plan?.questions?.map { ChoiceBlock(it.id, it.prompt, it.multi, it.custom, it.options) }
-            ?: listOf(ChoiceBlock(QUESTION_CARD_ID, null, question!!.multi, question.custom, question.options))
-    }
-    val picks = remember(row.id) { mutableStateMapOf<String, Set<String>>() }
-    val customText = remember(row.id) { mutableStateMapOf<String, String>() }
-    var feedback by remember(row.id) { mutableStateOf("") }
-    var rejecting by remember(row.id) { mutableStateOf(false) }
+    val block = remember(question) { ChoiceBlock(QUESTION_CARD_ID, null, question.multi, question.custom, question.options) }
+    val picks = remember(question.id) { mutableStateMapOf<String, Set<String>>() }
+    val customText = remember(question.id) { mutableStateMapOf<String, String>() }
 
     fun answerOf(block: ChoiceBlock): List<String> {
         val picked = block.options.map { it.label }.filter { it in picks[block.id].orEmpty() }
@@ -955,55 +958,7 @@ internal fun StoryAnswerFooter(
             modifier = modifier.fillMaxWidth().testTag("story-footer"),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (plan != null) {
-                blocks.forEach { block ->
-                    ChoiceBlockView(
-                        block = block,
-                        caption = if (block.multi) PlanCard.Copy.CHOOSE_ANY else PlanCard.Copy.CHOOSE_ONE,
-                        picked = picks[block.id].orEmpty(),
-                        typed = null,
-                        answered = false,
-                        enabled = !locked,
-                        customText = customText[block.id].orEmpty(),
-                        onToggle = { toggle(block, it) },
-                        onCustomText = { customText[block.id] = it },
-                        topPadding = 0.dp,
-                    )
-                }
-                val answers = blocks.associate { it.id to answerOf(it) }
-                val issue = PlanCard.answerIssue(
-                    PlanCard.Card.Plan(plan.questions),
-                    PlanCard.Input(decision = "approved", planAnswers = answers),
-                )
-                PlanSheetFooter(
-                    onBack = null,
-                    onNext = null,
-                    decide = true,
-                    approveIssue = issue,
-                    rejecting = rejecting,
-                    onRejecting = { rejecting = it },
-                    feedback = feedback,
-                    onFeedback = { feedback = it },
-                    busy = locked,
-                    onDecide = { option ->
-                        val approve = option.decision == "approved"
-                        if (!locked && !(approve && issue != null)) {
-                            state = AnswerState.Sending
-                            onDecidePlan(
-                                plan.id,
-                                PlanAnswer(
-                                    approved = approve,
-                                    fresh = approve && option.fresh,
-                                    feedback = if (approve) null else feedback.trim().takeIf { it.isNotEmpty() },
-                                    answers = answers.filterValues { it.isNotEmpty() }.takeIf { it.isNotEmpty() },
-                                ),
-                                settle,
-                            )
-                        }
-                    },
-                )
-            } else if (question != null) {
-                val block = blocks.first()
+            run {
                 val reply = footer == com.exponential.app.domain.Stories.Footer.Reply
                 val labels = if (reply) {
                     listOfNotNull(customText[block.id]?.trim()?.takeIf { it.isNotEmpty() })

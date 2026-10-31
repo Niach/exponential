@@ -18,7 +18,8 @@ object Stories {
 
     enum class Kind(val wire: String) { Plan("plan"), Question("question"), Result("result") }
 
-    enum class Footer(val wire: String) { Plan("plan"), Choices("choices"), Reply("reply"), None("none") }
+    /** `open` = a plan: THE plan page (plan-page.json), never a decision in a story. */
+    enum class Footer(val wire: String) { Open("open"), Choices("choices"), Reply("reply"), None("none") }
 
     object Constants {
         /** #EXP-1461: a ring holds a story while its age is under this. */
@@ -54,10 +55,31 @@ object Stories {
     /** THE StoryProgress: segment height + gap (dp). */
     object Progress {
         const val HEIGHT = 3f
-        /** Between the segments of ONE story. */
+        /** Between the segments (#EXP-1493: one per story). */
         const val GAP = 4f
-        /** Before the first segment of the next story (frames group by story). */
+        /** Retired (#EXP-1493); the fixture keeps it for old mirrors. */
         const val STORY_GAP = 10f
+    }
+
+    /** #EXP-1493 THE kind badge ×4 (THE Pill, sm, readonly): the concept icon
+     *  + the kind word, text in the tint, the tint at [FILL] behind, at
+     *  [STROKE] as its border. */
+    object Badge {
+        fun icon(kind: Kind): String = when (kind) {
+            Kind.Plan -> "coding-plan"
+            Kind.Question -> "ui-help"
+            Kind.Result -> "ui-check"
+        }
+
+        /** The ask-dock tints: plan primary, question yellow, result emerald. */
+        fun tint(kind: Kind): String = when (kind) {
+            Kind.Plan -> "primary"
+            Kind.Question -> "yellow"
+            Kind.Result -> "emerald"
+        }
+
+        const val FILL = 0.14f
+        const val STROKE = 0.3f
     }
 
     /** The wide modal's max size + radius (dp; phones = full screen). */
@@ -149,7 +171,8 @@ object Stories {
         val description: String? = null,
         val pictures: List<Picture>,
         val surface: Boolean,
-        val text: String?,
+        /** A plan's counts (plan-page `planCounts`), else null. */
+        val counts: PlanPage.Counts?,
         val footer: Footer,
         val autoAdvanceMs: Long?,
     )
@@ -212,7 +235,8 @@ object Stories {
 
     private const val HOUR = 3_600_000L
 
-    private val byCreated = compareBy<Story>({ it.createdAt }, { it.id })
+    /** #EXP-1493: newest first (createdAt desc, then id desc). */
+    private val byNewest = compareByDescending<Story> { it.createdAt }.thenByDescending { it.id }
 
     private enum class Resolution { Approved, Changed, Answered, Superseded }
 
@@ -284,10 +308,10 @@ object Stories {
             description = card.str("description")?.trim()?.takeIf { it.isNotEmpty() },
             pictures = pictures,
             surface = surface,
-            text = if (kind == Kind.Plan && pictures.isEmpty() && !surface) card.str("plan") else null,
+            counts = if (kind == Kind.Plan) PlanPage.counts(card) else null,
             footer = when {
+                kind == Kind.Plan -> Footer.Open
                 resolution != null -> Footer.None
-                kind == Kind.Plan -> Footer.Plan
                 kind == Kind.Question -> if (options.isNotEmpty()) Footer.Choices else Footer.Reply
                 else -> Footer.None
             },
@@ -338,10 +362,13 @@ object Stories {
         }
 
         val list = drafts.values.map { draft ->
-            val waiting = draft.stories.filter { it.waiting }.sortedWith(byCreated)
-            val unseen = draft.stories.filter { !it.waiting && !it.seen }.sortedWith(byCreated)
-            val seen = draft.stories.filter { !it.waiting && it.seen }.sortedWith(byCreated)
-            val stories = waiting + unseen + seen
+            // #EXP-1493: a session's newer result replaces its older ones in a ring.
+            val newestResult = draft.stories.filter { it.kind == Kind.Result }
+                .groupBy { it.sessionId }
+                .mapValues { (_, results) -> results.sortedWith(byNewest).first().id }
+            val kept = draft.stories.filter { it.kind != Kind.Result || newestResult[it.sessionId] == it.id }
+            val waiting = kept.filter { it.waiting }.sortedWith(byNewest)
+            val stories = waiting + kept.filter { !it.waiting }.sortedWith(byNewest)
             draft.head.copy(
                 stories = stories,
                 waiting = waiting.size,
@@ -362,8 +389,8 @@ object Stories {
 
     /** THE Stories tab of a session screen (stories.json `tab`): every story
      *  the root's tree ever posted, never expiring (no window cut); settled plans/questions
-     *  stay (footer none, `meta` names the outcome), a superseded plan drops.
-     *  Waiting first (oldest first), then the rest newest first. ONE ring
+     *  stay (footer none, a plan keeps `open`; `meta` names the outcome), a
+     *  superseded plan drops. Waiting first, then the rest, each newest first. ONE ring
      *  (the root's, as [rings] keys it) so the viewer opens on it; null = the
      *  empty state. `unseen` = the tab's dot. */
     fun storyTab(
@@ -385,8 +412,8 @@ object Stories {
                 ?.story
         }
         if (list.isEmpty()) return null
-        val waiting = list.filter { it.waiting }.sortedWith(byCreated)
-        val rest = list.filter { !it.waiting }.sortedWith(byCreated.reversed())
+        val waiting = list.filter { it.waiting }.sortedWith(byNewest)
+        val rest = list.filter { !it.waiting }.sortedWith(byNewest)
         return emptyRing(root, agentsById).copy(
             waiting = waiting.size,
             unseen = list.any { it.waiting || !it.seen },
@@ -431,75 +458,51 @@ object Stories {
         const val SPECIMEN_CASE = 1
     }
 
-    // ── frames (#EXP-1432) ─────────────────────────────────────────────────
+    // ── frames (#EXP-1493) ─────────────────────────────────────────────────
 
-    enum class FrameKind(val wire: String) { Picture("picture"), Surface("surface"), Text("text"), Title("title") }
+    enum class FrameKind(val wire: String) { Plan("plan"), Gallery("gallery"), Surface("surface"), Title("title") }
 
-    /** One step of THE viewer (stories.json `frames`): a picture OR a surface
-     *  (or a plan's text / a bare question), never both. */
+    /** THE viewer's ONE step per story (#EXP-1493): a plan's cover, a
+     *  gallery (the pictures swipe inside the frame), a surface, or a bare title. */
     data class Frame(
-        /** The story's index in the ring. */
+        /** The story's index in the ring and its id. */
         val story: Int,
         val storyId: String,
-        /** This frame's place among its story's frames. */
-        val index: Int,
-        val count: Int,
         val kind: FrameKind,
-        /** The picture's index in `story.pictures` (kind picture), else null. */
-        val picture: Int?,
+        /** The story's resolved pictures (a plan's cover = the first). */
+        val pictures: Int,
         val title: String?,
         val description: String?,
         val footer: Footer,
+        /** Per picture on a gallery (the frame lasts pictures × it), else the frame's. */
         val autoAdvanceMs: Long?,
     )
 
-    /** A story's frames: one per picture (pictures win: the surface stays in
-     *  the chat), else the surface, else the plan text, else the bare title. */
-    private fun framesOf(story: Story, at: Int): List<Frame> {
-        val kinds: List<Pair<FrameKind, Int?>> =
-            if (story.pictures.isNotEmpty()) {
-                story.pictures.indices.map { FrameKind.Picture to it }
-            } else {
-                val kind = when {
-                    story.surface -> FrameKind.Surface
-                    story.text != null -> FrameKind.Text
-                    else -> FrameKind.Title
-                }
-                listOf(kind to null)
-            }
-        return kinds.mapIndexed { index, (kind, picture) ->
-            Frame(
-                story = at,
-                storyId = story.id,
-                index = index,
-                count = kinds.size,
-                kind = kind,
-                picture = picture,
-                // The plan text already begins with the title line.
-                title = if (kind == FrameKind.Text) null else story.title,
-                description = when (kind) {
-                    FrameKind.Picture -> story.pictures[picture!!].caption?.trim()?.takeIf { it.isNotEmpty() }
-                    FrameKind.Text -> null
-                    else -> story.description
-                },
-                footer = if (index == kinds.size - 1) story.footer else Footer.None,
-                autoAdvanceMs = story.autoAdvanceMs,
-            )
-        }
-    }
+    /** A story's frame: a plan = its cover; else pictures win (a gallery: the
+     *  surface stays in the chat), else the surface, else the bare title. */
+    private fun frameOf(story: Story, at: Int) = Frame(
+        story = at,
+        storyId = story.id,
+        kind = when {
+            story.kind == Kind.Plan -> FrameKind.Plan
+            story.pictures.isNotEmpty() -> FrameKind.Gallery
+            story.surface -> FrameKind.Surface
+            else -> FrameKind.Title
+        },
+        pictures = story.pictures.size,
+        title = story.title,
+        description = story.description,
+        footer = story.footer,
+        autoAdvanceMs = story.autoAdvanceMs,
+    )
 
-    /** THE viewer's steps over a ring's stories (stories.json `frameCases`):
-     *  every story's frames, flattened in story order. */
-    fun storyFrames(stories: List<Story>): List<Frame> =
-        stories.flatMapIndexed { at, story -> framesOf(story, at) }
+    /** THE viewer's steps over a ring (stories.json `frameCases`): ONE frame
+     *  per story, in ring order. */
+    fun storyFrames(stories: List<Story>): List<Frame> = stories.mapIndexed { at, story -> frameOf(story, at) }
 
-    /** The flat frame index of a story (and one of its pictures); -1 = none. */
-    fun storyFrameIndex(frames: List<Frame>, storyId: String, picture: Int = 0): Int {
-        val first = frames.indexOfFirst { it.storyId == storyId }
-        if (first < 0) return -1
-        val hit = frames.indexOfFirst { it.storyId == storyId && it.picture == picture }
-        return if (hit >= 0) hit else first
-    }
+    /** The frame index of a story; -1 = none. A thumbnail opens its story's
+     *  frame with the gallery at that picture (the host's state). */
+    fun storyFrameIndex(frames: List<Frame>, storyId: String): Int = frames.indexOfFirst { it.storyId == storyId }
 
     /** THE STORY ROW of the chats header (#EXP-1461, `rowCases`): ONLY
      *  rings. [StoryRow.bubbles] = the agent bubbles (listAgents order) whose
