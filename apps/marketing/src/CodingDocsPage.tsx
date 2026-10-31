@@ -72,6 +72,11 @@ export function CodingDocsPage() {
                 agent calls the built-in MCP tool, then tracks the PR through
                 to merge and completes the issue.
               </li>
+              <li>
+                It <strong>stores and routes the session&apos;s messages</strong>,
+                sealed by your devices, without reading them (
+                <a href="#watch-steer">sealed sessions</a>).
+              </li>
             </ul>
             <p>
               Because the agent is local, coding is unmetered:{` `}
@@ -454,6 +459,24 @@ export function CodingDocsPage() {
               caption="A session in the desktop IDE: the chat's strip, the agent's work, its question waiting above the composer"
             />
 
+            <h3>Sealed sessions</h3>
+            <p>
+              A session&apos;s content (its messages, cards, reports and
+              titles) is sealed end to end on the device that writes it. Each
+              chat has its own key, handed only to your installs, your
+              teammates&apos; when the chat is shared, and the device running
+              it; the server stores ciphertext and the metadata it needs to
+              route and wake sessions. The live feed and your steering go
+              straight between the viewer and that device over eNet, also
+              end-to-end encrypted; the relay in between carries bytes it
+              can&apos;t read. A new install of yours gets the keys from any of
+              your devices that is online, without an approval step. This
+              protects your sessions against a database leak and a passive
+              server, not against someone who controls the server and signs
+              in as you. A client connected straight to the MCP endpoint, like
+              ChatGPT, sees a session&apos;s metadata, not its text.
+            </p>
+
             <h3>The Dock</h3>
             <p>
               The transcript is the one scroll. Whatever waits on you floats
@@ -494,6 +517,21 @@ export function CodingDocsPage() {
               platform="desktop"
               caption="A plan card: the plan with its picture, an interactive preview, and a choice question"
             />
+
+            <h3>The plan page</h3>
+            <p>
+              A big plan reads better full screen: <strong>Open plan</strong>{` `}
+              on its card, its story, the inbox row or the push opens the plan
+              page. On a wide screen it is three columns: the{` `}
+              <strong>Outline</strong> on the left (one row per section, with
+              its picture count, jumps there), the plan in the middle, and the{` `}
+              <strong>Questions</strong> with the decision on the right, which
+              never scrolls away. A run of pictures shows as one mosaic (a
+              carousel on a phone); tap any picture to step through all of the
+              plan&apos;s pictures. On a phone the outline opens as a sheet and
+              the questions wait in the Dock card at the bottom. Deciding keeps
+              the page open, closed with your answer.
+            </p>
 
             <h3>The composer</h3>
             <p>What the composer takes:</p>
@@ -664,10 +702,16 @@ export function CodingDocsPage() {
               <li>
                 What the agent wants you to see lands as{` `}
                 <strong>stories</strong>: its results with their screenshots,
-                its questions and its plans. Each agent and each chat wears a
-                ring around its bubble on top of <strong>Chats</strong>; tap
-                it and swipe through its stories, what waits on you first, and
-                answer a question or approve a plan right there.
+                its questions and its plans, one card each with a{` `}
+                <strong>Plan</strong>, <strong>Question</strong> or{` `}
+                <strong>Result</strong> badge. Each agent and each chat wears a
+                ring around its bubble on top of <strong>Chats</strong> for the
+                last 24 hours; tap it and swipe through, what waits on you
+                first, then the newest. A session&apos;s newer result replaces
+                its older ones in the ring. A result shows its pictures as a
+                carousel; answer a question right there, and a plan&apos;s{` `}
+                <strong>Open plan</strong> takes you to the plan page. The{` `}
+                <strong>Stories</strong> tab keeps them all.
               </li>
               <li>
                 The pull request&apos;s body is written for you: a short

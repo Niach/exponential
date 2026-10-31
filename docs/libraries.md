@@ -1,8 +1,9 @@
 # The library family: names (EXP-1421)
 
 Decided 2026-10-29 for the epic #EXP-1420, renamed 2026-10-30 (#EXP-1438).
-The **product names** (eUI, eTalk, ePilot, eNet, eApps, eMCP) are what copy, docs and
-the front page say. The **package names** follow the same short scheme
+The **product names** (eUI, eTalk, ePilot, eNet, eApps, eMCP, eAgent, eCore) are what
+copy, docs and the front page say; eAgent is today's `exponential-agent-runtime`
+until its rename to `eagent` (#EXP-1505). The **package names** follow the same short scheme
 (`eui*`, `etalk*`, `epilot*`, `enet*`) on every registry, and so do the tags
 (`eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`). The bare crates.io names `eui`
 and `enet` are taken, so the core crates are `eui-core` and `enet-core`.
@@ -34,9 +35,13 @@ consumes them as dependencies.
 | **ePilot** | `epilot`, `epilot-screen` (git dependencies on the tag) | none (desktop only) | none | none (desktop only) | `epilot-v*` → `release-epilot.yml` | exponential.at/pilot/ |
 | **eNet** | `enet-core` (crates.io), `exponential-net-ffi`, `exponential-net-wasm` (not published yet) | `enet` (the wasm build, planned) | `enet` (planned) | `ExponentialNet` (planned) | `enet-v*` → `release-enet.yml` | exponential.at/net/ |
 | **eApps** | inside `eui-core` for now | inside `@exponential_app/eui/host` | | | rides `eui-v*` | exponential.at/apps/ |
-| agent-runtime | `exponential-agent-runtime` (from `coding` + `engine`, #EXP-1426; git dependency on the tag) | none | none | none | `agent-runtime-v*` → `release-agent-runtime.yml` | in the repo README only |
+| **eAgent** | `exponential-agent-runtime` (from `coding` + `engine`, #EXP-1426; git dependency on the tag; renamed `eagent`, tag `eagent-v*`, by #EXP-1505, planned) | none | none | none | `agent-runtime-v*` → `release-agent-runtime.yml` | exponential.at/agent/ |
 | **eMCP** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/mcp/ |
-| **eCore** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | the crate README |
+| **eCore** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | exponential.at/core/ |
+
+**eDE** (#NEW-10, ExponentialOS's desktop) is not a library: its own Cargo
+workspace in `apps/ede` (`ede-compositor`, `ede-session`), in progress, no
+release. The vision is the blog post exponential.at/blog/exponentialos/.
 
 eTalk, ePilot, eMCP and agent-runtime are git dependencies (`publish = false`: the
 fixtures are compiled in with `include_str!` from outside the crate), so their
@@ -114,7 +119,7 @@ Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 - gpui consumers (Exponential desktop, spezl desktop) pin the same zed/gpui and
   gpui-component revisions: see `apps/desktop/crates/eui-gpui/README.md`.
 
-## Published state (2026-10-30)
+## Published state (2026-10-31)
 
 | product | version | registry | tag |
 |---|---|---|---|
@@ -125,3 +130,4 @@ Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 | eUI (old name) | 0.1.1 | npm `@exponential_app/ui*` (deprecated), crates.io `exponential-ui`, Maven `at.exponential:ui-compose*` | `ui-v0.1.1` |
 | agent-runtime | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
 | eMCP | 0.1.0 | GitHub release (git dependency on the tag) | `emcp-v0.1.0` |
+| eCore | unreleased | none (built: `ecore` + the generated TS/Swift/Kotlin) | none |

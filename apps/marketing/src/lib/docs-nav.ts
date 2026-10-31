@@ -46,7 +46,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/mcp/`,
     label: `MCP & API`,
-    blurb: `Connect Claude, ChatGPT, Codex, Cursor, or any MCP client to your issues.`,
+    blurb: `Connect Claude, ChatGPT, Codex, Cursor, or any MCP client to your issues and your apps' tools.`,
   },
   {
     path: `/docs/apps/`,

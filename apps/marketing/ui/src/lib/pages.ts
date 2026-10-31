@@ -31,6 +31,8 @@ const PAGES: [RegExp, () => Promise<PageModule>][] = [
   [/^\/net\/$/, () => import("../libs/Net")],
   [/^\/apps\/$/, () => import("../libs/Apps")],
   [/^\/mcp\/$/, () => import("../libs/Mcp")],
+  [/^\/agent\/$/, () => import("../libs/Agent")],
+  [/^\/core\/$/, () => import("../libs/Core")],
 ]
 
 export function pageLoaderFor(path: string): (() => Promise<PageModule>) | undefined {

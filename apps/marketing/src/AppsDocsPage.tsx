@@ -71,11 +71,14 @@ export function AppsDocsPage() {
             </p>
             <h3>Self-updating</h3>
             <p>
-              The app checks the latest release at launch and every four hours
-              while running. An update shows a banner. Click it and the
-              download streams, verifies against the published checksums, and
-              swaps in place; hit <strong>Restart to update</strong> when
-              it&apos;s ready. No package manager, no manual downloads.
+              The app checks the latest release at launch and every 30
+              minutes while running, and downloads it in the background,
+              verified against the published checksums. It restarts on its
+              own once every session it runs pauses between turns (at most
+              10 minutes), and only while no window has focus; sessions cut
+              by the restart continue by themselves. At the app, the banner&apos;s{` `}
+              <strong>Restart to update</strong> is yours. No package manager,
+              no manual downloads.
             </p>
             <h3>The layout</h3>
             <p>
@@ -243,7 +246,10 @@ export function AppsDocsPage() {
               question, veto an approach, add a constraint you forgot. What
               needs you (a <strong>Question</strong>, a{` `}
               <strong>Plan ready</strong>) floats as a card above the
-              composer; tap it and it opens as a sheet from the bottom.
+              composer; tap it and it opens as a sheet from the bottom. The
+              feed and your messages go straight between your phone and the
+              device running the session over eNet, end-to-end encrypted;
+              no relay can read them.
             </p>
             <p>
               You can also start one from here: the Agent composer&apos;s{` `}
@@ -287,10 +293,15 @@ export function AppsDocsPage() {
             </p>
             <p>
               They live in the sidebar&apos;s <strong>Apps</strong> group,
-              between Agents and Boards; its <strong>+</strong> opens{` `}
-              <strong>New app</strong> (icon, colour, name and an optional
-              description), and <strong>Create app</strong> opens the editor.
-              The group lists only your team&apos;s apps. Any member can
+              between Agents and Boards. Its <strong>+</strong> (or{` `}
+              <strong>New app</strong> on the Apps list) opens the editor
+              straight away on an <strong>Untitled app</strong> draft: no form.
+              Pick a starter (<strong>Log working hours</strong>,{` `}
+              <strong>Release checklist</strong>, …) or type{` `}
+              <strong>Describe your app…</strong>, and the agent names it, picks
+              its icon and colour with its first version. A draft you leave
+              without sending anything is discarded. The group lists only
+              your team&apos;s apps. Any member can
               create an app; the creator or an owner can rename and delete it.
             </p>
             <DocShot
@@ -346,9 +357,24 @@ export function AppsDocsPage() {
               Export an app from its menu, its editor or its settings page: you
               get one <code>.app.json</code> file with its name, icon, colour,
               current version and, if you switch Include records on, its
-              records. To use one, open New app, choose Import… and paste the
+              records. To use one, choose <strong>Import…</strong> on the Apps list and paste the
               file or pick it. Anything wrong with it is listed under the field
               before you import. An imported app starts with no tools granted.
+            </p>
+            <h3>MCP tools: an app as a server</h3>
+            <p>
+              An app can offer MCP tools of its own. Its package lists them
+              under <code>exposes</code> as data, never code: a name, an input
+              schema, Read or Write, and what it runs (the app&apos;s records,
+              an Exponential operation that never deletes, merges or closes, or
+              a tool on one of the team&apos;s MCP servers it names under{` `}
+              <code>upstreams</code>). Any MCP client then calls them as you at{` `}
+              <a href="/docs/mcp/#app-tools"><code>/api/mcp/apps</code></a>, with
+              no device online. The app&apos;s settings page lists them under{` `}
+              <strong>MCP tools</strong>, with an owner&apos;s switch each, and
+              the servers they call under <strong>Accounts</strong>, with your
+              connection to each. The format is eUI&apos;s (0.3.0):{` `}
+              <a href="/ui/">exponential.at/ui</a>.
             </p>
             <h3>Records: an app&apos;s own data</h3>
             <p>
@@ -369,7 +395,8 @@ export function AppsDocsPage() {
               <strong>Settings → Apps</strong> lists them too; each app&apos;s
               settings page holds its name, icon, colour and description,{` `}
               <strong>Open in the editor</strong>, the record count, the{` `}
-              <strong>Tools</strong> group, <strong>Export</strong> and
+              <strong>Tools</strong> group, <strong>Accounts</strong> and{` `}
+              <strong>MCP tools</strong>, <strong>Export</strong> and
               delete; it is on the web and the desktop. On the phones, Apps
               is its own tab. Agents and MCP
               clients can build apps too, through the{` `}

@@ -7,8 +7,8 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "@exponential_app/eui": "^0.2.0",
-    "@exponential_app/eui-element": "^0.2.0"
+    "@exponential_app/eui": "^0.3.0",
+    "@exponential_app/eui-element": "^0.3.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

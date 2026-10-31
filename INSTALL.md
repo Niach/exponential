@@ -35,6 +35,14 @@ sed -i "s/^BETTER_AUTH_SECRET=$/BETTER_AUTH_SECRET=$(openssl rand -hex 32)/" .en
 
 (macOS: `sed -i ''`, or just edit the file.)
 
+Recommended: a vault key for the OAuth tokens and MCP server credentials the app keeps at rest. Unset, it is derived from `BETTER_AUTH_SECRET`; your own key can be rotated:
+
+```sh
+sed -i "s|^VAULT_KEY=$|VAULT_KEY=k1:$(openssl rand -base64 32)|" .env
+```
+
+To rotate, set a new `VAULT_KEY` (another kid, e.g. `k2:…`) and move the old one into `VAULT_KEYS_RETIRED` (comma-separated); the daily sweep re-seals every value and nobody reconnects. A malformed value stops the server at boot.
+
 Then set the S3 block (`S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION`) to your provider's values. Create the bucket up front, or grant the key bucket-create permission and the app creates it at first use.
 
 Leave `DOMAIN`/`APP_URL` commented for now. The stack serves plain HTTP on `http://localhost` out of the box.
@@ -54,7 +62,7 @@ docker compose ps                              # all services running
 curl -fsS http://localhost/api/health          # => {"ok":true,"db":true,...}
 ```
 
-If health fails, read `docker compose logs web --tail 50`.
+If health fails, read `docker compose logs web --tail 50`. A proxy or orchestrator probing the web container directly should match the body (`"ok":true`), not just the 200, and dial `127.0.0.1` rather than `localhost`: the server listens on IPv4 only, and busybox `wget` resolves `localhost` to `::1`.
 
 ## 4. First account
 
@@ -93,14 +101,14 @@ All configured by appending vars to `.env` (the whole file reaches the web conta
   5. Generate a private key and a client secret, then set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` (the PEM, base64-encoded: `base64 -w0 app.private-key.pem`), `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET`.
 
   Optional: `GITHUB_TOKEN`, a scopeless personal access token used **only** for public-repo reads (PR diffs, the Reviews queue) on repos the App isn't installed on — it lifts GitHub's anonymous 60 requests/hour per IP to 5000.
-- **Steer relay** (start coding sessions from your phone, watch/steer live): set `STEER_RELAY_SECRET` (any random string) and `STEER_RELAY_URL=wss://issues.example.com/steer` in `.env`, then
+- **Steer relay** (device presence, remote start, Stop/kill/compact, voice calls): set `STEER_RELAY_SECRET` (any random string) and `STEER_RELAY_URL=wss://issues.example.com/steer` in `.env`, then
 
   ```sh
   docker compose --profile steer up -d
   curl -fsS https://issues.example.com/steer/healthz
   ```
 
-  Caddy proxies the relay under `/steer` on your app domain (it is not exposed on any other port), so it shares the site's Let's Encrypt certificate and the WebSocket is encrypted end to end — required, because that socket carries bearer steer tickets, the live terminal stream of your coding sessions, and remote steering input. Plain `ws://` is cleartext: only use it on a trusted LAN with the no-domain plain-HTTP setup (`STEER_RELAY_URL=ws://<host>/steer`, health check `http://localhost/steer/healthz`), never across the internet.
+  Caddy proxies the relay under `/steer` on your app domain (it is not exposed on any other port), so it shares the site's Let's Encrypt certificate and the WebSocket is TLS-encrypted — required, because that socket carries bearer steer tickets and voice call audio. Session content never crosses the relay: watching and steering a session goes over eNet, end-to-end encrypted, between the viewer and the device that runs it. Plain `ws://` is cleartext: only use it on a trusted LAN with the no-domain plain-HTTP setup (`STEER_RELAY_URL=ws://<host>/steer`, health check `http://localhost/steer/healthz`), never across the internet.
 
   Two notes on networking: the relay's port 4002 is deliberately **not published** to the host — if you carried a `STEER_RELAY_URL=ws://<host>:4002` over from an older setup, change it to the `/steer` form above or nothing can reach the relay. And the web container's own relay calls (device lists, remote start, kill) go straight to the relay over the compose network (`STEER_RELAY_INTERNAL_URL`, defaulted to `http://steer-relay:4002` in the compose file) rather than out through public DNS and back in — home routers often lack hairpin NAT, which would otherwise leave remote start broken while phones and desktops connect fine.
 
@@ -120,6 +128,8 @@ The image self-migrates on boot. No other steps. `latest` tracks upstream `maste
 The reverse floor matters too: native clients updated from the stores or the desktop self-updater expect a server at least as new as the release they shipped with (since iOS 0.14.23 / Android 0.14.25 / desktop 0.14.30 they attach steering images through `/api/sessions/{id}/files`, which needs web v0.18.53 or newer). Upgrade the server before, or together with, the clients.
 
 ## Backup and restore
+
+Session content is sealed on the clients: the database holds ciphertext for message bodies, cards, titles and previews, and only the members' devices hold the keys. A backup restores what the clients can open again; it never makes that content readable on the server. MCP call audit rows (`mcp_calls`) are kept 90 days and purged by a daily sweep.
 
 Three named volumes (`postgres_data`, `caddy_data`, `caddy_config`) plus your
 external S3 bucket hold all state; `.env` holds the secrets that make them
