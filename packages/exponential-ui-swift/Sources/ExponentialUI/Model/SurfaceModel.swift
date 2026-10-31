@@ -510,7 +510,7 @@ public final class SurfaceModel {
             for i in slots {
                 if p < paints.count, Int(paints[p].index) == i {
                     st[i] = paintStyle(paints[p].visual)
-                    if ns[i].isLeaf, let t = paints[p].textStyle { ts[i] = TextStyle(t, defaultFamily: family) } else { ts[i] = nil }
+                    if ns[i].isLeaf, let t = paints[p].textStyle { ts[i] = TextStyle(t, defaultFamily: family).forPart(owner: ns[i].ownerComponent, part: ns[i].part) } else { ts[i] = nil }
                     p += 1
                 } else {
                     st[i] = PaintStyle()
@@ -527,7 +527,7 @@ public final class SurfaceModel {
             for p in paints where Int(p.index) < ns.count {
                 let i = Int(p.index)
                 st[i] = paintStyle(p.visual)
-                if ns[i].isLeaf && !ns[i].removed, let t = p.textStyle { ts[i] = TextStyle(t, defaultFamily: family) }
+                if ns[i].isLeaf && !ns[i].removed, let t = p.textStyle { ts[i] = TextStyle(t, defaultFamily: family).forPart(owner: ns[i].ownerComponent, part: ns[i].part) }
             }
         }
         if changed == nil || changed?.isEmpty == false || inks.count != nodes.count {
