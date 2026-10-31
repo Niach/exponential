@@ -4323,6 +4323,13 @@
         "bytes": 35340,
         "sha256": "064db161ba80738f33a77bef60a6dc3721baffec36fd52873ba506c84a8a613e"
       },
+      "desktop": {
+        "file": "shots/sealed-locked/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 34324,
+        "sha256": "d944434b0d7f5f916427b67ce2f4f4b1c416bcfd31c02b99c4b558222a52713e"
+      },
       "ios": {
         "file": "shots/sealed-locked/ios.webp",
         "width": 828,
