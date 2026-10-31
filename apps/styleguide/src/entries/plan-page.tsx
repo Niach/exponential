@@ -18,7 +18,12 @@ export const entry: StyleguideEntry = {
       file: `packages/ui/src/plan-page.tsx`,
       note: `route: apps/web/src/routes/t/$teamSlug/sessions/$sessionId_.plan.$messageId.tsx; rail: session-thread-view.tsx PlanRail`,
     },
-    desktop: { state: `leftover`, note: `#EXP-1497: the desktop child of #EXP-1493 lands it` },
+    desktop: {
+      state: `ok`,
+      symbol: `plan_page`,
+      file: `apps/desktop/crates/ui/src/plan_page.rs`,
+      note: `parts: outline.rs, mosaic.rs, story_badge.rs, image_preview.rs; twin: styleguide/entries/plan_page.rs`,
+    },
     ios: {
       state: `ok`,
       symbol: `PlanPageScreen`,
