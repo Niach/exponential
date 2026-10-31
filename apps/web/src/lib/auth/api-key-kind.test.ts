@@ -9,7 +9,7 @@ import {
   isAgentApiKeySession,
   isApiKeySession,
 } from "@/lib/auth/api-key-kind"
-import { createFakeDb } from "@/lib/mcp-oauth/test-db"
+import { createFakeDb } from "@/lib/emcp/upstream/test-db"
 
 // EXP-1140: the launcher's hidden agent key is told apart from a person's by
 // the `kind` the mint stamped into the plugin's JSON `metadata`. Untagged and

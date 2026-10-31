@@ -1,6 +1,6 @@
 // EXP-920: the ONE entity-preview rule. An Exponential MCP tool's settled
 // row carries `preview.refs` (contract `entityRefKind`, distilled per
-// `expToolPreview.tools` by web `lib/mcp/preview.ts` and the engine's
+// `expToolPreview.tools` by web `lib/emcp/preview.ts` and the engine's
 // `mapper.rs`). Every client renders those refs the SAME way: one CHIP per
 // ref (a glyph + a short label), a hover card / popover resolved from the
 // client's own synced rows, and a tap that opens the entity's detail page.

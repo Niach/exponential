@@ -74,7 +74,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `IssueListView / IssueDetailView / RunsListView / RunView / InboxView / DevicesView`,
       file: `packages/mcp-apps/src/issue-list-view.tsx`,
-      note: `served by apps/web/src/lib/mcp/apps.ts`,
+      note: `served by apps/web/src/lib/emcp/apps.ts`,
     },
     desktop: { state: `n/a`, note: `MCP Apps render inside the third-party host, never in a client.` },
     ios: { state: `n/a`, note: `MCP Apps render inside the third-party host, never in a client.` },

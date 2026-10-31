@@ -48,7 +48,7 @@ pub use exponential_agent_runtime::engine::compaction;
 // EXP-1426 part 4b: moved to the agent runtime with the mapper.
 pub use exponential_agent_runtime::engine::context_layout;
 // EXP-920: the entity refs an Exponential MCP answer names, distilled on the
-// device for every client's chips (fixture-locked with web `lib/mcp/preview.ts`).
+// device for every client's chips (fixture-locked with web `lib/emcp/preview.ts`).
 // EXP-1426 part 4b: the rule is the core's; this keeps the name-keyed entry.
 pub mod exp_tool_refs;
 // EXP-1426 part 4d: the host and the session are the agent runtime's; these

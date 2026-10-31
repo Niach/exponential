@@ -1,5 +1,7 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { withAccountTokenVault } from "@/lib/emcp/account-vault"
+import { openAccountToken } from "@/lib/emcp/vault"
 import {
   bearer,
   customSession,
@@ -166,12 +168,16 @@ const EMAIL_OTP_ALLOWED_ATTEMPTS = 5
 export const auth = betterAuth({
   // The token endpoints are server-only (see DISABLED_AUTH_PATHS).
   disabledPaths: DISABLED_AUTH_PATHS,
+  // #EXP-1491: the `accounts` tokens are sealed by the eMCP vault at the
+  // adapter (lib/emcp/account-vault.ts); better-auth reads plaintext.
   database: withAuthDbFailureSignal(
-    drizzleAdapter(db, {
-      provider: `pg`,
-      usePlural: true,
-      schema,
-    })
+    withAccountTokenVault(
+      drizzleAdapter(db, {
+        provider: `pg`,
+        usePlural: true,
+        schema,
+      })
+    )
   ),
   emailAndPassword: {
     enabled: process.env.AUTH_PASSWORD_ENABLED !== `false`,
@@ -545,7 +551,7 @@ export const auth = betterAuth({
 
       try {
         const [account] = await db
-          .select({ idToken: schema.accounts.idToken })
+          .select({ id: schema.accounts.id, idToken: schema.accounts.idToken })
           .from(schema.accounts)
           .where(
             and(
@@ -555,9 +561,10 @@ export const auth = betterAuth({
           )
           .limit(1)
 
-        if (!account?.idToken) return
+        const idToken = account ? openAccountToken(account.idToken, account.id, `id_token`) : null
+        if (!idToken) return
 
-        const claims = decodeJwtPayload(account.idToken)
+        const claims = decodeJwtPayload(idToken)
         const shouldBeAdmin = isAdminFromProfile(claims, provider)
         const currentIsAdmin = isAdminUser(newSession.user)
 

@@ -17,7 +17,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `your-own-servers`, num: `06`, label: `Your own servers` },
 ]
 
-/* Tool reference — the 16 noun tools (NEW-4), mirroring apps/web/src/lib/mcp/nouns.ts:
+/* Tool reference — the 16 noun tools (NEW-4), mirroring apps/web/src/lib/emcp/nouns.ts:
    every tool takes `op` plus that op's fields; its description lists every op
    with its parameters. */
 const TOOL_GROUPS: {

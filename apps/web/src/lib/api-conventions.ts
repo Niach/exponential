@@ -1,6 +1,6 @@
 // EXP-705/EXP-707 — API conventions: ONE model per concept across the MCP
-// tools (lib/mcp/tools.ts) and the tRPC routers (lib/trpc/*). Drift gates
-// live in lib/mcp/api-conventions.test.ts; new tools and procedures follow
+// tools (lib/emcp/tools.ts) and the tRPC routers (lib/trpc/*). Drift gates
+// live in lib/emcp/api-conventions.test.ts; new tools and procedures follow
 // these rules, and a deviation needs a reason written next to it.
 //
 // 1. STRICT INPUTS (EXP-705). Every MCP tool wraps its shape in

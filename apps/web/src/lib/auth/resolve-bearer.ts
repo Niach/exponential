@@ -70,7 +70,7 @@ export function invalidateSessionCache(): void {
 // Human MCP clients' OAuth2 access tokens are deliberately NOT accepted here:
 // those tokens are consent-scoped to selected teams/boards, and only
 // the MCP tool layer enforces that scope — so /api/mcp is the only endpoint
-// that resolves them (see lib/mcp/scope.ts). FEED-76: a SCOPED personal key
+// that resolves them (see lib/emcp/scope.ts). FEED-76: a SCOPED personal key
 // is the same kind of credential and reads as unauthenticated here too; only
 // /api/mcp resolves it (resolveMcpCredential) and confines it to its scope.
 export async function resolveSession(request: Request): Promise<Session> {

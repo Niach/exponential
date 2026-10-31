@@ -15,7 +15,7 @@ import {
   assertScopeSelectionNonEmpty,
   clampScopeSelection,
   scopeSelectionInput,
-} from "@/lib/mcp/scope-selection"
+} from "@/lib/emcp/scope-selection"
 import { authedProcedure, router } from "@/lib/trpc"
 
 // Backs the /auth/consent page of the MCP OAuth flow: what the client is,
@@ -27,7 +27,7 @@ import { authedProcedure, router } from "@/lib/trpc"
 // reaches the MCP client only through the redirectURI this mutation returns,
 // and the upsert completes before the mutation returns, so nothing can exchange
 // the code before the grant row exists. A token whose (user, client) pair has
-// no grant row resolves to no access anyway (see lib/mcp/scope.ts).
+// no grant row resolves to no access anyway (see lib/emcp/scope.ts).
 
 async function getMemberTeams(userId: string) {
   return db

@@ -14,7 +14,7 @@ vi.mock(`@/lib/trpc`, async (importOriginal) => ({
 }))
 
 import { sessionKeysRouter, treeReaders } from "@/lib/trpc/session-keys"
-import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
+import { createFakeDb, type FakeDb } from "@/lib/emcp/upstream/test-db"
 import { generateTreeKey, unwrapTreeKey, wrapTreeKey } from "@exp/domain-contract/sealed-content"
 import fixture from "@exp/domain-contract/fixtures/sealed-content.json"
 

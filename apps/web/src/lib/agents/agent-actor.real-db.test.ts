@@ -74,7 +74,7 @@ const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { conversationInTx } = await import(`@/lib/agents/conversation`)
 const { sendSession, AGENT_TEAM_ONLY_MESSAGE } = await import(`@/lib/sessions/send`)
 const { actingSessionForRequest, confineMcpAccessToActingSession } = await import(`@/lib/sessions/acting`)
-const { FULL_ACCESS, isTeamVisible } = await import(`@/lib/mcp/scope`)
+const { FULL_ACCESS, isTeamVisible } = await import(`@/lib/emcp/scope`)
 const { assigneeNudgeLine } = await import(`@/lib/agents/assignment`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)

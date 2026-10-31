@@ -14,7 +14,7 @@
 // the OAuth consent screen offers, stored in the same `metadata` JSON as
 // `scope: {allTeams: false, teamIds, boardIds}`. A scoped key is an MCP-only
 // credential: /api/mcp confines it exactly like an OAuth grant
-// (lib/mcp/scope.ts) and the general surface (tRPC, shapes, attachments)
+// (lib/emcp/scope.ts) and the general surface (tRPC, shapes, attachments)
 // refuses it (lib/auth/resolve-bearer.ts), the way OAuth tokens are refused
 // there. A key without a stored scope (every key minted before FEED-76,
 // device keys, agent keys, "Everything" picks) stays a full key.

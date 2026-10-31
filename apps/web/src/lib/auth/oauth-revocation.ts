@@ -1,3 +1,4 @@
+import { openAccountToken } from "@/lib/emcp/vault"
 import { and, eq, isNotNull, or } from "drizzle-orm"
 import { accounts } from "@/db/auth-schema"
 import type { db as Database } from "@/db/connection"
@@ -54,8 +55,9 @@ export async function captureOAuthTokens(
   db: DbOrTx,
   userId: string
 ): Promise<OAuthTokenRow[]> {
-  return db
+  const rows = await db
     .select({
+      id: accounts.id,
       providerId: accounts.providerId,
       accessToken: accounts.accessToken,
       refreshToken: accounts.refreshToken,
@@ -67,6 +69,12 @@ export async function captureOAuthTokens(
         or(isNotNull(accounts.accessToken), isNotNull(accounts.refreshToken))
       )
     )
+  // #EXP-1491: the tokens are sealed by the vault at rest.
+  return rows.map((row) => ({
+    providerId: row.providerId,
+    accessToken: openAccountToken(row.accessToken, row.id, `access_token`),
+    refreshToken: openAccountToken(row.refreshToken, row.id, `refresh_token`),
+  }))
 }
 
 // Prefer the refresh token: RFC 7009 §2.1 says revoking it SHOULD invalidate

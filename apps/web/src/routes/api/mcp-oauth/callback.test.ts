@@ -33,11 +33,11 @@ vi.mock(`@/lib/notification-email-policy`, () => ({
 import {
   handleMcpOauthCallback,
   resetMcpOauthCallbackLimiter,
-} from "@/lib/mcp-oauth/callback"
-import { beginFlow } from "@/lib/mcp-oauth/flows"
-import { credentialAad, decryptCredential } from "@/lib/mcp-oauth/crypto"
-import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
-import { MCP_URL, fakeProvider, type FakeProvider } from "@/lib/mcp-oauth/test-provider"
+} from "@/lib/emcp/upstream/callback"
+import { beginFlow } from "@/lib/emcp/upstream/flows"
+import { decryptCredential } from "@/lib/emcp/upstream/crypto"
+import { createFakeDb, type FakeDb } from "@/lib/emcp/upstream/test-db"
+import { MCP_URL, fakeProvider, type FakeProvider } from "@/lib/emcp/upstream/test-provider"
 import type { McpServer } from "@/db/schema"
 
 const TEAM = `44444444-4444-4444-8444-444444444444`
@@ -111,7 +111,7 @@ describe(`GET /api/mcp-oauth/callback`, () => {
     expect(db.rows(`mcp_oauth_flows`)[0]).toMatchObject({ status: `done` })
     const [credential] = db.rows(`mcp_credentials`)
     expect(credential).toMatchObject({ serverId: SERVER, userId: `owner`, teamId: TEAM })
-    expect(decryptCredential(String(credential!.ciphertext), credentialAad(SERVER, `owner`))).toMatchObject({
+    expect(decryptCredential(String(credential!.ciphertext), { id: String(credential!.id), serverId: SERVER, userId: `owner` })).toMatchObject({
       accessToken: `at-1`,
       refreshToken: `rt-1`,
     })

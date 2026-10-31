@@ -35,7 +35,7 @@
 import { ASSISTANT_COPY, assistantScheduleTriggers } from "@exp/domain-contract/agent-settings"
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { storeOauthTokens } from "@/lib/mcp-oauth/credentials"
+import { storeOauthTokens } from "@/lib/emcp/upstream/credentials"
 import {
   accounts,
   apikeys,

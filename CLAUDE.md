@@ -1,6 +1,6 @@
 # Exponential
 
-Real-time issue tracker with coding agents. This file = REPO FACTS (< 12k chars, gated by `lib/mcp/context-budget.test.ts`). Product rules live in the team prompt every session gets (Settings → General) and in the fixtures under `packages/domain-contract/fixtures/*.json`, whose `$comment` IS the spec of each screen ×4; behaviour is fixture-locked, so read the fixture before the code.
+Real-time issue tracker with coding agents. This file = REPO FACTS (< 12k chars, gated by `lib/emcp/context-budget.test.ts`). Product rules live in the team prompt every session gets (Settings → General) and in the fixtures under `packages/domain-contract/fixtures/*.json`, whose `$comment` IS the spec of each screen ×4; behaviour is fixture-locked, so read the fixture before the code.
 
 ## Tech stack
 
@@ -9,7 +9,7 @@ TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 17 via Drizzle
 ## Monorepo layout
 
 ```
-apps/web          TanStack Start app (src/lib/trpc = one file per router; routes/api/shapes = one proxy per synced table; lib/sessions = the session tree; lib/mcp = the MCP server)
+apps/web          TanStack Start app (src/lib/trpc = one file per router; routes/api/shapes = one proxy per synced table; lib/sessions = the session tree; lib/emcp = eMCP's server half: the MCP server, the gate, audit, vault, upstream/)
 apps/push-relay   Hono/Bun            apps/steer-relay  presence + control + eTalk calls WS hub (Bun; no session content since VAPP-43: viewers reach the device over eNet)
 apps/marketing    exponential.at (Vite + React; ui/ = the Exponential UI section at /ui/, ui.exponential.at 301s there)   apps/styleguide   shot gallery + islands
 apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
@@ -61,7 +61,7 @@ Coolify (home-LAN-only): `coolify deploy uuid <uuid>` after a green Actions run 
 - **Markdown:** `issues.description` + `comments.body` = plain GFM, one interchange ×4 (`CONTRACT_FIXTURES`); mentions `@<email>`, issue refs `#IDENT`, images `![alt](/api/attachments/{id})`, emoji = unicode.
 - **Statuses:** issues dual-write `status` (anchor enum) and `statusId` (per-team row); PR open/merge move linked issues; nothing else moves status (`issue-lifecycle.json`).
 - **Sessions (N-10):** ONE `sessions` tree, root = worker; the server bus posts every child transition into its parent as a WAKING message; the watchdog runs every minute; `sessions.send` (`lib/sessions/send.ts`, tRPC + MCP) is the one entrypoint; agents = definitions (`agents`) running as one conversation session per member; prompts replace actions; events are the team stream.
-- **MCP (NEW-4):** 16 tools (nouns + the verbs sessions_send, show; stories replaced guide_write; `lib/mcp/nouns.ts`, `op` routes to the per-operation definitions in `tools.ts`); display rows `<noun>_<op>` in `contract.expToolDisplay`; budgets: always-loaded < 10k, per tool < 1.8k (show: its own cap), instructions < 2k with a self-contained first 512, runbook < 6 KB, this file < 12k.
+- **MCP (NEW-4):** 16 tools (nouns + the verbs sessions_send, show; stories replaced guide_write; `lib/emcp/nouns.ts`, `op` routes to the per-operation definitions in `tools.ts`); display rows `<noun>_<op>` in `contract.expToolDisplay`; budgets: always-loaded < 10k, per tool < 1.8k (show: its own cap), instructions < 2k with a self-contained first 512, runbook < 6 KB, this file < 12k.
 - **Style:** template literals; functional components; shadcn/ui from `@exp/ui` over raw elements; icons by CONCEPT (`conceptIcon(\`nav-search\`)`), never a raw glyph; feedback ×4 = `feedback-states.json` (failed action = toast, invalid input inline, skeletons); no explanatory subtitles.
 
 ## Environment variables

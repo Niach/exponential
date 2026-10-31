@@ -13,7 +13,7 @@ import {
 } from "@/lib/collections"
 import type { SessionRow } from "@/lib/session-tree"
 import { useIssueRefs } from "@/components/issue-ref-provider"
-import type { EntityRef } from "@/lib/mcp/preview"
+import type { EntityRef } from "@/lib/emcp/preview"
 import {
   entityRefRoute,
   type EntityRefRouteContext,

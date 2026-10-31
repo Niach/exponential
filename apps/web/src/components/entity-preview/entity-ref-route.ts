@@ -1,4 +1,4 @@
-import type { EntityRef } from "@/lib/mcp/preview"
+import type { EntityRef } from "@/lib/emcp/preview"
 
 // EXP-920: where a tool-row chip GOES — the pure half of
 // `useEntityRefTarget`. A ref carries ids, never slugs (three of the four

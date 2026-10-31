@@ -294,7 +294,7 @@ const caller = commentsRouter.createCaller({
   request: new Request(`http://localhost/`),
 } as never)
 
-// The MCP server's synthetic context (lib/mcp/tools.ts buildCtx) — the one
+// The MCP server's synthetic context (lib/emcp/tools.ts buildCtx) — the one
 // thing that marks a comment as agent-posted (EXP-741).
 const mcpCaller = commentsRouter.createCaller({
   session: { user: { id: `actor` } },

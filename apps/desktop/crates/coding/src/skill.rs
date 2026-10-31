@@ -19,7 +19,7 @@
 //!
 //! The document is markdown without front matter and names tools by their
 //! exact `exponential_*` names so a deferred tool is one search away. The web
-//! test `apps/web/src/lib/mcp/context-budget.test.ts` reads the same file
+//! test `apps/web/src/lib/emcp/context-budget.test.ts` reads the same file
 //! and fails when it names a tool the server does not register or grows
 //! past [`RUN_SKILL_MAX_BYTES`].
 

@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
 import { pushTokensRouter } from "@/lib/trpc/push-tokens"
-import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
+import { createFakeDb, type FakeDb } from "@/lib/emcp/upstream/test-db"
 
 const PUB = Buffer.alloc(32, 7).toString(`base64url`)
 let db: FakeDb

@@ -38,7 +38,7 @@ vi.mock(`@/lib/sessions/access`, () => ({
 }))
 
 import { installMessage, installsRouter, MAX_INSTALLS_PER_USER } from "@/lib/trpc/installs"
-import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
+import { createFakeDb, type FakeDb } from "@/lib/emcp/upstream/test-db"
 import registerFixture from "@exp/domain-contract/fixtures/install-register.json"
 
 const TEAM_A = `00000000-0000-4000-8000-00000000000a`

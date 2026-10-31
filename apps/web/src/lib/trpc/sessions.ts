@@ -58,7 +58,7 @@ import {
   relayKillSessionsBestEffort,
   stopSession,
 } from "@/lib/sessions/lifecycle"
-import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
+import { parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import { escalateTarget } from "@/lib/sessions/escalate"
 import { sendTarget } from "@/lib/sessions/send-target"
 import { extractMentionEmails } from "@/lib/mention-refs"

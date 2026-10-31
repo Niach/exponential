@@ -52,8 +52,9 @@ function ok(body: unknown = {}) {
 describe(`captureOAuthTokens`, () => {
   it(`selects the provider id alongside both tokens`, async () => {
     let selected: Record<string, unknown> | undefined
+    // #EXP-1491: plaintext from before the vault reads as itself.
     const rows = [
-      { providerId: `google`, accessToken: `at`, refreshToken: `rt` },
+      { id: `acc_1`, providerId: `google`, accessToken: `at`, refreshToken: `rt` },
     ]
     const db = {
       select: (cols: Record<string, unknown>) => {
@@ -67,8 +68,9 @@ describe(`captureOAuthTokens`, () => {
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const captured = await captureOAuthTokens(db as any, `user-1`)
-    expect(captured).toEqual(rows)
+    expect(captured).toEqual([{ providerId: `google`, accessToken: `at`, refreshToken: `rt` }])
     expect(selected).toEqual({
+      id: accounts.id,
       providerId: accounts.providerId,
       accessToken: accounts.accessToken,
       refreshToken: accounts.refreshToken,

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import type { EntityRef } from "@/lib/mcp/preview"
+import type { EntityRef } from "@/lib/emcp/preview"
 import type { ResolvedIssueRef } from "@/components/issue-ref-provider"
 
 // EXP-920: the entity chips under a settled Exponential tool row. Two halves
