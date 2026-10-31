@@ -20,13 +20,37 @@ use smithay::{
         element::surface::WaylandSurfaceRenderElement,
         ImportAll, ImportMem, Renderer,
     },
-    desktop::{layer_map_for_output, space::render_output},
+    desktop::{layer_map_for_output, space::space_render_elements},
     output::Output,
 };
 
 use crate::state::Ede;
 
-/// Draws `output` (layers + windows, damage-tracked) into `framebuffer`.
+/// What `output` shows, front to back: a fullscreen window alone, else the
+/// layers and windows of the space.
+pub fn output_elements<R>(state: &Ede, output: &Output, renderer: &mut R) -> Vec<OutputElements<R, WaylandSurfaceRenderElement<R>>>
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + 'static,
+{
+    if let Some(window) = state.fullscreen_on(output) {
+        use smithay::backend::renderer::element::AsRenderElements;
+        let loc = state.space.element_location(&window).unwrap_or_default() - window.geometry().loc;
+        let out = state.space.output_geometry(output).map(|g| g.loc).unwrap_or_default();
+        let at = (loc - out).to_physical(1);
+        return AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(&window, renderer, at, 1.0.into(), 1.0)
+            .into_iter()
+            .map(OutputElements::Surface)
+            .collect();
+    }
+    space_render_elements(renderer, [&state.space], output, 1.0)
+        .unwrap_or_default()
+        .into_iter()
+        .map(OutputElements::Space)
+        .collect()
+}
+
+/// Draws `output` (damage-tracked) into `framebuffer`.
 pub fn render<'a, 'd, R>(
     state: &Ede,
     output: &Output,
@@ -39,8 +63,8 @@ where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
 {
-    let clear = state.config.background_rgba().unwrap_or([0.04, 0.04, 0.04, 1.0]);
-    render_output::<_, WaylandSurfaceRenderElement<R>, _, _>(output, renderer, framebuffer, 1.0, age, [&state.space], &[], damage_tracker, clear)
+    let elements = output_elements(state, output, renderer);
+    damage_tracker.render_output(renderer, framebuffer, age, &elements, state.clear_color())
 }
 
 /// After a frame went out: frame callbacks so clients draw the next one,
@@ -64,7 +88,7 @@ smithay::backend::renderer::element::render_elements! {
     pub OutputElements<R, E> where R: ImportAll + ImportMem;
     Space=smithay::desktop::space::SpaceRenderElements<R, E>,
     Cursor=smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement<R>,
-    CursorSurface=WaylandSurfaceRenderElement<R>,
+    Surface=WaylandSurfaceRenderElement<R>,
 }
 
 /// The pointer at `pos` (output-local): the client's cursor surface if it
@@ -95,7 +119,7 @@ where
             let at = (pos - hotspot.to_f64()).to_physical(1.0).to_i32_round();
             render_elements_from_surface_tree(renderer, surface, at, 1.0, 1.0, Kind::Cursor)
                 .into_iter()
-                .map(OutputElements::CursorSurface)
+                .map(OutputElements::Surface)
                 .collect()
         }
         CursorImageStatus::Named(_) => {

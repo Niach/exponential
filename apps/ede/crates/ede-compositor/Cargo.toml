@@ -7,9 +7,12 @@ license.workspace = true
 publish = false
 
 [features]
-default = ["winit"]
+default = ["winit", "xwayland"]
+# X11 apps and games through Xwayland (needs the Xwayland binary at runtime).
+xwayland = ["smithay/xwayland"]
 # Nested in a window on X11 or Wayland (Cinnamon/X11 for development).
-winit = ["smithay/backend_winit"]
+# backend_drm (pure Rust, no libdrm link) names the render node for dmabuf v4.
+winit = ["smithay/backend_winit", "smithay/backend_drm"]
 # The real session: libseat, udev, DRM/KMS + GBM, libinput. Needs
 # libudev, libinput, libgbm, libseat and libdrm headers to build.
 udev = [
@@ -37,3 +40,4 @@ wayland-client = "0.31.10"
 wayland-protocols = { version = "0.32.8", features = ["client"] }
 wayland-protocols-wlr = { version = "0.3.8", features = ["client"] }
 tempfile = "3"
+x11rb = "0.13"

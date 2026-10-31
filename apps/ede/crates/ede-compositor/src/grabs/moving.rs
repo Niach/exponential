@@ -72,7 +72,7 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
             }
             _ => new_location,
         };
-        data.space.map_element(self.window.clone(), snapped, true);
+        data.move_window(&self.window.clone(), snapped, true);
     }
 
     fn relative_motion(
