@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Round 6 (EXP-1495): the Carousel `counter` pill and `thumbnails` strip (a thumbnail press fires `change {page}`); the `Outline` and `Mosaic` macros paint through Box/Text/Image; the primitives `Outline`, `Mosaic`, `CarouselCounter`, `CarouselThumbnails`.
+
 ## 0.2.1 (2026-10-30)
 
 - Version-only bump with the SDK (eui-gpui 0.2.1: per-cluster font fallback, YO-30); unchanged from 0.2.0.
