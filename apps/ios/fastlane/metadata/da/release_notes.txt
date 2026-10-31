@@ -1,7 +1,5 @@
-- Sessioner streames direkte fra den enhed, der kører dem
-- En session, hvis enhed er offline, siger det og forbinder igen af sig selv, når den er tilbage
-- Beskeder i sessioner forsegles på dine enheder, så serveren ikke længere kan læse dem
-- Et spørgsmål fra en chat, du har startet, sendes til din telefon og viser selve spørgsmålet
-- Et tryk på en beslutning i din indbakke åbner den chat, der venter på dig
-- Stories viser de seneste 24 timer, og en chats Stories-fane viser dem på stedet
-- Opkald fortsætter, når du skifter mellem højttaler, hovedtelefoner og Bluetooth
+- Planer åbner på deres egen side med en oversigt og deres billeder
+- Roligere stories: ét kort pr. plan eller resultat, hver med et mærke
+- Ny app åbner editoren med det samme, og agenten navngiver din app
+- Arbejdslinjen viser, hvilket værktøj agenten skriver, og hvor længe
+- Hurtigsvar over tekstfeltet er nemmere at læse

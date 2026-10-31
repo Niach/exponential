@@ -50,7 +50,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: `- **Updates land**: a queued update no longer waits for sessions to close or sit idle for 2 hours. The CLI daemon restarts at the next pause between turns, at most 10 minutes later, and at once when the server requires a newer version.
 - **Sessions continue**: a session cut mid-turn by the restart picks up where it left off on the new version by itself, team agents included. Nothing waits for you to resume it.
 - **Desktop**: the desktop app downloads updates in the background and restarts by the same rule while you are not using it. A required update restarts it at once.
-- **On by default**: the CLI looks for a new version every 15 minutes, and auto-update is on unless you turn it off with \`exponential update --auto off\`.`,
+- **On by default**: the CLI looks for a new version every 15 minutes, and auto-update is on unless you turn it off with \`exponential update --auto off\`.
+- **Fixed**: after a self-update, sessions the old app still held are picked up again instead of being left interrupted.`,
   },
   {
     id: `2026-10-31-steer-flicker`,

@@ -1,7 +1,5 @@
-- Sesiunile vin direct de pe dispozitivul care le rulează
-- O sesiune al cărei dispozitiv e offline spune asta și se reconectează singură când revine
-- Mesajele din sesiuni sunt sigilate pe dispozitivele tale, așa că serverul nu le mai poate citi
-- O întrebare dintr-un chat pe care l-ai început vine ca notificare pe telefon și arată întrebarea în sine
-- O atingere pe o decizie din inbox deschide chatul care te așteaptă
-- Poveștile arată ultimele 24 de ore, iar fila Povești a unui chat le afișează pe loc
-- Apelurile continuă când treci între difuzor, căști și Bluetooth
+- Planurile se deschid pe o pagină proprie, cu un cuprins și imaginile lor
+- Povești mai calme: un card pentru fiecare plan sau rezultat, fiecare cu o etichetă
+- Aplicație nouă deschide imediat editorul, iar agentul îi dă un nume
+- Linia de lucru arată ce instrument scrie agentul și de cât timp
+- Răspunsurile rapide de deasupra câmpului de text se citesc mai ușor
