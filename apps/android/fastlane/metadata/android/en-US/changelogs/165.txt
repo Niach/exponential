@@ -1,0 +1,5 @@
+- Settings › MCP is one page for your MCP servers, app tools and recent activity
+- Comments an app tool writes say which app wrote them
+- Plan pictures in the middle of a sentence open full screen
+- Tapping anywhere on a plan cover opens the plan
+- The carousel's page counter no longer covers the heading
