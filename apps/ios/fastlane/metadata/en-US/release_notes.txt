@@ -1,3 +1,5 @@
+- Sessions stream straight from the device that runs them
+- A session whose device is offline says so and reconnects by itself once it's back
 - Session messages are sealed on your devices, so the server can no longer read them
 - A question from a chat you started pushes to your phone and shows the question itself
 - Tapping a decision in your inbox opens the chat that's waiting for you

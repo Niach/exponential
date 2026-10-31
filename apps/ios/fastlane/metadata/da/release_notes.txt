@@ -1,3 +1,5 @@
+- Sessioner streames direkte fra den enhed, der kører dem
+- En session, hvis enhed er offline, siger det og forbinder igen af sig selv, når den er tilbage
 - Beskeder i sessioner forsegles på dine enheder, så serveren ikke længere kan læse dem
 - Et spørgsmål fra en chat, du har startet, sendes til din telefon og viser selve spørgsmålet
 - Et tryk på en beslutning i din indbakke åbner den chat, der venter på dig

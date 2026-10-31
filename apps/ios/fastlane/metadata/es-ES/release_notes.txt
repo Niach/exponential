@@ -1,3 +1,5 @@
+- Las sesiones se transmiten directamente desde el dispositivo que las ejecuta
+- Una sesión cuyo dispositivo está desconectado lo indica y se reconecta sola cuando vuelve
 - Los mensajes de las sesiones se sellan en tus dispositivos, así que el servidor ya no puede leerlos
 - Una pregunta de un chat que has iniciado llega a tu móvil como notificación y muestra la propia pregunta
 - Al tocar una decisión en tu bandeja de entrada se abre el chat que te está esperando

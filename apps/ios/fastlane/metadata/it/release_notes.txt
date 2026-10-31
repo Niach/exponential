@@ -1,3 +1,5 @@
+- Le sessioni arrivano direttamente dal dispositivo che le esegue
+- Una sessione il cui dispositivo è offline lo indica e si ricollega da sola quando torna
 - I messaggi delle sessioni vengono sigillati sui tuoi dispositivi, così il server non può più leggerli
 - Una domanda da una chat che hai avviato arriva come notifica sul telefono e mostra la domanda stessa
 - Toccando una decisione nella posta in arrivo si apre la chat che ti sta aspettando

@@ -1,3 +1,5 @@
+- Sesiunile vin direct de pe dispozitivul care le rulează
+- O sesiune al cărei dispozitiv e offline spune asta și se reconectează singură când revine
 - Mesajele din sesiuni sunt sigilate pe dispozitivele tale, așa că serverul nu le mai poate citi
 - O întrebare dintr-un chat pe care l-ai început vine ca notificare pe telefon și arată întrebarea în sine
 - O atingere pe o decizie din inbox deschide chatul care te așteaptă

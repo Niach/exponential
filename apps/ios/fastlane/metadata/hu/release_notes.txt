@@ -1,3 +1,5 @@
+- A munkamenetek közvetlenül az őket futtató eszközről érkeznek
+- Ha egy munkamenet eszköze offline, ezt jelzi, és magától újracsatlakozik, amint visszatér
 - A munkamenetek üzenetei az eszközeiden pecsételődnek le, így a szerver már nem tudja olvasni őket
 - Az általad indított csevegés kérdése értesítésként érkezik a telefonodra, és magát a kérdést mutatja
 - A beérkezett döntésre koppintva megnyílik a csevegés, amely rád vár
