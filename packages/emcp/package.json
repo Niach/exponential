@@ -1,0 +1,28 @@
+{
+  "name": "@exp/emcp",
+  "version": "0.0.0",
+  "description": "eMCP's contract: app tool bindings (exposes), tool naming, the access rule, grants, the mcp_calls audit, the vault format and the upstream OAuth states (fixtures + TypeScript references)",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "bun test ./src",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@exp/domain-contract": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./exposes": "./src/exposes.ts",
+    "./access": "./src/access.ts",
+    "./audit": "./src/audit.ts",
+    "./vault": "./src/vault.ts",
+    "./upstream": "./src/upstream.ts",
+    "./fixtures/*": "./fixtures/*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}

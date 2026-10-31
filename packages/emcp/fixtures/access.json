@@ -1,0 +1,44 @@
+{
+  "$comment": "EXP-1490 (eMCP E1, epic VAPP-175, 2026-10-31): WHO SEES WHICH APP TOOL. ONE ENDPOINT, `/api/mcp/apps`, ONE OAUTH FLOW: the consent page picks ONE team, the apps (all, or a list) and Read only | Full, and connects missing upstreams inline (upstream.json). THE GRANT MODEL: `mcp_grants` (one row per user × OAuth client × kind; the unique key becomes (user_id, client_id, kind)) gains `kind` (`grantKinds`: `builtin` = the existing `/api/mcp` grant over teams/boards, every existing row; `apps` = a `/api/mcp/apps` grant), `all_apps` (boolean, default false), `app_ids` (jsonb string[], default []) and `access` (`grantAccess`: `read` | `full`, default `full`). An `apps` grant names exactly one team in `team_ids` (`all_teams` false), no boards, and EITHER `all_apps` OR a non-empty `app_ids` (never both); a `builtin` grant has no apps and access `full` (`grantErrors` → the reasons, `grantCases`; a malformed row grants nothing). `all_apps` covers apps created later; `app_ids` naming a trashed or deleted app simply stops matching it. THE ACCESS RULE (`effectiveAccess`, `accessCases`): levels `none` < `read` < `write`; effective access to an app = the grant (`read` → read, `full` → write) ∩ the member's policy for that app ∩ (per tool) the tool's level. The member's POLICY is the Settings › MCP Access table (member × app, set by owners): no row = `write` (`policyCases`). Access is `none` for an app outside the grant (another team, not listed), a trashed app, a caller who is no longer a member of the grant's team, a grant of kind `builtin` or a malformed grant. A tool is VISIBLE (listed in tools/list) and CALLABLE iff the effective level ≥ its `access` (`visibleCases`): a read token never sees a write tool, and a call to a tool not listed answers MCP's unknown-tool error, never a hint that it exists. Destructive tools never exist (exposes.json). REVOCATION CASCADES: deleting the grant (Settings › MCP Clients, or the member leaving the team) or the OAuth client deletes its access and refresh tokens in the same transaction; trashing an app drops its tools on the next tools/list (the broker sends `notifications/tools/list_changed` to live sessions); removing an upstream server deletes every member's credential for it (the existing `mcp_credentials` cascade) and its bindings answer `upstreamMissing` (upstream.json).",
+  "grantKinds": ["builtin", "apps"],
+  "grantAccess": ["read", "full"],
+  "levels": ["none", "read", "write"],
+  "grantCases": [
+    { "name": "an apps grant over all apps", "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": true, "appIds": [], "access": "read" }, "expected": [] },
+    { "name": "an apps grant over a list", "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": false, "appIds": ["a1", "a2"], "access": "full" }, "expected": [] },
+    { "name": "an existing builtin grant", "grant": { "kind": "builtin", "allTeams": true, "teamIds": [], "boardIds": ["b1"], "allApps": false, "appIds": [], "access": "full" }, "expected": [] },
+    { "name": "an apps grant needs exactly one team", "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1", "t2"], "boardIds": [], "allApps": true, "appIds": [], "access": "full" }, "expected": ["team"] },
+    { "name": "an apps grant never covers all teams", "grant": { "kind": "apps", "allTeams": true, "teamIds": ["t1"], "boardIds": [], "allApps": true, "appIds": [], "access": "full" }, "expected": ["team"] },
+    { "name": "an apps grant has no boards", "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": ["b1"], "allApps": true, "appIds": [], "access": "full" }, "expected": ["boards"] },
+    { "name": "all apps or a list, not both", "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": true, "appIds": ["a1"], "access": "full" }, "expected": ["apps"] },
+    { "name": "all apps or a list, not neither", "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": false, "appIds": [], "access": "full" }, "expected": ["apps"] },
+    { "name": "a builtin grant names no apps", "grant": { "kind": "builtin", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": false, "appIds": ["a1"], "access": "full" }, "expected": ["apps"] },
+    { "name": "a builtin grant is always full", "grant": { "kind": "builtin", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": false, "appIds": [], "access": "read" }, "expected": ["access"] },
+    { "name": "unknown kind and access", "grant": { "kind": "everything", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": false, "appIds": [], "access": "admin" }, "expected": ["kind", "access"] }
+  ],
+  "policyCases": [
+    { "row": null, "expected": "write" },
+    { "row": "read", "expected": "read" },
+    { "row": "none", "expected": "none" }
+  ],
+  "accessCases": [
+    { "name": "full grant, no policy row", "input": { "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": true, "appIds": [], "access": "full" }, "appId": "a1", "teamId": "t1", "appDeleted": false, "role": "member", "policy": null }, "expected": "write" },
+    { "name": "a read grant caps a write policy", "input": { "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": true, "appIds": [], "access": "read" }, "appId": "a1", "teamId": "t1", "appDeleted": false, "role": "member", "policy": "write" }, "expected": "read" },
+    { "name": "a read policy caps a full grant", "input": { "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": false, "appIds": ["a1"], "access": "full" }, "appId": "a1", "teamId": "t1", "appDeleted": false, "role": "member", "policy": "read" }, "expected": "read" },
+    { "name": "a none policy hides the app", "input": { "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": true, "appIds": [], "access": "full" }, "appId": "a1", "teamId": "t1", "appDeleted": false, "role": "owner", "policy": "none" }, "expected": "none" },
+    { "name": "an app outside the list", "input": { "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": false, "appIds": ["a1"], "access": "full" }, "appId": "a2", "teamId": "t1", "appDeleted": false, "role": "member", "policy": null }, "expected": "none" },
+    { "name": "an app of another team", "input": { "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": true, "appIds": [], "access": "full" }, "appId": "a9", "teamId": "t2", "appDeleted": false, "role": "member", "policy": null }, "expected": "none" },
+    { "name": "a trashed app", "input": { "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": false, "appIds": ["a1"], "access": "full" }, "appId": "a1", "teamId": "t1", "appDeleted": true, "role": "member", "policy": null }, "expected": "none" },
+    { "name": "no longer a member", "input": { "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": true, "appIds": [], "access": "full" }, "appId": "a1", "teamId": "t1", "appDeleted": false, "role": null, "policy": null }, "expected": "none" },
+    { "name": "a builtin grant reaches no app", "input": { "grant": { "kind": "builtin", "allTeams": true, "teamIds": [], "boardIds": [], "allApps": false, "appIds": [], "access": "full" }, "appId": "a1", "teamId": "t1", "appDeleted": false, "role": "member", "policy": null }, "expected": "none" },
+    { "name": "a malformed grant reaches nothing", "input": { "grant": { "kind": "apps", "allTeams": false, "teamIds": ["t1"], "boardIds": [], "allApps": true, "appIds": ["a1"], "access": "full" }, "appId": "a1", "teamId": "t1", "appDeleted": false, "role": "member", "policy": null }, "expected": "none" }
+  ],
+  "visibleCases": [
+    { "level": "write", "access": "write", "expected": true },
+    { "level": "write", "access": "read", "expected": true },
+    { "level": "read", "access": "read", "expected": true },
+    { "level": "read", "access": "write", "expected": false },
+    { "level": "none", "access": "read", "expected": false },
+    { "level": "none", "access": "write", "expected": false }
+  ]
+}

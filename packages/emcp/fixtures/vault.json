@@ -1,0 +1,48 @@
+{
+  "$comment": "EXP-1490 (eMCP E1, epic VAPP-175, 2026-10-31): THE VAULT, encryption at rest for every secret column eMCP touches: better-auth `accounts` tokens (`access_token`, `refresh_token`, `id_token`), `mcp_credentials.ciphertext`, the flow verifier and DCR client secret (which today derive their key from BETTER_AUTH_SECRET, lib/mcp-oauth/crypto.ts; E2 moves them here). THE KEY: env `VAULT_KEY` = `<kid>:<standard base64 of 32 random bytes>` (kid matches `kidPattern`); `VAULT_KEYS_RETIRED` = comma-separated keys of the same form, used to OPEN only (`parseKeyring`: null when the current key is missing or malformed, a retired entry is malformed, or a kid repeats; the server refuses to boot the eMCP surfaces without a keyring, `keyringCases`). THE FORMAT (`version` `ev1`): `ev1.<kid>.<iv>.<ciphertext‖tag>`, AES-256-GCM, a fresh random 12-byte iv per seal, the 16-byte tag appended, iv and body base64url without padding. THE AAD binds the value to its row AND the key: `ev1|<kid>|<table>.<column>|<row id>` (UTF-8), so a value copied into another row or column, or relabelled with another kid, does not open (`openCases`). `vaultOpen` → the plaintext or null for anything that does not open (another version, an unknown kid, a wrong slot, a tampered body, a malformed value); null reads as \"not connected\", never as an error. ROTATION: set a new `VAULT_KEY`, move the old one into `VAULT_KEYS_RETIRED`; a daily sweep re-seals every value whose kid is not the current one (`vaultNeedsRotation`), and the retired key can be dropped once the sweep reports none left. `sealVectors` are exact (fixed key and iv): every mirror must produce the same string and open it.",
+  "version": "ev1",
+  "kidPattern": "^[a-z0-9]{1,16}$",
+  "keyBytes": 32,
+  "ivBytes": 12,
+  "tagBytes": 16,
+  "keys": {
+    "k1": "k1:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+    "k0": "k0:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8="
+  },
+  "keyringCases": [
+    { "name": "one key", "current": "k1:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "retired": null, "expected": { "current": "k1", "retired": [] } },
+    { "name": "a retired key", "current": "k1:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "retired": " k0:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8= ,", "expected": { "current": "k1", "retired": ["k0"] } },
+    { "name": "no key", "current": null, "retired": null, "expected": null },
+    { "name": "no kid", "current": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "retired": null, "expected": null },
+    { "name": "a kid out of pattern", "current": "Key-1:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "retired": null, "expected": null },
+    { "name": "a short key", "current": "k1:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHg==", "retired": null, "expected": null },
+    { "name": "a malformed retired key", "current": "k1:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "retired": "k0:nope", "expected": null },
+    { "name": "a repeated kid", "current": "k1:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "retired": "k1:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=", "expected": null }
+  ],
+  "aadCases": [
+    { "kid": "k1", "table": "accounts", "column": "access_token", "rowId": "acc_1", "expected": "ev1|k1|accounts.access_token|acc_1" },
+    { "kid": "k0", "table": "mcp_credentials", "column": "ciphertext", "rowId": "5b0c7f0e-0000-4000-8000-000000000001", "expected": "ev1|k0|mcp_credentials.ciphertext|5b0c7f0e-0000-4000-8000-000000000001" }
+  ],
+  "sealVectors": [
+    { "key": "k1", "iv": "AAECAwQFBgcICQoL", "plaintext": "gho_secret-token", "slot": { "table": "accounts", "column": "access_token", "rowId": "acc_1" }, "expected": "ev1.k1.AAECAwQFBgcICQoL.IGq5RLaAoWnoNbr_3oIdA1M9rJWUH1FRnj32--oc9q4" },
+    { "key": "k0", "iv": "AAECAwQFBgcICQoL", "plaintext": "{\"accessToken\":\"at\",\"refreshToken\":\"rt\"}", "slot": { "table": "mcp_credentials", "column": "ciphertext", "rowId": "5b0c7f0e-0000-4000-8000-000000000001" }, "expected": "ev1.k0.AAECAwQFBgcICQoL.J3A8xClQmJ_olqKjSFFkHnIEy0hIY8N3Vmig0u_uoP1C_CgfaWtmmP6I_zXKZl_1CIbRdGPPH6k" },
+    { "key": "k1", "iv": "AAECAwQFBgcICQoL", "plaintext": "", "slot": { "table": "accounts", "column": "refresh_token", "rowId": "acc_1" }, "expected": "ev1.k1.AAECAwQFBgcICQoL.omWKYA92rxpnkjhiF91bHw" }
+  ],
+  "openCases": [
+    { "name": "opens in its slot", "vector": 0, "slot": { "table": "accounts", "column": "access_token", "rowId": "acc_1" }, "expected": "gho_secret-token" },
+    { "name": "a retired key still opens", "vector": 1, "slot": { "table": "mcp_credentials", "column": "ciphertext", "rowId": "5b0c7f0e-0000-4000-8000-000000000001" }, "expected": "{\"accessToken\":\"at\",\"refreshToken\":\"rt\"}" },
+    { "name": "another row", "vector": 0, "slot": { "table": "accounts", "column": "access_token", "rowId": "acc_2" }, "expected": null },
+    { "name": "another column", "vector": 0, "slot": { "table": "accounts", "column": "refresh_token", "rowId": "acc_1" }, "expected": null },
+    { "name": "relabelled with another kid", "vector": 0, "replace": ["ev1.k1.", "ev1.k0."], "slot": { "table": "accounts", "column": "access_token", "rowId": "acc_1" }, "expected": null },
+    { "name": "another version", "vector": 0, "replace": ["ev1.", "ev2."], "slot": { "table": "accounts", "column": "access_token", "rowId": "acc_1" }, "expected": null },
+    { "name": "an unknown kid", "vector": 0, "replace": ["ev1.k1.", "ev1.k9."], "slot": { "table": "accounts", "column": "access_token", "rowId": "acc_1" }, "expected": null },
+    { "name": "a tampered body", "vector": 0, "tamperLast": true, "slot": { "table": "accounts", "column": "access_token", "rowId": "acc_1" }, "expected": null },
+    { "name": "the empty plaintext", "vector": 2, "slot": { "table": "accounts", "column": "refresh_token", "rowId": "acc_1" }, "expected": "" }
+  ],
+  "malformedCases": ["", "ev1", "ev1.k1.AAECAwQFBgcICQoL", "ev1.k1.AAECAwQFBgcICQoL.AA", "v1.abc.def", "ev1.k1.AAEC.AAAAAAAAAAAAAAAAAAAAAAAA", "ev1.k1.AAECAwQFBgcICQoL.x.y"],
+  "rotationCases": [
+    { "vector": 0, "expected": false },
+    { "vector": 1, "expected": true },
+    { "value": "not a vault value", "expected": false }
+  ]
+}

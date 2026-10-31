@@ -1,0 +1,33 @@
+{
+  "$comment": "EXP-1490 (eMCP E1, epic VAPP-175, 2026-10-31): THE `mcp_calls` AUDIT, one row per MCP tool call on `/api/mcp` and `/api/mcp/apps`, written by the server after the call (never blocking it; a failed insert is logged, the call still answers). SERVER-ONLY, never a shape. Columns (`columns`): `id` uuid; `team_id` (the app's team, or the team the built-in call touched; null when none); `user_id` = the MEMBER the call acted as; `client_id` = the OAuth client (`oauth_applications.client_id`), null for a session cookie or a personal API key; `app_id` = the app whose tool ran, null for a built-in tool; `tool` = the name as the client called it (`timesheet__log`, `exponential_issues`); `status` (`statuses`, `callStatus(outcome)` = the FIRST of: `denied` (not listed for the caller, a call-time refusal: exposes.json `upstreamCallError`), `invalid` (the arguments fail the input schema), `upstream` (the upstream errored, timed out or is not callable, upstream.json), `failed` (the run's result is an error), else `ok`); `error` = a short code (exposes/upstream error codes), never a message or argument text; `latency_ms` integer (the broker's wall time, rounded down); `args_hash`; `created_at`. THE ARGS HASH (`hashCases`): `hashPrefix` + lowercase hex SHA-256 of the CANONICAL JSON of the call's arguments as received (absent = `{}`): object keys sorted by Unicode code point, recursively; no whitespace; arrays keep their order; strings escaped as JSON (`\"`, `\\\\`, \\b \\f \\n \\r \\t, other controls as lowercase \\u00xx, everything else literal UTF-8); numbers as ECMAScript prints them (integers plain, -0 as 0; fixtures keep to integers and short decimals); an `undefined` member is dropped. The arguments themselves are never stored (they may hold secrets); equal calls hash equal, so repeats are visible. RETENTION: a row older than `retentionDays` days is purged by the daily sweep (`auditExpired(created_at, now)`, `retentionCases`). Owners read their team's rows in Settings › MCP › Activity; a member reads their own.",
+  "columns": ["id", "team_id", "user_id", "client_id", "app_id", "tool", "status", "error", "latency_ms", "args_hash", "created_at"],
+  "statuses": ["ok", "denied", "invalid", "failed", "upstream"],
+  "hashPrefix": "sha256:",
+  "retentionDays": 90,
+  "canonicalCases": [
+    { "value": {}, "expected": "{}" },
+    { "value": null, "expected": "null" },
+    { "value": { "b": 1, "a": [3, { "d": true, "c": null }] }, "expected": "{\"a\":[3,{\"c\":null,\"d\":true}],\"b\":1}" },
+    { "value": { "B": 1, "a": 2, "_": 3, "é": 4, "Z": 5 }, "expected": "{\"B\":1,\"Z\":5,\"_\":3,\"a\":2,\"é\":4}" },
+    { "value": { "s": "line\nbreak \"quoted\" \\ tab\t ü 🙂 \u0001" }, "expected": "{\"s\":\"line\\nbreak \\\"quoted\\\" \\\\ tab\\t ü 🙂 \\u0001\"}" },
+    { "value": { "n": 3.5, "m": -2, "z": 0 }, "expected": "{\"m\":-2,\"n\":3.5,\"z\":0}" }
+  ],
+  "hashCases": [
+    { "args": null, "expected": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" },
+    { "args": {}, "expected": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" },
+    { "args": { "issue": "APP-5", "hours": 3 }, "expected": "sha256:1d501fbec2fa44823dae2d3df9f93c160738e9684be793fcbdccee9420f293f4" },
+    { "args": { "hours": 3, "issue": "APP-5" }, "expected": "sha256:1d501fbec2fa44823dae2d3df9f93c160738e9684be793fcbdccee9420f293f4" }
+  ],
+  "statusCases": [
+    { "outcome": {}, "expected": "ok" },
+    { "outcome": { "error": true }, "expected": "failed" },
+    { "outcome": { "upstreamError": true, "error": true }, "expected": "upstream" },
+    { "outcome": { "invalid": true, "error": true }, "expected": "invalid" },
+    { "outcome": { "denied": true, "invalid": true }, "expected": "denied" }
+  ],
+  "retentionCases": [
+    { "createdAt": "2026-08-02T12:00:00Z", "now": "2026-10-31T12:00:00Z", "expected": true },
+    { "createdAt": "2026-08-02T12:00:01Z", "now": "2026-10-31T12:00:00Z", "expected": false },
+    { "createdAt": "2026-10-31T11:00:00Z", "now": "2026-10-31T12:00:00Z", "expected": false }
+  ]
+}

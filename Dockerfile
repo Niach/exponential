@@ -7,6 +7,7 @@ COPY apps/push-relay/package.json apps/push-relay/package.json
 COPY packages/db-schema/package.json packages/db-schema/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/domain-contract/package.json packages/domain-contract/package.json
+COPY packages/emcp/package.json packages/emcp/package.json
 COPY packages/etalk/package.json packages/etalk/package.json
 COPY packages/electric-protocol/package.json packages/electric-protocol/package.json
 COPY packages/emoji/package.json packages/emoji/package.json
