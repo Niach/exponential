@@ -62,9 +62,11 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         cx,
     );
     div()
-        .w(px(WIDE.0))
+        // At most the specimen's width: a narrower pane (the IDE window
+        // beside its sidebar) shrinks it, never clips the header and rail.
+        .w_full()
+        .max_w(px(WIDE.0))
         .h(px(WIDE.1))
-        .flex_shrink_0()
         .overflow_hidden()
         .rounded(px(24.))
         .border_1()
