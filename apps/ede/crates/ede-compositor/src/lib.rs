@@ -7,6 +7,7 @@
 
 pub mod backend;
 pub mod config;
+pub mod doctor;
 pub mod grabs;
 mod handlers;
 pub mod input;

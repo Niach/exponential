@@ -289,3 +289,101 @@ fn unplugging_an_output_moves_its_windows_onto_the_remaining_one() {
     assert_eq!(windows(&h)[0].1.loc, (440, 250).into(), "rescued onto the first output");
     assert_eq!(h.capture(0).at(640, 400), BLUE);
 }
+
+#[test]
+fn fullscreen_covers_the_panel_and_the_output_shows_only_that_window() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let panel = c.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    c.draw_layer(&panel, GREEN);
+    let behind = c.toplevel("behind");
+    c.draw(&behind, 300, 200, BLUE);
+    let t = c.toplevel("game");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| windows(&h).len() == 2);
+
+    t.toplevel.set_fullscreen(None);
+    c.roundtrip();
+    wait_for(&mut c, |c| c.state.toplevels[1].states.contains(&XdgState::Fullscreen));
+    assert_eq!(c.state.toplevels[1].size, (1280, 800), "the whole output, not the work area");
+    c.draw_configured(&t, 0, 0, RED);
+    wait_for(&mut c, |_| windows(&h)[1].1 == Rectangle::new((0, 0).into(), (1280, 800).into()));
+    let frame = h.capture(0);
+    assert_eq!((frame.at(640, 790), frame.at(0, 0)), (RED, RED), "over the panel");
+
+    // Super+Up does nothing to a fullscreen window; leaving restores it.
+    chord(&h, KEY_LEFTMETA, KEY_UP);
+    t.toplevel.unset_fullscreen();
+    c.roundtrip();
+    wait_for(&mut c, |c| !c.state.toplevels[1].states.contains(&XdgState::Fullscreen));
+    assert_eq!(c.state.toplevels[1].size, (400, 300));
+    c.draw_configured(&t, 0, 0, RED);
+    wait_for(&mut c, |_| windows(&h)[1].1.size == (400, 300).into());
+    assert_eq!(h.capture(0).at(640, 790), GREEN, "the panel is back");
+}
+
+/// Xwayland must be installed (CI installs it); skipped otherwise.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
+    use x11rb::{
+        connection::Connection,
+        protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, PropMode, WindowClass},
+        wrapper::ConnectionExt as _,
+    };
+    if std::process::Command::new("Xwayland").arg("-version").output().is_err() {
+        eprintln!("skipped: no Xwayland binary");
+        return;
+    }
+    let h = harness(&[(1280, 800)]);
+    h.with(|ede| ede.start_xwayland());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let display = loop {
+        if let Some(n) = h.with(|ede| ede.xdisplay) {
+            break n;
+        }
+        assert!(Instant::now() < deadline, "Xwayland never became ready");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+
+    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland");
+    let root = conn.setup().roots[screen].root;
+    let win = conn.generate_id().unwrap();
+    conn.create_window(
+        x11rb::COPY_DEPTH_FROM_PARENT,
+        win,
+        root,
+        0,
+        0,
+        320,
+        240,
+        0,
+        WindowClass::INPUT_OUTPUT,
+        0,
+        &CreateWindowAux::new().background_pixel(0x00ff_0000),
+    )
+    .unwrap();
+    conn.change_property8(PropMode::REPLACE, win, AtomEnum::WM_NAME, AtomEnum::STRING, b"xclient").unwrap();
+    conn.map_window(win).unwrap();
+    conn.flush().unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let geo = loop {
+        let w = h.with(|ede| ede.space.elements().find(|w| w.x11_surface().is_some()).and_then(|w| ede.space.element_geometry(w)));
+        if let Some(g) = w.filter(|g| g.size.w > 0) {
+            break g;
+        }
+        assert!(Instant::now() < deadline, "the X11 window never mapped");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(geo, Rectangle::new((480, 280).into(), (320, 240).into()), "centred like a Wayland window");
+    assert!(h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())), "it has keyboard focus");
+
+    // Xwayland draws the background pixel once the frame commits.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.capture(0).at(640, 400) != RED {
+        assert!(Instant::now() < deadline, "the X11 window's pixels never showed");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(h.capture(0).at(479, 400), BACKGROUND);
+}

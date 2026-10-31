@@ -1,8 +1,11 @@
 //! The smithay handler impls: one module per protocol family.
 
 mod compositor;
+mod dmabuf;
 mod layer_shell;
 mod xdg_shell;
+#[cfg(feature = "xwayland")]
+mod xwayland;
 
 use smithay::{
     delegate_data_device, delegate_output, delegate_seat,

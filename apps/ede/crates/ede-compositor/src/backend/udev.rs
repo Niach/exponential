@@ -36,12 +36,11 @@ use smithay::{
             element::{memory::MemoryRenderBuffer, surface::WaylandSurfaceRenderElement},
             gles::GlesRenderer,
             multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer},
-            ImportMemWl,
+            ImportDma, ImportMemWl,
         },
         session::{libseat::LibSeatSession, Event as SessionEvent, Session},
         udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent},
     },
-    desktop::space::space_render_elements,
     output::{Mode as WlMode, Output, PhysicalProperties, Subpixel},
     reexports::{
         calloop::{
@@ -57,6 +56,10 @@ use smithay::{
         wayland_server::{backend::GlobalId, Display},
     },
     utils::DeviceFd,
+    wayland::{
+        dmabuf::DmabufFeedbackBuilder,
+        drm_syncobj::{supports_syncobj_eventfd, DrmSyncobjState},
+    },
 };
 
 use super::{cursor::Cursor, OutputElements};
@@ -105,9 +108,9 @@ pub struct Udev {
 
 type Shared = Rc<RefCell<Udev>>;
 
-/// Runs eDE as the session's compositor until the loop stops; `started`
-/// gets the socket name once clients can connect.
-pub fn run_with(config: Config, started: impl FnOnce(&std::ffi::OsStr)) -> Result<(), Box<dyn std::error::Error>> {
+/// Runs eDE as the session's compositor until the loop stops; `autostart`
+/// (if any) starts once clients can connect.
+pub fn run(config: Config, autostart: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     let mut event_loop: EventLoop<'static, Ede> = EventLoop::try_new()?;
     let display: Display<Ede> = Display::new()?;
 
@@ -127,7 +130,9 @@ pub fn run_with(config: Config, started: impl FnOnce(&std::ffi::OsStr)) -> Resul
     let socket = state.listen()?;
     tracing::info!("listening on {}", socket.to_string_lossy());
     std::env::set_var("WAYLAND_DISPLAY", &socket);
-    started(&socket);
+    if !autostart.is_empty() {
+        state.autostart.push(autostart);
+    }
 
     let udev = Rc::new(RefCell::new(Udev {
         session: session.clone(),
@@ -206,8 +211,33 @@ pub fn run_with(config: Config, started: impl FnOnce(&std::ffi::OsStr)) -> Resul
         let primary = u.primary_gpu;
         if let Ok(renderer) = u.gpus.single_renderer(&primary) {
             state.shm_state.update_formats(renderer.shm_formats());
+            // linux-dmabuf v4 on the primary GPU's formats.
+            let formats = renderer.dmabuf_formats();
+            match DmabufFeedbackBuilder::new(primary.dev_id(), formats).build() {
+                Ok(feedback) => {
+                    state.dmabuf_state.create_global_with_default_feedback::<Ede>(&state.display_handle, &feedback);
+                }
+                Err(e) => tracing::warn!("no dmabuf feedback ({e}); GPU clients fall back to shm"),
+            }
+        }
+        // Explicit sync when the primary GPU's DRM fd supports syncobj eventfds
+        // (NVIDIA needs it for flicker-free Xwayland and games).
+        let primary_node = primary.node_with_type(NodeType::Primary).and_then(|n| n.ok());
+        let fd = primary_node.and_then(|n| u.devices.get(&n)).map(|d| d.manager.device().device_fd().clone());
+        match fd {
+            Some(fd) if supports_syncobj_eventfd(&fd) => {
+                state.syncobj_state = Some(DrmSyncobjState::new::<Ede>(&state.display_handle, fd));
+                tracing::info!("explicit sync (drm-syncobj) on");
+            }
+            _ => tracing::info!("explicit sync (drm-syncobj) unavailable on this GPU/kernel"),
         }
     }
+    let importer = udev.clone();
+    state.dmabuf_importer = Some(Box::new(move |dmabuf| {
+        let mut u = importer.borrow_mut();
+        let primary = u.primary_gpu;
+        u.gpus.single_renderer(&primary).is_ok_and(|mut r| r.import_dmabuf(dmabuf, None).is_ok())
+    }));
     let u = udev.clone();
     event_loop.handle().insert_source(udev_backend, move |event, _, state| match event {
         UdevEvent::Added { device_id, path } => {
@@ -228,6 +258,8 @@ pub fn run_with(config: Config, started: impl FnOnce(&std::ffi::OsStr)) -> Resul
             }
         }
     })?;
+
+    state.start_session();
 
     // Every loop turn: repaint outputs that are not waiting for a vblank.
     // Clean frames submit nothing, so an idle desktop stays idle.
@@ -462,16 +494,9 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
         };
         elements.extend(super::cursor_elements(state, &mut renderer, pointer - output_geo.loc.to_f64(), &buffer, (image.xhot as i32, image.yhot as i32)));
     }
-    match space_render_elements(&mut renderer, [&state.space], &output, 1.0) {
-        Ok(space) => elements.extend(space.into_iter().map(OutputElements::Space)),
-        Err(e) => {
-            tracing::warn!("{}: {e:?}", output.name());
-            return;
-        }
-    }
+    elements.extend(super::output_elements(state, &output, &mut renderer));
 
-    let clear = state.config.background_rgba().unwrap_or([0.04, 0.04, 0.04, 1.0]);
-    let result = surface.drm_output.render_frame(&mut renderer, &elements, clear, FrameFlags::DEFAULT);
+    let result = surface.drm_output.render_frame(&mut renderer, &elements, state.clear_color(), FrameFlags::DEFAULT);
     drop(renderer);
     match result {
         Ok(frame) if !frame.is_empty => match surface.drm_output.queue_frame(()) {
