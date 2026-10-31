@@ -14,7 +14,6 @@ use unicode_normalization::UnicodeNormalization as _;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppsMenuCopy {
-    pub rename: String,
     pub delete: String,
 }
 
@@ -31,6 +30,10 @@ pub struct AppsCopy {
     pub nav: String,
     pub title: String,
     pub new_app: String,
+    /// VAPP-176: a new draft's name.
+    pub untitled: String,
+    /// VAPP-176: the list band's Import pill (before New app).
+    pub import: String,
     /// `v{n}`.
     pub version: String,
     pub no_version: String,
@@ -47,12 +50,19 @@ pub struct AppsCopy {
     pub empty: String,
     pub chat_empty: String,
     pub preview_empty: String,
+    /// VAPP-176: the versions drawer with no version yet.
+    pub versions_empty: String,
     pub composer_placeholder: String,
+    /// VAPP-176: a draft's composer placeholder.
+    pub draft_placeholder: String,
+    /// VAPP-176: a draft's empty chat (page-size EmptyState).
+    pub starter_title: String,
+    /// VAPP-176: one action Pill each under [`Self::starter_title`]; a tap
+    /// sends the text as the first message.
+    pub starters: Vec<String>,
     pub no_device: String,
     pub name_placeholder: String,
     pub description_placeholder: String,
-    pub create: String,
-    pub rename: String,
     /// `Delete {name}?`.
     pub delete_title: String,
     pub delete_body: String,
@@ -115,6 +125,10 @@ pub struct AppsTestIds {
     pub chat_card: String,
     pub dock_to_side: String,
     pub float: String,
+    /// VAPP-176: the list band's Import pill.
+    pub import_app: String,
+    /// VAPP-176: a draft's starter pills.
+    pub starter: String,
 }
 
 /// `fixtures/apps.json` minus its cases.
@@ -173,6 +187,21 @@ pub fn editor_layout(stored: Option<&str>) -> EditorLayout {
         "floating" => EditorLayout::Floating,
         _ if APPS.layout.default == "docked" => EditorLayout::Docked,
         _ => EditorLayout::Floating,
+    }
+}
+
+/// VAPP-176: a DRAFT = an app with no version yet (web `isDraftApp`).
+pub fn is_draft(head_version: i64) -> bool {
+    head_version == 0
+}
+
+/// VAPP-176: a draft is always docked (nothing to preview yet); else the
+/// stored layout, else the default (web `editorLayoutFor`).
+pub fn editor_layout_for(stored: Option<&str>, head_version: i64) -> EditorLayout {
+    if is_draft(head_version) {
+        EditorLayout::Docked
+    } else {
+        editor_layout(stored)
     }
 }
 
@@ -406,6 +435,21 @@ mod tests {
         assert_eq!(editor_layout(None).as_str(), APPS.layout.default);
         assert_eq!(editor_layout(Some("docked")), EditorLayout::Docked);
         assert_eq!(editor_layout(Some("sideways")).as_str(), APPS.layout.default);
+    }
+
+    #[test]
+    fn layout_cases_replay_the_fixture() {
+        let all = cases("layoutCases");
+        assert!(!all.is_empty());
+        for case in all {
+            let stored = case["stored"].as_str();
+            let head = case["headVersion"].as_i64().unwrap();
+            assert_eq!(editor_layout_for(stored, head).as_str(), case["layout"].as_str().unwrap(), "{case}");
+            assert_eq!(is_draft(head), head == 0);
+        }
+        assert_eq!(APPS.copy.untitled, "Untitled app");
+        assert_eq!(APPS.copy.starters.len(), 4);
+        assert_eq!(APPS.test_ids.import_app, "apps-import");
     }
 
     #[test]

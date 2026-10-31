@@ -15,7 +15,8 @@ import kotlinx.serialization.json.JsonObject
 @Serializable
 data class AppCreateInput(
     val teamId: String,
-    val name: String,
+    /** VAPP-176: null (omitted) = a DRAFT named "Untitled app" (New app). */
+    val name: String? = null,
     val icon: String? = null,
     val color: String? = null,
     val description: String? = null,
@@ -44,6 +45,9 @@ private data class AppVersionInput(val id: String, val version: Int)
 
 @Serializable
 private data class AppRestoreInput(val id: String, val number: Int)
+
+@Serializable
+data class AppDiscardResult(val discarded: Boolean = false, val txid: Long? = null)
 
 @Serializable
 data class AppRestoreResult(val version: Int, val restored: Int, val txid: Long? = null)
@@ -106,6 +110,17 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
             outputSerializer = AppWriteResult.serializer(),
         )
     }
+
+    /** VAPP-176: leaving an EMPTY draft's editor deletes it (the server
+     *  checks: still no version, no editor session, my own; else a no-op). */
+    suspend fun discardDraft(accountId: String, appId: String): AppDiscardResult =
+        trpc.mutation(
+            accountId,
+            path = "apps.discardDraft",
+            input = AppIdInput(appId),
+            inputSerializer = AppIdInput.serializer(),
+            outputSerializer = AppDiscardResult.serializer(),
+        )
 
     /** Trash the app (the shape's `deleted_at` mirror hides it). */
     suspend fun delete(accountId: String, appId: String) {

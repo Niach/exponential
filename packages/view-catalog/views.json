@@ -2102,7 +2102,7 @@
       "id": "apps",
       "group": "coding",
       "title": "Apps",
-      "blurb": "VAPP-110: the team's Exponential apps (fixtures/apps.json): the band with New app, one row per app (glyph, name, the version pill, the … menu with Rename and Delete), the team's apps only (Exponential ships no built-in apps). An app is a declarative Exponential UI package every client renders; the list is where apps are created, renamed, deleted and opened.",
+      "blurb": "VAPP-110 + VAPP-176: the team's Exponential apps (fixtures/apps.json): the band with Import and New app (New app opens a new draft's editor at once, no dialog), one row per app (glyph, name, the version pill or the Draft badge, the … menu with Export and Delete), the team's apps only (Exponential ships no built-in apps). An app is a declarative Exponential UI package every client renders.",
       "order": 30,
       "web": {
         "route": "/t/$teamSlug/apps",
@@ -2170,6 +2170,43 @@
       "android": {
         "shot": "sg_app",
         "lane": "styleguide"
+      }
+    },
+    {
+      "id": "app-draft",
+      "group": "coding",
+      "title": "App editor · new draft",
+      "blurb": "VAPP-176 (fixtures/apps.json NEW APP): New app opens a DRAFT's editor at once (no dialog): the name with the Draft badge, the chat docked whatever the stored layout, its page-size empty state `What should this app do?` with the starter pills, the composer focused (`Describe your app…`), the preview's `No version yet`. Phones open on the Chat tab.",
+      "order": 54,
+      "web": {
+        "route": "/t/$teamSlug/apps/release-checklist",
+        "anchor": {
+          "testId": "app-editor-starter",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "app:release-checklist"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-draft",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-draft",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The seeded Release checklist app (DEMO_APP_EMPTY_ID): no version and no editor session = a draft. It is Jonas's, so leaving the editor never discards it (only the creator's empty draft goes).",
+        "ios": "The live walk: the Apps list's Release checklist row (a draft), the editor on its Chat tab.",
+        "android": "See ios: the same walk in StyleguideScreenshotsTest.",
+        "desktop": "`app:<slug>` opens the editor by slug in the active team: the seeded Release checklist draft."
       }
     },
     {
@@ -6094,7 +6131,7 @@
       "id": "app-import",
       "group": "coding",
       "title": "App · import",
-      "blurb": "VAPP-121 (fixtures/app-export.json): the New app dialog's import step: the paste field holding the capture text, Choose file, the server's issues as `path: message` rows (here `/package: is required`) and Import, disabled while there are issues.",
+      "blurb": "VAPP-121 + VAPP-176 (fixtures/app-export.json): the import dialog the Apps list band's Import pill opens: the paste field holding the capture text, Choose file, the server's issues as `path: message` rows (here `/package: is required`) and Import, disabled while there are issues.",
       "order": 43,
       "web": {
         "route": "/t/$teamSlug/apps",
@@ -6127,9 +6164,9 @@
       },
       "notes": {
         "web": "The capture text comes from fixtures/app-export.json `capture.importText`.",
-        "ios": "The live walk: the Apps list → New app → Import…, the capture text typed into the field, the issue row from the server.",
+        "ios": "The live walk: the Apps list → the band's Import pill, the capture text typed into the field, the issue row from the server.",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
-        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the New app dialog on its import step with the capture text, over Settings → Apps (the IDE has no Apps page; VAPP-155).",
+        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the import dialog with the capture text, over Settings → Apps (the IDE has no Apps page; VAPP-155).",
         "web-mobile": "Inherits web at the phone's width."
       }
     },

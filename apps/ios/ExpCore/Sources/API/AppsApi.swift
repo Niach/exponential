@@ -7,33 +7,13 @@ import Foundation
 // owner; restoring = any member (a NEW head copying an older version).
 // Publishing a version is the editor session's (MCP `apps upsert`).
 
-/// `apps.create` (the slug derives server-side from the name).
+/// VAPP-176 `apps.create {teamId}` with NO other field = a DRAFT named
+/// "Untitled app" (no version; the editor session names it).
 public struct AppCreateInput: Encodable, Sendable, Equatable {
     public let teamId: String
-    public let name: String
-    public let icon: String?
-    public let color: String?
-    public let description: String?
 
-    public init(teamId: String, name: String, icon: String?, color: String?, description: String?) {
+    public init(teamId: String) {
         self.teamId = teamId
-        self.name = name
-        self.icon = icon
-        self.color = color
-        self.description = description
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case teamId, name, icon, color, description
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(teamId, forKey: .teamId)
-        try c.encode(name, forKey: .name)
-        try c.encodeIfPresent(icon, forKey: .icon)
-        try c.encodeIfPresent(color, forKey: .color)
-        try c.encodeIfPresent(description, forKey: .description)
     }
 }
 
@@ -86,6 +66,10 @@ public struct AppImportCheck: Decodable, Sendable, Equatable {
 
 private struct AppImportResult: Decodable {
     let app: AppCreated
+}
+
+private struct AppDiscardResult: Decodable {
+    let discarded: Bool
 }
 
 private struct AppIdInput: Encodable {
@@ -183,7 +167,8 @@ public final class AppsApi: Sendable {
         self.trpc = trpc
     }
 
-    /// Member-gated `apps.create`; the editor opens on the returned slug.
+    /// Member-gated `apps.create` (VAPP-176: a draft); the editor opens on
+    /// the returned app.
     public func create(accountId: String, _ input: AppCreateInput) async throws -> AppCreated {
         let result: AppCreateResult = try await trpc.mutation(accountId: accountId, path: "apps.create", input: input)
         return result.app
@@ -204,6 +189,17 @@ public final class AppsApi: Sendable {
             accountId: accountId, path: "apps.import", input: AppImportInput(teamId: teamId, text: text)
         )
         return result.app
+    }
+
+    /// VAPP-176 `apps.discardDraft`: leaving an EMPTY draft's editor (no
+    /// version, no editor session) deletes it; the server ignores anything
+    /// else (not mine, a version, a session). True = it was discarded.
+    @discardableResult
+    public func discardDraft(accountId: String, id: String) async throws -> Bool {
+        let result: AppDiscardResult = try await trpc.mutation(
+            accountId: accountId, path: "apps.discardDraft", input: AppIdInput(id: id)
+        )
+        return result.discarded
     }
 
     /// `apps.update` — the creator or a team owner.

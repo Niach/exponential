@@ -43,7 +43,6 @@ import com.exponential.app.domain.Chats
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.CircleIconButton
-import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassAlert
@@ -52,10 +51,6 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.IconPicker
-import com.exponential.app.ui.components.picker.InlinePickerRow
-import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
@@ -67,14 +62,11 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
 // VAPP-110 (fixtures/apps.json, web `components/apps/apps-list.tsx`): the
-// Apps list = the band with `New app` as its trailing pill, then one row per
-// app by name (glyph, name, the version pill, the `…` menu: Rename, Delete);
-// Exponential ships no built-in apps. A row opens the
-// editor. New app / Rename = the board form's identity row (icon + colour +
-// name) and the optional description, in a sheet.
-
-private const val DEFAULT_ICON = "puzzle"
-private const val DEFAULT_COLOR = "#6366f1"
+// Apps list = the band with `Import…` and `New app` as its trailing pills,
+// then one row per app by name (glyph, name, the version pill, the `…` menu:
+// Export, Delete); Exponential ships no built-in apps. A row opens the
+// editor. VAPP-176: New app = `apps.create {teamId}` (a DRAFT) and its
+// editor at once, no form; Import… opens the import step as its own sheet.
 
 /** An app's glyph: its icon in its colour (the board set), muted without one. */
 @Composable
@@ -111,8 +103,7 @@ fun AppsScreen(
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
-    var creating by rememberSaveable { mutableStateOf(false) }
-    var renaming by remember { mutableStateOf<AppListEntry?>(null) }
+    var importing by rememberSaveable { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<AppListEntry?>(null) }
     var exporting by remember { mutableStateOf<AppListEntry?>(null) }
 
@@ -132,8 +123,9 @@ fun AppsScreen(
                 apps = apps,
                 canManage = { viewModel.canManage(it, me, isOwner) },
                 onOpen = { onOpenApp(it.id) },
-                onNew = { creating = true },
-                onRename = { renaming = it },
+                onNew = { viewModel.create(onOpenApp) },
+                onImport = { importing = true },
+                creating = busy,
                 onDelete = { deleting = it },
                 onExport = { exporting = it },
             )
@@ -142,33 +134,16 @@ fun AppsScreen(
         }
     }
 
-    if (creating) {
-        AppFormSheet(
-            app = null,
+    if (importing) {
+        AppImportSheet(
             busy = busy,
-            onDismiss = { creating = false },
-            onSubmit = { name, icon, color, description ->
-                viewModel.create(name, icon, color, description) { id ->
-                    creating = false
-                    onOpenApp(id)
-                }
-            },
-            onValidateImport = viewModel::validateImport,
+            onDismiss = { importing = false },
+            onValidate = viewModel::validateImport,
             onImport = { text ->
                 viewModel.importApp(text) { id ->
-                    creating = false
+                    importing = false
                     onOpenApp(id)
                 }
-            },
-        )
-    }
-    renaming?.let { app ->
-        AppFormSheet(
-            app = app,
-            busy = busy,
-            onDismiss = { renaming = null },
-            onSubmit = { name, icon, color, description ->
-                viewModel.rename(app, name, icon, color, description) { renaming = null }
             },
         )
     }
@@ -203,19 +178,31 @@ fun AppsListContent(
     canManage: (AppListEntry) -> Boolean,
     onOpen: (AppListEntry) -> Unit,
     onNew: () -> Unit,
-    onRename: (AppListEntry) -> Unit,
     onDelete: (AppListEntry) -> Unit,
+    /** VAPP-176: the band's Import… pill (the import sheet). */
+    onImport: () -> Unit = {},
+    /** VAPP-176: New app's create in flight (the pill waits). */
+    creating: Boolean = false,
     /** VAPP-121: any member exports an app that has a version. */
     onExport: (AppListEntry) -> Unit = {},
 ) {
     SectionHeader(Apps.Copy.TITLE) {
-        GlassPill(
-            Apps.Copy.NEW_APP,
-            icon = ExpIcons.uiAdd,
-            size = PillSize.Sm,
-            onClick = onNew,
-            modifier = Modifier.testTag(Apps.TestIds.NEW_APP),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            GlassPill(
+                Apps.Copy.IMPORT,
+                size = PillSize.Sm,
+                onClick = onImport,
+                modifier = Modifier.testTag(Apps.TestIds.IMPORT_APP),
+            )
+            GlassPill(
+                Apps.Copy.NEW_APP,
+                icon = ExpIcons.uiAdd,
+                size = PillSize.Sm,
+                onClick = onNew,
+                enabled = !creating,
+                modifier = Modifier.testTag(Apps.TestIds.NEW_APP),
+            )
+        }
     }
     when {
         apps == null -> SkeletonRows(modifier = Modifier.padding(vertical = 4.dp))
@@ -247,7 +234,6 @@ fun AppsListContent(
                         app,
                         canManage = manage,
                         onExport = { onExport(app) },
-                        onRename = { onRename(app) },
                         onDelete = { onDelete(app) },
                     )
                 } else {
@@ -260,7 +246,7 @@ fun AppsListContent(
 }
 
 @Composable
-private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onExport: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
+private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onExport: () -> Unit, onDelete: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         CircleIconButton(
@@ -284,14 +270,6 @@ private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onExport: () -> Un
             }
             if (canManage) {
             GlassMenuItem(
-                leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                text = { Text(Apps.Copy.MENU_RENAME) },
-                onClick = {
-                    open = false
-                    onRename()
-                },
-            )
-            GlassMenuItem(
                 leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
                 text = { Text(Apps.Copy.MENU_DELETE) },
                 destructive = true,
@@ -305,98 +283,31 @@ private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onExport: () -> Un
     }
 }
 
-/** New app (null [app]) or Rename: the identity row + the description. */
+/** VAPP-121 / VAPP-176: Import… = its own sheet, the import step: the
+ *  monospace field, Choose file, the server's issues and Import. */
 @Composable
-fun AppFormSheet(
-    app: AppListEntry?,
+fun AppImportSheet(
     busy: Boolean,
     onDismiss: () -> Unit,
-    onSubmit: (name: String, icon: String, color: String, description: String) -> Unit,
-    /** VAPP-121: New app's import step (create mode only). */
-    onValidateImport: (suspend (String) -> List<AppExport.Issue>?)? = null,
-    onImport: ((text: String) -> Unit)? = null,
+    onValidate: suspend (String) -> List<AppExport.Issue>?,
+    onImport: (text: String) -> Unit,
 ) {
-    var importing by rememberSaveable { mutableStateOf(false) }
     // Plain remember: an import may be up to 4 MB, far past the Binder limit for saved state.
-    var importText by remember { mutableStateOf("") }
-    val importStep = importing && onImport != null
-    val issues = rememberImportIssues(if (importStep) importText else "") { onValidateImport?.invoke(it) }
-    var name by rememberSaveable { mutableStateOf(app?.name.orEmpty()) }
-    var icon by rememberSaveable { mutableStateOf(app?.icon ?: DEFAULT_ICON) }
-    var color by rememberSaveable { mutableStateOf(app?.color ?: DEFAULT_COLOR) }
-    var description by rememberSaveable { mutableStateOf(app?.description.orEmpty()) }
+    var text by remember { mutableStateOf("") }
+    val issues = rememberImportIssues(text, onValidate)
     GlassSheet(
-        title = when {
-            importStep -> AppExport.Copy.IMPORT_TITLE
-            app == null -> Apps.Copy.NEW_APP
-            else -> Apps.Copy.MENU_RENAME
-        },
+        title = AppExport.Copy.IMPORT_TITLE,
         onDismiss = onDismiss,
-        modifier = Modifier.testTag("app-form-dialog"),
-        primaryAction = if (importStep) {
-            SheetPrimaryAction(
-                label = AppExport.Copy.IMPORT_ACTION,
-                onClick = { if (issues?.isEmpty() == true) onImport(importText) },
-                enabled = issues?.isEmpty() == true && !busy,
-                loading = busy,
-                testTag = "app-import-confirm",
-            )
-        } else {
-            SheetPrimaryAction(
-                label = if (app == null) Apps.Copy.CREATE else Apps.Copy.RENAME,
-                onClick = { if (name.isNotBlank()) onSubmit(name, icon, color, description) },
-                enabled = name.isNotBlank() && !busy,
-                loading = busy,
-                testTag = "app-form-submit",
-            )
-        },
+        modifier = Modifier.testTag("app-import-dialog"),
+        primaryAction = SheetPrimaryAction(
+            label = AppExport.Copy.IMPORT_ACTION,
+            onClick = { if (issues?.isEmpty() == true) onImport(text) },
+            enabled = issues?.isEmpty() == true && !busy,
+            loading = busy,
+            testTag = "app-import-confirm",
+        ),
     ) {
-        if (importStep) {
-            AppImportStep(text = importText, onTextChange = { importText = it }, issues = issues)
-            Spacer(Modifier.height(8.dp))
-            return@GlassSheet
-        }
-        OptionGroup {
-            // N-14: THE row host: an open icon grid drops under the whole
-            // identity row, so no sibling moves (picker-presentation.json).
-            InlinePickerRow(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                rowModifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
-                scroll = false,
-            ) {
-                IconPicker(selected = icon, onSelect = { icon = it }, accentColor = parseColor(color))
-                ColorPicker(selected = color, onSelect = { color = it })
-                GlassTextField(
-                    value = name,
-                    onValueChange = { name = it.take(Apps.NAME_MAX) },
-                    placeholder = Apps.Copy.NAME_PLACEHOLDER,
-                    singleLine = true,
-                    bordered = false,
-                    containerColor = Color.Transparent,
-                    modifier = Modifier.weight(1f).testTag("app-form-name"),
-                )
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        GlassTextField(
-            value = description,
-            onValueChange = { description = it.take(Apps.DESCRIPTION_MAX) },
-            placeholder = Apps.Copy.DESCRIPTION_PLACEHOLDER,
-            minLines = 3,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("app-form-description"),
-        )
-        if (app == null && onImport != null) {
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.padding(horizontal = 16.dp)) {
-                GlassPill(
-                    AppExport.Copy.IMPORT,
-                    size = PillSize.Sm,
-                    onClick = { importing = true },
-                    modifier = Modifier.testTag("app-import"),
-                )
-            }
-        }
+        AppImportStep(text = text, onTextChange = { text = it }, issues = issues)
         Spacer(Modifier.height(8.dp))
     }
 }

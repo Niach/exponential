@@ -73,6 +73,23 @@ extension EmptyState {
         self.actions = actions()
         self.hasActions = true
     }
+
+    /// Inline copy another contract locks with the host's own actions row
+    /// (VAPP-176: a draft app's starter pills); actions draw on `page` only.
+    public init(
+        title: String,
+        description: String? = nil,
+        icon: String? = nil,
+        size: EmptyStateCopy.Size = .page,
+        @ViewBuilder actions: () -> Actions
+    ) {
+        self.size = size
+        self.icon = icon
+        self.title = title
+        self.description = description
+        self.actions = actions()
+        self.hasActions = true
+    }
 }
 
 extension EmptyState where Actions == EmptyStatePrimaryPill {

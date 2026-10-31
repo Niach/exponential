@@ -1,5 +1,4 @@
 import type * as React from "react"
-import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { APPS_COPY } from "@exp/domain-contract/apps"
 import {
@@ -14,12 +13,12 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@exp/ui"
-import { AppFormDialog } from "@/components/apps/app-form-dialog"
+import { useNewApp } from "@/hooks/use-new-app"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { cn } from "@/lib/utils"
 
 // VAPP-110 (fixtures/apps.json): the rail's APPS section, drawn exactly like
-// Agents and Boards — the label, a "+" that opens the New app form, one row
+// Agents and Boards — the label, a "+" = New app (VAPP-176: a draft and its editor), one row
 // per app (its glyph in its colour + its name) opening the editor, and the hover gear (the creator or an owner)
 // to the app's settings page. Desktop widths only: phones keep the Apps
 // list route.
@@ -48,12 +47,12 @@ export function SidebarAppsSection({
   isOwner: boolean
   activeAppSlug: string | null
 }) {
-  const [creating, setCreating] = useState(false)
+  const newApp = useNewApp(teamId, teamSlug)
   const canManage = (app: AppListEntry) => isOwner || app.createdBy === me
   return (
     <SidebarGroup data-testid="sidebar-apps">
       <SidebarGroupLabel>{APPS_COPY.title}</SidebarGroupLabel>
-      <SidebarGroupAction title={APPS_COPY.newApp} aria-label={APPS_COPY.newApp} onClick={() => setCreating(true)}>
+      <SidebarGroupAction title={APPS_COPY.newApp} aria-label={APPS_COPY.newApp} onClick={() => void newApp.create()} disabled={newApp.pending}>
         <UiAddIcon className="h-4 w-4" />
       </SidebarGroupAction>
       <SidebarGroupContent>
@@ -85,7 +84,6 @@ export function SidebarAppsSection({
           ))}
         </SidebarMenu>
       </SidebarGroupContent>
-      <AppFormDialog open={creating} onOpenChange={setCreating} teamId={teamId} teamSlug={teamSlug} />
     </SidebarGroup>
   )
 }

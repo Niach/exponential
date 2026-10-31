@@ -99,13 +99,14 @@ struct AppExportSheet: View {
 private enum AppExportError: LocalizedError {
     case noPackage
 
-    var errorDescription: String? { Apps.Copy.noVersion }
+    var errorDescription: String? { Apps.Copy.previewEmpty }
 }
 
-/// VAPP-121: New app's import step (`copy.importTitle`): paste or choose an
+/// VAPP-121: the import step (`copy.importTitle`; VAPP-176: its own sheet,
+/// opened by the Apps band's `Import…` pill): paste or choose an
 /// app file; as the text changes (debounced) the SERVER lists its issues as
 /// `path: message` rows; Import (enabled only with none) creates the app
-/// and opens its editor like Create.
+/// and opens its editor.
 struct AppImportStep: View {
     let teamId: String
     /// The imported app's id.

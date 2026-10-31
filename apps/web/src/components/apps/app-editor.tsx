@@ -8,6 +8,8 @@ import {
   APPS_TEST_IDS,
   chatCard,
   editorLayout,
+  editorLayoutFor,
+  isDraftApp,
   versionLabel,
   type AppEditorLayout,
 } from "@exp/domain-contract/apps"
@@ -48,7 +50,8 @@ import { useTreeMessages } from "@/hooks/use-session-tree"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { appCollection } from "@/lib/collections"
+import { appCollection, sessionCollection } from "@/lib/collections"
+import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { resolveLaunchDeviceId } from "@/lib/launch-device"
 import { toTreeMessage, type SessionRow } from "@/lib/session-tree"
 import { useKeyVersion } from "@/lib/enet/use-key-holder"
@@ -123,6 +126,18 @@ function ChatSheet({ onDock, children }: { onDock: () => void; children: ReactNo
 
 type Tab = `chat` | `preview` | `versions`
 
+/** VAPP-176: `apps.discardDraft` on leaving an EMPTY draft's editor
+ *  (keepalive); the server deletes it only while it is still empty. */
+function discardDraft(id: string) {
+  void fetch(`/api/trpc/apps.discardDraft`, {
+    method: `POST`,
+    credentials: `include`,
+    keepalive: true,
+    headers: { "content-type": `application/json` },
+    body: JSON.stringify({ id }),
+  }).catch(() => undefined)
+}
+
 /** `sessions.end` on the editor root, surviving navigation and tab close
  *  (keepalive). */
 function endEditorSession(sessionId: string) {
@@ -150,7 +165,7 @@ function VersionRows({
 }) {
   const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
   if (versions.length === 0) {
-    return <EmptyState icon={UiHistoryIcon} title={APPS_COPY.noVersion} size="list" />
+    return <EmptyState icon={UiHistoryIcon} title={APPS_COPY.versionsEmpty} size="list" />
   }
   return (
     <div className={SETTINGS_LIST_CLASS} data-testid={APPS_TEST_IDS.versions}>
@@ -222,12 +237,16 @@ export function AppEditor({
   )
 
   // Leaving the editor ends the live editor session (its whole tree).
+  // VAPP-176: leaving an EMPTY draft (nothing ever sent) discards it.
   const rootRef = useRef<SessionRow | null>(null)
   rootRef.current = root
+  const draftRef = useRef(isDraftApp(app))
+  draftRef.current = isDraftApp(app)
   useEffect(() => {
     const onPageHide = () => {
       const live = rootRef.current
       if (live && live.status !== `ended`) endEditorSession(live.id)
+      if (!live && draftRef.current) discardDraft(app.id)
     }
     window.addEventListener(`pagehide`, onPageHide)
     return () => {
@@ -307,8 +326,24 @@ export function AppEditor({
     if (isMobile) setTab(`preview`)
   }
 
-  // VAPP-129: md+: the chat floats in THE Dock.
-  const floating = !isMobile && layout === `floating`
+  // VAPP-129: md+: the chat floats in THE Dock. VAPP-176: a draft is docked.
+  const draft = isDraftApp(app)
+  const floating = !isMobile && editorLayoutFor(layout, head) === `floating`
+
+  // VAPP-176: a draft's starters: a tap sends that text as the first message.
+  const [starting, setStarting] = useState(false)
+  const sendStarter = async (text: string) => {
+    if (starting || !deviceId) return
+    setStarting(true)
+    try {
+      const result = await sendSessionMessage({ teamId, appId: app.id, deviceId, text })
+      await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+    } catch {
+      toast.error(`Couldn't send the message`)
+    } finally {
+      setStarting(false)
+    }
+  }
 
   const { rows: channelRows } = useConversationRows({ conversation: root, messages, teamSessions })
   const { answer, pending } = useAnswerMessage()
@@ -336,6 +371,24 @@ export function AppEditor({
         onDecide={isMember ? (id, input) => void answer(id, input) : undefined}
         pending={pending}
       />
+    ) : draft && !root ? (
+      <div className="flex flex-1 items-center justify-center py-12">
+        <EmptyState icon={NavAppsIcon} title={APPS_COPY.starterTitle} size="page">
+          {isMember &&
+            APPS_COPY.starters.map((text) => (
+              <Pill
+                key={text}
+                mode="action"
+                size="md"
+                onClick={() => void sendStarter(text)}
+                disabled={!deviceId || starting}
+                data-testid={APPS_TEST_IDS.starter}
+              >
+                {text}
+              </Pill>
+            ))}
+        </EmptyState>
+      </div>
     ) : (
       <div className="flex flex-1 items-center justify-center py-12">
         <EmptyState icon={NavAppsIcon} title={APPS_COPY.chatEmpty} size="list" />
@@ -349,7 +402,8 @@ export function AppEditor({
       appId={app.id}
       deviceId={deviceId ?? undefined}
       disabled={!root && !deviceId}
-      placeholder={root || deviceId ? APPS_COPY.composerPlaceholder : APPS_COPY.noDevice}
+      placeholder={!root && !deviceId ? APPS_COPY.noDevice : draft ? APPS_COPY.draftPlaceholder : APPS_COPY.composerPlaceholder}
+      autoFocus={draft && !root}
       users={users as User[]}
       busy={root?.busy ?? false}
       canStop

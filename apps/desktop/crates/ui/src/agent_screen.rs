@@ -18,6 +18,9 @@
 //! header): the member's editor session (a root with that `app_id` and
 //! `user_id` = me), the app's glyph as the agent's mark, the first send
 //! `sessions.send({appId, text, deviceId})` on the caller's default device.
+//! VAPP-176: a DRAFT's empty chat = the page-size EmptyState `starterTitle`
+//! whose `starters` pills SEND their text through that same first send, the
+//! composer focused with `draftPlaceholder`.
 
 use std::collections::HashSet;
 use std::time::Instant;
@@ -177,6 +180,8 @@ pub struct AgentScreenView {
     on_dock_side: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
     /// The name the placeholder was built for.
     placeholder_name: Option<String>,
+    /// VAPP-176: a draft's first composer took the focus once.
+    draft_focused: bool,
     /// #EXP-1380: a [`Self::queue_refresh`] is pending.
     refresh_queued: bool,
     /// #EXP-1380 PERF: the virtualised conversation (`gpui::list` renders
@@ -273,6 +278,7 @@ impl AgentScreenView {
             floating: false,
             on_dock_side: None,
             placeholder_name: None,
+            draft_focused: false,
             refresh_queued: false,
             list: {
                 let list = ListState::new(0, ListAlignment::Top, CHANNEL_OVERDRAW);
@@ -325,8 +331,47 @@ impl AgentScreenView {
             ChannelSubject::App(_) if self.device_id.is_none() && self.conversation.is_none() => {
                 domain::apps::APPS.copy.no_device.clone()
             }
+            ChannelSubject::App(_) if self.is_empty_draft() => domain::apps::APPS.copy.draft_placeholder.clone(),
             ChannelSubject::App(_) => domain::apps::APPS.copy.composer_placeholder.clone(),
         }
+    }
+
+    /// VAPP-176: an editor chat of a DRAFT (no version yet) with nothing
+    /// sent (no editor session): the starters show.
+    fn is_empty_draft(&self) -> bool {
+        self.conversation.is_none()
+            && self.app.as_ref().is_some_and(|app| domain::apps::is_draft(app.head_version.unwrap_or(0)))
+    }
+
+    /// VAPP-176: a starter pill SENDS its text as the first message, through
+    /// the composer's own first send.
+    fn send_starter(&mut self, text: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.first.sending || self.device_id.is_none() {
+            return;
+        }
+        self.first.input.update(cx, |input, cx| input.set_value(text, window, cx));
+        self.send_first(window, cx);
+    }
+
+    /// VAPP-176: the draft's page-size EmptyState (the app glyph disc,
+    /// `starterTitle`) with one action Pill per `starters` entry, disabled
+    /// like the composer without a device.
+    fn render_starters(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let copy = &domain::apps::APPS.copy;
+        let disabled = self.device_id.is_none() || self.first.sending;
+        let pills = copy.starters.iter().enumerate().map(|(index, text)| {
+            let starter = text.clone();
+            crate::surface::glass_pill_button(
+                SharedString::from(format!("{}-{index}", domain::apps::APPS.test_ids.starter)),
+                crate::surface::PillSize::Md,
+                cx,
+            )
+            .label(text.clone())
+            .disabled(disabled)
+            .on_click(cx.listener(move |this, _, window, cx| this.send_starter(starter.clone(), window, cx)))
+        });
+        crate::controls::empty_state(Icon::new(registry::NAV_APPS), copy.starter_title.clone(), None, cx)
+            .child(crate::controls::empty_state_actions().children(pills))
     }
 
     /// #EXP-1380: one [`Self::refresh`] per effect cycle, however many
@@ -1074,7 +1119,16 @@ impl Render for AgentScreenView {
         self.sync_list(cx);
         // VAPP-110: an editor chat with nothing in it yet = the fixture's
         // `chatEmpty` (the list-size empty state).
+        // VAPP-176: a draft's = the starters, the composer focused once.
+        let starters = editor && rows_snapshot.is_empty() && self.is_empty_draft();
+        if starters && !self.draft_focused {
+            self.draft_focused = true;
+            self.first.input.update(cx, |input, cx| input.focus(window, cx));
+        }
         let chat_empty = (editor && rows_snapshot.is_empty()).then(|| {
+            if starters {
+                return self.render_starters(cx);
+            }
             crate::controls::empty_state_list(
                 Icon::new(registry::NAV_APPS),
                 domain::apps::APPS.copy.chat_empty.clone(),

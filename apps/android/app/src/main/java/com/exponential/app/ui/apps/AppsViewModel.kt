@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AppCreateInput
-import com.exponential.app.data.api.AppUpdateInput
 import com.exponential.app.data.api.AppsApi
 import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
@@ -84,7 +83,7 @@ private fun Flow<ExponentialDatabase?>.isOwnerOf(team: Flow<String?>, userId: Fl
         .flatMapLatest { (db, t) -> if (db == null || t == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(t) }
         .combine(userId) { members, me -> me != null && members.firstOrNull { it.userId == me }?.role == DomainContract.teamRoleOwner }
 
-/** The Apps list + the New app / Rename / Delete writes. */
+/** The Apps list + the New app / Import / Delete writes. */
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AppsViewModel @Inject constructor(
@@ -123,23 +122,14 @@ class AppsViewModel @Inject constructor(
     fun canManage(app: AppListEntry, me: String?, owner: Boolean): Boolean =
         owner || (me != null && app.createdBy == me)
 
-    /** New app → `apps.create` in the selected team; [onCreated] opens its editor. */
-    fun create(name: String, icon: String, color: String, description: String, onCreated: (String) -> Unit) {
+    /** VAPP-176: New app → `apps.create {teamId}` = a DRAFT ("Untitled
+     *  app"); [onCreated] opens its editor at once (no dialog). */
+    fun create(onCreated: (String) -> Unit) {
         val team = selection.selectedId.value ?: return
-        write("create", { create(name, icon, color, description, onCreated) }) { accountId ->
-            val row = api.create(
-                accountId,
-                AppCreateInput(teamId = team, name = name.trim(), icon = icon, color = color, description = description.trim().ifEmpty { null }),
-            )
-            onCreated(row.id)
+        write("create", { create(onCreated) }) { accountId ->
+            onCreated(api.create(accountId, AppCreateInput(teamId = team)).id)
         }
     }
-
-    fun rename(app: AppListEntry, name: String, icon: String, color: String, description: String, onDone: () -> Unit): Unit =
-        write("rename", { rename(app, name, icon, color, description, onDone) }) { accountId ->
-            api.update(accountId, AppUpdateInput(id = app.id, name = name.trim(), icon = icon, color = color, description = description))
-            onDone()
-        }
 
     fun delete(app: AppListEntry, onDone: () -> Unit): Unit =
         write("delete", { delete(app, onDone) }) { accountId ->
@@ -333,10 +323,20 @@ class AppEditorViewModel @Inject constructor(
     }
 
     /** Leaving the editor ENDS my live editor session (its tree); the next
-     *  send continues it. Outlives the screen (a detached scope). */
+     *  send continues it. VAPP-176: leaving an EMPTY draft (no version, no
+     *  editor session: nothing was ever sent) discards it (`apps.discardDraft`,
+     *  a server-checked no-op otherwise). Outlives the screen (a detached scope). */
     fun leave() {
-        val live = root.value?.takeIf { !it.isEnded } ?: return
         val accountId = auth.activeAccountId.value ?: return
+        val current = root.value
+        if (current == null) {
+            val entry = app.value
+            if (entry != null && Apps.isDraft(entry.headVersion) && !_sending.value) {
+                leaveScope.launch { runCatching { api.discardDraft(accountId, appId) } }
+            }
+            return
+        }
+        val live = current.takeIf { !it.isEnded } ?: return
         leaveScope.launch {
             runCatching { sessionsApi.end(accountId, live.id) }
         }
