@@ -972,15 +972,81 @@ pub fn open_embedded_bodies(root_id: &str, text: &str) -> String {
     out
 }
 
+/// How long a launch waits for the tree key of a sealed first message
+/// (FEED-178): a holder's pending pass runs at least every
+/// `steer::seal_keys::HOLDER_PASS` (60 s).
+const SEALED_REQUEST_WAIT: std::time::Duration = std::time::Duration::from_secs(75);
+const SEALED_REQUEST_STEP: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// `fixtures/session-brief.json` `headings.request` / `empty`.
+const BRIEF_REQUEST_HEADING: &str = "Request";
+const BRIEF_EMPTY: &str = "Wait for the next message.";
+
+/// FEED-178: the server composes the brief of a SEALED first message
+/// without its text (it cannot read it) and hands the envelope back as
+/// `sealedText`; this puts the opened text in as the Request, as
+/// `composeBrief` would have (first section, trimmed, the same byte cut).
+pub fn brief_with_request(brief: &str, request: &str) -> String {
+    let request = request.trim();
+    if request.is_empty() {
+        return brief.to_string();
+    }
+    let section = format!("## {BRIEF_REQUEST_HEADING}\n\n{request}");
+    let composed = match brief.trim() {
+        "" | BRIEF_EMPTY => section,
+        rest => format!("{section}\n\n{rest}"),
+    };
+    cut_to_bytes(&composed, domain::contract::SESSIONS_SEND_BRIEF_MAX_BYTES)
+}
+
+/// `composeBrief`'s cut: whole lines that fit in `max` UTF-8 bytes, then a
+/// `…` line.
+fn cut_to_bytes(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let mut kept: Vec<&str> = Vec::new();
+    let mut size = "\n…".len();
+    for line in text.split('\n') {
+        let next = line.len() + usize::from(!kept.is_empty());
+        if size + next > max {
+            break;
+        }
+        kept.push(line);
+        size += next;
+    }
+    format!("{}\n…", kept.join("\n"))
+}
+
 /// `sessions.brief` with its sealed bodies opened ([`open_embedded_bodies`]
-/// with the session's root).
-fn fetch_brief(trpc: &api::TrpcClient, session_id: &str) -> Result<session_device::SessionBrief, ApiError> {
+/// with the session's root) and a sealed first message (`sealedText`) in
+/// as its Request, waiting up to `key_wait` for the tree key (FEED-178: a
+/// launch must not start an agent on a brief without its request).
+fn fetch_brief_waiting(
+    trpc: &api::TrpcClient,
+    session_id: &str,
+    key_wait: std::time::Duration,
+) -> Result<session_device::SessionBrief, ApiError> {
     let mut brief = session_device::brief(trpc, session_id)?;
+    let root = || crate::sealing::root_of(session_id).unwrap_or_else(|| session_id.to_string());
     if brief.brief.contains(crate::sealing::SEALED_BODY_PREFIX) {
-        let root = crate::sealing::root_of(session_id).unwrap_or_else(|| session_id.to_string());
-        brief.brief = open_embedded_bodies(&root, &brief.brief);
+        brief.brief = open_embedded_bodies(&root(), &brief.brief);
+    }
+    if let Some(sealed) = brief.sealed_text.as_deref().filter(|t| t.starts_with(crate::sealing::SEALED_BODY_PREFIX)) {
+        let opened = crate::sealing::open_body_text_waiting(&root(), sealed, key_wait, SEALED_REQUEST_STEP);
+        if opened.is_none() {
+            log::warn!("pickup: the sealed request of session {session_id} stays locked on this install");
+        }
+        let request = opened.unwrap_or_else(|| crate::sealing::LOCKED_TEXT.to_string());
+        brief.brief = brief_with_request(&brief.brief, &request);
     }
     Ok(brief)
+}
+
+/// [`fetch_brief_waiting`] without waiting (a resume / wake: the brief only
+/// names the issues, the request already ran).
+fn fetch_brief(trpc: &api::TrpcClient, session_id: &str) -> Result<session_device::SessionBrief, ApiError> {
+    fetch_brief_waiting(trpc, session_id, std::time::Duration::ZERO)
 }
 
 /// The row a launch / wake prepares from: its root noted for the engine's
@@ -1827,7 +1893,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
     if row.is_root() && row.seal_epoch.is_none() {
         crate::sealing::ensure_tree_key(&row.id);
     }
-    let brief = match fetch_brief(&deps.coding.trpc, &row.id) {
+    let brief = match fetch_brief_waiting(&deps.coding.trpc, &row.id, SEALED_REQUEST_WAIT) {
         Ok(brief) => brief,
         Err(err) if transient(&err) => {
             return Err(gave_up(err.to_string()));
@@ -3676,6 +3742,57 @@ mod tests {
         assert_eq!(reopened["questionId"], "q-1");
         assert_eq!(unknown, None, "a card this process never saw goes plaintext");
         assert_eq!(brief, format!("## Request\n\nSpeed it up\n\n## Note\n\n({})", sealing::LOCKED_TEXT));
+    }
+
+    /// FEED-178: a sealed first message's opened text goes in as the
+    /// Request exactly as the server's `composeBrief` puts a plaintext one:
+    /// every fixture case with text, recomposed from the case WITHOUT it.
+    #[test]
+    fn sealed_request_composes_like_the_server() {
+        let fx: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/session-brief.json")).unwrap();
+        assert_eq!(fx["headings"]["request"], BRIEF_REQUEST_HEADING);
+        assert_eq!(fx["empty"], BRIEF_EMPTY);
+        let without_request = |expected: &str| -> String {
+            let rest = expected.split_once("\n\n## ").map(|(_, rest)| format!("## {rest}"));
+            rest.unwrap_or_else(|| BRIEF_EMPTY.to_string())
+        };
+        let mut checked = 0;
+        for case in fx["cases"].as_array().unwrap() {
+            let (Some(text), Some(expected)) = (case["input"]["text"].as_str(), case["expected"].as_str()) else { continue };
+            if text.trim().is_empty() || !expected.starts_with("## Request") || expected.ends_with('…') {
+                continue;
+            }
+            assert_eq!(brief_with_request(&without_request(expected), text), expected, "{}", case["name"]);
+            checked += 1;
+        }
+        assert!(checked >= 3, "{checked}");
+        assert_eq!(brief_with_request("## Issues\n\n- A-1 x", "  "), "## Issues\n\n- A-1 x");
+        let long = format!("{}\nend", "a".repeat(domain::contract::SESSIONS_SEND_BRIEF_MAX_BYTES));
+        assert_eq!(brief_with_request(BRIEF_EMPTY, &long), "## Request\n\n…");
+    }
+
+    /// FEED-178: a launch's sealed request opens once its key arrives; one
+    /// that never does reads LOCKED_TEXT instead of vanishing.
+    #[test]
+    fn sealed_request_waits_for_its_key() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let row = SessionRow { root_id: Some("sk".to_string()), ..session("sk", "running", DEV, "2026-10-01T00:00:00Z") };
+        fake.keyring.note_sessions(std::slice::from_ref(&row));
+        let envelope = sealing::seal_body("sk", "Align the sidebar").unwrap();
+        let foreign = sealing::generate_tree_key();
+        // An epoch this install holds no secret for (yet).
+        let other = enet_core::sealed::seal_body(&foreign.public, 2, "x").unwrap();
+        let step = std::time::Duration::from_millis(5);
+        let opened = sealing::open_body_text_waiting("sk", &envelope, std::time::Duration::from_secs(1), step);
+        let started = std::time::Instant::now();
+        let locked = sealing::open_body_text_waiting("sk", &other, std::time::Duration::from_millis(50), step);
+        sealing::uninstall();
+        assert_eq!(opened.as_deref(), Some("Align the sidebar"));
+        assert_eq!(locked, None);
+        assert!(started.elapsed() >= std::time::Duration::from_millis(50), "a missing key is waited for");
     }
 
     #[test]
