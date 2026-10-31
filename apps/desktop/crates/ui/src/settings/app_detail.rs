@@ -398,7 +398,7 @@ impl AppDetailPane {
     ) {
         let Some(server_id) = upstream.server_id.clone() else { return };
         if upstream.auth.as_deref() != Some("oauth") {
-            select_settings_section(window, cx, SettingsSection::McpServers);
+            select_settings_section(window, cx, SettingsSection::Mcp);
             return;
         }
         let slug = self
