@@ -6,37 +6,12 @@ license.workspace = true
 publish = false
 
 [dependencies]
-# EXP-1236: code mode for coding runs. The host (IDE or `exponential` daemon)
-# serves ONE loopback MCP endpoint per process with two tools, `exec` and
-# `describe`: a script the agent writes calls the run's OTHER MCP servers
-# (`exponential`, `computer`, the team's HTTP servers) in bulk and in
-# parallel, and only its output returns to the model. Sibling of
-# `crates/epilot`, same topology (per-run bearer on one loopback listener).
-serde = { workspace = true }
-serde_json = { workspace = true }
-log = "0.4"
-uuid = { workspace = true }
-# EXP-1492: the loopback MCP endpoint and every upstream MCP call are
-# eMCP's (rmcp's Streamable HTTP server and client).
-emcp = { path = "../emcp" }
-# The gateway's transparent forward (a proxy, not an MCP client): the
-# workspace's ONE HTTP stack (EXP-304), blocking, rustls.
-reqwest = { workspace = true }
-# The script engine: a pure-Rust ECMAScript engine (Unlicense OR MIT), so the
-# device needs no node/bun/deno and every build target compiles it the same.
-# Default features off: no ICU/temporal data, the scripts only orchestrate
-# tool calls. The host drives its event loop by hand (`runtime.rs`), which is
-# what lets N tool calls run at once on their own threads.
-boa_engine = { version = "0.22", default-features = false }
-# EXP-1279: the contract's `expToolDisplay` subject keys, for the call log.
+# EXP-1507: code mode lives in eMCP (`emcp::codemode`, the `codemode`
+# feature); this crate re-exports it so the coding launcher, the IDE and the
+# `exponential` daemon keep their `codemode::` paths, and installs the one
+# thing emcp cannot link: the contract's `expToolDisplay` rows.
+emcp = { path = "../emcp", features = ["codemode"] }
 domain = { path = "../domain" }
 
-# EXP-1287: the script worker's memory ceiling — the host reads the child's
-# resident size (macOS `proc_pidinfo`, Linux `/proc`), the Linux child caps
-# its own data segment.
-[target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
-
 [dev-dependencies]
-# Raw fake upstreams for the gateway's proxy tests.
-tiny_http = { version = "0.12", default-features = false }
+serde_json = { workspace = true }

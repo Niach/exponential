@@ -19,9 +19,9 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use emcp::Client;
+use crate::Client;
 
-use crate::Upstream;
+use crate::codemode::Upstream;
 
 /// The route prefix on the code-mode listener: a grant's base URL is
 /// `http://127.0.0.1:<port>/gateway`, its endpoint `<base>/api/mcp`.
@@ -73,7 +73,7 @@ impl GatewayUpstream for GatewayRun {
             match slot.as_ref() {
                 Some(client) => client.clone(),
                 None => {
-                    let client = Client::connect(&self.upstream, crate::server::CLIENT_NAME, LOOKUP_TIMEOUT)
+                    let client = Client::connect(&self.upstream, crate::codemode::server::CLIENT_NAME, LOOKUP_TIMEOUT)
                         .map_err(|err| format!("upstream initialize failed: {err}"))?;
                     *slot = Some(client.clone());
                     client
@@ -95,6 +95,7 @@ impl Gateways {
     /// run dies.
     pub fn grant(&self, session_id: &str, label: &str, upstream: Upstream, transform: Arc<dyn GatewayTransform>) -> String {
         let token = format!("gw{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+        crate::runtime::install_crypto();
         let http = reqwest::blocking::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .build()
@@ -201,18 +202,18 @@ fn incoming(run: &GatewayRun, mut message: Value, pending: &[Pending]) -> Value 
 
 /// `/gateway/*` on the code-mode listener: the run's gateway token, then
 /// forwarded upstream through its transform ([`handle`]).
-pub(crate) struct Route(pub Arc<crate::server::Hub>);
+pub(crate) struct Route(pub Arc<crate::codemode::server::Hub>);
 
-impl emcp::RawRoute for Route {
-    fn handle(&self, request: emcp::RawRequest) -> emcp::RawResponse {
+impl crate::RawRoute for Route {
+    fn handle(&self, request: crate::RawRequest) -> crate::RawResponse {
         let Some(run) = request.bearer().and_then(|token| self.0.gateways.run(token)) else {
-            return emcp::RawResponse::empty(401);
+            return crate::RawResponse::empty(401);
         };
         if request.method != "POST" {
-            return emcp::RawResponse::empty(405);
+            return crate::RawResponse::empty(405);
         }
         let Some(body) = request.body.as_deref().and_then(|body| std::str::from_utf8(body).ok()) else {
-            return emcp::RawResponse::empty(400);
+            return crate::RawResponse::empty(400);
         };
         let passed = Passed {
             session: request.header("mcp-session-id").map(str::to_string),
@@ -227,7 +228,7 @@ impl emcp::RawRoute for Route {
         if let Some(session) = reply.session {
             headers.push(("Mcp-Session-Id".to_string(), session));
         }
-        emcp::RawResponse { status: reply.status, headers, body: reply.body.into_bytes() }
+        crate::RawResponse { status: reply.status, headers, body: reply.body.into_bytes() }
     }
 }
 
@@ -462,7 +463,7 @@ mod tests {
     #[test]
     fn forwards_with_the_grants_credentials_and_transforms_both_ways() {
         let (up, seen) = upstream(false);
-        let grant = crate::gateway_grant("gw-run-1", "test", up, Arc::new(Fake)).unwrap();
+        let grant = crate::codemode::gateway_grant("gw-run-1", "test", up, Arc::new(Fake)).unwrap();
         assert!(grant.url.ends_with(ROUTE), "{}", grant.url);
         let endpoint = format!("{}/api/mcp", grant.url);
         let (status, session, body) = post(&endpoint, &grant.token, call(1, "say", json!({ "text": "hi" })));
@@ -491,21 +492,21 @@ mod tests {
         assert!(seen.lock().unwrap().iter().any(|(_, b)| b.contains("looked")), "{body}");
         // A wrong token is refused; a revoke kills the token.
         assert_eq!(post(&endpoint, "nope", call(5, "say", json!({ "text": "x" }))).0, 401);
-        crate::revoke("gw-run-1");
+        crate::codemode::revoke("gw-run-1");
         assert_eq!(post(&endpoint, &grant.token, call(6, "say", json!({ "text": "x" }))).0, 401);
     }
 
     #[test]
     fn an_sse_answer_is_transformed_in_place() {
         let (up, _) = upstream(true);
-        let grant = crate::gateway_grant("gw-run-2", "test", up, Arc::new(Fake)).unwrap();
+        let grant = crate::codemode::gateway_grant("gw-run-2", "test", up, Arc::new(Fake)).unwrap();
         let (status, _, body) = post(&format!("{}/api/mcp", grant.url), &grant.token, call(1, "say", json!({ "text": "yo" })));
         assert_eq!(status, 200);
         let data = body.lines().find_map(|l| l.strip_prefix("data: ")).unwrap();
         let reply: Value = serde_json::from_str(data).unwrap();
         assert_eq!(reply["result"]["content"][0]["text"], "yo");
         assert!(body.starts_with("event: message\n"));
-        crate::revoke("gw-run-2");
+        crate::codemode::revoke("gw-run-2");
     }
 
     #[test]

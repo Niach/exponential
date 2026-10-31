@@ -1,6 +1,6 @@
 //! EXP-1236: the code-mode MCP endpoint, served by the `emcp` crate:
 //! Streamable HTTP on loopback, one listener per host process; each run
-//! reaches it with its own bearer token ([`crate::grant`]), which names the
+//! reaches it with its own bearer token ([`crate::codemode::grant`]), which names the
 //! run and, with it, the upstream servers its scripts may call. The gateway
 //! (`/gateway/*`, EXP-1458) shares the listener as a raw route.
 
@@ -9,12 +9,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use emcp::{Client, ClientError};
+use crate::{Client, ClientError};
 use serde_json::{json, Value};
 
-use crate::catalog::Catalog;
-use crate::runtime::{self, CallHost, ExecError, ExecOutcome, Limits};
-use crate::Upstream;
+use crate::codemode::catalog::Catalog;
+use crate::codemode::runtime::{self, CallHost, ExecError, ExecOutcome, Limits};
+use crate::codemode::Upstream;
 
 /// The config key and server name the agents see (`mcp__codemode__exec`).
 pub const SERVER_NAME: &str = "codemode";
@@ -24,7 +24,7 @@ pub(crate) const CLIENT_NAME: &str = "exponential-codemode";
 const SCRIPT_MAX_BYTES: usize = 256 * 1024;
 /// EXP-1279: where an exec's call log rides in its result's `_meta`
 /// (`script-card.json` `metaKey`/`metaCountKey`/`metaElapsedKey`): the
-/// `[{tool, subject, ok, ms}]` log (at most [`crate::LOG_CAP`]), every call
+/// `[{tool, subject, ok, ms}]` log (at most [`crate::codemode::LOG_CAP`]), every call
 /// the script made, and its wall time. Never in the text content: the model
 /// would pay tokens for it.
 pub const META_CALLS_KEY: &str = "exponential/calls";
@@ -132,12 +132,12 @@ impl CallHost for Run {
 pub(crate) struct Hub {
     runs: Mutex<HashMap<String, Arc<Run>>>,
     /// EXP-1458: the MCP gateway's runs (their own tokens, `/gateway/*`).
-    pub(crate) gateways: crate::gateway::Gateways,
+    pub(crate) gateways: crate::codemode::gateway::Gateways,
 }
 
 impl Hub {
     pub fn new() -> Self {
-        Self { runs: Mutex::default(), gateways: crate::gateway::Gateways::default() }
+        Self { runs: Mutex::default(), gateways: crate::codemode::gateway::Gateways::default() }
     }
 
     /// Admit `session_id`; a run it held before is cancelled. The caller
@@ -161,19 +161,19 @@ impl Hub {
     }
 }
 
-impl emcp::ToolProvider for Hub {
+impl crate::ToolProvider for Hub {
     fn tools(&self) -> Result<Vec<Value>, String> {
         Ok(tool_definitions().as_array().cloned().unwrap_or_default())
     }
 
-    fn call(&self, caller: &emcp::Caller, name: &str, arguments: Value) -> Value {
+    fn call(&self, caller: &crate::Caller, name: &str, arguments: Value) -> Value {
         match self.run(caller.session_id.as_str()) {
             Some(run) => call_tool(&run, name, &arguments),
             None => error_result("This session's code-mode grant ended.".to_string()),
         }
     }
 
-    fn ended(&self, session_id: &emcp::SessionId) {
+    fn ended(&self, session_id: &crate::SessionId) {
         self.gateways.revoke(session_id.as_str());
         self.end(session_id.as_str());
     }
@@ -226,10 +226,10 @@ fn exec(run: &Arc<Run>, arguments: &Value) -> Value {
         outcome.workers,
         if outcome.truncated { ", truncated" } else { "" }
     );
-    crate::reports::publish(
+    crate::codemode::reports::publish(
         &run.session_id,
         script,
-        crate::ScriptReport {
+        crate::codemode::ScriptReport {
             count: outcome.calls.count,
             elapsed_ms: outcome.elapsed.as_millis() as u64,
             calls: outcome.calls.log.clone(),
@@ -354,14 +354,14 @@ and listed as such.";
 
 /// Bind loopback and serve `hub` ([`INSTRUCTIONS`] at `initialize`), the
 /// gateway on `/gateway/*`.
-pub(crate) fn serve(hub: Arc<Hub>) -> Result<emcp::Server, String> {
-    let info = emcp::ServerInfo {
+pub(crate) fn serve(hub: Arc<Hub>) -> Result<crate::Server, String> {
+    let info = crate::ServerInfo {
         name: SERVER_NAME.into(),
         version: env!("CARGO_PKG_VERSION").into(),
         instructions: Some(INSTRUCTIONS.into()),
     };
-    let gateway: Arc<dyn emcp::RawRoute> = Arc::new(crate::gateway::Route(hub.clone()));
-    emcp::Server::serve_with(info, hub, vec![(crate::gateway::ROUTE.to_string(), gateway)])
+    let gateway: Arc<dyn crate::RawRoute> = Arc::new(crate::codemode::gateway::Route(hub.clone()));
+    crate::Server::serve_with(info, hub, vec![(crate::codemode::gateway::ROUTE.to_string(), gateway)])
         .map_err(|err| format!("Could not start the code-mode server: {err}"))
 }
 
@@ -376,7 +376,7 @@ mod tests {
         seen: Arc<Mutex<Vec<String>>>,
     }
 
-    impl emcp::ToolProvider for FakeUpstream {
+    impl crate::ToolProvider for FakeUpstream {
         fn tools(&self) -> Result<Vec<Value>, String> {
             self.seen.lock().unwrap().push("tools/list".to_string());
             Ok(vec![
@@ -385,7 +385,7 @@ mod tests {
             ])
         }
 
-        fn call(&self, caller: &emcp::Caller, name: &str, _arguments: Value) -> Value {
+        fn call(&self, caller: &crate::Caller, name: &str, _arguments: Value) -> Value {
             self.seen.lock().unwrap().push(format!("{} {name}", caller.label));
             if name == "slow" {
                 std::thread::sleep(Duration::from_millis(300));
@@ -396,8 +396,8 @@ mod tests {
 
     fn upstream(name: &str) -> (Upstream, Arc<Mutex<Vec<String>>>) {
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let info = emcp::ServerInfo { name: name.into(), version: "1".into(), instructions: None };
-        let server = emcp::Server::serve(info, Arc::new(FakeUpstream { seen: seen.clone() })).unwrap();
+        let info = crate::ServerInfo { name: name.into(), version: "1".into(), instructions: None };
+        let server = crate::Server::serve(info, Arc::new(FakeUpstream { seen: seen.clone() })).unwrap();
         let token = server.grant(&id("upstream-run"), &format!("{name}-secret"));
         let url = server.url().to_string();
         // The fake lives for the test process.
@@ -405,25 +405,25 @@ mod tests {
         (Upstream { name: name.into(), url, headers: vec![("Authorization".into(), token.header())] }, seen)
     }
 
-    fn id(session_id: &str) -> emcp::SessionId {
-        emcp::SessionId::new(session_id).unwrap()
+    fn id(session_id: &str) -> crate::SessionId {
+        crate::SessionId::new(session_id).unwrap()
     }
 
-    fn caller(session_id: &str) -> emcp::Caller {
-        emcp::Caller { session_id: id(session_id), label: "EXP-1".into() }
+    fn caller(session_id: &str) -> crate::Caller {
+        crate::Caller { session_id: id(session_id), label: "EXP-1".into() }
     }
 
     /// One `tools/call` as the server hands it to the hub, wrapped like the
     /// old JSON-RPC answer so the assertions read `["result"]`.
     fn call(hub: &Hub, session_id: &str, name: &str, arguments: Value) -> Value {
-        json!({ "result": emcp::ToolProvider::call(hub, &caller(session_id), name, arguments) })
+        json!({ "result": crate::ToolProvider::call(hub, &caller(session_id), name, arguments) })
     }
 
-    fn connect(server: &emcp::Server, token: &str) -> Result<emcp::Client, ClientError> {
+    fn connect(server: &crate::Server, token: &str) -> Result<crate::Client, ClientError> {
         let upstream = Upstream {
             name: SERVER_NAME.into(),
             url: server.url().to_string(),
-            headers: vec![("Authorization".into(), emcp::ecore::bearer_header(token))],
+            headers: vec![("Authorization".into(), crate::ecore::bearer_header(token))],
         };
         Client::connect(&upstream, "test", Duration::from_secs(10))
     }
@@ -474,9 +474,9 @@ mod tests {
         assert_eq!(calls[0]["subject"], Value::Null);
         assert!(!result["content"][0]["text"].as_str().unwrap().contains("exponential/"));
         // The engine takes the same log off the side channel, once.
-        let report = crate::take_report("s1", script).expect("the exec filed its log");
+        let report = crate::codemode::take_report("s1", script).expect("the exec filed its log");
         assert_eq!((report.count, report.calls.len()), (3, 3));
-        assert_eq!(crate::take_report("s1", script), None);
+        assert_eq!(crate::codemode::take_report("s1", script), None);
         assert!(started.elapsed() < Duration::from_millis(1000), "two 300 ms calls overlapped: {:?}", started.elapsed());
         let seen = seen.lock().unwrap();
         assert!(seen.iter().filter(|line| *line != "tools/list").all(|line| line.starts_with("computer-secret ")), "{seen:?}");
@@ -522,13 +522,13 @@ mod tests {
     #[test]
     fn the_meta_keys_and_the_log_cap_are_the_script_card_contract() {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/script-card.json"
+            "../../../../../../packages/domain-contract/fixtures/script-card.json"
         ))
         .unwrap();
         assert_eq!(fixture["metaKey"], json!(META_CALLS_KEY));
         assert_eq!(fixture["metaCountKey"], json!(META_COUNT_KEY));
         assert_eq!(fixture["metaElapsedKey"], json!(META_ELAPSED_KEY));
-        assert_eq!(fixture["logCap"], json!(crate::LOG_CAP));
+        assert_eq!(fixture["logCap"], json!(crate::codemode::LOG_CAP));
         assert_eq!(fixture["toolNameSuffix"], json!(format!("{SERVER_NAME}__exec")));
     }
 
@@ -551,7 +551,7 @@ mod tests {
         hub.admit("s1", "EXP-1", Vec::new(), Vec::new());
         assert!(old.cancelled.load(Ordering::Acquire));
         let run = hub.run("s1").unwrap();
-        emcp::ToolProvider::ended(&hub, &id("s1"));
+        crate::ToolProvider::ended(&hub, &id("s1"));
         assert!(hub.runs.lock().unwrap().is_empty());
         assert!(run.cancelled.load(Ordering::Acquire));
         let refused = call(&hub, "s1", "exec", json!({ "script": "return 1" }));

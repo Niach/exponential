@@ -67,8 +67,8 @@ use boa_engine::{js_string, Context, JsError, JsNativeError, JsResult, JsValue, 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::catalog::Catalog;
-use crate::worker::{self, WorkerCommand};
+use crate::codemode::catalog::Catalog;
+use crate::codemode::worker::{self, WorkerCommand};
 
 /// What the engine asks of the run: ONE MCP `tools/call`, answered as the
 /// raw MCP call result (`content`, `structuredContent`, `isError`), or a
@@ -209,16 +209,39 @@ pub fn display_tool_name(tool: &str, args: &Value) -> String {
         .unwrap_or_else(|| tool.to_string())
 }
 
-/// `Some(key)` for one of Exponential's own tools (the contract prefix is
-/// required, as in `steer::exp_tool`), the key being empty when its
-/// contract row names no subject argument; `None` for any other tool.
+/// `Some(key)` for one of the host's own tools (the table's prefix is
+/// required, as in `steer::exp_tool`), the key being empty when its row
+/// names no subject argument; `None` for any other tool, and for every tool
+/// while the host installed no [`SubjectTable`].
 fn exp_tool_subject_key(tool: &str) -> Option<&'static str> {
-    use domain::contract::{EXP_TOOL_NAMES, EXP_TOOL_PREFIX, EXP_TOOL_SUBJECT_KEYS};
+    let table = SUBJECTS.get()?;
     let tool = tool.trim();
-    let index = EXP_TOOL_NAMES.iter().position(|row| {
-        tool.len() > row.len() && tool.ends_with(*row) && tool[..tool.len() - row.len()].ends_with(EXP_TOOL_PREFIX)
+    let index = table.names.iter().position(|row| {
+        tool.len() > row.len() && tool.ends_with(*row) && tool[..tool.len() - row.len()].ends_with(table.prefix)
     })?;
-    Some(EXP_TOOL_SUBJECT_KEYS[index])
+    table.keys.get(index).copied()
+}
+
+/// EXP-1507: the host's own tools and the argument each one is about, for
+/// the call log's subjects and composed names. Exponential installs its
+/// contract's `expToolDisplay` rows (`EXP_TOOL_PREFIX`, `EXP_TOOL_NAMES`,
+/// `EXP_TOOL_SUBJECT_KEYS`); emcp links no app crate, so they come in here.
+#[derive(Clone, Copy, Debug)]
+pub struct SubjectTable {
+    /// `exponential_`: a row matches `<server prefix>…<prefix><name>`.
+    pub prefix: &'static str,
+    /// The rows (`issues_get`), parallel to `keys`.
+    pub names: &'static [&'static str],
+    /// The row's subject argument (`id`), empty for none.
+    pub keys: &'static [&'static str],
+}
+
+static SUBJECTS: std::sync::OnceLock<SubjectTable> = std::sync::OnceLock::new();
+
+/// Install the host's [`SubjectTable`] (once per process; later calls are
+/// ignored).
+pub fn set_subject_table(table: SubjectTable) {
+    let _ = SUBJECTS.set(table);
 }
 
 /// Everything `exec` reports back.
@@ -1186,7 +1209,7 @@ globalThis.ALL_TOOLS = {all_tools};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::ToolSpec;
+    use crate::codemode::catalog::ToolSpec;
     use std::sync::Mutex;
 
     /// Records every call's window; `slow` sleeps `ms`, `fail` refuses,
@@ -1631,6 +1654,13 @@ return { names, hasAll: ALL_TOOLS.includes("mcp__t__slow"), direct: ALL_TOOLS.in
 
     #[test]
     fn a_subject_is_the_contract_argument_of_an_exponential_tool_else_the_first_string() {
+        // The host's table (Exponential installs its contract's rows; these
+        // three are theirs, `crates/codemode` checks the real install).
+        set_subject_table(SubjectTable {
+            prefix: "exponential_",
+            names: &["issues_get", "issues_list", "comments_create"],
+            keys: &["id", "", "issueId"],
+        });
         let order = |keys: &[&str]| keys.iter().map(|key| key.to_string()).collect::<Vec<_>>();
         let args = json!({ "body": "Done.", "issueId": "MKT-6" });
         // `comments_create`'s contract subject is `issueId`, not the first string.

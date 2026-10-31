@@ -1,6 +1,6 @@
 [package]
 name = "emcp"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 description = "eMCP: MCP on rmcp for Exponential's devices and spezl. A loopback Streamable HTTP server behind a tool-provider trait, a blocking client with OAuth and a vault for its credentials, and the eMCP contract (exposes, access, audit, vault, upstream) replayed from packages/emcp."
@@ -54,6 +54,12 @@ bytes = "1"
 # ring-only; reqwest's `rustls` feature would turn on aws-lc-rs for EVERY
 # rustls user (a C build, and two providers make rustls refuse to pick).
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+# EXP-1507: code mode (`codemode` feature, moved in from crates/codemode):
+# a pure-Rust ECMAScript engine (Unlicense OR MIT), so the device needs no
+# node/bun/deno and every build target compiles it the same. Default
+# features off: no ICU/temporal data, the scripts only orchestrate tool
+# calls. The host drives its event loop by hand (`codemode/runtime.rs`).
+boa_engine = { version = "0.22", default-features = false, optional = true }
 # The crypto provider emcp installs for its clients (`runtime.rs`): ring,
 # the one the rest of the tree builds.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
@@ -65,3 +71,19 @@ sha2 = { workspace = true }
 rand = "0.8"
 # rmcp's `CredentialStore` is an async_trait trait (its own pin).
 async-trait = "0.1"
+
+# EXP-1287: the script worker's memory ceiling — the host reads the child's
+# resident size (macOS `proc_pidinfo`, Linux `/proc`), the Linux child caps
+# its own data segment.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true, optional = true }
+
+[features]
+# EXP-1507: code mode (`emcp::codemode`): `exec` + `describe` over a run's
+# other MCP servers, scripts in a worker process, and the MCP gateway (a
+# transparent proxy, the one blocking reqwest user).
+codemode = ["dep:boa_engine", "dep:libc", "reqwest/blocking"]
+
+[dev-dependencies]
+# Raw fake upstreams for code mode's gateway tests.
+tiny_http = { version = "0.12", default-features = false }
