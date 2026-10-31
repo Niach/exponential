@@ -311,6 +311,304 @@
               "role": "navigation",
               "label": "$string.breadcrumb"
             }
+          },
+          {
+            "id": "outline",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "outline.caption",
+                "component": "Text",
+                "props": {
+                  "text": "Outline",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "caption",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              },
+              {
+                "id": "outline.row.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.0.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Current state",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                },
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "outlineSelect",
+                      "context": {
+                        "id": "current"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Current state",
+                  "current": false
+                }
+              },
+              {
+                "id": "outline.row.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.1.bar",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "insetInlineStart": 0,
+                      "top": 0,
+                      "bottom": 0,
+                      "width": 2
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "bar",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    }
+                  },
+                  {
+                    "id": "outline.row.1.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Part A: editor-first creation",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "outline.row.1.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "· 5",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "count",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": true
+                  }
+                },
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "outlineSelect",
+                      "context": {
+                        "id": "part-a"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Part A: editor-first creation",
+                  "current": "location"
+                }
+              },
+              {
+                "id": "outline.row.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.2.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Part B: MCP for eApps",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "outline.row.2.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "· 2",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "count",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                },
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "outlineSelect",
+                      "context": {
+                        "id": "part-b"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Part B: MCP for eApps",
+                  "current": false
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "Outline",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "navigation",
+              "label": "Outline"
+            }
           }
         ],
         "style": {
@@ -7016,7 +7314,12 @@
                 "component": "Carousel",
                 "props": {
                   "page": 0,
-                  "indicators": true
+                  "indicators": true,
+                  "counter": true,
+                  "thumbnails": [
+                    "https://example.com/1.jpg",
+                    "https://example.com/2.jpg"
+                  ]
                 },
                 "children": [
                   {
@@ -7040,6 +7343,298 @@
                     "children": []
                   }
                 ]
+              },
+              {
+                "id": "mosaic",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "mosaic.lead",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "mosaic.lead.image",
+                        "component": "Image",
+                        "props": {
+                          "src": "https://example.com/1.jpg",
+                          "alt": "One",
+                          "fit": "cover"
+                        },
+                        "children": [],
+                        "style": {
+                          "position": "absolute",
+                          "inset": 0,
+                          "width": "100%",
+                          "height": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Mosaic",
+                          "part": "image",
+                          "props": {}
+                        },
+                        "accessibility": {
+                          "hidden": true
+                        }
+                      }
+                    ],
+                    "style": {
+                      "position": "relative",
+                      "overflow": "hidden",
+                      "minWidth": 0,
+                      "minHeight": 0,
+                      "cursor": "pointer",
+                      "flexGrow": 0,
+                      "flexShrink": 0,
+                      "flexBasis": "60%",
+                      "height": "100%"
+                    },
+                    "recipe": {
+                      "macro": "Mosaic",
+                      "part": "lead",
+                      "props": {
+                        "size": "large"
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "mosaicSelect",
+                          "context": {
+                            "index": 0
+                          }
+                        }
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "One"
+                    }
+                  },
+                  {
+                    "id": "mosaic.side",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "mosaic.side.top",
+                        "component": "Box",
+                        "props": {
+                          "pressable": true
+                        },
+                        "children": [
+                          {
+                            "id": "mosaic.side.top.image",
+                            "component": "Image",
+                            "props": {
+                              "src": "https://example.com/2.jpg",
+                              "alt": "Two",
+                              "fit": "cover"
+                            },
+                            "children": [],
+                            "style": {
+                              "position": "absolute",
+                              "inset": 0,
+                              "width": "100%",
+                              "height": "100%"
+                            },
+                            "recipe": {
+                              "macro": "Mosaic",
+                              "part": "image",
+                              "props": {}
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "style": {
+                          "position": "relative",
+                          "overflow": "hidden",
+                          "minWidth": 0,
+                          "minHeight": 0,
+                          "cursor": "pointer",
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "flexBasis": 0,
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Mosaic",
+                          "part": "top",
+                          "props": {
+                            "size": "small"
+                          }
+                        },
+                        "on": {
+                          "press": {
+                            "event": {
+                              "name": "mosaicSelect",
+                              "context": {
+                                "index": 1
+                              }
+                            }
+                          }
+                        },
+                        "accessibility": {
+                          "role": "button",
+                          "label": "Two"
+                        }
+                      },
+                      {
+                        "id": "mosaic.side.bottom",
+                        "component": "Box",
+                        "props": {
+                          "pressable": true
+                        },
+                        "children": [
+                          {
+                            "id": "mosaic.side.bottom.image",
+                            "component": "Image",
+                            "props": {
+                              "src": "https://example.com/3.jpg",
+                              "alt": "Three",
+                              "fit": "cover"
+                            },
+                            "children": [],
+                            "style": {
+                              "position": "absolute",
+                              "inset": 0,
+                              "width": "100%",
+                              "height": "100%"
+                            },
+                            "recipe": {
+                              "macro": "Mosaic",
+                              "part": "image",
+                              "props": {}
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          },
+                          {
+                            "id": "mosaic.side.bottom.more",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "mosaic.side.bottom.more.moreLabel",
+                                "component": "Text",
+                                "props": {
+                                  "text": {
+                                    "call": "fill",
+                                    "args": {
+                                      "template": "$string.morePictures",
+                                      "params": {
+                                        "count": 1
+                                      }
+                                    }
+                                  },
+                                  "lines": 1
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Mosaic",
+                                  "part": "moreLabel",
+                                  "props": {}
+                                }
+                              }
+                            ],
+                            "style": {
+                              "position": "absolute",
+                              "inset": 0,
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center"
+                            },
+                            "recipe": {
+                              "macro": "Mosaic",
+                              "part": "more",
+                              "props": {}
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "style": {
+                          "position": "relative",
+                          "overflow": "hidden",
+                          "minWidth": 0,
+                          "minHeight": 0,
+                          "cursor": "pointer",
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "flexBasis": 0,
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Mosaic",
+                          "part": "bottom",
+                          "props": {
+                            "size": "small"
+                          }
+                        },
+                        "on": {
+                          "press": {
+                            "event": {
+                              "name": "mosaicSelect",
+                              "context": {
+                                "index": 2
+                              }
+                            }
+                          }
+                        },
+                        "accessibility": {
+                          "role": "button",
+                          "label": {
+                            "call": "fill",
+                            "args": {
+                              "template": "$string.morePicturesLabel",
+                              "params": {
+                                "alt": "Three",
+                                "count": 1
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0,
+                      "height": "100%"
+                    },
+                    "recipe": {
+                      "macro": "Mosaic",
+                      "part": "side",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "width": "100%",
+                  "aspectRatio": 1.6,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Mosaic",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group",
+                  "label": "Screens"
+                }
               },
               {
                 "id": "video",

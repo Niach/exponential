@@ -2694,11 +2694,33 @@
         "indicator",
         "controls",
         "previous",
-        "next"
+        "next",
+        "counter",
+        "thumbnails",
+        "thumbnail"
       ],
       "props": [
         "loop",
-        "indicators"
+        "indicators",
+        "counter"
+      ]
+    },
+    {
+      "name": "Mosaic",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "lead",
+        "image",
+        "pair",
+        "side",
+        "top",
+        "bottom",
+        "more",
+        "moreLabel"
+      ],
+      "props": [
+        "size"
       ]
     },
     {
@@ -2840,6 +2862,21 @@
       ],
       "props": [
         "current"
+      ]
+    },
+    {
+      "name": "Outline",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "caption",
+        "row",
+        "bar",
+        "title",
+        "count"
+      ],
+      "props": [
+        "active"
       ]
     },
     {

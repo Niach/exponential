@@ -3253,6 +3253,75 @@
       }
     },
     {
+      "name": "Carousel/counter=true",
+      "node": {
+        "id": "carousel",
+        "component": "Carousel",
+        "props": {
+          "page": 0,
+          "indicators": true,
+          "counter": true
+        },
+        "children": [
+          {
+            "id": "carousel-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Carousel/counter=false",
+      "node": {
+        "id": "carousel",
+        "component": "Carousel",
+        "props": {
+          "page": 0,
+          "indicators": true,
+          "counter": false
+        },
+        "children": [
+          {
+            "id": "carousel-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Mosaic/example",
+      "node": {
+        "id": "mosaic",
+        "component": "Mosaic",
+        "props": {
+          "pictures": [
+            {
+              "src": "https://example.com/editor.png",
+              "alt": "Editor"
+            },
+            {
+              "src": "https://example.com/preview.png",
+              "alt": "Preview"
+            },
+            {
+              "src": "https://example.com/data.png",
+              "alt": "Data"
+            },
+            {
+              "src": "https://example.com/versions.png",
+              "alt": "Versions"
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "Tabs/example",
       "node": {
         "id": "tabs",
@@ -4420,6 +4489,33 @@
             {
               "label": "EXP-42",
               "value": "exp-42"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Outline/example",
+      "node": {
+        "id": "outline",
+        "component": "Outline",
+        "props": {
+          "caption": "Outline",
+          "value": "part-a",
+          "items": [
+            {
+              "id": "current",
+              "title": "Current state"
+            },
+            {
+              "id": "part-a",
+              "title": "Part A: editor-first creation",
+              "count": 5
+            },
+            {
+              "id": "part-b",
+              "title": "Part B: MCP for eApps",
+              "count": 2
             }
           ]
         }

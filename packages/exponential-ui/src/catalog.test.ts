@@ -69,14 +69,16 @@ describe(`components`, () => {
     const voice = [`VoiceWave`]
     // VAPP-162: the chat, call, plan and pairing pieces.
     const round5 = [`MessageBubble`, `CallSurface`, `Plan`, `QrCode`, `QrScanner`]
+    // EXP-1495: the plan page's anchor list and picture group.
+    const round6 = [`Outline`, `Mosaic`]
     // Round 4 (VAPP-103): the names round 3 folded are REMOVED, not aliased.
     const removed = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
-    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5]) expect(coreCatalog.components[name], name).toBeDefined()
+    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5, ...round6]) expect(coreCatalog.components[name], name).toBeDefined()
     for (const name of removed) expect(coreCatalog.components[name], name).toBeUndefined()
     for (const def of Object.values(coreCatalog.components)) expect(`deprecated` in def).toBe(false)
     const hidden = [`TreeGuides`] // round 3: a Row part, never authored
-    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + 1) // + the Unknown placeholder
-    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length - hidden.length)
+    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + 1) // + the Unknown placeholder
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length - hidden.length)
   })
 
   test(`kinds follow the issue's table`, () => {
@@ -88,7 +90,7 @@ describe(`components`, () => {
     // Round 1: natives only where a renderer must own behaviour, macros elsewhere.
     for (const native of [`Table`, `Form`, `NumberField`, `ChipInput`, `DateRangePicker`, `TimePicker`, `FileUpload`, `CodeBlock`, `Toast`])
       expect(kind(native), native).toBe(`native`)
-    for (const macro of [`ScrollArea`, `Sidebar`, `AppBar`, `Kbd`, `Label`, `Breadcrumb`, `Stepper`, `AlertDialog`, `Sparkline`, `Rating`, `DockCard`])
+    for (const macro of [`ScrollArea`, `Sidebar`, `AppBar`, `Kbd`, `Label`, `Breadcrumb`, `Stepper`, `AlertDialog`, `Sparkline`, `Rating`, `DockCard`, `Outline`, `Mosaic`])
       expect(kind(macro), macro).toBe(`macro`)
     expect(([...NATIVE_COMPONENTS] as string[]).sort()).toEqual(components.filter(([, d]) => d.kind === `native`).map(([n]) => n).sort())
     expect(([...MACRO_COMPONENTS] as string[]).sort()).toEqual(components.filter(([, d]) => d.kind === `macro`).map(([n]) => n).sort())

@@ -17496,6 +17496,1452 @@
       ]
     },
     {
+      "name": "Outline/bound:value",
+      "input": {
+        "id": "outline",
+        "component": "Outline",
+        "props": {
+          "caption": "Outline",
+          "value": {
+            "path": "/value"
+          },
+          "items": [
+            {
+              "id": "current",
+              "title": "Current state"
+            },
+            {
+              "id": "part-a",
+              "title": "Part A: editor-first creation",
+              "count": 5
+            },
+            {
+              "id": "part-b",
+              "title": "Part B: MCP for eApps",
+              "count": 2
+            }
+          ]
+        }
+      },
+      "expanded": {
+        "id": "outline",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "outline.caption",
+            "component": "Text",
+            "props": {
+              "text": "Outline",
+              "variant": "caption",
+              "lines": 1
+            },
+            "children": [],
+            "recipe": {
+              "macro": "Outline",
+              "part": "caption",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          },
+          {
+            "id": "outline.row.0",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "outline.row.0.bar",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "insetInlineStart": 0,
+                  "top": 0,
+                  "bottom": 0,
+                  "width": 2
+                },
+                "visible": {
+                  "call": "eq",
+                  "args": {
+                    "a": "current",
+                    "b": {
+                      "path": "/value"
+                    }
+                  }
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "bar",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              },
+              {
+                "id": "outline.row.0.title",
+                "component": "Text",
+                "props": {
+                  "text": "Current state",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "flexBasis": 0,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "title",
+                  "props": {
+                    "active": {
+                      "call": "eq",
+                      "args": {
+                        "a": "current",
+                        "b": {
+                          "path": "/value"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "position": "relative",
+              "height": "$control.rowCompact",
+              "paddingHorizontal": "$spacing.sm",
+              "minWidth": 0,
+              "overflow": "hidden",
+              "cursor": "pointer"
+            },
+            "recipe": {
+              "macro": "Outline",
+              "part": "row",
+              "props": {
+                "active": {
+                  "call": "eq",
+                  "args": {
+                    "a": "current",
+                    "b": {
+                      "path": "/value"
+                    }
+                  }
+                }
+              }
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/value",
+                    "value": "current"
+                  }
+                }
+              }
+            },
+            "accessibility": {
+              "role": "link",
+              "label": "Current state",
+              "current": {
+                "call": "cond",
+                "args": {
+                  "if": {
+                    "call": "eq",
+                    "args": {
+                      "a": "current",
+                      "b": {
+                        "path": "/value"
+                      }
+                    }
+                  },
+                  "then": "location",
+                  "else": false
+                }
+              }
+            }
+          },
+          {
+            "id": "outline.row.1",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "outline.row.1.bar",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "insetInlineStart": 0,
+                  "top": 0,
+                  "bottom": 0,
+                  "width": 2
+                },
+                "visible": {
+                  "call": "eq",
+                  "args": {
+                    "a": "part-a",
+                    "b": {
+                      "path": "/value"
+                    }
+                  }
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "bar",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              },
+              {
+                "id": "outline.row.1.title",
+                "component": "Text",
+                "props": {
+                  "text": "Part A: editor-first creation",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "flexBasis": 0,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "title",
+                  "props": {
+                    "active": {
+                      "call": "eq",
+                      "args": {
+                        "a": "part-a",
+                        "b": {
+                          "path": "/value"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "outline.row.1.count",
+                "component": "Text",
+                "props": {
+                  "text": "· 5",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "count",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "position": "relative",
+              "height": "$control.rowCompact",
+              "paddingHorizontal": "$spacing.sm",
+              "minWidth": 0,
+              "overflow": "hidden",
+              "cursor": "pointer"
+            },
+            "recipe": {
+              "macro": "Outline",
+              "part": "row",
+              "props": {
+                "active": {
+                  "call": "eq",
+                  "args": {
+                    "a": "part-a",
+                    "b": {
+                      "path": "/value"
+                    }
+                  }
+                }
+              }
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/value",
+                    "value": "part-a"
+                  }
+                }
+              }
+            },
+            "accessibility": {
+              "role": "link",
+              "label": "Part A: editor-first creation",
+              "current": {
+                "call": "cond",
+                "args": {
+                  "if": {
+                    "call": "eq",
+                    "args": {
+                      "a": "part-a",
+                      "b": {
+                        "path": "/value"
+                      }
+                    }
+                  },
+                  "then": "location",
+                  "else": false
+                }
+              }
+            }
+          },
+          {
+            "id": "outline.row.2",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "outline.row.2.bar",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "insetInlineStart": 0,
+                  "top": 0,
+                  "bottom": 0,
+                  "width": 2
+                },
+                "visible": {
+                  "call": "eq",
+                  "args": {
+                    "a": "part-b",
+                    "b": {
+                      "path": "/value"
+                    }
+                  }
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "bar",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              },
+              {
+                "id": "outline.row.2.title",
+                "component": "Text",
+                "props": {
+                  "text": "Part B: MCP for eApps",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "flexBasis": 0,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "title",
+                  "props": {
+                    "active": {
+                      "call": "eq",
+                      "args": {
+                        "a": "part-b",
+                        "b": {
+                          "path": "/value"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "outline.row.2.count",
+                "component": "Text",
+                "props": {
+                  "text": "· 2",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "count",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "position": "relative",
+              "height": "$control.rowCompact",
+              "paddingHorizontal": "$spacing.sm",
+              "minWidth": 0,
+              "overflow": "hidden",
+              "cursor": "pointer"
+            },
+            "recipe": {
+              "macro": "Outline",
+              "part": "row",
+              "props": {
+                "active": {
+                  "call": "eq",
+                  "args": {
+                    "a": "part-b",
+                    "b": {
+                      "path": "/value"
+                    }
+                  }
+                }
+              }
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/value",
+                    "value": "part-b"
+                  }
+                }
+              }
+            },
+            "accessibility": {
+              "role": "link",
+              "label": "Part B: MCP for eApps",
+              "current": {
+                "call": "cond",
+                "args": {
+                  "if": {
+                    "call": "eq",
+                    "args": {
+                      "a": "part-b",
+                      "b": {
+                        "path": "/value"
+                      }
+                    }
+                  },
+                  "then": "location",
+                  "else": false
+                }
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xxs",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "Outline",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "navigation",
+          "label": "Outline"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "value": "part-a"
+          },
+          "bound": {
+            "id": "outline",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "outline.caption",
+                "component": "Text",
+                "props": {
+                  "text": "Outline",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "caption",
+                  "props": {}
+                }
+              },
+              {
+                "id": "outline.row.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.0.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Current state",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "current"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Current state",
+                  "current": false
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                }
+              },
+              {
+                "id": "outline.row.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.1.bar",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "insetInlineStart": 0,
+                      "top": 0,
+                      "bottom": 0,
+                      "width": 2
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "bar",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "outline.row.1.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Part A: editor-first creation",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "outline.row.1.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "· 5",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "part-a"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Part A: editor-first creation",
+                  "current": "location"
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": true
+                  }
+                }
+              },
+              {
+                "id": "outline.row.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.2.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Part B: MCP for eApps",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "outline.row.2.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "· 2",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "part-b"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Part B: MCP for eApps",
+                  "current": false
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "navigation",
+              "label": "Outline"
+            },
+            "recipe": {
+              "macro": "Outline",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": [
+            {
+              "id": "outline.row.0",
+              "outcome": {
+                "data": {
+                  "value": "current"
+                }
+              }
+            },
+            {
+              "id": "outline.row.1",
+              "outcome": {
+                "data": {
+                  "value": "part-a"
+                }
+              }
+            },
+            {
+              "id": "outline.row.2",
+              "outcome": {
+                "data": {
+                  "value": "part-b"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "data": {
+            "value": ""
+          },
+          "bound": {
+            "id": "outline",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "outline.caption",
+                "component": "Text",
+                "props": {
+                  "text": "Outline",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "caption",
+                  "props": {}
+                }
+              },
+              {
+                "id": "outline.row.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.0.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Current state",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "current"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Current state",
+                  "current": false
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                }
+              },
+              {
+                "id": "outline.row.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.1.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Part A: editor-first creation",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "outline.row.1.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "· 5",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "part-a"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Part A: editor-first creation",
+                  "current": false
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                }
+              },
+              {
+                "id": "outline.row.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.2.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Part B: MCP for eApps",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "outline.row.2.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "· 2",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "part-b"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Part B: MCP for eApps",
+                  "current": false
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "navigation",
+              "label": "Outline"
+            },
+            "recipe": {
+              "macro": "Outline",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": [
+            {
+              "id": "outline.row.0",
+              "outcome": {
+                "data": {
+                  "value": "current"
+                }
+              }
+            },
+            {
+              "id": "outline.row.1",
+              "outcome": {
+                "data": {
+                  "value": "part-a"
+                }
+              }
+            },
+            {
+              "id": "outline.row.2",
+              "outcome": {
+                "data": {
+                  "value": "part-b"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "outline",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "outline.caption",
+                "component": "Text",
+                "props": {
+                  "text": "Outline",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "caption",
+                  "props": {}
+                }
+              },
+              {
+                "id": "outline.row.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.0.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Current state",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "current"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Current state",
+                  "current": false
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                }
+              },
+              {
+                "id": "outline.row.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.1.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Part A: editor-first creation",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "outline.row.1.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "· 5",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "part-a"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Part A: editor-first creation",
+                  "current": false
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                }
+              },
+              {
+                "id": "outline.row.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "outline.row.2.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Part B: MCP for eApps",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "title",
+                      "props": {
+                        "active": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "outline.row.2.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "· 2",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0
+                    },
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "Outline",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "position": "relative",
+                  "height": "$control.rowCompact",
+                  "paddingHorizontal": "$spacing.sm",
+                  "minWidth": 0,
+                  "overflow": "hidden",
+                  "cursor": "pointer"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "part-b"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "link",
+                  "label": "Part B: MCP for eApps",
+                  "current": false
+                },
+                "recipe": {
+                  "macro": "Outline",
+                  "part": "row",
+                  "props": {
+                    "active": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "navigation",
+              "label": "Outline"
+            },
+            "recipe": {
+              "macro": "Outline",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": [
+            {
+              "id": "outline.row.0",
+              "outcome": {
+                "data": {
+                  "value": "current"
+                }
+              }
+            },
+            {
+              "id": "outline.row.1",
+              "outcome": {
+                "data": {
+                  "value": "part-a"
+                }
+              }
+            },
+            {
+              "id": "outline.row.2",
+              "outcome": {
+                "data": {
+                  "value": "part-b"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Stepper/bound:current",
       "input": {
         "id": "stepper",
