@@ -5,7 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.3.0 (2026-10-31)
+
 - Round 6 (EXP-1495), through the Solid painter: the Carousel `counter` pill and `thumbnails` strip (a thumbnail press reaches `xui-action` as `change {page}`), the `Outline` and `Mosaic` macros.
+- VAPP-180 (with the SDK): a package's `exposes` and `upstreams`, validated by the core.
 
 ## 0.2.1 (2026-10-30)
 
