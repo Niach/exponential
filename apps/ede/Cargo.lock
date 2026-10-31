@@ -420,6 +420,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ede-session"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"

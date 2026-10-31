@@ -1,0 +1,9 @@
+# Started by ede-session once the compositor is up; stopped when it exits.
+# Pulls in the desktop-wide graphical session and the XDG autostart apps
+# (systemd's generator honours OnlyShowIn/NotShowIn against XDG_CURRENT_DESKTOP=eDE).
+[Unit]
+Description=eDE session
+Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target xdg-desktop-autostart.target ede-polkit-agent.service ede-keyring.service
+After=graphical-session-pre.target

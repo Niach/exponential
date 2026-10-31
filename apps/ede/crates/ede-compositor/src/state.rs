@@ -62,6 +62,8 @@ pub struct Ede {
     /// the default arrow); backends that draw their own cursor read it.
     pub cursor_status: CursorImageStatus,
 
+    /// Set by a backend that owns a seat session: switch to VT n.
+    pub vt_switch: Option<Box<dyn FnMut(i32)>>,
     /// Commands started once clients can connect (after Xwayland is up).
     pub autostart: Vec<Vec<String>>,
     pub dmabuf_state: smithay::wayland::dmabuf::DmabufState,
@@ -153,6 +155,7 @@ impl Ede {
             data_device_state,
             seat,
             cursor_status: CursorImageStatus::default_named(),
+            vt_switch: None,
             autostart: Vec::new(),
             dmabuf_state: smithay::wayland::dmabuf::DmabufState::new(),
             dmabuf_importer: None,
