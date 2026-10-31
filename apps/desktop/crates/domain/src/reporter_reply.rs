@@ -28,6 +28,20 @@ pub const FORMER_MEMBER_NAME: &str = "Former member";
 pub const REPORTER_CAPTION: &str = "reporter";
 /// The caption after the time on a member comment emailed to the reporter.
 pub const TO_REPORTER_CAPTION: &str = "to reporter";
+/// The caption after the time on a person's MCP comment (fixture
+/// `captions.viaMcp`).
+pub const VIA_MCP_CAPTION: &str = "via MCP";
+/// #VAPP-186: the caption on a comment an app's MCP tool wrote, `{app}` =
+/// the app's name (fixture `captions.viaApp`).
+const VIA_APP_CAPTION: &str = "via {app}";
+/// The join between caption parts (fixture `captions.separator`).
+pub const CAPTION_SEPARATOR: &str = " · ";
+
+/// [`VIA_APP_CAPTION`] with the app's name filled in.
+pub fn via_app_caption(app: &str) -> String {
+    VIA_APP_CAPTION.replace("{app}", app)
+}
+
 /// `reporterEmailed: true`.
 pub const SENT_TOAST: &str = "Reply emailed to the reporter.";
 /// `reporterEmailed: false`.
@@ -75,6 +89,11 @@ mod tests {
         assert_eq!(copy["notSentToast"].as_str(), Some(NOT_SENT_TOAST));
         assert_eq!(copy["notificationLabel"].as_str(), Some(NOTIFICATION_LABEL));
         assert_eq!(copy.as_object().unwrap().len(), 9, "a new string needs a test");
+        let captions = &fixture["captions"];
+        assert_eq!(captions["viaMcp"].as_str(), Some(VIA_MCP_CAPTION));
+        assert_eq!(captions["viaApp"].as_str(), Some(VIA_APP_CAPTION));
+        assert_eq!(captions["separator"].as_str(), Some(CAPTION_SEPARATOR));
+        assert_eq!(via_app_caption("m5 admin"), "via m5 admin");
     }
 
     #[test]
