@@ -65,9 +65,11 @@ group box (hosts draw none).
 
 Both only with TWO OR MORE pages (like the controls row).
 
-- `counter: true` = a pill over the TRACK's top-start corner (mirrored under
-  RTL), inset `$spacing.sm` (8) from the top and the start edge, above the
-  pages, never intercepting a press or a swipe: part `counter`, text
+- `counter: true` = a pill over the TRACK's top-END corner (mirrored under
+  RTL = top-left), inset `$spacing.sm` (8) from the top and the end edge,
+  above the pages (the end corner keeps it off the page's own heading, which
+  starts at the top-start corner, like a media gallery's counter), never
+  intercepting a press or a swipe: part `counter`, text
   `$string.pageCounter` {page: current + 1, total: n}, hidden from AT (each
   page is already `page i of n`). Neutral: height 20, padding-x sm, radius
   full, fill `#0000008c`, text `#ffffff` xs medium, tabular figures.

@@ -79,14 +79,14 @@ fn frame(out: &eui_core::surface::LayoutOutput, s: &mut Surface, id: &str) -> (f
 }
 
 #[test]
-fn the_counter_sits_over_the_tracks_top_start_corner_and_counts_from_one() {
+fn the_counter_sits_over_the_tracks_top_end_corner_and_counts_from_one() {
     let mut s = carousel(json!({"counter": true}));
     let out = s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
     let (_, counter) = find(&mut s, "root.counter");
     assert_eq!(counter["text"], json!("1 / 3"));
-    let (px, py, _, _) = frame(&out, &mut s, "root.page");
-    let (cx, cy, _, ch) = frame(&out, &mut s, "root.counter");
-    assert_eq!((cx - px, cy - py, ch), (8.0, 8.0, 20.0), "inset sm, 20 tall");
+    let (px, py, pw, _) = frame(&out, &mut s, "root.page");
+    let (cx, cy, cw, ch) = frame(&out, &mut s, "root.counter");
+    assert_eq!(((px + pw) - (cx + cw), cy - py, ch), (8.0, 8.0, 20.0), "inset sm from the top and the end edge, 20 tall");
     let nodes = s.nodes();
     let page = nodes.iter().position(|n| n.id == "root.page").unwrap() as u32;
     assert_eq!(nodes.iter().find(|n| n.id == "root.counter").unwrap().parent, Some(page), "an overlay of the track");

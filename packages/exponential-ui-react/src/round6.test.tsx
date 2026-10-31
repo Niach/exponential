@@ -37,6 +37,11 @@ describe(`Carousel counter`, () => {
     // Its positioned parent holds the track (the pill stays put while the track scrolls).
     expect(counter.parentElement!.classList.contains(`xui-carousel-stage`)).toBe(true)
     expect(counter.parentElement!.querySelector(`.xui-carousel-track`)).not.toBeNull()
+    // The top-END corner (mirrored under RTL), off the page's heading.
+    const css = [...document.querySelectorAll(`style`)].map((s) => s.textContent ?? ``).join(``)
+    const base = css.slice(css.indexOf(`.xui-Carousel-counter{`), css.indexOf(`}`, css.indexOf(`.xui-Carousel-counter{`)) + 1)
+    expect(base).toContain(`inset-inline-end:var(--xui-spacing-sm)`)
+    expect(base).not.toContain(`inset-inline-start`)
   })
 
   it(`follows the page`, () => {

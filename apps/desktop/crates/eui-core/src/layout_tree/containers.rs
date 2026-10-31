@@ -119,14 +119,14 @@ impl Builder<'_, '_> {
         if count < 2 {
             return;
         }
-        // EXP-1495: the `i / n` pill over the track's top-start corner (out
+        // EXP-1495: the `i / n` pill over the track's top-end corner (out
         // of flow, mirrored under RTL, hidden from AT: each page already
         // says `page i of n`).
         if bool_prop(&owner.props, "counter") {
             self.style_default(pages, &[("position", json!("relative"))]);
             let text = self.string_with("pageCounter", &[("page", &(page + 1).to_string()), ("total", &count.to_string())]);
             let inset = json!("$spacing.sm");
-            let c = self.part_in(pages, &owner, "counter", "Text", NodeKind::Leaf, json!({"position": "absolute", "top": inset, "insetInlineStart": inset, "pointerEvents": "none"}), json!({"text": text, "lines": 1}), "");
+            let c = self.part_in(pages, &owner, "counter", "Text", NodeKind::Leaf, json!({"position": "absolute", "top": inset, "insetInlineEnd": inset, "pointerEvents": "none"}), json!({"text": text, "lines": 1}), "");
             self.nodes[c as usize].accessibility = Some(json!({"hidden": true}));
         }
         // EXP-1495: the thumbnail strip under the track, before the controls:

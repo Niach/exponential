@@ -706,7 +706,7 @@ function StoryFrameView({
             fit="contain"
             thumbnails
             className="min-h-0 flex-1 px-0 [&>[data-slot=carousel-thumbnails]]:px-4 [&>[data-slot=carousel-thumbnails]]:pb-[max(0.5rem,env(safe-area-inset-bottom))]"
-            slideClassName="min-h-0 flex-1 [&_[data-slot=carousel-counter]]:right-3 [&_[data-slot=carousel-counter]]:left-auto"
+            slideClassName="min-h-0 flex-1 [&_[data-slot=carousel-counter]]:start-auto [&_[data-slot=carousel-counter]]:end-3"
           />
           {shown && (
             <p data-slot="story-caption" className="px-4 pt-1 text-xs text-muted-foreground">{shown.caption ?? shown.label}</p>
