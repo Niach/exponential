@@ -1,7 +1,5 @@
-- Sessies komen rechtstreeks van het apparaat waarop ze draaien
-- Een sessie waarvan het apparaat offline is, zegt dat en maakt zelf weer verbinding zodra het terug is
-- Berichten in sessies worden op je apparaten verzegeld, zodat de server ze niet meer kan lezen
-- Een vraag uit een chat die je bent begonnen komt als melding op je telefoon en toont de vraag zelf
-- Tik op een beslissing in je inbox om de chat te openen die op je wacht
-- Stories tonen de laatste 24 uur, en het tabblad Stories van een chat toont ze ter plekke
-- Gesprekken blijven werken als je wisselt tussen speaker, koptelefoon en Bluetooth
+- Plannen openen op een eigen pagina, met een overzicht en hun afbeeldingen
+- Rustigere verhalen: één kaart per plan of resultaat, elk met een label
+- Nieuwe app opent meteen de editor en de agent geeft je app een naam
+- De werkregel laat zien welke tool de agent schrijft en hoe lang al
+- Snelle antwoorden boven het invoerveld zijn beter leesbaar

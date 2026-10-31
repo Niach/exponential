@@ -1,7 +1,5 @@
-- Les sessions arrivent directement de l'appareil qui les exécute
-- Une session dont l'appareil est hors ligne l'indique et se reconnecte d'elle-même à son retour
-- Les messages des sessions sont scellés sur tes appareils, le serveur ne peut plus les lire
-- Une question d'un chat que tu as lancé arrive en notification sur ton téléphone et affiche la question elle-même
-- Toucher une décision dans ta boîte de réception ouvre la discussion qui t'attend
-- Les stories montrent les dernières 24 heures, et l'onglet Stories d'une discussion les affiche sur place
-- Les appels continuent quand tu passes du haut-parleur aux écouteurs ou au Bluetooth
+- Les plans s'ouvrent sur leur propre page, avec un sommaire et leurs images
+- Des stories plus calmes : une carte par plan ou résultat, chacune avec un badge
+- Nouvelle app ouvre l'éditeur tout de suite, et l'agent donne un nom à votre app
+- La ligne d'activité indique quel outil l'agent est en train d'écrire, et depuis combien de temps
+- Les réponses rapides au-dessus du champ de saisie sont plus lisibles
