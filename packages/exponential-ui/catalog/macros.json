@@ -2394,7 +2394,7 @@
               "role": "link",
               "label": {
                 "$cond": [
-                  "{item.count}",
+                  "item.count",
                   {
                     "$fill": [
                       "$string.outlineRow",

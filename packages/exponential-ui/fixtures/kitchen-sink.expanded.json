@@ -503,7 +503,16 @@
                 },
                 "accessibility": {
                   "role": "link",
-                  "label": "Part A: editor-first creation",
+                  "label": {
+                    "call": "fill",
+                    "args": {
+                      "template": "$string.outlineRow",
+                      "params": {
+                        "title": "Part A: editor-first creation",
+                        "count": 5
+                      }
+                    }
+                  },
                   "current": "location"
                 }
               },
@@ -589,7 +598,16 @@
                 },
                 "accessibility": {
                   "role": "link",
-                  "label": "Part B: MCP for eApps",
+                  "label": {
+                    "call": "fill",
+                    "args": {
+                      "template": "$string.outlineRow",
+                      "params": {
+                        "title": "Part B: MCP for eApps",
+                        "count": 2
+                      }
+                    }
+                  },
                   "current": false
                 }
               }
