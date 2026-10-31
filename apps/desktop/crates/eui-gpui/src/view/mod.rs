@@ -1068,7 +1068,9 @@ impl SurfaceView {
                 self.styles[i] = next;
             }
             if let Some(t) = self.surface.text_style(i as u32) {
-                self.node_fonts[i] = self.fonts.for_style(t);
+                let font = self.fonts.for_style(t);
+                let tabular = self.cache.nodes.get(i).is_some_and(|n| crate::measure::tabular_nums(n.owner_component.as_deref(), n.part.as_deref()));
+                self.node_fonts[i] = if tabular { crate::measure::with_tabular_nums(font) } else { font };
                 self.texts[i] = t.clone();
             }
         }
