@@ -32,12 +32,15 @@ export function authorLabel(
 
 /** The muted caption after the time (fixture `captions`): "reporter" (the
  *  widget reporter wrote it), then "to reporter" (a reply that was emailed
- *  out), then "via MCP" (a person's MCP client posted it; never on an agent's own comment). Every part that applies shows,
+ *  out), then "via MCP" or "via <app>" (#VAPP-186) (a person's MCP client posted it; never on an agent's own comment). Every part that applies shows,
  *  joined by the fixture separator; none = null. */
 export function commentCaption(
   comment: Pick<Comment, `source` | `audience`> & {
     authorAgentId?: string | null
-  }
+  },
+  /** #VAPP-186: the name of the app whose MCP tool wrote it (`viaAppId`
+   *  resolved from the synced apps); unknown = "via MCP". */
+  viaAppName?: string | null
 ): string | null {
   const parts: Array<string> = []
   if (comment.source === `reporter`) {
@@ -46,6 +49,8 @@ export function commentCaption(
     parts.push(REPORTER_REPLY_COPY.toReporterCaption)
   }
   // #EXP-1383: an agent's comment already names the agent.
-  if (comment.source === `mcp` && !comment.authorAgentId) parts.push(fixture.captions.viaMcp)
+  if (comment.source === `mcp` && !comment.authorAgentId) {
+    parts.push(viaAppName ? fixture.captions.viaApp.replace(`{app}`, viaAppName) : fixture.captions.viaMcp)
+  }
   return parts.length ? parts.join(fixture.captions.separator) : null
 }

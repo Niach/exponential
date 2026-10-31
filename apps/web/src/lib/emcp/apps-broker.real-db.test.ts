@@ -197,8 +197,12 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
     // A granted action runs as the member, confined to the team.
     const commented = await rpc(token, `tools/call`, { name: `timesheet__log_comment`, arguments: { issue: w.issueId, hours: 3 } })
     expect(commented.body.result?.isError, text(commented.body)).toBeFalsy()
-    const [comment] = await db.select({ body: comments.body, authorId: comments.authorId }).from(comments).where(eq(comments.issueId, w.issueId))
-    expect(comment).toEqual({ body: `Logged 3 h`, authorId: w.owner })
+    const [comment] = await db
+      .select({ body: comments.body, authorId: comments.authorId, source: comments.source, viaAppId: comments.viaAppId })
+      .from(comments)
+      .where(eq(comments.issueId, w.issueId))
+    // #VAPP-186: written as the member, attributed "via Timesheet".
+    expect(comment).toEqual({ body: `Logged 3 h`, authorId: w.owner, source: `mcp`, viaAppId: w.appId })
 
     // An upstream the team does not have answers upstreamMissing.
     const missing = await rpc(token, `tools/call`, { name: `timesheet__find_customer`, arguments: { q: `acme` } })

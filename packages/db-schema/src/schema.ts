@@ -779,6 +779,13 @@ export const comments = pgTable(
       (): AnyPgColumn => agents.id,
       { onDelete: `set null` }
     ),
+    // #VAPP-186: the app whose MCP tool wrote it (/api/mcp/apps runs it as
+    // the calling member, `source` mcp): the caption reads "via <app>"
+    // instead of "via MCP". Stamped by the broker, never by input; a
+    // deleted app falls back to "via MCP". SYNCED.
+    viaAppId: uuid(`via_app_id`).references((): AnyPgColumn => apps.id, {
+      onDelete: `set null`,
+    }),
     // SLOP-4: who may read it. `team` (default) never leaves the team;
     // `reporter` shows on the reporter's magic-link page and, from a member,
     // is emailed to the submission's reporter address. Reporter-written rows

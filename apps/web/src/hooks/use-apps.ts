@@ -101,3 +101,13 @@ export function useEditorSession(
   )
   return { root, teamSessions: rows }
 }
+
+/** #VAPP-186: an app's name by id (a comment's "via <app>"), null while
+ *  unknown, trashed or not synced. */
+export function useAppName(appId: string | null | undefined): string | null {
+  const { data } = useLiveQuery(
+    (query) => (appId ? query.from({ a: appCollection }).where(({ a }) => and(eq(a.id, appId), isNull(a.deletedAt))) : undefined),
+    [appId]
+  )
+  return ((data ?? []) as App[])[0]?.name ?? null
+}
