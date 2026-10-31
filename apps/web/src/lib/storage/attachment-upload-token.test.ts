@@ -50,6 +50,18 @@ describe(`attachment upload tokens (EXP-929)`, () => {
     expect(`m` in verifyAttachmentUploadToken(plain, now)!).toBe(false)
   })
 
+  // EXP-1516: a loose upload carries neither issue nor board.
+  it(`mints a loose token without issue and board`, () => {
+    const now = Date.now()
+    const { token } = mintAttachmentUploadToken(
+      { ...input, issueId: undefined, boardId: undefined },
+      now
+    )
+    const payload = verifyAttachmentUploadToken(token, now)!
+    expect(payload.w).toBe(`team-1`)
+    expect(`i` in payload || `b` in payload).toBe(false)
+  })
+
   it(`rejects an expired token`, () => {
     const now = Date.now()
     const { token } = mintAttachmentUploadToken(input, now)
