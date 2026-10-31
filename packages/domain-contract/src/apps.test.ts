@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { appMediaAllowed, chatCard, editorBrief, editorLayout, editorLayoutFor, slugify, sortApps, versionLabel } from "./apps"
+import { appMediaAllowed, editorBrief, editorTab, slugify, sortApps, versionLabel } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -18,23 +18,12 @@ describe(`apps (VAPP-110)`, () => {
     expect(brief).toContain(`v3`)
     for (const op of [`"get"`, `"catalog"`, `"upsert"`, `"records_upsert"`, `"records_list"`]) expect(brief).toContain(op)
   })
-  test.each(fixture.chatCardCases)(`chatCard %j`, (c) => {
-    const row = chatCard(c.messages, c.busy)
-    expect(row.title).toBe(c.title)
-    expect(row.caption).toBe(c.caption)
-    expect(row).toMatchObject({ id: fixture.dockCard.id, kind: `chat`, tint: `muted`, expandable: true, action: null })
-  })
   test(`a draft's brief asks the agent to name it`, () => {
     expect(editorBrief({ name: `Untitled app`, slug: `untitled-app`, headVersion: 0 })).toContain(`pass name, icon, color and description`)
     expect(editorBrief({ name: `Team dashboard`, slug: `team-dashboard`, headVersion: 1 })).not.toContain(`DRAFT`)
   })
-  test.each(fixture.layoutCases)(`editorLayoutFor %j`, (c) => {
-    expect(editorLayoutFor(c.stored, c.headVersion)).toBe(c.layout as never)
-  })
-  test(`the layout falls back to the default`, () => {
-    expect(editorLayout(null)).toBe(fixture.layout.default)
-    expect(editorLayout(`docked`)).toBe(`docked`)
-    expect(editorLayout(`sideways`)).toBe(fixture.layout.default)
+  test.each(fixture.editorTabCases)(`editorTab %j`, (c) => {
+    expect(editorTab(c.requested, c.phone)).toEqual({ tab: c.tab, sheet: c.sheet } as never)
   })
 })
 

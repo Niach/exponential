@@ -48,19 +48,20 @@ public enum Apps {
         public static let deleteTitle = "Delete {name}?"
         public static let deleteBody = "Its versions go with it. This cannot be undone."
         public static let delete = "Delete"
-        public static let openEditor = "Open in the editor"
         public static let settingsTitle = "Apps"
-        // VAPP-129: the floating layout (web and the IDE; phones keep the tabs).
-        public static let dockToSide = "Move to the side"
-        public static let float = "Minimize"
-        public static let working = "Working"
-        // VAPP-122: an app's records (Settings → Apps → the app).
+        // VAPP-122: an app's records (the editor's Settings tab / sheet).
         public static let records = "{n} records"
         public static let recordsOne = "1 record"
         public static let recordsOf = "{n} of {max} records"
         public static let recordsNone = "No records"
+        /// VAPP-177: a Versions row's ghost button (shows that version).
+        public static let preview = "Preview"
 
+        /// VAPP-177: the list row's `…` and the phone editor's `…` menu.
         public enum Menu {
+            public static let versions = "Versions"
+            public static let settings = "Settings"
+            public static let export = "Export"
             public static let delete = "Delete app"
         }
 
@@ -68,6 +69,7 @@ public enum Apps {
             public static let chat = "Chat"
             public static let preview = "Preview"
             public static let versions = "Versions"
+            public static let settings = "Settings"
         }
 
         public static func viewing(_ number: Int) -> String {
@@ -90,8 +92,6 @@ public enum Apps {
         public static let preview: Double = 7
         public static let chatMinWidth: Double = 360
         public static let breakpoint: Double = 768
-        /// VAPP-129: the docked chat pane's header strip (web and the IDE).
-        public static let headerHeight: Double = 40
     }
 
     public enum Preview {
@@ -112,13 +112,29 @@ public enum Apps {
         public static let tabs = "app-editor-tabs"
         public static let composer = "app-editor-composer"
         public static let viewing = "app-editor-viewing"
-        // VAPP-129: the floating layout (web and the IDE).
-        public static let chatCard = "app-editor-chat-card"
-        public static let dockToSide = "app-editor-dock-side"
-        public static let float = "app-editor-float"
         // VAPP-176: the band's Import pill, a draft's starter pills.
         public static let importApp = "apps-import"
         public static let starter = "app-editor-starter"
+        // VAPP-177: the phone editor's `…` menu, the Settings body, a
+        // Versions row's Preview / Restore.
+        public static let menu = "app-editor-menu"
+        public static let settings = "app-editor-settings"
+        public static let versionPreview = "app-version-preview"
+        public static let versionRestore = "app-version-restore"
+    }
+
+    /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and
+    /// desktop = Preview | Versions | Settings beside the chat; phones = Chat
+    /// | Preview + the `…` menu, whose Versions and Settings open the same
+    /// bodies as sheets.
+    public enum EditorTabs {
+        public static let wide = ["preview", "versions", "settings"]
+        public static let phone = ["chat", "preview"]
+        public static let menu = ["versions", "settings", "export", "delete"]
+        public static let `default` = "preview"
+        public static let phoneDefault = "chat"
+        public static let settingsMaxWidth: Double = 640
+        public static let search = "tab"
     }
 
     // MARK: - Contract caps (`contract.json` `apps`)
@@ -201,20 +217,34 @@ public enum Apps {
     /// "Untitled app" until the editor session publishes).
     public static func isDraft(headVersion: Int) -> Bool { headVersion == 0 }
 
-    /// VAPP-129 the editor layouts (web ≥ md and the IDE; phones keep the
-    /// tabs): the stored choice, else the default.
-    public enum Layout {
-        public static let `default` = "floating"
-        public static let values = ["floating", "docked"]
-        public static let storageKey = "exp.apps.editorLayout"
+    /// The tab on screen and, on phones, the menu sheet over it.
+    public struct EditorTabTarget: Equatable, Sendable {
+        public let tab: String
+        public let sheet: String?
+
+        public init(tab: String, sheet: String?) {
+            self.tab = tab
+            self.sheet = sheet
+        }
     }
 
-    /// TS `editorLayoutFor`: a draft is always docked, else the stored
-    /// layout when known, else the default (`layoutCases`).
-    public static func editorLayoutFor(stored: String?, headVersion: Int) -> String {
-        if isDraft(headVersion: headVersion) { return "docked" }
-        if let stored, Layout.values.contains(stored) { return stored }
-        return Layout.default
+    /// TS `editorTab` (`editorTabCases`): a requested tab → the tab on
+    /// screen; a phone opens `versions` / `settings` as the menu's sheet over
+    /// Chat; anything unknown = the form's default.
+    public static func editorTab(requested: String?, phone: Bool) -> EditorTabTarget {
+        if phone {
+            if let requested, requested == "versions" || requested == "settings" {
+                return EditorTabTarget(tab: EditorTabs.phoneDefault, sheet: requested)
+            }
+            if let requested, EditorTabs.phone.contains(requested) {
+                return EditorTabTarget(tab: requested, sheet: nil)
+            }
+            return EditorTabTarget(tab: EditorTabs.phoneDefault, sheet: nil)
+        }
+        if let requested, EditorTabs.wide.contains(requested) {
+            return EditorTabTarget(tab: requested, sheet: nil)
+        }
+        return EditorTabTarget(tab: EditorTabs.default, sheet: nil)
     }
 
     /// `v{n}`, or the "no version" copy while an app has no head.

@@ -1,7 +1,7 @@
 //! VAPP-110 — Exponential apps, the Rust twin of
 //! `packages/domain-contract/src/apps.ts` (iOS `Apps.swift`, Android
 //! `domain/Apps.kt`), byte-locked by `fixtures/apps.json` (`slugifyCases`,
-//! `versionLabelCases`, `sortAppsCases`, `mediaPolicy.cases`). The copy, the
+//! `versionLabelCases`, `sortAppsCases`, `editorTabCases`, `mediaPolicy.cases`). The copy, the
 //! pane ratio and the preview frame come FROM the fixture ([`APPS`]); the
 //! caps from the contract (`apps`).
 
@@ -14,6 +14,9 @@ use unicode_normalization::UnicodeNormalization as _;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppsMenuCopy {
+    pub versions: String,
+    pub settings: String,
+    pub export: String,
     pub delete: String,
 }
 
@@ -22,6 +25,8 @@ pub struct AppsTabsCopy {
     pub chat: String,
     pub preview: String,
     pub versions: String,
+    /// VAPP-177: the editor's Settings tab.
+    pub settings: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -69,22 +74,16 @@ pub struct AppsCopy {
     pub delete: String,
     pub menu: AppsMenuCopy,
     pub tabs: AppsTabsCopy,
-    /// The app settings page's button to the editor.
-    pub open_editor: String,
     /// Settings → Apps' title.
     pub settings_title: String,
-    /// VAPP-129: the floating chat's dock-to-side button.
-    pub dock_to_side: String,
-    /// VAPP-129: the docked chat's float-back button.
-    pub float: String,
-    /// VAPP-129: the chat card's caption while the session works.
-    pub working: String,
     /// VAPP-122 (the settings page's records line): `{n} records`.
     pub records: String,
     pub records_one: String,
     /// `{n} of {max} records`.
     pub records_of: String,
     pub records_none: String,
+    /// VAPP-177: a version row's ghost button (show that version).
+    pub preview: String,
 }
 
 /// The editor's two panes (fr) and the chat's floor.
@@ -95,8 +94,6 @@ pub struct AppsPanes {
     pub preview: f32,
     pub chat_min_width: f32,
     pub breakpoint: f32,
-    /// VAPP-129: the docked chat pane's header strip.
-    pub header_height: f32,
 }
 
 /// The preview frame.
@@ -122,13 +119,16 @@ pub struct AppsTestIds {
     pub tabs: String,
     pub composer: String,
     pub viewing: String,
-    pub chat_card: String,
-    pub dock_to_side: String,
-    pub float: String,
     /// VAPP-176: the list band's Import pill.
     pub import_app: String,
     /// VAPP-176: a draft's starter pills.
     pub starter: String,
+    /// VAPP-177: the phones' `…` menu.
+    pub menu: String,
+    /// VAPP-177: the Settings tab.
+    pub settings: String,
+    pub version_preview: String,
+    pub version_restore: String,
 }
 
 /// `fixtures/apps.json` minus its cases.
@@ -139,95 +139,89 @@ pub struct AppsSpec {
     pub panes: AppsPanes,
     pub preview: AppsPreview,
     pub test_ids: AppsTestIds,
-    pub layout: AppsLayout,
-    pub dock_card: AppsDockCard,
+    pub editor_tabs: AppsEditorTabs,
 }
 
-/// VAPP-129: the editor's layouts on web ≥ md and the IDE.
+/// VAPP-177: the editor's tabs (web ≥ md and desktop: `wide`; phones:
+/// `phone` + the `…` menu's sheets).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AppsLayout {
+pub struct AppsEditorTabs {
+    pub wide: Vec<String>,
+    pub phone: Vec<String>,
+    pub menu: Vec<String>,
     pub default: String,
-    pub values: Vec<String>,
-    pub storage_key: String,
+    pub phone_default: String,
+    pub settings_max_width: u32,
+    pub search: String,
 }
 
-/// VAPP-129: the floating chat's ONE DockCard.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AppsDockCard {
-    pub id: String,
-    pub kind: String,
-    pub tint: String,
-    pub icon: String,
-    pub dock_icon: String,
-    pub float_icon: String,
-}
-
-/// VAPP-129: the editor's layout (web `AppEditorLayout`).
+/// VAPP-177: one editor tab (web `AppEditorTab`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EditorLayout {
-    Floating,
-    Docked,
+pub enum EditorTab {
+    Chat,
+    Preview,
+    Versions,
+    Settings,
 }
 
-impl EditorLayout {
+impl EditorTab {
     pub fn as_str(self) -> &'static str {
         match self {
-            EditorLayout::Floating => "floating",
-            EditorLayout::Docked => "docked",
+            EditorTab::Chat => "chat",
+            EditorTab::Preview => "preview",
+            EditorTab::Versions => "versions",
+            EditorTab::Settings => "settings",
         }
+    }
+
+    pub fn parse(id: &str) -> Option<Self> {
+        match id {
+            "chat" => Some(EditorTab::Chat),
+            "preview" => Some(EditorTab::Preview),
+            "versions" => Some(EditorTab::Versions),
+            "settings" => Some(EditorTab::Settings),
+            _ => None,
+        }
+    }
+
+    /// The tab's label (`copy.tabs.*`).
+    pub fn label(self) -> String {
+        let tabs = &APPS.copy.tabs;
+        match self {
+            EditorTab::Chat => tabs.chat.clone(),
+            EditorTab::Preview => tabs.preview.clone(),
+            EditorTab::Versions => tabs.versions.clone(),
+            EditorTab::Settings => tabs.settings.clone(),
+        }
+    }
+
+    /// The wide tabs in order (`editorTabs.wide`).
+    pub fn wide() -> Vec<EditorTab> {
+        APPS.editor_tabs.wide.iter().filter_map(|id| EditorTab::parse(id)).collect()
     }
 }
 
-/// A stored layout, else the fixture's default (web `editorLayout`).
-pub fn editor_layout(stored: Option<&str>) -> EditorLayout {
-    match stored.unwrap_or(APPS.layout.default.as_str()) {
-        "docked" => EditorLayout::Docked,
-        "floating" => EditorLayout::Floating,
-        _ if APPS.layout.default == "docked" => EditorLayout::Docked,
-        _ => EditorLayout::Floating,
+/// A requested tab (the desktop settings nav, web `?tab=`) → the tab on
+/// screen and, on phones, the sheet over it (web `editorTab`,
+/// `editorTabCases`). The sheet is only ever Versions or Settings.
+pub fn editor_tab(requested: Option<&str>, phone: bool) -> (EditorTab, Option<EditorTab>) {
+    let tabs = &APPS.editor_tabs;
+    let parse = |id: &str| EditorTab::parse(id).expect("editorTabs ids are tabs");
+    if phone {
+        if let Some(sheet @ ("versions" | "settings")) = requested {
+            return (parse(&tabs.phone_default), Some(parse(sheet)));
+        }
+        let tab = requested.filter(|r| tabs.phone.iter().any(|t| t == r)).unwrap_or(&tabs.phone_default);
+        return (parse(tab), None);
     }
+    let tab = requested.filter(|r| tabs.wide.iter().any(|t| t == r)).unwrap_or(&tabs.default);
+    (parse(tab), None)
 }
 
 /// VAPP-176: a DRAFT = an app with no version yet (web `isDraftApp`).
 pub fn is_draft(head_version: i64) -> bool {
     head_version == 0
-}
-
-/// VAPP-176: a draft is always docked (nothing to preview yet); else the
-/// stored layout, else the default (web `editorLayoutFor`).
-pub fn editor_layout_for(stored: Option<&str>, head_version: i64) -> EditorLayout {
-    if is_draft(head_version) {
-        EditorLayout::Docked
-    } else {
-        editor_layout(stored)
-    }
-}
-
-/// The floating editor's ONE DockCard (web `chatCard`): the newest message's
-/// first plain line (else the empty chat copy), `Working` while the editor
-/// session is busy. `messages` = the bodies, oldest first. It opens (the
-/// chevron), so no action word: "Move to the side" is the sheet's.
-pub fn chat_card(messages: &[&str], busy: bool) -> crate::dock::DockRow {
-    let title = messages
-        .iter()
-        .rev()
-        .map(|body| crate::ask_dock::ask_dock_title(body))
-        .find(|line| !line.is_empty())
-        .unwrap_or_else(|| APPS.copy.chat_empty.clone());
-    crate::dock::DockRow {
-        id: APPS.dock_card.id.clone(),
-        kind: crate::dock::DockKind::Chat,
-        tint: crate::dock::DockTint::Muted,
-        icon: APPS.dock_card.icon.clone(),
-        label: APPS.copy.tabs.chat.clone(),
-        caption: busy.then(|| APPS.copy.working.clone()),
-        meta: None,
-        title,
-        expandable: true,
-        action: None,
-    }
 }
 
 const APPS_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/apps.json");
@@ -422,34 +416,51 @@ mod tests {
     }
 
     #[test]
-    fn chat_card_replays_the_fixture() {
-        for case in cases("chatCardCases") {
-            let messages: Vec<&str> = case["messages"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-            let row = chat_card(&messages, case["busy"].as_bool().unwrap());
-            assert_eq!(row.title, case["title"].as_str().unwrap());
-            assert_eq!(row.caption.as_deref(), case["caption"].as_str());
-            assert_eq!(row.id, APPS.dock_card.id);
-            assert_eq!(row.kind, crate::dock::DockKind::Chat);
-            assert!(row.expandable && row.action.is_none());
-        }
-        assert_eq!(editor_layout(None).as_str(), APPS.layout.default);
-        assert_eq!(editor_layout(Some("docked")), EditorLayout::Docked);
-        assert_eq!(editor_layout(Some("sideways")).as_str(), APPS.layout.default);
-    }
-
-    #[test]
-    fn layout_cases_replay_the_fixture() {
-        let all = cases("layoutCases");
+    fn editor_tab_replays_the_fixture() {
+        let all = cases("editorTabCases");
         assert!(!all.is_empty());
         for case in all {
-            let stored = case["stored"].as_str();
-            let head = case["headVersion"].as_i64().unwrap();
-            assert_eq!(editor_layout_for(stored, head).as_str(), case["layout"].as_str().unwrap(), "{case}");
-            assert_eq!(is_draft(head), head == 0);
+            let (tab, sheet) = editor_tab(case["requested"].as_str(), case["phone"].as_bool().unwrap());
+            assert_eq!(tab.as_str(), case["tab"].as_str().unwrap(), "{case}");
+            assert_eq!(sheet.map(EditorTab::as_str), case["sheet"].as_str(), "{case}");
         }
+        assert_eq!(EditorTab::wide(), vec![EditorTab::Preview, EditorTab::Versions, EditorTab::Settings]);
+        assert_eq!(APPS.editor_tabs.settings_max_width, 640);
+        assert!(is_draft(0) && !is_draft(1));
         assert_eq!(APPS.copy.untitled, "Untitled app");
         assert_eq!(APPS.copy.starters.len(), 4);
         assert_eq!(APPS.test_ids.import_app, "apps-import");
+    }
+
+    #[test]
+    fn copy_and_test_ids_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        let copy = &APPS.copy;
+        assert_eq!(fixture["copy"]["tabs"]["settings"], copy.tabs.settings.as_str());
+        assert_eq!(fixture["copy"]["preview"], copy.preview.as_str());
+        for (key, value) in [
+            ("versions", &copy.menu.versions),
+            ("settings", &copy.menu.settings),
+            ("export", &copy.menu.export),
+            ("delete", &copy.menu.delete),
+        ] {
+            assert_eq!(fixture["copy"]["menu"][key], value.as_str(), "{key}");
+        }
+        let ids = &APPS.test_ids;
+        for (key, value) in [
+            ("tabs", &ids.tabs),
+            ("menu", &ids.menu),
+            ("settings", &ids.settings),
+            ("versions", &ids.versions),
+            ("versionRow", &ids.version_row),
+            ("versionPreview", &ids.version_preview),
+            ("versionRestore", &ids.version_restore),
+        ] {
+            assert_eq!(fixture["testIds"][key], value.as_str(), "{key}");
+        }
+        // VAPP-177: the floating layout is gone from the fixture.
+        assert!(fixture.get("layout").is_none() && fixture.get("dockCard").is_none());
+        assert!(fixture["panes"].get("headerHeight").is_none());
     }
 
     #[test]

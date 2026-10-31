@@ -917,8 +917,11 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                     session_id: id.to_string(),
                 });
             }
-            // VAPP-110: one app's editor, by id or by slug.
+            // VAPP-110: one app's editor, by id or by slug. VAPP-177:
+            // `app:<slug>:<tab>` opens it on that tab (the editor reads the
+            // tab off the env itself: `app_screen::dev_tab`).
             if let Some(app) = spec.strip_prefix("app:") {
+                let (app, _) = crate::app_screen::split_app_spec(app);
                 return Some(Screen::App { app: app.to_string() });
             }
             if let Some(id) = spec.strip_prefix("agent:") {
@@ -2192,6 +2195,12 @@ mod tests {
         assert_eq!(
             parse_dev_screen("app:team-dashboard"),
             Some(Screen::App { app: "team-dashboard".into() })
+        );
+        // VAPP-177: `app:<slug>:<tab>` = that app's editor (the tab is the
+        // editor's to read).
+        assert_eq!(
+            parse_dev_screen("app:working-hours:versions"),
+            Some(Screen::App { app: "working-hours".into() })
         );
         assert!(!Screen::App { app: "a".into() }.is_detail());
         // VAPP-93: every specimen id of the site (view `exponential-ui-<x>`).

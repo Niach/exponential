@@ -40,18 +40,28 @@ class AppsTest {
     }
 
     @Test
-    fun `editorLayoutFor replays the fixture`() {
-        val layout = fixture["layout"]!!.jsonObject
-        assertEquals(layout["default"]!!.jsonPrimitive.content, Apps.Layout.DEFAULT)
-        assertEquals(layout["values"]!!.jsonArray.map { it.jsonPrimitive.content }, listOf(Apps.Layout.FLOATING, Apps.Layout.DOCKED))
-        val cases = fixture["layoutCases"]!!.jsonArray.map { it.jsonObject }
+    fun `editorTab replays the fixture`() {
+        val tabs = fixture["editorTabs"]!!.jsonObject
+        fun list(key: String) = tabs[key]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(list("wide"), Apps.EditorTabs.WIDE)
+        assertEquals(list("phone"), Apps.EditorTabs.PHONE)
+        assertEquals(list("menu"), Apps.EditorTabs.MENU)
+        assertEquals(tabs["default"]!!.jsonPrimitive.content, Apps.EditorTabs.DEFAULT)
+        assertEquals(tabs["phoneDefault"]!!.jsonPrimitive.content, Apps.EditorTabs.PHONE_DEFAULT)
+        assertEquals(tabs["settingsMaxWidth"]!!.jsonPrimitive.int, Apps.EditorTabs.SETTINGS_MAX_WIDTH)
+        assertEquals(tabs["search"]!!.jsonPrimitive.content, Apps.EditorTabs.SEARCH)
+        // VAPP-177: the floating layout is gone.
+        assertEquals(null, fixture["layout"])
+        assertEquals(null, fixture["layoutCases"])
+        val cases = fixture["editorTabCases"]!!.jsonArray.map { it.jsonObject }
         assert(cases.isNotEmpty())
+        fun opt(case: JsonObject, key: String) = case[key]!!.let { if (it is kotlinx.serialization.json.JsonNull) null else it.jsonPrimitive.content }
         for (case in cases) {
-            val stored = case["stored"]!!.let { if (it is kotlinx.serialization.json.JsonNull) null else it.jsonPrimitive.content }
-            val head = case["headVersion"]!!.jsonPrimitive.int
-            assertEquals(case.toString(), case["layout"]!!.jsonPrimitive.content, Apps.editorLayoutFor(stored, head))
-            assertEquals(head == 0, Apps.isDraft(head))
+            val pick = Apps.editorTab(opt(case, "requested"), case["phone"]!!.jsonPrimitive.content.toBooleanStrict())
+            assertEquals(case.toString(), Apps.EditorTabPick(case["tab"]!!.jsonPrimitive.content, opt(case, "sheet")), pick)
         }
+        assertEquals(true, Apps.isDraft(0))
+        assertEquals(false, Apps.isDraft(1))
     }
 
     @Test
@@ -84,10 +94,15 @@ class AppsTest {
             c("namePlaceholder") to Apps.Copy.NAME_PLACEHOLDER, c("descriptionPlaceholder") to Apps.Copy.DESCRIPTION_PLACEHOLDER,
             c("deleteTitle") to Apps.Copy.DELETE_TITLE,
             c("deleteBody") to Apps.Copy.DELETE_BODY, c("delete") to Apps.Copy.DELETE,
+            menu["versions"]!!.jsonPrimitive.content to Apps.Copy.MENU_VERSIONS,
+            menu["settings"]!!.jsonPrimitive.content to Apps.Copy.MENU_SETTINGS,
+            menu["export"]!!.jsonPrimitive.content to Apps.Copy.MENU_EXPORT,
             menu["delete"]!!.jsonPrimitive.content to Apps.Copy.MENU_DELETE,
             tabs["chat"]!!.jsonPrimitive.content to Apps.Copy.TAB_CHAT,
             tabs["preview"]!!.jsonPrimitive.content to Apps.Copy.TAB_PREVIEW,
             tabs["versions"]!!.jsonPrimitive.content to Apps.Copy.TAB_VERSIONS,
+            tabs["settings"]!!.jsonPrimitive.content to Apps.Copy.TAB_SETTINGS,
+            c("preview") to Apps.Copy.PREVIEW,
             c("records") to Apps.Copy.RECORDS,
             c("recordsOne") to Apps.Copy.RECORDS_ONE, c("recordsOf") to Apps.Copy.RECORDS_OF,
             c("recordsNone") to Apps.Copy.RECORDS_NONE,
@@ -97,7 +112,10 @@ class AppsTest {
         // VAPP-176: no Rename, no create form.
         assertEquals(null, copy["create"])
         assertEquals(null, copy["rename"])
-        assertEquals(setOf("delete"), menu.keys)
+        assertEquals(setOf("versions", "settings", "export", "delete"), menu.keys)
+        assertEquals(setOf("chat", "preview", "versions", "settings"), tabs.keys)
+        // VAPP-177: the floating layout's copy is gone.
+        for (gone in listOf("dockToSide", "float", "working", "openEditor")) assertEquals(null, copy[gone])
 
         // Exponential ships no built-in apps (2026-10-24).
         assertEquals(null, fixture["builtin"])
@@ -114,8 +132,9 @@ class AppsTest {
             "editor" to Apps.TestIds.EDITOR, "chat" to Apps.TestIds.CHAT, "preview" to Apps.TestIds.PREVIEW,
             "versions" to Apps.TestIds.VERSIONS, "versionRow" to Apps.TestIds.VERSION_ROW, "tabs" to Apps.TestIds.TABS,
             "composer" to Apps.TestIds.COMPOSER, "viewing" to Apps.TestIds.VIEWING,
-            "chatCard" to Apps.TestIds.CHAT_CARD, "dockToSide" to Apps.TestIds.DOCK_TO_SIDE, "float" to Apps.TestIds.FLOAT,
             "importApp" to Apps.TestIds.IMPORT_APP, "starter" to Apps.TestIds.STARTER,
+            "menu" to Apps.TestIds.MENU, "settings" to Apps.TestIds.SETTINGS,
+            "versionPreview" to Apps.TestIds.VERSION_PREVIEW, "versionRestore" to Apps.TestIds.VERSION_RESTORE,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { APPS_COPY } from "@exp/domain-contract/apps"
+import { APPS_COPY, APPS_EDITOR_TABS } from "@exp/domain-contract/apps"
 import { conceptIcon, EmptyState, SkeletonRows } from "@exp/ui"
 import { AppEditor } from "@/components/apps/app-editor"
 import { useApp, useApps } from "@/hooks/use-apps"
@@ -13,12 +13,19 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 // preview, versions. `$appSlug` = the app's slug in the team. VAPP-176: a
 // draft's slug follows its new name, so the page keys the app by ID and
 // replaces the route in place (the editor never remounts: that would end
-// the editor session mid-turn).
+// the editor session mid-turn). VAPP-177: `?tab=<id>` opens that tab (phones:
+// versions/settings = the menu's sheet over Chat; `editorTab`).
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const SYNC_GRACE_MS = 4_000
 
+type AppEditorSearch = { tab?: string }
+
 export const Route = createFileRoute(`/t/$teamSlug/apps/$appSlug`)({
+  validateSearch: (search: Record<string, unknown>): AppEditorSearch => {
+    const tab = search[APPS_EDITOR_TABS.search]
+    return typeof tab === `string` && tab ? { tab } : {}
+  },
   head: () => ({ meta: [{ title: pageTitle(APPS_COPY.title) }] }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -30,6 +37,7 @@ export const Route = createFileRoute(`/t/$teamSlug/apps/$appSlug`)({
 
 function AppEditorPage() {
   const { teamSlug, appSlug } = Route.useParams()
+  const { tab: requestedTab } = Route.useSearch()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const permissions = useTeamPermissions(team)
@@ -76,6 +84,9 @@ function AppEditorPage() {
       teamSlug={teamSlug}
       me={session?.user?.id ?? null}
       isMember={permissions.isMember}
+      canManage={permissions.isOwner || app.createdBy === (session?.user?.id ?? null)}
+      canGrant={permissions.isOwner}
+      requestedTab={requestedTab ?? null}
     />
   )
 }

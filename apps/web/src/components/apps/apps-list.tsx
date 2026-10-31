@@ -46,7 +46,7 @@ export function AppsList({
   apps: readonly AppListEntry[]
   me: string | null
   isOwner: boolean
-  /** Where a row goes: the editor (the Apps page) or the app's settings page (Settings → Apps). */
+  /** Where a row goes: the editor (the Apps page) or, VAPP-177, the editor on its Settings tab (Settings → Apps). */
   rowsOpen?: `editor` | `settings`
 }) {
   const navigate = useNavigate()
@@ -58,7 +58,7 @@ export function AppsList({
 
   const open = (app: AppListEntry) =>
     void (rowsOpen === `settings`
-      ? navigate({ to: `/t/$teamSlug/settings/apps/$appId`, params: { teamSlug, appId: app.id } })
+      ? navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug }, search: { tab: `settings` } })
       : navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug } }))
 
   const remove = async () => {

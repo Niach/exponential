@@ -29,7 +29,7 @@ import XCTest
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
-///   sg_app-export · sg_app-import · sg_app-draft · sg_voice-call · sg_call-controls · sg_device-readiness ·
+///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_voice-call · sg_call-controls · sg_device-readiness ·
 ///   sg_story-ring · sg_story-viewer · sg_plan-page
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
@@ -234,7 +234,9 @@ final class StyleguideScreenshots: XCTestCase {
         // session, so only a run that wants these shots visits.
         // VAPP-121: sg_app-export · sg_app-import ride the same walk.
         // VAPP-176: sg_app-draft too (the Release checklist draft's editor).
-        if ["sg_apps", "sg_app", "sg_app-export", "sg_app-import", "sg_app-draft"].map(ScreenshotShots.isWanted).contains(true) {
+        // VAPP-177: sg_app-versions · sg_app-settings (the editor's … menu).
+        if ["sg_apps", "sg_app", "sg_app-export", "sg_app-import", "sg_app-draft", "sg_app-versions", "sg_app-settings"]
+            .map(ScreenshotShots.isWanted).contains(true) {
             walkApps(app)
         }
 
@@ -1051,7 +1053,8 @@ final class StyleguideScreenshots: XCTestCase {
     /// VAPP-110: the Apps TAB (#EXP-1384) → the list (gated on the seeded
     /// Working hours row) → its editor → the Preview tab (VAPP-122: the app
     /// rendered through the host over its records, gated on the preview
-    /// frame) → back to the Apps list.
+    /// frame) → VAPP-177: the header's … → Versions, then … → Settings (each
+    /// a sheet, dismissed) → back to the Apps list.
     @MainActor
     private func walkApps(_ app: XCUIApplication) {
         let appsTab = app.buttons["tab-apps"]
@@ -1069,19 +1072,51 @@ final class StyleguideScreenshots: XCTestCase {
         if ScreenshotShots.isWanted("sg_app-draft") {
             walkAppDraft(app)
         }
-        guard ScreenshotShots.isWanted("sg_app") else { return }
+        guard ["sg_app", "sg_app-versions", "sg_app-settings"].map(ScreenshotShots.isWanted).contains(true) else { return }
         appRow.tap()
-        expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The editor drew no Chat | Preview | Versions control")
-        let previewTab = anyElement(app, identified: "app-editor-tabs-preview")
-        expect(previewTab, within: Wait.nav, "The editor's control has no Preview segment")
-        previewTab.tap()
-        expect(
-            anyElement(app, identified: "app-editor-preview"),
-            within: Wait.sync,
-            "The \(Self.appName) editor never drew its preview"
-        )
-        snapshot("sg_app", settle: 3)
+        expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The editor drew no Chat | Preview control")
+        if ScreenshotShots.isWanted("sg_app") {
+            let previewTab = anyElement(app, identified: "app-editor-tabs-preview")
+            expect(previewTab, within: Wait.nav, "The editor's control has no Preview segment")
+            previewTab.tap()
+            expect(
+                anyElement(app, identified: "app-editor-preview"),
+                within: Wait.sync,
+                "The \(Self.appName) editor never drew its preview"
+            )
+            snapshot("sg_app", settle: 3)
+        }
+        if ScreenshotShots.isWanted("sg_app-versions") {
+            walkAppMenuSheet(app, item: "app-menu-versions", sheet: "app-editor-versions", shot: "sg_app-versions")
+        }
+        if ScreenshotShots.isWanted("sg_app-settings") {
+            walkAppMenuSheet(app, item: "app-menu-settings", sheet: "app-editor-settings", shot: "sg_app-settings")
+        }
         goBack(app)
+        settle(1)
+    }
+
+    /// VAPP-177 (apps.json PHONES): the editor header's … (`app-editor-menu`)
+    /// → `item` → its sheet (`sheet`, gated on the container) → `shot` →
+    /// dismissed; ends on the editor.
+    @MainActor
+    private func walkAppMenuSheet(_ app: XCUIApplication, item: String, sheet: String, shot: String) {
+        let menu = anyElement(app, identified: "app-editor-menu")
+        expect(menu, within: Wait.nav, "The \(Self.appName) editor has no … menu")
+        menu.tap()
+        let entry = anyElement(app, identified: item)
+        expect(entry, within: Wait.nav, "The editor's … menu has no \(item)")
+        entry.tap()
+        let container = anyElement(app, identified: sheet)
+        expect(container, within: Wait.sync, "\(item) opened no \(sheet) sheet")
+        if shot == "sg_app-versions" {
+            snapshot("sg_app-versions", settle: 2)
+        } else {
+            snapshot("sg_app-settings", settle: 2)
+        }
+        // The fitted Versions sheet scrolls under a drag: key the dismissal
+        // on its title; the Settings sheet is full height (its own top).
+        dismissSheet(app, whileVisible: shot == "sg_app-versions" ? app.staticTexts["Versions"] : container)
         settle(1)
     }
 

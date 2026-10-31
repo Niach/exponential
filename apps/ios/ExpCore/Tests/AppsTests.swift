@@ -47,19 +47,22 @@ final class AppsTests: XCTestCase {
             "namePlaceholder": Apps.Copy.namePlaceholder, "descriptionPlaceholder": Apps.Copy.descriptionPlaceholder,
             "deleteTitle": Apps.Copy.deleteTitle,
             "deleteBody": Apps.Copy.deleteBody, "delete": Apps.Copy.delete,
-            "openEditor": Apps.Copy.openEditor, "settingsTitle": Apps.Copy.settingsTitle,
-            "dockToSide": Apps.Copy.dockToSide, "float": Apps.Copy.float, "working": Apps.Copy.working,
+            "settingsTitle": Apps.Copy.settingsTitle,
             "records": Apps.Copy.records,
             "recordsOne": Apps.Copy.recordsOne, "recordsOf": Apps.Copy.recordsOf,
-            "recordsNone": Apps.Copy.recordsNone,
+            "recordsNone": Apps.Copy.recordsNone, "preview": Apps.Copy.preview,
         ]
         // Every string key of `copy`, both ways.
         let strings = copy.compactMapValues { $0 as? String }
         XCTAssertEqual(strings, flat)
-        XCTAssertEqual(copy["menu"] as? [String: String], ["delete": Apps.Copy.Menu.delete])
+        XCTAssertEqual(copy["menu"] as? [String: String], [
+            "versions": Apps.Copy.Menu.versions, "settings": Apps.Copy.Menu.settings,
+            "export": Apps.Copy.Menu.export, "delete": Apps.Copy.Menu.delete,
+        ])
         XCTAssertEqual(copy["starters"] as? [String], Apps.Copy.starters)
         XCTAssertEqual(copy["tabs"] as? [String: String], [
             "chat": Apps.Copy.Tabs.chat, "preview": Apps.Copy.Tabs.preview, "versions": Apps.Copy.Tabs.versions,
+            "settings": Apps.Copy.Tabs.settings,
         ])
         XCTAssertEqual(Apps.Copy.viewing(2), "Viewing v2")
         XCTAssertEqual(Apps.Copy.restored(1, as: 4), "Restored v1 as v4")
@@ -73,7 +76,6 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(fixture["panes"] as? [String: Double], [
             "chat": Apps.Panes.chat, "preview": Apps.Panes.preview,
             "chatMinWidth": Apps.Panes.chatMinWidth, "breakpoint": Apps.Panes.breakpoint,
-            "headerHeight": Apps.Panes.headerHeight,
         ])
         let preview = try XCTUnwrap(fixture["preview"] as? [String: Any])
         XCTAssertEqual(preview["radius"] as? Double, Apps.Preview.radius)
@@ -85,9 +87,15 @@ final class AppsTests: XCTestCase {
             "editor": Apps.TestIds.editor, "chat": Apps.TestIds.chat, "preview": Apps.TestIds.preview,
             "versions": Apps.TestIds.versions, "versionRow": Apps.TestIds.versionRow, "tabs": Apps.TestIds.tabs,
             "composer": Apps.TestIds.composer, "viewing": Apps.TestIds.viewing,
-            "chatCard": Apps.TestIds.chatCard, "dockToSide": Apps.TestIds.dockToSide, "float": Apps.TestIds.float,
             "importApp": Apps.TestIds.importApp, "starter": Apps.TestIds.starter,
+            "menu": Apps.TestIds.menu, "settings": Apps.TestIds.settings,
+            "versionPreview": Apps.TestIds.versionPreview, "versionRestore": Apps.TestIds.versionRestore,
         ])
+        // VAPP-177: the floating layout and its chat card are gone.
+        XCTAssertNil(fixture["layout"])
+        XCTAssertNil(fixture["layoutCases"])
+        XCTAssertNil(fixture["dockCard"])
+        XCTAssertNil(fixture["chatCardCases"])
     }
 
     func testCapsMatchTheContract() throws {
@@ -127,19 +135,26 @@ final class AppsTests: XCTestCase {
         }
     }
 
-    func testLayoutCases() throws {
-        let layout = try XCTUnwrap(try fixture()["layout"] as? [String: Any])
-        XCTAssertEqual(layout["default"] as? String, Apps.Layout.default)
-        XCTAssertEqual(layout["values"] as? [String], Apps.Layout.values)
-        XCTAssertEqual(layout["storageKey"] as? String, Apps.Layout.storageKey)
-        for item in try cases("layoutCases") {
-            let head = try XCTUnwrap(item["headVersion"] as? Int)
-            let stored = item["stored"] as? String
-            XCTAssertEqual(
-                Apps.editorLayoutFor(stored: stored, headVersion: head),
-                item["layout"] as? String,
-                "\(stored ?? "nil") @ \(head)"
-            )
+    func testEditorTabsMatchTheFixture() throws {
+        let tabs = try XCTUnwrap(try fixture()["editorTabs"] as? [String: Any])
+        XCTAssertEqual(tabs["wide"] as? [String], Apps.EditorTabs.wide)
+        XCTAssertEqual(tabs["phone"] as? [String], Apps.EditorTabs.phone)
+        XCTAssertEqual(tabs["menu"] as? [String], Apps.EditorTabs.menu)
+        XCTAssertEqual(tabs["default"] as? String, Apps.EditorTabs.default)
+        XCTAssertEqual(tabs["phoneDefault"] as? String, Apps.EditorTabs.phoneDefault)
+        XCTAssertEqual(tabs["settingsMaxWidth"] as? Double, Apps.EditorTabs.settingsMaxWidth)
+        XCTAssertEqual(tabs["search"] as? String, Apps.EditorTabs.search)
+        XCTAssertEqual(tabs.count, 7)
+    }
+
+    func testEditorTabCases() throws {
+        for item in try cases("editorTabCases") {
+            let requested = item["requested"] as? String
+            let phone = try XCTUnwrap(item["phone"] as? Bool)
+            let target = Apps.editorTab(requested: requested, phone: phone)
+            let label = "\(requested ?? "nil") phone=\(phone)"
+            XCTAssertEqual(target.tab, item["tab"] as? String, label)
+            XCTAssertEqual(target.sheet, item["sheet"] as? String, label)
         }
     }
 

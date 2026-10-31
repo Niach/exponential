@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AppCreateInput
+import com.exponential.app.data.api.AppUpdateInput
 import com.exponential.app.data.api.AppsApi
 import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
@@ -19,6 +20,7 @@ import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.AppActions
 import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.DomainContract
@@ -196,6 +198,10 @@ class AppEditorViewModel @Inject constructor(
 
     val appId: String = savedStateHandle["appId"] ?: ""
 
+    /** VAPP-177: a requested tab (`editorTabs.search`; none today on
+     *  Android's route) → the phone's tab and the `…` menu's sheet over it. */
+    val initialTab: Apps.EditorTabPick = Apps.editorTab(savedStateHandle.get<String>(Apps.EditorTabs.SEARCH), phone = true)
+
     /** VAPP-122: the viewer (`exp:records?mine=1`; null = signed out). */
     val me: StateFlow<String?> = auth.userId
 
@@ -206,6 +212,18 @@ class AppEditorViewModel @Inject constructor(
         dbFlow.scopedQuery<AppEntity?>(null) { it.appDao().observeById(appId) }
             .map { it?.toListEntry() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** VAPP-120: a team OWNER (the only one who grants tools; with the
+     *  creator, who may rename, describe and delete). */
+    val isOwner: StateFlow<Boolean> = dbFlow.isOwnerOf(app.map { it?.teamId }.distinctUntilChanged(), auth.userId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** VAPP-120: the app's synced `granted_tools` (the Settings sheet's switches). */
+    val grantedTools: StateFlow<List<String>> =
+        dbFlow.scopedQuery<AppEntity?>(null) { it.appDao().observeById(appId) }
+            .map { AppActions.grantedList(it?.grantedTools) }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** VAPP-121: the app's synced records (Export's switch + rows). */
     val records: StateFlow<List<AppRecordEntity>> =
@@ -304,7 +322,12 @@ class AppEditorViewModel @Inject constructor(
 
     /** Restore the viewed version as a NEW head (`apps.restore`). */
     fun restore() {
-        val number = _viewing.value?.number ?: return
+        restoreVersion(_viewing.value?.number ?: return)
+    }
+
+    /** VAPP-177: Restore version [number] (a Versions row's button or the
+     *  viewing banner's) as a NEW head; the preview goes back to the head. */
+    fun restoreVersion(number: Int) {
         if (_restoring.value) return
         val accountId = auth.activeAccountId.value ?: return
         _restoring.value = true
@@ -315,9 +338,70 @@ class AppEditorViewModel @Inject constructor(
                 _viewing.value = null
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _failure.value = FailedAction("restore", "the version", trpcErrorMessage(t, "")) { restore() }
+                _failure.value = FailedAction("restore", "the version", trpcErrorMessage(t, "")) { restoreVersion(number) }
             } finally {
                 _restoring.value = false
+            }
+        }
+    }
+
+    private val _deleting = MutableStateFlow(false)
+    val deleting: StateFlow<Boolean> = _deleting
+
+    /** VAPP-177 Settings: a patch of name / icon / colour / description
+     *  (the creator or an owner; a failure = the failed-action toast). */
+    fun update(name: String? = null, icon: String? = null, color: String? = null, description: String? = null) {
+        val accountId = auth.activeAccountId.value ?: return
+        viewModelScope.launch {
+            try {
+                api.update(accountId, AppUpdateInput(id = appId, name = name, icon = icon, color = color, description = description))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("save", "the app", trpcErrorMessage(t, "")) { update(name, icon, color, description) }
+            }
+        }
+    }
+
+    private val _grantBusy = MutableStateFlow<String?>(null)
+    /** The tool whose grant is in flight (its switch waits). */
+    val grantBusy: StateFlow<String?> = _grantBusy
+
+    /** VAPP-120 / VAPP-156: an owner's switch writes the WHOLE grant list
+     *  (grantable names only, VAPP-158) with the head version on screen; a
+     *  head published meanwhile refuses (CONFLICT, the toast) and resyncs. */
+    fun setGrant(name: String, on: Boolean) {
+        val entry = app.value ?: return
+        if (!isOwner.value || !AppActions.actionGrantable(name) || _grantBusy.value != null) return
+        val accountId = auth.activeAccountId.value ?: return
+        val kept = grantedTools.value.filter { it != name && AppActions.actionGrantable(it) }
+        val next = if (on) kept + name else kept
+        _grantBusy.value = name
+        viewModelScope.launch {
+            try {
+                api.update(accountId, AppUpdateInput(id = appId, headVersion = entry.headVersion, grantedTools = next))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("save", "the app", trpcErrorMessage(t, ""))
+            } finally {
+                _grantBusy.value = null
+            }
+        }
+    }
+
+    /** Delete app (the creator or an owner) → [onDone] leaves for the list. */
+    fun delete(onDone: () -> Unit) {
+        if (_deleting.value) return
+        val accountId = auth.activeAccountId.value ?: return
+        _deleting.value = true
+        viewModelScope.launch {
+            try {
+                api.delete(accountId, appId)
+                onDone()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("delete", "the app", trpcErrorMessage(t, "")) { delete(onDone) }
+            } finally {
+                _deleting.value = false
             }
         }
     }

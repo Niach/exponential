@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 // VAPP-110 (fixtures/apps.json): the rail's APPS section, drawn exactly like
 // Agents and Boards — the label, a "+" = New app (VAPP-176: a draft and its editor), one row
 // per app (its glyph in its colour + its name) opening the editor, and the hover gear (the creator or an owner)
-// to the app's settings page. Desktop widths only: phones keep the Apps
+// to the app's editor on its Settings tab (VAPP-177). Desktop widths only: phones keep the Apps
 // list route.
 
 const UiAddIcon = conceptIcon(`ui-add`)
@@ -72,8 +72,9 @@ export function SidebarAppsSection({
               {canManage(app) && (
                 <SidebarMenuAction asChild showOnHover title="App settings">
                   <Link
-                    to="/t/$teamSlug/settings/apps/$appId"
-                    params={{ teamSlug, appId: app.id }}
+                    to="/t/$teamSlug/apps/$appSlug"
+                    params={{ teamSlug, appSlug: app.slug }}
+                    search={{ tab: `settings` }}
                     aria-label={`Settings for ${app.name}`}
                   >
                     <NavSettingsIcon />

@@ -11,7 +11,8 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/apps/`)({
 })
 
 // VAPP-110: Settings → Apps, the Agents page's twin: the Apps band (one row
-// per app, New app) whose rows open the app's settings page.
+// per app, New app) whose rows open the app's editor on its Settings tab
+// (VAPP-177).
 function SettingsAppsIndex() {
   const { teamSlug } = Route.useParams()
   const { session, team, permissions, resolved } = useSettingsPage(teamSlug)

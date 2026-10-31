@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-31-app-editor-tabs`,
+    date: `2026-10-31`,
+    title: `App editor tabs`,
+    summary: `The app editor gets Preview, Versions and Settings tabs beside the chat.`,
+    body: `- **Tabs**: the chat stays on the left; the right side switches between Preview, Versions and Settings.
+- **Versions**: every older version has Preview and Restore buttons.
+- **Settings**: name, description, records and tool grants now live in the editor. On phones they are in the … menu, grants included.
+- **One layout**: the floating chat is gone; the chat is always docked.`,
+  },
+  {
     id: `2026-10-31-app-mcp-tools`,
     date: `2026-10-31`,
     title: `Your apps, as MCP tools`,

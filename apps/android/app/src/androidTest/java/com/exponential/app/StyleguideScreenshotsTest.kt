@@ -138,7 +138,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import · sg_app-draft · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
+ *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
  *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
@@ -835,6 +835,36 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(Apps.TestIds.PREVIEW), SYNC_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("sg_app")
+        // --- sg_app-versions / sg_app-settings (VAPP-177, apps.json PHONES):
+        // the header's `…` → Versions (Working hours' three versions, the
+        // head row `Current`, the others Preview + Restore) and → Settings
+        // (identity, description, records line, Tools, Export + Delete app),
+        // each the menu's sheet over the editor.
+        if (ScreenshotFlow.anyRequested("sg_app-versions")) {
+            composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
+            flow.waitFor(hasTestTag("app-editor-menu-versions"), NAV_TIMEOUT)
+            composeRule.onNode(hasTestTag("app-editor-menu-versions")).performClick()
+            flow.waitFor(hasTestTag(Apps.TestIds.VERSIONS), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag(Apps.TestIds.VERSION_RESTORE), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_app-versions")
+            Espresso.pressBack()
+            flow.waitForGone(hasTestTag(Apps.TestIds.VERSIONS), NAV_TIMEOUT)
+            flow.settle()
+        }
+        if (ScreenshotFlow.anyRequested("sg_app-settings")) {
+            composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
+            flow.waitFor(hasTestTag("app-editor-menu-settings"), NAV_TIMEOUT)
+            composeRule.onNode(hasTestTag("app-editor-menu-settings")).performClick()
+            flow.waitFor(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag("app-settings-tools"), SYNC_TIMEOUT)
+            Espresso.closeSoftKeyboard()
+            flow.settle()
+            flow.screenshot("sg_app-settings")
+            Espresso.pressBack()
+            flow.waitForGone(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
+            flow.settle()
+        }
         Espresso.pressBack()
         flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
         flow.settle()

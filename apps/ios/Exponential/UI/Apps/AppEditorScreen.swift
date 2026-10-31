@@ -2,9 +2,12 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// VAPP-110 (fixtures/apps.json): THE EDITOR on a phone. Header = the app's
-/// glyph + name + the version pill; under it THE segmented control Chat |
-/// Preview | Versions and ONE pane:
+/// VAPP-110 / VAPP-177 (fixtures/apps.json `editorTabs`): THE EDITOR on a
+/// phone. Header = the app's glyph + name + the version pill, then the
+/// trailing `…` (`app-editor-menu`, THE Menu in its sheet presentation):
+/// Versions (the count as trailing meta) · Settings · Export (once the app
+/// has a version) · Delete app (destructive; the creator or an owner).
+/// Under the header THE segmented control Chat | Preview and ONE pane:
 ///
 /// * Chat = the member's EDITOR SESSION with the app (a root with `app_id` +
 ///   `user_id` = me) as THE thread screen's channel (`ThreadScreen` with an
@@ -14,10 +17,12 @@ import SwiftUI
 ///   on my default (else first online) device; none online = the composer
 ///   disabled with `copy.noDevice`.
 /// * Preview = the app host rendering the head package's first template
-///   (`AppPreview`); a picked older version re-renders with the `Viewing
-///   v{n}` banner + Restore (a NEW head, toast `copy.restored`) + Current.
-/// * Versions = newest first: `v{n}`, the note (`copy.noNote`), `Current` on
-///   the head, who (a person, or `copy.byAgent`) and the time.
+///   (`AppPreview`); a version previewed from the Versions sheet re-renders
+///   with the `Viewing v{n}` banner + Restore (a NEW head, toast
+///   `copy.restored`) + Current.
+///
+/// The menu's Versions and Settings open the wide clients' TAB bodies as
+/// sheets titled by the item (`AppVersionsSheet`, `AppSettingsSheet`).
 ///
 /// VAPP-176 a DRAFT (no version yet, New app's "Untitled app") opens on
 /// Chat; while its chat is empty the page-size empty state
@@ -36,28 +41,45 @@ struct AppEditorScreen: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
+    @Environment(\.dismiss) private var dismiss
     @State private var model = AppEditorModel()
     @State private var tab: Tab = .chat
     /// The version shown in the Preview instead of the head (nil = head).
     @State private var viewing: Int?
     @State private var viewingPackage: String?
     @State private var restoring = false
-    /// VAPP-121: the Export sheet (the header's trailing button).
+    /// VAPP-177: the header's `…` (THE Menu's sheet).
+    @State private var menuOpen = false
+    /// The menu's (or a sheet's) pick, run once its sheet has dismissed.
+    @State private var pendingMenu: AppMenuSheet.Action?
+    /// VAPP-177: the menu's Versions / Settings sheet.
+    @State private var editorSheet: EditorSheet?
+    /// VAPP-121: the Export sheet.
     @State private var exportOpen = false
+    /// The delete confirm prompt.
+    @State private var deleteOpen = false
+    @State private var deleting = false
     /// The first message's draft (no session yet): the composer and a
     /// draft's starter pills share it, so both send the same way.
     @State private var firstDraft: AppFirstMessageDraft?
 
+    /// The phones' tabs (`editorTabs.phone`).
     enum Tab: Hashable, CaseIterable {
-        case chat, preview, versions
+        case chat, preview
 
         var label: String {
             switch self {
             case .chat: Apps.Copy.Tabs.chat
             case .preview: Apps.Copy.Tabs.preview
-            case .versions: Apps.Copy.Tabs.versions
             }
         }
+    }
+
+    /// The menu items that open a tab body as a sheet.
+    enum EditorSheet: String, Identifiable {
+        case versions, settings
+
+        var id: String { rawValue }
     }
 
     var body: some View {
@@ -67,7 +89,7 @@ struct AppEditorScreen: View {
                     ThreadScreen(rootId: rootId, editor: slot(app))
                         .id(rootId)
                 } else {
-                    AppEditorShell(title: title(app), band: band(app), pane: pane(app), trailing: exportButton(app)) {
+                    AppEditorShell(title: title(app), band: band(app), pane: pane(app), trailing: menuButton(app)) {
                         chatEmpty(app)
                     }
                 }
@@ -110,33 +132,90 @@ struct AppEditorScreen: View {
         .onChange(of: model.app?.teamId, initial: true) { _, team in firstDraft?.teamId = team ?? "" }
         .onChange(of: firstDraft == nil) { _, _ in firstDraft?.teamId = model.app?.teamId ?? "" }
         .onChange(of: viewing) { _, number in loadViewing(number) }
-        .sheet(isPresented: $exportOpen) {
-            if let app = model.app {
-                AppExportSheet(app: app)
-            }
+        // Each presentation on its OWN node (EXP-240).
+        .background {
+            Color.clear
+                .sheet(isPresented: $menuOpen, onDismiss: runPendingMenu) {
+                    if let app = model.app {
+                        AppMenuSheet(
+                            title: app.name,
+                            canExport: app.headVersion > 0,
+                            canManage: model.canManage(userId: deps.auth.userId),
+                            versionsCount: model.versions.count
+                        ) { action in
+                            pendingMenu = action
+                            menuOpen = false
+                        }
+                    }
+                }
+        }
+        .background {
+            Color.clear
+                .sheet(item: $editorSheet, onDismiss: runPendingMenu) { sheet in
+                    switch sheet {
+                    case .versions:
+                        AppVersionsSheet(
+                            model: model,
+                            restoring: restoring,
+                            onPreview: { number in previewVersion(number) },
+                            onRestore: { number in
+                                if let app = model.app { restore(app, number: number) }
+                            }
+                        )
+                    case .settings:
+                        AppSettingsSheet(model: model) { action in
+                            pendingMenu = action
+                            editorSheet = nil
+                        }
+                    }
+                }
+        }
+        .background {
+            Color.clear
+                .sheet(isPresented: $exportOpen) {
+                    if let app = model.app {
+                        AppExportSheet(app: app)
+                    }
+                }
+        }
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $deleteOpen) {
+                    GlassAlert(
+                        title: Apps.Copy.deleteTitle(model.app?.name ?? ""),
+                        message: Apps.Copy.deleteBody,
+                        actions: [
+                            GlassAlertAction("Cancel", role: .outline, isCancel: true, id: "cancel") {},
+                            GlassAlertAction(Apps.Copy.delete, role: .destructive, enabled: !deleting, id: "app-delete-confirm") {
+                                deleteApp()
+                            },
+                        ]
+                    )
+                }
         }
     }
 
     // MARK: - Chrome
 
     private func slot(_ app: AppListEntry) -> ThreadEditorSlot {
-        ThreadEditorSlot(title: AnyView(title(app)), band: AnyView(band(app)), pane: pane(app), trailing: exportButton(app))
+        ThreadEditorSlot(title: AnyView(title(app)), band: AnyView(band(app)), pane: pane(app), trailing: menuButton(app))
     }
 
-    /// VAPP-121: Export = the header's trailing round button (`ui-share`),
-    /// once the app has a version.
-    private func exportButton(_ app: AppListEntry) -> AnyView? {
-        guard app.headVersion > 0 else { return nil }
-        return AnyView(
+    /// VAPP-177: the header's trailing `…` round button (`app-editor-menu`),
+    /// THE Menu in its sheet presentation (the Apps row's `…` alike).
+    private func menuButton(_ app: AppListEntry) -> AnyView? {
+        AnyView(
             Button {
                 UIApplication.endEditing()
-                exportOpen = true
+                menuOpen = true
             } label: {
-                PageHeaderGlyph(icon: AppIcons.uiShare, dot: false)
+                PageHeaderGlyph(icon: AppIcons.uiMore, dot: false)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(AppExport.Copy.export)
-            .accessibilityIdentifier(AppExport.TestIds.editorButton)
+            .accessibilityLabel("More")
+            .accessibilityIdentifier(Apps.TestIds.menu)
         )
     }
 
@@ -175,8 +254,19 @@ struct AppEditorScreen: View {
             return nil
         case .preview:
             return AnyView(preview(app))
-        case .versions:
-            return AnyView(versionsPane(app))
+        }
+    }
+
+    /// A menu (or Settings sheet) pick, once its sheet is gone: one
+    /// presentation at a time.
+    private func runPendingMenu() {
+        guard let action = pendingMenu else { return }
+        pendingMenu = nil
+        switch action {
+        case .versions: editorSheet = .versions
+        case .settings: editorSheet = .settings
+        case .export: exportOpen = model.app.map { $0.headVersion > 0 } ?? false
+        case .delete: deleteOpen = model.canManage(userId: deps.auth.userId)
         }
     }
 
@@ -257,7 +347,7 @@ struct AppEditorScreen: View {
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.white)
                         Spacer(minLength: 8)
-                        GlassPill(Apps.Copy.restore, mode: .action { restore(app) }, primary: true, enabled: !restoring)
+                        GlassPill(Apps.Copy.restore, mode: .action { restore(app, number: viewing) }, primary: true, enabled: !restoring)
                             .accessibilityIdentifier("app-editor-restore")
                         GlassPill(Apps.Copy.head, mode: .action { self.viewing = nil })
                     }
@@ -271,6 +361,15 @@ struct AppEditorScreen: View {
             }
             .padding(16)
         }
+    }
+
+    /// VAPP-177: a Versions row's Preview: the sheet closes and the Preview
+    /// tab shows that version (the head = the head, no banner).
+    private func previewVersion(_ number: Int) {
+        let head = model.app?.headVersion
+        editorSheet = nil
+        viewing = number == head ? nil : number
+        tab = .preview
     }
 
     private func loadViewing(_ number: Int?) {
@@ -289,8 +388,10 @@ struct AppEditorScreen: View {
         }
     }
 
-    private func restore(_ app: AppListEntry) {
-        guard let number = viewing, !restoring else { return }
+    /// `apps.restore` of version `number` (the banner's or a Versions
+    /// row's): a NEW head, toast `copy.restored`, the preview back on it.
+    private func restore(_ app: AppListEntry, number: Int) {
+        guard !restoring else { return }
         restoring = true
         Task {
             defer { restoring = false }
@@ -307,71 +408,25 @@ struct AppEditorScreen: View {
         }
     }
 
-    // MARK: - Versions
+    // MARK: - Delete
 
-    private func versionsPane(_ app: AppListEntry) -> some View {
-        ZStack {
-            AppBackground()
-            ScrollView {
-                VStack(spacing: 0) {
-                    if model.versions.isEmpty {
-                        EmptyState(title: Apps.Copy.versionsEmpty, icon: AppIcons.uiHistory, size: .list)
-                            .padding(.vertical, 8)
-                    }
-                    ForEach(model.versions) { version in
-                        versionRow(version, head: app.headVersion)
-                    }
-                }
-                .padding(16)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(Apps.TestIds.versions)
+    /// The confirmed Delete app: `apps.delete`, then back to the Apps list;
+    /// a failure = the failed-action toast.
+    private func deleteApp() {
+        guard let app = model.app, !deleting else { return }
+        deleting = true
+        Task {
+            defer { deleting = false }
+            do {
+                try await deps.appsApi.delete(accountId: accountId, id: app.id)
+                dismiss()
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "delete", thing: "the app"),
+                    description: error.trpcUserMessage
+                )
             }
-            .scrollContentBackground(.hidden)
         }
-    }
-
-    private func versionRow(_ version: AppVersionEntity, head: Int) -> some View {
-        let author = version.createdBy.flatMap { id in model.users.first { $0.id == id } }
-        let active = viewing == nil ? version.number == head : viewing == version.number
-        let note = version.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return Button {
-            viewing = version.number == head ? nil : version.number
-            tab = .preview
-        } label: {
-            HStack(spacing: 10) {
-                Text(Apps.versionLabel(version.number))
-                    .font(.subheadline.weight(.medium).monospacedDigit())
-                    .foregroundStyle(.white)
-                    .frame(width: 40, alignment: .leading)
-                Text(note.isEmpty ? Apps.Copy.noNote : note)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if version.number == head {
-                    GlassPill(Apps.Copy.head)
-                }
-                HStack(spacing: 6) {
-                    if let author {
-                        UserAvatar(user: author, id: author.id, size: 16)
-                    }
-                    Text(author?.name ?? Apps.Copy.byAgent)
-                        .lineLimit(1)
-                        .frame(maxWidth: 96, alignment: .leading)
-                        .fixedSize(horizontal: true, vertical: false)
-                    Text(UserMessageCaption.separator.trimmingCharacters(in: .whitespaces))
-                    Text(UserMessageCaption.text(name: nil, at: WireTimestamps.parse(version.createdAt), queued: false))
-                }
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .flatRow(isActive: active)
-        .accessibilityIdentifier("\(Apps.TestIds.versionRow)-\(version.number)")
     }
 
     // MARK: - Lifetime
@@ -396,6 +451,367 @@ struct AppEditorScreen: View {
         let account = accountId
         Task.detached {
             try? await api.end(accountId: account, sessionId: rootId)
+        }
+    }
+}
+
+// MARK: - Versions (VAPP-177)
+
+/// The menu's Versions sheet = the wide clients' Versions TAB body: ONE
+/// grouped list newest first, each row the `v{n}` pill + the note (medium;
+/// `copy.noNote` muted) over a muted `who · when`; the head row = the
+/// `Current` badge, every other row a ghost Preview + a Restore pill.
+struct AppVersionsSheet: View {
+    let model: AppEditorModel
+    let restoring: Bool
+    let onPreview: (Int) -> Void
+    let onRestore: (Int) -> Void
+
+    var body: some View {
+        GlassSheetChrome(title: Apps.Copy.Menu.versions) {
+            VStack(spacing: 0) {
+                if model.versions.isEmpty {
+                    EmptyState(title: Apps.Copy.versionsEmpty, icon: AppIcons.uiHistory, size: .list)
+                        .padding(.vertical, 8)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(model.versions) { version in
+                            row(version, head: model.app?.headVersion ?? 0)
+                        }
+                    }
+                    .glassSection()
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Apps.TestIds.versions)
+        }
+    }
+
+    private func row(_ version: AppVersionEntity, head: Int) -> some View {
+        let author = version.createdBy.flatMap { id in model.users.first { $0.id == id } }
+        let note = version.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let who = author?.name ?? Apps.Copy.byAgent
+        let when = RelativeTime.compact(wire: version.createdAt)
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    GlassPill(Apps.versionLabel(version.number))
+                        .monospacedDigit()
+                    Text(note.isEmpty ? Apps.Copy.noNote : note)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(note.isEmpty ? Color.white.opacity(TextOpacity.secondary) : Color.white)
+                        .lineLimit(1)
+                }
+                Text(when.isEmpty ? who : "\(who)\(UserMessageCaption.separator)\(when)")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if version.number == head {
+                GlassPill(Apps.Copy.head)
+            } else {
+                Button { onPreview(version.number) } label: {
+                    Text(Apps.Copy.preview)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
+                        .frame(height: GlassPillTokens.heightSm)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(Apps.TestIds.versionPreview)
+                GlassPill(Apps.Copy.restore, mode: .action { onRestore(version.number) }, enabled: !restoring)
+                    .accessibilityIdentifier(Apps.TestIds.versionRestore)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("\(Apps.TestIds.versionRow)-\(version.number)")
+    }
+}
+
+// MARK: - Settings (VAPP-177)
+
+/// The menu's Settings sheet = the wide clients' Settings TAB body, built
+/// from the existing pieces: the board form's identity row (icon + colour +
+/// name, the name saved when editing ends), the description (saved when
+/// editing ends), the records line, the Tools group (a team OWNER flips the
+/// grants: `apps.update {id, headVersion, grantedTools}`), then Export (a
+/// version) and Delete app (the creator or an owner). Read-only for
+/// everyone else. Export / Delete hand back to the editor, which runs them
+/// once this sheet has dismissed.
+struct AppSettingsSheet: View {
+    let model: AppEditorModel
+    let onAction: (AppMenuSheet.Action) -> Void
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
+    @State private var seeded = false
+    @State private var name = ""
+    @State private var icon = "puzzle"
+    @State private var color = AppSettingsSheet.defaultColor
+    @State private var description = ""
+    @State private var toolBusy: String?
+    @FocusState private var nameFocused: Bool
+    @FocusState private var descriptionFocused: Bool
+
+    /// The web settings tab's defaults for an app with no icon / colour.
+    static let defaultColor = "#6366f1"
+
+    private var canManage: Bool { model.canManage(userId: deps.auth.userId) }
+
+    var body: some View {
+        GlassSheetChrome(title: Apps.Copy.Menu.settings, height: .full) {
+            ScrollView {
+                if let app = model.app {
+                    content(app)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(Apps.TestIds.settings)
+        .onAppear { seed() }
+        .onChange(of: model.app?.id) { _, _ in
+            seeded = false
+            seed()
+        }
+        // The live echo, only while the field is idle.
+        .onChange(of: model.app?.name) { _, next in
+            guard !nameFocused, let next else { return }
+            name = next
+        }
+        .onChange(of: model.app?.description) { _, next in
+            guard !descriptionFocused, let next else { return }
+            description = next
+        }
+    }
+
+    private func content(_ app: AppListEntry) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            identityRow
+            GlassTextField(
+                Apps.Copy.descriptionPlaceholder,
+                text: $description,
+                lines: 3...8,
+                accessibilityIdentifier: "app-settings-description"
+            )
+            .font(.subheadline)
+            .focused($descriptionFocused)
+            .disabled(!canManage)
+            .onChange(of: description) { _, next in
+                if next.count > Apps.descriptionMax { description = String(next.prefix(Apps.descriptionMax)) }
+            }
+            .onChange(of: descriptionFocused) { _, focused in
+                if !focused { saveDescription() }
+            }
+            Text(AppRecords.recordsCountLabel(count: model.recordsCount, max: nil))
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .padding(.horizontal, 4)
+                .accessibilityIdentifier("app-settings-records")
+            tools(app)
+            actions(app)
+        }
+    }
+
+    /// The board form's ONE row: icon, colour, name (EXP-862, ×4).
+    private var identityRow: some View {
+        HStack(spacing: 8) {
+            IconPicker(
+                selection: Binding(
+                    get: { icon },
+                    set: { next in
+                        guard next != icon else { return }
+                        icon = next
+                        if let app = model.app { patch(AppUpdateInput(id: app.id, icon: next)) }
+                    }
+                ),
+                tint: Color(hex: color)
+            )
+            ColorSwatchPicker(selection: Binding(
+                get: { color },
+                set: { next in
+                    guard next != color else { return }
+                    color = next
+                    if let app = model.app { patch(AppUpdateInput(id: app.id, color: next)) }
+                }
+            ))
+            GlassTextField(Apps.Copy.namePlaceholder, text: $name, verticalPadding: 9, accessibilityIdentifier: "app-settings-name")
+                .font(.subheadline)
+                .focused($nameFocused)
+                .onSubmit { saveName() }
+                .onChange(of: nameFocused) { _, focused in
+                    if !focused { saveName() }
+                }
+        }
+        .disabled(!canManage)
+    }
+
+    /// VAPP-120: `copy.tools` = the title + hint, then one row per action
+    /// the head package declares: the display title over the function name,
+    /// a switch (an owner only) or `Always asks` for an ungrantable one.
+    private func tools(_ app: AppListEntry) -> some View {
+        let declared = app.declaredActions
+        let granted = app.grantableGranted
+        return VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(AppActions.Copy.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                Text(AppActions.Copy.hint)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            .padding(.horizontal, 4)
+            VStack(spacing: 0) {
+                if declared.isEmpty {
+                    Text(AppActions.Copy.none)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                } else {
+                    ForEach(declared, id: \.self) { tool in
+                        toolRow(tool, granted: granted.contains(tool))
+                    }
+                }
+            }
+            .glassSection()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("app-settings-tools")
+    }
+
+    private func toolRow(_ tool: String, granted: Bool) -> some View {
+        let title = AppActions.actionTitle(tool)
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(tool)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if AppActions.actionGrantable(tool) {
+                GlassToggleRow(nil, isOn: Binding(
+                    get: { granted },
+                    set: { toggle(tool, on: $0) }
+                ))
+                .disabled(!model.isOwner || toolBusy != nil)
+                .accessibilityLabel("\(AppActions.Copy.granted): \(title)")
+            } else {
+                // The ruling: a destructive or owner-only action always asks.
+                Text(AppActions.Copy.always)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("app-tool-\(tool)")
+    }
+
+    /// Export (once the app has a version) and, at the end, Delete app (the
+    /// creator or an owner).
+    @ViewBuilder
+    private func actions(_ app: AppListEntry) -> some View {
+        if app.headVersion > 0 || canManage {
+            HStack(spacing: 8) {
+                if app.headVersion > 0 {
+                    GlassPill(Apps.Copy.Menu.export, icon: AppIcons.uiShare, mode: .action {
+                        UIApplication.endEditing()
+                        onAction(.export)
+                    })
+                    .accessibilityIdentifier("app-export")
+                }
+                Spacer(minLength: 8)
+                if canManage {
+                    GlassPill(Apps.Copy.Menu.delete, icon: AppIcons.uiDelete, mode: .action {
+                        UIApplication.endEditing()
+                        onAction(.delete)
+                    }, tint: DesignTokens.Palette.destructive)
+                    .accessibilityIdentifier("app-delete")
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    // MARK: - Writes
+
+    /// Seed the drafts from the APP once (never on a resync of the same one).
+    private func seed() {
+        guard !seeded, let app = model.app else { return }
+        seeded = true
+        name = app.name
+        icon = app.icon ?? "puzzle"
+        color = app.color ?? Self.defaultColor
+        description = app.description
+    }
+
+    private func saveName() {
+        guard canManage, let app = model.app else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            name = app.name
+            return
+        }
+        guard trimmed != app.name else { return }
+        patch(AppUpdateInput(id: app.id, name: trimmed))
+    }
+
+    private func saveDescription() {
+        guard canManage, let app = model.app, description != app.description else { return }
+        patch(AppUpdateInput(id: app.id, description: description))
+    }
+
+    /// VAPP-156: a grant writes the whole (grantable) list WITH the head on
+    /// screen; a head published meanwhile refuses (CONFLICT) = the toast,
+    /// and the row resyncs.
+    private func toggle(_ tool: String, on: Bool) {
+        guard model.isOwner, toolBusy == nil, AppActions.actionGrantable(tool), let app = model.app else { return }
+        let kept = app.grantableGranted.filter { $0 != tool }
+        let next = on ? kept + [tool] : kept
+        toolBusy = tool
+        let api = deps.appsApi
+        let account = accountId
+        Task {
+            defer { toolBusy = nil }
+            do {
+                try await api.update(accountId: account, AppUpdateInput(id: app.id, grantedTools: next, headVersion: app.headVersion))
+            } catch {
+                toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the app"), description: error.trpcUserMessage)
+            }
+        }
+    }
+
+    /// A settings write; the synced row is the echo. A failure = the
+    /// failed-action toast.
+    private func patch(_ input: AppUpdateInput) {
+        guard canManage else { return }
+        let api = deps.appsApi
+        let account = accountId
+        Task {
+            do {
+                try await api.update(accountId: account, input)
+            } catch {
+                toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the app"), description: error.trpcUserMessage)
+            }
         }
     }
 }

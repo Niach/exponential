@@ -39,10 +39,17 @@ object Apps {
         const val DELETE_TITLE = "Delete {name}?"
         const val DELETE_BODY = "Its versions go with it. This cannot be undone."
         const val DELETE = "Delete"
+        // VAPP-177: the phone editor's `…` menu (`editorTabs.menu`).
+        const val MENU_VERSIONS = "Versions"
+        const val MENU_SETTINGS = "Settings"
+        const val MENU_EXPORT = "Export"
         const val MENU_DELETE = "Delete app"
         const val TAB_CHAT = "Chat"
         const val TAB_PREVIEW = "Preview"
         const val TAB_VERSIONS = "Versions"
+        const val TAB_SETTINGS = "Settings"
+        // VAPP-177: a Versions row's ghost button (switches to that version).
+        const val PREVIEW = "Preview"
         // VAPP-122: the app's records count (Settings → Apps → the app).
         const val RECORDS = "{n} records"
         const val RECORDS_ONE = "1 record"
@@ -68,29 +75,48 @@ object Apps {
         const val TABS = "app-editor-tabs"
         const val COMPOSER = "app-editor-composer"
         const val VIEWING = "app-editor-viewing"
-        // VAPP-129: the floating layout (web and the IDE).
-        const val CHAT_CARD = "app-editor-chat-card"
-        const val DOCK_TO_SIDE = "app-editor-dock-side"
-        const val FLOAT = "app-editor-float"
         // VAPP-176: the list band's Import pill + a draft's starter pills.
         const val IMPORT_APP = "apps-import"
         const val STARTER = "app-editor-starter"
+        // VAPP-177: the phone header's `…`, the Settings body, a Versions
+        // row's Preview / Restore.
+        const val MENU = "app-editor-menu"
+        const val SETTINGS = "app-editor-settings"
+        const val VERSION_PREVIEW = "app-version-preview"
+        const val VERSION_RESTORE = "app-version-restore"
     }
 
-    /** VAPP-129 / VAPP-176: the editor layouts on web ≥ md and the IDE
-     *  (phones keep the tabs); mirrored for the fixture's `layoutCases`. */
-    object Layout {
-        const val FLOATING = "floating"
-        const val DOCKED = "docked"
-        const val DEFAULT = FLOATING
+    /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,
+     *  desktop) = Preview | Versions | Settings; phones = Chat | Preview +
+     *  the `…` menu's Versions / Settings sheets. */
+    object EditorTabs {
+        const val CHAT = "chat"
+        const val PREVIEW = "preview"
+        const val VERSIONS = "versions"
+        const val SETTINGS = "settings"
+        val WIDE = listOf(PREVIEW, VERSIONS, SETTINGS)
+        val PHONE = listOf(CHAT, PREVIEW)
+        val MENU = listOf("versions", "settings", "export", "delete")
+        const val DEFAULT = PREVIEW
+        const val PHONE_DEFAULT = CHAT
+        const val SETTINGS_MAX_WIDTH = 640
+        const val SEARCH = "tab"
     }
 
-    fun editorLayout(stored: String?): String =
-        if (stored == Layout.FLOATING || stored == Layout.DOCKED) stored else Layout.DEFAULT
+    /** The tab on screen and, on phones, the sheet over it. */
+    data class EditorTabPick(val tab: String, val sheet: String?)
 
-    /** VAPP-176: a draft (no version yet) is always docked. */
-    fun editorLayoutFor(stored: String?, headVersion: Int): String =
-        if (isDraft(headVersion)) Layout.DOCKED else editorLayout(stored)
+    /** A requested tab (web `?tab=`, the desktop settings nav) → the tab on
+     *  screen and, on phones, the sheet over it (`editorTabCases`). */
+    fun editorTab(requested: String?, phone: Boolean): EditorTabPick {
+        if (phone) {
+            if (requested == EditorTabs.VERSIONS || requested == EditorTabs.SETTINGS) {
+                return EditorTabPick(EditorTabs.PHONE_DEFAULT, requested)
+            }
+            return EditorTabPick(if (requested in EditorTabs.PHONE) requested!! else EditorTabs.PHONE_DEFAULT, null)
+        }
+        return EditorTabPick(if (requested in EditorTabs.WIDE) requested!! else EditorTabs.DEFAULT, null)
+    }
 
     /** VAPP-176: a DRAFT = an app with no version yet (head_version 0). */
     fun isDraft(headVersion: Int): Boolean = headVersion == 0

@@ -26,8 +26,8 @@ public enum AppActions {
         "exponential.teams.create", "exponential.teams.get", "exponential.teams.list", "exponential.teams.update",
     ]
 
-    /// The `copy.tools` strings (the settings page's Tools group; phones
-    /// have no app settings, mirrored for parity).
+    /// The `copy.tools` strings (the editor's Settings Tools group; VAPP-177:
+    /// phones show it in the `…` menu's Settings sheet).
     public enum Copy {
         public static let title = "Tools"
         public static let hint = "What this app may do as you without asking. Anything else asks each time."

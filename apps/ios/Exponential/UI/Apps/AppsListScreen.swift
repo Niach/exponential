@@ -155,6 +155,8 @@ struct AppsListScreen: View {
         switch pick.action {
         case .export: exporting = pick.app
         case .delete: deleting = pick.app
+        // The editor's menu only (the row's menu offers neither).
+        case .versions, .settings: break
         }
     }
 
@@ -211,18 +213,40 @@ struct AppVersionPill: View {
 /// An app row's `…` — THE Menu in its sheet presentation: Export (VAPP-121:
 /// any member, once the app has a version) · Delete app (destructive; the
 /// creator or an owner). No Rename (VAPP-176: the agent names an app). A pick hands the action back; the
-/// host acts once the sheet has dismissed.
+/// host acts once the sheet has dismissed. VAPP-177: the phone editor's `…`
+/// (`versionsCount` set) leads with Versions (the count as trailing meta)
+/// and Settings (`editorTabs.menu`).
 struct AppMenuSheet: View {
-    enum Action { case export, delete }
+    enum Action { case versions, settings, export, delete }
 
     let title: String
     var canExport = false
     var canManage = true
+    /// nil = the row's menu (no Versions / Settings).
+    var versionsCount: Int? = nil
     let onPick: (Action) -> Void
 
     var body: some View {
         GlassSheetChrome(title: title) {
             VStack(spacing: 0) {
+                if let versionsCount {
+                    Button { onPick(.versions) } label: {
+                        GlassMenuItemLabel(Apps.Copy.Menu.versions, icon: AppIcons.uiHistory)
+                            .overlay(alignment: .trailing) {
+                                Text(String(versionsCount))
+                                    .font(.system(size: DesignTokens.Typography.Size.sm).monospacedDigit())
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                    .padding(.trailing, GlassMenuTokens.itemHPadding)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("app-menu-versions")
+                    Button { onPick(.settings) } label: {
+                        GlassMenuItemLabel(Apps.Copy.Menu.settings, icon: AppIcons.navSettings)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("app-menu-settings")
+                }
                 if canExport {
                     Button { onPick(.export) } label: {
                         GlassMenuItemLabel(AppExport.Copy.export, icon: AppIcons.uiShare)
