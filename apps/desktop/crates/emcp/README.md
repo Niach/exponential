@@ -14,6 +14,15 @@ Exponential links it from codemode and the `api`/`ui` crates (their calls into
 the instance's `/api/mcp`); epilot and epilot-screen serve their tools through
 it next; spezl links it as a git dependency.
 
+## eCore
+
+The API speaks eCore's types (`apps/desktop/crates/ecore`, #EXP-1517), re-exported
+as `emcp::ecore` and `emcp::{SessionId, Token, Failure, ErrorCode, DeliveryVerdict}`:
+a run's bearer is a `Token` (64 lowercase hex, checked with `parse_bearer`), the
+run is a `SessionId`, a refusal is a `Failure`, and `ClientError::delivery()` says
+whether a failed call never ran. eCore is emcp's one path dependency: the git
+checkout of an `emcp-v*` tag carries it at the same commit.
+
 ## Consuming
 
 `publish = false`: consume it as a git dependency on a release tag. Tags are
@@ -43,10 +52,11 @@ fixtures; a crates.io package would not):
 // Serve: a ToolProvider on 127.0.0.1:<port>/mcp, one bearer token per run.
 let info = emcp::ServerInfo { name: "clock".into(), version: "0.1.0".into(), instructions: None };
 let server = emcp::Server::serve(info, Arc::new(Clock))?;   // Clock: impl ToolProvider
-let token = server.grant("run-1", "EXP-12");                 // an earlier token of run-1 dies
+let run = emcp::SessionId::new("run-1")?;                   // eCore's id rule
+let token = server.grant(&run, "EXP-12");                    // an ecore::Token; an earlier one of run-1 dies
 // MCP config: { "clock": { "type": "http", "url": server.url(),
-//               "headers": { "Authorization": "Bearer <token>" } } }
-server.revoke("run-1");                                      // the provider hears ended("run-1")
+//               "headers": { "Authorization": token.header() } } }
+server.revoke(&run);                                         // the provider hears ended(&run)
 
 // Call: any Streamable HTTP server, headers resolved by the host.
 let upstream = emcp::Upstream { name: "exponential".into(), url, headers };

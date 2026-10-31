@@ -167,15 +167,15 @@ impl emcp::ToolProvider for Hub {
     }
 
     fn call(&self, caller: &emcp::Caller, name: &str, arguments: Value) -> Value {
-        match self.run(&caller.session_id) {
+        match self.run(caller.session_id.as_str()) {
             Some(run) => call_tool(&run, name, &arguments),
             None => error_result("This session's code-mode grant ended.".to_string()),
         }
     }
 
-    fn ended(&self, session_id: &str) {
-        self.gateways.revoke(session_id);
-        self.end(session_id);
+    fn ended(&self, session_id: &emcp::SessionId) {
+        self.gateways.revoke(session_id.as_str());
+        self.end(session_id.as_str());
     }
 }
 
@@ -398,15 +398,19 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let info = emcp::ServerInfo { name: name.into(), version: "1".into(), instructions: None };
         let server = emcp::Server::serve(info, Arc::new(FakeUpstream { seen: seen.clone() })).unwrap();
-        let token = server.grant("upstream-run", &format!("{name}-secret"));
+        let token = server.grant(&id("upstream-run"), &format!("{name}-secret"));
         let url = server.url().to_string();
         // The fake lives for the test process.
         std::mem::forget(server);
-        (Upstream { name: name.into(), url, headers: vec![("Authorization".into(), format!("Bearer {token}"))] }, seen)
+        (Upstream { name: name.into(), url, headers: vec![("Authorization".into(), token.header())] }, seen)
+    }
+
+    fn id(session_id: &str) -> emcp::SessionId {
+        emcp::SessionId::new(session_id).unwrap()
     }
 
     fn caller(session_id: &str) -> emcp::Caller {
-        emcp::Caller { session_id: session_id.into(), label: "EXP-1".into() }
+        emcp::Caller { session_id: id(session_id), label: "EXP-1".into() }
     }
 
     /// One `tools/call` as the server hands it to the hub, wrapped like the
@@ -419,7 +423,7 @@ mod tests {
         let upstream = Upstream {
             name: SERVER_NAME.into(),
             url: server.url().to_string(),
-            headers: vec![("Authorization".into(), format!("Bearer {token}"))],
+            headers: vec![("Authorization".into(), emcp::ecore::bearer_header(token))],
         };
         Client::connect(&upstream, "test", Duration::from_secs(10))
     }
@@ -429,9 +433,9 @@ mod tests {
         let hub = Arc::new(Hub::new());
         let server = serve(hub.clone()).unwrap();
         hub.admit("s1", "EXP-1", Vec::new(), Vec::new());
-        let token = server.grant("s1", "EXP-1");
+        let token = server.grant(&id("s1"), "EXP-1");
         assert!(matches!(connect(&server, "nope"), Err(ClientError::Http(401))));
-        let client = connect(&server, &token).unwrap();
+        let client = connect(&server, token.as_str()).unwrap();
         let tools = client.list_tools(Duration::from_secs(10)).unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["exec", "describe"]);
@@ -439,9 +443,9 @@ mod tests {
         let reply = client.call("exec", json!({ "script": "return 1 + 1" }), Duration::from_secs(30)).unwrap();
         assert_eq!(reply["structuredContent"]["result"], json!(2), "{reply}");
         assert!(reply["_meta"][META_COUNT_KEY].is_u64(), "the call log's _meta survives the transport: {reply}");
-        server.revoke("s1");
+        server.revoke(&id("s1"));
         assert!(hub.run("s1").is_none());
-        assert!(matches!(connect(&server, &token), Err(ClientError::Http(401))));
+        assert!(matches!(connect(&server, token.as_str()), Err(ClientError::Http(401))));
     }
 
     #[test]
@@ -547,7 +551,7 @@ mod tests {
         hub.admit("s1", "EXP-1", Vec::new(), Vec::new());
         assert!(old.cancelled.load(Ordering::Acquire));
         let run = hub.run("s1").unwrap();
-        emcp::ToolProvider::ended(&hub, "s1");
+        emcp::ToolProvider::ended(&hub, &id("s1"));
         assert!(hub.runs.lock().unwrap().is_empty());
         assert!(run.cancelled.load(Ordering::Acquire));
         let refused = call(&hub, "s1", "exec", json!({ "script": "return 1" }));

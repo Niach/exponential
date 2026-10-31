@@ -85,9 +85,10 @@ fn host() -> Result<&'static Host, String> {
 /// `label` names the run in logs; `upstreams` = the servers its scripts
 /// reach; `direct_only` = the stdio servers named as unreachable.
 pub fn grant(session_id: &str, label: &str, upstreams: Vec<Upstream>, direct_only: Vec<String>) -> Result<Grant, String> {
+    let id = emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
     let host = host()?;
     host.hub.admit(session_id, label, upstreams, direct_only);
-    Ok(Grant { url: host.server.url().to_string(), token: host.server.grant(session_id, label) })
+    Ok(Grant { url: host.server.url().to_string(), token: host.server.grant(&id, label).into() })
 }
 
 /// EXP-1458: admit the run `session_id` to the MCP GATEWAY: the agent
@@ -101,6 +102,9 @@ pub fn gateway_grant(
     upstream: Upstream,
     transform: Arc<dyn GatewayTransform>,
 ) -> Result<Grant, String> {
+    // The same id rule as `grant`: `revoke` reaches the gateway through
+    // the server, which only knows eCore session ids.
+    emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
     let host = host()?;
     Ok(Grant {
         url: format!("{}{}", host.server.base(), gateway::ROUTE),
@@ -114,7 +118,10 @@ pub fn revoke(session_id: &str) {
     if let Some(Ok(host)) = HOST.get() {
         // The server's revoke reaches the hub (`ToolProvider::ended`): the
         // run is cancelled and its gateway token dropped.
-        host.server.revoke(session_id);
+        // An id that breaks the id rule was never granted.
+        if let Ok(id) = emcp::SessionId::new(session_id) {
+            host.server.revoke(&id);
+        }
     }
     reports::forget(session_id);
 }

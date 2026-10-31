@@ -62,7 +62,7 @@ fn post(grant: &epilot::Grant, tool: &str, arguments: &str) -> Value {
     let upstream = emcp::Upstream {
         name: epilot::SERVER_NAME.into(),
         url: grant.url.clone(),
-        headers: vec![("Authorization".into(), format!("Bearer {}", grant.token))],
+        headers: vec![("Authorization".into(), emcp::ecore::bearer_header(&grant.token))],
     };
     let timeout = std::time::Duration::from_secs(120);
     let arguments = serde_json::from_str::<Value>(arguments).expect("JSON args");

@@ -41,25 +41,29 @@ pub(crate) mod tests {
         let upstream = emcp::Upstream {
             name: "screen".into(),
             url: url.to_string(),
-            headers: vec![("Authorization".into(), format!("Bearer {token}"))],
+            headers: vec![("Authorization".into(), emcp::ecore::bearer_header(token))],
         };
         emcp::Client::connect(&upstream, "test", Duration::from_secs(10))
+    }
+
+    fn id(session_id: &str) -> emcp::SessionId {
+        emcp::SessionId::new(session_id).unwrap()
     }
 
     #[test]
     fn the_endpoint_lists_the_one_tool_and_wants_the_runs_token() {
         let server = serve(Arc::new(|name: &str, _: &Value| json!({ "content": [{ "type": "text", "text": name }] }))).unwrap();
-        let old = server.grant("s1", "s1");
-        let token = server.grant("s1", "s1");
+        let old = server.grant(&id("s1"), "s1");
+        let token = server.grant(&id("s1"), "s1");
         assert!(matches!(client(server.url(), "nope"), Err(emcp::ClientError::Http(401))));
-        assert!(matches!(client(server.url(), &old), Err(emcp::ClientError::Http(401))));
-        let live = client(server.url(), &token).unwrap();
+        assert!(matches!(client(server.url(), old.as_str()), Err(emcp::ClientError::Http(401))));
+        let live = client(server.url(), token.as_str()).unwrap();
         let names: Vec<String> =
             live.list_tools(Duration::from_secs(10)).unwrap().iter().map(|tool| tool["name"].as_str().unwrap().to_string()).collect();
         assert_eq!(names, ["get_screenshots"]);
         let result = live.call("get_screenshots", json!({}), Duration::from_secs(10)).unwrap();
         assert_eq!(result["content"][0]["text"], "get_screenshots");
-        server.revoke("s1");
-        assert!(matches!(client(server.url(), &token), Err(emcp::ClientError::Http(401))));
+        server.revoke(&id("s1"));
+        assert!(matches!(client(server.url(), token.as_str()), Err(emcp::ClientError::Http(401))));
     }
 }

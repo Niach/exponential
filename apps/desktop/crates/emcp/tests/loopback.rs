@@ -5,7 +5,10 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use emcp::{Caller, Client, ClientError, RawRequest, RawResponse, RawRoute, Server, ServerInfo, ToolProvider, Upstream};
+use emcp::{
+    Caller, Client, ClientError, DeliveryVerdict, RawRequest, RawResponse, RawRoute, Server, ServerInfo, SessionId, ToolProvider,
+    Upstream,
+};
 use serde_json::{json, Value};
 
 const T: Duration = Duration::from_secs(10);
@@ -43,9 +46,13 @@ impl ToolProvider for Fake {
         }
     }
 
-    fn ended(&self, session_id: &str) {
+    fn ended(&self, session_id: &SessionId) {
         self.ended.lock().unwrap().push(session_id.to_string());
     }
+}
+
+fn id(session_id: &str) -> SessionId {
+    SessionId::new(session_id).unwrap()
 }
 
 fn info() -> ServerInfo {
@@ -56,7 +63,7 @@ fn upstream(url: &str, token: &str) -> Upstream {
     Upstream {
         name: "fake".into(),
         url: url.to_string(),
-        headers: vec![("Authorization".into(), format!("Bearer {token}")), ("X-Exp-Session-Id".into(), "run-1".into())],
+        headers: vec![("Authorization".into(), emcp::ecore::bearer_header(token)), ("X-Exp-Session-Id".into(), "run-1".into())],
     }
 }
 
@@ -64,8 +71,8 @@ fn upstream(url: &str, token: &str) -> Upstream {
 fn tools_and_calls_reach_the_run() {
     let fake = Arc::new(Fake::default());
     let server = Server::serve(info(), fake.clone()).unwrap();
-    let token = server.grant("s1", "EXP-1");
-    let client = Client::connect(&upstream(server.url(), &token), "test", T).unwrap();
+    let token = server.grant(&id("s1"), "EXP-1");
+    let client = Client::connect(&upstream(server.url(), token.as_str()), "test", T).unwrap();
     let tools = client.list_tools(T).unwrap();
     let names: Vec<&str> = tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["echo", "bare"]);
@@ -83,24 +90,40 @@ fn the_endpoint_wants_a_live_token() {
     let fake = Arc::new(Fake::default());
     let server = Server::serve(info(), fake.clone()).unwrap();
     assert!(matches!(Client::connect(&upstream(server.url(), "nope"), "test", T), Err(ClientError::Http(401))));
-    let old = server.grant("s1", "EXP-1");
-    let new = server.grant("s1", "EXP-1");
+    let old = server.grant(&id("s1"), "EXP-1");
+    let new = server.grant(&id("s1"), "EXP-1");
     assert!(server.admitted(&old).is_none());
-    assert!(Client::connect(&upstream(server.url(), &new), "test", T).is_ok());
-    server.revoke("s1");
+    assert!(Client::connect(&upstream(server.url(), new.as_str()), "test", T).is_ok());
+    server.revoke(&id("s1"));
     assert!(server.admitted(&new).is_none());
     assert_eq!(fake.ended.lock().unwrap().as_slice(), ["s1"]);
-    assert!(matches!(Client::connect(&upstream(server.url(), &new), "test", T), Err(ClientError::Http(401))));
+    assert!(matches!(Client::connect(&upstream(server.url(), new.as_str()), "test", T), Err(ClientError::Http(401))));
+}
+
+/// The bearer is eCore's: the scheme matched case-insensitively, anything
+/// but a 64-hex token refused before a lookup, and a refused call never ran.
+#[test]
+fn the_bearer_is_an_ecore_token() {
+    let server = Server::serve(info(), Arc::new(Fake::default())).unwrap();
+    let token = server.grant(&id("s1"), "EXP-1");
+    assert!(emcp::ecore::is_valid_token(token.as_str()));
+    let lower = Upstream { headers: vec![("Authorization".into(), format!("bearer {}", token.as_str()))], ..upstream(server.url(), "") };
+    assert!(Client::connect(&lower, "test", T).is_ok());
+    let upper = token.as_str().to_uppercase();
+    let refused = Client::connect(&upstream(server.url(), &upper), "test", T).err().unwrap();
+    assert_eq!(refused, ClientError::Http(401));
+    assert_eq!(refused.delivery(), Some(DeliveryVerdict::NotDelivered));
+    assert_eq!(ClientError::Timeout.delivery(), None);
 }
 
 #[test]
 fn a_provider_may_call_a_client_from_inside_a_call() {
     let fake = Arc::new(Fake::default());
     let server = Server::serve(info(), fake.clone()).unwrap();
-    let inner = server.grant("inner", "Inner");
-    *fake.relay.lock().unwrap() = Some(upstream(server.url(), &inner));
-    let outer = server.grant("outer", "Outer");
-    let result = Client::connect(&upstream(server.url(), &outer), "test", T).unwrap().call("relay", json!({}), T).unwrap();
+    let inner = server.grant(&id("inner"), "Inner");
+    *fake.relay.lock().unwrap() = Some(upstream(server.url(), inner.as_str()));
+    let outer = server.grant(&id("outer"), "Outer");
+    let result = Client::connect(&upstream(server.url(), outer.as_str()), "test", T).unwrap().call("relay", json!({}), T).unwrap();
     assert_eq!(result["structuredContent"], json!({ "args": { "nested": true } }));
 }
 

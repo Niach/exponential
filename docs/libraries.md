@@ -72,7 +72,9 @@ How spezl (or anyone) depends on the `publish = false` crates:
    tag = "eui-v…"` and `epilot`/`epilot-screen` at `epilot-v…`, and
    `epilot`/`epilot-screen` take `emcp` at `emcp-v…` (#EXP-1492); a path
    dependency would resolve inside the etalk tag's checkout and hand a
-   consumer a second eui-gpui whose types never unify with its own. The
+   consumer a second eui-gpui whose types never unify with its own. The one
+   exception is eCore (`ecore`, types only, no tag yet): `emcp` takes it by
+   path (#EXP-1517), so it resolves inside the emcp tag's checkout. The
    desktop workspace's `[patch."https://github.com/Niach/exponential"]` builds
    them from the local crates. A consumer of `etalk-gpui` pins eUI and ePilot
    at the tags `etalk-gpui`'s Cargo.toml names (same URL, same tag): Cargo
