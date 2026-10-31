@@ -165,6 +165,66 @@ pub fn download_file(
     Ok(path)
 }
 
+/// FEED-180: an attachment of UNKNOWN type (a sealed message's clear
+/// `attachment_ids`, which the device embeds as images): an image lands as
+/// [`download_image`] writes it, anything else as [`download_file`] does,
+/// under the server's filename (`Content-Disposition`). One GET; either
+/// cached copy short circuits it. Blocking.
+pub fn download_attachment(
+    trpc: &TrpcClient,
+    attachment_id: &str,
+    dest_dir: &Path,
+) -> Result<PathBuf, ApiError> {
+    if attachment_id.is_empty()
+        || !attachment_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err(ApiError::InvalidUrl(format!(
+            "not an attachment id: {attachment_id:?}"
+        )));
+    }
+    for (_, extension) in IMAGE_EXTENSIONS {
+        let existing = dest_dir.join(format!("{attachment_id}.{extension}"));
+        if existing.is_file() {
+            return Ok(existing);
+        }
+    }
+    let dir = dest_dir.join(attachment_id);
+    if let Some(existing) = std::fs::read_dir(&dir)
+        .ok()
+        .and_then(|mut entries| entries.find_map(|entry| Some(entry.ok()?.path()).filter(|p| p.is_file())))
+    {
+        return Ok(existing);
+    }
+    let blob = trpc.get_blob(&format!("/api/attachments/{attachment_id}"))?;
+    let content_type = blob.content_type.unwrap_or_default();
+    let (dir, path) = match image_extension(&content_type) {
+        Some(extension) => (dest_dir.to_path_buf(), dest_dir.join(format!("{attachment_id}.{extension}"))),
+        None => {
+            let name = blob
+                .content_disposition
+                .as_deref()
+                .and_then(disposition_file_name)
+                .unwrap_or_default();
+            (dir.clone(), dir.join(local_file_name(&name)))
+        }
+    };
+    std::fs::create_dir_all(&dir)
+        .map_err(|err| ApiError::Io(format!("{}: {err}", dir.display())))?;
+    std::fs::write(&path, &blob.bytes)
+        .map_err(|err| ApiError::Io(format!("{}: {err}", path.display())))?;
+    Ok(path)
+}
+
+/// The `filename="…"` of a `Content-Disposition` header (the server's ASCII
+/// fallback, `buildContentDispositionHeader`).
+fn disposition_file_name(header: &str) -> Option<String> {
+    let at = header.find("filename=\"")? + "filename=\"".len();
+    let rest = &header[at..];
+    Some(rest[..rest.find('"')?].to_string()).filter(|name| !name.is_empty())
+}
+
 /// Output of `attachments.delete` — the Postgres txid for the §4.1
 /// `awaitTxId` gate (the desktop reads through sync and ignores it).
 #[derive(Clone, Debug, Deserialize)]
@@ -414,6 +474,30 @@ mod tests {
         std::fs::write(dir.0.join("att-2.webp"), b"cached").unwrap();
         let path = download_image(&client("http://127.0.0.1:1"), "att-2", &dir.0).unwrap();
         assert_eq!(path, dir.0.join("att-2.webp"));
+    }
+
+    #[test]
+    fn download_attachment_writes_an_image_under_its_id_and_a_file_under_its_name() {
+        // FEED-180: a sealed message's clear ids carry no type.
+        let dir = TempDir::new("any");
+        let (base, _captured) = one_shot_server_typed(200, "image/png", "PNGBYTES");
+        let path = download_attachment(&client(&base), "att-7", &dir.0).unwrap();
+        assert_eq!(path, dir.0.join("att-7.png"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"PNGBYTES");
+
+        let (base, _captured) = one_shot_server_typed(
+            200,
+            "application/pdf\r\nContent-Disposition: attachment; filename=\"notes.pdf\"",
+            "%PDF",
+        );
+        let path = download_attachment(&client(&base), "att-8", &dir.0).unwrap();
+        assert_eq!(path, dir.0.join("att-8").join("notes.pdf"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"%PDF");
+        // Both cached: nothing is listening any more.
+        let offline = client("http://127.0.0.1:1");
+        assert_eq!(download_attachment(&offline, "att-7", &dir.0).unwrap(), dir.0.join("att-7.png"));
+        assert_eq!(download_attachment(&offline, "att-8", &dir.0).unwrap(), dir.0.join("att-8").join("notes.pdf"));
+        assert!(download_attachment(&offline, "../x", &dir.0).is_err());
     }
 
     #[test]

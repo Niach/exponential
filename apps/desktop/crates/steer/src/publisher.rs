@@ -162,7 +162,9 @@ pub type CompactHook = Arc<dyn Fn(Option<String>) -> CompactVerdict + Send + Syn
 pub fn image_localizer(trpc: Arc<TrpcClient>, dest_dir: PathBuf) -> AttachmentHook {
     Arc::new(move |attachment_id, file_name| {
         match file_name {
-            None => api::attachments::download_image(&trpc, attachment_id, &dest_dir),
+            // FEED-180: an image embed may name a non-image (a sealed
+            // message's clear ids, embedded by the device): it lands as a file.
+            None => api::attachments::download_attachment(&trpc, attachment_id, &dest_dir),
             Some(name) => api::attachments::download_file(&trpc, attachment_id, name, &dest_dir),
         }
         .map_err(|err| err.to_string())
@@ -172,11 +174,13 @@ pub fn image_localizer(trpc: Arc<TrpcClient>, dest_dir: PathBuf) -> AttachmentHo
 /// The embed token a steering client sends for an attached image (the shared
 /// `buildSteerImageMessage` template, byte-identical on web/iOS/Android). The
 /// id is UUID-shaped so nothing else in a message can be mistaken for one.
+/// FEED-180: any alt text, so the line the server appends to a plaintext
+/// body (`![<filename>](/api/attachments/<id>)`) localizes too.
 fn image_embed_pattern() -> &'static regex::Regex {
     static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
     PATTERN.get_or_init(|| {
         regex::Regex::new(
-            r"(?i)!\[image\]\(/api/attachments/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)",
+            r"(?i)!\[[^\]\n]*\]\(/api/attachments/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)",
         )
         .expect("the image embed pattern is a valid regex")
     })

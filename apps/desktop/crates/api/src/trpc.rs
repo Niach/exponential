@@ -71,6 +71,14 @@ pub struct TrpcClient {
     token_provider: Arc<dyn TokenProvider>,
 }
 
+/// A blob off a NON-tRPC route ([`TrpcClient::get_blob`]).
+#[derive(Clone, Debug, Default)]
+pub struct Blob {
+    pub bytes: Vec<u8>,
+    pub content_type: Option<String>,
+    pub content_disposition: Option<String>,
+}
+
 impl TrpcClient {
     /// `instance_url` is normalized ([`normalize_instance_url`]); the token
     /// provider is evaluated per request (never captured once).
@@ -186,6 +194,16 @@ impl TrpcClient {
         path: &str,
         timeout: Duration,
     ) -> Result<(Vec<u8>, Option<String>), ApiError> {
+        self.get_blob_within(path, timeout).map(|blob| (blob.bytes, blob.content_type))
+    }
+
+    /// FEED-180: [`Self::get_bytes`] with the response's
+    /// `Content-Disposition` too (an attachment's server filename).
+    pub fn get_blob(&self, path: &str) -> Result<Blob, ApiError> {
+        self.get_blob_within(path, BLOB_TIMEOUT)
+    }
+
+    fn get_blob_within(&self, path: &str, timeout: Duration) -> Result<Blob, ApiError> {
         let url = format!("{}{path}", self.base_url);
         let response = self
             .authorize(self.client().get(&url))
@@ -199,14 +217,20 @@ impl TrpcClient {
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
+        let content_disposition = response
+            .headers()
+            .get(reqwest::header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         if !(200..300).contains(&status) {
             let body = read_body(response)?;
             return Err(status_error_authed(status, &body));
         }
-        Ok((
-            response.bytes().map_err(transport_error)?.to_vec(),
+        Ok(Blob {
+            bytes: response.bytes().map_err(transport_error)?.to_vec(),
             content_type,
-        ))
+            content_disposition,
+        })
     }
 
     /// EXP-1252: PUT raw bytes to a NON-tRPC route on the same instance

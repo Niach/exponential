@@ -487,6 +487,8 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "author_session_id",
             "body",
             "card",
+            // FEED-180: the clear attachments of a (possibly sealed) message.
+            "attachment_ids",
             "answered_at",
             "consumed_at",
             "created_at",

@@ -75,7 +75,8 @@ import { DEVICE_OTHER_TEAM_MESSAGE, deviceUsableInTeam } from "@/lib/session-dev
 import { agentReuseRefusal } from "@/lib/sessions/agent-reuse"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED } from "@/lib/sessions/meeting-access"
 import type { Db, Tx } from "@/lib/sessions/tx"
-import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
+import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
+import { attachmentLine } from "@/lib/sessions/attachment-lines"
 import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
 import { isSealedBody, validSealedBody } from "@/lib/sessions/sealed"
 import { createTreeKeyInTx } from "@/lib/sessions/tree-keys"
@@ -314,12 +315,7 @@ async function claimAttachments(
   const byId = new Map(claimed.map((row) => [row.id, row]))
   const lines = ids
     .filter((id) => !args.body.includes(buildAttachmentUrl(id)))
-    .map((id) => {
-      const row = byId.get(id)!
-      const url = buildAttachmentUrl(id)
-      const name = row.filename.replace(/[[\]]/g, ``)
-      return isAcceptedImageContentType(row.contentType) ? `![${name}](${url})` : `[${name}](${url})`
-    })
+    .map((id) => attachmentLine(byId.get(id)!))
   if (lines.length === 0) return
   const body = [args.body.trimEnd(), ...lines].filter(Boolean).join(`\n\n`)
   await tx.execute(sql`UPDATE messages SET body = ${body} WHERE id = ${args.messageId}`)
