@@ -10,6 +10,18 @@ publish = false
 default = ["winit"]
 # Nested in a window on X11 or Wayland (Cinnamon/X11 for development).
 winit = ["smithay/backend_winit"]
+# The real session: libseat, udev, DRM/KMS + GBM, libinput. Needs
+# libudev, libinput, libgbm, libseat and libdrm headers to build.
+udev = [
+    "smithay/backend_drm",
+    "smithay/backend_gbm",
+    "smithay/backend_libinput",
+    "smithay/backend_udev",
+    "smithay/backend_session_libseat",
+    "smithay/backend_egl",
+    "smithay/renderer_multi",
+    "dep:xcursor",
+]
 
 [dependencies]
 smithay = { workspace = true, features = ["wayland_frontend", "desktop", "renderer_gl", "renderer_pixman"] }
@@ -18,6 +30,7 @@ toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 bitflags = "2"
+xcursor = { version = "0.3", optional = true }
 
 [dev-dependencies]
 wayland-client = "0.31.10"

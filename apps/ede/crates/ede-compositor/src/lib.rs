@@ -2,8 +2,8 @@
 //!
 //! Floating windows (Mint-like) with magnetic edges and edge tiling,
 //! xdg-shell, wlr-layer-shell, damage-tracked rendering, and a config file.
-//! Backends: `winit` (nested, for development) and `headless` (CI). The
-//! udev/DRM + libinput backend for a real login session comes next.
+//! Backends: `winit` (nested, for development), `udev` (the real session:
+//! DRM/KMS + libinput, feature `udev`) and `headless` (CI).
 
 pub mod backend;
 pub mod config;
