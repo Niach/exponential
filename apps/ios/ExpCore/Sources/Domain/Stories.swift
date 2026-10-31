@@ -56,7 +56,7 @@ public enum Stories {
         public static let storyGap: Double = 10
     }
 
-    /// #EXP-1493 THE kind badge ×4 (eUI Badge, the pill): the concept icon +
+    /// #EXP-1493 THE kind badge ×4 (THE Pill, sm, readonly): the concept icon +
     /// the kind word, text in the tint, the tint at `fill` behind, at
     /// `stroke` as its border.
     public enum Badge {
@@ -79,7 +79,6 @@ public enum Stories {
 
         public static let fill: Double = 0.14
         public static let stroke: Double = 0.3
-        public static let height: Double = 20
     }
 
     public enum Viewer {

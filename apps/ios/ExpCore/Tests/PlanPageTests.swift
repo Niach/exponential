@@ -36,6 +36,13 @@ final class PlanPageTests: XCTestCase {
     func testConstantsMatchTheFixture() throws {
         let f = try fixture()
         XCTAssertEqual(f["route"] as? String, PlanPage.route)
+        let specimen = try XCTUnwrap(f["specimen"] as? [String: Any])
+        XCTAssertEqual(specimen["chatName"] as? String, PlanPage.Specimen.chatName)
+        XCTAssertEqual(specimen["activeSection"] as? String, PlanPage.Specimen.activeSection)
+        XCTAssertEqual(
+            PlanPage.outline((specimen["card"] as? [String: Any])?["plan"] as? String ?? "").map(\.id)
+                .contains(PlanPage.Specimen.activeSection), true
+        )
         let copy = try XCTUnwrap(f["copy"] as? [String: Any])
         XCTAssertEqual(copy["title"] as? String, PlanPage.Copy.title)
         XCTAssertEqual(copy["openPlan"] as? String, PlanPage.Copy.openPlan)
@@ -43,7 +50,6 @@ final class PlanPageTests: XCTestCase {
         XCTAssertEqual(copy["openChat"] as? String, PlanPage.Copy.openChat)
         XCTAssertEqual(copy["outline"] as? String, PlanPage.Copy.outline)
         XCTAssertEqual(copy["questions"] as? String, PlanPage.Copy.questions)
-        XCTAssertEqual(copy["answered"] as? String, PlanPage.Copy.answered)
         XCTAssertEqual(copy["counts"] as? [String: [String]], [
             "sections": PlanPage.Copy.sections, "pictures": PlanPage.Copy.pictures,
             "questions": PlanPage.Copy.questionsCount,
@@ -117,7 +123,6 @@ final class PlanPageTests: XCTestCase {
             )
             XCTAssertEqual(line, entry["expected"] as? String)
         }
-        XCTAssertEqual(PlanPage.answeredLine(2, 7), "2 of 7 answered")
     }
 
     func testMosaicCases() throws {

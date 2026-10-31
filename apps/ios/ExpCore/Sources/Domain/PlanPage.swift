@@ -15,7 +15,6 @@ public enum PlanPage {
         public static let openChat = "Open chat"
         public static let outline = "Outline"
         public static let questions = "Questions"
-        public static let answered = "{answered} of {total} answered"
         /// singular, plural.
         public static let sections = ["section", "sections"]
         public static let pictures = ["picture", "pictures"]
@@ -54,6 +53,13 @@ public enum PlanPage {
     }
 
     public static let route = "/t/$teamSlug/sessions/$sessionId/plan/$messageId"
+
+    /// THE styleguide specimen ×4 (`specimen`): the chat's name and the
+    /// active outline row; its card is read from the fixture by the capture.
+    public enum Specimen {
+        public static let chatName = "Editor-first app creation, eApps MCP"
+        public static let activeSection = "part-a-editor-first-creation"
+    }
 
     // MARK: - Model
 
@@ -277,13 +283,6 @@ public enum PlanPage {
             .filter { $0.0 > 0 }
             .map { "\($0.0) \($0.1[$0.0 == 1 ? 0 : 1])" }
             .joined(separator: " · ")
-    }
-
-    /// The outline's questions row trailing text: "2 of 7 answered".
-    public static func answeredLine(_ answered: Int, _ total: Int) -> String {
-        Copy.answered
-            .replacingOccurrences(of: "{answered}", with: String(answered))
-            .replacingOccurrences(of: "{total}", with: String(total))
     }
 
     public enum TileSize: String, Equatable, Sendable {

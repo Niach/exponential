@@ -103,7 +103,6 @@ final class StoriesTests: XCTestCase {
         }
         XCTAssertEqual(num(badge["fill"]), Stories.Badge.fill)
         XCTAssertEqual(num(badge["stroke"]), Stories.Badge.stroke)
-        XCTAssertEqual(num(badge["height"]), Stories.Badge.height)
         XCTAssertEqual(f["testIds"] as? [String: String], [
             "ring": Stories.TestIds.ring, "viewer": Stories.TestIds.viewer, "progress": Stories.TestIds.progress,
             "header": Stories.TestIds.header, "next": Stories.TestIds.next, "previous": Stories.TestIds.previous,

@@ -20,6 +20,8 @@ struct PlanPageScreen: View {
     let messageId: String
     /// The styleguide capture's card (no store read); nil = the synced row.
     var specimen: TreeMessageCard?
+    /// The capture's chat name (`specimen.chatName`).
+    var specimenChatName: String?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -28,6 +30,8 @@ struct PlanPageScreen: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var message: SessionMessage?
+    /// The asking session's name (the DockCard's caption).
+    @State private var sessionName: String?
     @State private var resolved = false
     @State private var draft = PlanCardDraft()
     @State private var dockOpenId: String?
@@ -124,6 +128,7 @@ struct PlanPageScreen: View {
                             busy: busy,
                             markdownContext: markdownContext,
                             sharedDraft: draft,
+                            questionsOnly: true,
                             onSubmit: { answer in submit(answer, close: close) },
                             onClose: close
                         )
@@ -138,7 +143,7 @@ struct PlanPageScreen: View {
                     PlanOutlineList(
                         sections: outline,
                         active: activeSection(outline),
-                        questions: card.questions.isEmpty ? nil : (answered(card), card.questions.count),
+                        questions: card.questions.count,
                         onSelect: { id in
                             outlineOpen = false
                             withAnimation { proxy.scrollTo(id, anchor: .top) }
@@ -215,31 +220,15 @@ struct PlanPageScreen: View {
 
     // MARK: - THE DockCard + Dock sheet
 
-    private func answered(_ card: TreeMessageCard) -> Int {
-        card.questions.filter { question in
-            card.decision != nil
-                ? !(card.planAnswers?[question.id] ?? []).isEmpty
-                : !draft.answer(question.id).isEmpty
-        }.count
-    }
-
-    /// dock.json's plan DockCard: `Plan ready`, meta = the answered line,
-    /// title = the questions part + ` · ` + `Answer`; decided = the decision.
+    /// dock.json's plan DockCard UNCHANGED (`Dock.rows` of the plan:
+    /// `Plan ready`, the asking session's name, `n questions`, the title).
     private func planRow(_ card: TreeMessageCard) -> Dock.Row {
-        let questions = card.questions.count
-        let questionsPart = PlanPage.countsLine(PlanPage.Counts(sections: 0, pictures: 0, questions: questions))
-        let title: String = if let decision = card.decision {
-            AskDock.planDecisionLabel(decision: decision, fresh: card.fresh)
-        } else if questions > 0 {
-            "\(questionsPart) · \(PlanCard.Copy.answer)"
-        } else {
-            PlanCard.Copy.answer
-        }
-        return Dock.Row(
+        Dock.rows([.plan(
+            id: messageId, text: card.plan ?? "", sessionName: specimenChatName ?? sessionName,
+            questions: card.questions.count, createdAt: 0
+        )]).first ?? Dock.Row(
             id: messageId, kind: .plan, tint: .plan, icon: Dock.Icons.plan, label: AskDock.label(.plan),
-            caption: nil,
-            meta: questions > 0 ? PlanPage.answeredLine(answered(card), questions) : nil,
-            title: title, expandable: true, action: nil
+            caption: nil, meta: nil, title: PlanPage.Copy.title, expandable: true, action: nil
         )
     }
 
@@ -325,12 +314,15 @@ struct PlanPageScreen: View {
             return
         }
         let id = messageId
+        let session = sessionId
         let observation = ValueObservation.tracking { db in
-            try SessionQueries.messages(db: db, ids: [id]).first
-        }.removeDuplicates()
+            (try SessionQueries.messages(db: db, ids: [id]).first,
+             try SessionEntity.fetchOne(db, key: session)?.title)
+        }
         do {
-            for try await row in observation.values(in: pool) {
-                message = row
+            for try await (row, title) in observation.values(in: pool) {
+                if row != message { message = row }
+                if title != sessionName { sessionName = title }
                 resolved = true
             }
         } catch {
@@ -353,8 +345,8 @@ struct PlanPictureImage: View {
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
             } else {
-                AppIcon(AppIcons.editorImage, size: 24)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                // The muted fill while it loads (and on the specimen).
+                DesignTokens.Palette.muted
             }
         }
         .task(id: src) {

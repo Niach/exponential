@@ -30,7 +30,7 @@ import XCTest
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_voice-call · sg_call-controls · sg_device-readiness ·
-///   sg_story-ring · sg_story-viewer
+///   sg_story-ring · sg_story-viewer · sg_plan-page
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -992,7 +992,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
-        "story-tab", "sealed-locked",
+        "story-tab", "sealed-locked", "plan-page",
     ]
 
     /// A scoped run that wants only specimens (`--views sealed-locked`)
@@ -1025,6 +1025,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "story-viewer": snapshot("sg_story-viewer", settle: 2)
             case "story-tab": snapshot("sg_story-tab", settle: 2)
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
+            case "plan-page": snapshot("sg_plan-page", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }

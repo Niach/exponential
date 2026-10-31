@@ -22,9 +22,9 @@ extension Stories.Kind {
     }
 }
 
-/// THE kind badge (stories.json `badge`, eUI Badge, the pill): the concept
-/// icon + the kind word in the tint, the tint at `fill` behind and at
-/// `stroke` as its border. `waiting` = the plan page's ` · waiting`.
+/// THE kind badge (stories.json `badge` = THE Pill, sm, readonly): the
+/// concept icon + the kind word in the tint, the tint at `fill` behind and
+/// at `stroke` as its border. `waiting` = the plan page's ` · waiting`.
 public struct StoryKindBadge: View {
     let kind: Stories.Kind
     var waiting = false
@@ -45,8 +45,8 @@ public struct StoryKindBadge: View {
                 .lineLimit(1)
         }
         .foregroundStyle(tint)
-        .padding(.horizontal, 7)
-        .frame(height: CGFloat(Stories.Badge.height))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
         .background(Capsule().fill(tint.opacity(Stories.Badge.fill)))
         .overlay(Capsule().stroke(tint.opacity(Stories.Badge.stroke), lineWidth: 1))
         .fixedSize()
@@ -76,6 +76,19 @@ public struct PlanPictureCarousel<Slide: View>: View {
     public var body: some View {
         let radius = CGFloat(PlanPage.Mosaic.radius)
         VStack(spacing: 8) {
+            // The group's box = the first picture's aspect at the column's
+            // width (a slide still loading keeps its height).
+            Color.clear
+                .aspectRatio(aspect, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay { slides(radius) }
+            dots
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(PlanPage.TestIds.carousel)
+    }
+
+    private func slides(_ radius: CGFloat) -> some View {
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 8) {
                     ForEach(0..<count, id: \.self) { index in
@@ -91,8 +104,7 @@ public struct PlanPictureCarousel<Slide: View>: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .containerRelativeFrame(.horizontal)
-                        .aspectRatio(aspect, contentMode: .fit)
+                        .containerRelativeFrame([.horizontal, .vertical])
                         .id(index)
                     }
                 }
@@ -112,6 +124,9 @@ public struct PlanPictureCarousel<Slide: View>: View {
                     .allowsHitTesting(false)
                     .accessibilityIdentifier("plan-carousel-counter")
             }
+    }
+
+    private var dots: some View {
             HStack(spacing: 5) {
                 ForEach(0..<count, id: \.self) { index in
                     Circle()
@@ -120,9 +135,6 @@ public struct PlanPictureCarousel<Slide: View>: View {
                 }
             }
             .accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(PlanPage.TestIds.carousel)
     }
 }
 
@@ -132,13 +144,13 @@ public struct PlanPictureCarousel<Slide: View>: View {
 public struct PlanOutlineList: View {
     let sections: [PlanPage.Section]
     let active: String?
-    /// (answered, total); nil = no questions row.
-    let questions: (answered: Int, total: Int)?
+    /// The plan's question count; 0 = no questions row.
+    let questions: Int
     let onSelect: (String) -> Void
     let onQuestions: () -> Void
 
     public init(
-        sections: [PlanPage.Section], active: String?, questions: (answered: Int, total: Int)?,
+        sections: [PlanPage.Section], active: String?, questions: Int,
         onSelect: @escaping (String) -> Void, onQuestions: @escaping () -> Void
     ) {
         self.sections = sections
@@ -189,22 +201,18 @@ public struct PlanOutlineList: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(PlanPage.TestIds.outlineRow)
             }
-            if let questions {
+            if questions > 0 {
                 Rectangle()
                     .fill(GlassTokens.strokeCard)
                     .frame(height: GlassTokens.hairline)
                     .padding(.vertical, 6)
                 Button(action: onQuestions) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 0) {
                         Text(PlanPage.Copy.questions)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        Text(" · \(questions)")
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         Spacer(minLength: 0)
-                        Text(PlanPage.answeredLine(questions.answered, questions.total))
-                            .font(.caption)
-                            .foregroundStyle(
-                                questions.answered < questions.total
-                                    ? DesignTokens.Semantic.yellow : .white.opacity(TextOpacity.tertiary)
-                            )
                     }
                     .font(.subheadline)
                     .padding(.horizontal, 10)
