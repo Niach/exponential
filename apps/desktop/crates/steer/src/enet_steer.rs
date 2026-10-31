@@ -48,6 +48,43 @@ pub const CHAT_MAX_BYTES: usize = enet_core::MAX_CHAT_MESSAGE;
 pub const KEEPALIVE: Duration = Duration::from_millis(30_000);
 /// A viewer that hears nothing for this long re-sends `join`.
 pub const STALE: Duration = Duration::from_millis(75_000);
+/// EXP-1487 (`lostBanner`): a dropped live feed redials silently; it reads
+/// "Connection lost" only once down this long AND after
+/// [`LOST_FAILED_REDIALS`] failed redials since the drop.
+pub const LOST_GRACE: Duration = Duration::from_millis(5_000);
+pub const LOST_FAILED_REDIALS: u32 = 2;
+
+/// EXP-1487 (TS `steerShowConnectionLost`): whether a feed `down` since its
+/// drop, with `failed_redials` failed redials since, shows "Connection lost".
+pub fn show_connection_lost(down: Duration, failed_redials: u32) -> bool {
+    down >= LOST_GRACE && failed_redials >= LOST_FAILED_REDIALS
+}
+
+/// EXP-1487 (`noFeed`): what an empty transcript says while NO FEED holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoFeedState {
+    /// The ended row's device-offline copy.
+    Offline,
+    /// A turn is running: "The agent is starting…".
+    Starting,
+    /// Idle or waiting on a question: never "starting".
+    Idle,
+}
+
+/// EXP-1487 (TS `steerNoFeedState`).
+pub fn no_feed_state(ended: bool, busy: bool) -> NoFeedState {
+    match (ended, busy) {
+        (true, _) => NoFeedState::Offline,
+        (false, true) => NoFeedState::Starting,
+        (false, false) => NoFeedState::Idle,
+    }
+}
+
+/// EXP-1487 (`noFeedIdle`): the idle empty state's copy.
+pub const NO_FEED_IDLE_TITLE: &str = "No live transcript";
+pub const NO_FEED_IDLE_TEXT: &str =
+    "The device holding this session isn't publishing right now. Its conversation stays in the chat.";
+
 /// A join with no `activity_synced` within this long = no feed from that
 /// endpoint.
 pub const JOIN_TIMEOUT: Duration = Duration::from_millis(8_000);
@@ -666,8 +703,15 @@ async fn run_feed(peer: EnetPeer, session_id: String, rx: flume::Receiver<String
 
 type ViewerKey = (String, EndpointId);
 
-fn viewers() -> &'static Mutex<HashMap<ViewerKey, (u64, flume::Sender<String>)>> {
-    static VIEWERS: OnceLock<Mutex<HashMap<ViewerKey, (u64, flume::Sender<String>)>>> = OnceLock::new();
+/// EXP-1487: every subscriber of one (session, device), by generation. Two
+/// viewers of one session on this install (the agent screen's transcript and
+/// its root composer) share the device's one feed for this endpoint: a
+/// single slot made the second's join evict the first, which rejoined and
+/// evicted the second, forever ("Connection lost" flickering).
+type Subscribers = Vec<(u64, flume::Sender<String>)>;
+
+fn viewers() -> &'static Mutex<HashMap<ViewerKey, Subscribers>> {
+    static VIEWERS: OnceLock<Mutex<HashMap<ViewerKey, Subscribers>>> = OnceLock::new();
     VIEWERS.get_or_init(Default::default)
 }
 
@@ -679,37 +723,51 @@ pub struct ViewerSubscription {
     pub frames: flume::Receiver<String>,
 }
 
+impl ViewerSubscription {
+    /// Whether another viewer on this install still reads this session from
+    /// this device: then a `leave` would end ITS feed too (the device keys
+    /// viewers by endpoint), so only the last subscriber leaves.
+    pub fn shared(&self) -> bool {
+        lock(viewers())
+            .get(&self.key)
+            .is_some_and(|subs| subs.iter().any(|(generation, _)| *generation != self.generation))
+    }
+}
+
 impl Drop for ViewerSubscription {
     fn drop(&mut self) {
         let mut viewers = lock(viewers());
-        if viewers.get(&self.key).is_some_and(|(generation, _)| *generation == self.generation) {
-            viewers.remove(&self.key);
+        if let Some(subs) = viewers.get_mut(&self.key) {
+            subs.retain(|(generation, _)| *generation != self.generation);
+            if subs.is_empty() {
+                viewers.remove(&self.key);
+            }
         }
     }
 }
 
 /// Subscribes to the frames `device` sends for `session_id` (envelopes from
-/// any other endpoint, or for another session, never reach it).
+/// any other endpoint, or for another session, never reach it). Every
+/// subscriber of the pair gets every frame (fixtures/steer-enet.json
+/// SUBSCRIPTIONS).
 pub fn subscribe(session_id: &str, device: EndpointId) -> ViewerSubscription {
     let (tx, frames) = flume::unbounded();
     let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
     let key = (session_id.to_string(), device);
-    lock(viewers()).insert(key.clone(), (generation, tx));
+    lock(viewers()).entry(key.clone()).or_default().push((generation, tx));
     ViewerSubscription { key, generation, frames }
 }
 
 fn deliver_to_viewer(from: EndpointId, envelope: Envelope) {
     let key = (envelope.session_id, from);
     let mut viewers = lock(viewers());
-    let Some((_, tx)) = viewers.get(&key) else {
+    let Some(subs) = viewers.get_mut(&key) else {
         log::debug!("enet steer: frames for {} from an endpoint nobody joined; ignored", key.0);
         return;
     };
-    for frame in envelope.frames {
-        if tx.send(frame.to_string()).is_err() {
-            viewers.remove(&key);
-            return;
-        }
+    subs.retain(|(_, tx)| envelope.frames.iter().all(|frame| tx.send(frame.to_string()).is_ok()));
+    if subs.is_empty() {
+        viewers.remove(&key);
     }
 }
 
@@ -723,6 +781,30 @@ mod tests {
         serde_json::from_str(FIXTURE).unwrap()
     }
 
+    /// EXP-1487 (SUBSCRIPTIONS): two viewers of one session share the
+    /// device's feed; neither evicts the other, only the last one leaves.
+    #[test]
+    fn two_subscribers_of_one_session_both_get_every_frame() {
+        let device = enet_core::SecretKey::from_bytes(&[7; 32]).public();
+        let session = "sess-exp-1487";
+        let deliver = |t: &str| {
+            let frames = vec![serde_json::json!({ "t": t })];
+            deliver_to_viewer(device, Envelope { session_id: session.into(), frames });
+        };
+        let first = subscribe(session, device);
+        assert!(!first.shared());
+        let second = subscribe(session, device);
+        assert!(first.shared() && second.shared());
+        deliver("keepalive");
+        assert_eq!(first.frames.try_recv().unwrap(), r#"{"t":"keepalive"}"#);
+        assert_eq!(second.frames.try_recv().unwrap(), r#"{"t":"keepalive"}"#);
+        drop(second);
+        assert!(!first.shared());
+        deliver("activity_reset");
+        assert_eq!(first.frames.try_recv().unwrap(), r#"{"t":"activity_reset"}"#);
+        assert!(!first.frames.is_disconnected());
+    }
+
     #[test]
     fn the_constants_are_the_fixtures() {
         let f = fixture();
@@ -734,6 +816,25 @@ mod tests {
         assert_eq!(f["staleMs"], STALE.as_millis() as u64);
         assert_eq!(f["joinTimeoutMs"], JOIN_TIMEOUT.as_millis() as u64);
         assert_eq!(f["sendTimeoutMs"], SEND_TIMEOUT.as_millis() as u64);
+        assert_eq!(f["noFeedIdle"]["title"], NO_FEED_IDLE_TITLE);
+        assert_eq!(f["noFeedIdle"]["text"], NO_FEED_IDLE_TEXT);
+        for case in f["noFeed"].as_array().unwrap() {
+            let state = match case["state"].as_str().unwrap() {
+                "offline" => NoFeedState::Offline,
+                "starting" => NoFeedState::Starting,
+                "idle" => NoFeedState::Idle,
+                other => panic!("unknown state {other}"),
+            };
+            let (ended, busy) = (case["ended"].as_bool().unwrap(), case["busy"].as_bool().unwrap());
+            assert_eq!(no_feed_state(ended, busy), state, "{}", case["name"]);
+        }
+        assert_eq!(f["lostBanner"]["graceMs"], LOST_GRACE.as_millis() as u64);
+        assert_eq!(f["lostBanner"]["failedRedials"], LOST_FAILED_REDIALS);
+        for case in f["lostBannerCases"].as_array().unwrap() {
+            let down = Duration::from_millis(case["downMs"].as_u64().unwrap());
+            let failed = case["failedRedials"].as_u64().unwrap() as u32;
+            assert_eq!(show_connection_lost(down, failed), case["show"].as_bool().unwrap(), "{}", case["name"]);
+        }
         let list = |key: &str| -> Vec<String> {
             f[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect()
         };

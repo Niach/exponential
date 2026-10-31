@@ -374,6 +374,10 @@ import com.exponential.app.ui.markdown.LocalMarkdownAutolink
 import com.exponential.app.ui.markdown.LocalMarkdownBodyStyle
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MdStyle
+import com.exponential.app.data.steer.STEER_NO_FEED_IDLE_TEXT
+import com.exponential.app.data.steer.STEER_NO_FEED_IDLE_TITLE
+import com.exponential.app.data.steer.SteerNoFeedState
+import com.exponential.app.data.steer.steerNoFeedState
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
@@ -914,6 +918,7 @@ private fun RunFaceContent(
     val dock: @Composable (SessionDock) -> Unit = { sessionDock -> SessionDockCards(sessionDock) }
     // The placeholder states (no feed yet): connecting, an ended run's
     // history fetch, an old desktop (S-3: no paused host).
+    val noFeedIdle = session?.let { steerNoFeedState(ended = sessionEnded, busy = it.busy) } == SteerNoFeedState.Idle
     val placeholderBody: @Composable () -> Unit = {
         when {
             // EXP-773: a finished run's transcript lives on the
@@ -925,6 +930,24 @@ private fun RunFaceContent(
                     historyStatus(history, hostDevice.displayLabel),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    textAlign = TextAlign.Center,
+                )
+            }
+            // EXP-1487 (steer-enet.json "NO FEED, EMPTY TRANSCRIPT"): NO
+            // FEED on a row that is neither busy nor ended (idle, or on an
+            // open question) is never "starting": the idle empty state, no
+            // spinner, while the connection keeps redialing.
+            feed.isEmpty() && phase == AgentPhase.Starting && noFeedIdle -> CenteredState {
+                Text(
+                    STEER_NO_FEED_IDLE_TITLE,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    STEER_NO_FEED_IDLE_TEXT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     textAlign = TextAlign.Center,
                 )
             }

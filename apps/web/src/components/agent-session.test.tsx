@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { SteerSessionSnapshot } from "@/lib/steer-session-store"
 import type { SessionRow } from "@/lib/session-tree"
+import enetFixture from "@exp/domain-contract/fixtures/steer-enet.json"
 
 // EXP-1324 (+ EXP-1321): the raw session view paints its transcript as Trace
 // lines (tools, groups, reasoning, subagents, failed tests) and its bottom
@@ -177,6 +178,35 @@ describe(`AgentSessionView Trace transcript`, () => {
     render(<AgentSessionView session={{ ...session, status: `ended` } as SessionRow} />)
     expect(screen.getByTestId(`transcript-device-offline`).textContent).toBe(detail)
   })
+
+  // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): replays `noFeed`.
+  for (const c of enetFixture.noFeed) {
+    it(`NO FEED, empty transcript: ${c.name} = ${c.state}`, () => {
+      const offline = `buildbox is offline. The transcript lives on that machine.`
+      snapshot = c.ended
+        ? snap({ phase: { kind: `ended`, detail: offline }, deviceOffline: true, connected: false })
+        : snap({ phase: { kind: `starting` }, connected: false })
+      const row = {
+        ...session,
+        status: c.ended ? `ended` : c.busy ? `running` : `idle`,
+        busy: c.busy,
+        needsInput: c.needsInput,
+      } as unknown as SessionRow
+      render(<AgentSessionView session={row} />)
+      const text = document.body.textContent ?? ``
+      const startingCopy = `The agent is starting. Waiting for the live stream…`
+      if (c.state === `offline`) {
+        expect(screen.getByTestId(`transcript-device-offline`).textContent).toBe(offline)
+      } else if (c.state === `starting`) {
+        expect(screen.getByTestId(`transcript-placeholder`).textContent).toContain(startingCopy)
+      } else {
+        expect(screen.queryByTestId(`transcript-placeholder`)).toBeNull()
+        expect(text).not.toContain(startingCopy)
+        expect(text).toContain(enetFixture.noFeedIdle.title)
+        expect(text).toContain(enetFixture.noFeedIdle.text)
+      }
+    })
+  }
 
   it(`the running call is its shimmering line alone`, () => {
     snapshot = snap({

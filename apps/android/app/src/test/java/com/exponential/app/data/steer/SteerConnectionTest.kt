@@ -330,6 +330,59 @@ class SteerConnectionTest {
         }
     }
 
+    // ── EXP-1487: the lost banner's grace ──────────────────────────────
+
+    @Test
+    fun aTransientDropOfALiveFeedRedialsWithoutTheBanner() = runBlocking {
+        // The second dial finds NO FEED (a failed redial), the third joins.
+        val transport = FakeTransport().apply { noFeed = { it == 2 } }
+        val connection = connection(transport, fastTimings.copy(lostGraceMs = 60_000))
+        try {
+            connection.connect()
+            val first = transport.awaitOpen()
+            first.emit("""{"t":"activity_reset"}""")
+            waitUntil("the live phase") { connection.phase.value == AgentPhase.Live }
+            val seen = phasesOf(connection)
+            first.hangUp()
+            val third = transport.awaitOpen()
+            assertEquals(1, transport.noFeeds.get())
+            third.emit("""{"t":"activity_reset"}""")
+            waitUntil("the redial to connect") { connection.connected.value }
+            // The phase held Live throughout: no Connecting flash, no
+            // "Connection lost", no Starting.
+            assertEquals(listOf<AgentPhase>(AgentPhase.Live), seen.distinct())
+            coroutineContext.cancelChildren()
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aLongDropShowsTheBannerOnlyAfterTheGraceAndTwoFailedRedials() = runBlocking {
+        val transport = FakeTransport().apply { noFeed = { it >= 2 } }
+        val connection = connection(transport, fastTimings.copy(lostGraceMs = 400))
+        try {
+            connection.connect()
+            val first = transport.awaitOpen()
+            first.emit("""{"t":"activity_reset"}""")
+            waitUntil("the live phase") { connection.phase.value == AgentPhase.Live }
+            val droppedAt = System.currentTimeMillis()
+            first.hangUp()
+            waitUntil("two failed redials") { transport.noFeeds.get() >= 2 }
+            // Two failures inside the grace: still silent.
+            if (System.currentTimeMillis() - droppedAt < 350) {
+                assertEquals(AgentPhase.Live, connection.phase.value)
+            }
+            waitUntil("the lost banner") {
+                connection.phase.value.let { it is AgentPhase.Closed && it.reconnecting }
+            }
+            assertTrue(System.currentTimeMillis() - droppedAt >= 400)
+            assertTrue(transport.noFeeds.get() >= 2)
+        } finally {
+            connection.close()
+        }
+    }
+
     // ── Staged replay (EXP-656) ─────────────────────────────────────────────
     //
     // The device answers every join with activity_reset + a full replay of the

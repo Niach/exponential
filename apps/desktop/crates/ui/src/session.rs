@@ -62,14 +62,35 @@ pub fn upgrade_required_handler(cx: &mut App) -> sync::UpgradeRequiredFn {
 /// foreground. The keep set is what THIS process has live plus what the
 /// shared session registry attributes to a live sibling (the CLI daemon on
 /// the same machine — REV-20, one data dir).
+///
+/// EXP-1487: plus every session that is idle, not over: one the registry
+/// still names (whatever process recorded it: a left-behind run is re-claimed
+/// AFTER this pass, "idle, waiting for its next message") and every synced
+/// row on this device that has not ended. An idle thread's scratch dir, run
+/// record and journal ARE its transcript and its resume; purging them left
+/// the view on "The agent is starting" forever.
 fn sweep_scratch_dirs(cx: &mut App) {
     let data_dir = crate::coding_flow::coding_data_dir(cx);
     let mut live: Vec<String> = crate::coding_flow::LocalSessions::global_ref(cx)
         .map(|sessions| sessions.read(cx).session_ids())
         .unwrap_or_default();
+    live.extend(crate::session_registry::left_behind());
+    let device_id = crate::queries::own_device_id(cx);
+    if let Some(store) = Store::try_global(cx) {
+        live.extend(
+            store
+                .collections()
+                .sessions
+                .read(cx)
+                .iter()
+                .filter(|row| row.on_device(&device_id) && !row.is_ended())
+                .map(|row| row.id.clone()),
+        );
+    }
     cx.background_executor()
         .spawn(async move {
             live.extend(crate::session_registry::live_ids(&data_dir));
+            live.extend(crate::session_registry::recorded_ids(&data_dir));
             let report = coding::scratch::sweep(&data_dir, &live);
             // EXP-764: the purged runs' steer journals go with their records.
             for session_id in &report.purged {

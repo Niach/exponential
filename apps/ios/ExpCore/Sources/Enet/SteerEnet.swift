@@ -406,6 +406,44 @@ public enum SteerOfflineRedial {
     }
 }
 
+/// LOST BANNER (EXP-1487, the fixture's `lostBanner` + `lostBannerCases`): a
+/// feed that was live and drops redials SILENTLY (the phase holds, no
+/// "Connection lost"); the banner shows only once the feed has been down at
+/// least `graceMs` since the drop AND at least `failedRedials` redials since
+/// the drop failed. A successful join resets both.
+public enum SteerLostBanner {
+    public static let graceMs = 5_000
+    public static let failedRedials = 2
+
+    /// - Parameters:
+    ///   - downMs: milliseconds since the drop.
+    ///   - failedRedials: redials since the drop that failed.
+    public static func show(downMs: Int, failedRedials: Int) -> Bool {
+        downMs >= graceMs && failedRedials >= Self.failedRedials
+    }
+}
+
+/// NO FEED, EMPTY TRANSCRIPT (EXP-1487, the fixture's `noFeed` cases +
+/// `noFeedIdle`): what a viewer with nothing to show says while NO FEED
+/// holds, keyed on the synced row. An ended row = the device-offline copy; a
+/// busy row = `starting`; a row that is neither (idle, or waiting on an open
+/// question) is never `starting`: the `idle` empty state (no spinner) while
+/// it keeps redialing on its backoff.
+public enum SteerNoFeed {
+    public enum State: String, Equatable, Sendable {
+        case offline, starting, idle
+    }
+
+    /// `noFeedIdle.title` / `noFeedIdle.text`.
+    public static let idleTitle = "No live transcript"
+    public static let idleText = "The device holding this session isn't publishing right now. Its conversation stays in the chat."
+
+    public static func state(ended: Bool, busy: Bool) -> State {
+        if ended { return .offline }
+        return busy ? .starting : .idle
+    }
+}
+
 /// The transport choice: `installs.forSession` → `join` the first endpoint →
 /// on `error no_such_session` (or `unauthorized`, or a failed send) the next
 /// → no node / no endpoint / every endpoint refused / no `activity_synced`

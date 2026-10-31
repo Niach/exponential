@@ -4612,6 +4612,28 @@ impl SteerSessionView {
                     .text_center()
                     .child(device_offline_copy(self.device(cx).label.as_deref()))
                     .into_any_element()])
+            } else if self.phase == ViewerPhase::Starting
+                && self.row.as_ref().is_some_and(|row| {
+                    steer::enet_steer::no_feed_state(row.is_ended(), row.busy)
+                        == steer::enet_steer::NoFeedState::Idle
+                })
+            {
+                // EXP-1487 (`noFeed`): an idle row (waiting for its next
+                // message or on an open question) is never "starting"; the
+                // viewer keeps redialing underneath.
+                centered(vec![
+                    div()
+                        .text_sm()
+                        .text_color(muted)
+                        .child(steer::enet_steer::NO_FEED_IDLE_TITLE)
+                        .into_any_element(),
+                    div()
+                        .text_xs()
+                        .text_color(muted.opacity(0.7))
+                        .text_center()
+                        .child(steer::enet_steer::NO_FEED_IDLE_TEXT)
+                        .into_any_element(),
+                ])
             } else if matches!(
                 self.phase,
                 ViewerPhase::Connecting | ViewerPhase::Starting | ViewerPhase::Reconnecting

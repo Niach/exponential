@@ -176,6 +176,27 @@ final class SteerEnetTests: XCTestCase {
         XCTAssertEqual(SteerNoFeedState.decide(sessionOver: true), .endedDeviceOffline)
     }
 
+    // EXP-1487 NO FEED, EMPTY TRANSCRIPT: ended = offline, busy = starting,
+    // anything else (idle, an open question) = the idle empty state.
+    func testNoFeedCases() throws {
+        let noFeed = try cases("noFeed")
+        XCTAssertFalse(noFeed.isEmpty)
+        for c in noFeed {
+            let name = c["name"] as? String ?? "?"
+            let ended = try XCTUnwrap(c["ended"] as? Bool, name)
+            let busy = try XCTUnwrap(c["busy"] as? Bool, name)
+            XCTAssertNotNil(c["needsInput"] as? Bool, name)
+            let state = try XCTUnwrap(SteerNoFeed.State(rawValue: c["state"] as? String ?? ""), name)
+            XCTAssertEqual(SteerNoFeed.state(ended: ended, busy: busy), state, name)
+        }
+    }
+
+    func testNoFeedIdleCopyMatchesTheFixture() throws {
+        let copy = try XCTUnwrap(try fixture()["noFeedIdle"] as? [String: Any])
+        XCTAssertEqual(copy["title"] as? String, SteerNoFeed.idleTitle)
+        XCTAssertEqual(copy["text"] as? String, SteerNoFeed.idleText)
+    }
+
     // VAPP-169 OFFLINE REDIAL: the device-offline `ended` redials on
     // everything but presence going offline; a `bye`-ended transcript never.
     func testOfflineRedialCases() throws {
@@ -186,6 +207,22 @@ final class SteerEnetTests: XCTestCase {
             let phase = try XCTUnwrap(SteerOfflineRedial.Phase(rawValue: c["phase"] as? String ?? ""), name)
             let trigger = try XCTUnwrap(SteerOfflineRedial.Trigger(rawValue: c["trigger"] as? String ?? ""), name)
             XCTAssertEqual(SteerOfflineRedial.decide(phase: phase, trigger: trigger), c["redial"] as? Bool, name)
+        }
+    }
+
+    // EXP-1487 LOST BANNER: a dropped feed redials silently; "Connection
+    // lost" only after `graceMs` down AND `failedRedials` failed redials.
+    func testLostBannerCases() throws {
+        let rule = try XCTUnwrap(try fixture()["lostBanner"] as? [String: Any])
+        XCTAssertEqual(rule["graceMs"] as? Int, SteerLostBanner.graceMs)
+        XCTAssertEqual(rule["failedRedials"] as? Int, SteerLostBanner.failedRedials)
+        let lost = try cases("lostBannerCases")
+        XCTAssertFalse(lost.isEmpty)
+        for c in lost {
+            let name = c["name"] as? String ?? "?"
+            let downMs = try XCTUnwrap(c["downMs"] as? Int, name)
+            let failedRedials = try XCTUnwrap(c["failedRedials"] as? Int, name)
+            XCTAssertEqual(SteerLostBanner.show(downMs: downMs, failedRedials: failedRedials), c["show"] as? Bool, name)
         }
     }
 

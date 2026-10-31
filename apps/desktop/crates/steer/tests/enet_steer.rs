@@ -424,6 +424,97 @@ async fn the_desktop_viewer_steers_over_enet_and_has_no_fallback() {
 }
 
 /// The device's synced rows for STORED REPLAY: one session, ended or not.
+/// EXP-1487: two viewers of ONE session on ONE install (the desktop agent
+/// screen's transcript and its root composer) share the device's feed:
+/// neither evicts the other (they used to rejoin in a loop, flickering
+/// "Connection lost"), both get every live event, and the first one closing
+/// does not end the second's feed.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_viewers_of_one_session_on_one_install_share_the_feed() {
+    use steer::{ViewerEvent, ViewerPhase};
+    let dir = std::env::temp_dir().join(format!("enet-steer-two-viewers-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = Arc::new(Registry::default());
+    let device = start(&registry, &dir, "erin", InstallKind::Daemon);
+    let viewer = start(&registry, &dir, "erin", InstallKind::Desktop);
+    for install in [&device, &viewer] {
+        tokio::time::timeout(WAIT, install.passes_at_least(1)).await.unwrap();
+    }
+    for install in [&device, &viewer] {
+        install.refresh();
+        tokio::time::timeout(WAIT, install.passes_at_least(2)).await.unwrap();
+    }
+    let d = device.node().unwrap();
+    let v = viewer.node().unwrap();
+    d.add_ticket(&v.ticket());
+    v.add_ticket(&d.ticket());
+
+    let session_id = format!("sess-two-viewers-{}", std::process::id());
+    let runtime: &SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
+    let recorded = Arc::new(Recorded::default());
+    let publisher = steer::publish(
+        runtime,
+        PublishSpec {
+            session_id: session_id.clone(),
+            audience: Some(coding::SteerAudience {
+                team_id: "team-1".into(),
+                starter_user_id: "erin".into(),
+                shared: false,
+            }),
+            ..Default::default()
+        },
+        hooks(&recorded),
+    );
+    publisher.activity_sender().send(ActivityEvent::narration("before"));
+    wait_until(|| enet_steer::has_room(&session_id)).await;
+
+    let spawn = || {
+        let (events_tx, events) = flume::unbounded();
+        let source = Source { node: Some(Arc::clone(&v)), endpoints: vec![enet::endpoint_hex(&d.endpoint_id())] };
+        (steer::spawn_viewer(runtime, Some(Arc::new(source)), session_id.clone(), events_tx), events)
+    };
+    let synced = |events: flume::Receiver<ViewerEvent>| async move {
+        while !matches!(next_event(&events).await, ViewerEvent::Synced { .. }) {}
+        events
+    };
+    let (first, events_first) = spawn();
+    let events_first = synced(events_first).await;
+    let (second, events_second) = spawn();
+    let events_second = synced(events_second).await;
+
+    // Both stay joined: a live event reaches both, and neither saw its feed
+    // drop on the way.
+    publisher.activity_sender().send(ActivityEvent::narration("to both"));
+    for events in [&events_first, &events_second] {
+        loop {
+            match next_event(events).await {
+                ViewerEvent::Activity(_, ActivityEvent::Narration { text, .. }) if text == "to both" => break,
+                ViewerEvent::Connected(false) | ViewerEvent::Phase(ViewerPhase::Reconnecting) => {
+                    panic!("a viewer lost its feed to the other")
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(first.is_connected() && second.is_connected());
+
+    // The first closes: the second's feed carries on (no `leave` ended it).
+    first.shutdown();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    publisher.activity_sender().send(ActivityEvent::narration("after"));
+    loop {
+        match next_event(&events_second).await {
+            ViewerEvent::Activity(_, ActivityEvent::Narration { text, .. }) if text == "after" => break,
+            ViewerEvent::Connected(false) => panic!("the second viewer lost its feed with the first"),
+            _ => {}
+        }
+    }
+    second.shutdown();
+    publisher.shutdown(Some("exit:0".into()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn stored(dir: &std::path::Path, session_id: &str, starter: &str, ended: Arc<std::sync::atomic::AtomicBool>) -> enet_steer::StoredJournals {
     let id = session_id.to_string();
     let starter = starter.to_string();

@@ -170,6 +170,15 @@ fn stale_ids(data_dir: &Path, account_id: &str) -> Vec<String> {
 /// `session_registry::live_ids`). Our own pid's entries are excluded: at
 /// startup they are a re-exec/crash leftover the reconcile ends, and a
 /// running daemon protects its own runs through its in-process set.
+/// EXP-1487: every session the registry names, whichever process recorded
+/// it and still owned (an ended run's entry has no pid): runs that are not
+/// over (an idle thread waits for its next message).
+/// The scratch sweep keeps them.
+pub fn recorded_ids(data_dir: &Path) -> Vec<String> {
+    let _guard = locked();
+    load(data_dir).into_iter().filter(|entry| entry.pid.is_some()).map(|entry| entry.id).collect()
+}
+
 pub fn live_ids(data_dir: &Path) -> Vec<String> {
     let _guard = locked();
     let own_pid = std::process::id();
@@ -264,6 +273,17 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.path);
         }
+    }
+
+    /// EXP-1487: the scratch sweep keeps an idle run (recorded, not ended),
+    /// never an ended one.
+    #[test]
+    fn recorded_ids_are_the_runs_not_over() {
+        let dir = TempDir::new("recorded");
+        record(&dir.path, "idle", "acct-1");
+        record(&dir.path, "over", "acct-1");
+        mark_ended(&dir.path, "over");
+        assert_eq!(recorded_ids(&dir.path), vec!["idle".to_string()]);
     }
 
     /// EXP-757: our own pid's entries and ended (pid-less) entries are not

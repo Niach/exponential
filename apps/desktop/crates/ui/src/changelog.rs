@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-31-steer-flicker",
+    date: "2026-10-31",
+    title: "The live view stops flickering",
+    summary: r#"Watching an agent on another machine no longer flashes "Connection lost", and idle chats no longer say they are starting."#,
+    body: r#"- **Fixed**: a team agent conversation running on another machine flickered "Connection lost" on desktop. A short drop now reconnects quietly on every app; "Connection lost" shows only after 5 seconds and two failed retries.
+- **Fixed**: an idle chat waiting for your answer said "The agent is starting" forever when its device had no transcript to send. It now says "No live transcript".
+- **Fixed**: restarting the desktop app or the CLI daemon no longer deletes the transcript of an idle chat on that machine."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_132: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-desktop-plan-answers",
     date: "2026-10-31",
     title: "Answering plans works again on desktop",

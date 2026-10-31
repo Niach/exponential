@@ -61,7 +61,9 @@ final class AgentSessionModel {
         switch phase {
         case .idle: return .idle
         case .connecting: return .connecting
-        case .live: return .live
+        // EXP-1487: a live feed that dropped holds `.live` on screen while it
+        // redials silently; to the revival rule it is a reconnecting close.
+        case .live: return dropAt == nil ? .live : .closedReconnecting
         case .starting: return .starting
         case .ended: return .final
         case let .closed(_, reconnecting): return reconnecting ? .closedReconnecting : .final
@@ -907,6 +909,11 @@ final class AgentSessionModel {
     /// Consecutive failed reconnect dials — indexes the backoff curve; reset
     /// on a successful (live) connection and on an explicit connect().
     private var reconnectAttempts = 0
+    /// EXP-1487 LOST BANNER: when a feed that was joined dropped (nil = no
+    /// drop pending), and how many redials since then failed. A successful
+    /// join resets both (`attachEnet`).
+    private var dropAt: Date?
+    private var failedRedialsSinceDrop = 0
     /// Monotonic dial id — each dial() invalidates the ones before it, so a
     /// dial that was superseded mid-await (a foreground connect() racing a
     /// fired backoff retry, EXP-243) can't install a second socket or stomp
@@ -1170,6 +1177,8 @@ final class AgentSessionModel {
         retryTask = nil
         dialInFlight = false
         lastFrameAt = nil
+        dropAt = nil
+        failedRedialsSinceDrop = 0
         cancelAnswerExpiries()
         clearLiveWork()
         sessionObservationTask?.cancel()
@@ -1743,7 +1752,14 @@ final class AgentSessionModel {
             // fallback: the existing states with their existing copy.
             dialInFlight = false
             logger.info("eNet no feed \(reason.rawValue, privacy: .public)")
-            applyNoFeed()
+            if dropAt != nil, !sessionEnded {
+                // EXP-1487: a redial of a dropped feed that failed — silent
+                // until the lost-banner rule says otherwise.
+                feedDown()
+            } else {
+                dropAt = nil
+                applyNoFeed()
+            }
         }
     }
 
@@ -2572,6 +2588,10 @@ final class AgentSessionModel {
     private func attachEnet(_ link: SteerEnetLink, replay: [String], generation: Int) {
         enetLink = link
         connected = true
+        // EXP-1487: a successful join ends any drop (and its backoff curve).
+        dropAt = nil
+        failedRedialsSinceDrop = 0
+        reconnectAttempts = 0
         // After a reconnect the replayed transcript is the only copy of a sent
         // message — it must render, so no stale echo may swallow it. The feed
         // is NOT wiped here (EXP-249): the device's `activity_reset` opens the
@@ -2672,9 +2692,29 @@ final class AgentSessionModel {
             return
         }
         // Never park on a dead link behind a manual button (EXP-243) —
-        // auto-redial on backoff; the phase carries the reconnecting flag
-        // so the UI shows "Reconnecting…" instead of a Reconnect action.
-        phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
+        // auto-redial on backoff, silently first (EXP-1487).
+        feedDown()
+    }
+
+    /// EXP-1487 LOST BANNER (fixtures/steer-enet.json `lostBanner`): the
+    /// first failure after a join stamps the drop, every later one before the
+    /// next successful join is a failed redial. The phase holds (the
+    /// transcript stays, no "Connection lost", no `connecting` flash) until
+    /// `SteerLostBanner.show`; then the reconnecting close with its banner.
+    /// Either way the backoff redials.
+    private func feedDown() {
+        let now = Date()
+        if let since = dropAt {
+            failedRedialsSinceDrop += 1
+            let downMs = Int(now.timeIntervalSince(since) * 1000)
+            if SteerLostBanner.show(downMs: downMs, failedRedials: failedRedialsSinceDrop) {
+                phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
+            }
+        } else {
+            dropAt = now
+            failedRedialsSinceDrop = 0
+            logger.info("feed dropped, redialing silently")
+        }
         scheduleReconnect()
     }
 
@@ -2685,6 +2725,12 @@ final class AgentSessionModel {
     private func redialNow() {
         retryTask?.cancel()
         reconnectAttempts = 0
+        // EXP-1487: the stale link is a drop; a failed redial counts toward
+        // the lost banner instead of flipping to `starting`.
+        if dropAt == nil {
+            dropAt = Date()
+            failedRedialsSinceDrop = 0
+        }
         retryTask = Task { [weak self] in
             guard let self, !self.stopped, !Task.isCancelled else { return }
             self.resetDialState()

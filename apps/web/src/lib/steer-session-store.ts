@@ -60,6 +60,7 @@ import { currentSteerCarrier } from "@/lib/enet/steer-bridge"
 import {
   STEER_ENET_STALE_MS,
   steerOfflineRedial,
+  steerShowConnectionLost,
 } from "@exp/domain-contract/steer-enet"
 
 import { CLOSE_ENET_LOST, openEnetSteer } from "@/lib/enet/steer-enet-viewer"
@@ -809,6 +810,11 @@ export function createSteerSessionStore(
    *  the phase went `ended` from the ROW, not from `bye`: the row flipping
    *  back to running under that open feed lifts it to live. */
   let endedByRow = false
+  /** EXP-1487 (steer-enet.json LOST BANNER): when a live feed dropped (null =
+   *  no drop in progress) and how many redials since have failed. The drop
+   *  redials silently under the held phase until steerShowConnectionLost. */
+  let droppedAt: number | null = null
+  let failedRedials = 0
   // EXP-625: dial liveness, so a wakeup can tell a dial that is merely young
   // from one that is stuck. The timer is generation-scoped.
   let joinAckTimer: ReturnType<typeof setTimeout> | null = null
@@ -1034,6 +1040,9 @@ export function createSteerSessionStore(
    *  message, undoing the REV-33 coalescing. */
   const markLive = (): boolean => {
     retries = 0
+    // EXP-1487: a successful join ends the drop.
+    droppedAt = null
+    failedRedials = 0
     if (phase.kind === `live`) return false
     // EXP-796: an ended phase never lifts back to live on the same dial —
     // keepalives and pages are not a run, and the synced row stays the
@@ -1838,6 +1847,21 @@ export function createSteerSessionStore(
     }, startingRetryDelay(retries++))
   }
 
+  /** EXP-1487: one more failed redial of a dropped live feed. True = it
+   *  redials silently (the phase holds); false = the drop is shown (the
+   *  caller takes the drop off and sets its phase). */
+  const holdDrop = (): boolean => {
+    if (droppedAt === null) return false
+    failedRedials++
+    if (steerShowConnectionLost(Date.now() - droppedAt, failedRedials)) {
+      droppedAt = null
+      return false
+    }
+    commit()
+    scheduleRedial()
+    return true
+  }
+
   /** VAPP-169: the device-offline copy redials every `staleMs` while it shows. */
   const scheduleOfflineRedial = () => {
     clearRetryTimer()
@@ -1872,6 +1896,11 @@ export function createSteerSessionStore(
       }
     }
     dialStartedAt = Date.now()
+    // EXP-1487: a redial of a live feed (the stale kick) starts its drop.
+    if (retrying && phase.kind === `live` && droppedAt === null) {
+      droppedAt = dialStartedAt
+      failedRedials = 0
+    }
     // Hold the current phase steady across auto-retry redials — flipping
     // to `connecting` per attempt makes the header flicker on every redial
     // (and a silent slow-consumer redial must not flicker at all).
@@ -1893,6 +1922,7 @@ export function createSteerSessionStore(
     }
     if (!sock) {
       if (sessionStatus === `ended`) {
+        droppedAt = null
         deviceOffline = true
         phase = {
           kind: `ended`,
@@ -1903,6 +1933,12 @@ export function createSteerSessionStore(
         commit()
         onEnded()
         scheduleOfflineRedial()
+      } else if (droppedAt !== null) {
+        // EXP-1487: NO FEED on a dropped live feed's redial is a failed
+        // redial: silent until the grace and the failures say it is lost.
+        if (holdDrop()) return
+        phase = { kind: `closed`, terminal: false }
+        commit()
       } else {
         phase = { kind: `starting` }
         commit()
@@ -2039,6 +2075,7 @@ export function createSteerSessionStore(
       // Nor is an in-flight page ask answered on a closed feed (EXP-795).
       historyRequest = null
       if (sawEnd) {
+        droppedAt = null
         deviceOffline = false
         phase = { kind: `ended`, detail: detail ?? undefined }
         // A run that ended mid-fold is not compacting any more (EXP-724).
@@ -2051,6 +2088,18 @@ export function createSteerSessionStore(
         onEnded()
         return
       }
+      // EXP-1487: a live feed that drops (or a failed redial since) redials
+      // silently, the phase held, until steerShowConnectionLost; a refusal a
+      // redial can only repeat is never held.
+      const wasDrop = droppedAt !== null || (!terminalError && phase.kind === `live`)
+      if (!terminalError && wasDrop) {
+        if (droppedAt === null) {
+          droppedAt = Date.now()
+          failedRedials = -1 // the drop itself is no failed redial
+        }
+        if (holdDrop()) return
+      }
+      droppedAt = null
       if (retryStarting) {
         // An idle session is still alive and steerable (EXP-194) — only
         // a truly ended session stops the redial.
@@ -2073,7 +2122,7 @@ export function createSteerSessionStore(
       // the gap); the shared backoff bounds a pathological loop. An ended
       // row too (EXP-781): a stored replay cut short is retried from
       // scratch, and a device that is gone lands on the no-feed path.
-      if (event.code === CLOSE_ENET_LOST) {
+      if (event.code === CLOSE_ENET_LOST && !wasDrop) {
         commit()
         scheduleRedial()
         return
@@ -2186,6 +2235,8 @@ export function createSteerSessionStore(
       clearDialTimers()
       retries = 0
       deviceOffline = false
+      droppedAt = null
+      failedRedials = 0
       generation++
       ws?.close()
       ws = null

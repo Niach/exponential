@@ -29,7 +29,12 @@
 //! | `bye` | the run (or a stored replay, `history`) is finished | [`ViewerPhase::Ended`], stop |
 //! | `error` after the join | the device stopped serving the session | treated as NO FEED |
 //! | [`enet_steer::STALE`] of silence while live | the feed is dead, not the agent quiet (the device beats every 30s) | silent re-join |
-//! | a failed send | the device went away | [`ViewerPhase::Reconnecting`] + backoff |
+//! | a failed send, a closed subscription | the device went away | a silent redial on the backoff; [`ViewerPhase::Reconnecting`] only per `lostBanner` (EXP-1487) |
+//!
+//! EXP-1487 (`lostBanner`): a live feed that drops (any of the above) holds
+//! its phase while it redials; "Connection lost" ([`ViewerPhase::Reconnecting`])
+//! shows only after [`enet_steer::LOST_GRACE`] down AND
+//! [`enet_steer::LOST_FAILED_REDIALS`] failed redials since the drop.
 //!
 //! "Connected" here means JOINED: everything the handle sends is gated on
 //! the join answer (web gates the composer on the `live` phase for the same
@@ -74,6 +79,9 @@ pub struct ViewerTimings {
     /// VAPP-169: the device-offline `Ended` redials this often (the
     /// fixture's `staleMs`) on top of every kick.
     pub offline_redial: Duration,
+    /// EXP-1487: how long a dropped live feed redials silently at least
+    /// (the fixture's `lostBanner.graceMs`).
+    pub lost_grace: Duration,
 }
 
 impl Default for ViewerTimings {
@@ -84,6 +92,7 @@ impl Default for ViewerTimings {
             retry_cap: Duration::from_secs(30),
             liveness_tick: Duration::from_secs(5),
             offline_redial: enet_steer::STALE,
+            lost_grace: enet_steer::LOST_GRACE,
         }
     }
 }
@@ -572,14 +581,34 @@ async fn run_viewer_loop(
     };
     phases.set(ViewerPhase::Connecting);
     let mut backoff = Backoff::new(timings.retry_base, timings.retry_cap);
+    // EXP-1487: since when a LIVE feed is down, and how many redials since
+    // failed. `None` = never joined yet, or joined again.
+    let mut lost: Option<(Instant, u32)> = None;
 
     while running.load(Ordering::SeqCst) {
         let end = match join_over_enet(enet.as_ref(), &session_id).await {
             Some(mut link) => {
-                pump_connection(&mut link, &events_tx, &mut phases, &cmd_rx, &timings, &mut backoff, &connected).await
+                lost = None;
+                let end =
+                    pump_connection(&mut link, &events_tx, &mut phases, &cmd_rx, &timings, &mut backoff, &connected)
+                        .await;
+                if !matches!(end, ConnEnd::Shutdown | ConnEnd::Ended(_) | ConnEnd::Kicked) {
+                    lost = Some((Instant::now(), 0));
+                }
+                end
             }
-            None => ConnEnd::NoFeed,
+            None => {
+                if let Some((_, failed)) = lost.as_mut() {
+                    *failed += 1;
+                }
+                ConnEnd::NoFeed
+            }
         };
+        // EXP-1487 (`lostBanner`): a dropped live feed reads "Connection
+        // lost" only past the grace AND the failed redials.
+        let show_lost = lost.is_some_and(|(since, failed)| {
+            since.elapsed() >= timings.lost_grace && failed >= enet_steer::LOST_FAILED_REDIALS
+        });
 
         if connected.swap(false, Ordering::SeqCst) {
             let _ = events_tx.send(ViewerEvent::Connected(false));
@@ -608,7 +637,13 @@ async fn run_viewer_loop(
                     phases.set(ViewerPhase::device_offline());
                     timings.offline_redial
                 } else {
-                    phases.set(ViewerPhase::Starting);
+                    // EXP-1487: a feed that WAS live redials under its phase
+                    // until the lost rule says otherwise.
+                    match lost {
+                        Some(_) if show_lost => phases.set(ViewerPhase::Reconnecting),
+                        Some(_) => {}
+                        None => phases.set(ViewerPhase::Starting),
+                    }
                     backoff.next_delay_equal_jitter()
                 }
             }
@@ -624,7 +659,7 @@ async fn run_viewer_loop(
                 if let Some(reason) = reason {
                     log::debug!("steer viewer: dropped: {reason}");
                 }
-                phases.set(ViewerPhase::Reconnecting);
+                // EXP-1487: the drop itself is silent; the redials decide.
                 backoff.next_delay_equal_jitter()
             }
         };
@@ -677,7 +712,9 @@ async fn pump_connection(
                     if last_rx.elapsed() <= timings.live_stale {
                         continue;
                     }
-                    link.leave();
+                    // EXP-1487: no `leave` before a re-join: the join restarts
+                    // the feed, and a `leave` sent beside it could land after
+                    // it and end the new feed.
                     return ConnEnd::Kicked;
                 }
                 Ok(ViewerCmd::Shutdown) | Err(_) => {
@@ -744,7 +781,7 @@ async fn pump_connection(
                 // EXP-648: silence past two device keepalives means the feed
                 // is dead, not that the agent is parked on a question.
                 if last_rx.elapsed() > timings.live_stale {
-                    link.leave();
+                    // A re-join follows: no `leave` (see the kick above).
                     return ConnEnd::Stale;
                 }
             }
@@ -781,8 +818,13 @@ impl EnetLink {
         }
     }
 
-    /// Tell the device we `leave` (best effort).
+    /// Tell the device we `leave` (best effort). EXP-1487: not while
+    /// another viewer here still reads this session from this device: the
+    /// device keys viewers by endpoint, so it would end that feed too.
     fn leave(&self) {
+        if self.sub.shared() {
+            return;
+        }
         let (node, device, session_id) = (Arc::clone(&self.node), self.device, self.session_id.clone());
         tokio::spawn(async move {
             let _ = enet_steer::send_envelope(&node, device, &session_id, &[LEAVE_FRAME.to_string()]).await;

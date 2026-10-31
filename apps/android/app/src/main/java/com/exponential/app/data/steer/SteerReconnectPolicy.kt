@@ -86,3 +86,39 @@ fun steerOfflineRedial(phase: SteerRedialPhase, trigger: SteerRedialTrigger): Bo
     phase == SteerRedialPhase.Offline -> true
     else -> trigger != SteerRedialTrigger.StaleTimer
 }
+
+/** EXP-1487: fixtures/steer-enet.json `lostBanner` (the fixture test pins them). */
+internal const val STEER_LOST_GRACE_MS = 5_000L
+internal const val STEER_LOST_FAILED_REDIALS = 2
+
+/**
+ * EXP-1487 (fixtures/steer-enet.json "LOST BANNER"): whether a live feed that
+ * dropped shows "Connection lost". Until it has been down [downMs] >= the
+ * grace AND [failedRedials] redials since the drop failed, it redials
+ * silently, holding the phase.
+ */
+fun steerShowConnectionLost(
+    downMs: Long,
+    failedRedials: Int,
+    graceMs: Long = STEER_LOST_GRACE_MS,
+    minFailedRedials: Int = STEER_LOST_FAILED_REDIALS,
+): Boolean = downMs >= graceMs && failedRedials >= minFailedRedials
+
+/** EXP-1487: what an empty transcript says while NO FEED holds (fixtures/steer-enet.json `noFeed`). */
+enum class SteerNoFeedState { Offline, Starting, Idle }
+
+/** EXP-1487: fixtures/steer-enet.json `noFeedIdle` (the fixture test pins them). */
+internal const val STEER_NO_FEED_IDLE_TITLE = "No live transcript"
+internal const val STEER_NO_FEED_IDLE_TEXT =
+    "The device holding this session isn't publishing right now. Its conversation stays in the chat."
+
+/**
+ * EXP-1487 (fixtures/steer-enet.json "NO FEED, EMPTY TRANSCRIPT"): an ended
+ * row = the device-offline copy, a busy row = starting, anything else (idle,
+ * waiting on a question) = the idle empty state, never "starting".
+ */
+fun steerNoFeedState(ended: Boolean, busy: Boolean): SteerNoFeedState = when {
+    ended -> SteerNoFeedState.Offline
+    busy -> SteerNoFeedState.Starting
+    else -> SteerNoFeedState.Idle
+}

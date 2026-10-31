@@ -187,6 +187,7 @@ import {
   type ThreadRow,
 } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
+import { STEER_ENET_NO_FEED_IDLE, steerNoFeedState } from "@exp/domain-contract/steer-enet"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
@@ -760,6 +761,13 @@ export function AgentSessionView({
     !session.busy &&
     session.status !== `ended` &&
     (phase.kind === `connecting` || phase.kind === `starting`)
+  // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): NO FEED on a row
+  // that is not busy (idle, or on an open question) is never "starting": it
+  // is the idle empty state at once, while the store keeps redialing.
+  const noFeedIdle =
+    feedPlaceholder &&
+    phase.kind === `starting` &&
+    steerNoFeedState({ ended: sessionEnded, busy: Boolean(session.busy) }) === `idle`
   const [stalled, setStalled] = useState(false)
   useEffect(() => {
     if (!waitingForRoom) {
@@ -827,11 +835,11 @@ export function AgentSessionView({
                 <SkeletonRows rowHeight={36} className="-mx-3" />
                 <span className="text-xs text-muted-foreground">{startingCaption}</span>
               </div>
-            ) : waitingForRoom && stalled ? (
+            ) : noFeedIdle || (waitingForRoom && stalled) ? (
               <CenteredState>
                 <EmptyState
-                  title="No live transcript"
-                  description="The device holding this session isn't publishing right now. Its conversation stays in the chat."
+                  title={STEER_ENET_NO_FEED_IDLE.title}
+                  description={STEER_ENET_NO_FEED_IDLE.text}
                 />
               </CenteredState>
             ) : feedPlaceholder &&
@@ -1964,7 +1972,12 @@ export function useSessionDock(session: SessionRow): {
     }
     // #EXP-1405: an idle row's replayed transcript waits for its next turn,
     // not for a start: only a busy run is "starting".
-    if (phase.kind === `starting` && !hostOffline && feed.length > 0 && session.busy) {
+    if (
+      phase.kind === `starting` &&
+      !hostOffline &&
+      feed.length > 0 &&
+      steerNoFeedState({ ended: sessionEnded, busy: Boolean(session.busy) }) === `starting`
+    ) {
       out.push({
         kind: `banner`,
         id: `starting`,
