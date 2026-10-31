@@ -237,7 +237,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 146.7,
-          "nodes": 664,
+          "nodes": 689,
           "coldStartMs": 253.1,
           "memoryMb": 24.5
         },
@@ -405,7 +405,7 @@
           "coldStartMs": 175.9,
           "firstPaintMs": 47.3,
           "memoryMb": 52.1,
-          "nodes": 656
+          "nodes": 683
         },
         "deep-nesting": {
           "depth": 48,
@@ -450,7 +450,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 13.8,
-          "restyled": 661,
+          "restyled": 688,
           "themeSwitchMs": 35.8
         }
       }
@@ -628,7 +628,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 440.7,
-          "nodes": 664,
+          "nodes": 689,
           "coldStartMs": 749.7,
           "memoryMb": 24.2
         },
@@ -798,7 +798,7 @@
           "coldStartMs": 158,
           "firstPaintMs": 29.5,
           "memoryMb": 56.1,
-          "nodes": 656
+          "nodes": 683
         },
         "deep-nesting": {
           "depth": 48,
@@ -843,7 +843,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 4.7,
-          "restyled": 661,
+          "restyled": 688,
           "themeSwitchMs": 22.5
         }
       }
