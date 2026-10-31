@@ -6,7 +6,12 @@
 //!   title, access, via, enabled}], upstreams:[{name, serverId|null,
 //!   auth|null, state|null}]}`;
 //! - `setToolEnabled {appId, tool, enabled}` (mutation, owners) →
-//!   `{ok: true}`.
+//!   `{ok: true}`;
+//! - VAPP-185 (Settings › MCP › Access): `list {teamId}` (query) →
+//!   `{canEdit, apps:[{id, slug, name, icon, color, toolCount}], rows:
+//!   [{userId, name, email, image, role, levels:{[appId]: none|read|write}}]}`
+//!   (owners: every member, a member: their own row); `set {appId, userId,
+//!   level}` (mutation, owners) → `{ok: true}`.
 
 use serde::{Deserialize, Serialize};
 
@@ -86,6 +91,81 @@ pub fn set_tool_enabled(trpc: &TrpcClient, app_id: &str, tool: &str, enabled: bo
     Ok(())
 }
 
+/// VAPP-185: an app that exposes tools (the Access group's header).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessApp {
+    pub id: String,
+    #[serde(default)]
+    pub slug: String,
+    pub name: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub tool_count: u32,
+}
+
+/// VAPP-185: one member's levels, keyed by app id (`none` | `read` |
+/// `write`).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessRow {
+    pub user_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub image: Option<String>,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub levels: std::collections::HashMap<String, String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessOut {
+    /// Owners pick the levels.
+    #[serde(default)]
+    pub can_edit: bool,
+    #[serde(default)]
+    pub apps: Vec<AccessApp>,
+    #[serde(default)]
+    pub rows: Vec<AccessRow>,
+}
+
+/// `appAccess.list` — query.
+pub fn list(trpc: &TrpcClient, team_id: &str) -> Result<AccessOut, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+    }
+    trpc.query_with_input("appAccess.list", &Input { team_id })
+}
+
+/// `appAccess.set` — mutation (owners; the server checks).
+pub fn set(trpc: &TrpcClient, app_id: &str, user_id: &str, level: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        app_id: &'a str,
+        user_id: &'a str,
+        level: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Ok {
+        #[serde(default)]
+        #[allow(dead_code)]
+        ok: bool,
+    }
+    let _: Ok = trpc.mutation("appAccess.set", &Input { app_id, user_id, level })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +204,28 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.contains("POST /api/trpc/appAccess.setToolEnabled"), "mutation: {request}");
         assert!(request.contains(r#""appId":"a-1""#) && request.contains(r#""tool":"log_hours""#) && request.contains(r#""enabled":false"#), "{request}");
+    }
+
+    #[test]
+    fn list_decodes_apps_and_levels() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"canEdit":true,"apps":[{"id":"a-1","slug":"m5","name":"m5 admin","icon":null,"color":"blue","toolCount":3}],"rows":[{"userId":"u-1","name":"Mia","email":"mia@x.at","image":null,"role":"member","levels":{"a-1":"read"}}]}}}"#,
+        );
+        let out = list(&client(&base), "t-1").unwrap();
+        assert!(out.can_edit);
+        assert_eq!(out.apps[0].tool_count, 3);
+        assert_eq!(out.rows[0].levels.get("a-1").map(String::as_str), Some("read"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains("GET /api/trpc/appAccess.list?input="), "query: {request}");
+    }
+
+    #[test]
+    fn set_posts_the_level() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        set(&client(&base), "a-1", "u-1", "none").unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains("POST /api/trpc/appAccess.set"), "mutation: {request}");
+        assert!(request.contains(r#""userId":"u-1""#) && request.contains(r#""level":"none""#), "{request}");
     }
 }

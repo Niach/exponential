@@ -315,7 +315,8 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         // the agents synced: `first_agent_resolved`).
         "assistant" => Some(S::Voice),
         "api-keys" => Some(S::ApiKeys),
-        "mcp-servers" => Some(S::McpServers),
+        "mcp" => Some(S::Mcp),
+        "mcp-activity" => Some(S::McpActivity),
         "about" => Some(S::About),
         _ => spec
             .strip_prefix("board:")

@@ -154,6 +154,9 @@ pub struct McpServerListEntry {
     pub shared_count: u32,
     pub shared_user_ids: Vec<String>,
     pub connected_user_ids: Vec<String>,
+    /// VAPP-185: the apps whose head package declares this server in
+    /// `upstreams` (names, alphabetical): Settings › MCP's "Used by".
+    pub used_by: Vec<String>,
 }
 
 /// The `mcpServers.list` row as the wire spells it.
@@ -174,6 +177,8 @@ struct RawListEntry {
     shared_user_ids: Vec<String>,
     #[serde(default)]
     connected_user_ids: Vec<String>,
+    #[serde(default)]
+    used_by: Vec<String>,
 }
 
 impl From<RawListEntry> for McpServerListEntry {
@@ -187,6 +192,7 @@ impl From<RawListEntry> for McpServerListEntry {
             shared_count: raw.shared_count,
             shared_user_ids: raw.shared_user_ids,
             connected_user_ids: raw.connected_user_ids,
+            used_by: raw.used_by,
         }
     }
 }
@@ -303,7 +309,7 @@ fn ok_mutation<I: Serialize>(trpc: &TrpcClient, path: &str, input: &I) -> Result
 }
 
 /// The web settings deep link that connects `server_id` for the signed-in
-/// browser: `{instance}/t/{teamSlug}/settings/mcp-servers?connect={id}`.
+/// browser: `{instance}/t/{teamSlug}/settings/mcp?connect={id}`.
 ///
 /// The desktop and the CLI never call `mcpServers.connect` themselves: the
 /// instance's OAuth callback only accepts a code when the BROWSER's
@@ -318,7 +324,7 @@ pub fn connect_page_url(instance_url: &str, team_slug: &str, server_id: &str) ->
         return None;
     }
     Some(format!(
-        "{base}/t/{}/settings/mcp-servers?connect={}",
+        "{base}/t/{}/settings/mcp?connect={}",
         encode_component(team_slug),
         encode_component(server_id)
     ))
@@ -554,11 +560,11 @@ mod tests {
     fn connect_page_url_is_the_web_settings_deep_link() {
         assert_eq!(
             connect_page_url("https://app.exponential.at/", "acme", "s1").as_deref(),
-            Some("https://app.exponential.at/t/acme/settings/mcp-servers?connect=s1")
+            Some("https://app.exponential.at/t/acme/settings/mcp?connect=s1")
         );
         assert_eq!(
             connect_page_url("http://localhost:3000", "a b", "x&y=1").as_deref(),
-            Some("http://localhost:3000/t/a%20b/settings/mcp-servers?connect=x%26y%3D1")
+            Some("http://localhost:3000/t/a%20b/settings/mcp?connect=x%26y%3D1")
         );
         assert_eq!(connect_page_url("file:///tmp", "acme", "s1"), None);
         assert_eq!(connect_page_url("javascript:alert(1)", "acme", "s1"), None);
