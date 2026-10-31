@@ -31,6 +31,8 @@ use std::{
 use anyhow::{bail, Context as _, Result};
 use sha2::Digest as _;
 
+pub mod restart;
+
 /// GitHub rejects API/asset calls without a User-Agent.
 const USER_AGENT: &str = "exp-desktop-updater";
 /// The checksums asset every desktop release carries (build-desktop.yml).

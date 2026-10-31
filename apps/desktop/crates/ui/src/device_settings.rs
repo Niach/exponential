@@ -1723,10 +1723,10 @@ impl DeviceSettingsView {
 }
 
 /// FEED-36: the caption under a QUEUED update — the daemon's own rules for
-/// getting there (every session ends, or one sits idle for 2 hours). Web
+/// getting there (EXP-1489: the next pause between turns, at most 10 minutes). Web
 /// `QUEUED_UPDATE_TOOLTIP`, ×4.
-const QUEUED_UPDATE_TOOLTIP: &str = "Live sessions hold this update — the device restarts itself \
-     once every session ends or sits idle for 2 hours.";
+const QUEUED_UPDATE_TOOLTIP: &str = "Live sessions hold this update for at most 10 minutes — \
+     the device then restarts itself and every session continues.";
 
 impl DeviceSettingsView {
     /// EXP-909: the Update section — SERVER devices only (a desktop app

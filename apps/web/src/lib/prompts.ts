@@ -315,7 +315,7 @@ export const WEB_PROMPTS = {
   updateDevice: (name: string) =>
     primaryConfirm(
       `Update "${name}" now?`,
-      `Every live session on it ends. Sessions with a repository can be resumed.`,
+      `Its live sessions pause for the restart and continue on the new version.`,
       `update`,
       `Update`
     ),
