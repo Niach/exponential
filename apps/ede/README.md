@@ -6,6 +6,7 @@ libraries, never the other way round.
 
 | Crate | Role |
 |---|---|
+| `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## Run it nested (Cinnamon/X11)
@@ -38,7 +39,8 @@ serves `$XDG_RUNTIME_DIR/wayland-N`. Close the window to quit.
 
 Bindings: Alt+drag moves a window, dropping it on a side edge tiles it to a
 half (corners = quarter, top = maximize), Super+Left/Right tile, Super+Up
-maximizes, Super+Down restores, Alt+F4 closes.
+maximizes, Super+Down restores, Alt+F4 closes, Super+Shift+E quits
+(logs out of the session), Ctrl+Alt+F1…F12 switch VTs (udev).
 
 ## Run it as the session (a TTY)
 
@@ -53,8 +55,22 @@ libseat (logind or seatd): every connected monitor becomes an output, left
 to right; plugging one in or out re-lays them and moves stranded windows to
 the first. `EDE_DRM_DEVICE=/dev/dri/cardN` picks the GPU. Started inside a
 running X11/Wayland session it nests instead; never pass `--udev` there,
-the other display server owns the GPU. The LightDM entry comes with
-`ede-session` (#NEW-103).
+the other display server owns the GPU. The login screen entry is
+`ede-session` (below).
+
+## Install as a login session (Mint/Ubuntu)
+
+```bash
+apps/ede/packaging/build-deb.sh          # → apps/ede/target-deb/ede_<version>_amd64.deb
+sudo apt install ./apps/ede/target-deb/ede_*_amd64.deb
+```
+
+Log out; LightDM's session menu now has **Exponential** and **Exponential
+(safe mode)** next to Cinnamon. Safe mode starts with the stock settings
+(`--safe-mode`: the config file is not read; `EDE_SAFE_MODE=1` for the
+shell). Super+Shift+E logs out; Ctrl+Alt+F1…F12 switch VTs. Logs:
+`journalctl --user -b` and `~/.xsession-errors`. Remove with `sudo apt
+remove ede`; Cinnamon is untouched.
 
 ## Config
 

@@ -3,7 +3,7 @@
 //!
 //! Compositor bindings (Mint-like): Alt+drag moves a window, Alt+F4 closes
 //! it, Super+Left/Right tile to a half, Super+Up maximizes, Super+Down
-//! restores.
+//! restores, Super+Shift+E ends the session, Ctrl+Alt+F1…F12 switch VTs.
 
 use smithay::{
     backend::input::{
@@ -26,6 +26,10 @@ use crate::{
 /// What a key press did when the compositor kept it for itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
+    /// Super+Shift+E: end the session (ede-session logs out on a clean exit).
+    Quit,
+    /// Ctrl+Alt+F1…F12 (xkb's XF86Switch_VT_n).
+    SwitchVt(i32),
     Close,
     Tile(Tile),
     Restore,
@@ -128,6 +132,12 @@ impl Ede {
 
     pub fn run(&mut self, action: Action) {
         match action {
+            Action::Quit => self.loop_signal.stop(),
+            Action::SwitchVt(vt) => {
+                if let Some(switch) = self.vt_switch.as_mut() {
+                    switch(vt);
+                }
+            }
             Action::Close => self.close_focused(),
             Action::Tile(tile) => {
                 if let Some(w) = self.focused_window() {
@@ -166,7 +176,11 @@ impl Ede {
 }
 
 fn binding(mods: &ModifiersState, sym: u32) -> Option<Action> {
+    if (keysyms::KEY_XF86Switch_VT_1..=keysyms::KEY_XF86Switch_VT_12).contains(&sym) {
+        return Some(Action::SwitchVt((sym - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
+    }
     match (mods.alt, mods.logo, mods.ctrl, mods.shift, sym) {
+        (false, true, false, true, keysyms::KEY_E) => Some(Action::Quit),
         (true, false, false, false, keysyms::KEY_F4) => Some(Action::Close),
         (false, true, false, false, keysyms::KEY_Left) => Some(Action::Tile(Tile::Left)),
         (false, true, false, false, keysyms::KEY_Right) => Some(Action::Tile(Tile::Right)),

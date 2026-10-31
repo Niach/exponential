@@ -1,4 +1,4 @@
-//! `ede-compositor [--udev | --headless WxH] [--no-xwayland] [--config PATH] [-- command args…]`
+//! `ede-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]`
 //! `ede-compositor doctor`: what this machine is missing for eDE.
 //!
 //! Inside a running X11 or Wayland session it nests in a window (winit);
@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut headless: Option<(i32, i32)> = None;
     let mut no_xwayland = false;
+    let mut safe_mode = false;
     let mut udev = std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none();
     let mut config_path = Config::default_path();
     let mut command: Vec<String> = Vec::new();
@@ -34,16 +35,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--udev" => udev = true,
             "--no-xwayland" => no_xwayland = true,
+            // Stock settings: the config file is not read (ede-session's
+            // crash recovery, or the "safe mode" login entry).
+            "--safe-mode" => safe_mode = true,
             "--config" => config_path = Some(args.next().ok_or("--config needs a path")?.into()),
             "--" => command.extend(args.by_ref()),
             "-h" | "--help" => {
-                println!("usage: ede-compositor [--udev | --headless WxH] [--no-xwayland] [--config PATH] [-- command args…]\n       ede-compositor doctor");
+                println!("usage: ede-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]\n       ede-compositor doctor");
                 return Ok(());
             }
             other => return Err(format!("unknown argument {other:?} (try --help)").into()),
         }
     }
 
+    if safe_mode {
+        config_path = None;
+    }
     let mut config = match &config_path {
         Some(path) => {
             let (config, err) = Config::load(path);

@@ -232,6 +232,12 @@ pub fn run(config: Config, autostart: Vec<String>) -> Result<(), Box<dyn std::er
             _ => tracing::info!("explicit sync (drm-syncobj) unavailable on this GPU/kernel"),
         }
     }
+    let mut session_for_vt = session.clone();
+    state.vt_switch = Some(Box::new(move |vt| {
+        if let Err(e) = session_for_vt.change_vt(vt) {
+            tracing::warn!("VT {vt}: {e}");
+        }
+    }));
     let importer = udev.clone();
     state.dmabuf_importer = Some(Box::new(move |dmabuf| {
         let mut u = importer.borrow_mut();
