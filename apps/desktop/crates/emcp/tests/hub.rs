@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use emcp::contract::fixture;
 use emcp::hub::{AuditRow, Hub, HubGrant, JsonlAudit, MemoryAudit, Mount};
-use emcp::{Caller, Client, ClientError, Refusal, Server, ServerInfo, ToolProvider, Upstream};
+use emcp::{Caller, Client, ClientError, Refusal, Server, ServerInfo, SessionId, Token, ToolProvider, Upstream};
 use serde_json::{json, Value};
 
 const T: Duration = Duration::from_secs(10);
@@ -45,7 +45,7 @@ impl ToolProvider for FixtureServer {
     }
 
     fn call(&self, caller: &Caller, name: &str, arguments: Value) -> Value {
-        self.seen.lock().unwrap().push((caller.session_id.clone(), name.to_string(), arguments.clone()));
+        self.seen.lock().unwrap().push((caller.session_id.as_str().to_string(), name.to_string(), arguments.clone()));
         let failed = *self.mode.lock().unwrap() == "isError";
         json!({ "content": [{ "type": "text", "text": format!("{name} answered") }], "isError": failed })
     }
@@ -66,8 +66,12 @@ fn grant(value: &Value) -> HubGrant {
     serde_json::from_value(value.clone()).unwrap()
 }
 
-fn connect(hub: &Hub, token: &str) -> Client {
-    let upstream = Upstream { name: "hub".into(), url: hub.url().into(), headers: vec![("Authorization".into(), format!("Bearer {token}"))] };
+fn id(session_id: &str) -> SessionId {
+    SessionId::new(session_id).unwrap()
+}
+
+fn connect(hub: &Hub, token: &Token) -> Client {
+    let upstream = Upstream { name: "hub".into(), url: hub.url().into(), headers: vec![("Authorization".into(), token.header())] };
     Client::connect(&upstream, "hub-test", T).unwrap()
 }
 
@@ -80,7 +84,7 @@ fn the_list_cases_through_tools_list() {
         hub.mount(name, Mount::Provider(FixtureServer::new(name))).unwrap();
     }
     for (i, case) in fixture::hub()["listCases"].as_array().unwrap().iter().enumerate() {
-        let token = hub.grant(&format!("run-{i}"), "list", grant(&case["grant"]));
+        let token = hub.grant(&id(&format!("run-{i}")), "list", grant(&case["grant"]));
         let tools = connect(&hub, &token).list_tools(T).unwrap();
         let names: Vec<&str> = tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect();
         let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|name| name.as_str().unwrap()).collect();
@@ -106,9 +110,9 @@ fn mount_for(hub: &Hub, case: &Value) -> (Vec<Arc<FixtureServer>>, Option<(Serve
         *server.mode.lock().unwrap() = upstream.to_string();
         if Some(name) == routed && matches!(upstream, "invalidParams" | "unreachable") {
             let served = Server::serve(info(name), server.clone()).unwrap();
-            let token = served.grant("hub", "hub");
+            let token = served.grant(&id("hub"), "hub");
             let url = served.url().to_string();
-            hub.mount(name, Mount::Upstream(Upstream { name: name.into(), url, headers: vec![("Authorization".into(), format!("Bearer {token}"))] }))
+            hub.mount(name, Mount::Upstream(Upstream { name: name.into(), url, headers: vec![("Authorization".into(), token.header())] }))
                 .unwrap();
             remote = Some((served, server));
         } else {
@@ -131,7 +135,7 @@ fn the_call_cases_through_tools_call_with_their_audit_rows() {
             continue;
         }
         let (_providers, remote) = mount_for(&hub, case);
-        let token = hub.grant(s(&case["run"]), "call", grant(&case["grant"]));
+        let token = hub.grant(&id(s(&case["run"])), "call", grant(&case["grant"]));
         let client = connect(&hub, &token);
         // The hub lists (and caches) every server before the call.
         client.list_tools(T).unwrap();
@@ -157,7 +161,7 @@ fn the_call_cases_through_tools_call_with_their_audit_rows() {
         for name in NAMES {
             hub.unmount(name);
         }
-        hub.revoke(s(&case["run"]));
+        hub.revoke(&id(s(&case["run"])));
     }
     assert!(replayed >= 7, "replayed {replayed} cases");
 }
@@ -190,11 +194,11 @@ fn a_provider_sees_the_run_and_a_revoked_run_is_refused() {
     let hub = Hub::serve(info("hub"), Arc::new(MemoryAudit::default())).unwrap();
     let files = FixtureServer::new("files");
     hub.mount("files", Mount::Provider(files.clone())).unwrap();
-    let token = hub.grant("run-7", "EXP-7", grant(&json!({ "servers": { "files": "read" }, "teamId": null, "userId": null })));
+    let token = hub.grant(&id("run-7"), "EXP-7", grant(&json!({ "servers": { "files": "read" }, "teamId": null, "userId": null })));
     let client = connect(&hub, &token);
     client.call("files__read_file", json!({ "path": "/a" }), T).unwrap();
     assert_eq!(files.seen.lock().unwrap()[0], ("run-7".to_string(), "read_file".to_string(), json!({ "path": "/a" })));
-    hub.revoke("run-7");
+    hub.revoke(&id("run-7"));
     assert!(matches!(client.call("files__read_file", json!({}), T), Err(ClientError::Http(401) | ClientError::Transport(_))));
 }
 
@@ -204,10 +208,10 @@ fn a_new_grant_replaces_the_old_one_and_names_are_checked() {
     assert!(hub.mount("My_Server", Mount::Provider(FixtureServer::new("files"))).is_err());
     hub.mount("files", Mount::Provider(FixtureServer::new("files"))).unwrap();
     assert_eq!(hub.mounted(), vec!["files".to_string()]);
-    let old = hub.grant("run-1", "a", grant(&json!({ "servers": { "files": "write" }, "teamId": null, "userId": null })));
-    let new = hub.grant("run-1", "b", grant(&json!({ "servers": { "files": "read" }, "teamId": null, "userId": null })));
+    let old = hub.grant(&id("run-1"), "a", grant(&json!({ "servers": { "files": "write" }, "teamId": null, "userId": null })));
+    let new = hub.grant(&id("run-1"), "b", grant(&json!({ "servers": { "files": "read" }, "teamId": null, "userId": null })));
     assert!(Client::connect(
-        &Upstream { name: "hub".into(), url: hub.url().into(), headers: vec![("Authorization".into(), format!("Bearer {old}"))] },
+        &Upstream { name: "hub".into(), url: hub.url().into(), headers: vec![("Authorization".into(), old.header())] },
         "t",
         T
     )
@@ -222,7 +226,7 @@ fn the_jsonl_sink_appends_rows_by_column() {
     let path = std::env::temp_dir().join(format!("emcp-hub-{}.jsonl", uuid::Uuid::new_v4()));
     let hub = Hub::serve(info("hub"), Arc::new(JsonlAudit::new(&path))).unwrap();
     hub.mount("files", Mount::Provider(FixtureServer::new("files"))).unwrap();
-    let token = hub.grant("run-1", "a", grant(&json!({ "servers": { "files": "read" }, "teamId": "t1", "userId": "u1" })));
+    let token = hub.grant(&id("run-1"), "a", grant(&json!({ "servers": { "files": "read" }, "teamId": "t1", "userId": "u1" })));
     let client = connect(&hub, &token);
     client.call("files__read_file", json!({ "path": "/a" }), T).unwrap();
     let _ = client.call("files__write_file", json!({}), T);

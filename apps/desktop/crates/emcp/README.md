@@ -94,8 +94,9 @@ hub.mount("computer", emcp::hub::Mount::Provider(Arc::new(Computer)))?;
 let grant: emcp::hub::HubGrant = serde_json::from_value(json!({
     "servers": { "linear": "read", "computer": "write" }, "teamId": null, "userId": null,
 }))?;
-let token = hub.grant("run-1", "EXP-12", grant);   // MCP config: hub.url() + Bearer <token>
-hub.revoke("run-1");
+let run = emcp::SessionId::new("run-1")?;
+let token = hub.grant(&run, "EXP-12", grant);      // MCP config: hub.url() + token.header()
+hub.revoke(&run);
 ```
 
 ## Code mode (feature `codemode`)

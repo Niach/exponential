@@ -20,9 +20,10 @@
 //! let grant: HubGrant = serde_json::from_value(serde_json::json!({
 //!     "servers": { "linear": "read", "computer": "write" }, "teamId": null, "userId": null,
 //! })).unwrap();
-//! let token = hub.grant("run-1", "EXP-12", grant);
-//! // MCP config: { "hub": { "type": "http", "url": hub.url(), "headers": { "Authorization": "Bearer <token>" } } }
-//! hub.revoke("run-1");
+//! let run = emcp::SessionId::new("run-1").unwrap();
+//! let token = hub.grant(&run, "EXP-12", grant);
+//! // MCP config: { "hub": { "type": "http", "url": hub.url(), "headers": { "Authorization": token.header() } } }
+//! hub.revoke(&run);
 //! # Ok(()) }
 //! ```
 
@@ -37,7 +38,7 @@ use serde_json::{json, Value};
 pub use crate::contract::hub::{AuditRow, HubGrant, HubOutcome};
 use crate::contract::hub::{self as rules, RowInput};
 use crate::server::{error_result, Refusal, UNKNOWN_TOOL_CODE};
-use crate::{Caller, Client, ClientError, Server, ServerInfo, ToolProvider, Upstream};
+use crate::{Caller, Client, ClientError, Server, ServerInfo, SessionId, Token, ToolProvider, Upstream};
 
 /// The `clientInfo.name` of the hub's upstream calls.
 const CLIENT_NAME: &str = "emcp-hub";
@@ -203,7 +204,7 @@ struct Inner {
 
 impl Inner {
     fn grant_of(&self, caller: &Caller) -> HubGrant {
-        self.grants.lock().unwrap().get(&caller.session_id).cloned().unwrap_or_default()
+        self.grants.lock().unwrap().get(caller.session_id.as_str()).cloned().unwrap_or_default()
     }
 
     /// Every listable mount's tools, only the servers the grant names (a
@@ -275,7 +276,7 @@ impl ToolProvider for Inner {
         self.audit.record(rules::audit_row(RowInput {
             id: uuid::Uuid::new_v4().to_string(),
             grant: &grant,
-            run: &caller.session_id,
+            run: caller.session_id.as_str(),
             name,
             args: Some(&hash_args),
             outcome,
@@ -285,8 +286,8 @@ impl ToolProvider for Inner {
         answer
     }
 
-    fn ended(&self, session_id: &str) {
-        self.grants.lock().unwrap().remove(session_id);
+    fn ended(&self, session_id: &SessionId) {
+        self.grants.lock().unwrap().remove(session_id.as_str());
     }
 }
 
@@ -341,13 +342,13 @@ impl Hub {
 
     /// Admit the run `session_id` with `grant`; an earlier token of the run
     /// dies and its grant is replaced.
-    pub fn grant(&self, session_id: &str, label: &str, grant: HubGrant) -> String {
-        self.inner.grants.lock().unwrap().insert(session_id.to_string(), grant);
+    pub fn grant(&self, session_id: &SessionId, label: &str, grant: HubGrant) -> Token {
+        self.inner.grants.lock().unwrap().insert(session_id.as_str().to_string(), grant);
         self.server.grant(session_id, label)
     }
 
     /// The run's token dies and its grant is dropped.
-    pub fn revoke(&self, session_id: &str) {
+    pub fn revoke(&self, session_id: &SessionId) {
         self.server.revoke(session_id);
     }
 
