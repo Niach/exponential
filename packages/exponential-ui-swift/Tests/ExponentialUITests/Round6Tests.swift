@@ -79,6 +79,34 @@ final class Round6Tests: XCTestCase {
         XCTAssertTrue(parts(m, "thumbnail")[2].states.contains("selected"))
     }
 
+    /// The counter counts in tabular figures (a painter-side rule, measure =
+    /// paint); a page title does not.
+    func testCounterFiguresAreTabular() throws {
+        let m = try model(carousel, host: RecordingHost())
+        let counter = try XCTUnwrap(parts(m, "counter").first)
+        XCTAssertTrue(m.textStyle(counter.index).tabular)
+        XCTAssertFalse(m.textStyle(try XCTUnwrap(m.index(of: "p1"))).tabular)
+        let ts = m.textStyle(counter.index)
+        var proportional = ts
+        proportional.tabular = false
+        XCTAssertEqual(TextShaper.width("1 / 3", ts), TextShaper.width("8 / 8", ts), accuracy: 0.01)
+        XCTAssertNotEqual(TextShaper.width("1 / 3", proportional), TextShaper.width("8 / 8", proportional))
+    }
+
+    /// An overflowing strip follows the page: the current thumbnail's place
+    /// in the strip's content is the scroll target.
+    func testStripFollowsThePage() throws {
+        let pages = (1...10).map { #"{"id":"p\#($0)","component":"Text","props":{"text":"\#($0)"}}"# }.joined(separator: ",")
+        let urls = (1...10).map { "\"https://example.com/\($0).jpg\"" }.joined(separator: ",")
+        let m = try model(#"{"id":"c","component":"Carousel","props":{"thumbnails":["# + urls + #"]},"children":["# + pages + "]}", host: RecordingHost())
+        let strip = try XCTUnwrap(parts(m, "thumbnails").first)
+        XCTAssertEqual(ThumbnailFollow.target(node: strip, index: strip.index, model: m)?.minX ?? -1, 0, accuracy: 0.5)
+        m.press(parts(m, "thumbnail")[9].index)
+        let moved = try XCTUnwrap(parts(m, "thumbnails").first)
+        XCTAssertEqual(ThumbnailFollow.target(node: moved, index: moved.index, model: m)?.minX ?? -1, 9 * (52 + 8), accuracy: 0.5)
+        XCTAssertGreaterThan(m.contentWidth(moved.index), m.frame(moved.index).width, "the strip overflows and scrolls")
+    }
+
     /// A single page: no counter, no strip (like the controls row).
     func testOnePageHasNoExtras() throws {
         let m = try model(#"{"id":"c","component":"Carousel","props":{"counter":true,"thumbnails":["https://example.com/1.jpg"]},"children":[{"id":"p1","component":"Text","props":{"text":"One"}}]}"#, host: RecordingHost())
