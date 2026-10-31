@@ -368,6 +368,9 @@ struct CarouselIndicatorLeaf: View {
         let count = Int(max(cx.props.num("count") ?? 0, 0))
         let page = Int(cx.props.num("page") ?? 0)
         let dot = cx.part("Carousel", "indicator")
+        // The current dot = the recipe's `selected` state (neutral: primary),
+        // the rest its base (neutral: border), like the gpui painter.
+        let current = cx.part("Carousel", "indicator", states: ["selected"])
         let size = dot.width ?? 8
         let gap = cx.spacing("xs")
         HStack(spacing: gap) {
@@ -375,7 +378,7 @@ struct CarouselIndicatorLeaf: View {
                 Button {
                     cx.model.carouselPage(cx.index, page: i)
                 } label: {
-                    Circle().fill(i == page ? (dot.style.background ?? cx.ink) : (dot.style.background ?? cx.ink).opacity(0.35)).frame(width: size, height: size)
+                    Circle().fill(i == page ? (current.style.background ?? cx.ink) : (dot.style.background ?? cx.ink.opacity(0.35))).frame(width: size, height: size)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(cx.model.builtinString("pageOf", ["page": .number(Double(i + 1)), "total": .number(Double(count))]))

@@ -30,7 +30,7 @@ final class Round6Tests: XCTestCase {
 
     // MARK: - Carousel counter
 
-    /// `$string.pageCounter` over the track's top-start corner (inset sm),
+    /// `$string.pageCounter` over the track's top-end corner (inset sm),
     /// the neutral pill (20 tall, full radius, black 0.55), hidden from AT.
     func testCounterPillSitsOverTheTrackCorner() throws {
         let m = try model(carousel, host: RecordingHost())
@@ -39,7 +39,7 @@ final class Round6Tests: XCTestCase {
         XCTAssertEqual(counter.props["text"]?.string, "1 / 3")
         let page = try XCTUnwrap(parts(m, "page").first)
         let (cf, pf) = (m.frame(counter.index), m.frame(page.index))
-        XCTAssertEqual(cf.minX - pf.minX, 8, accuracy: 0.5)
+        XCTAssertEqual(pf.maxX - cf.maxX, 8, accuracy: 0.5)
         XCTAssertEqual(cf.minY - pf.minY, 8, accuracy: 0.5)
         XCTAssertEqual(cf.height, 20, accuracy: 0.5)
         let style = m.style(counter.index)

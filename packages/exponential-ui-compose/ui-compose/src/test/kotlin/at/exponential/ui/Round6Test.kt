@@ -111,11 +111,11 @@ class Round6Test {
     }
 
     @Test
-    fun theCounterIsAPillOverTheTracksTopStartCornerInTabularFigures() {
+    fun theCounterIsAPillOverTheTracksTopEndCornerInTabularFigures() {
         val m = render(carousel(3, """"page": 0, "counter": true"""))
         val page = m.frame(m.idx("c.page"))
         val pill = m.frame(m.idx("c.counter"))
-        assertEquals("inset sm from the start", 8f, pill.left - page.left, 0.01f)
+        assertEquals("inset sm from the end", 8f, page.right - pill.right, 0.01f)
         assertEquals("inset sm from the top", 8f, pill.top - page.top, 0.01f)
         assertEquals(20f, pill.height, 0.01f)
         val counter = m.node(m.idx("c.counter"))!!

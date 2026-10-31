@@ -1,6 +1,6 @@
 //! Round 6 (`packages/exponential-ui/docs/round-6-contract.md`, EXP-1495)
 //! through the painter in a headless gpui window: the Carousel `counter`
-//! pill (the core's out-of-flow `counter` part over the track's top-start
+//! pill (the core's out-of-flow `counter` part over the track's top-end
 //! corner, mirrored under RTL, hidden from AT) and the `thumbnails` strip
 //! (one 52 x 52 `thumbnail` per page, the `selected` recipe, a press goes to
 //! its page = `change`), and the two new macros (Outline, Mosaic) painting
@@ -124,10 +124,10 @@ fn carousel(counter: bool, thumbnails: Value) -> Value {
 }
 
 #[gpui::test]
-fn the_carousel_counter_paints_a_pill_over_the_tracks_top_start_corner(cx: &mut TestAppContext) {
+fn the_carousel_counter_paints_a_pill_over_the_tracks_top_end_corner(cx: &mut TestAppContext) {
     let (view, _log, cx) = surface(cx, carousel(true, json!(null)));
     let (track, pill) = (frame(&view, cx, "deck.page"), frame(&view, cx, "deck.counter"));
-    assert!(near(pill.x - track.x, 8.0) && near(pill.y - track.y, 8.0), "inset $spacing.sm from the top-start corner: {pill:?} in {track:?}");
+    assert!(near(track.x + track.w - (pill.x + pill.w), 8.0) && near(pill.y - track.y, 8.0), "inset $spacing.sm from the top-end corner: {pill:?} in {track:?}");
     assert!(near(pill.h, 20.0), "a 20 px pill: {pill:?}");
     assert_eq!(text_of(&view, cx, "deck.counter"), "1 / 3");
     let b = painted(&view, cx, "deck.counter");
@@ -147,7 +147,7 @@ fn the_carousel_counter_paints_a_pill_over_the_tracks_top_start_corner(cx: &mut 
 fn the_counter_mirrors_under_rtl(cx: &mut TestAppContext) {
     let (view, cx) = mounted(cx, carousel(true, json!(null)), Recorder::default(), true);
     let (track, pill) = (frame(&view, cx, "deck.page"), frame(&view, cx, "deck.counter"));
-    assert!(near(track.x + track.w - (pill.x + pill.w), 8.0), "the top-END corner under RTL: {pill:?} in {track:?}");
+    assert!(near(pill.x - track.x, 8.0) && near(pill.y - track.y, 8.0), "the top-LEFT corner under RTL: {pill:?} in {track:?}");
 }
 
 #[gpui::test]

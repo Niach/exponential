@@ -1,6 +1,6 @@
 // EXP-1495: the Carousel's `counter` and `thumbnails` on the app's tokens
 // (the catalog's Carousel parts `counter`, `thumbnails`, `thumbnail`): the
-// "i / n" pill over the slide's top-start corner and the filmstrip of
+// "i / n" pill over the slide's top-end corner and the filmstrip of
 // `CAROUSEL_GEOMETRY.thumbnail` px squares under it, the current one ringed
 // `ring` px in the foreground. The plan page's phone picture group (plan-page
 // .json: THE eUI Carousel) paints through these.
@@ -14,7 +14,7 @@ export function carouselCounterText(page: number, total: number): string {
 
 export const CAROUSEL_CLASSES = {
   /** The pill over the slide; its parent is `relative`. */
-  counter: `pointer-events-none absolute start-2 top-2 z-10 rounded-full bg-black/55 px-2 text-xs leading-5 font-medium text-white tabular-nums`,
+  counter: `pointer-events-none absolute end-2 top-2 z-10 rounded-full bg-black/55 px-2 text-xs leading-5 font-medium text-white tabular-nums`,
   /** The filmstrip: one row, scrolling sideways when it overflows. */
   thumbnails: `flex flex-row gap-[8px] overflow-x-auto pt-2 [scrollbar-width:none]`,
   /** One thumbnail: a button; the current one `data-current=true`. */

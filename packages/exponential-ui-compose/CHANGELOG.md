@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1493: the Carousel `counter` pill paints at the track's top-END corner (the core's frame, mirrored under RTL); the current page dot takes the `indicator` recipe's `selected` state (neutral: primary), the others its base.
+
 ## 0.3.0 (2026-10-31)
 
 - EXP-1495 (round 6): the Carousel `counter` pill (tabular figures, hidden from TalkBack) and `thumbnails` strip (a thumbnail press pages through the Carousel, the current thumbnail kept in view inside the strip) painted from the core's frames; the Outline and Mosaic macros through the Box / Text / Image paths. `ResolvedTextStyle.fontFeatures` (OpenType settings, painter-side).
