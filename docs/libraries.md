@@ -1,7 +1,7 @@
 # The library family: names (EXP-1421)
 
 Decided 2026-10-29 for the epic #EXP-1420, renamed 2026-10-30 (#EXP-1438).
-The **product names** (eUI, eTalk, ePilot, eNet, eApps) are what copy, docs and
+The **product names** (eUI, eTalk, ePilot, eNet, eApps, eMCP) are what copy, docs and
 the front page say. The **package names** follow the same short scheme
 (`eui*`, `etalk*`, `epilot*`, `enet*`) on every registry, and so do the tags
 (`eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`). The bare crates.io names `eui`
@@ -35,6 +35,7 @@ consumes them as dependencies.
 | **eNet** | `enet-core` (crates.io), `exponential-net-ffi`, `exponential-net-wasm` (not published yet) | `enet` (the wasm build, planned) | `enet` (planned) | `ExponentialNet` (planned) | `enet-v*` → `release-enet.yml` | exponential.at/net/ |
 | **eApps** | inside `eui-core` for now | inside `@exponential_app/eui/host` | | | rides `eui-v*` | exponential.at/apps/ |
 | agent-runtime | `exponential-agent-runtime` (from `coding` + `engine`, #EXP-1426; git dependency on the tag) | none | none | none | `agent-runtime-v*` → `release-agent-runtime.yml` | in the repo README only |
+| **eMCP** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` (planned) | in the package README for now |
 
 eTalk, ePilot and agent-runtime are git dependencies (`publish = false`: the
 fixtures are compiled in with `include_str!` from outside the crate), so their

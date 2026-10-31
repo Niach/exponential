@@ -1,0 +1,57 @@
+{
+  "$comment": "EXP-1490 (eMCP E1, epic VAPP-175, 2026-10-31): THE UPSTREAM CONNECTION, one member × one upstream. An UPSTREAM is a team MCP server row (`mcp_servers`, EXP-792) an app names in its package's `upstreams` and binds to (exposes.json `run.upstream`); each MEMBER connects their OWN account (`mcp_credentials`, sealed with the vault, vault.json) and app tools act as the calling member. STATES (`states`, `upstreamStep(state, event)` over `transitions`; `*` = from every state and wins; an event a state does not list changes nothing; no credential and no flow = `disconnected`): `connect` (the member presses Connect: the consent page inline or Settings › MCP › Servers) starts a flow from `disconnected`, `failed`, `reconnect` (or replaces one in `connecting`): the existing `mcp_oauth_flows` (32-byte state, PKCE S256 with the verifier sealed, 10-minute TTL, single use, `return_to` = the page that started it, so the consent page resumes with the server connected); the hosted callback's exchange = `callbackOk` → `connected` or `callbackError` → `failed`; a flow past its TTL = `flowExpired` → `failed`. A `secret` server: `secretSet` → `connected` from anywhere; an `auth: none` server is `connected` without a credential. The access token passing `expires_at` = `expire` → `expired`; the broker refreshes before the call (`refreshOk` → `connected`, `refreshFailed` → `reconnect`); an upstream answering 401/invalid_token to a live token = `unauthorized` → `reconnect`. `disconnect` (the member) and `serverChanged` (an owner retargets the server's url, transport or auth) → `disconnected` from anywhere, the credential row deleted. CALLABLE (`callable`, `callableCases`) = `connected` | `expired`; a binding over any other state answers the error `errors.disconnected`, over a server that no longer exists (removed, or not one of the app's declared `upstreams`) `errors.missing`, and an upstream that fails or times out `errors.failed` (audit status `upstream`). THE CONSENT PAGE (`missingCases`): `missingUpstreams(declared per chosen app, states, existing server names)` = the servers the chosen apps declare that exist and are not callable for this member, sorted, each once; each shows its `labels` state with a Connect action, and the grant saves regardless (tools over an unconnected upstream stay listed and answer `errors.disconnected` until connected). `labels` = the state words every surface shows (Settings › MCP › Servers, the consent page).",
+  "states": ["disconnected", "connecting", "connected", "expired", "reconnect", "failed"],
+  "labels": {
+    "disconnected": "Not connected",
+    "connecting": "Connecting…",
+    "connected": "Connected",
+    "expired": "Connected",
+    "reconnect": "Reconnect needed",
+    "failed": "Connection failed"
+  },
+  "callable": ["connected", "expired"],
+  "errors": {
+    "disconnected": "upstreamDisconnected",
+    "missing": "upstreamMissing",
+    "failed": "upstreamFailed"
+  },
+  "transitions": {
+    "*": { "disconnect": "disconnected", "serverChanged": "disconnected", "secretSet": "connected" },
+    "disconnected": { "connect": "connecting" },
+    "failed": { "connect": "connecting" },
+    "reconnect": { "connect": "connecting" },
+    "connecting": { "connect": "connecting", "callbackOk": "connected", "callbackError": "failed", "flowExpired": "failed" },
+    "connected": { "expire": "expired", "unauthorized": "reconnect" },
+    "expired": { "refreshOk": "connected", "refreshFailed": "reconnect", "unauthorized": "reconnect" }
+  },
+  "flowCases": [
+    { "name": "connect and succeed", "events": ["connect", "callbackOk"], "expected": "connected" },
+    { "name": "connect and fail, then retry", "events": ["connect", "callbackError", "connect", "callbackOk"], "expected": "connected" },
+    { "name": "an abandoned flow fails", "events": ["connect", "flowExpired"], "expected": "failed" },
+    { "name": "a refreshed token", "events": ["connect", "callbackOk", "expire", "refreshOk"], "expected": "connected" },
+    { "name": "a refresh that fails asks to reconnect", "events": ["connect", "callbackOk", "expire", "refreshFailed"], "expected": "reconnect" },
+    { "name": "a revoked token asks to reconnect", "events": ["connect", "callbackOk", "unauthorized"], "expected": "reconnect" },
+    { "name": "reconnecting", "events": ["connect", "callbackOk", "unauthorized", "connect", "callbackOk"], "expected": "connected" },
+    { "name": "a secret connects at once", "events": ["secretSet"], "expected": "connected" },
+    { "name": "disconnect from anywhere", "events": ["connect", "callbackOk", "expire", "disconnect"], "expected": "disconnected" },
+    { "name": "a retargeted server disconnects everyone", "events": ["connect", "callbackOk", "serverChanged"], "expected": "disconnected" },
+    { "name": "a stray callback changes nothing", "events": ["callbackOk"], "expected": "disconnected" },
+    { "name": "connect while connected changes nothing", "events": ["connect", "callbackOk", "connect"], "expected": "connected" },
+    { "name": "a refresh without an expiry changes nothing", "events": ["connect", "callbackOk", "refreshFailed"], "expected": "connected" }
+  ],
+  "callableCases": [
+    { "state": "disconnected", "expected": false },
+    { "state": "connecting", "expected": false },
+    { "state": "connected", "expected": true },
+    { "state": "expired", "expected": true },
+    { "state": "reconnect", "expected": false },
+    { "state": "failed", "expected": false }
+  ],
+  "missingCases": [
+    { "name": "nothing declared", "declared": [[], []], "states": {}, "servers": ["m5"], "expected": [] },
+    { "name": "one app, not connected", "declared": [["m5"]], "states": {}, "servers": ["m5"], "expected": ["m5"] },
+    { "name": "two apps share an upstream, listed once and sorted", "declared": [["m5", "linear"], ["m5"]], "states": { "linear": "reconnect" }, "servers": ["m5", "linear"], "expected": ["linear", "m5"] },
+    { "name": "connected and expired are fine", "declared": [["m5", "linear"]], "states": { "m5": "connected", "linear": "expired" }, "servers": ["m5", "linear"], "expected": [] },
+    { "name": "a removed server is not offered", "declared": [["m5", "gone"]], "states": { "m5": "failed" }, "servers": ["m5"], "expected": ["m5"] }
+  ]
+}
