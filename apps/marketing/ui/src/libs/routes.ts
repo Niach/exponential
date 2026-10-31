@@ -46,8 +46,8 @@ export const LIB_ROUTES: readonly Route[] = [
     `/agent/`,
     () => import("./Agent"),
     `eAgent · run your own coding agent`,
-    `eAgent spawns your own, unmodified Claude Code or Codex over ACP, streams what it does and wires its MCP servers. One local account, no server. Today exponential-agent-runtime 0.1.0, a git dependency.`,
-    [`ui/src/libs/Agent.tsx`, `../desktop/crates/exponential-agent-runtime`]
+    `eAgent spawns your own, unmodified Claude Code or Codex over ACP, streams what it does and wires its MCP servers. One local account, no server. The eagent crate, a git dependency.`,
+    [`ui/src/libs/Agent.tsx`, `../desktop/crates/eagent`]
   ),
   lib(
     `/core/`,

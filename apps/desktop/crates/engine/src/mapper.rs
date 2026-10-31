@@ -1,5 +1,5 @@
 //! The ONE `SessionUpdate` → wire mapper moved to the agent core (EXP-1426
-//! part 4b, `exponential_agent_runtime::engine::mapper`); every item is
+//! part 4b, `eagent::engine::mapper`); every item is
 //! re-exported here under its old path. What stays is Exponential's half:
 //! the [`HostTools`] answering for its MCP surface (the contract's
 //! `expToolDisplay` / `expToolPreview` tables) and its in-process code-mode
@@ -9,8 +9,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub use exponential_agent_runtime::engine::mapper::*;
-use exponential_agent_runtime::engine::{HostTools, ScriptCall, ScriptReport};
+pub use eagent::engine::mapper::*;
+use eagent::engine::{HostTools, ScriptCall, ScriptReport};
 
 /// Exponential's own tools, by the contract tables and the code-mode report
 /// channel.
@@ -65,7 +65,7 @@ pub struct MapperConfig {
     pub session_seed: String,
 }
 
-impl From<MapperConfig> for exponential_agent_runtime::engine::MapperConfig {
+impl From<MapperConfig> for eagent::engine::MapperConfig {
     fn from(config: MapperConfig) -> Self {
         Self {
             redactor: config.redactor,
@@ -112,7 +112,7 @@ mod tests {
         assert_eq!(WORKING_PREVIEW_MAX, domain::contract::STEER_WORKING_PREVIEW_MAX);
         assert_eq!(EMPTY_TURN_NOTICE, domain::session_tree::THREAD.copy.empty_turn);
         assert_eq!(
-            exponential_agent_runtime::engine::host_tools::CODEMODE_SERVER_NAME,
+            eagent::engine::host_tools::CODEMODE_SERVER_NAME,
             coding::codemode::SERVER_NAME
         );
     }

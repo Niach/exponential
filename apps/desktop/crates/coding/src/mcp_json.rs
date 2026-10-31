@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 
 use crate::argv::{McpServerWire, McpWireTransport};
 
-pub use exponential_agent_runtime::mcp::MCP_JSON_FILE;
+pub use eagent::mcp::MCP_JSON_FILE;
 
 /// The pre-EXP-98 file name. Worktrees/clones prepared by older app versions
 /// still carry it, and its mere presence re-raises claude's project-approval

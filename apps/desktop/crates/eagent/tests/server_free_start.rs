@@ -39,13 +39,13 @@ use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
     on_receive_notification, on_receive_request, Agent, Client, ConnectTo, Error,
 };
-use exponential_agent_runtime::agent::CodingAgent;
-use exponential_agent_runtime::engine::local::{EnginePhase, LocalFeedEvent};
-use exponential_agent_runtime::engine::{
+use eagent::agent::CodingAgent;
+use eagent::engine::local::{EnginePhase, LocalFeedEvent};
+use eagent::engine::{
     start_with, ChildExitLink, EngineExit, EngineHost, EngineSession, EventSink, NoBackend,
     RecordingSink, ResumeHandle, SessionSpec,
 };
-use exponential_agent_runtime::wire::RemoteAnswer;
+use eagent::wire::RemoteAnswer;
 
 const BUDGET: Duration = Duration::from_secs(10);
 
@@ -435,7 +435,7 @@ async fn run_turn(
                 serde_json::from_str(text.trim_start_matches("context-layout ").trim())
                     .expect("the test's slot parses");
             let mut meta = serde_json::Map::new();
-            meta.insert(exponential_agent_runtime::engine::context_layout::CONTEXT_LAYOUT_META_KEY.to_string(), slot);
+            meta.insert(eagent::engine::context_layout::CONTEXT_LAYOUT_META_KEY.to_string(), slot);
             for _ in 0..2 {
                 let _ = cx.send_notification(
                     SessionNotification::new(
@@ -627,7 +627,7 @@ async fn run_turn(
             StopReason::EndTurn
         }
         "quit" => {
-            child_exit.record(exponential_agent_runtime::spawn::ChildExit {
+            child_exit.record(eagent::spawn::ChildExit {
                 code: 3,
                 success: false,
                 signal: None,
@@ -654,7 +654,7 @@ fn prompt_text(request: &PromptRequest) -> String {
 fn native_id_meta(id: &str) -> serde_json::Map<String, serde_json::Value> {
     let mut meta = serde_json::Map::new();
     meta.insert(
-        exponential_agent_runtime::engine::launch::NATIVE_SESSION_META_KEY.to_string(),
+        eagent::engine::launch::NATIVE_SESSION_META_KEY.to_string(),
         serde_json::Value::String(id.to_string()),
     );
     meta
@@ -708,7 +708,7 @@ fn start_fake(name: &str, resume: Option<ResumeHandle>) -> Harness {
     let adapter = FakeAgent::new(state.clone(), child_exit.clone());
     let session = SessionSpec {
         session_id: format!("sess-{name}"),
-        run: exponential_agent_runtime::engine::RunFacts {
+        run: eagent::engine::RunFacts {
             worktree: worktree.clone(),
             ..Default::default()
         },
@@ -728,7 +728,7 @@ fn start_fake(name: &str, resume: Option<ResumeHandle>) -> Harness {
         aside: false,
         child_exit,
         attachments: None,
-        host_tools: Arc::new(exponential_agent_runtime::engine::NoHostTools),
+        host_tools: Arc::new(eagent::engine::NoHostTools),
         sink: Some(sink.clone() as Arc<dyn EventSink>),
     };
     let session = start_with(session, adapter, Arc::new(NoBackend::with_host(host.clone())))

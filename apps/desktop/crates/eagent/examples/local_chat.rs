@@ -1,8 +1,8 @@
 //! One turn with your own `claude` (or `codex`), no server (EXP-1426 part 5).
 //!
 //! ```sh
-//! cargo run -p exponential-agent-runtime --example local_chat -- "reply with the word ok"
-//! cargo run -p exponential-agent-runtime --example local_chat -- --agent codex "hi"
+//! cargo run -p eagent --example local_chat -- "reply with the word ok"
+//! cargo run -p eagent --example local_chat -- --agent codex "hi"
 //! ```
 //!
 //! Detects the CLI, says whether it is signed in (and how to sign in when it
@@ -13,9 +13,9 @@
 use std::io::Write;
 use std::time::Duration;
 
-use exponential_agent_runtime::agent::CodingAgent;
-use exponential_agent_runtime::local::{LocalAgent, RunRequest};
-use exponential_agent_runtime::wire::{ActivityEvent, TurnState};
+use eagent::agent::CodingAgent;
+use eagent::local::{LocalAgent, RunRequest};
+use eagent::wire::{ActivityEvent, TurnState};
 
 fn main() {
     let mut agent = CodingAgent::Claude;

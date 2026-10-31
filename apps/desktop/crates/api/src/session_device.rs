@@ -265,7 +265,7 @@ pub fn report(trpc: &TrpcClient, session_id: &str, report: &SessionReport) -> Re
 
 // EXP-1426: the reply cards are the agent core's vocabulary (its mapper
 // produces them); `sessions.reply` posts them as they serialize.
-pub use exponential_agent_runtime::engine::reply::{option_descriptions, ReplyCard, ReplyOption};
+pub use eagent::engine::reply::{option_descriptions, ReplyCard, ReplyOption};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

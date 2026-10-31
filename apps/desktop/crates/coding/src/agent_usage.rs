@@ -51,7 +51,7 @@ use crate::usage_cache::{self, AgentCacheEntry, PollOutcome};
 
 // EXP-1426 part 4c: the window vocabulary, the live-limit parsers and the
 // live registry are the agent runtime's.
-pub use exponential_agent_runtime::usage::{
+pub use eagent::usage::{
     claude_window_identity, live, merge_live_windows, parse_claude_rate_limit_windows,
     parse_codex_rate_limits, read_percent, read_reset, ClaudeLimitingWindow, UsageWindow,
     MAX_WINDOWS,

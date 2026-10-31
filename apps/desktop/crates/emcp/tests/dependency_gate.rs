@@ -5,7 +5,7 @@
 
 const FORBIDDEN: &[&str] = &[
     "api", "steer", "domain", "coding", "engine", "terminal", "ui", "app", "cli", "sync", "codemode", "updater",
-    "theme", "epilot", "epilot-screen", "eui-core", "eui-gpui", "etalk", "exponential-agent-runtime",
+    "theme", "epilot", "epilot-screen", "eui-core", "eui-gpui", "etalk", "eagent", "exponential-agent-runtime",
 ];
 
 #[test]

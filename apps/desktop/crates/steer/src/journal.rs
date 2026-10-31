@@ -96,7 +96,7 @@ const SLOT_DIFF: usize = 8;
 const SLOT_COUNT: usize = 9;
 
 // EXP-1426: in the core's wire vocabulary now (the engine's mapper folds by it).
-pub use exponential_agent_runtime::wire::frames::JOURNAL_WORKFLOW_CAP;
+pub use eagent::wire::frames::JOURNAL_WORKFLOW_CAP;
 
 /// Which slot an event owns, if any. The ONE place the latest-wins kinds are
 /// named. EXP-850: a `workflow` is latest-wins too but keyed by ID, so it has

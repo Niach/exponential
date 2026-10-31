@@ -10,19 +10,19 @@
 # both does, and the lock must hold ONE copy of every crate of this repo
 # (`cargo tree -d`).
 #
-#   scripts/libs/git-consumer-smoke.sh <etalk|epilot|emcp|agent-runtime> [rev]
+#   scripts/libs/git-consumer-smoke.sh <etalk|epilot|emcp|eagent> [rev]
 #   (rev defaults to HEAD, which must be committed; the release workflows
 #   pass the tagged commit)
 set -euo pipefail
 
-lib="${1:?usage: git-consumer-smoke.sh <etalk|epilot|emcp|agent-runtime> [rev]}"
+lib="${1:?usage: git-consumer-smoke.sh <etalk|epilot|emcp|eagent> [rev]}"
 repo="$(git rev-parse --show-toplevel)"
 rev="${2:-$(git -C "$repo" rev-parse HEAD)}"
 case "$lib" in
   etalk) crates="etalk etalk-codec etalk-engine etalk-crispasr etalk-wakeword etalk-gpui" ;;
   epilot) crates="epilot epilot-screen" ;;
   emcp) crates="emcp" ;;
-  agent-runtime) crates="exponential-agent-runtime" ;;
+  eagent) crates="eagent exponential-agent-runtime" ;;
   *) echo "unknown library: $lib" >&2; exit 2 ;;
 esac
 
