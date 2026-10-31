@@ -3189,7 +3189,7 @@
                 "id": "specimen-carousel-case-0-label",
                 "component": "Text",
                 "props": {
-                  "text": "example",
+                  "text": "counter · thumbnails",
                   "variant": "caption"
                 }
               },
@@ -3198,7 +3198,13 @@
                 "component": "Carousel",
                 "props": {
                   "page": 0,
-                  "indicators": true
+                  "indicators": true,
+                  "counter": true,
+                  "thumbnails": [
+                    "https://example.com/1.jpg",
+                    "https://example.com/2.jpg",
+                    "https://example.com/3.jpg"
+                  ]
                 },
                 "children": [
                   {
