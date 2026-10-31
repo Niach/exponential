@@ -149,7 +149,7 @@ import { useSessionMessages } from "@/hooks/use-session-tree"
 import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { FeedText } from "@/components/feed-text"
-import { workingCaption } from "@/lib/working-caption"
+import { workingCaption, type WorkingWriting } from "@/lib/working-caption"
 import {
   COMMENT_CALL_TOOL,
   CommentCallRow,
@@ -314,6 +314,7 @@ export function AgentSessionView({
     turnState,
     turnStartedAt,
     turnTokens,
+    turnWriting,
     workflows,
     runningWorkflow,
     answerStates,
@@ -938,6 +939,7 @@ export function AgentSessionView({
                       agent={session.cli}
                       startedAt={turnStartedAt}
                       tokens={turnTokens}
+                      writing={turnWriting}
                       workflow={runningWorkflow}
                     />
                   </div>
@@ -1044,6 +1046,7 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
     turnState,
     turnStartedAt,
     turnTokens,
+    turnWriting,
     runningWorkflow,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot)
   useEffect(() => store.connect(), [store])
@@ -1067,6 +1070,7 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
           agent={session.cli}
           startedAt={turnStartedAt}
           tokens={turnTokens}
+          writing={turnWriting}
           workflow={runningWorkflow}
         />
       )}
@@ -1101,23 +1105,28 @@ function WorkingIndicatorRow({
   startedAt,
   tokens,
   workflow,
+  writing,
 }: {
   agent: string | null
   startedAt: number | null
   tokens: number | null
   workflow: WorkflowState | null
+  /** EXP-1501: a streaming tool call — `Writing {tool}…` on its own clock. */
+  writing?: WorkingWriting | null
 }) {
   const [now, setNow] = useState(() => Date.now())
+  const ticking = startedAt !== null || Boolean(writing)
   useEffect(() => {
-    if (startedAt === null) return
+    if (!ticking) return
     const timer = setInterval(() => setNow(Date.now()), 1_000)
     return () => clearInterval(timer)
-  }, [startedAt])
+  }, [ticking])
   const caption = workingCaption({
     startedAt,
     now,
     tokens,
     workflow: workflow ?? undefined,
+    writing,
   })
   return (
     <div className={cn(`flex items-center gap-2`, TRANSCRIPT_TOOL_TEXT)}>

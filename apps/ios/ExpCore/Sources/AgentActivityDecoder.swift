@@ -131,11 +131,18 @@ public struct AgentTurnEdge: Equatable, Sendable {
     public let state: AgentTurnState?
     public let startedAt: Int?
     public let tokens: Int?
+    /// EXP-1501: the tool call whose input is streaming; nil = not writing
+    /// (every frame carries the CURRENT state, so nil clears it).
+    public let writing: WorkingWriting?
 
-    public init(state: AgentTurnState? = nil, startedAt: Int? = nil, tokens: Int? = nil) {
+    public init(
+        state: AgentTurnState? = nil, startedAt: Int? = nil, tokens: Int? = nil,
+        writing: WorkingWriting? = nil
+    ) {
         self.state = state
         self.startedAt = startedAt
         self.tokens = tokens
+        self.writing = writing
     }
 }
 
@@ -446,8 +453,20 @@ public enum AgentActivityDecoder {
         AgentTurnEdge(
             state: (event["state"] as? String).flatMap { AgentTurnState(rawValue: $0) },
             startedAt: int(event["startedAt"]).flatMap { $0 > 0 ? $0 : nil },
-            tokens: int(event["tokens"]).flatMap { $0 >= 0 ? $0 : nil }
+            tokens: int(event["tokens"]).flatMap { $0 >= 0 ? $0 : nil },
+            writing: turnWriting(event["writing"])
         )
+    }
+
+    /// EXP-1501: `turn.writing = {tool, startedAt}`. The name stays raw (the
+    /// caption's `writingToolLabel` cleans it, a blank one included); a frame
+    /// without a readable start stamp is not writing.
+    private static func turnWriting(_ value: Any?) -> WorkingWriting? {
+        guard let raw = value as? [String: Any],
+              let tool = raw["tool"] as? String,
+              let startedAt = int(raw["startedAt"])
+        else { return nil }
+        return WorkingWriting(tool: tool, startedAt: startedAt)
     }
 
     static func compaction(_ event: [String: Any]) -> AgentCompactionEdge {
