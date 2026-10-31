@@ -36,7 +36,7 @@ cd packages/exponential-ui-compose
 ### In a blank project
 
 A blank Android Studio project (Compose template, AGP 8.10, Kotlin 2.4, minSdk 26) needs only
-`mavenCentral()` in its repositories and `implementation("at.exponential:eui-compose:0.2.0")`;
+`mavenCentral()` in its repositories and `implementation("at.exponential:eui-compose:0.3.0")`;
 the POM brings the primitives, Compose,
 coroutines and JNA (`@aar`). Ten lines of `MainActivity` (a `SurfaceModel`, `setNested` with the
 kitchen sink from `assets/`, `ExponentialSurface` in a `verticalScroll`) render the kitchen sink
@@ -286,12 +286,12 @@ HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
 
 Both modules publish as `at.exponential:eui-compose` and `at.exponential:eui-compose-primitives`.
 - Each artifact has the AAR, a full POM (Apache-2.0; developer `Exponential` <hello@exponential.at>; scm `github.com/Niach/exponential`), and sources and javadoc jars.
-- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-eui.yml passes the tag's version, the `0.2.0` default lives in each module's `build.gradle.kts`).
+- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-eui.yml passes the tag's version, the `0.3.0` default lives in each module's `build.gradle.kts`).
 - Signing is applied ONLY when `ORG_GRADLE_PROJECT_signingInMemoryKey` (+ `…Password`) is set. The root `build.gradle.kts` holds the shared POM, signing and repository setup.
 
 ```bash
 bash apps/desktop/crates/exponential-ui-ffi/build-android.sh       # the .so files the AAR bundles
-bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.2.0
+bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.3.0
 ```
 
 `central-bundle.sh` publishes into the local `centralBundle` repository (`build/central-bundle`). It drops `maven-metadata.xml`, adds any missing `.md5`/`.sha1`, and zips the Maven layout into `build/central-bundle.zip`, the Central Portal upload format. The upload is a CI `curl`; an unsigned bundle builds but the Portal rejects it.
