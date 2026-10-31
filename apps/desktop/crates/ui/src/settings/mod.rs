@@ -41,6 +41,7 @@ mod add_repository_dialog;
 // candidates + picker are shared with the New agent dialog.
 pub(crate) mod agent_detail;
 mod app_detail;
+mod app_mcp;
 mod new_agent;
 mod agents;
 mod agents_index;

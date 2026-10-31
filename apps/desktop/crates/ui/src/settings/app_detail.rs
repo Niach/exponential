@@ -34,6 +34,9 @@ use crate::sidebar::{select_settings_section, RailShared};
 /// The web form's defaults (an app saved without an icon or a colour).
 const DEFAULT_ICON: &str = "puzzle";
 const DEFAULT_COLOR: &str = "#6366f1";
+/// VAPP-183: the Connect wait (the MCP servers page's cadence).
+const CONNECT_POLL: std::time::Duration = std::time::Duration::from_secs(3);
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 
 /// The synced app row, trashed rows excluded.
 pub(crate) fn app_row(app_id: &str, cx: &App) -> Option<AppRow> {
@@ -107,6 +110,13 @@ pub struct AppDetailPane {
     records_plan_team: Option<String>,
     /// VAPP-120: the tool whose grant is being written (its switch waits).
     tool_busy: Option<String>,
+    /// VAPP-183: `appAccess.appTools` for the app on show, the (app, head
+    /// version) it was read for, the tool or server being written, and the
+    /// live Connect wait (a newer one retires it).
+    mcp: Option<api::app_access::AppToolsOut>,
+    mcp_for: Option<(String, i64)>,
+    mcp_busy: Option<String>,
+    connect_generation: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -149,6 +159,10 @@ impl AppDetailPane {
             records_max: None,
             records_plan_team: None,
             tool_busy: None,
+            mcp: None,
+            mcp_for: None,
+            mcp_busy: None,
+            connect_generation: 0,
             _subscriptions: subscriptions,
         }
     }
@@ -301,6 +315,148 @@ impl AppDetailPane {
         .detach();
     }
 
+    /// VAPP-183: (re)read `appAccess.appTools` when the app or its head
+    /// version changes (the web's effect deps); a failure hides both sections.
+    fn load_mcp(&mut self, row: &AppRow, cx: &mut gpui::Context<Self>) {
+        let key = (row.id.clone(), row.head_version.unwrap_or(0));
+        if self.mcp_for.as_ref() == Some(&key) {
+            return;
+        }
+        if self.mcp_for.as_ref().map(|(id, _)| id) != Some(&key.0) {
+            self.mcp = None;
+        }
+        self.mcp_for = Some(key.clone());
+        self.fetch_mcp(key, cx);
+    }
+
+    fn fetch_mcp(&mut self, key: (String, i64), cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let app_id = key.0.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::app_access::app_tools(&trpc, &app_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.mcp_for.as_ref() != Some(&key) {
+                    return; // superseded
+                }
+                match result {
+                    Ok(data) => this.mcp = Some(data),
+                    Err(err) => {
+                        log::warn!("[ui] appAccess.appTools failed: {err}");
+                        this.mcp = None;
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// VAPP-183: one MCP tools switch: optimistic, `appAccess.setToolEnabled`
+    /// (owners), a refusal restores the row and toasts.
+    pub(crate) fn toggle_mcp_tool(&mut self, tool: String, enabled: bool, cx: &mut gpui::Context<Self>) {
+        let (Some(data), Some((app_id, _))) = (self.mcp.clone(), self.mcp_for.clone()) else { return };
+        if !data.can_toggle || self.mcp_busy.is_some() {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("save", "the tool", None, cx);
+            return;
+        };
+        self.mcp = Some(super::app_mcp::with_tool_enabled(&data, &tool, enabled));
+        self.mcp_busy = Some(tool.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::app_access::set_tool_enabled(&trpc, &app_id, &tool, enabled) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.mcp_busy = None;
+                if let Err(err) = result {
+                    this.mcp = Some(data);
+                    crate::action_error::failed_action_err("save", "the tool", &err, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// VAPP-183: Connect / Reconnect an account. An OAuth server = the MCP
+    /// servers page's flow (`mcp_servers.rs` `connect`): the web settings
+    /// deep link runs `mcpServers.connect` in the SIGNED-IN browser, and this
+    /// side re-reads the sections until the row reads connected. Any other
+    /// server opens Settings → MCP servers.
+    pub(crate) fn connect_upstream(
+        &mut self,
+        upstream: &api::app_access::AppUpstream,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(server_id) = upstream.server_id.clone() else { return };
+        if upstream.auth.as_deref() != Some("oauth") {
+            select_settings_section(window, cx, SettingsSection::McpServers);
+            return;
+        }
+        let slug = self
+            .loaded_row(cx)
+            .and_then(|row| row.team_id)
+            .and_then(|team| Store::global(cx).collections().teams.read(cx).get(&team).and_then(|t| t.slug.clone()));
+        let page = match (slug, crate::queries::active_account(cx)) {
+            (Some(slug), Some(account)) => api::mcp_servers::connect_page_url(&account.instance_url, &slug, &server_id),
+            _ => None,
+        };
+        let Some(page) = page else {
+            crate::action_error::failed_action("connect", "the account", None, cx);
+            return;
+        };
+        super::open_url(cx, page);
+        let Some(key) = self.mcp_for.clone() else { return };
+        self.connect_generation += 1;
+        let generation = self.connect_generation;
+        self.mcp_busy = Some(server_id.clone());
+        cx.notify();
+        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+        let trpc = std::sync::Arc::new(trpc);
+        cx.spawn(async move |this, cx| {
+            let deadline = std::time::Instant::now() + CONNECT_TIMEOUT;
+            loop {
+                cx.background_executor().timer(CONNECT_POLL).await;
+                let live = this
+                    .update(cx, |this, _| this.connect_generation == generation && this.mcp_for.as_ref() == Some(&key))
+                    .unwrap_or(false);
+                if !live {
+                    return;
+                }
+                let (trpc, app_id) = (trpc.clone(), key.0.clone());
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { api::app_access::app_tools(&trpc, &app_id) })
+                    .await;
+                let connected = result.as_ref().is_ok_and(|data| {
+                    data.upstreams.iter().any(|u| u.server_id.as_deref() == Some(server_id.as_str()) && u.state.as_deref() == Some("connected"))
+                });
+                let done = connected || std::time::Instant::now() >= deadline;
+                let _ = this.update(cx, |this, cx| {
+                    if let Ok(data) = result {
+                        this.mcp = Some(data);
+                    }
+                    if done {
+                        this.mcp_busy = None;
+                    }
+                    cx.notify();
+                });
+                if done {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
     /// VAPP-120: the Tools group (the web's `app-settings-tools`): the title
     /// and hint, then one row per declared action with its switch, or the
     /// none line.
@@ -412,6 +568,7 @@ impl Render for AppDetailPane {
             return v_flex().into_any_element();
         };
         self.sync_page(&page, &row, window, cx);
+        self.load_mcp(&row, cx);
         let manage = self.can_manage(&row, cx);
         let copy = &APPS.copy;
         let entry = AppEntry::from_row(&row);
@@ -502,6 +659,12 @@ impl Render for AppDetailPane {
                         .child(domain::app_records::records_count_label(count, self.records_max)),
                 )
                 .child(self.tools_group(row, manage, cx))
+            })
+            // VAPP-183: Accounts + MCP tools, each hidden when empty.
+            .when_some(self.mcp.clone(), |body, data| {
+                let busy = self.mcp_busy.clone();
+                body.children(super::app_mcp::accounts_group(&data, busy.as_deref(), cx))
+                    .children(super::app_mcp::tools_group(&data, busy.as_deref(), cx))
             })
             .child(actions);
         v_flex().child(body).into_any_element()
