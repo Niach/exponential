@@ -85,6 +85,13 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
       const message = EXPOSE_HOST_MESSAGES[error.code]
       if (message && error.index !== null) rules.push({ path: `/exposes/${error.index}/run/action`, message })
     }
+    // VAPP-181: the broker never chains tools across apps, so an exposed tool
+    // never reaches an app (its own included) through exponential.apps.*.
+    valid.exposes.forEach((expose, index) => {
+      if (`action` in expose.run && expose.run.action.startsWith(`exponential.apps.`)) {
+        rules.push({ path: `/exposes/${index}/run/action`, message: `an exposed tool never reaches an app through exponential.apps.*: read or write this app's records with a records binding` })
+      }
+    })
   }
   // VAPP-122: the SDK checked every kind's schema; the contract caps how many.
   const kinds = Object.keys(valid.records ?? {})

@@ -7,6 +7,7 @@
 // hint, the acting session's confinement and sign of life, the transport,
 // and the `mcp_calls` row of every `tools/call` (audit.ts).
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import { and, eq, or } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -14,7 +15,7 @@ import { users } from "@/db/auth-schema"
 import { sessions } from "@/db/schema"
 import { resolveMcpCredential } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/emcp/helpers"
-import { auditRows, recordMcpCalls, toolCallsOf } from "@/lib/emcp/audit"
+import { auditRows, recordMcpCalls, toolCallsOf, type AuditOptions } from "@/lib/emcp/audit"
 import { resolveMcpToolGates, type McpToolGates } from "@/lib/emcp/gates"
 import { parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import { createExponentialMcpServer, type McpUser } from "@/lib/emcp/server"
@@ -41,8 +42,18 @@ export interface EmcpCaller {
   gates: McpToolGates
 }
 
-/** Builds the MCP server one request talks to. */
-export type ToolProvider = (caller: EmcpCaller, request: Request) => McpServer
+/** #VAPP-181: what an endpoint adds to its audit rows: the team, the app of
+ * each call and how its answers classify. */
+export interface ServeOptions extends AuditOptions {
+  teamId?: string | null
+}
+
+type Served = McpServer | Server | Response | { server: McpServer | Server; audit: ServeOptions }
+
+/** Builds the MCP server one request talks to (#VAPP-181: async, with its
+ * audit options, or the Response that refuses it, e.g. a token without an
+ * apps grant). */
+export type ToolProvider = (caller: EmcpCaller, request: Request) => Served | Promise<Served>
 
 export const exponentialToolProvider: ToolProvider = (caller, request) =>
   createExponentialMcpServer(caller.user, request, caller.access, caller.sessionId, caller.gates)
@@ -143,7 +154,7 @@ export function auditTeamId(access: McpAccess): string | null {
 export async function serveMcp(
   request: Request,
   provider: ToolProvider,
-  options: { appId?: string | null } = {}
+  options: ServeOptions = {}
 ): Promise<Response> {
   const gated = await authenticateMcpRequest(request)
   if (`response` in gated) return gated.response
@@ -155,7 +166,10 @@ export async function serveMcp(
     .catch(() => null)
   const audited = toolCallsOf(body).length > 0
 
-  const server = provider(caller, request)
+  const served = await provider(caller, request)
+  if (served instanceof Response) return served
+  // `audit` tells the pair apart (an McpServer has a `server` of its own).
+  const { server, audit } = `audit` in served ? served : { server: served, audit: options }
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
@@ -176,12 +190,13 @@ export async function serveMcp(
               {
                 userId: caller.user.id,
                 clientId: caller.clientId,
-                teamId: auditTeamId(caller.access),
-                appId: options.appId ?? null,
+                teamId: audit.teamId !== undefined ? audit.teamId : auditTeamId(caller.access),
+                appId: null,
               },
               body,
               answer,
-              latencyMs
+              latencyMs,
+              audit
             )
           )
         )

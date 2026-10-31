@@ -263,7 +263,7 @@ function buildCtx(user: McpUser, request: Request): Context {
   } as unknown as Context
 }
 
-function caller(user: McpUser, request: Request) {
+export function caller(user: McpUser, request: Request) {
   return appRouter.createCaller(buildCtx(user, request))
 }
 

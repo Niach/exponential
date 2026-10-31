@@ -83,6 +83,7 @@ import { Route as ApiShapesAppVersionsRouteImport } from './routes/api/shapes/ap
 import { Route as ApiShapesAppRecordsRouteImport } from './routes/api/shapes/app-records'
 import { Route as ApiShapesAgentsRouteImport } from './routes/api/shapes/agents'
 import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-oauth/client[.]json'
+import { Route as ApiMcpAppsRouteImport } from './routes/api/mcp_/apps'
 import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/callback'
 import { Route as ApiGuideUploadsTokenRouteImport } from './routes/api/guide-uploads/$token'
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
@@ -521,6 +522,11 @@ const ApiMcpOauthClientDotjsonRoute =
     path: '/api/mcp-oauth/client.json',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiMcpAppsRoute = ApiMcpAppsRouteImport.update({
+  id: '/api/mcp_/apps',
+  path: '/api/mcp/apps',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMcpOauthCallbackRoute = ApiMcpOauthCallbackRouteImport.update({
   id: '/api/mcp-oauth/callback',
   path: '/api/mcp-oauth/callback',
@@ -895,6 +901,7 @@ export interface FileRoutesByFullPath {
   '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
+  '/api/mcp/apps': typeof ApiMcpAppsRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1026,6 +1033,7 @@ export interface FileRoutesByTo {
   '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
+  '/api/mcp/apps': typeof ApiMcpAppsRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1162,6 +1170,7 @@ export interface FileRoutesById {
   '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
+  '/api/mcp_/apps': typeof ApiMcpAppsRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1298,6 +1307,7 @@ export interface FileRouteTypes {
     | '/api/guide-uploads/$token'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
+    | '/api/mcp/apps'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1429,6 +1439,7 @@ export interface FileRouteTypes {
     | '/api/guide-uploads/$token'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
+    | '/api/mcp/apps'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1564,6 +1575,7 @@ export interface FileRouteTypes {
     | '/api/guide-uploads/$token'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
+    | '/api/mcp_/apps'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1691,6 +1703,7 @@ export interface RootRouteChildren {
   ApiGuideUploadsTokenRoute: typeof ApiGuideUploadsTokenRoute
   ApiMcpOauthCallbackRoute: typeof ApiMcpOauthCallbackRoute
   ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
+  ApiMcpAppsRoute: typeof ApiMcpAppsRoute
   ApiShapesAgentsRoute: typeof ApiShapesAgentsRoute
   ApiShapesAppRecordsRoute: typeof ApiShapesAppRecordsRoute
   ApiShapesAppVersionsRoute: typeof ApiShapesAppVersionsRoute
@@ -2256,6 +2269,13 @@ declare module '@tanstack/react-router' {
       path: '/api/mcp-oauth/client.json'
       fullPath: '/api/mcp-oauth/client.json'
       preLoaderRoute: typeof ApiMcpOauthClientDotjsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp_/apps': {
+      id: '/api/mcp_/apps'
+      path: '/api/mcp/apps'
+      fullPath: '/api/mcp/apps'
+      preLoaderRoute: typeof ApiMcpAppsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mcp-oauth/callback': {
@@ -2871,6 +2891,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGuideUploadsTokenRoute: ApiGuideUploadsTokenRoute,
   ApiMcpOauthCallbackRoute: ApiMcpOauthCallbackRoute,
   ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
+  ApiMcpAppsRoute: ApiMcpAppsRoute,
   ApiShapesAgentsRoute: ApiShapesAgentsRoute,
   ApiShapesAppRecordsRoute: ApiShapesAppRecordsRoute,
   ApiShapesAppVersionsRoute: ApiShapesAppVersionsRoute,

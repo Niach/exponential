@@ -181,12 +181,13 @@ export const mcpGrantsRouter = router({
         .values({
           userId,
           clientId: input.clientId,
+          kind: `builtin`,
           allTeams,
           teamIds,
           boardIds,
         })
         .onConflictDoUpdate({
-          target: [mcpGrants.userId, mcpGrants.clientId],
+          target: [mcpGrants.userId, mcpGrants.clientId, mcpGrants.kind],
           set: {
             allTeams,
             teamIds,
