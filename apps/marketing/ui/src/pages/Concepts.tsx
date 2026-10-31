@@ -84,6 +84,18 @@ const PACKAGE = `{
   }
 }`
 
+const EXPOSES = `"upstreams": ["m5"],
+"exposes": [
+  { "name": "list_entries", "title": "List entries", "description": "The time entries of a day.",
+    "input": { "type": "object", "properties": { "day": { "type": "string" } } },
+    "access": "read",
+    "run": { "records": { "op": "list", "kind": "entry", "where": { "date": "\${input.day}" } } } },
+  { "name": "find_customer", "title": "Find a customer", "description": "Search m5 customers.",
+    "input": { "type": "object", "properties": { "q": { "type": "string" } } },
+    "access": "read",
+    "run": { "upstream": "m5", "tool": "search_customers", "args": { "query": "\${input.q}" } } }
+]`
+
 export default function ConceptsPage({ path }: PageProps) {
   return (
     <>
@@ -319,6 +331,16 @@ export default function ConceptsPage({ path }: PageProps) {
             boards, teams and members as <code>exp:</code> sources. Apps run on the apps platform; to build one,
             see <a href={guidePath(`apps`)}>Build and embed an app</a>.
           </p>
+          <p>
+            Since 0.3.0 a package can also offer <strong>MCP tools</strong>. <code>exposes</code> lists them as
+            declarative bindings, never code: each one reads or writes the app&apos;s own records, calls a host
+            function, or calls a tool on one of the MCP servers named in <code>upstreams</code>, which the host
+            provides. A host&apos;s MCP broker lists them as <code>&lt;app&gt;__&lt;name&gt;</code> and runs them as the
+            calling person, so no device has to be online. <code>validatePackage</code> checks them against the eMCP
+            contract; see{` `}
+            <a href={LINKS.source(`packages/exponential-ui/docs/package-format.md`)}>the package format</a>.
+          </p>
+          <DocsCode language="json">{EXPOSES}</DocsCode>
         </DocsSection>
 
         <DocsSection id="renderers" num="11" label="How renderers agree">

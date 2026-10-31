@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-31-app-mcp-tools",
+    date: "2026-10-31",
+    title: "Your apps, as MCP tools",
+    summary: "Claude, ChatGPT or any MCP client can use your team's apps through their tools, with the access you pick.",
+    body: r#"- **App tools**: an app can offer tools, like listing its records or adding one. Connect an MCP client to `/api/mcp/apps` and your agent calls them as you, with no device online.
+- **Consent**: when a client connects, pick the team, all apps or just some, and Read only or Full. Apps that call another service ask you to connect it there.
+- **Access**: an app's settings list its MCP tools and the accounts it uses. Owners can switch a tool off.
+- **Revoked when it should be**: leaving a team removes your app access there, a trashed app's tools disappear, and disconnecting a service also revokes its token at the provider."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_136: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-plan-page",
     date: "2026-10-31",
     title: "Plans get their own page",

@@ -1,7 +1,8 @@
 /* EXP-1492: exponential.at/mcp/, eMCP's one docs page. Facts:
    apps/desktop/crates/emcp (the server, the client, OAuth + the vault, the
    contract modules) and packages/emcp (the fixtures, EXP-1490); the names
-   are docs/libraries.md's. The emcp-v0.1.0 tag is not cut yet. */
+   are docs/libraries.md's. Tag emcp-v0.1.0 (2026-10-31); ePilot serves its
+   tools through it since #1499. */
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { StatusChip } from "../../../src/components/blog/StatusChip"
 import { DocsTable, IcArrow, PageHero } from "../components/Content"
@@ -20,7 +21,7 @@ const SECTIONS: DocsSectionType[] = [
 
 const CONTRACT: [string, string][] = [
   [`exposes`, `An app's MCP tools as declarative bindings: validation, input resolution, naming and collisions, provenance.`],
-  [`access`, `Who sees and calls which app tool: the member × app policy, none, read or write.`],
+  [`access`, `Who sees and calls which app tool: the member × app policy, none, read or write, and what revoking it ends.`],
   [`audit`, `The audit row of every call: canonical JSON, the arguments hash, the status rule, 90 days of retention.`],
   [`vault`, `Encryption at rest for every secret: the ev1 format, AES-256-GCM, bound to its row and key.`],
   [`upstream`, `One member's connection to one upstream server: its states, transitions and what is callable.`],
@@ -45,15 +46,18 @@ export default function Mcp({ path }: PageProps) {
           <h2>Status</h2>
           <p>
             eMCP runs today inside the Exponential desktop app and the <code>exponential</code> CLI daemon: code mode serves
-            its tools through it, and every call into the instance&apos;s own MCP endpoint goes through its client. It is
-            built on rmcp, the official Rust MCP SDK. The first release tag is not cut yet.
+            its tools through it, ePilot serves its tools through it, and every call into the instance&apos;s own MCP
+            endpoint goes through its client. It is built on rmcp, the official Rust MCP SDK. The first release is{` `}
+            <code>emcp-v0.1.0</code>. On the server, the same contract runs the broker for{` `}
+            <a className="content-link" href="/docs/mcp/">app MCP tools</a>.
           </p>
           <DocsTable
             head={[`Part`, `Where`, ``]}
             rows={[
-              [<strong key="p">Server and client</strong>, `Code mode and the MCP calls of the desktop app and the CLI daemon`, <StatusChip key="s" status="in-progress">in the app</StatusChip>],
+              [<strong key="p">Server and client</strong>, `Code mode, ePilot and the MCP calls of the desktop app and the CLI daemon`, <StatusChip key="s" status="in-progress">in the app</StatusChip>],
+              [<strong key="p">App tool broker</strong>, <span key="w">An app&apos;s <code>exposes</code> as MCP tools at <code>/api/mcp/apps</code>, with consent, access and audit</span>, <StatusChip key="s" status="in-progress">in the app</StatusChip>],
               [<strong key="p">The contract</strong>, <span key="w">The fixtures in <code>packages/emcp</code>, replayed in Rust and TypeScript</span>, <StatusChip key="s" status="in-progress">built</StatusChip>],
-              [<strong key="p">The library</strong>, <span key="w"><code>emcp</code>, a git dependency</span>, <StatusChip key="s" status="in-progress">0.1.0</StatusChip>],
+              [<strong key="p">The library</strong>, <span key="w"><code>emcp</code>, a git dependency</span>, <StatusChip key="s" status="shipped">0.1.0</StatusChip>],
             ]}
           />
         </DocsSection>

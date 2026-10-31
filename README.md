@@ -24,10 +24,11 @@
 - **Chats**: one chat per piece of work, with its conversation, its issues, every session it runs and the stories it showed you next to its PR. Watch the transcript, answer the agent's questions and approve its plans, read the diff and the screenshots it publishes, from your phone or the desktop.
 - **Your machines, your logins**: every desktop and server lists its agent accounts with plan, usage and reset times; switch a session to another account when one hits its limit.
 - **Prompts and agents**: saved team prompts run from the composer's `/` menu; team agents wake on a schedule or an issue event and run on your own machines.
-- **Apps**: describe a dashboard or a checklist and an agent session builds it as a team app, with a live preview and versions. Apps keep their own records, read the team's boards, issues and chats, act as you through the tools an owner grants, and travel as one file.
+- **Apps**: New app opens the editor; describe a dashboard or a checklist and an agent session builds it as a team app, with a live preview and versions. Apps keep their own records, read the team's boards, issues and chats, act as you through the tools an owner grants, and travel as one file.
 - **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts sessions on.
 - **Feedback widget**: a script tag for your site; reports with annotated screenshots land as issues, and the reporter keeps a conversation with your team through an emailed link.
-- **MCP server** at `/api/mcp` (16 tools) for Claude Code, Codex, ChatGPT, Cursor, or any MCP client.
+- **Sealed sessions**: session content is sealed on your devices and the server stores only ciphertext; watching and steering a session goes over eNet, straight to the machine it runs on.
+- **MCP server** at `/api/mcp` (16 tools) for Claude Code, Codex, ChatGPT, Cursor, or any MCP client, and your team's app tools at `/api/mcp/apps`.
 
 ## Libraries
 
@@ -38,10 +39,13 @@ Exponential is built from open libraries it shares with other apps ([docs/librar
 | **eUI** | Generative UI: agents send A2UI, native renderers paint it on web, iOS, Android and desktop | `packages/exponential-ui*`, `apps/desktop/crates/eui-core*` | [exponential.at/ui](https://exponential.at/ui/) |
 | **eTalk** | Speech in and out for agents: push to talk, wake word, spoken replies, calls | `apps/desktop/crates/etalk*`, `packages/etalk` | [exponential.at/talk](https://exponential.at/talk/) |
 | **ePilot** | Computer use: the agent sees the real screen and drives the real pointer and keyboard | `apps/desktop/crates/epilot*` | [exponential.at/pilot](https://exponential.at/pilot/) |
-| **eNet** | Peer to peer, end-to-end encrypted networking on iroh, sealed push | `apps/desktop/crates/enet-core*` | [exponential.at/net](https://exponential.at/net/) |
+| **eNet** | Peer to peer, end-to-end encrypted networking on iroh: sealed sessions, steering, calls, sealed push | `apps/desktop/crates/enet-core*` | [exponential.at/net](https://exponential.at/net/) |
 | **eMCP** | MCP on rmcp: a loopback server, a client with OAuth and a vault, the app tool contract | `apps/desktop/crates/emcp`, `packages/emcp` | [exponential.at/mcp](https://exponential.at/mcp/) |
 | **eApps** | The app package format: templates, bindings, records and tools as data | `packages/exponential-ui/src/host` | [exponential.at/apps](https://exponential.at/apps/) |
-| agent-runtime | The server-free agent core: run the user's own Claude Code or Codex | `apps/desktop/crates/exponential-agent-runtime` | [its README](./apps/desktop/crates/exponential-agent-runtime/README.md) |
+| **eAgent** | The server-free agent core: run the user's own Claude Code or Codex (today `exponential-agent-runtime`) | `apps/desktop/crates/exponential-agent-runtime` | [exponential.at/agent](https://exponential.at/agent/) |
+| **eCore** | The plain types the modules share, one contract for Rust, TS, Swift and Kotlin (unreleased) | `apps/desktop/crates/ecore`, `packages/ecore` | [exponential.at/core](https://exponential.at/core/) |
+
+In progress: **eDE**, the desktop of ExponentialOS (`apps/ede`, not released; [the vision](https://exponential.at/blog/exponentialos/)).
 
 ## Self-host
 

@@ -134,13 +134,13 @@ export const PACKAGES: readonly PackageRow[] = [
     name: `ExponentialUI`,
     registry: `SwiftPM`,
     what: `The SwiftUI painter (iOS 17, macOS 14), from github.com/Niach/exponential-ui-swift.`,
-    install: `.package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.2.0")`,
+    install: `.package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.3.0")`,
   },
   {
     name: `at.exponential:eui-compose`,
     registry: `Maven Central`,
     what: `The Compose painter (minSdk 26), with ui-compose-primitives.`,
-    install: `implementation("at.exponential:eui-compose:0.2.0")`,
+    install: `implementation("at.exponential:eui-compose:0.3.0")`,
   },
 ]
 

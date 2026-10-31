@@ -46,9 +46,22 @@ export default function Api({ path }: PageProps) {
             <p>
               The crates live in the Exponential repo and are <code>publish = false</code>: an app takes them as a git dependency
               on an <code>etalk-v&lt;version&gt;</code> tag, because the fixtures in <code>packages/etalk</code> are compiled in. The
-              first is <code>etalk-v0.1.0</code>.
+              latest is <code>etalk-v0.2.3</code>.
             </p>
           </DocsCallout>
+          <h3>Phones and the web</h3>
+          <p>
+            The call machine and its Opus codec also ship for apps that aren&apos;t written in Rust, so a phone places the
+            same call as the desktop. Audio I/O stays native; the packets ride eNet&apos;s call channel.
+          </p>
+          <DocsTable
+            head={[`Package`, `Registry`, `What`]}
+            rows={[
+              [<code key="n">ExponentialTalk</code>, `SwiftPM (Niach/exponential-talk-swift)`, `iOS and macOS: the call machine and the codec, through UniFFI`],
+              [<code key="n">at.exponential:etalk</code>, `Maven Central`, `Android: the same, through UniFFI`],
+              [<code key="n">@exponential_app/etalk</code>, `npm`, `The contract: fixtures and TypeScript references`],
+            ]}
+          />
         </DocsSection>
 
         <DocsSection id="worker" num="02" label="The worker">
