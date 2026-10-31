@@ -10,7 +10,7 @@
 //! not synced.
 //!
 //! [`exp_tool_refs`] is THE rule, mirrored ×2 with web
-//! `lib/mcp/preview.ts` `toolResultPreview` and locked field-for-field by
+//! `lib/emcp/preview.ts` `toolResultPreview` and locked field-for-field by
 //! `packages/domain-contract/fixtures/tool-result-preview.json`. It is driven
 //! by the contract's per-tool spec (`expToolPreview.tools[].refs`, `kind@path`
 //! terms): a term reads "the `<kind>` that node names", a `list:<member>@path`

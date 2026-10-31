@@ -408,7 +408,7 @@ export interface DomainContract {
   entityRefKind: { values: readonly string[] }
   /**
    * EXP-920: the per-tool preview SPEC the engine distils refs by (the rule
-   * home is web `lib/mcp/preview.ts`, mirrored by `crates/engine` and locked
+   * home is web `lib/emcp/preview.ts`, mirrored by `crates/engine` and locked
    * ×2 by `fixtures/tool-result-preview.json`). Each tool's `refs` is a
    * whitespace-separated list of `kind@path` terms — `path` dotted into the
    * answer, `[]` fans an array out one ref per row, an empty path is the

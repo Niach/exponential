@@ -43,13 +43,11 @@ const GATED_SUSPEND_AFTER: Duration =
 /// can still be uploading when the web deploy that raised the floor lands).
 const GATED_UPDATE_RETRY: Duration = Duration::from_secs(5 * 60);
 
-/// FEED-36: a pending update no longer waits for the LAST session to end
-/// — an attended run (a Chat, a web start) never ends on its own on a
-/// headless server (EXP-674), so one forgotten chat parked every update
-/// forever. Once EVERY live session has sat idle (between turns, no tool
-/// running) for this long, the daemon ends them and applies the update;
-/// repo-backed runs stay resumable. The web's "Update now" skips the wait.
-pub const UPDATE_IDLE_GRACE: Duration = Duration::from_secs(2 * 60 * 60);
+/// EXP-1489: how long a restart for an update waits for the suspended runs'
+/// end sequences (each reports its row: idle, or `restarted` when cut
+/// mid-turn) before the re-exec. A report that never lands is NEW-5's
+/// re-claim's on the new process.
+const UPDATE_SUSPEND_SETTLE: Duration = Duration::from_secs(10);
 /// EXP-1353: how often the loop offers every clone to the shared cargo
 /// target GC (its own throttle walks each at most once an hour).
 const CARGO_TARGET_GC_BEAT: Duration = Duration::from_secs(5 * 60);
@@ -196,10 +194,32 @@ enum UpdateTrigger {
     /// RESPONSE) can no longer reach it — and its only way back is the new
     /// binary. Acts like `Requested` (auto-update off is not a reason to
     /// stay unusable) and bypasses the persisted check throttle; re-armed
-    /// every [`GATED_UPDATE_RETRY`] while the gate holds. Like every
-    /// trigger it still waits for idle — FEED-36's [`UPDATE_IDLE_GRACE`]
-    /// bounds that, so a forgotten idle session cannot pin a gated build.
+    /// every [`GATED_UPDATE_RETRY`] while the gate holds. EXP-1489: it
+    /// restarts at once, whatever runs.
     Gated,
+    /// FEED-36: the web's "Update now" — restarts at once, whatever runs.
+    Now,
+}
+
+impl UpdateTrigger {
+    /// EXP-1489: no pause between turns is waited for.
+    fn immediate(self) -> bool {
+        matches!(self, Self::Gated | Self::Now)
+    }
+}
+
+/// EXP-1489: an update waiting to restart the daemon, and since when (the
+/// [`updater::restart::MAX_WAIT`] clock).
+#[derive(Clone, Copy, Debug)]
+struct PendingUpdate {
+    trigger: UpdateTrigger,
+    since: Instant,
+}
+
+impl PendingUpdate {
+    fn new(trigger: UpdateTrigger) -> Self {
+        Self { trigger, since: Instant::now() }
+    }
 }
 
 /// EXP-641: whether a gated daemon should (re-)arm the update now. Pure so
@@ -223,37 +243,30 @@ struct LiveSession {
     session: Arc<RunningSession>,
     /// FEED-36: since when the agent has been between turns (`None` while a
     /// turn is in flight) — the loop's 1 Hz tick keeps it; a pending update
-    /// reads it through [`update_gate`].
+    /// reads it through [`updater::restart::restart_gate`].
     idle_since: Option<Instant>,
 }
 
 type Sessions = Arc<Mutex<Vec<LiveSession>>>;
 
-/// FEED-36: what a pending update may do given the live sessions' idle
-/// stretches (`None` = a turn is in flight).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum UpdateGate {
-    /// No live session — install and re-exec now.
-    Apply,
-    /// Every live session has idled past the grace — end them, then apply.
-    EndIdle,
-    /// At least one session is working (or idle for less than the grace).
-    Wait,
-}
-
-fn update_gate(idle_for: impl IntoIterator<Item = Option<Duration>>, grace: Duration) -> UpdateGate {
-    let mut any = false;
-    for idle in idle_for {
-        any = true;
-        match idle {
-            Some(idle) if idle >= grace => {}
-            _ => return UpdateGate::Wait,
-        }
+/// EXP-1489: the restart of an installed update — every live session is
+/// suspended (a run cut mid-turn reports `lost: daemon_restart`, so its row
+/// reads `restarted` with resume and the new process continues it; one
+/// between turns idles), and their end sequences get
+/// [`UPDATE_SUSPEND_SETTLE`] to report before the re-exec.
+fn suspend_for_restart(sessions: &Sessions, trigger: UpdateTrigger) {
+    let live: Vec<Arc<RunningSession>> =
+        lock_sessions(sessions).iter().map(|live| Arc::clone(&live.session)).collect();
+    for session in &live {
+        log::info!(
+            "suspending session {} for a {trigger:?} update — it continues on the new version",
+            session.session_id
+        );
+        session.suspend();
     }
-    if any {
-        UpdateGate::EndIdle
-    } else {
-        UpdateGate::Apply
+    let deadline = Instant::now() + UPDATE_SUSPEND_SETTLE;
+    while Instant::now() < deadline && !live.iter().all(|session| session.is_done()) {
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -518,13 +531,15 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let mut last_heartbeat = Instant::now();
     let mut last_doctor = Instant::now();
     // Auto-update (EXP-403): a due check (own cadence, or the web "Update"
-    // button via the heartbeat) parks here until NO session is live — a
-    // restart must never kill a running agent. `Requested` acts even with
+    // button via the heartbeat) parks here. EXP-1489: a live session holds
+    // it only until every run pauses between turns, at most
+    // `updater::restart::MAX_WAIT`; the restart suspends them and the new
+    // process continues the ones it cut. `Requested` acts even with
     // auto-update off (an explicit click is an explicit instruction). The
     // deferral is visible remotely: every heartbeat carries the live-session
     // count, so the machine rows read "Update queued" instead of spinning
     // (EXP-411).
-    let mut pending_update: Option<UpdateTrigger> = None;
+    let mut pending_update: Option<PendingUpdate> = None;
     let mut last_update_poll = Instant::now();
     // EXP-641: when the gated trigger was last armed (retry cadence).
     let mut last_gated_attempt: Option<Instant> = None;
@@ -858,13 +873,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     if result.update_requested && pending_update.is_none() {
                         if live_now > 0 {
                             log::info!(
-                                "update requested from the web — parked until {live_now} live session(s) close or sit idle for {}h",
-                                UPDATE_IDLE_GRACE.as_secs() / 3600
+                                "update requested from the web — {live_now} live session(s) hold it until they pause, at most {}m",
+                                updater::restart::MAX_WAIT.as_secs() / 60
                             );
                         } else {
                             log::info!("update requested from the web");
                         }
-                        pending_update = Some(UpdateTrigger::Requested);
+                        pending_update = Some(PendingUpdate::new(UpdateTrigger::Requested));
                     }
                     // EXP-481: the beat's work pull — commands + (on stamp
                     // mismatch) the authoritative launch defaults.
@@ -918,12 +933,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
             }
         }
 
-        // FEED-36: an `update_now` command (web "Update now") ended every
-        // session on the worker; arm the request right here instead of
-        // waiting for the flag to ride the next beat.
-        if update_now.swap(false, Ordering::SeqCst) && pending_update.is_none() {
-            log::info!("update now (web) — applying as soon as the sessions close");
-            pending_update = Some(UpdateTrigger::Requested);
+        // FEED-36: an `update_now` command (web "Update now") arms an
+        // immediate update right here instead of waiting for the flag to
+        // ride the next beat (EXP-1489: it overrides a parked one).
+        if update_now.swap(false, Ordering::SeqCst) {
+            log::info!("update now (web) — applying at once");
+            pending_update = Some(PendingUpdate::new(UpdateTrigger::Now));
         }
         // Scheduled auto-update check (settings-gated + persisted throttle).
         if pending_update.is_none() && last_update_poll.elapsed() >= Duration::from_secs(60) {
@@ -932,7 +947,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 &ctx.data_dir,
                 super::update::DAEMON_CHECK_INTERVAL_SECS,
             ) {
-                pending_update = Some(UpdateTrigger::Scheduled);
+                pending_update = Some(PendingUpdate::new(UpdateTrigger::Scheduled));
             }
         }
         // EXP-681 (EXP-1292 port): under a SUSTAINED gate the shapes are
@@ -961,29 +976,26 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // EXP-641: a 426-gated build updates NOW (no auto-update opt-in, no
         // persisted throttle — both would leave the daemon dead until the
         // next 6h tick), retrying while the gate holds.
-        if pending_update.is_none()
+        // EXP-641 / EXP-1489: below the server's floor (CLIENT_MIN_VERSION)
+        // the update is armed at once and overrides a parked one: it waits
+        // for no session.
+        if !pending_update.is_some_and(|pending| pending.trigger == UpdateTrigger::Gated)
             && gated_update_due(gated.load(Ordering::SeqCst), last_gated_attempt, Instant::now())
         {
             last_gated_attempt = Some(Instant::now());
-            let live = lock_sessions(&sessions).len();
-            if live > 0 {
-                log::info!(
-                    "server rejected this build (426) — updating once {live} live session(s) close or sit idle for {}h",
-                    UPDATE_IDLE_GRACE.as_secs() / 3600
-                );
-            } else {
-                log::info!("server rejected this build (426) — updating now");
-            }
-            pending_update = Some(UpdateTrigger::Gated);
+            log::info!("server rejected this build (426) — updating now");
+            pending_update = Some(PendingUpdate::new(UpdateTrigger::Gated));
         }
-        if let Some(trigger) = pending_update {
-            // FEED-36: no session, or only sessions idle past the grace —
-            // the latter are ended (ended_by `client`; the reaper above
-            // drops them next tick, then this arm applies). An `agent_login`
-            // PTY or an `agent_update` download in flight holds the restart
-            // the same way a live session does: a re-exec mid-download would
-            // orphan the updater and never `completeCommand` its row. Re-checked
-            // on the next tick.
+        if let Some(PendingUpdate { trigger, since }) = pending_update {
+            // EXP-1489: every live session paused between turns, the cap
+            // reached, or an immediate trigger: install, and on a new build
+            // suspend every session and re-exec (the new process continues
+            // the runs it cut). The install comes FIRST, with the sessions
+            // still running: a check that finds nothing touches none of
+            // them, and the cut runs wait no download. An `agent_login`
+            // PTY or an `agent_update` download in flight still holds the
+            // restart: a re-exec mid-download would orphan the updater and
+            // never `completeCommand` its row. Re-checked on the next tick.
             let updater_busy = logins_inflight
                 .lock()
                 .map(|claims| !claims.is_empty())
@@ -995,34 +1007,26 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     );
                     update_held_by_claims = true;
                 }
-                UpdateGate::Wait
+                updater::restart::RestartGate::Wait
             } else {
                 update_held_by_claims = false;
                 let now = Instant::now();
                 let guard = lock_sessions(&sessions);
-                update_gate(
-                    guard.iter().map(|live| live.idle_since.map(|since| now.saturating_duration_since(since))),
-                    UPDATE_IDLE_GRACE,
+                updater::restart::restart_gate(
+                    guard
+                        .iter()
+                        .filter(|live| !live.session.is_done())
+                        .map(|live| live.idle_since.map(|idle| now.saturating_duration_since(idle))),
+                    now.saturating_duration_since(since),
+                    trigger.immediate(),
                 )
             };
-            if gate == UpdateGate::EndIdle {
-                for live in lock_sessions(&sessions).iter() {
-                    log::info!(
-                        "suspending session {} ({}) — idle for {}h, a {trigger:?} update is waiting",
-                        live.session.session_id,
-                        live.branch,
-                        live.idle_since.map(|since| since.elapsed().as_secs() / 3600).unwrap_or(0)
-                    );
-                    // EXP-1292: the process goes, the session stays — the row
-                    // idles and the next message resumes the SAME row.
-                    live.session.suspend();
-                }
-            }
-            if gate == UpdateGate::Apply {
+            if gate == updater::restart::RestartGate::Now {
                 pending_update = None;
                 match super::update::check_and_install() {
                     Ok(super::update::UpdateOutcome::Updated { version }) => {
                         log::info!("updated to {version} — restarting the daemon");
+                        suspend_for_restart(&sessions, trigger);
                         if let Some(handle) = control.take() {
                             handle.stop();
                         }
@@ -1039,7 +1043,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                                 GATED_UPDATE_RETRY.as_secs()
                             );
                         }
-                        if matches!(trigger, UpdateTrigger::Requested) {
+                        if matches!(trigger, UpdateTrigger::Requested | UpdateTrigger::Now) {
                             // Consume the web request even when there was
                             // nothing to install.
                             registered_ok = register_device(
@@ -1061,7 +1065,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                                 GATED_UPDATE_RETRY.as_secs()
                             );
                         }
-                        if matches!(trigger, UpdateTrigger::Requested) {
+                        if matches!(trigger, UpdateTrigger::Requested | UpdateTrigger::Now) {
                             registered_ok = register_device(
                                 &ctx,
                                 &device_id,
@@ -2324,32 +2328,19 @@ fn run_device_command(
                 }
             }
         }
-        // FEED-36: the web's "Update now" — stop every live session's process
-        // (the owner confirmed it; EXP-1292: suspended, so each row idles and
-        // the next message resumes it) and let the loop apply the pending
-        // update as soon as they close.
+        // FEED-36: the web's "Update now" — the loop applies the update at
+        // once. EXP-1489: the restart suspends the live sessions only once a
+        // new build is installed, and the new process continues every run
+        // it cut mid-turn.
         "update_now" => {
-            let live: Vec<(String, String)> = lock_sessions(sessions)
-                .iter()
-                .filter(|live| !live.session.is_done())
-                .map(|live| (live.session.session_id.clone(), live.branch.clone()))
-                .collect();
-            for (session_id, branch) in &live {
-                log::info!("update now (web): suspending session {session_id} ({branch})");
-            }
-            for live_session in lock_sessions(sessions).iter() {
-                live_session.session.suspend();
-            }
+            let live = lock_sessions(sessions).iter().filter(|live| !live.session.is_done()).count();
             slots.update_now.store(true, Ordering::SeqCst);
-            if live.is_empty() {
+            if live == 0 {
                 (true, "Restarting on the new version.".to_string())
             } else {
                 (
                     true,
-                    format!(
-                        "Pausing {} live session(s); the daemon restarts on the new version once they close.",
-                        live.len()
-                    ),
+                    format!("Restarting on the new version; {live} live session(s) continue after the restart."),
                 )
             }
         }
@@ -3124,15 +3115,19 @@ impl DaemonHost {
                     // EXP-1341: the registry backs a failed revive off on its
                     // own (`revive_held`), so either way it is settled here.
                     coding::pickup::PickupAction::Revive { session } => {
-                        if let Err(err) = coding::pickup::revive_session(session, &deps) {
-                            log::warn!("pickup: revive of {session_id}: {err}");
+                        // #EXP-1492: a contended claim is held and retried
+                        // by the registry, unlogged.
+                        match coding::pickup::revive_session(session, &deps) {
+                            Ok(()) | Err(coding::pickup::WakeError::Contended) => {}
+                            Err(err) => log::warn!("pickup: revive of {session_id}: {err}"),
                         }
                         true
                     }
                     // EXP-1374: same for an interrupted run's continuation.
                     coding::pickup::PickupAction::Continue { session } => {
-                        if let Err(err) = coding::pickup::continue_interrupted(session, &deps) {
-                            log::warn!("pickup: continuation of {session_id}: {err}");
+                        match coding::pickup::continue_interrupted(session, &deps) {
+                            Ok(()) | Err(coding::pickup::WakeError::Contended) => {}
+                            Err(err) => log::warn!("pickup: continuation of {session_id}: {err}"),
                         }
                         true
                     }
@@ -3809,21 +3804,26 @@ mod tests {
         }
     }
 
-    /// FEED-36: the idle gate — nothing live applies now, sessions idle
-    /// past the grace get ended, one working (or freshly idle) run waits.
+    /// EXP-1489: a refused build and the web's "Update now" restart at
+    /// once, whatever runs; a scheduled or requested update waits for a
+    /// pause between turns, at most the cap — never 2h for an idle chat.
     #[test]
-    fn a_pending_update_ends_only_sessions_idle_past_the_grace() {
-        let grace = UPDATE_IDLE_GRACE;
-        assert_eq!(update_gate([], grace), UpdateGate::Apply);
-        assert_eq!(update_gate([Some(grace)], grace), UpdateGate::EndIdle);
-        assert_eq!(update_gate([Some(grace * 3), Some(grace)], grace), UpdateGate::EndIdle);
-        assert_eq!(
-            update_gate([Some(grace), Some(grace - Duration::from_secs(1))], grace),
-            UpdateGate::Wait
-        );
-        assert_eq!(update_gate([Some(grace), None], grace), UpdateGate::Wait);
-        assert_eq!(update_gate([None], grace), UpdateGate::Wait);
-        assert_eq!(update_gate([Some(Duration::ZERO)], grace), UpdateGate::Wait);
+    fn a_pending_update_restarts_within_minutes_whatever_runs() {
+        use updater::restart::{restart_gate, RestartGate, MAX_WAIT, TURN_GAP};
+        assert!(UpdateTrigger::Gated.immediate());
+        assert!(UpdateTrigger::Now.immediate());
+        assert!(!UpdateTrigger::Scheduled.immediate());
+        assert!(!UpdateTrigger::Requested.immediate());
+        let gate = |trigger: UpdateTrigger, idle: Option<Duration>, waited: Duration| {
+            restart_gate([idle], waited, trigger.immediate())
+        };
+        let mid_turn = None;
+        assert_eq!(gate(UpdateTrigger::Gated, mid_turn, Duration::ZERO), RestartGate::Now);
+        assert_eq!(gate(UpdateTrigger::Now, mid_turn, Duration::ZERO), RestartGate::Now);
+        assert_eq!(gate(UpdateTrigger::Scheduled, mid_turn, Duration::ZERO), RestartGate::Wait);
+        assert_eq!(gate(UpdateTrigger::Scheduled, mid_turn, MAX_WAIT), RestartGate::Now);
+        assert_eq!(gate(UpdateTrigger::Requested, Some(TURN_GAP), Duration::ZERO), RestartGate::Now);
+        assert!(MAX_WAIT < Duration::from_secs(2 * 60 * 60));
     }
 
     #[test]

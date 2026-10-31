@@ -17,7 +17,7 @@ HTTP, one of two credentials:
   and `/.well-known/oauth-authorization-server` (dynamic client registration,
   `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported`
   includes `none`), and every authorization passes the consent page that
-  writes the grant (`lib/auth/mcp-authorize-guard.ts`, `lib/mcp/scope.ts`).
+  writes the grant (`lib/auth/mcp-authorize-guard.ts`, `lib/emcp/scope.ts`).
   Client ID Metadata Documents are NOT served yet (INT-14).
 
 Five tools carry an MCP Apps binding (`_meta.ui.resourceUri`, the stable
@@ -40,7 +40,7 @@ no `connectDomains`: data only ever arrives through the host's `tools/call`.
 
 A request that carries a well-formed `X-Exp-Session-Id` header (every coding
 run Exponential launches) gets NO resources and NO bindings
-(`lib/mcp/server.ts`, `lib/mcp/tools.ts`, EXP-1212). That rule stays until
+(`lib/emcp/server.ts`, `lib/emcp/tools.ts`, EXP-1212). That rule stays until
 Exponential renders MCP UI natively through its own renderers (VAPP-96, A2UI,
 no webview).
 

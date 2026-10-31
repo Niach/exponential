@@ -1,7 +1,7 @@
 // FEED-87: how an issue event's actor acted, stamped on `issue_events` and
 // read back by exponential_issues_activity. Its own module so the many
 // test mocks of lib/integrations/activity.ts never have to know about it.
-import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
+import { parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import { actingSessionForRequest } from "@/lib/sessions/acting"
 import type { Context } from "@/lib/trpc"
 

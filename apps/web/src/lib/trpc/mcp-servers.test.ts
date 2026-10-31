@@ -5,9 +5,9 @@ import { TRPCError } from "@trpc/server"
 // cross-field validation matrix; member reads with the caller's connection
 // per server; the server-held credential procedures (connect, setSecret,
 // disconnect, test, resolveForLaunch) and the owner's probe. The router runs
-// against ctx.db, so the in-memory fake (lib/mcp-oauth/test-db.ts) on the
+// against ctx.db, so the in-memory fake (lib/emcp/upstream/test-db.ts) on the
 // real schema tables is enough; membership is stubbed and fetch is a fake
-// provider (lib/mcp-oauth/test-provider.ts).
+// provider (lib/emcp/upstream/test-provider.ts).
 
 const h = vi.hoisted(() => ({
   assertTeamMember: vi.fn(async () => ({ role: `member` }) as unknown),
@@ -37,9 +37,9 @@ vi.mock(`@/lib/notification-email-policy`, () => ({
 
 import { mcpServersRouter, retargetsCredentials } from "@/lib/trpc/mcp-servers"
 import { isReservedMcpEnvName } from "@exp/db-schema/domain"
-import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
-import { credentialAad, encryptCredential, decryptCredential } from "@/lib/mcp-oauth/crypto"
-import { AS_ISSUER, MCP_URL, fakeProvider } from "@/lib/mcp-oauth/test-provider"
+import { createFakeDb, type FakeDb } from "@/lib/emcp/upstream/test-db"
+import { encryptCredential, decryptCredential } from "@/lib/emcp/upstream/crypto"
+import { AS_ISSUER, MCP_URL, fakeProvider } from "@/lib/emcp/upstream/test-provider"
 
 const TEAM = `44444444-4444-4444-8444-444444444444`
 const SERVER = `11111111-1111-4111-8111-111111111111`
@@ -426,16 +426,16 @@ describe(`mcpServers.list — connection statuses`, () => {
         { teamId: TEAM, userId: `third` },
       ],
       mcp_credentials: [
-        { serverId: SERVER, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER, `actor`)), expiresAt: LATER, error: null },
-        { serverId: SERVER, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `b` }, credentialAad(SERVER, `mate`)), expiresAt: LATER, error: null, shared: true },
+        { id: `c-${SERVER}-actor`, serverId: SERVER, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, `c-${SERVER}-actor`), expiresAt: LATER, error: null },
+        { id: `c-${SERVER}-mate`, serverId: SERVER, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `b` }, `c-${SERVER}-mate`), expiresAt: LATER, error: null, shared: true },
         // A departed member's credential never counts.
-        { serverId: SERVER, userId: `gone`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `c` }, credentialAad(SERVER, `gone`)), expiresAt: LATER, error: null, shared: true },
+        { id: `c-${SERVER}-gone`, serverId: SERVER, userId: `gone`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `c` }, `c-${SERVER}-gone`), expiresAt: LATER, error: null, shared: true },
         // Shared but broken: never counted as shared.
-        { serverId: SERVER_B, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER_B, `actor`)), expiresAt: null, error: `invalid_grant`, shared: true },
-        { serverId: SECRET, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ value: `k` }, credentialAad(SECRET, `mate`)), expiresAt: null, error: null },
+        { id: `c-${SERVER_B}-actor`, serverId: SERVER_B, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, `c-${SERVER_B}-actor`), expiresAt: null, error: `invalid_grant`, shared: true },
+        { id: `c-${SECRET}-mate`, serverId: SECRET, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ value: `k` }, `c-${SECRET}-mate`), expiresAt: null, error: null },
         // A stale share on a stdio server (the secret stays on the owner's
         // machine; `setShared` refuses new ones): connected, never shared.
-        { serverId: STDIO, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ value: `k` }, credentialAad(STDIO, `actor`)), expiresAt: null, error: null, shared: true },
+        { id: `c-${STDIO}-actor`, serverId: STDIO, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ value: `k` }, `c-${STDIO}-actor`), expiresAt: null, error: null, shared: true },
       ],
     })
   })
@@ -553,7 +553,7 @@ describe(`mcpServers.setSecret / disconnect`, () => {
     expect(rows).toHaveLength(2)
     const mine = rows.find((row) => row.userId === `actor`)!
     expect(String(mine.ciphertext)).not.toContain(`key-2`)
-    expect(decryptCredential(String(mine.ciphertext), credentialAad(SECRET, `actor`))).toEqual({ value: `key-2` })
+    expect(decryptCredential(String(mine.ciphertext), { id: String(mine.id), serverId: SECRET, userId: `actor` })).toEqual({ value: `key-2` })
 
     await expect(callerFor().disconnect({ serverId: SECRET })).resolves.toEqual({ ok: true })
     expect(db.rows(`mcp_credentials`).map((row) => row.userId)).toEqual([`mate`])
@@ -586,7 +586,7 @@ describe(`mcpServers.test / probe`, () => {
       serverId: SERVER,
       userId: `actor`,
       teamId: TEAM,
-      ciphertext: encryptCredential({ accessToken: `live`, tokenType: `Bearer` }, credentialAad(SERVER, `actor`)),
+      ciphertext: encryptCredential({ accessToken: `live`, tokenType: `Bearer` }, `c-1`),
       expiresAt: null,
       issuer: AS_ISSUER,
       clientId: `x`,
@@ -618,7 +618,7 @@ describe(`mcpServers.test / probe`, () => {
       serverId: SERVER,
       userId: `actor`,
       teamId: TEAM,
-      ciphertext: encryptCredential({ accessToken: `revoked` }, credentialAad(SERVER, `actor`)),
+      ciphertext: encryptCredential({ accessToken: `revoked` }, `c-1`),
       expiresAt: null,
       error: null,
     })
@@ -732,7 +732,7 @@ describe(`mcpServers.resolveForLaunch`, () => {
     serverId,
     userId,
     teamId: TEAM,
-    ciphertext: encryptCredential({ accessToken: token }, credentialAad(serverId, userId)),
+    ciphertext: encryptCredential({ accessToken: token }, `c-${userId}-${serverId}`),
     expiresAt: null,
     error: null,
   })
@@ -865,7 +865,7 @@ describe(`mcpServers.setShared (FEED-73)`, () => {
     serverId: SERVER,
     userId: `actor`,
     teamId: TEAM,
-    ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER, `actor`)),
+    ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, `c-actor`),
     expiresAt: LATER,
     error: null,
     shared: false,
@@ -873,7 +873,7 @@ describe(`mcpServers.setShared (FEED-73)`, () => {
   })
 
   it(`toggles the caller's own connected row and returns the connection`, async () => {
-    seed([own(), { ...own(), id: `c-mate`, userId: `mate`, ciphertext: encryptCredential({ accessToken: `b` }, credentialAad(SERVER, `mate`)) }])
+    seed([own(), { ...own(), id: `c-mate`, userId: `mate`, ciphertext: encryptCredential({ accessToken: `b` }, `c-mate`) }])
     const on = await callerFor().setShared({ serverId: SERVER, shared: true })
     expect(on).toMatchObject({ status: `connected`, shared: true })
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
@@ -913,7 +913,7 @@ describe(`mcpServers.setShared (FEED-73)`, () => {
       serverId: STDIO,
       userId: `actor`,
       teamId: TEAM,
-      ciphertext: encryptCredential({ value: `k` }, credentialAad(STDIO, `actor`)),
+      ciphertext: encryptCredential({ value: `k` }, `c-stdio`),
       expiresAt: null,
       error: null,
       shared,

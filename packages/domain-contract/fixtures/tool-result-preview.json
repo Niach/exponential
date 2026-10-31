@@ -1,5 +1,5 @@
 {
-  "description": "EXP-920: toolResultPreview — the refs an Exponential MCP tool's answer yields, per contract expToolPreview.tools (kind@path terms). Locked ×2: web lib/mcp/preview.ts (toolResultPreview) and the engine's crates/engine/src/mapper.rs (exp_tool_refs). `input` is the call's own arguments (for the `$`-rooted terms); absent = {}.",
+  "description": "EXP-920: toolResultPreview — the refs an Exponential MCP tool's answer yields, per contract expToolPreview.tools (kind@path terms). Locked ×2: web lib/emcp/preview.ts (toolResultPreview) and the engine's crates/engine/src/mapper.rs (exp_tool_refs). `input` is the call's own arguments (for the `$`-rooted terms); absent = {}.",
   "cases": [
     {
       "name": "issues_create: the bare issue row is one issue ref",

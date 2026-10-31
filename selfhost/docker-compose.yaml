@@ -24,6 +24,8 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?generate with `openssl rand -hex 32` in .env}@postgres:5432/exponential?sslmode=disable
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?generate with `openssl rand -hex 32` in .env}
+      VAULT_KEY: ${VAULT_KEY:-}
+      VAULT_KEYS_RETIRED: ${VAULT_KEYS_RETIRED:-}
       BETTER_AUTH_URL: ${APP_URL:-http://localhost}
       BETTER_AUTH_TRUSTED_ORIGINS: ${APP_URL:-http://localhost}
       ELECTRIC_URL: http://electric:3000

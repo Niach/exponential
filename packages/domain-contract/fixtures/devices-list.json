@@ -9,7 +9,7 @@
     "addAccount": "Add account",
     "attention": "Needs attention",
     "updateAvailable": "Update available · v{version}",
-    "updateQueued": "Update queued until all sessions are closed.",
+    "updateQueued": "Update queued: restarts within 10 minutes.",
     "needsRelogin": "{label} · Needs re-login",
     "signedOut": "{label} · Signed out",
     "update": "Update",
@@ -227,7 +227,7 @@
         "attention": [
           {
             "kind": "update_queued",
-            "text": "Update queued until all sessions are closed.",
+            "text": "Update queued: restarts within 10 minutes.",
             "action": null
           }
         ]

@@ -46,6 +46,7 @@ import { kickImportWorker } from "@/lib/import/kick"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startSessionWatchdog } from "@/lib/sessions/watchdog"
+import { startEmcpSchedulers } from "@/lib/emcp/schedulers"
 import { startSessionAttachmentSweepScheduler } from "@/lib/session-attachment-sweep"
 import { startAttachmentSizeBackfillScheduler } from "@/lib/attachment-size-backfill"
 import {
@@ -113,6 +114,11 @@ startDeviceCodeSweepScheduler()
 // ever read live, so the rows are unread history that would otherwise grow
 // for the life of the instance. `pending` rows are never touched.
 startDeviceCommandSweepScheduler()
+
+// eMCP (#EXP-1491): refuses to boot on a malformed VAULT_KEY; daily, the
+// vault sweep re-seals legacy, plaintext and retired-key values under the
+// current key, and `mcp_calls` rows past 90 days are purged.
+startEmcpSchedulers()
 
 // EXP-630: tracker imports. Claims `ready` / `previewing` / stale `running`
 // jobs atomically (one UPDATE with a fresh claim token), runs them in-process

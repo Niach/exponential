@@ -2,12 +2,12 @@
 // per-device servers). The row is NON-SECRET config (names, url, header/env
 // NAMES, scopes, the auth kind); each MEMBER's credential (an OAuth token
 // set or a typed secret) is held by the server, encrypted, in
-// `mcp_credentials` (lib/mcp-oauth/credentials.ts), so one connect works on
+// `mcp_credentials` (lib/emcp/upstream/credentials.ts), so one connect works on
 // every device, remote start and trigger. Server-only (tRPC, never a
 // shape — the natives have no decode). Member reads + own-credential
 // writes, owner registry writes. OAuth runs SERVER-side: `connect` returns
 // the authorize URL, the anonymous hosted callback exchanges the code
-// (lib/mcp-oauth/callback.ts). `resolveForLaunch` hands a launcher the
+// (lib/emcp/upstream/callback.ts). `resolveForLaunch` hands a launcher the
 // caller's OWN values (on a shared device: the device owner's) for the
 // servers its live session picked, named by `X-Exp-Session-Id` (EXP-1140,
 // a `sessions` row since EXP-1291); an unconnected or unpicked one is skipped
@@ -36,7 +36,7 @@ import {
   teamMembers,
   type McpServer,
 } from "@/db/schema"
-import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
+import { parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import {
   AGENT_KEY_MANAGES_MCP_MESSAGE,
   assertNotAgentApiKeySession,
@@ -48,20 +48,20 @@ import {
   resolveForLaunch,
   storeSecret,
   type McpConnection,
-} from "@/lib/mcp-oauth/credentials"
-import { beginFlow } from "@/lib/mcp-oauth/flows"
-import { safeReturnTo } from "@/lib/mcp-oauth/urls"
-import { McpHttpError } from "@/lib/mcp-oauth/net"
-import { McpOauthError } from "@/lib/mcp-oauth/oauth-client"
-import { probeMcpServer, testMcpServer } from "@/lib/mcp-oauth/mcp-client"
+} from "@/lib/emcp/upstream/credentials"
+import { beginFlow } from "@/lib/emcp/upstream/flows"
+import { safeReturnTo } from "@/lib/emcp/upstream/urls"
+import { McpHttpError } from "@/lib/emcp/upstream/net"
+import { McpOauthError } from "@/lib/emcp/upstream/oauth-client"
+import { probeMcpServer, testMcpServer } from "@/lib/emcp/upstream/mcp-client"
 
-export type { McpConnection, McpConnectionStatus } from "@/lib/mcp-oauth/credentials"
+export type { McpConnection, McpConnectionStatus } from "@/lib/emcp/upstream/credentials"
 export type {
   McpActor,
   McpMember,
   ResolvedMcpLaunch,
   ResolvedMcpServer,
-} from "@/lib/mcp-oauth/credentials"
+} from "@/lib/emcp/upstream/credentials"
 
 /** One `mcpServers.list` row: the registry row plus the CALLER's connection
  * (with their `shared` flag) and which current members connected / shared
@@ -256,6 +256,7 @@ export const mcpServersRouter = router({
       const [credentials, members] = await Promise.all([
         ctx.db
           .select({
+            id: mcpCredentials.id,
             serverId: mcpCredentials.serverId,
             userId: mcpCredentials.userId,
             ciphertext: mcpCredentials.ciphertext,
@@ -319,7 +320,7 @@ export const mcpServersRouter = router({
 
   // What an http URL needs before an owner adds it: reachable? OAuth (and
   // which scopes it advertises) or none? A server-side fetch, so the
-  // SSRF guard (lib/mcp-oauth/net.ts) applies.
+  // SSRF guard (lib/emcp/upstream/net.ts) applies.
   probe: authedProcedure
     .input(z.object({ teamId: z.string().uuid(), url: urlSchema }))
     .mutation(async ({ ctx, input }) => {

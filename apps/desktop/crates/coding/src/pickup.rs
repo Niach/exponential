@@ -1293,7 +1293,17 @@ struct ReviveState {
     attempts: u32,
     not_before: std::time::Instant,
     settled: bool,
+    /// #EXP-1492: attempts that found the claim held by another process
+    /// here ([`LiveRegistry::hold_contended`]).
+    contended: u32,
 }
+
+/// #EXP-1492: how long a revive/continuation whose claim another process
+/// of this machine holds waits before trying again, and how many tries it
+/// gets before that process counts as the session's host (~5 min, the
+/// re-claim grace).
+const CONTENDED_RETRY: std::time::Duration = std::time::Duration::from_secs(15);
+const MAX_CONTENDED_ATTEMPTS: u32 = 20;
 
 /// EXP-1341: the wait after the n-th failed revive (30 s, 1, 2, 4 min).
 fn revive_backoff(attempts: u32) -> std::time::Duration {
@@ -1380,6 +1390,7 @@ impl LiveRegistry {
             attempts: 0,
             not_before: std::time::Instant::now(),
             settled: false,
+            contended: 0,
         });
         state.attempts += 1;
         state.not_before = std::time::Instant::now() + revive_backoff(state.attempts);
@@ -1395,7 +1406,30 @@ impl LiveRegistry {
                 attempts: 0,
                 not_before: std::time::Instant::now(),
                 settled: true,
+                contended: 0,
             });
+    }
+
+    /// #EXP-1492: a revive/continuation found `session_id`'s claim held by
+    /// another process of this machine. That process may be the app before
+    /// a self-update, its claim stale seconds later with no row change to
+    /// re-plan the session: so it is held for [`CONTENDED_RETRY`] and tried
+    /// again, and settled (the holder runs it) only after
+    /// [`MAX_CONTENDED_ATTEMPTS`]. Returns whether it settled.
+    pub fn hold_contended(&self, session_id: &str) -> bool {
+        let mut revives = locked(&self.revives);
+        let state = revives.entry(session_id.to_string()).or_insert(ReviveState {
+            attempts: 0,
+            not_before: std::time::Instant::now(),
+            settled: false,
+            contended: 0,
+        });
+        state.contended += 1;
+        state.not_before = std::time::Instant::now() + CONTENDED_RETRY;
+        if state.contended >= MAX_CONTENDED_ATTEMPTS {
+            state.settled = true;
+        }
+        state.settled
     }
 
     pub fn get(&self, session_id: &str) -> Option<std::sync::Arc<dyn LiveEngine>> {
@@ -2347,20 +2381,23 @@ fn deliver(
 /// engine for it ([`PickupAction::Revive`]): resumed natively from its run
 /// record with NO prompt (it waits idle for its next message), or with no
 /// record left launched afresh from its brief (an agent's empty brief says
-/// to wait). Once per absence: a failure backs off
+/// to wait). EXP-1489: a root its device cut MID-TURN (a restart for an
+/// update: `blocked` = an interruption with resume) resumes with
+/// [`revive_prompt`]'s continuation turn instead, so its turn is finished,
+/// never silently dropped. Once per absence: a failure backs off
 /// ([`LiveRegistry::revive_held`]) up to [`MAX_LAUNCH_ATTEMPTS`], then the
 /// row idles and stays down until a message wakes it; a refusal idles it at
 /// once (a persistent session never ends).
-pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String> {
+pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), WakeError> {
     let session_id = row.id.as_str();
     if deps.live.contains_live(session_id) {
         deps.live.settle_revive(session_id);
         return Ok(());
     }
     let Some(claim) = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)? else {
-        // Another process of this machine runs it.
-        deps.live.settle_revive(session_id);
-        return Ok(());
+        // Another process of this machine holds it — maybe one on its way
+        // out (#EXP-1492): tried again shortly, never settled at once.
+        return contended(session_id, deps);
     };
     let attempt = deps.live.note_revive(session_id);
     let give_up = |reason: String| {
@@ -2386,7 +2423,7 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
         issue_identifiers: identifiers,
         resume: record.map(|record| ResumeRun {
             record,
-            prompt: String::new(),
+            prompt: revive_prompt(row),
             message_id: None,
             reconfigure: None,
             fresh: false,
@@ -2400,7 +2437,7 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
             // A failed spawn is replied and the row idled (`refuse`).
             let spawned = spawn(session_id, true, prepared, claim, true, honored, Some(row), deps);
             deps.live.settle_revive(session_id);
-            spawned.map(|_| log::info!("pickup: revived session {session_id}"))
+            spawned.map(|_| log::info!("pickup: revived session {session_id}")).map_err(WakeError::from)
         }
         Ok(Prepared::Disabled(reason)) => {
             deps.live.settle_revive(session_id);
@@ -2409,9 +2446,9 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
             if let Err(err) = crate::idle_session_on(&deps.coding.trpc, session_id, Some(&deps.device_id)) {
                 log::warn!("pickup: unrevived session {session_id} not reported: {err}");
             }
-            Err(reason)
+            Err(reason.into())
         }
-        Err(err) => Err(give_up(format!("Couldn't revive this session: {err}"))),
+        Err(err) => Err(give_up(format!("Couldn't revive this session: {err}")).into()),
     }
 }
 
@@ -2524,6 +2561,13 @@ pub fn continue_prompt(kind: &str) -> String {
     format!("Your run was interrupted ({reason}) and continues now. Pick up exactly where you left off.")
 }
 
+/// EXP-1489: the seed turn a [`revive_session`] resumes a persistent root
+/// with — empty (it idles, waiting) unless the root was cut mid-turn
+/// ([`SessionRow::continue_interruption`]): then [`continue_prompt`].
+pub fn revive_prompt(row: &SessionRow) -> String {
+    row.continue_interruption().map(continue_prompt).unwrap_or_default()
+}
+
 /// EXP-1374: [`PickupAction::Continue`] — resume an interrupted mid-turn
 /// run from its run record (same worktree/branch, native CLI resume) with
 /// [`continue_prompt`] as the seed turn. Once per absence: an engine that
@@ -2531,7 +2575,7 @@ pub fn continue_prompt(kind: &str) -> String {
 /// (the brief) backs off like a revive; no run record here leaves the row
 /// alone (the server's `resumeMinutes` rule hands it to a person); a
 /// refused prepare or spawn is replied and the row idled ([`refuse`]).
-pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), String> {
+pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), WakeError> {
     let session_id = row.id.as_str();
     if deps.live.contains_live(session_id) {
         deps.live.settle_revive(session_id);
@@ -2546,9 +2590,8 @@ pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), S
         return Ok(());
     };
     let Some(claim) = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)? else {
-        // Another process of this machine runs it.
-        deps.live.settle_revive(session_id);
-        return Ok(());
+        // #EXP-1492: as a revive's — the holder may be on its way out.
+        return contended(session_id, deps);
     };
     let attempt = deps.live.note_revive(session_id);
     let brief = match fetch_brief(&deps.coding.trpc, session_id) {
@@ -2557,7 +2600,7 @@ pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), S
             if attempt >= MAX_LAUNCH_ATTEMPTS {
                 deps.live.settle_revive(session_id);
             }
-            return Err(format!("brief of session {session_id}: {err}"));
+            return Err(format!("brief of session {session_id}: {err}").into());
         }
     };
     // Settled before the spawn: a refusal is replied and idled, never
@@ -2565,6 +2608,19 @@ pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), S
     deps.live.settle_revive(session_id);
     spawn_continuation(row, record, claim, brief, continue_prompt(kind), deps)
         .map(|()| log::info!("pickup: continued interrupted session {session_id} ({kind})"))
+        .map_err(WakeError::from)
+}
+
+/// #EXP-1492: a revive/continuation whose claim another process of this
+/// machine holds: [`WakeError::Contended`] (the host retries on its timer)
+/// while [`LiveRegistry::hold_contended`] keeps trying, `Ok` once it
+/// settled (the holder runs it).
+fn contended(session_id: &str, deps: &PickupDeps) -> Result<(), WakeError> {
+    if deps.live.hold_contended(session_id) {
+        log::info!("pickup: session {session_id} stays with the other process here that holds it");
+        return Ok(());
+    }
+    Err(WakeError::Contended)
 }
 
 /// NEW-5 / EXP-1374: resume `row` from `record` with `prompt` as a
@@ -2630,8 +2686,8 @@ pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
         PickupAction::Resume { session, messages } => resume_session(session, messages, deps)
             .map(|_| ())
             .map_err(|err| err.to_string()),
-        PickupAction::Revive { session } => revive_session(session, deps),
-        PickupAction::Continue { session } => continue_interrupted(session, deps),
+        PickupAction::Revive { session } => revive_session(session, deps).map_err(|err| err.to_string()),
+        PickupAction::Continue { session } => continue_interrupted(session, deps).map_err(|err| err.to_string()),
         PickupAction::Deliver { session_id, messages } => deliver_messages(session_id, messages, deps)
             .map(|_| ())
             .map_err(|err| err.to_string()),
@@ -3524,6 +3580,26 @@ mod tests {
             .run()
             .iter()
             .any(|action| matches!(action, PickupAction::Revive { session } if session.id == "a1")));
+    }
+
+    /// EXP-1489: a team agent a restart cut mid-turn (an update) revives
+    /// WITH the continuation turn; one that was between turns, or flagged
+    /// without resume, revives silently and waits.
+    #[test]
+    fn a_persistent_root_cut_mid_turn_revives_with_its_continuation() {
+        let cut = interrupted(agent("a1", SESSION_STATUS_IDLE), "restarted", Some(true));
+        let pass = Pass::new(vec![cut.clone()], Vec::new());
+        assert!(pass
+            .run()
+            .iter()
+            .any(|action| matches!(action, PickupAction::Revive { session } if session.id == "a1")));
+        assert_eq!(
+            revive_prompt(&cut),
+            "Your run was interrupted (runner restarted) and continues now. Pick up exactly where you left off."
+        );
+        assert_eq!(revive_prompt(&agent("a2", SESSION_STATUS_IDLE)), "");
+        let unresumable = interrupted(agent("a3", SESSION_STATUS_IDLE), "restarted", Some(false));
+        assert_eq!(revive_prompt(&unresumable), "");
     }
 
     /// EXP-1374: once per absence — the registry's hold (an engine that ran
@@ -4615,6 +4691,54 @@ mod tests {
         // Nothing pending is still an EMPTY delivery, not contention.
         drop(held);
         assert_eq!(deliver_messages("sess-1", &[], &host.deps), Ok(Vec::new()));
+    }
+
+    /// #EXP-1492: after a self-update the app being replaced still held the
+    /// claims of the agents it had just revived; the new process found them
+    /// contended, SETTLED them as "another process runs it", and never
+    /// revived or continued them once that process exited — an interrupted
+    /// run read busy with no process until the watchdog put it on a person.
+    /// A contended revive/continuation is held briefly and tried again; only
+    /// a claim held past MAX_CONTENDED_ATTEMPTS leaves it to its holder.
+    #[test]
+    fn a_revive_or_continuation_another_process_holds_is_retried_not_settled() {
+        let dir = temp_dir("pickup-revive-contended");
+        let (base, requests) = canned_server_recording(vec![]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "t1"));
+        let held_agent = ClaimLock::try_acquire(&dir.0, "a1").unwrap().unwrap();
+        let held_thread = ClaimLock::try_acquire(&dir.0, "t1").unwrap().unwrap();
+        let root = agent("a1", SESSION_STATUS_IDLE);
+        let thread = interrupted(session("t1", SESSION_STATUS_RUNNING, DEV, "t"), "restarted", Some(true));
+        assert!(thread.continue_interruption().is_some());
+
+        assert_eq!(revive_session(&root, &host.deps), Err(WakeError::Contended));
+        assert_eq!(continue_interrupted(&thread, &host.deps), Err(WakeError::Contended));
+        // Held for a moment, not for good: no attempt counted, nothing settled.
+        let held = host.deps.live.revive_held();
+        assert!(held.contains("a1") && held.contains("t1"));
+        for id in ["a1", "t1"] {
+            let state = *locked(&host.deps.live.revives).get(id).unwrap();
+            assert!(!state.settled, "{id} settled on a contended claim");
+            assert_eq!(state.attempts, 0);
+            locked(&host.deps.live.revives).get_mut(id).unwrap().not_before = std::time::Instant::now();
+        }
+        // Past the hold the plan offers both again.
+        assert!(host.deps.live.revive_held().is_empty());
+        let mut pass = Pass::new(vec![root.clone(), thread.clone()], Vec::new());
+        pass.revive_held = host.deps.live.revive_held();
+        let planned: Vec<String> = pass.run().into_iter().map(|action| action.session_id().to_string()).collect();
+        assert_eq!(planned, vec!["a1", "t1"]);
+        assert!(requests.lock().unwrap().is_empty());
+        assert!(host.spawned.lock().unwrap().is_empty());
+
+        // A holder that keeps the claim past the retries runs the session.
+        for _ in 1..MAX_CONTENDED_ATTEMPTS - 1 {
+            assert_eq!(revive_session(&root, &host.deps), Err(WakeError::Contended));
+        }
+        assert_eq!(revive_session(&root, &host.deps), Ok(()));
+        assert!(locked(&host.deps.live.revives).get("a1").unwrap().settled);
+        drop((held_agent, held_thread));
     }
 
     #[test]

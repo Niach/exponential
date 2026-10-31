@@ -50,7 +50,7 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { readinessAgo } from "@/lib/coding-readiness"
-import { readJsonRpcAnswer } from "@/lib/mcp-oauth/json-rpc-reader"
+import { readJsonRpcAnswer } from "@/lib/emcp/upstream/json-rpc-reader"
 import { incrementalTable, memoByVersions, type ChangeSource, type IncrementalTable } from "@/lib/incremental-table"
 import { destructiveTool, exponentialUiConsentPrompt, promptActions } from "@/lib/prompts"
 

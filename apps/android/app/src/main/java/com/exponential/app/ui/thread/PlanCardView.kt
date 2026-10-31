@@ -518,77 +518,81 @@ internal fun PlanSheetFooter(
     val approve = AskDock.PLAN_OPTIONS.first { it.key == "approve" }
     val fresh = AskDock.PLAN_OPTIONS.firstOrNull { it.key == "approve-fresh" }
     val reject = AskDock.PLAN_OPTIONS.first { it.key == "reject" }
-    if (decide && rejecting) {
-        CardTextField(
-            value = feedback,
-            onValueChange = onFeedback,
-            placeholder = AskDock.Copy.FEEDBACK_PLACEHOLDER,
-            enabled = !busy,
-            singleLine = false,
-            minHeight = PlanCard.Look.FIELD_MIN_HEIGHT.dp,
-            textStyle = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.testTag(PlanCard.TestIds.FEEDBACK),
-        )
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(PlanCard.Stepper.BUTTON_GAP.dp),
-    ) {
-        if (onBack != null) {
-            CardButton(
-                label = PlanCard.Copy.BACK,
-                enabled = true,
-                primary = false,
-                modifier = Modifier.testTag(PlanCard.TestIds.STEP_BACK),
-                onClick = onBack,
+    // EXP-1454: its own column, so a host Box (the transcript's inline
+    // decision) never stacks the issue line onto the buttons.
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (decide && rejecting) {
+            CardTextField(
+                value = feedback,
+                onValueChange = onFeedback,
+                placeholder = AskDock.Copy.FEEDBACK_PLACEHOLDER,
+                enabled = !busy,
+                singleLine = false,
+                minHeight = PlanCard.Look.FIELD_MIN_HEIGHT.dp,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.testTag(PlanCard.TestIds.FEEDBACK),
             )
         }
-        Spacer(Modifier.weight(1f))
-        when {
-            onNext != null -> CardButton(
-                label = PlanCard.Copy.NEXT,
-                enabled = true,
-                primary = false,
-                modifier = Modifier.testTag(PlanCard.TestIds.STEP_NEXT),
-                onClick = onNext,
-            )
-            !decide -> Unit
-            busy -> AnsweringLine()
-            rejecting -> {
-                CardButton(label = PlanCard.Copy.CANCEL, enabled = true, primary = false, onClick = { onRejecting(false) })
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PlanCard.Stepper.BUTTON_GAP.dp),
+        ) {
+            if (onBack != null) {
                 CardButton(
-                    label = reject.label,
-                    enabled = true,
-                    modifier = Modifier.testTag("plan-card-decide"),
-                    onClick = { onDecide(reject) },
-                )
-            }
-            else -> {
-                CardButton(
-                    label = reject.label,
+                    label = PlanCard.Copy.BACK,
                     enabled = true,
                     primary = false,
-                    modifier = Modifier.testTag("plan-card-reject"),
-                    onClick = { onRejecting(true) },
-                )
-                ApproveSplitButton(
-                    approve = approve,
-                    fresh = fresh,
-                    enabled = approveIssue == null,
-                    onDecide = onDecide,
+                    modifier = Modifier.testTag(PlanCard.TestIds.STEP_BACK),
+                    onClick = onBack,
                 )
             }
+            Spacer(Modifier.weight(1f))
+            when {
+                onNext != null -> CardButton(
+                    label = PlanCard.Copy.NEXT,
+                    enabled = true,
+                    primary = false,
+                    modifier = Modifier.testTag(PlanCard.TestIds.STEP_NEXT),
+                    onClick = onNext,
+                )
+                !decide -> Unit
+                busy -> AnsweringLine()
+                rejecting -> {
+                    CardButton(label = PlanCard.Copy.CANCEL, enabled = true, primary = false, onClick = { onRejecting(false) })
+                    CardButton(
+                        label = reject.label,
+                        enabled = true,
+                        modifier = Modifier.testTag("plan-card-decide"),
+                        onClick = { onDecide(reject) },
+                    )
+                }
+                else -> {
+                    CardButton(
+                        label = reject.label,
+                        enabled = true,
+                        primary = false,
+                        modifier = Modifier.testTag("plan-card-reject"),
+                        onClick = { onRejecting(true) },
+                    )
+                    ApproveSplitButton(
+                        approve = approve,
+                        fresh = fresh,
+                        enabled = approveIssue == null,
+                        onDecide = onDecide,
+                    )
+                }
+            }
         }
-    }
-    if (decide && !rejecting && !busy && approveIssue != null) {
-        Text(
-            approveIssue.text,
-            modifier = Modifier.testTag(PlanCard.TestIds.ISSUE),
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
-            // The warning paint ×4 (web `text-yellow-400`).
-            color = DesignTokens.Semantic.Yellow,
-        )
+        if (decide && !rejecting && !busy && approveIssue != null) {
+            Text(
+                approveIssue.text,
+                modifier = Modifier.testTag(PlanCard.TestIds.ISSUE),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
+                // The warning paint ×4 (web `text-yellow-400`).
+                color = DesignTokens.Semantic.Yellow,
+            )
+        }
     }
 }
 

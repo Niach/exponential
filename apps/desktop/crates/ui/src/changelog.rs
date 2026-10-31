@@ -57,6 +57,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_134: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-31-updates-within-minutes",
+    date: "2026-10-31",
+    title: "Updates install within minutes",
+    summary: "The CLI daemon and the desktop app update within 10 minutes, whatever runs, and the sessions they cut continue on the new version.",
+    body: r#"- **Updates land**: a queued update no longer waits for sessions to close or sit idle for 2 hours. The CLI daemon restarts at the next pause between turns, at most 10 minutes later, and at once when the server requires a newer version.
+- **Sessions continue**: a session cut mid-turn by the restart picks up where it left off on the new version by itself, team agents included. Nothing waits for you to resume it.
+- **Desktop**: the desktop app downloads updates in the background and restarts by the same rule while you are not using it. A required update restarts it at once."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_133: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-steer-flicker",
     date: "2026-10-31",

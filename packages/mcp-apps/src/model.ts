@@ -9,12 +9,12 @@ import type { ToolResult } from "./bridge"
 
 // EXP-1183 — the pure half of the MCP Apps views: which view a resource is,
 // and what the tool results the host forwards decode to. The tools answer
-// with `ok()` (apps/web/src/lib/mcp/helpers.ts): one text block of JSON.
+// with `ok()` (apps/web/src/lib/emcp/helpers.ts): one text block of JSON.
 
 export const MCP_APP_VIEWS = [`issues`, `issue`, `run`, `runs`, `inbox`, `devices`] as const
 export type McpAppView = (typeof MCP_APP_VIEWS)[number]
 
-/** The tool each view renders the result of (apps/web/src/lib/mcp/apps.ts
+/** The tool each view renders the result of (apps/web/src/lib/emcp/apps.ts
  *  binds the same pairs on the server). */
 export const MCP_APP_VIEW_TOOL: Record<McpAppView, string> = {
   issues: `exponential_issues_list`,

@@ -85,13 +85,13 @@ const OfflineIcon = conceptIcon(`ui-device-offline`)
 const UpdateIcon = conceptIcon(`ui-update`)
 
 /** FEED-36: the tooltip on a queued Update button — the daemon's own rules
- * for getting there (every session ends, or one sits idle for 2 hours). */
+ * for getting there (EXP-1489: the next pause between turns, at most 10 minutes). */
 /** The tracked-command key of an agent CLI update row (`update claude`) —
  * shared with the desktop dialog's slot naming. */
 const agentUpdateKey = (agent: string) => `update ${agent}`
 const isAgentUpdateKey = (key: string) => key.startsWith(`update `)
 
-export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the device restarts itself once every session ends or sits idle for 2 hours.`
+export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update for at most 10 minutes — the device then restarts itself and every session continues.`
 
 // EXP-490 autosave cadence. Defaults debounce longer than the name: every
 // setLaunchDefaults call nudges the device over the relay, so coalescing a
@@ -1064,9 +1064,9 @@ export function DeviceSettingsDialog({
           </div>
         </SubShellHost>
 
-        {/* FEED-36: Update now — the daemon ends every live session on the
-            machine and restarts on the queued version; confirmed, since it
-            interrupts work (repo-backed runs resume from their session page). */}
+        {/* FEED-36: Update now — the daemon restarts on the queued version at
+            once; confirmed, since it interrupts work (EXP-1489: every run it
+            cuts mid-turn continues on the new version by itself). */}
         <Prompt
           open={updateNowOpen}
           onOpenChange={setUpdateNowOpen}

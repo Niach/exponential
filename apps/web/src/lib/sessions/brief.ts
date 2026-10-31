@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
 import { db } from "@/db/connection"
 import { agents, attachments, issues, messages, sessionIssues, sessions, teams, userVoiceSettings, type Session } from "@/db/schema"
@@ -7,7 +7,7 @@ import { ASSISTANT } from "@exp/domain-contract/agent-settings"
 import { voiceAgentIsPrivate } from "@/lib/sessions/meeting-access"
 import { deriveSessionTitle } from "@/lib/sessions/title"
 import type { Db } from "@/lib/sessions/tx"
-import { inSession } from "@/lib/sessions/messages"
+import { inSession, pendingInput } from "@/lib/sessions/messages"
 import { isSealedBody } from "@/lib/sessions/sealed"
 import { attachmentLine } from "@/lib/sessions/attachment-lines"
 
@@ -22,11 +22,13 @@ export { deriveSessionTitle }
 // alike); a root works them itself. A prompt run carries its body inside
 // the first message (no Action section any more).
 
+/** The session's first input: a person's message, or (#EXP-1452) the
+ *  message of the agent session that started it. */
 async function firstPersonMessage(sessionId: string): Promise<{ body: string | null; attachmentIds: string[] }> {
   const [row] = await db
     .select({ body: messages.body, attachmentIds: messages.attachmentIds })
     .from(messages)
-    .where(and(inSession(sessionId), eq(messages.authorKind, `user`)))
+    .where(and(inSession(sessionId), isNull(messages.card), pendingInput()))
     .orderBy(asc(messages.createdAt))
     .limit(1)
   return { body: row?.body ?? null, attachmentIds: row?.attachmentIds ?? [] }

@@ -43,7 +43,7 @@ vi.mock(`@/lib/auth/membership`, async (importOriginal) => ({
 }))
 
 import { usersRouter } from "@/lib/trpc/users"
-import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
+import { createFakeDb, type FakeDb } from "@/lib/emcp/upstream/test-db"
 
 let db: FakeDb
 

@@ -181,7 +181,7 @@ pub enum ClientFrame<'a> {
 }
 
 /// EXP-936: why the host refused a compaction ask — the four codes the web
-/// handler declared (`sessionsCompactRefusals`, lib/mcp/handlers/
+/// handler declared (`sessionsCompactRefusals`, lib/emcp/handlers/
 /// sessions-compact.ts; relay `COMPACT_REFUSALS`). The device decides only
 /// the first two (it holds the context meter and the turn count); the other
 /// two are the server's, kept here so one enum spells the wire.

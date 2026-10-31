@@ -11,7 +11,7 @@ vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth/access`, () => ({ resolveTeamAccess: vi.fn(async () => ({ kind: `member` })) }))
 
 import { installMessage as serverInstallMessage, installsRouter } from "@/lib/trpc/installs"
-import { createFakeDb } from "@/lib/mcp-oauth/test-db"
+import { createFakeDb } from "@/lib/emcp/upstream/test-db"
 import {
   browserLabel,
   buildRegistration,

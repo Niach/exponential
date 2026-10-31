@@ -35,7 +35,7 @@ import {
   entityRefKinds,
   type EntityRef,
   type EntityRefKind,
-} from "@/lib/mcp/preview"
+} from "@/lib/emcp/preview"
 // EXP-787: the transcript's rhythm is a shared token group, read straight from
 // the canonical tokens.json (@exp/design-tokens is not a dependency of this
 // app — see design-tokens.test.ts, which reads the same file by path).

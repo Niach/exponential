@@ -200,8 +200,8 @@ pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
 /// FEED-36: with live sessions the daemon is asked for the update through
 /// the server (`devices.requestUpdate`, best-effort — the same flag the web
 /// "Update" button sets), so it parks the request itself, the machine row
-/// reads "Update queued" with what holds it, and the daemon's idle rule
-/// (`daemon::UPDATE_IDLE_GRACE`) applies it instead of its 6h check.
+/// reads "Update queued" with what holds it, and the daemon's restart rule
+/// (`updater::restart`, EXP-1489) applies it instead of its 6h check.
 fn nudge_running_daemon(data_dir: &std::path::Path, out: &mut impl std::io::Write) {
     use super::daemon;
     let Some(pid) = daemon::daemon_pid(data_dir) else {
@@ -235,17 +235,15 @@ fn nudge_running_daemon(data_dir: &std::path::Path, out: &mut impl std::io::Writ
 
 /// FEED-36: what `exponential update` says when the daemon still hosts
 /// sessions. `queued` = the server holds the request (the daemon parks it
-/// and applies it by its idle rule); otherwise only the hand restart is
+/// and applies it by its restart rule); otherwise only the hand restart is
 /// left to name.
 fn live_sessions_notice(pid: u32, live: usize, queued: bool, restart_hint: &str) -> String {
-    let grace_hours = super::daemon::UPDATE_IDLE_GRACE.as_secs() / 3600;
+    let cap_minutes = updater::restart::MAX_WAIT.as_secs() / 60;
     let mut text = format!(
-        "The daemon (pid {pid}) still runs the previous version and has {live} live session(s); it restarts once they end or sit idle for {grace_hours}h."
+        "The daemon (pid {pid}) still runs the previous version and has {live} live session(s); it restarts at their next pause between turns, within {cap_minutes} minutes, and they continue on the new version."
     );
     if queued {
-        text.push_str(
-            " The update is queued: the Devices page lists what holds it and offers \"Update now\" to end those sessions.",
-        );
+        text.push_str(" The update is queued: the Devices page offers \"Update now\" to restart at once.");
     }
     text.push_str(&format!(" To restart it by hand now: {restart_hint}"));
     text
@@ -380,7 +378,7 @@ mod tests {
     #[test]
     fn the_live_sessions_notice_names_the_idle_rule_and_the_queue() {
         let queued = live_sessions_notice(42, 3, true, "systemctl --user restart exponential-daemon");
-        assert!(queued.starts_with("The daemon (pid 42) still runs the previous version and has 3 live session(s); it restarts once they end or sit idle for 2h."), "{queued}");
+        assert!(queued.starts_with("The daemon (pid 42) still runs the previous version and has 3 live session(s); it restarts at their next pause between turns, within 10 minutes, and they continue on the new version."), "{queued}");
         assert!(queued.contains("The update is queued"), "{queued}");
         assert!(queued.contains("\"Update now\""), "{queued}");
         assert!(queued.ends_with("To restart it by hand now: systemctl --user restart exponential-daemon"), "{queued}");

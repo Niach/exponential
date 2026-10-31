@@ -226,7 +226,7 @@ export const TOOL_OUTPUT_MAX_WIRE_BYTES = contract.steerFeed.toolOutputMaxBytes 
  *  from its own synced rows. `kind` = contract `entityRefKind`; `id` = the
  *  row id (a `list` ref's id is its MEMBER kind); `count` only on a `list`.
  *  The engine distils these per contract `expToolPreview.tools` (the rule is
- *  fixture-locked ×2: web `lib/mcp/preview.ts`, engine `mapper.rs`). */
+ *  fixture-locked ×2: web `lib/emcp/preview.ts`, engine `mapper.rs`). */
 export const ENTITY_REF_KINDS = contract.entityRefKind.values as [
   string,
   ...string[],
@@ -844,7 +844,7 @@ export const activityResetFrame = z.object({
 // id: `sessionId` names the session the way `compact_request` did, and only
 // the control socket of the device the ask went to may answer it.
 // `refusedBecause` is one of the handler's four codes
-// (`sessionsCompactRefusals`, lib/mcp/handlers/sessions-compact.ts); absent
+// (`sessionsCompactRefusals`, lib/emcp/handlers/sessions-compact.ts); absent
 // when accepted.
 export const COMPACT_REFUSALS = [
   `too_early`,

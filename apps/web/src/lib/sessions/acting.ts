@@ -3,7 +3,7 @@ import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import { sessions } from "@/db/schema"
 import { isSessionPrincipal } from "@/lib/sessions/host"
-import { resolveMcpAccessClampedToTeam, type McpAccess } from "@/lib/mcp/scope"
+import { resolveMcpAccessClampedToTeam, type McpAccess } from "@/lib/emcp/scope"
 
 // #EXP-1383: the session a request SPEAKS FOR (the launcher's
 // X-Exp-Session-Id), verified to be the caller's own (its starter, or the
