@@ -859,6 +859,10 @@
     grid-template-columns: 1fr;
   }
 
+  .os-part {
+    white-space: normal;
+  }
+
   .oa {
     grid-template-columns: 1fr;
   }
