@@ -137,7 +137,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
             let arcs: Vec<RingArc> = ring.stories.iter().map(RingArc::from).collect();
             story_ring(&arcs, SMALL_RING, specimen_avatar(ring, small_glyph, cx), cx).into_any_element()
         })))
-        .child(v_flex().w(gpui::px(280.)).child(story_progress(4, 1, 0.4, Some(&[0, 0, 1, 2]), cx)))
+        .child(v_flex().w(gpui::px(280.)).child(story_progress(4, 1, 0.4, cx)))
 }
 
 #[cfg(test)]
