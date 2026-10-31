@@ -66,7 +66,16 @@ class StoriesTest {
             ),
         )
         put("surface", story.surface)
-        put("text", nullable(story.text))
+        put(
+            "counts",
+            story.counts?.let {
+                buildJsonObject {
+                    put("sections", it.sections)
+                    put("pictures", it.pictures)
+                    put("questions", it.questions)
+                }
+            } ?: JsonNull,
+        )
         put("footer", story.footer.wire)
         put("autoAdvanceMs", story.autoAdvanceMs?.let { JsonPrimitive(it) } ?: JsonNull)
     }
@@ -119,6 +128,13 @@ class StoriesTest {
         assertEquals(row.str("gap")!!.toFloat(), Stories.Row.GAP)
         assertEquals(row.str("labelGap")!!.toFloat(), Stories.Row.LABEL_GAP)
         assertEquals(row.str("padBottom")!!.toFloat(), Stories.Row.PAD_BOTTOM)
+        val badge = fixture.getValue("badge").jsonObject
+        for (kind in Stories.Kind.entries) {
+            assertEquals(badge.getValue("icons").jsonObject.str(kind.wire), Stories.Badge.icon(kind))
+            assertEquals(badge.getValue("tints").jsonObject.str(kind.wire), Stories.Badge.tint(kind))
+        }
+        assertEquals(badge.str("fill")!!.toFloat(), Stories.Badge.FILL)
+        assertEquals(badge.str("stroke")!!.toFloat(), Stories.Badge.STROKE)
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(
             mapOf(
@@ -273,7 +289,13 @@ class StoriesTest {
             )
         },
         surface = json.getValue("surface").jsonPrimitive.boolean,
-        text = json.str("text"),
+        counts = (json["counts"] as? JsonObject)?.let {
+            PlanPage.Counts(
+                it.long("sections")!!.toInt(),
+                it.long("pictures")!!.toInt(),
+                it.long("questions")!!.toInt(),
+            )
+        },
         footer = Stories.Footer.entries.first { it.wire == json.str("footer") },
         autoAdvanceMs = json.long("autoAdvanceMs"),
     )
@@ -281,10 +303,8 @@ class StoriesTest {
     private fun encode(frame: Stories.Frame) = buildJsonObject {
         put("story", frame.story)
         put("storyId", frame.storyId)
-        put("index", frame.index)
-        put("count", frame.count)
         put("kind", frame.kind.wire)
-        put("picture", frame.picture?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("pictures", frame.pictures)
         put("title", nullable(frame.title))
         put("description", nullable(frame.description))
         put("footer", frame.footer.wire)
@@ -303,14 +323,13 @@ class StoriesTest {
     }
 
     @Test
-    fun `storyFrameIndex opens a tile at its first frame and a thumbnail at its picture`() {
-        val case = fixture.getValue("frameCases").jsonArray[1].jsonObject
-        val frames = Stories.storyFrames(
-            case.getValue("input").jsonObject.getValue("stories").jsonArray.map { storyOf(it.jsonObject) },
-        )
-        assertEquals(1, Stories.storyFrameIndex(frames, "res-web"))
-        assertEquals(2, Stories.storyFrameIndex(frames, "res-web", 1))
-        assertEquals(3, Stories.storyFrameIndex(frames, "q-done", 4))
-        assertEquals(-1, Stories.storyFrameIndex(frames, "nope"))
+    fun `storyFrameIndex opens a tile (or a thumbnail) at its story's frame`() {
+        for (case in fixture.getValue("frameCases").jsonArray.map { it.jsonObject }) {
+            val frames = Stories.storyFrames(
+                case.getValue("input").jsonObject.getValue("stories").jsonArray.map { storyOf(it.jsonObject) },
+            )
+            frames.forEachIndexed { at, frame -> assertEquals(at, Stories.storyFrameIndex(frames, frame.storyId)) }
+            assertEquals(-1, Stories.storyFrameIndex(frames, "nope"))
+        }
     }
 }
