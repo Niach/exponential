@@ -33,7 +33,7 @@ use smithay::{
         input::InputEvent,
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
-            element::{memory::MemoryRenderBuffer, surface::WaylandSurfaceRenderElement},
+            element::memory::MemoryRenderBuffer,
             gles::GlesRenderer,
             multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer},
             ImportDma, ImportMemWl,
@@ -265,6 +265,7 @@ pub fn run(config: Config, autostart: Vec<String>) -> Result<(), Box<dyn std::er
         }
     })?;
 
+    crate::logind::start(&mut state);
     state.start_session();
 
     // Every loop turn: repaint outputs that are not waiting for a vblank.
@@ -397,7 +398,7 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
         }
 
         let Ok(mut renderer) = u.gpus.single_renderer(&device.render_node) else { continue };
-        let drm_output = match device.manager.initialize_output::<_, OutputElements<UdevRenderer<'_>, WaylandSurfaceRenderElement<UdevRenderer<'_>>>>(
+        let drm_output = match device.manager.initialize_output::<_, OutputElements<UdevRenderer<'_>>>(
             crtc,
             mode,
             &[info.handle()],
@@ -480,7 +481,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
 
     // The cursor: the client's surface if it set one, else the theme's arrow.
     let pointer = state.seat.get_pointer().unwrap().current_location();
-    let mut elements: Vec<OutputElements<UdevRenderer<'_>, WaylandSurfaceRenderElement<UdevRenderer<'_>>>> = Vec::new();
+    let mut elements: Vec<OutputElements<UdevRenderer<'_>>> = Vec::new();
     if output_geo.to_f64().contains(pointer) {
         let image = u.cursor.image(state.start_time.elapsed());
         let buffer = match u.cursor_buffers.iter().find(|(i, _)| *i == image) {

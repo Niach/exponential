@@ -2,6 +2,7 @@
 
 mod compositor;
 mod dmabuf;
+mod input_method;
 mod layer_shell;
 mod xdg_shell;
 #[cfg(feature = "xwayland")]
