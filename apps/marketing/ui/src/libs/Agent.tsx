@@ -1,8 +1,9 @@
 /* EXP-1503: exponential.at/agent/, eAgent's one docs page. Facts:
-   apps/desktop/crates/exponential-agent-runtime (EXP-1426, its README =
-   the seams and the extraction order, tag agent-runtime-v0.1.0); the rename
-   to `eagent` (tag eagent-v*) is EXP-1505, the local hub and chat
-   view-model EXP-1509..1512: planned until they merge. */
+   apps/desktop/crates/eagent (EXP-1426, its README = the seams and the
+   extraction order); renamed from exponential-agent-runtime (released as
+   agent-runtime-v0.1.0) by EXP-1505, which keeps the old name one release
+   as a shim; the local hub and chat view-model EXP-1509..1512: planned
+   until they merge. */
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { StatusChip } from "../../../src/components/blog/StatusChip"
 import { DocsTable, IcArrow, PageHero } from "../components/Content"
@@ -36,7 +37,7 @@ export default function Agent({ path }: PageProps) {
         eyebrow="Library"
         title="eAgent"
         cta={
-          <a className="btn btn-ghost" href={LINKS.source(`apps/desktop/crates/exponential-agent-runtime`)}>
+          <a className="btn btn-ghost" href={LINKS.source(`apps/desktop/crates/eagent`)}>
             Source <IcArrow />
           </a>
         }
@@ -48,15 +49,14 @@ export default function Agent({ path }: PageProps) {
           <h2>Status</h2>
           <p>
             In progress. The core runs every coding session of the Exponential desktop app and the CLI daemon, and is being
-            moved out of the app crate by crate. Today it is <code>exponential-agent-runtime</code> 0.1.0; the rename to{` `}
-            <code>eagent</code> is next.
+            moved out of the app crate by crate. The crate is <code>eagent</code>; the old name,{` `}
+            <code>exponential-agent-runtime</code>, stays one more release as a re-export shim.
           </p>
           <DocsTable
             head={[`Part`, `What`, ``]}
             rows={[
               [<strong key="p">The runtime</strong>, `Spawn, ACP, events, login, MCP wiring`, IN_APP],
-              [<strong key="p">The library</strong>, <span key="w"><code>exponential-agent-runtime</code>, a git dependency</span>, <StatusChip key="s" status="in-progress">0.1.0</StatusChip>],
-              [<strong key="p">The rename</strong>, <span key="w"><code>eagent</code>, tag <code>eagent-v*</code></span>, PLANNED],
+              [<strong key="p">The library</strong>, <span key="w"><code>eagent</code>, a git dependency, tag <code>eagent-v*</code></span>, <StatusChip key="s" status="in-progress">0.1.0</StatusChip>],
               [<strong key="p">Local orchestration</strong>, `Session trees, wake-ups and reports for one person, without a server`, PLANNED],
               [<strong key="p">Chat view-model</strong>, `One transcript, composer and question model any eUI host renders`, PLANNED],
             ]}
@@ -82,7 +82,7 @@ export default function Agent({ path }: PageProps) {
             fixtures. Pin the tag, never a branch.
           </p>
           <DocsCode language="toml">{`[dependencies]
-exponential-agent-runtime = { git = "https://github.com/Niach/exponential", tag = "agent-runtime-v0.1.0" }`}</DocsCode>
+eagent = { git = "https://github.com/Niach/exponential", tag = "eagent-v0.1.0" }`}</DocsCode>
         </DocsSection>
       </DocsLayout>
     </>

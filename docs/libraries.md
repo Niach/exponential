@@ -2,8 +2,8 @@
 
 Decided 2026-10-29 for the epic #EXP-1420, renamed 2026-10-30 (#EXP-1438).
 The **product names** (eUI, eTalk, ePilot, eNet, eApps, eMCP, eAgent, eCore) are what
-copy, docs and the front page say; eAgent is today's `exponential-agent-runtime`
-until its rename to `eagent` (#EXP-1505). The **package names** follow the same short scheme
+copy, docs and the front page say; eAgent's crate is `eagent` (renamed from
+`exponential-agent-runtime` by #EXP-1505). The **package names** follow the same short scheme
 (`eui*`, `etalk*`, `epilot*`, `enet*`) on every registry, and so do the tags
 (`eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`). The bare crates.io names `eui`
 and `enet` are taken, so the core crates are `eui-core` and `enet-core`.
