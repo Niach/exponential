@@ -1102,6 +1102,51 @@ async fn a_plan_launch_runs_full_access_and_exit_plan_mode_is_a_plain_allow() {
     assert_eq!(answer["response"]["response"]["behavior"], serde_json::json!("allow"));
 }
 
+/// EXP-1501: a tool_use block's input streaming (`input_json_delta`) is the
+/// agent working — the adapter publishes `writing` when the block opens and
+/// clears it when the block closes, so a 54 s plan card is never silence.
+#[tokio::test]
+async fn a_streaming_tool_input_publishes_writing_until_its_block_closes() {
+    let _session = one_session_at_a_time();
+    let work = workdir("writing");
+    let sid = "11111111-2222-3333-4444-555555555555";
+    let stream = |n: u32, event: &str| {
+        format!(
+            r#"{{"type":"stream_event","event":{event},"parent_tool_use_id":null,"session_id":"{sid}","uuid":"00000000-0000-4000-8000-0000000001{n:02}"}}"#
+        )
+    };
+    let lines = [
+        format!(
+            r#"{{"type":"system","subtype":"init","cwd":"/work/tree","session_id":"{sid}","tools":["Write"],"model":"claude-opus-5[1m]","permissionMode":"bypassPermissions","slash_commands":[],"agents":[],"uuid":"00000000-0000-4000-8000-000000000001"}}"#
+        ),
+        stream(1, r#"{"type":"message_start","message":{"id":"msg_1","model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":1}}}"#),
+        stream(2, r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_w1","name":"Write","input":{}}}"#),
+        stream(3, r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"file_path\":"}}"#),
+        stream(4, r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"a.txt\"}"}}"#),
+        stream(5, r#"{"type":"content_block_stop","index":0}"#),
+        format!(
+            r#"{{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Done.","session_id":"{sid}","uuid":"00000000-0000-4000-8000-000000000009","queued_turn_count":0}}"#
+        ),
+    ];
+    let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+    let scenario = synthetic(&work.0, &lines, &[]);
+    let run = drive_at(&scenario, &work.0, "Write a.txt.", false, reject_all(), cancel_elicitations())
+        .await;
+
+    let writing: Vec<Value> = run
+        .updates
+        .iter()
+        .filter_map(|notification| {
+            notification.meta.as_ref()?.get(engine::TURN_WRITING_META_KEY).cloned()
+        })
+        .collect();
+    assert_eq!(
+        writing,
+        vec![serde_json::json!({ "id": "toolu_w1", "tool": "Write" }), Value::Null],
+        "opened once (the deltas fall inside the tick), cleared on the block's stop"
+    );
+}
+
 /// EXP-969: a manual `/compact` does not always land a `compact_boundary` —
 /// the status frame simply stops saying "compacting". That edge CLOSES the
 /// fold, or the host's queue gate stays shut and every message typed behind

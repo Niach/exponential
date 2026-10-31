@@ -622,6 +622,8 @@ pub struct SteerFeed {
     /// it has produced, off the same slot — the working caption's inputs.
     turn_started_at: Option<i64>,
     turn_tokens: Option<u64>,
+    /// EXP-1501: the tool call whose input is streaming (`turn.writing`).
+    turn_writing: Option<crate::frames::TurnWriting>,
     /// EXP-1245: the person's messages and the turn EDGES, in order — what
     /// the owner's thread splits into turns (the slot above is latest-wins).
     turn_log: Vec<TurnEdge>,
@@ -793,6 +795,11 @@ impl SteerFeed {
     /// EXP-850 §5: output tokens the current turn has produced so far.
     pub fn turn_tokens(&self) -> Option<u64> {
         self.turn_tokens
+    }
+
+    /// EXP-1501: the tool call the agent is writing right now, if any.
+    pub fn turn_writing(&self) -> Option<&crate::frames::TurnWriting> {
+        self.turn_writing.as_ref()
     }
 
     pub fn turn_state(&self) -> crate::frames::TurnState {
@@ -1541,6 +1548,7 @@ impl SteerFeed {
                 state,
                 started_at,
                 tokens,
+                writing,
                 at,
             } => {
                 let started = crate::frames::TurnState::Started;
@@ -1567,6 +1575,8 @@ impl SteerFeed {
                 if tokens.is_some() {
                     self.turn_tokens = tokens;
                 }
+                // EXP-1501: the frame's whole state, never "keep the last".
+                self.turn_writing = writing.filter(|_| state == crate::frames::TurnState::Started);
             }
             // EXP-850 §2: latest-wins whole, exactly like `config_state` — an
             // EMPTY list is the publisher saying nothing runs any more.
@@ -3383,6 +3393,7 @@ mod tests {
             state,
             started_at,
             tokens: None,
+            writing: None,
             at,
         };
         let mut feed = SteerFeed::new();
@@ -3425,6 +3436,7 @@ mod tests {
             state,
             started_at: (state == TurnState::Started).then_some(at),
             tokens: None,
+            writing: None,
             at: Some(at),
         };
         let message = |text: &str, at: i64| ActivityEvent::UserMessage {

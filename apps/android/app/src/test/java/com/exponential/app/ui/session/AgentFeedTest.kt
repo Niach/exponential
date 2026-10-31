@@ -50,6 +50,7 @@ import com.exponential.app.domain.workflowFor
 import com.exponential.app.domain.workflowPhaseCounts
 import com.exponential.app.domain.workflowPhaseSummary
 import com.exponential.app.domain.workingCaption
+import com.exponential.app.domain.WorkingWriting
 import com.exponential.app.domain.workingVerb
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
@@ -2202,6 +2203,32 @@ class AgentFeedTest {
         )
         assertEquals(TURN_STATE_ENDED, ended.turnState)
         assertEquals(77L, ended.turnTokens)
+    }
+
+    // EXP-1501: `writing` rides the turn slot but is NOT sticky — each frame
+    // carries the full writing state, so a frame without it clears it.
+    @Test
+    fun `the turn slot's writing state is set and then cleared`() {
+        val writing = ActivityFeedState()
+            .applying(event("""{"kind":"turn","state":"started","startedAt":1000,"tokens":5}"""))
+            .applying(
+                event(
+                    """{"kind":"turn","state":"started","tokens":9,"writing":{"tool":"ExitPlanMode","startedAt":2000}}""",
+                ),
+            )
+        assertEquals(WorkingWriting(tool = "ExitPlanMode", startedAt = 2000L), writing.turnWriting)
+        assertEquals(1000L, writing.turnStartedAt)
+        assertEquals(9L, writing.turnTokens)
+        // The consolidated call landed: the next frame omits it.
+        val cleared = writing.applying(event("""{"kind":"turn","state":"started","tokens":12}"""))
+        assertNull(cleared.turnWriting)
+        assertEquals(1000L, cleared.turnStartedAt)
+        assertEquals(12L, cleared.turnTokens)
+        // An unreadable writing state reads as not writing.
+        val broken = writing.applying(
+            event("""{"kind":"turn","state":"started","writing":{"tool":"Edit"}}"""),
+        )
+        assertNull(broken.turnWriting)
     }
 
     @Test
