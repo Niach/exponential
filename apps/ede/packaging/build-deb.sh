@@ -32,8 +32,8 @@ Maintainer: Exponential <hello@exponential.at>
 Section: x11
 Priority: optional
 Homepage: https://exponential.at
-Depends: libc6, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, xwayland, dbus-user-session | dbus-x11, systemd
-Recommends: policykit-1-gnome | mate-polkit, gnome-keyring
+Depends: libc6, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, xwayland, dbus-user-session | dbus-x11, systemd, libglib2.0-bin
+Recommends: policykit-1-gnome | mate-polkit, gnome-keyring, swaylock
 Description: eDE, the Exponential desktop
  A Wayland desktop session: the ede-compositor (floating windows with edge
  snapping, Xwayland, explicit sync) started by ede-session from the login

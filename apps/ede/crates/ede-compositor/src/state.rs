@@ -84,6 +84,21 @@ pub struct Ede {
     /// An X11 window that was focused before it had a wl_surface.
     #[cfg(feature = "xwayland")]
     pub pending_x11_focus: Option<smithay::xwayland::X11Surface>,
+
+    /// ext-session-lock: while locked only the lock client is shown and
+    /// gets input ([`crate::lock`]).
+    pub session_lock_state: smithay::wayland::session_lock::SessionLockManagerState,
+    pub lock: crate::lock::LockState,
+    /// ext-idle-notify (the shell's blanking/suspend), zwp-idle-inhibit, and
+    /// the compositor's own idle lock ([`crate::idle`]).
+    pub idle_notifier: smithay::wayland::idle_notify::IdleNotifierState<Ede>,
+    pub idle_inhibit_state: smithay::wayland::idle_inhibit::IdleInhibitManagerState,
+    pub idle: crate::idle::Idle,
+    /// input-method-v2 + text-input-v3 (ibus, fcitx5) and the virtual
+    /// keyboard IMEs forward keys through.
+    pub input_method_state: smithay::wayland::input_method::InputMethodManagerState,
+    pub text_input_state: smithay::wayland::text_input::TextInputManagerState,
+    pub virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState,
 }
 
 /// Tries a client's dmabuf on the backend's renderer.
@@ -136,6 +151,9 @@ impl Ede {
             })
             .expect("insert the display source");
 
+        let idle_notifier = smithay::wayland::idle_notify::IdleNotifierState::new(&dh, loop_handle.clone());
+        crate::idle::start_timer(&loop_handle);
+
         Self {
             start_time: Instant::now(),
             display_handle: dh.clone(),
@@ -169,6 +187,14 @@ impl Ede {
             xdisplay: None,
             #[cfg(feature = "xwayland")]
             pending_x11_focus: None,
+            session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, |_| true),
+            lock: crate::lock::LockState::default(),
+            idle_notifier,
+            idle_inhibit_state: smithay::wayland::idle_inhibit::IdleInhibitManagerState::new::<Self>(&dh),
+            idle: crate::idle::Idle::default(),
+            input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, |_| true),
+            text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
+            virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
         }
     }
 
@@ -243,6 +269,7 @@ impl Ede {
             .cloned()
             .collect();
         self.space.unmap_output(output);
+        self.lock_output_removed(output);
         let outputs: Vec<Output> = self.space.outputs().cloned().collect();
         let mut x = 0;
         for o in outputs {
@@ -290,6 +317,11 @@ impl Ede {
         use smithay::wayland::shell::wlr_layer::Layer;
         let output = self.space.output_under(pos).next()?;
         let output_geo = self.space.output_geometry(output)?;
+        if self.is_locked() {
+            // Only the lock client, nothing behind it.
+            let lock = self.lock_surface_on(output)?;
+            return Some((lock.wl_surface().clone(), output_geo.loc.to_f64()));
+        }
         let layers = layer_map_for_output(output);
         let layer_hit = |layer| {
             layers.layer_under(layer, pos - output_geo.loc.to_f64()).and_then(|l| {
@@ -312,6 +344,11 @@ impl Ede {
 
     /// Raises `window` and gives it keyboard focus; `None` clears focus.
     pub fn focus(&mut self, window: Option<Window>) {
+        if self.is_locked() {
+            // Windows (a new one mapping, a click) never take focus from
+            // the lock screen.
+            return;
+        }
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.seat.get_keyboard().unwrap();
         if let Some(window) = &window {
@@ -482,8 +519,12 @@ impl Ede {
         }
     }
 
-    /// The output background until the shell draws a wallpaper.
+    /// The output background until the shell draws a wallpaper; black
+    /// while locked (behind the lock surface, or instead of it).
     pub fn clear_color(&self) -> [f32; 4] {
+        if self.is_locked() {
+            return [0.0, 0.0, 0.0, 1.0];
+        }
         self.config.background_rgba().unwrap_or([0.04, 0.04, 0.04, 1.0])
     }
 

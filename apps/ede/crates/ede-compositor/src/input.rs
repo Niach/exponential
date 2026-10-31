@@ -3,7 +3,8 @@
 //!
 //! Compositor bindings (Mint-like): Alt+drag moves a window, Alt+F4 closes
 //! it, Super+Left/Right tile to a half, Super+Up maximizes, Super+Down
-//! restores, Super+Shift+E ends the session, Ctrl+Alt+F1…F12 switch VTs.
+//! restores, Super+L locks, Super+Shift+E ends the session, Ctrl+Alt+F1…F12
+//! switch VTs. While locked only VT switching stays.
 
 use smithay::{
     backend::input::{
@@ -33,10 +34,20 @@ pub enum Action {
     Close,
     Tile(Tile),
     Restore,
+    /// Super+L: start the lock client.
+    Lock,
 }
 
 impl Ede {
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
+        match event {
+            InputEvent::Keyboard { .. }
+            | InputEvent::PointerMotion { .. }
+            | InputEvent::PointerMotionAbsolute { .. }
+            | InputEvent::PointerButton { .. }
+            | InputEvent::PointerAxis { .. } => self.note_activity(),
+            _ => {}
+        }
         match event {
             InputEvent::Keyboard { event, .. } => self.keyboard_key(event.key_code(), event.state(), event.time_msec()),
             InputEvent::PointerMotion { event, .. } => {
@@ -95,7 +106,9 @@ impl Ede {
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
 
-        if state == ButtonState::Pressed && !pointer.is_grabbed() {
+        if state == ButtonState::Pressed && self.is_locked() {
+            self.lock_pointer_focus();
+        } else if state == ButtonState::Pressed && !pointer.is_grabbed() {
             let location = pointer.current_location();
             let window = self.space.element_under(location).map(|(w, _)| w.clone());
             self.focus(window.clone());
@@ -113,14 +126,24 @@ impl Ede {
         pointer.frame(self);
     }
 
+    /// A key from the person's keyboard.
     pub fn keyboard_key(&mut self, keycode: Keycode, state: KeyState, time: u32) {
+        self.note_activity();
+        self.key(keycode, state, time, true);
+    }
+
+    pub(crate) fn key(&mut self, keycode: Keycode, state: KeyState, time: u32, bindings: bool) {
+        self.release_ime_grab_if_protected();
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.seat.get_keyboard().unwrap();
+        let locked = self.is_locked();
         let action = keyboard.input::<Action, _>(self, keycode, state, serial, time, |_, mods, handle| {
-            if state != KeyState::Pressed {
+            if state != KeyState::Pressed || !bindings {
                 return FilterResult::Forward;
             }
             match binding(mods, handle.modified_sym().raw()) {
+                Some(action @ Action::SwitchVt(_)) => FilterResult::Intercept(action),
+                Some(_) if locked => FilterResult::Forward,
                 Some(action) => FilterResult::Intercept(action),
                 None => FilterResult::Forward,
             }
@@ -138,6 +161,7 @@ impl Ede {
                     switch(vt);
                 }
             }
+            Action::Lock => self.request_lock(),
             Action::Close => self.close_focused(),
             Action::Tile(tile) => {
                 if let Some(w) = self.focused_window() {
@@ -182,6 +206,7 @@ fn binding(mods: &ModifiersState, sym: u32) -> Option<Action> {
     match (mods.alt, mods.logo, mods.ctrl, mods.shift, sym) {
         (false, true, false, true, keysyms::KEY_E) => Some(Action::Quit),
         (true, false, false, false, keysyms::KEY_F4) => Some(Action::Close),
+        (false, true, false, false, keysyms::KEY_l) => Some(Action::Lock),
         (false, true, false, false, keysyms::KEY_Left) => Some(Action::Tile(Tile::Left)),
         (false, true, false, false, keysyms::KEY_Right) => Some(Action::Tile(Tile::Right)),
         (false, true, false, false, keysyms::KEY_Up) => Some(Action::Tile(Tile::Maximized)),

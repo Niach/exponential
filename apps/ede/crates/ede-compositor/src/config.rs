@@ -18,6 +18,38 @@ pub struct Config {
     pub background: String,
     /// Run X11 apps through Xwayland.
     pub xwayland: bool,
+    pub lock: Lock,
+    pub idle: Idle,
+    pub protected: Protected,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Lock {
+    /// The ext-session-lock client Super+L, idle and suspend start, e.g.
+    /// `["swaylock", "-f"]`. Empty = nothing locks until the shell's lock
+    /// screen exists.
+    pub command: Vec<String>,
+    /// Lock before the machine suspends (logind PrepareForSleep) and on
+    /// `loginctl lock-session` (udev backend).
+    pub on_suspend: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Idle {
+    /// Seconds without input before the lock command runs; 0 = never.
+    /// Idle inhibitors (a video playing) hold it off.
+    pub lock_after: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Protected {
+    /// More app ids (X11: WM_CLASS) that are never captured, lent or driven,
+    /// on top of the built-in list (polkit, keyring and password prompts,
+    /// password managers).
+    pub app_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -55,6 +87,9 @@ impl Default for Config {
             windows: Windows::default(),
             background: "#0a0a0a".into(),
             xwayland: true,
+            lock: Lock::default(),
+            idle: Idle::default(),
+            protected: Protected::default(),
         }
     }
 }
@@ -68,6 +103,18 @@ impl Default for Keyboard {
             repeat_delay: 400,
             repeat_rate: 30,
         }
+    }
+}
+
+impl Default for Lock {
+    fn default() -> Self {
+        Self { command: Vec::new(), on_suspend: true }
+    }
+}
+
+impl Default for Idle {
+    fn default() -> Self {
+        Self { lock_after: 600 }
     }
 }
 
@@ -137,9 +184,19 @@ mod tests {
     }
 
     #[test]
+    fn lock_idle_and_protected_apps() {
+        let cfg = Config::parse("[lock]\ncommand = [\"swaylock\", \"-f\"]\n[idle]\nlock_after = 0\n[protected]\napp_ids = [\"org.example.Bank\"]\n").unwrap();
+        assert_eq!(cfg.lock.command, ["swaylock", "-f"]);
+        assert!(cfg.lock.on_suspend);
+        assert_eq!(cfg.idle.lock_after, 0);
+        assert_eq!(cfg.protected.app_ids, ["org.example.Bank"]);
+    }
+
+    #[test]
     fn typos_are_errors_not_silent_defaults() {
         assert!(Config::parse("[windows]\nsnap_treshold = 3\n").is_err());
         assert!(Config::parse("background = \"red\"\n").is_err());
+        assert!(Config::parse("[lock]\ncomand = []\n").is_err());
     }
 
     #[test]

@@ -7,7 +7,7 @@ libraries, never the other way round.
 | Crate | Role |
 |---|---|
 | `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
-| `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
+| `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## Run it nested (Cinnamon/X11)
 
@@ -39,7 +39,7 @@ serves `$XDG_RUNTIME_DIR/wayland-N`. Close the window to quit.
 
 Bindings: Alt+drag moves a window, dropping it on a side edge tiles it to a
 half (corners = quarter, top = maximize), Super+Left/Right tile, Super+Up
-maximizes, Super+Down restores, Alt+F4 closes, Super+Shift+E quits
+maximizes, Super+Down restores, Alt+F4 closes, Super+L locks, Super+Shift+E quits
 (logs out of the session), Ctrl+Alt+F1…F12 switch VTs (udev).
 
 ## Run it as the session (a TTY)
@@ -89,12 +89,54 @@ repeat_rate = 30
 [windows]
 snap_threshold = 12   # px; 0 = off
 edge_tiling = true
+
+[lock]
+command = ["swaylock", "-f", "-c", "000000"]   # any ext-session-lock client; empty = no locking
+on_suspend = true     # lock before suspend and on `loginctl lock-session` (udev)
+
+[idle]
+lock_after = 600      # seconds without input; 0 = never
+
+[protected]
+app_ids = ["org.example.Bank"]   # on top of the built-in list
 ```
+
+## Lock, idle, input methods, protected surfaces
+
+The lock screen is a client of `ext-session-lock` (the eUI shell's, later;
+`swaylock` today). From the lock request on, every output draws only that
+client's lock surface (black until it draws), only it gets keys and clicks,
+and bindings are off except Ctrl+Alt+F1…F12. If the lock client crashes the
+session stays locked (black) until a new lock client takes over; a second
+client can neither lock over it nor unlock it. Super+L, `[idle] lock_after`
+(held off by idle inhibitors such as a playing video), `loginctl
+lock-session` and suspend run `[lock] command`; before suspend a logind delay
+inhibitor waits up to 2 s for the lock to show. `ext-idle-notify` is there for
+the shell's screen blanking.
+
+Protected surfaces are never captured, lent or driven: the lock screen,
+polkit and keyring prompts, pinentry, ssh askpass and password managers
+(`ede_compositor::protected::BUILTIN`, matched by app id, WM_CLASS or the
+process's executable), plus `[protected] app_ids`. Captures draw them black
+(`backend::capture_elements`; a locked session is black altogether), agent
+input to them is refused, a virtual keyboard cannot type into them, and an
+input method loses its keyboard grab and stays off while one has focus.
+
+Try it on real hardware (Danny; never from a session another display server
+owns): `sudo apt install swaylock`, put the `[lock]` block above in the
+config, log into **Exponential**, then check: Super+L locks and the password
+unlocks; `loginctl lock-session` locks; `systemctl suspend` and wake shows
+the lock screen, never the desktop; `pkill -9 swaylock` while locked leaves a
+black screen, and `swaylock` from a VT (`WAYLAND_DISPLAY=wayland-1
+XDG_RUNTIME_DIR=/run/user/$UID swaylock`) takes over; a video in Firefox
+holds off the idle lock; fcitx5 or ibus types into a GTK app but not into a
+polkit prompt (`pkexec true`).
 
 ## Tests
 
 ```bash
 cargo test --workspace   # headless: real clients, real input, the pixels pixman drew
+                         # tests/lock.rs: a placeholder lock client, idle, protected windows
 ```
 
 Build deps: `libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config`

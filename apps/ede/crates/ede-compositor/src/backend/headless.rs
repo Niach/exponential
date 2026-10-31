@@ -72,8 +72,18 @@ impl Headless {
         state.remove_output(&output);
     }
 
-    /// A full repaint of output `index`.
+    /// A full repaint of output `index`, as the monitor shows it.
     pub fn capture(&mut self, state: &Ede, index: usize) -> Result<Frame, String> {
+        self.draw(state, index, false)
+    }
+
+    /// Output `index` as a screen capture sees it: protected windows black,
+    /// a locked session all black.
+    pub fn capture_shared(&mut self, state: &Ede, index: usize) -> Result<Frame, String> {
+        self.draw(state, index, true)
+    }
+
+    fn draw(&mut self, state: &Ede, index: usize, shared: bool) -> Result<Frame, String> {
         let output = self.outputs.get(index).ok_or("no such output")?.clone();
         let mode = output.current_mode().ok_or("output has no mode")?;
         let size: Size<i32, smithay::utils::Buffer> = (mode.size.w, mode.size.h).into();
@@ -82,7 +92,12 @@ impl Headless {
         {
             let mut fb = self.renderer.bind(&mut image).map_err(|e| e.to_string())?;
             let mut damage_tracker = OutputDamageTracker::from_output(&output);
-            super::render(state, &output, &mut self.renderer, &mut fb, 0, &mut damage_tracker).map_err(|e| format!("{e:?}"))?;
+            let rendered = if shared {
+                super::render_capture(state, &output, &mut self.renderer, &mut fb, 0, &mut damage_tracker)
+            } else {
+                super::render(state, &output, &mut self.renderer, &mut fb, 0, &mut damage_tracker)
+            };
+            rendered.map_err(|e| format!("{e:?}"))?;
         }
         let (w, h) = (mode.size.w, mode.size.h);
         let stride = image.stride() / 4;
@@ -180,6 +195,10 @@ impl Harness {
 
     pub fn capture(&self, output: usize) -> Frame {
         self.with_backend(move |state, headless| headless.capture(state, output)).expect("capture")
+    }
+
+    pub fn capture_shared(&self, output: usize) -> Frame {
+        self.with_backend(move |state, headless| headless.capture_shared(state, output)).expect("capture")
     }
 }
 
