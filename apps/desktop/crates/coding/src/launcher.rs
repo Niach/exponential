@@ -601,7 +601,7 @@ pub enum ResumeSeed {
 
 /// EXP-1426 part 4c: the agent runtime's resume handle is the engine's
 /// (`engine::ResumeHandle` re-exports it); the seed converts one-to-one.
-impl From<ResumeSeed> for exponential_agent_runtime::engine::launch::ResumeHandle {
+impl From<ResumeSeed> for eagent::engine::launch::ResumeHandle {
     fn from(seed: ResumeSeed) -> Self {
         match seed {
             ResumeSeed::Acp(id) => Self::Acp(id),
@@ -2909,7 +2909,7 @@ fn copy_claude_transcript(
 
 // EXP-761: the ONE claude transcript locator is the agent runtime's
 // (EXP-1426 part 4c).
-pub use exponential_agent_runtime::claude_transcript::locate_claude_transcript;
+pub use eagent::claude_transcript::locate_claude_transcript;
 
 /// Does claude still hold the recorded conversation? (`cwd` is what the
 /// record says; the transcript is found by session id, never by cwd —

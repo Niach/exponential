@@ -12,11 +12,11 @@
 
 // EXP-1426 part 4c: the aside's tool posture is the claude adapter's, so
 // it moved with it into the agent runtime.
-pub use exponential_agent_runtime::engine::launch::{ASIDE_DISALLOWED_TOOLS, ASIDE_MCP_CONFIG};
+pub use eagent::engine::launch::{ASIDE_DISALLOWED_TOOLS, ASIDE_MCP_CONFIG};
 
 // EXP-1426 part 4d: the one-shot state moved to the agent runtime with the
 // host that reads it.
-pub use exponential_agent_runtime::engine::aside::{AsideEnd, AsideState};
+pub use eagent::engine::aside::{AsideEnd, AsideState};
 
 #[cfg(test)]
 mod tests {

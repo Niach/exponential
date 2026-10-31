@@ -3,7 +3,7 @@
 //!
 //! EXP-1426: the pure half (the [`Redactor`], the relay caps,
 //! [`worktree_diff`], [`SessionAgent`], the normalisers and truncation
-//! helpers) lives in `exponential_agent_runtime::wire::activity` and is
+//! helpers) lives in `eagent::wire::activity` and is
 //! re-exported here, so `steer::activity::*` paths keep resolving. What is
 //! left is what needs the publisher, `api` or `coding`:
 //!
@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use crate::frames::ActivityEvent;
 use crate::publisher::ActivitySender;
 
-pub use exponential_agent_runtime::wire::activity::*;
+pub use eagent::wire::activity::*;
 
 /// EXP-355: cooldown between re-attempts of a `needs_input` forward whose
 /// write failed — fire-and-forget on flips used to stick the synced badge on
@@ -408,7 +408,7 @@ impl Default for StatusForwarder {
 
 
 /// EXP-1426: the `sessions.report{blocked}` conversion of the core's
-/// [`SessionBlocked`] (pure data in `exponential_agent_runtime::wire`).
+/// [`SessionBlocked`] (pure data in `eagent::wire`).
 pub trait SessionBlockedReport {
     fn report_input(&self, handled: Option<bool>) -> api::session_device::BlockedInput;
 }
@@ -505,7 +505,7 @@ impl Default for BlockedForwarder {
 }
 
 // EXP-1426: `iso_from_unix_millis` + `now_iso` are the core's (pure std,
-// `exponential_agent_runtime::wire::activity`); `iso_tests` below pins them
+// `eagent::wire::activity`); `iso_tests` below pins them
 // to the usage collector's chrono formatter.
 
 #[cfg(test)]
@@ -946,6 +946,6 @@ mod iso_tests {
         }
         let now = now_iso();
         let parsed = coding::agent_accounts::unix_millis_from_iso(&now).expect("now parses");
-        assert_eq!(exponential_agent_runtime::wire::activity::iso_from_millis(parsed).as_deref(), Some(now.as_str()));
+        assert_eq!(eagent::wire::activity::iso_from_millis(parsed).as_deref(), Some(now.as_str()));
     }
 }

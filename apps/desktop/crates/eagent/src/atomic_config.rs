@@ -5,7 +5,7 @@
 //! (`~/.claude.json`, codex `config.toml`) hold OAuth state and API keys, so
 //! they must never come out more readable than they went in.
 //!
-//! EXP-766: the writer itself now lives in [`crate::atomic_file`] (EXP-1426: moved from `api` into agent-runtime) — the crate
+//! EXP-766: the writer itself now lives in [`crate::atomic_file`] (EXP-1426: moved from `api` into eagent) — the crate
 //! below everything, so `api::device_identity` and the CLI's prefs share it —
 //! and picks its own UNIQUE temp name (a fixed one let two processes collide
 //! on the same temp) plus an fsync before the rename.

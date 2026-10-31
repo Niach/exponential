@@ -24,7 +24,7 @@ use crate::settings::Settings;
 
 // EXP-1426 part 4c: the MCP wiring vocabulary (the per-agent posture, the
 // launch's team servers, the codex renderings) is the agent runtime's.
-pub use exponential_agent_runtime::mcp::{
+pub use eagent::mcp::{
     bearer_env_reference, codex_mcp_entries, codex_mcp_servers_toml, env_reference,
     toml_basic_string, AgentMcp, CodexMcpEntry, McpServerWire, McpWireTransport, MCP_TOKEN_ENV,
 };

@@ -36,17 +36,17 @@ pub mod adapters;
 pub mod aside;
 // EXP-1206: the human-readable head of a command line (`git status`), the
 // detail a Bash row wears when the agent described nothing. Pure.
-pub use exponential_agent_runtime::command_head;
+pub use eagent::command_head;
 // EXP-936: the run's own compaction ask — the verdict policy and the two
 // steps the command loop takes for an accepted one. Pure; `host` drives it.
 // EXP-1426 part 4: moved to the agent runtime with the rest of the
 // server-free core below (transport, sink, local feed, stall, api_retry).
-pub use exponential_agent_runtime::engine::compaction;
+pub use eagent::engine::compaction;
 // EXP-1051: the `context_layout` frame's arithmetic — bytes → tokens, the
 // launcher's layers as estimated segments, and `base` by subtraction from the
 // prefix the agent measured. Pure; the adapters stamp it, the mapper emits it.
 // EXP-1426 part 4b: moved to the agent runtime with the mapper.
-pub use exponential_agent_runtime::engine::context_layout;
+pub use eagent::engine::context_layout;
 // EXP-920: the entity refs an Exponential MCP answer names, distilled on the
 // device for every client's chips (fixture-locked with web `lib/emcp/preview.ts`).
 // EXP-1426 part 4b: the rule is the core's; this keeps the name-keyed entry.
@@ -55,23 +55,23 @@ pub mod exp_tool_refs;
 // re-export them beside Exponential's start, exit and `RunBackend` (lifecycle).
 pub mod host;
 pub mod lifecycle;
-pub use exponential_agent_runtime::engine::local;
+pub use eagent::engine::local;
 // EXP-1426 part 4b: the core's mapper plus Exponential's `HostTools`.
 pub mod mapper;
 pub mod outbox;
 /// NEW-17: each agent run in its own systemd scope on Linux.
-pub use exponential_agent_runtime::run_scope;
+pub use eagent::run_scope;
 pub mod session;
-pub use exponential_agent_runtime::engine::sink;
+pub use eagent::engine::sink;
 // FEED-61: a turn that died on a transient API error is re-prompted by the
 // engine after a backoff. Pure; the lifecycle ticker drives it.
-pub use exponential_agent_runtime::engine::api_retry;
+pub use eagent::engine::api_retry;
 // FEED-25: the stall watchdog — a live turn silent for `STALL_AFTER` is
 // interrupted, one that ignores the interrupt for `STALL_KILL_GRACE` ends the
 // run with a reason. Pure; the lifecycle ticker drives it.
-pub use exponential_agent_runtime::engine::stall;
+pub use eagent::engine::stall;
 pub mod stop_save;
-pub use exponential_agent_runtime::engine::transport;
+pub use eagent::engine::transport;
 
 pub use adapters::{Adapter, AdapterKind, AdapterSpec};
 pub use context_layout::{

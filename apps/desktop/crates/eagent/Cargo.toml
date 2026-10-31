@@ -1,0 +1,39 @@
+[package]
+name = "eagent"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "The single-account agent core shared by Exponential and spezl: spawn the user's own unmodified claude/codex, stream, session history, the login PTY, MCP wiring. No server."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+# EXP-1420: a git dependency on `eagent-v<version>` tags
+# (release-eagent.yml, docs/libraries.md), never crates.io.
+publish = false
+
+# THE RULE (gated by `tests/dependency_gate.rs`): this crate depends on no
+# Exponential app crate (api, steer, domain, coding, engine, terminal, ui, app,
+# cli) and on no UI toolkit. Server coupling lives behind the traits the
+# README plans; Exponential implements them in `coding`/`engine`, spezl
+# implements them locally.
+[dependencies]
+serde_json = { workspace = true }
+# codex `config.toml` trust entries (codex_trust).
+toml = "0.8"
+dirs = { workspace = true }
+log = "0.4"
+libc = { workspace = true }
+# EXP-1426 (part 3): agent identity serde, the bounded doctor probes and the
+# single-account login PTY (already in the tree via `terminal`/`coding`).
+serde = { workspace = true }
+wait-timeout = "0.2"
+portable-pty = { workspace = true }
+# The event vocabulary (wire): the redactor's patterns.
+regex = "1"
+# The ACP engine core (engine::): the transport's bounded line channels.
+flume = { workspace = true }
+# EXP-1426 part 4b: the mapper speaks ACP's `SessionUpdate` vocabulary.
+agent-client-protocol = { workspace = true }
+# EXP-1426 part 4c: the adapters (ACP connection futures, the codex
+# notification pumps, the child-exit race) and their fresh session ids.
+tokio = { workspace = true }
+uuid = { workspace = true }

@@ -42,7 +42,7 @@ Exponential is built from open libraries it shares with other apps ([docs/librar
 | **eNet** | Peer to peer, end-to-end encrypted networking on iroh: sealed sessions, steering, calls, sealed push | `apps/desktop/crates/enet-core*` | [exponential.at/net](https://exponential.at/net/) |
 | **eMCP** | MCP on rmcp: a loopback server, a client with OAuth and a vault, the app tool contract | `apps/desktop/crates/emcp`, `packages/emcp` | [exponential.at/mcp](https://exponential.at/mcp/) |
 | **eApps** | The app package format: templates, bindings, records and tools as data | `packages/exponential-ui/src/host` | [exponential.at/apps](https://exponential.at/apps/) |
-| **eAgent** | The server-free agent core: run the user's own Claude Code or Codex (today `exponential-agent-runtime`) | `apps/desktop/crates/exponential-agent-runtime` | [exponential.at/agent](https://exponential.at/agent/) |
+| **eAgent** | The server-free agent core: run the user's own Claude Code or Codex | `apps/desktop/crates/eagent` | [exponential.at/agent](https://exponential.at/agent/) |
 | **eCore** | The plain types the modules share, one contract for Rust, TS, Swift and Kotlin (unreleased) | `apps/desktop/crates/ecore`, `packages/ecore` | [exponential.at/core](https://exponential.at/core/) |
 
 In progress: **eDE**, the desktop of ExponentialOS (`apps/ede`, not released; [the vision](https://exponential.at/blog/exponentialos/)).

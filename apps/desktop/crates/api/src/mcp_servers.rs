@@ -444,7 +444,7 @@ pub struct McpLaunchServer {
 }
 
 /// FEED-73: the member a resolved launch entry acts as (EXP-1426: the core's).
-pub use exponential_agent_runtime::mcp::McpActor;
+pub use eagent::mcp::McpActor;
 
 /// FEED-73: one team member's standing on one picked server, for an ACTION
 /// run's roster (`[]` for every other run).

@@ -10,13 +10,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub use exponential_agent_runtime::engine::host::*;
+pub use eagent::engine::host::*;
 
 /// How a run finished. `end` is the result of the row's last status write
 /// (EXP-1292: `coding::end_session` for a thread session, the idle report
 /// for an agent root), carried here so the CLI can apply
 /// `registry::end_outcome_resolves` (EXP-641) without writing it twice.
-pub type EngineExit = exponential_agent_runtime::engine::host::EngineExit<Result<(), api::error::ApiError>>;
+pub type EngineExit = eagent::engine::host::EngineExit<Result<(), api::error::ApiError>>;
 
 /// The one callback the two hosts implement. Fired ONCE per run, off the
 /// engine thread — the desktop marshals to the gpui foreground itself.

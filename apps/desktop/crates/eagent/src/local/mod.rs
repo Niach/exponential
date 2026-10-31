@@ -2,9 +2,9 @@
 //! at a time, no Exponential server — what spezl builds on.
 //!
 //! ```no_run
-//! use exponential_agent_runtime::agent::CodingAgent;
-//! use exponential_agent_runtime::local::{LocalAgent, RunRequest};
-//! use exponential_agent_runtime::wire::{ActivityEvent, TurnState};
+//! use eagent::agent::CodingAgent;
+//! use eagent::local::{LocalAgent, RunRequest};
+//! use eagent::wire::{ActivityEvent, TurnState};
 //!
 //! let agent = LocalAgent::new(CodingAgent::Claude);
 //! if agent.signed_in() != Some(true) {
