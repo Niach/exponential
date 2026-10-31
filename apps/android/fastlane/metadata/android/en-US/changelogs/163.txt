@@ -1,0 +1,3 @@
+- Watching a session connects to the device that runs it again
+- Sessions stream straight from the device that runs them
+- Session messages are sealed on your devices, so the server can no longer read them

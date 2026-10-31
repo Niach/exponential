@@ -53,7 +53,12 @@ public final class EnetInstallNode: InstallNodeDriver {
     }
 
     public func allowedPeers() -> [String] { node.allowedPeers() }
-    public func allow(peer: String) throws { try node.allowPeer(peer: peer) }
+    /// EXP-1471: an allowed peer is also taught its address on our relay;
+    /// without it every dial fails with "No addressing information".
+    public func allow(peer: String) throws {
+        try node.allowPeer(peer: peer)
+        if let ticket = RelayTicket.encode(endpointId: peer) { _ = try? node.addTicket(ticket: ticket) }
+    }
     public func revoke(peer: String) throws { try node.revokePeer(peer: peer) }
     public func shutdown() async { try? await node.shutdown() }
 
