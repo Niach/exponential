@@ -240,7 +240,7 @@ fn nudge_running_daemon(data_dir: &std::path::Path, out: &mut impl std::io::Writ
 fn live_sessions_notice(pid: u32, live: usize, queued: bool, restart_hint: &str) -> String {
     let grace_hours = super::daemon::UPDATE_IDLE_GRACE.as_secs() / 3600;
     let mut text = format!(
-        "The daemon (pid {pid}) still runs the previous version and has {live} live session(s); it restarts once they end or sit idle for {grace_hours}h."
+        "The daemon (pid {pid}) still runs the previous version and has {live} live session(s); it restarts once they end or sit idle for {grace_hours}h (a team agent's, between turns)."
     );
     if queued {
         text.push_str(
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn the_live_sessions_notice_names_the_idle_rule_and_the_queue() {
         let queued = live_sessions_notice(42, 3, true, "systemctl --user restart exponential-daemon");
-        assert!(queued.starts_with("The daemon (pid 42) still runs the previous version and has 3 live session(s); it restarts once they end or sit idle for 2h."), "{queued}");
+        assert!(queued.starts_with("The daemon (pid 42) still runs the previous version and has 3 live session(s); it restarts once they end or sit idle for 2h (a team agent's, between turns)."), "{queued}");
         assert!(queued.contains("The update is queued"), "{queued}");
         assert!(queued.contains("\"Update now\""), "{queued}");
         assert!(queued.ends_with("To restart it by hand now: systemctl --user restart exponential-daemon"), "{queued}");
