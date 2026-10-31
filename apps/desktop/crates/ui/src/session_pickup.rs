@@ -56,6 +56,8 @@ struct PickupHost {
     stalled: HashMap<String, String>,
     /// A pass is already scheduled for the next effect cycle.
     scheduled: bool,
+    /// #EXP-1492: a re-claim retry pass is armed ([`retry_reclaim`]).
+    reclaim_retry: bool,
 }
 
 impl Global for PickupHost {}
@@ -76,6 +78,7 @@ pub(crate) fn install(cx: &mut App) {
         in_flight: HashSet::new(),
         stalled: HashMap::new(),
         scheduled: false,
+        reclaim_retry: false,
     });
     cx.spawn(async move |cx| {
         while let Ok((prepared, reply)) = inbox.recv_async().await {
@@ -315,8 +318,11 @@ fn run_pass(cx: &mut App) {
                 woke(&session_id, pickup::deliver_messages(&session_id, messages, &deps))
             }
             // EXP-1341: the registry backs a failed revive off on its own.
+            // #EXP-1492: a claim another process here holds retries on the
+            // timer (that process may be on its way out).
             PickupAction::Revive { session } => match pickup::revive_session(session, &deps) {
                 Ok(()) => StepOutcome::Progressed,
+                Err(pickup::WakeError::Contended) => StepOutcome::Failed,
                 Err(err) => {
                     log::warn!("[pickup] reviving {session_id}: {err}");
                     StepOutcome::Progressed
@@ -326,6 +332,7 @@ fn run_pass(cx: &mut App) {
             // own (`revive_held`), like a revive.
             PickupAction::Continue { session } => match pickup::continue_interrupted(session, &deps) {
                 Ok(()) => StepOutcome::Progressed,
+                Err(pickup::WakeError::Contended) => StepOutcome::Failed,
                 Err(err) => {
                     log::warn!("[pickup] continuing {session_id}: {err}");
                     StepOutcome::Progressed
@@ -385,6 +392,7 @@ fn reclaim_left_behind(
     let mut mid_turn = Vec::new();
     let mut idle = Vec::new();
     let mut unstarted = Vec::new();
+    let mut contended = false;
     for row in sessions.iter().filter(|row| left.contains(&row.id)) {
         let open = row.status_is(domain::contract::SESSION_STATUS_RUNNING)
             || row.status_is(domain::contract::SESSION_STATUS_IDLE);
@@ -402,6 +410,7 @@ fn reclaim_left_behind(
         // later — the next pass within the grace re-claims it then.
         if !matches!(pickup::ClaimLock::try_acquire(&data_dir, &row.id), Ok(Some(_))) {
             log::info!("[pickup] reclaim: session {} runs in another process here — skipped", row.id);
+            contended = true;
             continue;
         }
         crate::session_registry::settle_left_behind(&row.id);
@@ -420,6 +429,12 @@ fn reclaim_left_behind(
             }
             pickup::ReclaimStep::Unstarted => unstarted.push(row.id.clone()),
         }
+    }
+    // #EXP-1492: passes run on row changes, and a sibling's claim going
+    // stale is none: without this re-pass the grace ran out with the
+    // session re-claimed by nobody.
+    if contended {
+        retry_reclaim(cx);
     }
     let Some(trpc) = queries::trpc_client(cx).map(Arc::new) else {
         return;
@@ -474,6 +489,28 @@ fn reclaim_left_behind(
         });
     }
 }
+
+/// #EXP-1492: one pass [`RECLAIM_RETRY`] from now for the left-behind
+/// sessions a sibling process still held (armed once at a time).
+fn retry_reclaim(cx: &mut App) {
+    let host = cx.global_mut::<PickupHost>();
+    if host.reclaim_retry {
+        return;
+    }
+    host.reclaim_retry = true;
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(RECLAIM_RETRY).await;
+        let _ = cx.update(|cx| {
+            cx.global_mut::<PickupHost>().reclaim_retry = false;
+            schedule(cx);
+        });
+    })
+    .detach();
+}
+
+/// #EXP-1492: how soon a skipped re-claim tries again (the app before a
+/// self-update exits within seconds).
+const RECLAIM_RETRY: Duration = Duration::from_secs(5);
 
 /// NEW-5: a re-claimed session between turns — idle and not working.
 /// Stamped with this host's device id so the server's stale-host guard
