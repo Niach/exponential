@@ -314,3 +314,50 @@ fn identity_bytes_round_trip() {
     assert_eq!(back.endpoint_id(), id.endpoint_id());
     assert!(Identity::from_slice(&[1, 2, 3]).is_err());
 }
+
+/// Both allowed, but only `b` knows how to reach `a` (a browser: `a` learns
+/// its path from `b`'s own dial).
+fn meet(a: &Node, b: &Node) {
+    b.add_ticket(&a.ticket());
+    a.access().allow(b.endpoint_id());
+    b.access().allow(a.endpoint_id());
+}
+
+/// EXP-1475: a peer that died without closing (a reloaded browser tab) and
+/// came back under the same identity dials us first; our next message to it
+/// must not wait on the dead node's cached stream.
+#[tokio::test(flavor = "multi_thread")]
+async fn chat_to_a_restarted_peer_does_not_wait_on_the_dead_link() {
+    let (a, mut ea) = node().await;
+    let secret = Identity::generate().to_bytes();
+    // b runs on its own runtime: dropping that runtime kills it mid-flight,
+    // no CONNECTION_CLOSE sent (its socket leaks, unread).
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let b = rt.spawn(async move { Node::start(NetConfig::local_only(), Identity::from_bytes(secret)).await.unwrap() }).await.unwrap();
+    meet(&a, &b);
+    let to_a = a.endpoint_id();
+    let b = rt
+        .spawn(async move {
+            b.send_chat(to_a, b"join".to_vec()).await.unwrap();
+            b
+        })
+        .await
+        .unwrap();
+    a.send_chat(b.endpoint_id(), b"replay".to_vec()).await.unwrap();
+    // Gone without a close: the tab was reloaded.
+    std::mem::forget(b);
+    tokio::task::spawn_blocking(move || rt.shutdown_background()).await.unwrap();
+    let b2 = Node::start(NetConfig::local_only(), Identity::from_bytes(secret)).await.unwrap();
+    meet(&a, &b2);
+    b2.send_chat(a.endpoint_id(), b"join again".to_vec()).await.unwrap();
+    next_matching(&mut ea, |e| match e {
+        Event::Chat { message, .. } if message.body == b"join again" => Some(()),
+        _ => None,
+    })
+    .await;
+    let started = std::time::Instant::now();
+    a.send_chat(b2.endpoint_id(), b"replay again".to_vec()).await.expect("delivered");
+    assert!(started.elapsed() < Duration::from_secs(5), "waited {:?} on the dead link", started.elapsed());
+    a.shutdown().await.unwrap();
+    b2.shutdown().await.unwrap();
+}
