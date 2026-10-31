@@ -1,3 +1,4 @@
+import { viaAppOf } from "@/lib/emcp/via-app"
 import { z } from "zod"
 import { boardIconSchema } from "@exp/db-schema/domain"
 import { TRPCError } from "@trpc/server"
@@ -246,6 +247,7 @@ function buildCtx(user: McpUser, request: Request): Context {
     db,
     request,
     viaMcp: true,
+    ...(viaAppOf(request) ? { viaAppId: viaAppOf(request) } : {}),
     session: {
       user: {
         id: user.id,

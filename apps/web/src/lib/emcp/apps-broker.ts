@@ -59,6 +59,7 @@ import { caller as trpcCaller } from "@/lib/emcp/tools"
 import { resolveForLaunch } from "@/lib/emcp/upstream/credentials"
 import { callUpstreamTool } from "@/lib/emcp/upstream/mcp-client"
 import { appBaseUrl } from "@/lib/notification-email-policy"
+import { requestViaApp } from "@/lib/emcp/via-app"
 
 /** The endpoint's path (Settings › MCP shows it). */
 export const APPS_MCP_PATH = `/api/mcp/apps`
@@ -324,10 +325,11 @@ async function runRecords(ctx: BrokerContext, tool: BrokerTool, input: Record<st
 
 /** One of Exponential's own tools, run in-process as the member, confined to
  * the grant's team (the same handlers, checks and attribution as /api/mcp). */
-async function callExponentialTool(ctx: BrokerContext, name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function callExponentialTool(ctx: BrokerContext, appId: string, name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const access = buildMcpAccess({ allTeams: false, teamIds: [ctx.teamId], boardIds: [] }, new Map())
   const gates = await resolveMcpToolGates(ctx.user.id, access, null)
-  const server = createExponentialMcpServer(ctx.user, ctx.request, access, null, gates)
+  // #VAPP-186: what this run writes reads "via <app>".
+  const server = createExponentialMcpServer(ctx.user, requestViaApp(ctx.request, appId), access, null, gates)
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: `exponential-apps-broker`, version: `1.0.0` })
   try {
@@ -348,7 +350,7 @@ async function runAction(ctx: BrokerContext, tool: BrokerTool, input: Record<str
   }
   const target = parseActionName(run.action)!
   try {
-    const result = await callExponentialTool(ctx, target.tool, target.op ? { ...args, op: target.op } : args)
+    const result = await callExponentialTool(ctx, tool.app.id, target.tool, target.op ? { ...args, op: target.op } : args)
     return withProvenance(tool, result)
   } catch (e) {
     return brokerError(tool, `toolError`, e instanceof Error ? e.message.slice(0, 500) : `the operation failed`)

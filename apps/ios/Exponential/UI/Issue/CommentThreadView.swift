@@ -87,6 +87,8 @@ struct CommentThreadView: View {
     /// #EXP-1383: every synced agent definition — agent actors (events,
     /// comments, the creation row) and agent assignees resolve against it.
     @State private var agents: [String: AgentDefinitionEntity] = [:]
+    /// #VAPP-186: the synced, live apps' names by id ("via <app>").
+    @State private var appNames: [String: String] = [:]
     @State private var labels: [String: LabelEntity] = [:]
     @State private var boards: [String: BoardEntity] = [:]
     /// EXP-630: every synced team row — the `estimate_changed` rows render
@@ -428,6 +430,7 @@ struct CommentThreadView: View {
                 issueId: issue.id,
                 users: users,
                 agents: agents,
+                appNames: appNames,
                 reporterName: reporterName,
                 currentUserId: deps.auth.userId,
                 editingCommentId: editingCommentId,
@@ -585,6 +588,19 @@ struct CommentThreadView: View {
             do {
                 for try await rows in userObs.values(in: pool) {
                     self.users = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                }
+            } catch {}
+        })
+
+        // #VAPP-186: the apps a comment's `viaAppId` resolves to (a deleted
+        // app falls back to "via MCP").
+        let appObs = ValueObservation.tracking { db in
+            try AppEntity.filter(Column("deleted_at") == nil).fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in appObs.values(in: pool) {
+                    self.appNames = Dictionary(rows.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
                 }
             } catch {}
         })
@@ -752,6 +768,8 @@ private struct RegularCommentRow: View {
     let users: [String: UserEntity]
     /// #EXP-1383: the synced agents an agent author resolves to.
     let agents: [String: AgentDefinitionEntity]
+    /// #VAPP-186: the synced apps' names a `viaAppId` resolves to.
+    let appNames: [String: String]
     /// SLOP-4: the submission's reporter, named on `source == reporter` rows.
     let reporterName: String?
     let currentUserId: String?
@@ -816,6 +834,7 @@ private struct RegularCommentRow: View {
             attachments: attachmentsByComment[row.id] ?? [],
             issueId: issueId,
             authorName: commentAuthorName(row, users: users, agents: agents, reporterName: reporterName),
+            viaAppName: row.viaAppId.flatMap { appNames[$0] },
             isAuthor: row.authorId != nil && row.authorId == currentUserId,
             isEditing: editingCommentId == row.id,
             editEditor: editEditor,
@@ -858,6 +877,8 @@ private struct CommentCardContent: View {
     /// The card's title — resolved by `commentAuthorName` (member, pseudonym,
     /// reporter or former member).
     let authorName: String
+    /// #VAPP-186: the app whose MCP tool wrote it; nil = "via MCP".
+    let viaAppName: String?
     let isAuthor: Bool
     let isEditing: Bool
     let editEditor: IssueEditorModel
@@ -914,9 +935,13 @@ private struct CommentCardContent: View {
     }
 
     /// The caption after the time: `reporter`, then `to reporter` (SLOP-4),
-    /// then `via MCP` (EXP-741); every part that applies shows, or none.
+    /// then `via MCP` (EXP-741) or `via <app>` (#VAPP-186); every part that
+    /// applies shows, or none.
     private var sourceCaption: String? {
-        ReporterReply.caption(source: comment.source, audience: comment.audience, authorAgentId: comment.authorAgentId)
+        ReporterReply.caption(
+            source: comment.source, audience: comment.audience,
+            authorAgentId: comment.authorAgentId, viaAppName: viaAppName
+        )
     }
 
     var body: some View {

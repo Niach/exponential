@@ -2898,6 +2898,24 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v88 (#VAPP-186): `comments.via_app_id` — the app whose MCP tool
+        // wrote the comment ("via <app>"); the comments cursor resets so
+        // synced rows re-arrive carrying it.
+        migrator.registerMigration("v88_comment_via_app") { db in
+            guard try db.tableExists("comments") else { return }
+            guard try db.columns(in: "comments").contains(where: { $0.name == "via_app_id" }) == false else { return }
+            try db.alter(table: "comments") { t in
+                t.add(column: "via_app_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'comments'
+                    """)
+            }
+        }
+
         return migrator
     }
 

@@ -1354,6 +1354,7 @@ impl IssueTimeline {
         user_map: &'a HashMap<String, User>,
         agents: &[AgentActorRow],
         current_user_id: Option<&str>,
+        via_app_name: Option<String>,
     ) -> CommentCardProps<'a> {
         // #EXP-1383 (agent-settings.json `actor`): an agent's session wrote
         // it → the card names the AGENT and wears its mark.
@@ -1384,6 +1385,7 @@ impl IssueTimeline {
             comment,
             author,
             author_agent,
+            via_app_name,
             reporter_name: self
                 .reporter
                 .as_ref()
@@ -1699,13 +1701,25 @@ impl Render for IssueTimeline {
                     }
                 }
                 TimelineItem::Comment(comment) => {
-                    let card = self.card_props(comment, &user_map, &agents, current_user_id.as_deref());
+                    let card = self.card_props(
+                        comment,
+                        &user_map,
+                        &agents,
+                        current_user_id.as_deref(),
+                        crate::comments::via_app_name(comment, cx),
+                    );
                     let replies: Vec<CommentCardProps<'_>> = replies_by_parent
                         .get(&comment.id)
                         .map(|list| {
                             list.iter()
                                 .map(|reply| {
-                                    self.card_props(reply, &user_map, &agents, current_user_id.as_deref())
+                                    self.card_props(
+                                        reply,
+                                        &user_map,
+                                        &agents,
+                                        current_user_id.as_deref(),
+                                        crate::comments::via_app_name(reply, cx),
+                                    )
                                 })
                                 .collect()
                         })

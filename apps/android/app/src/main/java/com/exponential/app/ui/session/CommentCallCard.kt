@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.getCommentBodyText
+import com.exponential.app.data.db.AppEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.scopedQuery
@@ -144,6 +145,15 @@ fun CommentCallRow(item: AgentFeedItem.Tool) {
             resolver.db.scopedQuery<UserEntity?>(null) { it.userDao().observeById(authorId) }
         }
     }.collectAsState(null)
+    // #VAPP-186: the app whose MCP tool wrote it ("via <app>").
+    val viaAppId = comment?.viaAppId
+    val viaApp by remember(resolver, viaAppId) {
+        if (resolver == null || viaAppId == null) {
+            flowOf(null)
+        } else {
+            resolver.db.scopedQuery<AppEntity?>(null) { it.appDao().observeById(viaAppId) }
+        }
+    }.collectAsState(null)
     val issueRefs = LocalIssueRefs.current
     val issue = remember(issueRefs, comment, target.issueKey) {
         val row = comment
@@ -167,7 +177,7 @@ fun CommentCallRow(item: AgentFeedItem.Tool) {
         else -> null
     }
     val caption = listOfNotNull(
-        if (row != null) commentCaption(row) else VIA_MCP,
+        if (row != null) commentCaption(row, viaApp?.name) else VIA_MCP,
         time?.takeIf { it.isNotEmpty() },
     ).joinToString(" · ")
     val navigator = LocalEntityNavigator.current

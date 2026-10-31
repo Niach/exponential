@@ -16,6 +16,9 @@ export type Context = {
   // attribution gates its host→requester swap on this; HTTP contexts leave
   // it undefined.
   viaMcp?: true
+  // #VAPP-186: the app whose MCP tool drives this call (the apps broker's
+  // in-process run, lib/emcp/via-app.ts); writes attribute "via <app>".
+  viaAppId?: string
   // FEED-76: the request carried a SCOPED personal `expu_` key — an MCP-only
   // credential, so `session` is null here; set by the HTTP context so the
   // 401 can say why instead of looking like a dead key.

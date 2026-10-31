@@ -298,6 +298,9 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "audience",
             // #EXP-1383: the agent whose session wrote it.
             "author_agent_id",
+            // #VAPP-186: the app whose MCP tool wrote it ("via <app>").
+            // `heal_missing_columns` ALTERs it onto existing store tables.
+            "via_app_id",
             "body",
             "edited_at",
             "created_at",
@@ -1261,6 +1264,7 @@ mod tests {
             ("issue_drafts", "assignee_agent_id"),
             ("issue_events", "actor_agent_id"),
             ("comments", "author_agent_id"),
+            ("comments", "via_app_id"),
         ] {
             assert!(shape_by_name(shape).unwrap().columns.contains(&column), "{shape} needs {column}");
         }

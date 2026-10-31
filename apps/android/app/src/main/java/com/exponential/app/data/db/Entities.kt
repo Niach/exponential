@@ -293,6 +293,9 @@ data class CommentEntity(
     // #EXP-1383: the agent whose session wrote it (the card names the agent
     // and wears its mark; `author_id` keeps the member for audit).
     @ColumnInfo(name = "author_agent_id") @SerialName("author_agent_id") @JsonNames("authorAgentId") val authorAgentId: String? = null,
+    // #VAPP-186: the app whose MCP tool wrote it ("via <app>"); SET NULL when
+    // the app goes.
+    @ColumnInfo(name = "via_app_id") @SerialName("via_app_id") @JsonNames("viaAppId") val viaAppId: String? = null,
 )
 
 enum class CommentKind { Regular }

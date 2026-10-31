@@ -1,0 +1,2 @@
+ALTER TABLE "comments" ADD COLUMN "via_app_id" uuid;--> statement-breakpoint
+ALTER TABLE "comments" ADD CONSTRAINT "comments_via_app_id_apps_id_fk" FOREIGN KEY ("via_app_id") REFERENCES "public"."apps"("id") ON DELETE set null ON UPDATE no action;

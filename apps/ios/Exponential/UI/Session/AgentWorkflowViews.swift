@@ -255,6 +255,8 @@ struct CommentCallRow: View {
     @Environment(\.accountId) private var accountId
     @State private var comment: CommentEntity?
     @State private var authorName: String?
+    /// #VAPP-186: the app whose MCP tool wrote it ("via <app>").
+    @State private var viaAppName: String?
     @State private var issueIdentifier: String?
 
     /// The contract `expToolDisplay` row of `exponential_comments_create`.
@@ -289,7 +291,8 @@ struct CommentCallRow: View {
         let source = ReporterReply.caption(
             source: comment?.source ?? DomainContract.commentSourceMcp,
             audience: comment?.audience ?? "team",
-            authorAgentId: comment?.authorAgentId
+            authorAgentId: comment?.authorAgentId,
+            viaAppName: viaAppName
         )
         let time: String? = if let comment {
             RelativeTime.long(wire: comment.createdAt)
@@ -350,20 +353,23 @@ struct CommentCallRow: View {
     /// name and its issue's identifier.
     private func observe() async {
         guard let commentId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
-        let observation = ValueObservation.tracking { db -> (CommentEntity?, String?, String?) in
-            guard let row = try CommentEntity.fetchOne(db, key: commentId) else { return (nil, nil, nil) }
+        let observation = ValueObservation.tracking { db -> (CommentEntity?, String?, String?, String?) in
+            guard let row = try CommentEntity.fetchOne(db, key: commentId) else { return (nil, nil, nil, nil) }
             let author = try row.authorId.flatMap { try UserEntity.fetchOne(db, key: $0) }
             let issue = try IssueEntity.fetchOne(db, key: row.issueId)
+            let app = try row.viaAppId.flatMap { try AppEntity.fetchOne(db, key: $0) }
+            let appName = app?.deletedAt == nil ? app?.name : nil
             // #EXP-1383: an agent's comment names the AGENT.
             if let agent = try row.authorAgentId.flatMap({ try AgentDefinitionEntity.fetchOne(db, key: $0) }) {
-                return (row, agent.name, issue?.identifier)
+                return (row, agent.name, issue?.identifier, appName)
             }
-            return (row, memberDisplayName(author, id: row.authorId), issue?.identifier)
+            return (row, memberDisplayName(author, id: row.authorId), issue?.identifier, appName)
         }
         do {
-            for try await (row, author, identifier) in observation.values(in: pool) {
+            for try await (row, author, identifier, appName) in observation.values(in: pool) {
                 comment = row
                 authorName = author
+                viaAppName = appName
                 if let identifier { issueIdentifier = identifier }
             }
         } catch {}

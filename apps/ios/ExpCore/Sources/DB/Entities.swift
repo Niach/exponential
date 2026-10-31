@@ -2103,6 +2103,9 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// #EXP-1383: the agent whose session wrote it (`authorId` keeps the
     /// member whose conversation it was); the card names the AGENT.
     public let authorAgentId: String?
+    /// #VAPP-186: the app whose MCP tool wrote it ("via <app>"); SET NULL
+    /// when the app goes.
+    public let viaAppId: String?
 
     public var commentKind: CommentKind { CommentKind(rawString: kind) }
     public var isViaMcp: Bool { source == DomainContract.commentSourceMcp }
@@ -2126,9 +2129,11 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, E
         parentId: String? = nil,
         source: String? = nil,
         audience: String = DomainContract.commentAudienceTeam,
-        authorAgentId: String? = nil
+        authorAgentId: String? = nil,
+        viaAppId: String? = nil
     ) {
         self.authorAgentId = authorAgentId
+        self.viaAppId = viaAppId
         self.id = id
         self.issueId = issueId
         self.teamId = teamId
@@ -2150,6 +2155,7 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case teamId = "team_id"
         case authorId = "author_id"
         case authorAgentId = "author_agent_id"
+        case viaAppId = "via_app_id"
         case editedAt = "edited_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -2180,6 +2186,8 @@ extension CommentEntity: Codable {
             ?? DomainContract.commentAudienceTeam
         // #EXP-1383: absent on a pre-rotation snapshot.
         authorAgentId = try? container.decodeIfPresent(String.self, forKey: .authorAgentId)
+        // #VAPP-186: absent on a pre-rotation snapshot.
+        viaAppId = try? container.decodeIfPresent(String.self, forKey: .viaAppId)
     }
 }
 
