@@ -35,7 +35,16 @@ impl Ede {
     /// Starts Xwayland on the next free display; `DISPLAY` is set for
     /// children once it is ready.
     pub fn start_xwayland(&mut self) {
-        let spawned = XWayland::spawn(&self.display_handle, None, std::iter::empty::<(String, String)>(), true, Stdio::null(), Stdio::null(), |_| ());
+        // X sockets live in /tmp/.X11-unix, which systemd-tmpfiles creates on
+        // a desktop but a container or minimal system may lack.
+        let dir = std::path::Path::new("/tmp/.X11-unix");
+        if !dir.exists() {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(e) = std::fs::create_dir(dir).and_then(|()| std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o1777))) {
+                tracing::warn!("{}: {e}", dir.display());
+            }
+        }
+        let spawned = XWayland::spawn(&self.display_handle, None, std::iter::empty::<(String, String)>(), true, Stdio::null(), Stdio::inherit(), |_| ());
         let (xwayland, client) = match spawned {
             Ok(x) => x,
             Err(e) => {

@@ -82,6 +82,7 @@ cargo test --workspace   # headless: real clients, real input, the pixels pixman
 ```
 
 Build deps: `libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config`
-(`xwayland` at runtime and for the Xwayland test);
+(`xwayland` + `libegl1` at runtime and for the Xwayland test; Ubuntu's xwayland
+package does not pull in libEGL, and Xwayland aborts without it);
 the `udev` feature adds `libudev-dev libinput-dev libgbm-dev libseat-dev
 libdrm-dev`.

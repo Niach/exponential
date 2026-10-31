@@ -28,6 +28,8 @@ const KEY_DOWN: u32 = 108 + 8;
 const BTN_LEFT: u32 = 0x110;
 
 fn harness(outputs: &[(i32, i32)]) -> Harness {
+    // Compositor warnings (an Xwayland that won't start) show in failures.
+    let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
     Harness::start(Config::default(), outputs)
 }
 
