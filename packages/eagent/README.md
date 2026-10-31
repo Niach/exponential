@@ -6,7 +6,9 @@ end reports, caps and the watchdog, extracted from Exponential's server
 `fixtures/*.json` is the spec (its `$comment`) plus scenario cases; `src/`
 holds the pure TypeScript reference, `reduce(state, event) → { state,
 effects, result | failure }`, that replays them. `eagent-hub-core`
-(#EXP-1509, Rust + WASM) replays the same fixtures; the server's pure parts
+(#EXP-1509, `apps/desktop/crates/eagent-hub-core`, Rust + WASM) replays the same
+fixtures (`src/suite.ts` is the shared replay; `bun run test:wasm` runs it
+against the WASM build of `scripts/build-eagent-wasm.sh`); the server's pure parts
 and copy are drift-gated by `apps/web/src/lib/sessions/eagent-spec.test.ts`.
 
 Shared types come from eCore: every event is an `Envelope` (unix ms `at`,

@@ -365,6 +365,34 @@ jobs:
           RELAY_PEER="$GITHUB_WORKSPACE/apps/desktop/target/debug/examples/relay_peer" \
           timeout 300 bun scripts/enet-wasm-smoke.ts
 
+  # EXP-1509: eagent-hub-core's WASM build replays every eAgent fixture
+  # through packages/eagent's replayer (the TS reference and `cargo test -p
+  # eagent-hub-core` replay the same files).
+  eagent-wasm-replay:
+    needs: dedupe
+    if: needs.dedupe.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: wasm toolchain
+        working-directory: apps/desktop
+        run: |
+          rustup target add wasm32-unknown-unknown
+          echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+          key: eagent-wasm-replay
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
+      - run: scripts/build-eagent-wasm.sh
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Replay
+        working-directory: packages/eagent
+        run: bun run test:wasm
+
   # FEED-160: the macOS-only cases (confine.rs's `/System/Volumes` Data
   # volume) never run on the Linux `desktop` job; the engine's confine
   # tests on the Mac.
