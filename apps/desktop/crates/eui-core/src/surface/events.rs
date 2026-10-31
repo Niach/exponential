@@ -369,8 +369,8 @@ impl Surface {
                 out.extend(self.fire(&owner_id, "change", Some(json!({"value": joined}))));
                 out.push(OutEvent::Relayout);
             }
-            ("Carousel", _, "change") | ("Carousel", Some("previous" | "next"), "press") => {
-                // A previous/next button carries the page it goes to.
+            ("Carousel", _, "change") | ("Carousel", Some("previous" | "next" | "thumbnail"), "press") => {
+                // A previous/next button or a thumbnail carries the page it goes to.
                 let page = if event == "press" { n.props.get("target").and_then(Value::as_i64) } else { payload.as_ref().and_then(|p| p.get("page")).and_then(Value::as_i64) }.unwrap_or(0);
                 self.local.carousel.insert(owner_id.clone(), page);
                 self.subtree_pending.insert(owner_id.clone());
