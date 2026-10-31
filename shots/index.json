@@ -1329,8 +1329,8 @@
         "file": "shots/exponential-ui-carousel/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 9240,
-        "sha256": "5a88556b98bc284130dd6d89b8057b32069096d9b3beb1687e3753510b3e4462"
+        "bytes": 9342,
+        "sha256": "9c883a761b00bd3cf0eacc0d443a848e2541f9f046d538844a91ae3bf24cdf3c"
       },
       "desktop": {
         "file": "shots/exponential-ui-carousel/desktop.webp",
@@ -1350,8 +1350,8 @@
         "file": "shots/exponential-ui-carousel/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 8194,
-        "sha256": "524799a3e70f792e53a0a5a73d291700b1139b3dcecadb4dc40ba29a708a8403"
+        "bytes": 8198,
+        "sha256": "1308504dc156d0d5ef7ae028bb2175c4c27bd8e355f44dee19caaa9e6c70afec"
       }
     },
     "exponential-ui-chart": {
