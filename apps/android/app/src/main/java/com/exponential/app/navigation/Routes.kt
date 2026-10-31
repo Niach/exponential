@@ -38,6 +38,9 @@ object Routes {
     const val TEAM_SETTINGS_PATTERN = "team-settings/{section}"
     fun teamSettings(section: String): String = "team-settings/$section"
 
+    /** #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`). */
+    const val MCP_ACTIVITY = "settings/mcp/activity"
+
     const val AGENTS_SETTINGS = "settings/agents"
     // NEW-2: an agent = a definition row (`agents.id`).
     const val AGENT_SETTINGS_PATTERN = "settings/agent/{agentId}"

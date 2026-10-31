@@ -25,7 +25,7 @@ object SettingsNavGroups {
     val GROUPS: List<Group> = listOf(
         Group("team", "Team", items = listOf("general", "members", "issues", "repositories", "prompts", "widget", "storage", "billing", "import")),
         Group("boards", "Boards", items = listOf(BOARDS, NEW_BOARD, "archived-boards")),
-        Group("agents", "Agents", items = listOf(ASSISTANT, AGENTS, NEW_AGENT, "mcp-servers")),
+        Group("agents", "Agents", items = listOf(ASSISTANT, AGENTS, NEW_AGENT, "mcp")),
         Group("apps", "Apps", items = listOf(APPS, NEW_APP)),
         Group("device", "This device", platforms = listOf("desktop"), items = listOf("tools", "coding-clis", "worktrees", "sessions")),
         Group("personal", "Personal", items = listOf("account", "notifications", "security", "about")),

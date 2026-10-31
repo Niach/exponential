@@ -102,6 +102,8 @@ import com.exponential.app.ui.threads.ThreadsViewModel
 import com.exponential.app.ui.session.AgentSessionScreen
 import com.exponential.app.ui.issue.IssueScreen
 import com.exponential.app.ui.settings.AgentSettingsScreen
+import com.exponential.app.ui.settings.McpActivityScreen
+import com.exponential.app.ui.settings.McpSettingsScreen
 import com.exponential.app.ui.settings.PromptSettingsScreen
 import com.exponential.app.ui.settings.PromptsSettingsScreen
 import com.exponential.app.ui.thread.AgentConversationScreen
@@ -880,6 +882,11 @@ private fun AuthenticatedNav(
                 )
                 // The devices page, moved here from the tab bar (chats.json `shell`).
                 SettingsNav.DEVICES -> AgentsScreen(onBack = back)
+                // #VAPP-185: Settings › MCP (settings-mcp.json); Activity is its own page.
+                SettingsNav.MCP -> McpSettingsScreen(
+                    onBack = back,
+                    onOpenActivity = { navController.navigate(Routes.MCP_ACTIVITY) },
+                )
                 else -> TeamSettingsScreen(onBack = back)
             }
             }
@@ -1086,6 +1093,9 @@ private fun AuthenticatedNav(
                 onCreated = {},
                 onDeleted = { navController.popBackStack() },
             )
+        }
+        composable(Routes.MCP_ACTIVITY) {
+            McpActivityScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.PROMPT_NEW) {
             PromptSettingsScreen(
