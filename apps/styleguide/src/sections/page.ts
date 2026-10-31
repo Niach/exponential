@@ -167,6 +167,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`nav-rail`]: `Surfaces`,
   [`sidebar-rows`]: `Lists & rows`,
   [`voice-level`]: `Feedback`,
+  outline: `Lists & rows`,
+  mosaic: `Surfaces`,
   [`chat-list`]: `Lists & rows`,
   [`phone-tab-bar`]: `Surfaces`,
   [`phone-board-menu`]: `Inputs & pickers`,
