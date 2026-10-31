@@ -19,7 +19,8 @@ struct ComposerRepliesRow: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(replies.items) { item in
-                    GlassPill(item.text, mode: .action { onSend(item) }, enabled: !disabled)
+                    // Floats over the transcript: the opaque card under the glass.
+                    GlassPill(item.text, mode: .action { onSend(item) }, isOpaque: true, enabled: !disabled)
                         .frame(maxWidth: 260)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("\(SessionTree.RepliesCopy.testId)-\(item.id)")
