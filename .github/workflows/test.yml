@@ -4,7 +4,7 @@ name: test
 # Only the cheap checks that catch real breakage run here: the typecheck, the
 # web unit tests (four shards), the migration chain against a real Postgres
 # (order, drift, custom triggers), the styleguide suite, and `cargo check` of the desktop workspace
-# when the PR touches it, plus the eUI conformance pass (`eui`, below) when
+# when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, plus the eUI conformance pass (`eui`, below) when
 # it touches eUI. Everything heavy (the rest of the eUI suite: unit suites,
 # parity, guides, benches, Simulator + emulator; iOS, Android, the full desktop cargo test, marketing,
 # shots:check, the package suites, the real-DB suites, image smoke builds)
@@ -37,6 +37,7 @@ jobs:
     outputs:
       desktop: ${{ steps.f.outputs.desktop }}
       eui: ${{ steps.f.outputs.eui }}
+      ede: ${{ steps.f.outputs.ede }}
     steps:
       - id: f
         env:
@@ -44,13 +45,15 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\nede=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
           desktop='^(apps/desktop/|packages/(domain-contract|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
           echo "eui=$(grep -qE "$eui" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          ede='^(apps/ede/|\.github/workflows/test\.yml$)'
+          echo "ede=$(grep -qE "$ede" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: pick
@@ -131,6 +134,28 @@ jobs:
         # floating zed git deps).
         run: cargo check --workspace --locked
 
+  # eDE (#NEW-101): the compositor's own workspace. Its tests are headless
+  # (pixman renders into memory, real Wayland clients over a socketpair), so
+  # they run here in full: ~20 s warm.
+  ede:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ede == 'true'
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps (smithay)
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/ede
+      - name: Cargo test
+        working-directory: apps/ede
+        run: cargo test --workspace --locked
+
   # T1 eUI parity (2026-10-30): every renderer's conformance runner + the
   # `conformant` check on every PR that touches eUI (exponential-ui.yml with
   # conformance_only; the full suite stays in release-suite.yml).
@@ -171,7 +196,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, migrations, desktop, eui, gpui-revs, styleguide]
+    needs: [pick, changes, web, migrations, desktop, ede, eui, gpui-revs, styleguide]
     if: always()
     runs-on: ubuntu-latest
     steps:
