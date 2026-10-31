@@ -71,6 +71,8 @@ enum AppRoute: Hashable {
     /// #EXP-1381 (settings-nav.json): a Team page row → that category's
     /// OWN page (Devices included: it left the tab bar for the Team page).
     case teamSettingsSection(accountId: String, teamId: String, section: TeamSettingsSection)
+    /// #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`).
+    case mcpActivity(accountId: String, teamId: String)
     case invite(token: String)
     case syncDebug
     /// About (EXP-262): the app's version surface, pushed from Settings →
@@ -1169,6 +1171,9 @@ extension MainNavigator {
                 .environment(\.accountId, accountId)
         case let .teamSettingsSection(accountId, teamId, section):
             TeamSettingsPage(teamId: teamId, section: section)
+                .environment(\.accountId, accountId)
+        case let .mcpActivity(accountId, teamId):
+            McpActivityPage(teamId: teamId)
                 .environment(\.accountId, accountId)
         case let .invite(token):
             InviteAcceptView(token: token)
