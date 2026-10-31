@@ -15,7 +15,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--ready") => ready(),
-        None | Some("--safe-mode") => run(args.first().is_some()),
+        None | Some("--safe-mode") => run(!args.is_empty()),
         Some(other) => {
             eprintln!("unknown argument {other:?}; usage: ede-session [--safe-mode]");
             ExitCode::FAILURE
