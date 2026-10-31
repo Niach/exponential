@@ -29,7 +29,7 @@ use gpui::{
     Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant},
+    button::ButtonVariant,
     h_flex,
     input::InputState,
     v_flex, ActiveTheme as _, Disableable as _, Icon,
@@ -1178,27 +1178,6 @@ impl Render for McpServersPane {
                 }
                 body = body.child(list);
             }
-        }
-
-        // The web hand-off — the web page adds the catalog and the probe.
-        let slug = super::active_team(cx, &self.nav).and_then(|team| team.slug);
-        if let (Some(slug), Some(account)) = (slug, queries::active_account(cx)) {
-            let url = format!(
-                "{}/t/{slug}/settings/mcp",
-                account.instance_url.trim_end_matches('/')
-            );
-            body = body.child(
-                h_flex().child(
-                    Button::new("mcp-servers-manage")
-                        .outline()
-                        .web_sm()
-                        .icon(registry::UI_EXTERNAL_LINK)
-                        .label("Manage on the web")
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            open_url(cx, url.clone());
-                        })),
-                ),
-            );
         }
 
         v_flex().child(body)

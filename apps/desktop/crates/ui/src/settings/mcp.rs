@@ -83,7 +83,8 @@ pub(crate) const SETTINGS_MCP: McpCopy = McpCopy {
     tool_other: "{n} tools",
 };
 
-/// `sections`, in order.
+/// `sections`, in order (the page renders them in this order).
+#[cfg(test)]
 const SECTIONS: [&str; 5] = ["endpoint", "servers", "clients", "access", "builtin"];
 /// `scopes` (value, label).
 const SCOPES: [(&str, &str); 2] = [("mine", "Mine"), ("everyone", "Everyone")];
@@ -536,16 +537,20 @@ impl McpPane {
             .id(test_id("clients"))
             .child(crate::surface::glass_section_header(SETTINGS_MCP.labels.clients, None, cx));
         if owner {
-            let mut control = crate::controls::segmented(cx);
+            // Web `SegmentedControl` (not embedded): a capsule that hugs its
+            // segments, at the group's leading edge.
+            let mut control = crate::controls::segmented(cx).w_auto().h(gpui::px(32.));
             for (value, label) in SCOPES {
                 control = control.child(
                     crate::controls::segmented_item(self.scope == value, cx)
                         .id(SharedString::from(format!("settings-mcp-scope-{value}")))
+                        .flex_none()
+                        .px_3()
                         .child(label)
                         .on_click(cx.listener(move |this, _, _, cx| this.set_scope(value, cx))),
                 );
             }
-            body = body.child(control);
+            body = body.child(h_flex().child(control));
         }
         match &self.clients {
             None => body.child(super::settings_skeleton("settings-mcp-clients-skeleton", cx)),
@@ -592,7 +597,15 @@ impl McpPane {
             .py_0()
             .text_color(cx.theme().foreground.opacity(0.7))
             .child(crate::surface::picker_value_label(level_label(&level).to_string()))
-            .child(crate::surface::picker_row_chevron(cx));
+            .text_sm()
+            .gap_1()
+            // Web `Picker triggerVariant="inline"`: the label + a chevron-down.
+            .child(
+                Icon::new(registry::UI_CHEVRON_DOWN)
+                    .size_3()
+                    .flex_shrink_0()
+                    .text_color(muted),
+            );
         let items: Vec<crate::picker::PickerItem<String>> = LEVELS
             .iter()
             .map(|(value, label)| crate::picker::PickerItem::new(value.to_string(), *label))
@@ -674,7 +687,7 @@ impl McpPane {
                             &row.user_id,
                             &name,
                             row.image.as_deref(),
-                            gpui_component::Size::Small,
+                            gpui_component::Size::XSmall,
                             cx,
                         ))
                         .child(div().flex_1().min_w_0().truncate().text_sm().child(SharedString::from(name)))
