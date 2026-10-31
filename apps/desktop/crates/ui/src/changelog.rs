@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-31-app-preview-phone",
+    date: "2026-10-31",
+    title: "Preview apps as a phone",
+    summary: "The app editor's preview switches between Desktop and Phone and between an app's templates.",
+    body: r#"- **Desktop or Phone**: see the preview at full width or at a phone's width.
+- **Templates**: an app with more than one template gets a picker next to the switch."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_139: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-app-data-tab",
     date: "2026-10-31",
     title: "App data in the editor",

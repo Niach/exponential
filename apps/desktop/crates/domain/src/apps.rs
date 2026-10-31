@@ -86,6 +86,15 @@ pub struct AppsCopy {
     pub records_none: String,
     /// VAPP-177: a version row's ghost button (show that version).
     pub preview: String,
+    /// VAPP-179: the preview toolbar's frame segments.
+    pub frame: AppsFrameCopy,
+}
+
+/// VAPP-179: `copy.frame.*`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AppsFrameCopy {
+    pub desktop: String,
+    pub phone: String,
 }
 
 /// The editor's two panes (fr) and the chat's floor.
@@ -105,6 +114,86 @@ pub struct AppsPreview {
     pub radius: f32,
     pub padding: f32,
     pub surface_id: String,
+    /// VAPP-179: the toolbar's frames in order, the one it opens on and the
+    /// Phone frame's width (px, centred).
+    pub frames: Vec<String>,
+    pub default_frame: String,
+    pub phone_width: f32,
+}
+
+/// VAPP-179: the preview frame's width (`preview.frames`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewFrame {
+    /// The pane's full width.
+    Desktop,
+    /// `preview.phoneWidth` px, centred.
+    Phone,
+}
+
+impl PreviewFrame {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PreviewFrame::Desktop => "desktop",
+            PreviewFrame::Phone => "phone",
+        }
+    }
+
+    pub fn parse(id: &str) -> Option<Self> {
+        match id {
+            "desktop" => Some(PreviewFrame::Desktop),
+            "phone" => Some(PreviewFrame::Phone),
+            _ => None,
+        }
+    }
+
+    /// The segment's label (`copy.frame.*`).
+    pub fn label(self) -> String {
+        let frame = &APPS.copy.frame;
+        match self {
+            PreviewFrame::Desktop => frame.desktop.clone(),
+            PreviewFrame::Phone => frame.phone.clone(),
+        }
+    }
+
+    /// The frames in order (`preview.frames`).
+    pub fn all() -> Vec<PreviewFrame> {
+        APPS.preview.frames.iter().filter_map(|id| PreviewFrame::parse(id)).collect()
+    }
+
+    /// The frame the toolbar opens on (`preview.defaultFrame`).
+    pub fn default_frame() -> PreviewFrame {
+        PreviewFrame::parse(&APPS.preview.default_frame).expect("defaultFrame is a frame")
+    }
+
+    /// The frame's width in px; `None` = the pane's full width.
+    pub fn width(self) -> Option<f32> {
+        match self {
+            PreviewFrame::Desktop => None,
+            PreviewFrame::Phone => Some(APPS.preview.phone_width),
+        }
+    }
+}
+
+/// VAPP-179: the template ids of a package, sorted (web `previewTemplates`;
+/// a host's JSON layer does not keep the declared order).
+pub fn preview_templates(pkg: Option<&serde_json::Value>) -> Vec<String> {
+    let mut ids: Vec<String> = pkg
+        .and_then(|pkg| pkg.get("templates"))
+        .and_then(serde_json::Value::as_object)
+        .map(|templates| templates.keys().cloned().collect())
+        .unwrap_or_default();
+    ids.sort();
+    ids
+}
+
+/// VAPP-179: the template the preview shows: the picked one while the
+/// package has it, else the first (web `previewTemplate`, `templateCases`).
+pub fn preview_template(pkg: Option<&serde_json::Value>, picked: Option<&str>) -> Option<String> {
+    let list = preview_templates(pkg);
+    match picked {
+        Some(picked) if list.iter().any(|id| id == picked) => Some(picked.to_string()),
+        _ => list.into_iter().next(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -133,6 +222,10 @@ pub struct AppsTestIds {
     pub version_restore: String,
     /// VAPP-178: the Data tab.
     pub data: String,
+    /// VAPP-179: the preview toolbar, its frame control and template picker.
+    pub preview_toolbar: String,
+    pub preview_frame: String,
+    pub preview_template: String,
 }
 
 /// `fixtures/apps.json` minus its cases.
@@ -473,6 +566,49 @@ mod tests {
         // VAPP-177: the floating layout is gone from the fixture.
         assert!(fixture.get("layout").is_none() && fixture.get("dockCard").is_none());
         assert!(fixture["panes"].get("headerHeight").is_none());
+    }
+
+    #[test]
+    fn preview_template_replays_the_fixture() {
+        let all = cases("templateCases");
+        assert!(!all.is_empty());
+        for case in all {
+            let templates: serde_json::Map<String, Value> = case["templates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| (id.as_str().unwrap().to_string(), serde_json::json!({})))
+                .collect();
+            let pkg = serde_json::json!({ "templates": templates });
+            let want: Vec<&str> = case["list"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+            assert_eq!(preview_templates(Some(&pkg)), want, "{case}");
+            assert_eq!(preview_template(Some(&pkg), case["picked"].as_str()).as_deref(), case["shown"].as_str(), "{case}");
+        }
+        assert!(preview_templates(None).is_empty());
+        assert_eq!(preview_template(None, Some("week")), None);
+    }
+
+    #[test]
+    fn preview_toolbar_matches_the_fixture() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        let preview = &fixture["preview"];
+        let frames: Vec<&str> = PreviewFrame::all().into_iter().map(PreviewFrame::as_str).collect();
+        let want: Vec<&str> = preview["frames"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert_eq!(frames, want);
+        assert_eq!(PreviewFrame::default_frame().as_str(), preview["defaultFrame"].as_str().unwrap());
+        assert_eq!(PreviewFrame::Phone.width(), Some(preview["phoneWidth"].as_f64().unwrap() as f32));
+        assert_eq!(PreviewFrame::Desktop.width(), None);
+        for frame in PreviewFrame::all() {
+            assert_eq!(fixture["copy"]["frame"][frame.as_str()], frame.label().as_str());
+        }
+        let ids = &APPS.test_ids;
+        for (key, value) in [
+            ("previewToolbar", &ids.preview_toolbar),
+            ("previewFrame", &ids.preview_frame),
+            ("previewTemplate", &ids.preview_template),
+        ] {
+            assert_eq!(fixture["testIds"][key], value.as_str(), "{key}");
+        }
     }
 
     #[test]

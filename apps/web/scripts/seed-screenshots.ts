@@ -791,6 +791,30 @@ async function seedSessionTree(ctx: {
           bindings: [{ path: `/issues`, source: `exp:issues?board=${feedbackBoardId}&limit=6` }],
           components,
         },
+        // VAPP-179: the head's second template (the preview toolbar's
+        // template Select, `app-preview-phone`): the same issues as rows.
+        ...(version === `1.2.0`
+          ? {
+              list: {
+                data: { issues: { rows: [], count: 0 } },
+                bindings: [{ path: `/issues`, source: `exp:issues?board=${feedbackBoardId}&limit=6` }],
+                components: [
+                  { id: `root`, component: `Stack`, gap: `md`, children: [`band`, `issues`] },
+                  { id: `band`, component: `Section`, title: `Product Feedback`, icon: `nav-threads` },
+                  { id: `issues`, component: `List`, divided: true, children: { componentId: `issueRow`, path: `/issues/rows` } },
+                  {
+                    id: `issueRow`,
+                    component: `Row`,
+                    identifier: { path: `identifier` },
+                    title: { path: `title` },
+                    pressable: true,
+                    chevron: `always`,
+                    on: { press: { functionCall: { call: `harness.openIssue`, args: { identifier: { path: `identifier` } } } } },
+                  },
+                ],
+              },
+            }
+          : {}),
       },
     }
   }

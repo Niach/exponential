@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react"
 import { useRouter } from "@tanstack/react-router"
 import { DEFAULT_THEME_ID, type AppPackage } from "@exponential_app/eui"
 import { HostSurface } from "@exponential_app/eui-react"
-import { APPS_COPY, APPS_PREVIEW, APPS_TEST_IDS } from "@exp/domain-contract/apps"
+import { APPS_COPY, APPS_PREVIEW, APPS_TEST_IDS, previewTemplate } from "@exp/domain-contract/apps"
 import { appReactExtension, conceptIcon, EmptyState } from "@exp/ui"
 import { ConsentCard, HostBanner, createAppHost, createConsentGate } from "@/lib/exponential-ui-host"
 import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
@@ -11,12 +11,14 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 // through the app host (the same public host API a third party uses:
 // `exp:` bindings, `harness.*` functions behind the consent card, the URL
 // policy). A new package = a new host (the key), so every synced upsert
-// repaints; no package yet = the empty state in the frame.
+// repaints; no package yet = the empty state in the frame. VAPP-179: the
+// template to apply comes from the editor's toolbar (`previewTemplate`), and
+// `frame` = the frame's width (phone = `APPS_PREVIEW.phoneWidth`, centred).
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const EXTENSIONS = [appReactExtension]
 
-function PackageSurface({ pkg, mode, appId, teamId, me, grantedTools }: { pkg: AppPackage; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null; grantedTools: readonly string[] }) {
+function PackageSurface({ pkg, templateId, mode, appId, teamId, me, grantedTools }: { pkg: AppPackage; templateId: string | null; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null; grantedTools: readonly string[] }) {
   const router = useRouter()
   const consent = useMemo(createConsentGate, [])
   // VAPP-120: the grants follow the synced row without remounting the host.
@@ -27,7 +29,6 @@ function PackageSurface({ pkg, mode, appId, teamId, me, grantedTools }: { pkg: A
     [consent, router, pkg, appId, teamId, me]
   )
   const plugin = useMemo(() => ({ icons: exponentialUiIcons }), [])
-  const templateId = Object.keys(pkg.templates)[0]
   useEffect(() => {
     if (templateId) {
       host.receive({
@@ -55,6 +56,8 @@ function PackageSurface({ pkg, mode, appId, teamId, me, grantedTools }: { pkg: A
 
 export function AppPreview({
   pkg,
+  template = null,
+  frame = `desktop`,
   mode = `dark`,
   className,
   appId = null,
@@ -63,6 +66,10 @@ export function AppPreview({
   grantedTools = [],
 }: {
   pkg: Record<string, unknown> | null
+  /** VAPP-179: the picked template (null or missing = the first by id). */
+  template?: string | null
+  /** VAPP-179: the frame's width: the pane's (desktop) or `phoneWidth` centred. */
+  frame?: `desktop` | `phone`
   mode?: `light` | `dark`
   className?: string
   /** VAPP-122: the app whose records `exp:records` reads, and the viewer. */
@@ -72,16 +79,21 @@ export function AppPreview({
   /** VAPP-120: the typed actions the app may run without asking. */
   grantedTools?: readonly string[]
 }) {
-  // The key = the package's identity: a new version mounts a fresh host.
+  const templateId = previewTemplate(pkg as { templates?: Record<string, unknown> } | null, template)
+  // The key = the package's identity + the template: either mounts a fresh host.
   const key = useMemo(() => (pkg ? JSON.stringify(pkg) : ``), [pkg])
-  return (
+  const surface = (
     <div
-      className={`relative min-h-0 flex-1 overflow-y-auto rounded-[12px] border border-border bg-background ${className ?? ``}`}
-      style={{ borderRadius: APPS_PREVIEW.radius, padding: APPS_PREVIEW.padding }}
+      className={`relative min-h-0 overflow-y-auto rounded-[12px] border border-border bg-background ${frame === `desktop` ? `flex-1 ${className ?? ``}` : `shrink-0`}`}
+      style={{
+        borderRadius: APPS_PREVIEW.radius,
+        padding: APPS_PREVIEW.padding,
+        ...(frame === `phone` ? { width: APPS_PREVIEW.phoneWidth, maxWidth: `100%` } : {}),
+      }}
       data-testid={APPS_TEST_IDS.preview}
     >
       {pkg ? (
-        <PackageSurface key={key} pkg={pkg as unknown as AppPackage} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} />
+        <PackageSurface key={`${templateId ?? ``}:${key}`} pkg={pkg as unknown as AppPackage} templateId={templateId} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} />
       ) : (
         <div className="flex h-full min-h-48 items-center justify-center">
           <EmptyState icon={NavAppsIcon} title={APPS_COPY.previewEmpty} size="page" />
@@ -89,4 +101,6 @@ export function AppPreview({
       )}
     </div>
   )
+  if (frame === `desktop`) return surface
+  return <div className={`flex min-h-0 flex-1 justify-center ${className ?? ``}`}>{surface}</div>
 }

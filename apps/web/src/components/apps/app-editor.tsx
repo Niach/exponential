@@ -4,9 +4,12 @@ import {
   APPS_COPY,
   APPS_EDITOR_TABS,
   APPS_PANES,
+  APPS_PREVIEW,
   APPS_TEST_IDS,
   editorTab,
   isDraftApp,
+  previewTemplate,
+  previewTemplates,
   versionLabel,
   type AppEditorSheet,
   type AppEditorTab,
@@ -23,6 +26,11 @@ import {
   Pill,
   Prompt,
   SegmentedControl,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   SETTINGS_LIST_CLASS,
   Sheet,
   SheetContent,
@@ -183,6 +191,7 @@ export function AppEditor({
   canManage,
   canGrant,
   requestedTab,
+  requestedFrame = null,
 }: {
   app: AppListEntry
   teamId: string
@@ -195,6 +204,8 @@ export function AppEditor({
   canGrant: boolean
   /** VAPP-177: the route's `?tab=` (read once: no tab is kept). */
   requestedTab: string | null
+  /** VAPP-179: the route's `?frame=` (read once; screenshots open on Phone). */
+  requestedFrame?: PreviewFrame | null
 }) {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
@@ -202,6 +213,9 @@ export function AppEditor({
   const [tab, setTab] = useState<EditorTab>(initial.tab)
   const [sheet, setSheet] = useState<AppEditorSheet | null>(initial.sheet)
   const [viewing, setViewing] = useState<number | null>(null)
+  // VAPP-179: the preview toolbar's frame + picked template (editor lifetime only).
+  const [frame, setFrame] = useState<PreviewFrame>(requestedFrame ?? (APPS_PREVIEW.defaultFrame as PreviewFrame))
+  const [pickedTemplate, setPickedTemplate] = useState<string | null>(null)
   const [viewingPackage, setViewingPackage] = useState<Record<string, unknown> | null>(null)
   const [restoring, setRestoring] = useState<number | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
@@ -436,8 +450,41 @@ export function AppEditor({
     </div>
   )
 
+  // VAPP-179 (wide only): Desktop | Phone at the start; the template Select at
+  // the end only when the SHOWN package has more than one template.
+  const shownPackage = viewing !== null ? viewingPackage : headPackage
+  const templates = previewTemplates(shownPackage as { templates?: Record<string, unknown> } | null)
+  const shownTemplate = previewTemplate(shownPackage as { templates?: Record<string, unknown> } | null, pickedTemplate)
+  const toolbar = isMobile ? null : (
+    <div className="flex shrink-0 items-center gap-3" data-testid={APPS_TEST_IDS.previewToolbar}>
+      <div className="shrink-0" data-testid={APPS_TEST_IDS.previewFrame}>
+        <SegmentedControl
+          value={frame}
+          onValueChange={setFrame}
+          options={(APPS_PREVIEW.frames as PreviewFrame[]).map((id) => ({ value: id, label: APPS_COPY.frame[id] }))}
+        />
+      </div>
+      <div className="flex-1" />
+      {templates.length > 1 && shownTemplate !== null && (
+        <Select value={shownTemplate} onValueChange={setPickedTemplate}>
+          <SelectTrigger className="min-w-0" data-testid={APPS_TEST_IDS.previewTemplate}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {templates.map((id) => (
+              <SelectItem key={id} value={id}>
+                {id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  )
+
   const preview = (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
+      {toolbar}
       {viewing !== null && (
         <div
           className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-sm"
@@ -453,7 +500,7 @@ export function AppEditor({
         </div>
       )}
       {/* A grant is about the HEAD package: an old version previews asking for everything. */}
-      <AppPreview pkg={viewing !== null ? viewingPackage : headPackage} appId={app.id} teamId={teamId} me={me} grantedTools={viewing !== null ? [] : (app.row?.grantedTools ?? [])} />
+      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} appId={app.id} teamId={teamId} me={me} grantedTools={viewing !== null ? [] : (app.row?.grantedTools ?? [])} />
     </div>
   )
 
@@ -637,5 +684,7 @@ export function AppEditor({
     </div>
   )
 }
+
+type PreviewFrame = `desktop` | `phone`
 
 const attachmentSrc = (id: string) => `/api/attachments/${id}`
