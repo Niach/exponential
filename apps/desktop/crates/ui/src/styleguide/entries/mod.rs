@@ -51,6 +51,7 @@ pub(crate) mod thread_parts;
 pub(crate) mod ask_dock;
 pub(crate) mod dock_card;
 pub(crate) mod plan_card;
+pub(crate) mod plan_page;
 pub(crate) mod script_card;
 pub(crate) mod comment_card;
 pub(crate) mod team_agents_settings;
@@ -171,6 +172,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: ask_dock::ID, owner: ask_dock::OWNER, render: ask_dock::render },
     Entry { id: dock_card::ID, owner: dock_card::OWNER, render: dock_card::render },
     Entry { id: plan_card::ID, owner: plan_card::OWNER, render: plan_card::render },
+    Entry { id: plan_page::ID, owner: plan_page::OWNER, render: plan_page::render },
     Entry { id: script_card::ID, owner: script_card::OWNER, render: script_card::render },
     Entry { id: comment_card::ID, owner: comment_card::OWNER, render: comment_card::render },
     Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },
