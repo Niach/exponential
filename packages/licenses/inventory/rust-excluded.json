@@ -140,11 +140,11 @@
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "eui-core@0.2.1",
+      "package": "eui-core@0.3.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "eui-gpui@0.2.1",
+      "package": "eui-gpui@0.3.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -164,7 +164,7 @@
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "exponential-ui-ffi@0.2.1",
+      "package": "exponential-ui-ffi@0.3.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {

@@ -136,7 +136,7 @@
         "fixtures/host-router.json"
       ],
       "unit": "package or flow",
-      "cases": 26,
+      "cases": 29,
       "check": "Validate each package; validate each record against its kind's schema; for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
     },
     {
