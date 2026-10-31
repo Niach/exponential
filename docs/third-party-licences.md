@@ -39,7 +39,7 @@ re-reads which install is published.
 
 `apps/web/package.json` depends on `sharp` (0.34.5) for EXP-854: the MCP tool
 `exponential_attachments_get` bounds the image it inlines into an agent's
-context (`apps/web/src/lib/mcp/inline-image.ts`). `sharp` itself is Apache-2.0,
+context (`apps/web/src/lib/emcp/inline-image.ts`). `sharp` itself is Apache-2.0,
 and so is every `@img/sharp-<platform>` binding prebuild. What needs a reading
 is the layer under them: the ten `@img/sharp-libvips-<platform>` packages,
 each a prebuilt libvips shared library declared **LGPL-3.0-or-later**. They are

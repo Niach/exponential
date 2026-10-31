@@ -39,7 +39,7 @@ use crate::login::normalize_instance_url;
 use crate::TokenProvider;
 
 /// EXP-637/EXP-1140: the header naming the `sessions` row (EXP-1292) a request is
-/// made for (`lib/mcp/session-header.ts`). The launcher pins it into the
+/// made for (`lib/emcp/session-header.ts`). The launcher pins it into the
 /// agent's MCP config and sends it itself on run-scoped calls
 /// ([`TrpcClient::mutation_in_session`]).
 pub const SESSION_HEADER: &str = "X-Exp-Session-Id";

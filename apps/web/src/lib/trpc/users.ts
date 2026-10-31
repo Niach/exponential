@@ -34,7 +34,7 @@ import { boardVisible } from "@/lib/board-visibility"
 import {
   clampScopeSelection,
   scopeSelectionInput,
-} from "@/lib/mcp/scope-selection"
+} from "@/lib/emcp/scope-selection"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import {

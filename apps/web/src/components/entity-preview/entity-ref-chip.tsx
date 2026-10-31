@@ -14,7 +14,7 @@ import {
   useIsMobile,
 } from "@exp/ui"
 import { entityChipLabel } from "@exp/domain-contract/entity-preview"
-import type { EntityRef } from "@/lib/mcp/preview"
+import type { EntityRef } from "@/lib/emcp/preview"
 import type { ResolvedIssueRef } from "@/components/issue-ref-provider"
 import { statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"

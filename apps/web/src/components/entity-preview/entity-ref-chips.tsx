@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react"
 import { groupPreviewRefs } from "@exp/domain-contract/entity-preview"
 import { cn } from "@/lib/utils"
-import type { EntityRef } from "@/lib/mcp/preview"
+import type { EntityRef } from "@/lib/emcp/preview"
 import { EntityRefChip } from "./entity-ref-chip"
 
 // EXP-920: the chip ROW under a settled Exponential tool row — one chip per

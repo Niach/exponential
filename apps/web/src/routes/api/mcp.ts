@@ -1,23 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
-import { and, eq, or } from "drizzle-orm"
-import { db } from "@/db/connection"
-import { users } from "@/db/auth-schema"
-import { sessions } from "@/db/schema"
-import { resolveMcpCredential } from "@/lib/auth/resolve-bearer"
-import { jsonResponse } from "@/lib/mcp/helpers"
-import { createExponentialMcpServer } from "@/lib/mcp/server"
-import { resolveMcpToolGates } from "@/lib/mcp/gates"
-import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
-import { confineMcpAccessToActingSession } from "@/lib/sessions/acting"
-import { hostedByCondition } from "@/lib/sessions/host"
-import { touchSessionActivity } from "@/lib/sessions/watchdog"
-import {
-  FULL_ACCESS,
-  resolveMcpAccessForGrant,
-  resolveMcpTokenAccess,
-  type McpAccess,
-} from "@/lib/mcp/scope"
+import { exponentialToolProvider, serveMcp } from "@/lib/emcp/gate"
 
 const methodNotAllowed = () =>
   new Response(
@@ -32,122 +14,12 @@ const methodNotAllowed = () =>
     }
   )
 
-// Session cookies, bearer session tokens, and UNSCOPED personal `expu_` api
-// keys are the user's own credentials → full membership access. A SCOPED key
-// (FEED-76) is confined to the teams/boards chosen at mint, exactly like an
-// OAuth2 access token (human MCP clients like Claude) is confined to the
-// consent grant it resolves through.
-async function resolveMcpRequest(
-  request: Request
-): Promise<{ userId: string; access: McpAccess } | null> {
-  const { session, keyScope, keyKind } = await resolveMcpCredential(request)
-  if (session?.user) {
-    const userId = session.user.id
-    if (!keyScope) return { userId, access: FULL_ACCESS }
-    // #EXP-1383: a team agent's key (one team) words its denials as such.
-    return {
-      userId,
-      access: await resolveMcpAccessForGrant(
-        keyScope,
-        keyKind === `agent` ? `agent` : `apiKey`
-      ),
-    }
-  }
-
-  const authz = request.headers.get(`authorization`)
-  const bearer = authz?.match(/^Bearer\s+(.+)$/i)?.[1]
-  if (!bearer) return null
-
-  const token = await resolveMcpTokenAccess(bearer)
-  if (!token) return null
-  return { userId: token.userId, access: token.access }
-}
-
-async function handle(request: Request) {
-  const resolved = await resolveMcpRequest(request)
-
-  if (!resolved) {
-    const baseURL = process.env.BETTER_AUTH_URL?.replace(/\/$/, ``) ?? ``
-    const wwwAuthenticate = baseURL
-      ? `Bearer resource_metadata="${baseURL}/api/auth/.well-known/oauth-protected-resource"`
-      : `Bearer`
-    return new Response(
-      JSON.stringify({
-        jsonrpc: `2.0`,
-        error: {
-          code: -32000,
-          message: `Unauthorized: Authentication required`,
-          "www-authenticate": wwwAuthenticate,
-        },
-        id: null,
-      }),
-      {
-        status: 401,
-        headers: {
-          "content-type": `application/json`,
-          "WWW-Authenticate": wwwAuthenticate,
-          "Access-Control-Expose-Headers": `WWW-Authenticate`,
-        },
-      }
-    )
-  }
-
-  const [user] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, resolved.userId))
-    .limit(1)
-
-  if (!user) {
-    return jsonResponse(401, { error: `User not found for token` })
-  }
-
-  // EXP-637: parsed once per request; ownership is enforced per tool.
-  const sessionId = parseMcpSessionHeader(request)
-  // #EXP-1383 (defense in depth behind the team agent's scoped key): a
-  // request speaking for an AGENT-tree session of the caller's (its root has
-  // `agent_id`) is confined to that session's team, whatever credential
-  // carried it. A foreign session id changes nothing (the header grants
-  // nothing on its own).
-  const access = await confineMcpAccessToActingSession(
-    resolved.access,
-    request,
-    user.id,
-    sessionId
-  )
-  // EXP-1374: a tool call by a session of the caller's is its sign of life
-  // (the stuck rule); best effort, never in the request's way.
-  if (sessionId) {
-    void touchSessionActivity(
-      and(eq(sessions.id, sessionId), or(eq(sessions.userId, user.id), hostedByCondition(user.id)))!
-    ).catch(() => {})
-  }
-  // EXP-660: which conditional tool families this caller gets to see.
-  const gates = await resolveMcpToolGates(user.id, access, sessionId)
-  const server = createExponentialMcpServer(
-    user,
-    request,
-    access,
-    sessionId,
-    gates
-  )
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  })
-  try {
-    await server.connect(transport)
-    return await transport.handleRequest(request)
-  } finally {
-    await transport.close().catch(() => {})
-    await server.close().catch(() => {})
-  }
-}
-
+// #EXP-1491: the gate (lib/emcp/gate.ts) authenticates, confines, serves
+// and audits; Exponential's 16 tools are its tool provider.
 export const Route = createFileRoute(`/api/mcp`)({
   server: {
     handlers: {
-      POST: ({ request }) => handle(request),
+      POST: ({ request }) => serveMcp(request, exponentialToolProvider),
       GET: methodNotAllowed,
       DELETE: methodNotAllowed,
     },

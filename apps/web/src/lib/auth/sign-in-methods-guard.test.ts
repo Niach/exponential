@@ -23,7 +23,7 @@ vi.mock(`@/db/connection`, () => ({
   }),
 }))
 
-import { createFakeDb } from "@/lib/mcp-oauth/test-db"
+import { createFakeDb } from "@/lib/emcp/upstream/test-db"
 
 import {
   API_KEY_MANAGEMENT_PATHS,

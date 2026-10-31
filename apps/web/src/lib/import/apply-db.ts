@@ -1,7 +1,7 @@
 // EXP-630: the drizzle implementation of `ApplyPorts` — the only file in the
 // import that writes issue data. Boards, statuses, labels and invites go
 // through their tRPC routers via `createCaller` with a synthetic context for
-// the job's creator (the MCP layer's reuse pattern, lib/mcp/tools.ts
+// the job's creator (the MCP layer's reuse pattern, lib/emcp/tools.ts
 // buildCtx), so every validation those routers own (prefix/slug rules, the
 // started-status cap and advisory lock, CI-unique names, the seat gate)
 // applies unchanged. The batch write mirrors createWidgetSubmission

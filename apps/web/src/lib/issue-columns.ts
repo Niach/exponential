@@ -6,7 +6,7 @@ import { issues } from "@/db/schema"
 // read surface ships the same pinned set and a future server-only issue
 // column never leaks. The REV2-5 scoping columns (team_id, board_deleted_at,
 // board_archived_at) are excluded everywhere. Parity with the shape list is
-// locked by lib/mcp/api-conventions.test.ts.
+// locked by lib/emcp/api-conventions.test.ts.
 export const issueWireColumns = {
   id: issues.id,
   boardId: issues.boardId,

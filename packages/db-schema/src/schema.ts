@@ -2928,9 +2928,10 @@ export const mcpServers = pgTable(
 // One member's credential for one team MCP server: the OAuth token set the
 // hosted callback exchanged, or the secret they typed (`mcpServers.setSecret`).
 // `ciphertext` = AES-256-GCM JSON {accessToken?, refreshToken?, tokenType?,
-// tokenEndpoint?, value?} under a key derived from BETTER_AUTH_SECRET
-// (lib/mcp-oauth/crypto.ts; rotating it = every member reconnects, a failed
-// decrypt reads as not connected). `expires_at` = the OAuth access expiry,
+// tokenEndpoint?, value?} sealed by the vault (#EXP-1491, lib/emcp/vault.ts:
+// `ev1.<kid>…`, bound to the row id, so a reconnect writes a fresh id; a key
+// rotation re-seals in the sweep, a value that does not open reads as not
+// connected). `expires_at` = the OAuth access expiry,
 // `issuer` + `client_id` = the client the tokens belong to (the refresh
 // needs it), `error` = the last refresh failure. Server-only, never synced,
 // never returned: `mcpServers.resolveForLaunch` hands the caller's OWN
@@ -3403,6 +3404,42 @@ export const mcpGrants = pgTable(
     ...timestamps,
   },
   (table) => [unique().on(table.userId, table.clientId)]
+)
+
+// #EXP-1491: the eMCP audit, one row per MCP tool call on /api/mcp (and the
+// coming /api/mcp/apps), written after the call by lib/emcp/audit.ts and
+// never in its way. SERVER-ONLY, never a shape. The columns are
+// @exp/emcp's `fixtures/audit.json`: `user_id` = the member the call acted
+// as, `client_id` = the OAuth client (null for a cookie or an `expu_` key),
+// `app_id` = the app whose tool ran (null for a built-in tool), `tool` =
+// the name as called, `status` ok | denied | invalid | failed | upstream,
+// `error` = a short code (never a message or an argument), `args_hash` =
+// `sha256:` of the canonical JSON of the arguments (never the arguments).
+// The daily sweep purges rows past 90 days. No FKs on purpose: an audit row
+// outlives the app, client or team it names until retention takes it.
+export const mcpCalls = pgTable(
+  `mcp_calls`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`),
+    userId: text(`user_id`).notNull(),
+    clientId: text(`client_id`),
+    appId: uuid(`app_id`),
+    tool: varchar({ length: 128 }).notNull(),
+    // Documented varchar (CALL_STATUSES in @exp/emcp/audit).
+    status: varchar({ length: 16 }).notNull(),
+    error: varchar({ length: 64 }),
+    latencyMs: integer(`latency_ms`).notNull(),
+    argsHash: varchar(`args_hash`, { length: 80 }).notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index(`idx_mcp_calls_team_created`).on(table.teamId, table.createdAt),
+    index(`idx_mcp_calls_user_created`).on(table.userId, table.createdAt),
+    index(`idx_mcp_calls_created`).on(table.createdAt),
+  ]
 )
 
 // EXP-630: tracker imports (Linear today; any adapter that produces an

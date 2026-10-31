@@ -41,7 +41,7 @@ import {
   teamMemberCollection,
   userCollection,
 } from "@/lib/collections"
-import type { EntityRef } from "@/lib/mcp/preview"
+import type { EntityRef } from "@/lib/emcp/preview"
 import { useIssueRefs, type ResolvedIssueRef } from "@/components/issue-ref-provider"
 import { IssuePreviewCard } from "@/components/issue-preview-card"
 import { IssueChip } from "@/components/issue-chip"

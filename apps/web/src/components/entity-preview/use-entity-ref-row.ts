@@ -17,7 +17,7 @@ import {
 import { useIssueRefs, type ResolvedIssueRef } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
-import type { EntityRef } from "@/lib/mcp/preview"
+import type { EntityRef } from "@/lib/emcp/preview"
 
 // EXP-920: the synced row behind a tool-row chip, by kind — ONE live query
 // per chip over the kind's own collection (skipped for the kinds that keep

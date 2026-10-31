@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   handleMcpOauthClientMetadata,
   mcpOauthClientMetadata,
-} from "@/lib/mcp-oauth/client-metadata"
+} from "@/lib/emcp/upstream/client-metadata"
 
 const ORIGINAL = process.env.BETTER_AUTH_URL
 
