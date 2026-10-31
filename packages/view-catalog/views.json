@@ -169,6 +169,10 @@
     {
       "route": "/t/$teamSlug/settings/voice",
       "reason": "S-3: Personal → Voice is gone; the route redirects to the Assistant page, whose Voice section settings-assistant photographs."
+    },
+    {
+      "route": "/t/$teamSlug/sessions/$sessionId/plan/$messageId",
+      "reason": "#EXP-1493: THE plan page needs a real plan message; the `plan-page` view captures its specimen (`?dev=plan-page`)."
     }
   ],
   "views": [
@@ -5454,6 +5458,36 @@
         "ios": "The ExpUI plan card specimen (`PlanCardSpecimens`), the web island line for line, shot sg_plan-card.",
         "android": "See ios: the same specimen (`PlanCardSpecimens.kt`) in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:plan-card`: the IDE styleguide entry `plan_card.rs` drawn full-window, the web island line for line."
+      }
+    },
+    {
+      "id": "plan-page",
+      "group": "coding",
+      "title": "Plan page",
+      "blurb": "THE plan page ×4 (#EXP-1493, plan-page.json): the expanded form of THE plan card. Wide: header, THE Outline (scroll-spy), the document (THE markdown, picture groups as THE Mosaic), the sticky rail (the stepper + the decision). Phones: the same document, groups as THE Carousel, the outline in a sheet, THE Dock's plan card opening the questions-only sheet; no composer.",
+      "order": 6,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=plan-page",
+        "anchor": {
+          "testId": "plan-page-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:plan-page"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=plan-page` on the Agent route: `@exp/ui` `PlanPageSpecimen` (plan-page.json `specimen`) at 1280 × 720, placeholder pictures.",
+        "web-mobile": "Inherits web: the phone specimen (390 × 760) under the phone frame.",
+        "ios": "Lands with #EXP-1498 (sg_plan-page).",
+        "android": "Lands with #EXP-1499 (sg_plan-page).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:plan-page`: the IDE styleguide entry `plan_page.rs` drawn full-window."
       }
     },
     {

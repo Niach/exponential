@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1493 THE PLAN PAGE ×4 (owner 2026-10-31, thread b836a4a9: 'big plans ... are unusable as stories: you step through everything'): the EXPANDED FORM of THE plan card (plan-card.json), one system, never a second plan UI. Web packages/ui plan-page.tsx + the route `route` (apps/web routes/t/$teamSlug/sessions/$sessionId.plan.$messageId.tsx), desktop crates/ui plan_page.rs (a tab of the session pane), iOS ExpUI PlanPage.swift + Android ui/plan/PlanPage.kt (a pushed page); models: desktop domain::plan_page, iOS ExpCore PlanPage.swift, Android domain/PlanPage.kt replay EVERY *Cases array comparing the WHOLE expected value. MODEL (pure, src/plan-page.ts): `planBlocks(markdown)` (`blockCases`) splits the card's `plan` GFM in order: every `## ` line outside a code fence = a `section` block {id, title} (title = the heading's plain text: links to their text, ** __ ` dropped; id = `sectionSlug`: lowercase, every run of anything but a-z0-9 = `-`, edges trimmed, empty = `section`; a repeat gets `-2`, `-3`…); a RUN of two or more picture-only lines (`![alt](src)` alone on its line, blank lines between them allowed) = ONE `pictures` block {pictures: [{alt, src}]}; a lone picture stays in the prose; a pending `upload:` picture renders NOTHING (dropped, also inline); the rest = `markdown` blocks (blank edge lines trimmed, empty ones dropped). `planOutline(markdown)` (`outlineCases`) = one row per section {id, title, pictures} (pictures = what the blocks after it show until the next section; fenced code shows none; the prose before the first section is in no row). `planCounts(card)` (`countCases`) = {sections: the outline's length, pictures: the card's RESOLVED pictures (attachmentId set), questions: the card's questions}; `planCountsLine(counts)` (`countsLineCases`) = the non-zero parts in that order, `copy.counts` singular for 1, ` · ` between; all zero = ``. `planPageFor(sessionId, messages)` (`targetCases`) = the NEWEST (createdAt, then id) plan card the session posted ITSELF (author_session_id = session_id), no engine `questionId`, `decision` null; else null. `mosaicTiles(count)` (`mosaicCases`) = THE wide picture group (eUI `Mosaic`): 1 = one large tile, 2 = two `half` tiles side by side, 3+ = the first `large` on the left (both rows) and the next two `small` stacked on the right, the last carrying `more` = count − 3 (\"+N\" over it, scrim black 0.55); geometry `mosaic`: `gap` between tiles, the large tile `largeFraction` of the width, the whole group `aspect` w/h, `radius` + the glass-stroke hairline, pictures cover. LAYOUT. WIDE (web md+, the IDE) = three columns under ONE header row (`layout.headerHeight`, a hairline under it): the header = the back chevron, the chat's name muted, `/`, `copy.title` semibold, the KIND BADGE (stories.json `badge`, `Plan`; waiting = + ` · waiting` tint dot) then flex, the counts line muted (`planCountsLine`), `copy.openChat` (ghost), the close glyph. LEFT = THE OUTLINE (eUI `Outline`, `layout.outlineWidth`, a hairline on its right): the `copy.outline` caption (2xs uppercase muted) then one row per section (`layout.outlineRowHeight`, the title one line truncated, a muted `· n` when it has pictures), the ACTIVE row (scroll-spy: the last section whose heading passed the top of the column; none yet = no active row) = the accent background + a `layout.outlineActiveBar` px foreground bar on its leading edge; a press scrolls the document to that section; then a separator and the QUESTIONS row (`copy.questions`, trailing `answeredLine(a, n)` in the question tint while a < n) that scrolls nothing and focuses the rail; no section and no question = no outline column. CENTRE = THE DOCUMENT, one scroll, a column `layout.columnMaxWidth` wide centred, `layout.columnPadding` (wide/phone) above and on the sides, `layout.blockGap` between blocks: `markdown` = THE chat markdown renderer at the body size (plan-card.json `card` headingScale etc.), `section` = an h2 (THE markdown h2) carrying the anchor, `pictures` = wide: THE Mosaic; phone: THE eUI Carousel (one slide per picture at its aspect, the \"i / n\" counter top-left, dots under it, swipe). A press on ANY picture (mosaic tile, carousel slide, an inline picture) opens THE lightbox (`ImagePreviewDialog` + guide-viewer `‹ i / n ›`) over EVERY picture of the plan in document order. RIGHT = THE RAIL (`layout.railWidth`, the sidebar background, a hairline on its left, STICKY: it never scrolls with the document): the `copy.questions` heading + plan-card.json `stepper` (its step label, the segments, one question at a time, Back / Next) and pinned to its foot the decision (ask-dock `planOptions`: No, keep planning / Yes ▾, the answer-issue line over it, the feedback field after the reject pick); a plan without questions = the decision alone; answered or superseded = the CLOSED card (picks, `planDecisionLabel`, the feedback line), no decision row. PHONE (iOS, Android, web-mobile) = the SAME document in one scroll under a page header (the back chevron, `copy.title`, the outline toggle glyph `ui-menu` when the outline has a row): the kind badge + the h1 title + the counts line lead the column; the outline opens in THE eUI Drawer (bottom sheet, the same rows); the bottom = THE DockCard of dock.json (kind plan, `Plan ready`, meta = `answeredLine`, title = the counts line's questions part + ` · ` + plan-card `copy.answer`) floating over the document's foot, a tap opens THE Dock sheet (plan-card `stepper`, unchanged); NO composer on this page ('No, keep planning' carries the feedback); answered = the DockCard reads the decision label and opens the closed card. A decision on the page goes through THE card-answer path (`sessions.answer`) and the page stays open, closed. WAYS IN ×4 (all open THIS page for that message): the story viewer's plan frame `copy.openPlan` (stories.json footer `open`); the chat's plan card header action (`copy.openPlan`, a ghost button with `ui-fullscreen`); the Dock sheet header glyph `ui-fullscreen` (`copy.openFull`); an inbox row / push whose `inboxRowTarget` is a session with `planPageFor` ≠ null; the Needs-you row (thread-row-action.json) of a plan: `copy.openPlan` next to its open-chat link. Deep link: the web path `planPagePath(teamSlug, sessionId, messageId)`; a message that is not a plan card = the session.",
+  "$comment": "#EXP-1493 THE PLAN PAGE ×4 (owner 2026-10-31, thread b836a4a9: 'big plans ... are unusable as stories: you step through everything'): the EXPANDED FORM of THE plan card (plan-card.json), one system, never a second plan UI. Web packages/ui plan-page.tsx + the route `route` (apps/web routes/t/$teamSlug/sessions/$sessionId.plan.$messageId.tsx), desktop crates/ui plan_page.rs (a tab of the session pane), iOS ExpUI PlanPage.swift + Android ui/plan/PlanPage.kt (a pushed page); models: desktop domain::plan_page, iOS ExpCore PlanPage.swift, Android domain/PlanPage.kt replay EVERY *Cases array comparing the WHOLE expected value. MODEL (pure, src/plan-page.ts): `planBlocks(markdown)` (`blockCases`) splits the card's `plan` GFM in order: every `## ` line outside a code fence = a `section` block {id, title} (title = the heading's plain text: links to their text, ** __ ` dropped; id = `sectionSlug`: lowercase, every run of anything but a-z0-9 = `-`, edges trimmed, empty = `section`; a repeat gets `-2`, `-3`…); a RUN of two or more picture-only lines (`![alt](src)` alone on its line, blank lines between them allowed) = ONE `pictures` block {pictures: [{alt, src}]}; a lone picture stays in the prose; a pending `upload:` picture renders NOTHING (dropped, also inline); the rest = `markdown` blocks (blank edge lines trimmed, empty ones dropped). `planOutline(markdown)` (`outlineCases`) = one row per section {id, title, pictures} (pictures = what the blocks after it show until the next section; fenced code shows none; the prose before the first section is in no row). `planCounts(card)` (`countCases`) = {sections: the outline's length, pictures: the card's RESOLVED pictures (attachmentId set), questions: the card's questions}; `planCountsLine(counts)` (`countsLineCases`) = the non-zero parts in that order, `copy.counts` singular for 1, ` · ` between; all zero = ``. `planPageFor(sessionId, messages)` (`targetCases`) = the NEWEST (createdAt, then id) plan card the session posted ITSELF (author_session_id = session_id), no engine `questionId`, `decision` null; else null. `mosaicTiles(count)` (`mosaicCases`) = THE wide picture group (eUI `Mosaic`): 1 = one large tile, 2 = two `half` tiles side by side, 3+ = the first `large` on the left (both rows) and the next two `small` stacked on the right, the last carrying `more` = count − 3 (\"+N\" over it, scrim black 0.55); geometry `mosaic`: `gap` between tiles, the large tile `largeFraction` of the width, the whole group `aspect` w/h, `radius` + the glass-stroke hairline, pictures cover. LAYOUT. WIDE (web md+, the IDE) = three columns under ONE header row (`layout.headerHeight`, a hairline under it): the header = the back chevron, the chat's name muted, `/`, `copy.title` semibold, the KIND BADGE (stories.json `badge`, `Plan`; waiting = + ` · waiting` tint dot) then flex, the counts line muted (`planCountsLine`), `copy.openChat` (ghost), the close glyph. LEFT = THE OUTLINE (eUI `Outline`, `layout.outlineWidth`, a hairline on its right): the `copy.outline` caption (2xs uppercase muted) then one row per section (`layout.outlineRowHeight`, the title one line truncated, a muted `· n` when it has pictures), the ACTIVE row (scroll-spy: the last section whose heading passed the top of the column; none yet = no active row) = the accent background + a `layout.outlineActiveBar` px foreground bar on its leading edge; a press scrolls the document to that section; then a separator and the QUESTIONS row (`copy.questions`, trailing `· n`) that scrolls nothing (the rail already shows them); no section and no question = no outline column. CENTRE = THE DOCUMENT, one scroll, a column `layout.columnMaxWidth` wide centred, `layout.columnPadding` (wide/phone) above and on the sides, `layout.blockGap` between blocks: `markdown` = THE chat markdown renderer at the body size (plan-card.json `card` headingScale etc.), `section` = an h2 (THE markdown h2) carrying the anchor, `pictures` = wide: THE Mosaic; phone: THE eUI Carousel (one slide per picture at its aspect, the \"i / n\" counter top-left, dots under it, swipe). A press on ANY picture (mosaic tile, carousel slide, an inline picture) opens THE lightbox (`ImagePreviewDialog` + guide-viewer `‹ i / n ›`) over EVERY picture of the plan in document order. RIGHT = THE RAIL (`layout.railWidth`, the sidebar background, a hairline on its left, STICKY: it never scrolls with the document): the `copy.questions` heading + plan-card.json `stepper` (its step label, the segments, one question at a time, Back / Next) and pinned to its foot the decision (ask-dock `planOptions`: No, keep planning / Yes ▾, the answer-issue line over it, the feedback field after the reject pick); a plan without questions = the decision alone; answered or superseded = the CLOSED card (picks, `planDecisionLabel`, the feedback line), no decision row. PHONE (iOS, Android, web-mobile) = the SAME document in one scroll under a page header (the back chevron, `copy.title`, the outline toggle glyph `ui-menu` when the outline has a row): the kind badge + the h1 title + the counts line lead the column; the outline opens in THE eUI Drawer (bottom sheet, the same rows); the bottom = THE Dock with ONE DockCard, dock.json's plan card UNCHANGED (`dockRows` of the plan: `Plan ready`, the asking session's name, `n questions`, the plan's title) floating over the document's foot; a tap opens THE Dock sheet QUESTIONS-ONLY (plan-card `stepper` without its plan page: the document is the page; fewer than `stepper.minQuestions` = every question on one page) with THE decision; NO composer on this page ('No, keep planning' carries the feedback); decided = the same sheet shows the closed card. A decision on the page goes through THE card-answer path (`sessions.answer`) and the page stays open, closed. WAYS IN ×4 (all open THIS page for that message): the story viewer's plan frame `copy.openPlan` (stories.json footer `open`); the chat's plan card header action (`copy.openPlan`, a ghost button with `ui-fullscreen`); the Dock sheet header glyph `ui-fullscreen` (`copy.openFull`); an inbox row / push whose `inboxRowTarget` is a session with `planPageFor` ≠ null; the Needs-you row (thread-row-action.json) of a plan: `copy.openPlan` next to its open-chat link. Deep link: the web path `planPagePath(teamSlug, sessionId, messageId)`; a message that is not a plan card = the session.",
   "route": "/t/$teamSlug/sessions/$sessionId/plan/$messageId",
   "copy": {
     "title": "Plan",
@@ -8,7 +8,6 @@
     "openChat": "Open chat",
     "outline": "Outline",
     "questions": "Questions",
-    "answered": "{answered} of {total} answered",
     "counts": {
       "sections": [
         "section",
@@ -689,5 +688,73 @@
       "messages": [],
       "expected": null
     }
-  ]
+  ],
+  "specimen": {
+    "$comment": "THE styleguide specimen ×4 (`plan-page`): this card, waiting, drawn wide (1280 × 720: header, outline with `Part A` active, the document from its top, the rail on question 1) and phone (390 × 760: the document from its top, the DockCard at the foot). Pictures = placeholders (the muted fill); the chat name = `chatName`.",
+    "chatName": "Editor-first app creation, eApps MCP",
+    "activeSection": "part-a-editor-first-creation",
+    "card": {
+      "kind": "plan",
+      "plan": "# Plan: editor-first app creation\n\nA new app opens straight in the editor; every app gets an MCP endpoint.\n\n## Current state\n- Creating an app starts from a form.\n- The editor opens only after the first save.\n\n## Part A: editor-first creation\nThe editor opens on an empty canvas with the chat docked.\n\n![web editor new](/api/attachments/sg-1)\n![web editor preview](/api/attachments/sg-2)\n![web editor data](/api/attachments/sg-3)\n![web editor versions](/api/attachments/sg-4)\n\n## Part B: MCP for eApps\nEach team's apps answer at one MCP endpoint, scoped by a team token.\n\n## Phased issues\n1. The contract\n2. The editor\n3. The MCP endpoint",
+      "decision": null,
+      "pictures": [
+        {
+          "label": "web-editor-1",
+          "attachmentId": "sg-1",
+          "width": 1440,
+          "height": 900
+        },
+        {
+          "label": "web-editor-2",
+          "attachmentId": "sg-2",
+          "width": 1440,
+          "height": 900
+        },
+        {
+          "label": "web-editor-3",
+          "attachmentId": "sg-3",
+          "width": 1440,
+          "height": 900
+        },
+        {
+          "label": "web-editor-4",
+          "attachmentId": "sg-4",
+          "width": 1440,
+          "height": 900
+        }
+      ],
+      "questions": [
+        {
+          "id": "endpoint",
+          "prompt": "How should clients address the MCP endpoint for a team's apps?",
+          "multi": false,
+          "custom": true,
+          "options": [
+            {
+              "label": "One endpoint per team",
+              "description": "/mcp/t/acme, tools prefixed by app"
+            },
+            {
+              "label": "One endpoint per app",
+              "description": "/mcp/apps/:id"
+            }
+          ]
+        },
+        {
+          "id": "chat",
+          "prompt": "Keep the floating chat layout in the editor?",
+          "multi": false,
+          "custom": false,
+          "options": [
+            {
+              "label": "Keep it"
+            },
+            {
+              "label": "Dock it right"
+            }
+          ]
+        }
+      ]
+    }
+  }
 }

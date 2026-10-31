@@ -12,6 +12,7 @@ export const PLAN_PAGE_LAYOUT = fixture.layout
 export const PLAN_PAGE_MOSAIC = fixture.mosaic
 export const PLAN_PAGE_TEST_IDS = fixture.testIds
 export const PLAN_PAGE_ROUTE = fixture.route
+export const PLAN_PAGE_SPECIMEN = fixture.specimen
 
 export interface PlanPicture {
   alt: string
@@ -177,11 +178,6 @@ export function planCountsLine(counts: PlanCounts): string {
     if (n > 0) parts.push(`${n} ${fixture.copy.counts[key][n === 1 ? 0 : 1]}`)
   }
   return parts.join(` · `)
-}
-
-/** The outline's questions row trailing text: "2 of 7 answered". */
-export function answeredLine(answered: number, total: number): string {
-  return fixture.copy.answered.replace(`{answered}`, String(answered)).replace(`{total}`, String(total))
 }
 
 export interface MosaicTile {

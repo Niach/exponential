@@ -44,6 +44,7 @@ import { entry as sessionXref } from "./session-xref.tsx"
 import { entry as askDock } from "./ask-dock.tsx"
 import { entry as dockCard } from "./dock-card.tsx"
 import { entry as planCard } from "./plan-card.tsx"
+import { entry as planPage } from "./plan-page.tsx"
 import { entry as scriptCard } from "./script-card.tsx"
 import { entry as commentCallCard } from "./comment-call-card.tsx"
 import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
@@ -132,6 +133,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   askDock,
   dockCard,
   planCard,
+  planPage,
   scriptCard,
   commentCallCard,
   teamAgentsSettings,

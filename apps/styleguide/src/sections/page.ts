@@ -139,6 +139,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`ask-dock`]: `Surfaces`,
   [`dock-card`]: `Surfaces`,
   [`plan-card`]: `Surfaces`,
+  [`plan-page`]: `Surfaces`,
   [`script-card`]: `Surfaces`,
   [`comment-call-card`]: `Surfaces`,
   [`pr-graph-badge`]: `Buttons & chips`,
