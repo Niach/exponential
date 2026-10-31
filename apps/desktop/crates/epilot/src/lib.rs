@@ -145,9 +145,8 @@ pub fn screen_layout() -> Option<ScreenLayout> {
 }
 
 struct Live {
-    hub: Arc<server::Hub>,
+    server: emcp::Server,
     host: Arc<host::Host>,
-    url: String,
 }
 
 /// The process-wide endpoint, started on the first grant. An `Err` (no free
@@ -157,13 +156,12 @@ static LIVE: OnceLock<Result<Live, String>> = OnceLock::new();
 fn live() -> Result<&'static Live, String> {
     LIVE.get_or_init(|| {
         let host = host::Host::new();
-        let hub = Arc::new(server::Hub::new(host.clone()));
-        let url = server::serve(hub.clone())?;
-        log::info!("[computer] serving computer use on {url}");
+        let server = server::serve(host.clone())?;
+        log::info!("[computer] serving computer use on {}", server.url());
         if let Some(presence) = PRESENCE.get() {
             host.set_presence(presence.clone());
         }
-        Ok(Live { hub, host, url })
+        Ok(Live { server, host })
     })
     .as_ref()
     .map_err(Clone::clone)
@@ -299,14 +297,14 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
         return Err(reason);
     }
     let live = live()?;
-    Ok(Grant { url: live.url.clone(), token: live.hub.grant(session_id, label) })
+    Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(session_id, label) })
 }
 
 /// The run ended: its token is dead, its abort state gone, the lock
 /// released when it was the last user.
 pub fn revoke(session_id: &str) {
     if let Some(Ok(live)) = LIVE.get() {
-        live.hub.revoke(session_id);
+        live.server.revoke(session_id);
     }
 }
 
@@ -410,7 +408,7 @@ pub fn prepare_in_background() {
 /// theirs again. Grants after this work again.
 pub fn shutdown() {
     if let Some(Ok(live)) = LIVE.get() {
-        live.hub.revoke_all();
+        live.server.revoke_all();
         live.host.shutdown();
     }
 }

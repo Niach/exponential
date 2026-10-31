@@ -57,44 +57,23 @@ fn env_logger_lite() {
     let _ = log::set_logger(&Stderr).map(|()| log::set_max_level(log::LevelFilter::Debug));
 }
 
+/// One `tools/call` through the endpoint, as an agent's MCP client makes it.
 fn post(grant: &epilot::Grant, tool: &str, arguments: &str) -> Value {
-    use std::io::{Read, Write};
-    let addr = grant.url.trim_start_matches("http://").trim_end_matches("/mcp");
-    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": tool, "arguments": serde_json::from_str::<Value>(arguments).expect("JSON args") } }).to_string();
-    let mut stream = std::net::TcpStream::connect(addr).unwrap();
-    write!(
-        stream,
-        "POST /mcp HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        grant.token,
-        body.len()
-    )
-    .unwrap();
-    let mut reply = Vec::new();
-    stream.read_to_end(&mut reply).unwrap();
-    let split = reply.windows(4).position(|w| w == b"\r\n\r\n").expect("headers") + 4;
-    let (head, body) = reply.split_at(split);
-    let head = String::from_utf8_lossy(head).to_ascii_lowercase();
-    let body = if head.contains("transfer-encoding: chunked") { dechunk(body) } else { body.to_vec() };
-    serde_json::from_slice(&body).unwrap()
-}
-
-/// A large reply comes chunked (tiny_http's choice); join the chunks.
-fn dechunk(mut body: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    loop {
-        let line_end = body.windows(2).position(|w| w == b"\r\n").unwrap();
-        let size = usize::from_str_radix(std::str::from_utf8(&body[..line_end]).unwrap().trim(), 16).unwrap();
-        body = &body[line_end + 2..];
-        if size == 0 {
-            return out;
-        }
-        out.extend_from_slice(&body[..size]);
-        body = &body[size + 2..];
+    let upstream = emcp::Upstream {
+        name: epilot::SERVER_NAME.into(),
+        url: grant.url.clone(),
+        headers: vec![("Authorization".into(), format!("Bearer {}", grant.token))],
+    };
+    let timeout = std::time::Duration::from_secs(120);
+    let arguments = serde_json::from_str::<Value>(arguments).expect("JSON args");
+    match emcp::client::call_once(&upstream, "epilot-probe", tool, arguments, timeout) {
+        Ok(result) => result,
+        Err(err) => json!({ "error": err.to_string() }),
     }
 }
 
 fn elide(mut value: Value) -> String {
-    if let Some(content) = value.pointer_mut("/result/content").and_then(Value::as_array_mut) {
+    if let Some(content) = value.pointer_mut("/content").and_then(Value::as_array_mut) {
         for item in content {
             if item["type"] == "image" {
                 let data = item["data"].as_str().unwrap_or_default();
