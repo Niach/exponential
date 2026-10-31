@@ -5,6 +5,13 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1493: the Carousel `counter` pill sits at the track's top-END corner (mirrored under RTL), through the Solid painter.
+
+## 0.3.0 (2026-10-31)
+
+- Round 6 (EXP-1495), through the Solid painter: the Carousel `counter` pill and `thumbnails` strip (a thumbnail press reaches `xui-action` as `change {page}`), the `Outline` and `Mosaic` macros.
+- VAPP-180 (with the SDK): a package's `exposes` and `upstreams`, validated by the core.
+
 ## 0.2.1 (2026-10-30)
 
 - Version-only bump with the SDK (eui-gpui 0.2.1: per-cluster font fallback, YO-30); unchanged from 0.2.0.

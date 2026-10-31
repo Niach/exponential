@@ -23,8 +23,10 @@ export const ATTACHMENT_UPLOAD_TOKEN_TTL_MS = 10 * 60 * 1000
 
 export interface AttachmentUploadTokenPayload {
   a: string // the attachments row id the upload will create
-  i: string // issue id
-  b: string // board id
+  // EXP-1516: both absent = a LOOSE upload (no issue, no board) in team `w`,
+  // for `sessions_send({attachmentIds})` to claim.
+  i?: string // issue id
+  b?: string // board id
   w: string // team id (storage budget + row scope)
   u: string // uploader — the user the MCP layer authorized at mint time
   f: string // sanitized filename
@@ -35,8 +37,9 @@ export interface AttachmentUploadTokenPayload {
 
 export interface AttachmentUploadTokenInput {
   attachmentId: string
-  issueId: string
-  boardId: string
+  /** Absent (with boardId) = a loose upload (EXP-1516). */
+  issueId?: string
+  boardId?: string
   teamId: string
   userId: string
   filename: string
@@ -67,8 +70,9 @@ export function mintAttachmentUploadToken(
   }
   const payload: AttachmentUploadTokenPayload = {
     a: input.attachmentId,
-    i: input.issueId,
-    b: input.boardId,
+    ...(input.issueId && input.boardId
+      ? { i: input.issueId, b: input.boardId }
+      : {}),
     w: input.teamId,
     u: input.userId,
     f: input.filename,
@@ -105,8 +109,10 @@ export function verifyAttachmentUploadToken(
     ) as AttachmentUploadTokenPayload
     if (
       typeof payload?.a !== `string` ||
-      typeof payload?.i !== `string` ||
-      typeof payload?.b !== `string` ||
+      // Both or neither: an issue upload names its board too.
+      (payload?.i === undefined) !== (payload?.b === undefined) ||
+      (payload.i !== undefined && typeof payload.i !== `string`) ||
+      (payload.b !== undefined && typeof payload.b !== `string`) ||
       typeof payload?.w !== `string` ||
       typeof payload?.u !== `string` ||
       typeof payload?.f !== `string` ||

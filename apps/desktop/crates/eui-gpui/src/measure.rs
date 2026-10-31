@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use eui_core::measure::{ControlBox, HeightRequest, Intrinsics, LeafRequest, Measure, TextStyle};
 use eui_core::theme::{Mode, ResolvedTheme};
-use gpui::{px, App, Font, FontFallbacks, FontStyle, FontWeight, SharedString, TextRun, TextSystem, Window};
+use gpui::{px, App, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, SharedString, TextRun, TextSystem, Window};
 use serde_json::{Map, Value};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -76,6 +76,7 @@ struct WrapKey {
     italic: bool,
     size: u32,
     tracking: u32,
+    features: FontFeatures,
     wrap: Option<i64>,
 }
 
@@ -239,6 +240,19 @@ fn plain_font(family: SharedString, weight: u16, italic: bool, fallbacks: Option
     Font { family, features: Default::default(), fallbacks, weight: FontWeight(weight as f32), style: if italic { FontStyle::Italic } else { FontStyle::Normal } }
 }
 
+/// EXP-1495: the parts the web sets in `font-variant-numeric: tabular-nums`
+/// (`web/base-css.ts`) that gpui paints as a plain Text leaf: shaped with the
+/// OpenType `tnum` feature in the measurer AND the painter, so `1 / 2` is as
+/// wide as the web's (Geist's proportional `1` is narrower).
+pub fn tabular_nums(owner: Option<&str>, part: Option<&str>) -> bool {
+    matches!((owner, part), (Some("Carousel"), Some("counter")))
+}
+
+/// `font` with tabular figures (`tnum`).
+pub fn with_tabular_nums(font: Font) -> Font {
+    Font { features: FontFeatures(Arc::new(vec![("tnum".into(), 1)])), ..font }
+}
+
 fn run(text: &str, font: Font) -> TextRun {
     TextRun { len: text.len(), font, color: gpui::black(), background_color: None, underline: None, strikethrough: None }
 }
@@ -337,7 +351,7 @@ impl<'w> Shaper<'w> {
     /// The lines `text` breaks into at `wrap` (`None` = the hard breaks
     /// only) — the lines the painter draws.
     pub fn lines(&mut self, text: &str, font: &Font, size: f32, wrap: Option<f32>) -> Rc<Vec<String>> {
-        let key = WrapKey { text: text.to_string(), family: font.family.clone(), weight: font.weight.0 as u16, italic: font.style == FontStyle::Italic, size: size.to_bits(), tracking: self.tracking.to_bits(), wrap: wrap.map(|w| (w * 4.0).round() as i64) };
+        let key = WrapKey { text: text.to_string(), family: font.family.clone(), weight: font.weight.0 as u16, italic: font.style == FontStyle::Italic, size: size.to_bits(), tracking: self.tracking.to_bits(), features: font.features.clone(), wrap: wrap.map(|w| (w * 4.0).round() as i64) };
         if let Some(hit) = self.fonts.cached_lines(&key) {
             return hit;
         }
@@ -629,6 +643,12 @@ impl<'a> GpuiMeasure<'a> {
     /// Plain text content at an inner wrap width, with `lines` truncation.
     fn para(&mut self, raw: &str, ts: &TextStyle, wrap: Option<f32>, lines: Option<u32>) -> Content {
         let font = self.fonts.for_style(ts);
+        self.para_in(raw, ts, &font, wrap, lines)
+    }
+
+    /// [`Self::para`] in an explicit font (with features).
+    fn para_in(&mut self, raw: &str, ts: &TextStyle, font: &Font, wrap: Option<f32>, lines: Option<u32>) -> Content {
+        let font = font.clone();
         let shown = text::transform(raw, ts.text_transform.as_deref());
         // Round 2 §7: an empty text lays out ZERO lines (its padding only).
         if shown.is_empty() {
@@ -1031,6 +1051,9 @@ impl<'a> GpuiMeasure<'a> {
                 } else if part == Some("cell") && str_prop(props, "cellType") == "badge" {
                     let (w, h, b) = self.para(raw, &TextStyle { font_size: (ts.font_size - 2.0).max(10.0), ..ts.clone() }, None, Some(1));
                     (w + 16.0, h.max(ts.line_height), b)
+                } else if tabular_nums(leaf.owner_component, part) {
+                    let font = with_tabular_nums(self.fonts.for_style(ts));
+                    self.para_in(raw, ts, &font, inner, leaf.lines)
                 } else {
                     self.para(raw, ts, inner, leaf.lines)
                 }

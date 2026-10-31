@@ -132,7 +132,9 @@ export async function resolveMcpTokenAccess(
     .where(
       and(
         eq(mcpGrants.userId, token.userId),
-        eq(mcpGrants.clientId, token.clientId)
+        eq(mcpGrants.clientId, token.clientId),
+        // #VAPP-181: /api/mcp reads the client's builtin grant only.
+        eq(mcpGrants.kind, `builtin`)
       )
     )
     .limit(1)

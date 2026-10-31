@@ -1,0 +1,40 @@
+{
+  "$comment": "eCore (#EXP-1504): the plain types every ExponentialOS module may share. Types and pure rules only: no I/O, no async runtime, no network, no UI, no other module. `bun run --filter @exp/ecore generate` writes Rust (apps/desktop/crates/ecore), TS (src/contract.generated.ts), Swift (ExpCore) and Kotlin (com.exponential.app.ecore); fixtures/ecore.json replays on all four.",
+  "version": 1,
+  "id": {
+    "$comment": "Every id is an opaque string: 1..maxLength characters, ASCII letters and digits plus `extraChars`, never starting with one of `extraChars` (a UUID qualifies). `kinds` name what an id points at.",
+    "kinds": ["session", "run", "space", "window", "device"],
+    "maxLength": 128,
+    "extraChars": "._:-"
+  },
+  "token": {
+    "$comment": "A grant's bearer token: exactly `length` characters of `alphabet` (two v4 UUIDs without dashes). It travels as `Authorization: <scheme> <token>`; the scheme matches case-insensitively.",
+    "scheme": "Bearer",
+    "length": 64,
+    "alphabet": "0123456789abcdef"
+  },
+  "grant": {
+    "$comment": "A grant = { token, sessionId, runId?, capabilities[], expiresAt? (unix ms) }. It admits a capability it names, before expiresAt (none = until revoked)."
+  },
+  "capability": {
+    "$comment": "What a grant lets a caller do on a device: `capture` reads the screen, `input:person` drives the person's own input, `space` works in an agent space, `lend` borrows a window into a space, `ui` renders eUI surfaces, `system` calls system services.",
+    "values": ["capture", "input:person", "space", "lend", "ui", "system"]
+  },
+  "deliveryVerdict": {
+    "$comment": "How a tool call's side effect ended. `delivered_verified` = it happened and was checked: never retry. `not_delivered` = it did not happen. `retry_safe` = unknown, but repeating it cannot double it.",
+    "values": ["delivered_verified", "not_delivered", "retry_safe"],
+    "mayRetry": ["not_delivered", "retry_safe"]
+  },
+  "error": {
+    "$comment": "The one refusal/error shape: { code, message, retryable }. A refusal is a code the callee chose (`refusalCodes`); `retryable` defaults to membership in `retryableCodes`. `message` is human text, at most messageMax characters.",
+    "codes": ["unauthorized", "forbidden", "invalid", "limit", "not_found", "conflict", "unavailable", "timeout", "internal"],
+    "refusalCodes": ["unauthorized", "forbidden", "invalid", "limit"],
+    "retryableCodes": ["unavailable", "timeout"],
+    "messageMax": 500
+  },
+  "envelope": {
+    "$comment": "The event envelope, the stable core of `wire`: { v, id, kind, at (unix ms), source, sessionId?, data }. `kind` is dotted lowercase segments (`session.turn_ended`), at most kindMax characters; `source` names the emitting module and follows the id rule. envelopeErrors lists every field that breaks a rule, in this order: v, id, kind, at, source, sessionId.",
+    "version": 1,
+    "kindMax": 64
+  }
+}

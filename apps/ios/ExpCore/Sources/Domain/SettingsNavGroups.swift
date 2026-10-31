@@ -53,7 +53,7 @@ public extension SettingsNav {
         ]),
         Group(id: "boards", label: "Boards", platforms: nil, items: [List.boards, List.newBoard, "archived-boards"]),
         Group(id: "agents", label: "Agents", platforms: nil, items: [
-            List.assistant, List.agents, List.newAgent, "mcp-servers",
+            List.assistant, List.agents, List.newAgent, "mcp",
         ]),
         Group(id: "apps", label: "Apps", platforms: nil, items: [List.apps, List.newApp]),
         Group(id: "device", label: "This device", platforms: [.desktop], items: [

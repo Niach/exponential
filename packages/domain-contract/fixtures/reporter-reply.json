@@ -12,8 +12,9 @@
     "notificationLabel": "Reporter replied"
   },
   "captions": {
-    "_doc": "The muted caption after the time. Parts in this ORDER: `reporterCaption` (source reporter), `toReporterCaption` (audience reporter on a non-reporter comment), `viaMcp` (source mcp, and only while `authorAgentId` is unset: #EXP-1383, an agent's comment already names the agent, so it never reads via MCP; a person's MCP comment keeps it); every part that applies shows, joined by `separator`; none = no caption. `copy` stays exactly nine keys; the caption-only strings live here.",
+    "_doc": "The muted caption after the time. Parts in this ORDER: `reporterCaption` (source reporter), `toReporterCaption` (audience reporter on a non-reporter comment), `viaMcp` (source mcp, and only while `authorAgentId` is unset: #EXP-1383, an agent's comment already names the agent, so it never reads via MCP; a person's MCP comment keeps it; #VAPP-186: a comment an app's MCP tool wrote (`viaAppId` set, its app's name resolved from the synced apps) reads `viaApp` with `{app}` = that name INSTEAD of `viaMcp`, under the same agent rule; an app no longer synced (deleted) falls back to `viaMcp`); every part that applies shows, joined by `separator`; none = no caption. `copy` stays exactly nine keys; the caption-only strings live here.",
     "viaMcp": "via MCP",
+    "viaApp": "via {app}",
     "separator": " · ",
     "cases": [
       {
@@ -52,6 +53,25 @@
         "audience": "reporter",
         "authorAgentId": "G1",
         "caption": "to reporter"
+      },
+      {
+        "source": "mcp",
+        "audience": "team",
+        "viaAppName": "m5 admin",
+        "caption": "via m5 admin"
+      },
+      {
+        "source": "mcp",
+        "audience": "reporter",
+        "viaAppName": "m5 admin",
+        "caption": "to reporter · via m5 admin"
+      },
+      {
+        "source": "mcp",
+        "audience": "team",
+        "viaAppName": null,
+        "viaAppId": "A1",
+        "caption": "via MCP"
       }
     ]
   },

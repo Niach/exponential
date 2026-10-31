@@ -25,6 +25,8 @@ export interface FakeProvider {
   fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   calls: Array<{ method: string; url: string }>
   tokenForms: URLSearchParams[]
+  /** #VAPP-184: every RFC 7009 revocation form. */
+  revocationForms: URLSearchParams[]
   registrations: unknown[]
   mcpRequests: Array<{ headers: Headers; body: Record<string, unknown> }>
   liveTokens: Set<string>
@@ -41,6 +43,7 @@ export function fakeProvider(options: FakeProviderOptions = {}): FakeProvider {
   const provider: FakeProvider = {
     calls: [],
     tokenForms: [],
+    revocationForms: [],
     registrations: [],
     mcpRequests: [],
     liveTokens: new Set(),
@@ -60,6 +63,7 @@ export function fakeProvider(options: FakeProviderOptions = {}): FakeProvider {
           issuer: AS_ISSUER,
           authorization_endpoint: `${AS_ISSUER}/authorize`,
           token_endpoint: `${AS_ISSUER}/token`,
+          revocation_endpoint: `${AS_ISSUER}/revoke`,
           ...(options.registration === false
             ? {}
             : { registration_endpoint: `${AS_ISSUER}/register` }),
@@ -70,6 +74,12 @@ export function fakeProvider(options: FakeProviderOptions = {}): FakeProvider {
       if (url.startsWith(`${AS_ISSUER}/register`) && method === `POST`) {
         provider.registrations.push(JSON.parse(String(init.body)))
         return json({ client_id: `dcr-client-${provider.registrations.length}` }, 201)
+      }
+      if (url === `${AS_ISSUER}/revoke` && method === `POST`) {
+        const form = new URLSearchParams(String(init.body))
+        provider.revocationForms.push(form)
+        provider.liveTokens.delete(form.get(`token`) ?? ``)
+        return new Response(null, { status: 200 })
       }
       if (url === `${AS_ISSUER}/token` && method === `POST`) {
         const form = new URLSearchParams(String(init.body))

@@ -44,7 +44,7 @@ describe(`commentCaption`, () => {
           source: c.source as Comment[`source`],
           audience: c.audience as Comment[`audience`],
           authorAgentId: (c as { authorAgentId?: string }).authorAgentId ?? null,
-        })
+        }, (c as { viaAppName?: string | null }).viaAppName)
       ).toBe(c.caption)
     }
   })

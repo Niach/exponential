@@ -42,7 +42,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/prompts`
   | `/t/$teamSlug/settings/widget`
-  | `/t/$teamSlug/settings/mcp-servers`
+  | `/t/$teamSlug/settings/mcp`
   | `/t/$teamSlug/settings/account`
   | `/t/$teamSlug/settings/notifications`
   | `/t/$teamSlug/settings/security`
@@ -157,11 +157,11 @@ const SETTINGS_PAGES: Record<string, Omit<SettingsNavItem, `visible` | `children
     to: `/t/$teamSlug/settings/boards/archived`,
     icon: conceptIcon(`ui-archive`),
   },
-  // EXP-792: every member reads the list; writes are owner-only inside.
-  "mcp-servers": {
-    id: `mcp-servers`,
-    label: `MCP servers`,
-    to: `/t/$teamSlug/settings/mcp-servers`,
+  // EXP-792 / #VAPP-185: every member reads it; writes are owner-only inside.
+  mcp: {
+    id: `mcp`,
+    label: `MCP`,
+    to: `/t/$teamSlug/settings/mcp`,
     icon: conceptIcon(`settings-mcp`),
   },
   account: {

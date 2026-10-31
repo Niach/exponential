@@ -593,7 +593,7 @@ impl ActivitySender {
 
 /// EXP-1426 part 4: the agent runtime's event seam. The engine core sends
 /// every mapped event through it; for Exponential that is the publisher.
-impl exponential_agent_runtime::engine::EventSink for ActivitySender {
+impl eagent::engine::EventSink for ActivitySender {
     fn send(&self, event: ActivityEvent) {
         ActivitySender::send(self, event)
     }

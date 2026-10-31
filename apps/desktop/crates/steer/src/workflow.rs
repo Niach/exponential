@@ -1,8 +1,8 @@
 //! EXP-850 §3/§7: the `workflow` payload and the shared caption. EXP-1426:
-//! the module lives in `exponential_agent_runtime::wire::workflow` now and is
+//! the module lives in `eagent::wire::workflow` now and is
 //! re-exported here whole.
 
-pub use exponential_agent_runtime::wire::workflow::*;
+pub use eagent::wire::workflow::*;
 
 #[cfg(test)]
 mod contract_tests {

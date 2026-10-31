@@ -361,13 +361,17 @@ private fun CommentCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         row.authorId?.let { db.userDao().observeById(it) } ?: flowOf(null)
     }
     val issue by observeScoped(row.issueId, null) { it.issueDao().observeById(row.issueId) }
+    // #VAPP-186: the app whose MCP tool wrote it ("via <app>").
+    val viaApp by observeScoped(row.viaAppId, null) { db ->
+        row.viaAppId?.let { db.appDao().observeById(it) } ?: flowOf(null)
+    }
     val statuses = teamStatuses()
     val name = commentAuthorName(row, author, reporterName = null)
     EntityPreviewCard(
         icon = { UserAvatar(author, name, size = 24.dp, userId = row.authorId) },
         eyebrow = "Comment",
         title = name,
-        subtitle = relativeTime(row.createdAt) + (commentCaption(row)?.let { " · $it" } ?: ""),
+        subtitle = relativeTime(row.createdAt) + (commentCaption(row, viaApp?.name)?.let { " · $it" } ?: ""),
         body = remember(row.body) { row.body?.let { plainExcerpt(it, EXCERPT_MAX) } },
         rows = listOfNotNull(
             issue?.let { target ->

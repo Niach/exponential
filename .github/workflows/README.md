@@ -37,7 +37,8 @@ shell, `/api/health` must say `{"ok":true}`), and the image's HEALTHCHECK
 matches that body. A dead server can answer `/api/health` with 200 and an
 error page, so Coolify's own health check on the web app must match the
 response text too: path `/api/health`, return code 200, response text
-`"ok":true`. Locally after `bun run build`: `cd apps/web && bun run
+`"ok":true`, host `127.0.0.1` (busybox wget resolves `localhost` to ::1 and
+the server listens on IPv4 only, so `localhost` fails every probe). Locally after `bun run build`: `cd apps/web && bun run
 smoke:server -- --boot` (needs `DATABASE_URL` + `BETTER_AUTH_SECRET`).
 
 The device-shares gate (FEED-149/FEED-155) is a production deploy step, not
@@ -93,6 +94,7 @@ sessions; a relay that ignores the claim shows those sessions as Ended.
 | master push | `build-web.yml`, `build-steer-relay.yml` | the ghcr images the deploys pull |
 | release tags (`desktop-v*`, `android-v*`, `ios-v*`, `cli-v*`, `eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`, `v*.*.*`) + `workflow_dispatch` | `release-suite.yml` (once per commit) | everything heavy: `exponential-ui.yml` in full (renderer suites, conformance, parity, guides, size, bench, Simulator + emulator), `test-ios.yml`, Android unit + lint + licences, desktop `cargo test` + licences, marketing + styleguide builds + `shots:check`, package + bun suites, real-DB suites, the feedback-widget Playwright e2e on the compose stack, push-relay image smoke build |
 | release tags | `build-*.yml`, `release-eui.yml` | the release artifacts |
+| `ede-v*` tags, by hand, PRs touching `apps/ede/packaging/` | `build-ede.yml` | the eDE .deb with its bundled Xwayland 24.1 (built on noble, cached), install + doctor + the headless Xwayland test on the runner |
 | by hand | `exponential-ui-fuzz.yml`, `record-compose-fixtures.yml`, `bump-versions.yml` | fuzzing, re-recording the Compose fixtures, the version-bump PR |
 
 Bench timings never fail (warnings only); counts and bytes still gate.

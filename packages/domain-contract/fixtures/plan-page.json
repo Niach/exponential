@@ -1,0 +1,760 @@
+{
+  "$comment": "#EXP-1493 THE PLAN PAGE ×4 (owner 2026-10-31, thread b836a4a9: 'big plans ... are unusable as stories: you step through everything'): the EXPANDED FORM of THE plan card (plan-card.json), one system, never a second plan UI. Web packages/ui plan-page.tsx + the route `route` (apps/web routes/t/$teamSlug/sessions/$sessionId.plan.$messageId.tsx), desktop crates/ui plan_page.rs (a tab of the session pane), iOS ExpUI PlanPage.swift + Android ui/plan/PlanPage.kt (a pushed page); models: desktop domain::plan_page, iOS ExpCore PlanPage.swift, Android domain/PlanPage.kt replay EVERY *Cases array comparing the WHOLE expected value. MODEL (pure, src/plan-page.ts): `planBlocks(markdown)` (`blockCases`) splits the card's `plan` GFM in order: every `## ` line outside a code fence = a `section` block {id, title} (title = the heading's plain text: links to their text, ** __ ` dropped; id = `sectionSlug`: lowercase, every run of anything but a-z0-9 = `-`, edges trimmed, empty = `section`; a repeat gets `-2`, `-3`…); a RUN of two or more picture-only lines (`![alt](src)` alone on its line, blank lines between them allowed) = ONE `pictures` block {pictures: [{alt, src}]}; a lone picture stays in the prose; a pending `upload:` picture renders NOTHING (dropped, also inline); the rest = `markdown` blocks (blank edge lines trimmed, empty ones dropped). `planOutline(markdown)` (`outlineCases`) = one row per section {id, title, pictures} (pictures = what the blocks after it show until the next section; fenced code shows none; the prose before the first section is in no row). `planCounts(card)` (`countCases`) = {sections: the outline's length, pictures: the card's RESOLVED pictures (attachmentId set), questions: the card's questions}; `planCountsLine(counts)` (`countsLineCases`) = the non-zero parts in that order, `copy.counts` singular for 1, ` · ` between; all zero = ``. `planPageFor(sessionId, messages)` (`targetCases`) = the NEWEST (createdAt, then id) plan card the session posted ITSELF (author_session_id = session_id), no engine `questionId`, `decision` null; else null. `mosaicTiles(count)` (`mosaicCases`) = THE wide picture group (eUI `Mosaic`): 1 = one large tile, 2 = two `half` tiles side by side, 3+ = the first `large` on the left (both rows) and the next two `small` stacked on the right, the last carrying `more` = count − 3 (\"+N\" over it, scrim black 0.55); geometry `mosaic`: `gap` between tiles, the large tile `largeFraction` of the width, the whole group `aspect` w/h, `radius` + the glass-stroke hairline, pictures cover. LAYOUT. WIDE (web md+, the IDE) = three columns under ONE header row (`layout.headerHeight`, a hairline under it): the header = the back chevron, the chat's name muted, `/`, `copy.title` semibold, the KIND BADGE (stories.json `badge`, `Plan`; waiting = + a 6 px needs-you dot (the sidebar's `needsYou` tone, `semantic.yellow`; no word)) then flex, the counts line muted (`planCountsLine`), `copy.openChat` (ghost), the close glyph. LEFT = THE OUTLINE (eUI `Outline`, `layout.outlineWidth`, a hairline on its right): the `copy.outline` caption (2xs uppercase muted) then one row per section (`layout.outlineRowHeight`, the title one line truncated, a muted `· n` when it has pictures), the ACTIVE row (scroll-spy: the last section whose heading passed the top of the column; none yet = no active row) = the accent background + a `layout.outlineActiveBar` px foreground bar on its leading edge; a press scrolls the document to that section; then a separator and the QUESTIONS row (`copy.questions`, trailing `· n`) that scrolls nothing (the rail already shows them); no section and no question = no outline column. CENTRE = THE DOCUMENT, one scroll, a column `layout.columnMaxWidth` wide centred, `layout.columnPadding` (wide/phone) above and on the sides, `layout.blockGap` between blocks: `markdown` = THE chat markdown renderer at the body size (plan-card.json `card` headingScale etc.), `section` = an h2 (THE markdown h2) carrying the anchor, `pictures` = wide: THE Mosaic; phone: THE eUI Carousel (one slide per picture at its aspect, the \"i / n\" counter top-left, dots under it, swipe). A press on ANY picture (mosaic tile, carousel slide, an inline picture) opens THE lightbox (`ImagePreviewDialog` + guide-viewer `‹ i / n ›`) over EVERY picture of the plan in document order. RIGHT = THE RAIL (`layout.railWidth`, the sidebar background, a hairline on its left, STICKY: it never scrolls with the document): the `copy.questions` heading + plan-card.json `stepper` (its step label, the segments, one question at a time, Back / Next) and pinned to its foot the decision (ask-dock `planOptions`: No, keep planning / Yes ▾, the answer-issue line over it, the feedback field after the reject pick); a plan without questions = the decision alone; answered or superseded = the CLOSED card (picks, `planDecisionLabel`, the feedback line), no decision row. PHONE (iOS, Android, web-mobile) = the SAME document in one scroll under a page header (the back chevron, `copy.title`, the outline toggle glyph `ui-menu` when the outline has a row): the kind badge + the h1 title + the counts line lead the column; the outline opens in THE eUI Drawer (bottom sheet, the same rows); the bottom = THE Dock with ONE DockCard, dock.json's plan card UNCHANGED (`dockRows` of the plan: `Plan ready`, the asking session's name, `n questions`, the plan's title) floating over the document's foot; a tap opens THE Dock sheet QUESTIONS-ONLY (plan-card `stepper` without its plan page: the document is the page; fewer than `stepper.minQuestions` = every question on one page) with THE decision; NO composer on this page ('No, keep planning' carries the feedback); decided = the same sheet shows the closed card. A decision on the page goes through THE card-answer path (`sessions.answer`) and the page stays open, closed. WAYS IN ×4 (all open THIS page for that message): the story viewer's plan frame `copy.openPlan` (stories.json footer `open`); the chat's plan card header action (`copy.openPlan`, a ghost button with `ui-fullscreen`); the Dock sheet header glyph `ui-fullscreen` (`copy.openFull`); an inbox row / push whose `inboxRowTarget` is a session with `planPageFor` ≠ null; the Needs-you row (thread-row-action.json) of a plan: `copy.openPlan` next to its open-chat link. Deep link: the web path `planPagePath(teamSlug, sessionId, messageId)`; a message that is not a plan card = the session.",
+  "route": "/t/$teamSlug/sessions/$sessionId/plan/$messageId",
+  "copy": {
+    "title": "Plan",
+    "openPlan": "Open plan",
+    "openFull": "Open full plan",
+    "openChat": "Open chat",
+    "outline": "Outline",
+    "questions": "Questions",
+    "counts": {
+      "sections": [
+        "section",
+        "sections"
+      ],
+      "pictures": [
+        "picture",
+        "pictures"
+      ],
+      "questions": [
+        "question",
+        "questions"
+      ]
+    }
+  },
+  "layout": {
+    "outlineWidth": 240,
+    "columnMaxWidth": 720,
+    "railWidth": 360,
+    "columnPadding": {
+      "wide": 28,
+      "phone": 18
+    },
+    "headerHeight": 48,
+    "blockGap": 14,
+    "outlineRowHeight": 32,
+    "outlineActiveBar": 2
+  },
+  "mosaic": {
+    "gap": 10,
+    "largeFraction": 0.6,
+    "aspect": 1.6,
+    "radius": 10
+  },
+  "testIds": {
+    "page": "plan-page",
+    "outline": "plan-outline",
+    "outlineRow": "plan-outline-row",
+    "document": "plan-document",
+    "rail": "plan-rail",
+    "mosaic": "plan-mosaic",
+    "carousel": "plan-carousel",
+    "openPlan": "open-plan",
+    "outlineToggle": "plan-outline-toggle"
+  },
+  "blockCases": [
+    {
+      "name": "big",
+      "markdown": "# Plan: editor-first app creation and MCP for eApps\n\nA new app opens straight in the editor.\n\n## Current state (researched in code)\n- the form comes first\n\n## Part A: editor-first creation\nThe editor opens on an empty canvas.\n\n![web editor new](/api/attachments/a1)\n\n![web editor preview](/api/attachments/a2)\n![web editor data](/api/attachments/a3)\n![web editor versions](/api/attachments/a4)\n\nThe data tab keeps inline edit.\n\n![ios editor new](/api/attachments/a5)\n\n## Part B: MCP for **eApps**\n![mcp access](/api/attachments/a6)\n![consent](upload:web-oauth-consent)\n![oauth](/api/attachments/a7)\n\n## Phased issues\n```md\n## not a heading\n![not a picture](/api/attachments/zz)\n![nor this](/api/attachments/zy)\n```\n1. Contract",
+      "expected": [
+        {
+          "kind": "markdown",
+          "text": "# Plan: editor-first app creation and MCP for eApps\n\nA new app opens straight in the editor."
+        },
+        {
+          "kind": "section",
+          "id": "current-state-researched-in-code",
+          "title": "Current state (researched in code)"
+        },
+        {
+          "kind": "markdown",
+          "text": "- the form comes first"
+        },
+        {
+          "kind": "section",
+          "id": "part-a-editor-first-creation",
+          "title": "Part A: editor-first creation"
+        },
+        {
+          "kind": "markdown",
+          "text": "The editor opens on an empty canvas."
+        },
+        {
+          "kind": "pictures",
+          "pictures": [
+            {
+              "alt": "web editor new",
+              "src": "/api/attachments/a1"
+            },
+            {
+              "alt": "web editor preview",
+              "src": "/api/attachments/a2"
+            },
+            {
+              "alt": "web editor data",
+              "src": "/api/attachments/a3"
+            },
+            {
+              "alt": "web editor versions",
+              "src": "/api/attachments/a4"
+            }
+          ]
+        },
+        {
+          "kind": "markdown",
+          "text": "The data tab keeps inline edit.\n\n![ios editor new](/api/attachments/a5)"
+        },
+        {
+          "kind": "section",
+          "id": "part-b-mcp-for-eapps",
+          "title": "Part B: MCP for eApps"
+        },
+        {
+          "kind": "pictures",
+          "pictures": [
+            {
+              "alt": "mcp access",
+              "src": "/api/attachments/a6"
+            },
+            {
+              "alt": "oauth",
+              "src": "/api/attachments/a7"
+            }
+          ]
+        },
+        {
+          "kind": "section",
+          "id": "phased-issues",
+          "title": "Phased issues"
+        },
+        {
+          "kind": "markdown",
+          "text": "```md\n## not a heading\n![not a picture](/api/attachments/zz)\n![nor this](/api/attachments/zy)\n```\n1. Contract"
+        }
+      ]
+    },
+    {
+      "name": "plain",
+      "markdown": "Drop the undo step\n\nOne request per change.",
+      "expected": [
+        {
+          "kind": "markdown",
+          "text": "Drop the undo step\n\nOne request per change."
+        }
+      ]
+    },
+    {
+      "name": "dupes",
+      "markdown": "## Notes\none\n## Notes\ntwo\n## ???\nthree",
+      "expected": [
+        {
+          "kind": "section",
+          "id": "notes",
+          "title": "Notes"
+        },
+        {
+          "kind": "markdown",
+          "text": "one"
+        },
+        {
+          "kind": "section",
+          "id": "notes-2",
+          "title": "Notes"
+        },
+        {
+          "kind": "markdown",
+          "text": "two"
+        },
+        {
+          "kind": "section",
+          "id": "section",
+          "title": "???"
+        },
+        {
+          "kind": "markdown",
+          "text": "three"
+        }
+      ]
+    },
+    {
+      "name": "pendingOnly",
+      "markdown": "## Pictures\n![a](upload:web-a)\n\n![b](upload:web-b)\ntext ![c](upload:web-c) after",
+      "expected": [
+        {
+          "kind": "section",
+          "id": "pictures",
+          "title": "Pictures"
+        },
+        {
+          "kind": "markdown",
+          "text": "text  after"
+        }
+      ]
+    },
+    {
+      "name": "inlinePicture",
+      "markdown": "Intro with ![inline](/api/attachments/i1) in a sentence.\n\n![x](/api/attachments/x1) ![y](/api/attachments/y1)",
+      "expected": [
+        {
+          "kind": "markdown",
+          "text": "Intro with ![inline](/api/attachments/i1) in a sentence.\n\n![x](/api/attachments/x1) ![y](/api/attachments/y1)"
+        }
+      ]
+    }
+  ],
+  "outlineCases": [
+    {
+      "name": "big",
+      "markdown": "# Plan: editor-first app creation and MCP for eApps\n\nA new app opens straight in the editor.\n\n## Current state (researched in code)\n- the form comes first\n\n## Part A: editor-first creation\nThe editor opens on an empty canvas.\n\n![web editor new](/api/attachments/a1)\n\n![web editor preview](/api/attachments/a2)\n![web editor data](/api/attachments/a3)\n![web editor versions](/api/attachments/a4)\n\nThe data tab keeps inline edit.\n\n![ios editor new](/api/attachments/a5)\n\n## Part B: MCP for **eApps**\n![mcp access](/api/attachments/a6)\n![consent](upload:web-oauth-consent)\n![oauth](/api/attachments/a7)\n\n## Phased issues\n```md\n## not a heading\n![not a picture](/api/attachments/zz)\n![nor this](/api/attachments/zy)\n```\n1. Contract",
+      "expected": [
+        {
+          "id": "current-state-researched-in-code",
+          "title": "Current state (researched in code)",
+          "pictures": 0
+        },
+        {
+          "id": "part-a-editor-first-creation",
+          "title": "Part A: editor-first creation",
+          "pictures": 5
+        },
+        {
+          "id": "part-b-mcp-for-eapps",
+          "title": "Part B: MCP for eApps",
+          "pictures": 2
+        },
+        {
+          "id": "phased-issues",
+          "title": "Phased issues",
+          "pictures": 0
+        }
+      ]
+    },
+    {
+      "name": "plain",
+      "markdown": "Drop the undo step\n\nOne request per change.",
+      "expected": []
+    },
+    {
+      "name": "dupes",
+      "markdown": "## Notes\none\n## Notes\ntwo\n## ???\nthree",
+      "expected": [
+        {
+          "id": "notes",
+          "title": "Notes",
+          "pictures": 0
+        },
+        {
+          "id": "notes-2",
+          "title": "Notes",
+          "pictures": 0
+        },
+        {
+          "id": "section",
+          "title": "???",
+          "pictures": 0
+        }
+      ]
+    },
+    {
+      "name": "pendingOnly",
+      "markdown": "## Pictures\n![a](upload:web-a)\n\n![b](upload:web-b)\ntext ![c](upload:web-c) after",
+      "expected": [
+        {
+          "id": "pictures",
+          "title": "Pictures",
+          "pictures": 0
+        }
+      ]
+    },
+    {
+      "name": "inlinePicture",
+      "markdown": "Intro with ![inline](/api/attachments/i1) in a sentence.\n\n![x](/api/attachments/x1) ![y](/api/attachments/y1)",
+      "expected": []
+    }
+  ],
+  "countCases": [
+    {
+      "name": "the big plan: 4 sections, resolved pictures only, 7 questions",
+      "card": {
+        "kind": "plan",
+        "plan": "# Plan: editor-first app creation and MCP for eApps\n\nA new app opens straight in the editor.\n\n## Current state (researched in code)\n- the form comes first\n\n## Part A: editor-first creation\nThe editor opens on an empty canvas.\n\n![web editor new](/api/attachments/a1)\n\n![web editor preview](/api/attachments/a2)\n![web editor data](/api/attachments/a3)\n![web editor versions](/api/attachments/a4)\n\nThe data tab keeps inline edit.\n\n![ios editor new](/api/attachments/a5)\n\n## Part B: MCP for **eApps**\n![mcp access](/api/attachments/a6)\n![consent](upload:web-oauth-consent)\n![oauth](/api/attachments/a7)\n\n## Phased issues\n```md\n## not a heading\n![not a picture](/api/attachments/zz)\n![nor this](/api/attachments/zy)\n```\n1. Contract",
+        "decision": null,
+        "pictures": [
+          {
+            "label": "web-editor-new",
+            "attachmentId": "a1",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "label": "web-oauth-consent",
+            "attachmentId": null,
+            "width": null,
+            "height": null
+          },
+          {
+            "label": "web-editor-preview",
+            "attachmentId": "a2",
+            "width": 1440,
+            "height": 900
+          }
+        ],
+        "questions": [
+          {
+            "id": "q1",
+            "prompt": "Q1?",
+            "multi": false,
+            "custom": true,
+            "options": []
+          },
+          {
+            "id": "q2",
+            "prompt": "Q2?",
+            "multi": false,
+            "custom": true,
+            "options": []
+          },
+          {
+            "id": "q3",
+            "prompt": "Q3?",
+            "multi": false,
+            "custom": true,
+            "options": []
+          },
+          {
+            "id": "q4",
+            "prompt": "Q4?",
+            "multi": false,
+            "custom": true,
+            "options": []
+          },
+          {
+            "id": "q5",
+            "prompt": "Q5?",
+            "multi": false,
+            "custom": true,
+            "options": []
+          },
+          {
+            "id": "q6",
+            "prompt": "Q6?",
+            "multi": false,
+            "custom": true,
+            "options": []
+          },
+          {
+            "id": "q7",
+            "prompt": "Q7?",
+            "multi": false,
+            "custom": true,
+            "options": []
+          }
+        ]
+      },
+      "expected": {
+        "sections": 4,
+        "pictures": 2,
+        "questions": 7
+      }
+    },
+    {
+      "name": "a plain plan: nothing to count",
+      "card": {
+        "kind": "plan",
+        "plan": "Drop the undo step\n\nOne request per change.",
+        "decision": null
+      },
+      "expected": {
+        "sections": 0,
+        "pictures": 0,
+        "questions": 0
+      }
+    },
+    {
+      "name": "one of each: singular",
+      "card": {
+        "kind": "plan",
+        "plan": "## Only",
+        "pictures": [
+          {
+            "label": "web-a",
+            "attachmentId": "x",
+            "width": 1,
+            "height": 1
+          }
+        ],
+        "questions": [
+          {
+            "id": "q",
+            "prompt": "?",
+            "options": []
+          }
+        ]
+      },
+      "expected": {
+        "sections": 1,
+        "pictures": 1,
+        "questions": 1
+      }
+    },
+    {
+      "name": "not a card",
+      "card": null,
+      "expected": {
+        "sections": 0,
+        "pictures": 0,
+        "questions": 0
+      }
+    }
+  ],
+  "countsLineCases": [
+    {
+      "counts": {
+        "sections": 5,
+        "pictures": 10,
+        "questions": 7
+      },
+      "expected": "5 sections · 10 pictures · 7 questions"
+    },
+    {
+      "counts": {
+        "sections": 1,
+        "pictures": 1,
+        "questions": 1
+      },
+      "expected": "1 section · 1 picture · 1 question"
+    },
+    {
+      "counts": {
+        "sections": 0,
+        "pictures": 3,
+        "questions": 0
+      },
+      "expected": "3 pictures"
+    },
+    {
+      "counts": {
+        "sections": 0,
+        "pictures": 0,
+        "questions": 0
+      },
+      "expected": ""
+    }
+  ],
+  "mosaicCases": [
+    {
+      "count": 0,
+      "expected": []
+    },
+    {
+      "count": 1,
+      "expected": [
+        {
+          "index": 0,
+          "size": "large",
+          "more": 0
+        }
+      ]
+    },
+    {
+      "count": 2,
+      "expected": [
+        {
+          "index": 0,
+          "size": "half",
+          "more": 0
+        },
+        {
+          "index": 1,
+          "size": "half",
+          "more": 0
+        }
+      ]
+    },
+    {
+      "count": 3,
+      "expected": [
+        {
+          "index": 0,
+          "size": "large",
+          "more": 0
+        },
+        {
+          "index": 1,
+          "size": "small",
+          "more": 0
+        },
+        {
+          "index": 2,
+          "size": "small",
+          "more": 0
+        }
+      ]
+    },
+    {
+      "count": 7,
+      "expected": [
+        {
+          "index": 0,
+          "size": "large",
+          "more": 0
+        },
+        {
+          "index": 1,
+          "size": "small",
+          "more": 0
+        },
+        {
+          "index": 2,
+          "size": "small",
+          "more": 4
+        }
+      ]
+    }
+  ],
+  "targetCases": [
+    {
+      "name": "the newest waiting plan the session posted itself; decided, engine and person rows never",
+      "sessionId": "s1",
+      "messages": [
+        {
+          "id": "p-old",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 1000,
+          "card": {
+            "kind": "plan",
+            "plan": "old",
+            "decision": null
+          }
+        },
+        {
+          "id": "p-new",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 2000,
+          "card": {
+            "kind": "plan",
+            "plan": "new",
+            "decision": null
+          }
+        },
+        {
+          "id": "p-done",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 3000,
+          "card": {
+            "kind": "plan",
+            "plan": "done",
+            "decision": "approved"
+          }
+        },
+        {
+          "id": "p-engine",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 4000,
+          "card": {
+            "kind": "plan",
+            "plan": "relay",
+            "decision": null,
+            "questionId": "qq"
+          }
+        },
+        {
+          "id": "q-wait",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 5000,
+          "card": {
+            "kind": "question",
+            "question": "?"
+          }
+        },
+        {
+          "id": "p-user",
+          "sessionId": "s1",
+          "authorSessionId": null,
+          "createdAt": 6000,
+          "card": {
+            "kind": "plan",
+            "plan": "posted by a person",
+            "decision": null
+          }
+        },
+        {
+          "id": "p-other",
+          "sessionId": "s2",
+          "authorSessionId": "s2",
+          "createdAt": 7000,
+          "card": {
+            "kind": "plan",
+            "plan": "other",
+            "decision": "superseded"
+          }
+        }
+      ],
+      "expected": "p-new"
+    },
+    {
+      "name": "only a superseded plan: none (open the session)",
+      "sessionId": "s2",
+      "messages": [
+        {
+          "id": "p-old",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 1000,
+          "card": {
+            "kind": "plan",
+            "plan": "old",
+            "decision": null
+          }
+        },
+        {
+          "id": "p-new",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 2000,
+          "card": {
+            "kind": "plan",
+            "plan": "new",
+            "decision": null
+          }
+        },
+        {
+          "id": "p-done",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 3000,
+          "card": {
+            "kind": "plan",
+            "plan": "done",
+            "decision": "approved"
+          }
+        },
+        {
+          "id": "p-engine",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 4000,
+          "card": {
+            "kind": "plan",
+            "plan": "relay",
+            "decision": null,
+            "questionId": "qq"
+          }
+        },
+        {
+          "id": "q-wait",
+          "sessionId": "s1",
+          "authorSessionId": "s1",
+          "createdAt": 5000,
+          "card": {
+            "kind": "question",
+            "question": "?"
+          }
+        },
+        {
+          "id": "p-user",
+          "sessionId": "s1",
+          "authorSessionId": null,
+          "createdAt": 6000,
+          "card": {
+            "kind": "plan",
+            "plan": "posted by a person",
+            "decision": null
+          }
+        },
+        {
+          "id": "p-other",
+          "sessionId": "s2",
+          "authorSessionId": "s2",
+          "createdAt": 7000,
+          "card": {
+            "kind": "plan",
+            "plan": "other",
+            "decision": "superseded"
+          }
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "no messages: none",
+      "sessionId": "s3",
+      "messages": [],
+      "expected": null
+    }
+  ],
+  "specimen": {
+    "$comment": "THE styleguide specimen ×4 (`plan-page`): this card, waiting, drawn wide (1280 × 720: header, outline with `Part A` active, the document from its top, the rail on question 1) and phone (390 × 760: the document from its top, the DockCard at the foot). Pictures = placeholders (the muted fill); the chat name = `chatName`.",
+    "chatName": "Editor-first app creation, eApps MCP",
+    "activeSection": "part-a-editor-first-creation",
+    "card": {
+      "kind": "plan",
+      "plan": "# Plan: editor-first app creation\n\nA new app opens straight in the editor; every app gets an MCP endpoint.\n\n## Current state\n- Creating an app starts from a form.\n- The editor opens only after the first save.\n\n## Part A: editor-first creation\nThe editor opens on an empty canvas with the chat docked.\n\n![web editor new](/api/attachments/sg-1)\n![web editor preview](/api/attachments/sg-2)\n![web editor data](/api/attachments/sg-3)\n![web editor versions](/api/attachments/sg-4)\n\n## Part B: MCP for eApps\nEach team's apps answer at one MCP endpoint, scoped by a team token.\n\n## Phased issues\n1. The contract\n2. The editor\n3. The MCP endpoint",
+      "decision": null,
+      "pictures": [
+        {
+          "label": "web-editor-1",
+          "attachmentId": "sg-1",
+          "width": 1440,
+          "height": 900
+        },
+        {
+          "label": "web-editor-2",
+          "attachmentId": "sg-2",
+          "width": 1440,
+          "height": 900
+        },
+        {
+          "label": "web-editor-3",
+          "attachmentId": "sg-3",
+          "width": 1440,
+          "height": 900
+        },
+        {
+          "label": "web-editor-4",
+          "attachmentId": "sg-4",
+          "width": 1440,
+          "height": 900
+        }
+      ],
+      "questions": [
+        {
+          "id": "endpoint",
+          "prompt": "How should clients address the MCP endpoint for a team's apps?",
+          "multi": false,
+          "custom": true,
+          "options": [
+            {
+              "label": "One endpoint per team",
+              "description": "/mcp/t/acme, tools prefixed by app"
+            },
+            {
+              "label": "One endpoint per app",
+              "description": "/mcp/apps/:id"
+            }
+          ]
+        },
+        {
+          "id": "chat",
+          "prompt": "Keep the floating chat layout in the editor?",
+          "multi": false,
+          "custom": false,
+          "options": [
+            {
+              "label": "Keep it"
+            },
+            {
+              "label": "Dock it right"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

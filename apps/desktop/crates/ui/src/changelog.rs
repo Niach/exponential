@@ -58,6 +58,31 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_137: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-31-app-mcp-tools",
+    date: "2026-10-31",
+    title: "Your apps, as MCP tools",
+    summary: "Claude, ChatGPT or any MCP client can use your team's apps through their tools, with the access you pick.",
+    body: r#"- **App tools**: an app can offer tools, like listing its records or adding one. Connect an MCP client to `/api/mcp/apps` and your agent calls them as you, with no device online.
+- **Consent**: when a client connects, pick the team, all apps or just some, and Read only or Full. Apps that call another service ask you to connect it there.
+- **Access**: an app's settings list its MCP tools and the accounts it uses. Owners can switch a tool off.
+- **Revoked when it should be**: leaving a team removes your app access there, a trashed app's tools disappear, and disconnecting a service also revokes its token at the provider."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_136: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-31-plan-page",
+    date: "2026-10-31",
+    title: "Plans get their own page",
+    summary: "A plan opens full screen with an outline and its pictures, and stories show one card per plan or result.",
+    body: r#"- **Plan page**: open a plan from its card, a story or the inbox to read it full screen, with an outline to jump between sections, its pictures in a grid or carousel, and the questions beside it.
+- **Calmer stories**: every story is one card: a plan shows its cover and an "Open plan" button, a result shows its pictures as a carousel. Each card has a Plan, Question or Result badge.
+- **Ring order**: stories waiting for you come first, then the rest, newest first. A session's newer result replaces its older ones."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_135: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-editor-first-apps",
     date: "2026-10-31",
@@ -77,7 +102,9 @@ const PREVIOUS_134: ChangelogEntry = ChangelogEntry {
     summary: "The CLI daemon and the desktop app update within 10 minutes, whatever runs, and the sessions they cut continue on the new version.",
     body: r#"- **Updates land**: a queued update no longer waits for sessions to close or sit idle for 2 hours. The CLI daemon restarts at the next pause between turns, at most 10 minutes later, and at once when the server requires a newer version.
 - **Sessions continue**: a session cut mid-turn by the restart picks up where it left off on the new version by itself, team agents included. Nothing waits for you to resume it.
-- **Desktop**: the desktop app downloads updates in the background and restarts by the same rule while you are not using it. A required update restarts it at once."#,
+- **Desktop**: the desktop app downloads updates in the background and restarts by the same rule while you are not using it. A required update restarts it at once.
+- **On by default**: the CLI looks for a new version every 15 minutes, and auto-update is on unless you turn it off with `exponential update --auto off`.
+- **Fixed**: after a self-update, sessions the old app still held are picked up again instead of being left interrupted."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

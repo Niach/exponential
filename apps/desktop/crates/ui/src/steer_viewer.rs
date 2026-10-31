@@ -2992,6 +2992,7 @@ impl SteerSessionView {
             tokens: self.feed.turn_tokens(),
             now_ms: chrono::Utc::now().timestamp_millis(),
             workflow: workflow.as_deref(),
+            writing: self.feed.turn_writing(),
         })
     }
 
@@ -5655,7 +5656,11 @@ impl SteerSessionView {
         };
         let now = chrono::Utc::now().timestamp();
         let meta = match comment.as_ref() {
-            Some(comment) => crate::comments::thread_comment_meta(comment, now),
+            Some(comment) => crate::comments::thread_comment_meta(
+                comment,
+                crate::comments::via_app_name(comment, cx).as_deref(),
+                now,
+            ),
             // The settle's own time until the row syncs (the synced meta's
             // "<time> · via MCP" order). #EXP-1383: an agent's own comment
             // never reads via MCP.

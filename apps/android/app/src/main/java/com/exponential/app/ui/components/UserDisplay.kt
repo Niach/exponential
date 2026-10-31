@@ -48,14 +48,18 @@ fun commentAuthorName(comment: CommentEntity, author: UserEntity?, reporterName:
  * `reporter-reply.json` `captions`): "reporter" (the widget reporter wrote
  * it), then "to reporter" (a member's reply that was emailed out), then
  * "via MCP" (a person's MCP client posted it; #EXP-1383: never on an agent's
- * own comment, `author_agent_id` set, which already names the agent). Every
- * part that applies shows, joined by " · "; none = no caption.
+ * own comment, `author_agent_id` set, which already names the agent), or
+ * "via <app>" instead (#VAPP-186: [viaAppName] = the synced app its
+ * `via_app_id` resolves to; unresolved = "via MCP"). Every part that applies
+ * shows, joined by " · "; none = no caption.
  */
-fun commentCaption(comment: CommentEntity): String? = listOfNotNull(
+fun commentCaption(comment: CommentEntity, viaAppName: String? = null): String? = listOfNotNull(
     ReporterReply.REPORTER_CAPTION.takeIf { comment.isFromReporter },
     ReporterReply.TO_REPORTER_CAPTION.takeIf { comment.isToReporter },
-    VIA_MCP_CAPTION.takeIf { comment.isViaMcp && comment.authorAgentId.isNullOrEmpty() },
+    (if (viaAppName.isNullOrEmpty()) VIA_MCP_CAPTION else VIA_APP_CAPTION.replace("{app}", viaAppName))
+        .takeIf { comment.isViaMcp && comment.authorAgentId.isNullOrEmpty() },
 ).takeIf { it.isNotEmpty() }?.joinToString(CAPTION_SEPARATOR)
 
 internal const val VIA_MCP_CAPTION = "via MCP"
+internal const val VIA_APP_CAPTION = "via {app}"
 internal const val CAPTION_SEPARATOR = " · "

@@ -425,7 +425,7 @@ export function useLaunchComposer({
   const mcpConnectHref = useCallback(
     (serverId: string) =>
       teamSlug
-        ? `/t/${encodeURIComponent(teamSlug)}/settings/mcp-servers?connect=${encodeURIComponent(serverId)}`
+        ? `/t/${encodeURIComponent(teamSlug)}/settings/mcp?connect=${encodeURIComponent(serverId)}`
         : null,
     [teamSlug]
   )

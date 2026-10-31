@@ -178,3 +178,69 @@ export async function probeMcpServer(rawUrl: string): Promise<ProbeResult> {
   }
   return result
 }
+
+/** #VAPP-181: one upstream tool call, as an app tool's broker makes it. */
+export type UpstreamCall =
+  | { ok: true; annotations: Record<string, unknown> | null; result: Record<string, unknown> }
+  /** `refused` = the server refused the credential (reconnect), `noTool` =
+   *  it lists no such tool, `failed` = anything else (unreachable, an
+   *  error answer, a timeout). */
+  | { ok: false; reason: `refused` | `noTool` | `failed`; error: string }
+
+const TOOL_LIST_PAGES = 10
+
+/** initialize → notifications/initialized → tools/list (the tool's live
+ * annotations, which `check` may veto before anything runs) → tools/call. */
+export async function callUpstreamTool(
+  url: string,
+  headers: Record<string, string>,
+  tool: string,
+  args: Record<string, unknown>,
+  check: (annotations: Record<string, unknown> | null) => string | null
+): Promise<UpstreamCall | { ok: false; reason: `vetoed`; error: string }> {
+  const session: Session = { url, headers, sessionId: null, protocolVersion: PROTOCOL_VERSION }
+  const refusedOrFailed = (response: Response): UpstreamCall =>
+    response.status === 401 || response.status === 403
+      ? { ok: false, reason: `refused`, error: statusError(response) }
+      : { ok: false, reason: `failed`, error: statusError(response) }
+  try {
+    const init = await rpc(session, {
+      jsonrpc: `2.0`,
+      id: 1,
+      method: `initialize`,
+      params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: `Exponential`, version: `1.0.0` } },
+    })
+    if (!init.response.ok) return refusedOrFailed(init.response)
+    if (!init.message?.result) return { ok: false, reason: `failed`, error: init.message?.error?.message?.slice(0, 300) ?? `no initialize answer` }
+    session.sessionId = init.response.headers.get(`mcp-session-id`)
+    const negotiated = init.message.result.protocolVersion
+    if (typeof negotiated === `string`) session.protocolVersion = negotiated
+    await rpc(session, { jsonrpc: `2.0`, method: `notifications/initialized` })
+    let found: Record<string, unknown> | null = null
+    let cursor: string | undefined
+    for (let page = 0; page < TOOL_LIST_PAGES && !found; page++) {
+      const list = await rpc(session, { jsonrpc: `2.0`, id: 2 + page, method: `tools/list`, params: cursor ? { cursor } : {} })
+      if (!list.response.ok) return refusedOrFailed(list.response)
+      const tools = list.message?.result?.tools
+      if (!Array.isArray(tools)) return { ok: false, reason: `failed`, error: list.message?.error?.message?.slice(0, 300) ?? `no tools/list answer` }
+      found = (tools.find((t) => t && typeof t === `object` && (t as { name?: unknown }).name === tool) as Record<string, unknown> | undefined) ?? null
+      const next = list.message?.result?.nextCursor
+      if (typeof next !== `string` || !next) break
+      cursor = next
+    }
+    if (!found) return { ok: false, reason: `noTool`, error: `the server lists no tool ${tool}` }
+    const annotations = found.annotations && typeof found.annotations === `object` ? (found.annotations as Record<string, unknown>) : null
+    const vetoed = check(annotations)
+    if (vetoed) return { ok: false, reason: `vetoed`, error: vetoed }
+    const call = await rpc(session, { jsonrpc: `2.0`, id: 100, method: `tools/call`, params: { name: tool, arguments: args } })
+    if (!call.response.ok) return refusedOrFailed(call.response)
+    if (!call.message?.result) return { ok: false, reason: `failed`, error: call.message?.error?.message?.slice(0, 300) ?? `no tools/call answer` }
+    return { ok: true, annotations, result: call.message.result }
+  } catch (e) {
+    return { ok: false, reason: `failed`, error: e instanceof McpHttpError ? e.message : `the connection failed` }
+  } finally {
+    if (session.sessionId) {
+      void mcpFetch(url, { method: `DELETE`, headers: { ...headers, "mcp-session-id": session.sessionId } }).catch(() => undefined)
+    }
+  }
+}

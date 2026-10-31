@@ -10,6 +10,7 @@ import {
   DockCardSpecimen,
   DeviceReadinessSpecimen,
   PlanCardSpecimen,
+  PlanPageSpecimen,
   ChatListSpecimen,
   ChatSelectionSpecimen,
   ChatMenusSpecimen,
@@ -96,6 +97,7 @@ const DEV_VIEWS = [
   `dock-card`,
   `device-readiness`,
   `plan-card`,
+  `plan-page`,
   `chat-list`,
   `chat-menus`,
   `chat-selection`,
@@ -157,6 +159,8 @@ function AgentRoute() {
           <DeviceReadinessSpecimen />
         ) : dev === `plan-card` ? (
           <PlanCardSpecimen />
+        ) : dev === `plan-page` ? (
+          <PlanPageSpecimen size={isMobile ? `phone` : `wide`} />
         ) : dev === `chat-list` ? (
           <ChatListSpecimen />
         ) : dev === `chat-menus` ? (

@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use crate::capture::{Capturer, Frame, Want};
 use crate::engine::{self, Memory, Timing};
-use crate::server::{self, Hub};
+use crate::server;
 use crate::store::tests::TempDir;
 use crate::{store, tool, Status};
 
@@ -186,19 +186,15 @@ fn frames_flow_from_the_capturer_to_get_screenshots_within_the_cap() {
 
     // Through the endpoint, as a run sees it.
     let store = rig.memory.store.clone();
-    let hub = Arc::new(Hub::new(Arc::new(move |name: &str, arguments: &Value| {
+    let server = server::serve(Arc::new(move |name: &str, arguments: &Value| {
         tool::call(Some(&store), name, arguments, engine::now_ms(), &[1, 2])
-    })));
-    let token = hub.grant("voice-run");
-    let url = server::serve(hub).unwrap();
-    let (status, body) = server::tests::post(
-        &url,
-        &token,
-        &json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "get_screenshots", "arguments": {} } }),
-    );
-    assert!(status.starts_with("HTTP/1.1 200"), "{status}");
-    let reply: Value = serde_json::from_str(&body).unwrap();
-    let content = reply["result"]["content"].as_array().unwrap();
+    }))
+    .unwrap();
+    let token = server.grant(&emcp::SessionId::new("voice-run").unwrap(), "voice-run");
+    let live = server::tests::client(server.url(), token.as_str()).unwrap();
+    let wait = std::time::Duration::from_secs(20);
+    let reply = live.call("get_screenshots", json!({}), wait).unwrap();
+    let content = reply["content"].as_array().unwrap();
     let images: Vec<&Value> = content.iter().filter(|item| item["type"] == "image").collect();
     assert_eq!(images.len(), 4, "{content:?}");
     assert_eq!(content.len(), 8);
@@ -209,13 +205,8 @@ fn frames_flow_from_the_capturer_to_get_screenshots_within_the_cap() {
         assert_eq!(pair[1]["mimeType"], "image/webp");
     }
     // A filter that matches nothing reads `copy.none`.
-    let (_, body) = server::tests::post(
-        &url,
-        &token,
-        &json!({ "jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": { "name": "get_screenshots", "arguments": { "filter": "safari" } } }),
-    );
-    let reply: Value = serde_json::from_str(&body).unwrap();
-    assert!(reply["result"]["content"][0]["text"].as_str().unwrap().starts_with("No screenshots between "));
+    let reply = live.call("get_screenshots", json!({ "filter": "safari" }), wait).unwrap();
+    assert!(reply["content"][0]["text"].as_str().unwrap().starts_with("No screenshots between "));
 
     rig.memory.stop(true);
     assert!(!dir.0.join(store::FRAMES_DIR).exists());

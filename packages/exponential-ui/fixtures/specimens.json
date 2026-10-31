@@ -3189,7 +3189,7 @@
                 "id": "specimen-carousel-case-0-label",
                 "component": "Text",
                 "props": {
-                  "text": "example",
+                  "text": "counter · thumbnails",
                   "variant": "caption"
                 }
               },
@@ -3198,7 +3198,13 @@
                 "component": "Carousel",
                 "props": {
                   "page": 0,
-                  "indicators": true
+                  "indicators": true,
+                  "counter": true,
+                  "thumbnails": [
+                    "https://example.com/1.jpg",
+                    "https://example.com/2.jpg",
+                    "https://example.com/3.jpg"
+                  ]
                 },
                 "children": [
                   {
@@ -3226,6 +3232,67 @@
                     }
                   }
                 ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-mosaic",
+      "component": "Mosaic",
+      "title": "Mosaic",
+      "node": {
+        "id": "specimen-mosaic",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-mosaic-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-mosaic-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-mosaic",
+                "component": "Mosaic",
+                "props": {
+                  "pictures": [
+                    {
+                      "src": "https://example.com/editor.png",
+                      "alt": "Editor"
+                    },
+                    {
+                      "src": "https://example.com/preview.png",
+                      "alt": "Preview"
+                    },
+                    {
+                      "src": "https://example.com/data.png",
+                      "alt": "Data"
+                    },
+                    {
+                      "src": "https://example.com/versions.png",
+                      "alt": "Versions"
+                    }
+                  ]
+                }
               }
             ]
           }
@@ -4486,6 +4553,67 @@
                     {
                       "label": "EXP-42",
                       "value": "exp-42"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-outline",
+      "component": "Outline",
+      "title": "Outline",
+      "node": {
+        "id": "specimen-outline",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-outline-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-outline-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-outline",
+                "component": "Outline",
+                "props": {
+                  "caption": "Outline",
+                  "value": "part-a",
+                  "items": [
+                    {
+                      "id": "current",
+                      "title": "Current state"
+                    },
+                    {
+                      "id": "part-a",
+                      "title": "Part A: editor-first creation",
+                      "count": 5
+                    },
+                    {
+                      "id": "part-b",
+                      "title": "Part B: MCP for eApps",
+                      "count": 2
                     }
                   ]
                 }

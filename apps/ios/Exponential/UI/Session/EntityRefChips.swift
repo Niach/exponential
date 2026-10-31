@@ -433,7 +433,11 @@ enum EntityRefResolver {
         // SLOP-4: the same caption and name the comment card carries. A
         // reporter's reply reads as the anonymous reporter here (the issue
         // card names the submission's reporter).
-        let caption = ReporterReply.caption(source: comment.source, audience: comment.audience, authorAgentId: comment.authorAgentId)
+        let app = try comment.viaAppId.flatMap { try AppEntity.fetchOne(db, key: $0) }
+        let caption = ReporterReply.caption(
+            source: comment.source, audience: comment.audience, authorAgentId: comment.authorAgentId,
+            viaAppName: app?.deletedAt == nil ? app?.name : nil
+        )
         let eyebrow = caption.map { "Comment · \($0)" } ?? "Comment"
         let title: String
         let icon: EntityPreviewModel.Icon

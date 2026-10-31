@@ -22,7 +22,7 @@ use crate::agent::CodingAgent;
 
 // EXP-1426 (part 4b): the measured layers are the agent core's vocabulary
 // (its `engine::context_layout` estimates them); the launcher fills them here.
-pub use exponential_agent_runtime::engine::context_layout::{
+pub use eagent::engine::context_layout::{
     CarriedBase, ContextLayers, ProjectMemoryFile,
 };
 

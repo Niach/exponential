@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { auth } from "@/lib/auth"
 import { withProxyAttestedClientIp } from "@/lib/auth/client-ip"
-import { guardMcpAuthorize } from "@/lib/auth/mcp-authorize-guard"
+import { guardMcpAuthorize, tagAppsConsent } from "@/lib/auth/mcp-authorize-guard"
 
 // The Creem plugin registers session-facing endpoints we never call —
 // checkout/seat/plan/cancel changes all go through the team-scoped tRPC
@@ -31,7 +31,7 @@ async function handleGet(request: Request) {
   if (pathname === `/api/auth/mcp/authorize`) {
     const guarded = await guardMcpAuthorize(withProxyAttestedClientIp(request))
     if (`response` in guarded) return guarded.response
-    return auth.handler(guarded.request)
+    return tagAppsConsent(guarded.request, await auth.handler(guarded.request))
   }
   return auth.handler(withProxyAttestedClientIp(request))
 }

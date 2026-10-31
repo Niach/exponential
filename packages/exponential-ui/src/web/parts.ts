@@ -25,7 +25,7 @@ export const PLACED: Readonly<Record<string, readonly string[]>> = {
   SearchList: [`head`, `search`, `count`, `body`, `list`, `empty`, `fade`],
   Menu: [`trigger`, `head`, `search`, `count`, `body`, `list`, `empty`, `fade`],
   Table: [`header`, `body`, `caption`, `empty`],
-  Carousel: [`page`, `indicator`, `controls`, `previous`, `next`],
+  Carousel: [`page`, `indicator`, `controls`, `previous`, `next`, `counter`, `thumbnails`],
   Tooltip: [`anchor`],
   FileUpload: [`label`, `dropzone`, `icon`, `title`, `hint`, `browse`, `description`],
   CodeBlock: [`header`, `title`, `copy`, `body`],

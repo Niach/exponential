@@ -20,12 +20,15 @@ publish = false
 # dedupe, WebP frames in hour directories indexed in SQLite, 10 minutes of
 # retention, a denylist pause, and the `get_screenshots` tool on a loopback
 # MCP endpoint of its own (the `epilot` crate's topology: per-run bearer,
-# tiny_http, plain JSON). gpui-free.
+# served by emcp). gpui-free.
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = "0.4"
 uuid = { workspace = true }
-tiny_http = { version = "0.12", default-features = false }
+# EXP-1492: the loopback MCP endpoint is eMCP's (rmcp's Streamable HTTP),
+# through ITS release tag like every other lib (docs/libraries.md); inside
+# the desktop workspace the [patch] builds the local crate.
+emcp = { git = "https://github.com/Niach/exponential", tag = "emcp-v0.2.0" }
 image = { workspace = true, features = ["png"] }
 rusqlite = { workspace = true }
 # The focused window (app, title, rect) and the display order: the computer

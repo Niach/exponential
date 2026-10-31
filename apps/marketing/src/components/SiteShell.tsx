@@ -39,7 +39,7 @@ export function SiteHeader({ currentPath, extra }: { currentPath?: string; extra
         brand="Exponential"
         currentPath={currentPath}
         nav={NAV}
-        sections={[UI_SECTION, TALK_SECTION, libSection(`ePilot`), libSection(`eNet`), libSection(`eApps`)]}
+        sections={[UI_SECTION, TALK_SECTION, libSection(`ePilot`), libSection(`eNet`), libSection(`eApps`), libSection(`eMCP`)]}
         right={
           <>
             {extra}

@@ -33,7 +33,7 @@ import { join, resolve } from "node:path"
 
 const GUIDES = import.meta.dir
 const REPO = resolve(GUIDES, `..`, `..`, `..`, `..`)
-const VERSION = `0.2.0`
+const VERSION = `0.3.0`
 const CHECKS = [`react`, `solid`, `element`, `agent`, `define`, `theme`, `gpui`, `swift`, `compose`] as const
 type Check = (typeof CHECKS)[number]
 
@@ -107,7 +107,7 @@ async function tarballs(): Promise<Tarballs> {
   return packed
 }
 
-/** The guide's `^0.2.0` registry deps → the local tarballs (what `npm
+/** The guide's `^0.3.0` registry deps → the local tarballs (what `npm
  *  install` would fetch once the packages are published). */
 function useTarballs(dir: string, t: Tarballs): void {
   const path = join(dir, `package.json`)
@@ -271,7 +271,7 @@ async function compose(): Promise<void> {
   // AGP reads the SDK from ANDROID_HOME: no local.properties written anywhere.
   const env = { ANDROID_HOME: sdk }
   const flags = `--console=plain${process.env.CI ? ` --no-daemon` : ``}`
-  run(`./gradlew ${flags} :ui-compose:publishReleasePublicationToMavenLocal :ui-compose-primitives:publishReleasePublicationToMavenLocal`, painter, env)
+  run(`./gradlew ${flags} -PuiVersion=${VERSION} :ui-compose:publishReleasePublicationToMavenLocal :ui-compose-primitives:publishReleasePublicationToMavenLocal`, painter, env)
   const dir = fresh(`compose`)
   run(`./gradlew ${flags} :app:compileDebugKotlin`, dir, env)
 }

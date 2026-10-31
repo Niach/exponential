@@ -11,6 +11,7 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection, appRecordCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { grantableTools } from "@/lib/app-grants"
+import { AppMcpSections } from "@/components/apps/app-mcp-sections"
 
 // VAPP-110 → VAPP-177 (fixtures/apps.json THE SETTINGS TAB): the editor's
 // Settings tab (web ≥ md) and the phone menu's Settings sheet: the identity
@@ -27,6 +28,7 @@ const DEFAULT_ICON: BoardIcon = `puzzle`
 
 export function AppSettingsTab({
   teamId,
+  teamSlug,
   app,
   canManage,
   canGrant = false,
@@ -34,6 +36,7 @@ export function AppSettingsTab({
   onDelete,
 }: {
   teamId: string
+  teamSlug: string
   /** The live app entry. */
   app: AppListEntry
   /** The creator or an owner may rename, describe and delete. */
@@ -196,6 +199,8 @@ export function AppSettingsTab({
             )}
           </GlassGroup>
         </div>
+
+        <AppMcpSections appId={app.id} teamSlug={teamSlug} headVersion={app.headVersion} />
 
         {(app.headVersion > 0 || canManage) && (
         <div className="flex flex-wrap items-center gap-2 pt-2">

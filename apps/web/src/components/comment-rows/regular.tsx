@@ -1,3 +1,4 @@
+import { useAppName } from "@/hooks/use-apps"
 import type { Attachment, Comment, User } from "@/db/schema"
 import {
   conceptIcon,
@@ -94,7 +95,8 @@ function CommentCardContent({
 }: CommentCardProps) {
   const bodyText = getCommentBodyText(comment.body)
   const name = authorAgent?.name ?? authorLabel(comment, author, reporterName)
-  const caption = commentCaption(comment)
+  const viaAppName = useAppName(comment.viaAppId)
+  const caption = commentCaption(comment, viaAppName)
   return (
     <>
       {/* EXP-723: the name carries the row (body size, medium), the time and

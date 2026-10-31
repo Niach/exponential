@@ -9,6 +9,7 @@ import { notificationTypeValues } from "@exp/db-schema/domain"
 import type { Issue, Notification, Board, Team } from "@/db/schema"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { inboxRowTarget } from "@exp/domain-contract/inbox-route"
+import { planPageFor } from "@exp/domain-contract/plan-page"
 import { trpc } from "@/lib/trpc-client"
 import {
   issueCollection,
@@ -18,6 +19,7 @@ import {
   teamCollection,
 } from "@/lib/collections"
 import { useSession } from "@/hooks/use-session"
+import { useDigestMessages } from "@/hooks/use-session-tree"
 import { sessionTarget } from "@/lib/session-back"
 import type { SessionRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
@@ -244,12 +246,34 @@ export function InboxView({
   const navigate = useNavigate()
   const { data: auth } = useSession()
   const viewerId = auth?.user?.id ?? null
+  // #EXP-1493 (plan-page.json WAYS IN): a session waiting on a plan opens
+  // THE plan page (its conversation's digest holds the waiting card).
+  const rowSessionIds = useMemo(
+    () => [...new Set(groups.flatMap((g) => (g.kind === `message` && g.session ? [g.session.sessionId] : [])))].sort(),
+    [groups]
+  )
+  const { messages: digest } = useDigestMessages({ sessionIds: rowSessionIds })
   // #EXP-1456: the S-3 rule (lib/session-back.ts): the viewer's own agent
   // conversation opens the agent's page, where its question waits in the
   // dock; anything else opens through the session route, which lands a
   // thread's sessions inside their thread.
   const openSession = (session: { teamSlug: string; sessionId: string }) => {
     const search = from ? { from } : {}
+    const planId = planPageFor(
+      session.sessionId,
+      digest.map((message) => ({
+        ...message,
+        authorSessionId: message.authorSessionId ?? null,
+        createdAt: new Date(message.createdAt).getTime(),
+      }))
+    )
+    if (planId) {
+      void navigate({
+        to: `/t/$teamSlug/sessions/$sessionId/plan/$messageId`,
+        params: { ...session, messageId: planId },
+      })
+      return
+    }
     const target = sessionTarget(
       session.sessionId,
       (id) => sessionCollection.get(id) as SessionRow | undefined,

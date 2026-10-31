@@ -37,10 +37,15 @@ export const DEMO_LIVE_SESSIONS: readonly LiveSessionSpec[] = [
   { id: DEMO_THREAD_IDS.offlineSpike, status: `running`, busy: false, startedMinutesAgo: 40 },
 ]
 
-/** A capture that opts out of the closing ask (SCREENSHOT_FEED_NO_QUESTION)
- *  has nothing pending, so the row is not waiting either. */
+/** A capture that opts out of the closing ask (SCREENSHOT_FEED_NO_QUESTION,
+ *  or EXP-1501's SCREENSHOT_FEED_WRITING, which ends on a running turn) has
+ *  nothing pending, so the row is not waiting either. */
 export function demoNeedsInput(spec: LiveSessionSpec): boolean {
-  return spec.asks === true && process.env.SCREENSHOT_FEED_NO_QUESTION !== `1`
+  return (
+    spec.asks === true &&
+    process.env.SCREENSHOT_FEED_NO_QUESTION !== `1` &&
+    process.env.SCREENSHOT_FEED_WRITING !== `1`
+  )
 }
 
 /**

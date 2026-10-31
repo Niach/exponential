@@ -348,6 +348,7 @@ export const commentsRouter = router({
             // EXP-741: the MCP server's synthetic context is the ONLY thing
             // that marks a comment as agent-posted — never client input.
             source: ctx.viaMcp ? `mcp` : `user`,
+            viaAppId: ctx.viaAppId ?? null,
             audience: input.audience,
             body: input.body,
           })

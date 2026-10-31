@@ -17,7 +17,6 @@ import com.exponential.app.domain.Stories
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.thread.AskAnswer
-import com.exponential.app.ui.thread.PlanAnswer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -272,22 +271,6 @@ class StoriesViewModel @Inject constructor(
     fun reply(story: Stories.Story, text: String) =
         run("send", "the message", {}) { accountId ->
             sessionsApi.send(accountId, SessionsSendInput.message(story.sessionId, text))
-        }
-
-    /** A plan story's decision (THE inline card's `sessions.answer`). */
-    fun decidePlan(messageId: String, decision: PlanAnswer, settled: (Boolean) -> Unit) =
-        run("answer", "the plan", settled) { accountId ->
-            sessionsApi.answer(
-                accountId,
-                AnswerInput(
-                    messageId = messageId,
-                    decision = if (decision.approved) "approved" else "rejected",
-                    fresh = if (decision.approved && decision.fresh) true else null,
-                    feedback = decision.feedback,
-                    answers = decision.answers?.let(AnswerInput::planAnswers),
-                    surfaceData = decision.surfaceData,
-                ),
-            )
         }
 
     private fun run(verb: String, thing: String, settled: (Boolean) -> Unit, call: suspend (String) -> Unit) {

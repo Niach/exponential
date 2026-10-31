@@ -17,7 +17,8 @@ import { LIBRARIES } from "../ui/src/lib/libraries"
    (shots/) and live @exp/ui islands. The hero is an agent's phone chat
    (HeroPhone, src/ui-demos/AgentChat.tsx); eTalk states only what has
    shipped. EXP-1421: then the library family, one
-   docs card per lib with its state. */
+   docs card per lib with its state. 2026-10-31: plans (#1471), sealed
+   sessions + steering over eNet (EXP-1457), editor-first apps (VAPP-176). */
 
 function Shot({ view, platform, className }: { view: string; platform: Platform; className: string }) {
   const { src, frame, title } = shotSrc(view, platform)
@@ -133,9 +134,29 @@ export function HomePage() {
         </Feature>
 
         <Feature
+          id={`plans`}
+          title={`Plans you can read`}
+          text={`Before big work, an agent writes its plan as a page: an outline, pictures and the questions it needs you to answer. Then it shows what it built as stories.`}
+          link={{ href: `/docs/coding/`, label: `How coding works` }}
+        >
+          <Shot view={`plan-page`} platform={`desktop`} className={`aw-shot aw-shot-desktop`} />
+          <Shot view={`plan-page`} platform={`ios`} className={`aw-shot aw-shot-phone`} />
+        </Feature>
+
+        <Feature
+          id={`sealed`}
+          title={`Sealed end to end`}
+          text={`Session content is sealed on your devices; our server stores only ciphertext. Watch and steer a running session from your phone over eNet, straight to the machine it runs on.`}
+          link={{ href: `/net/`, label: `How eNet works` }}
+        >
+          <Shot view={`session`} platform={`desktop`} className={`aw-shot aw-shot-desktop`} />
+          <Shot view={`steering`} platform={`ios`} className={`aw-shot aw-shot-phone`} />
+        </Feature>
+
+        <Feature
           id={`apps`}
           title={`Ask for an app`}
-          text={`Describe it and watch it build in a live preview. Your team opens it on every platform.`}
+          text={`New app opens the editor: describe it and watch it build in a live preview. Your team opens it on every platform, and its tools reach your agents over MCP.`}
           link={{ href: `/docs/apps/`, label: `How apps work` }}
         >
           <Shot view={`app`} platform={`desktop`} className={`aw-shot aw-shot-desktop`} />
@@ -155,7 +176,11 @@ export function HomePage() {
         <section id={`libraries`} className={`home-feature home-libs`}>
           <motion.div className={`shell`} {...sectionReveal}>
             <h2 className={`section-title`}>Open libraries</h2>
-            <p className={`section-sub`}>The parts Exponential is built from, open source. eUI is published, the others follow.</p>
+            <p className={`section-sub`}>
+              The parts Exponential is built from, open source. eUI, eTalk, ePilot, eNet and eMCP have releases; eApps, eAgent and
+              eCore are on their way. Next: <a href={`/blog/exponentialos/`}>ExponentialOS</a> and eDE, its
+              desktop, in progress.
+            </p>
             <div className={`docs-cards`}>
               {LIBRARIES.map((lib) => (
                 <a key={lib.href} className={`docs-card`} href={lib.href}>

@@ -49,7 +49,8 @@ const DESKTOP_TAG_PREFIX: &str = "desktop-v";
 /// Re-check cadence while the app runs. One unauthenticated Releases-API call
 /// per interval (limit: 60/h/IP) — an IDE left open for days still learns
 /// about new releases, which the old launch-only check never did (EXP-68).
-const RECHECK_INTERVAL: Duration = Duration::from_secs(4 * 60 * 60);
+/// EXP-1489: 30 minutes, so a release reaches running apps promptly.
+const RECHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
 /// Re-fetch cadence while the app sits BLOCKED (EXP-104) without an
 /// installable release. The server's min-version gate can run ahead of the
 /// GitHub release (426s start while the release assets are still building or

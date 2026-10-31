@@ -88,6 +88,7 @@ import {
   type McpServerRow,
 } from "@/lib/mcp-servers"
 import { builtinExpTools } from "@/lib/agent-feed"
+import { SETTINGS_MCP, usedByCaption } from "@exp/domain-contract/settings-mcp"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { Empty } from "@/components/empty"
 import { cn } from "@/lib/utils"
@@ -360,7 +361,7 @@ export function TeamMcpServersSection({
   return (
     <div className="mb-6">
       <GlassSectionHeader
-        label="MCP servers"
+        label={SETTINGS_MCP.labels.servers}
         loading={reloading}
         trailing={
           isOwner ? (
@@ -414,8 +415,6 @@ export function TeamMcpServersSection({
           ))}
         </div>
       )}
-
-      <BuiltinToolsGroup />
 
       {isOwner && (
         <McpServerDialog
@@ -696,6 +695,7 @@ function ServerRow({
         <div className="flex min-w-0 text-xs text-muted-foreground">
           <span className="min-w-0 truncate" title={server.url ?? target}>
             {target}
+            {usedByCaption(server.usedBy ?? []) && ` · ${usedByCaption(server.usedBy ?? [])}`}
           </span>
         </div>
       </div>
@@ -936,7 +936,7 @@ function SecretDialog({
  * with the raw wire name only as a tooltip. EXP-1274: always expanded (a
  * plain band, never a fold, no count: bands carry no numbers) with an
  * inline filter field at its trailing edge over title, blurb and wire name. */
-function BuiltinToolsGroup() {
+export function BuiltinToolsGroup() {
   const tools = useMemo(() => builtinExpTools(), [])
   const [query, setQuery] = useState(``)
   const shown = useMemo(() => filterBuiltinTools(tools, query), [tools, query])

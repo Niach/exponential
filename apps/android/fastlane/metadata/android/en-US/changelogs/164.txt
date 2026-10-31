@@ -1,0 +1,6 @@
+- Plans open on their own page, with an outline and their pictures
+- Stories are calmer: one card per plan or result, each with a badge
+- New app opens the editor right away, and the agent names your app
+- The working line shows which tool the agent is writing, and for how long
+- Quick replies above the composer are easier to read
+- A plan's hint no longer covers its buttons

@@ -7,7 +7,7 @@ store, tool runners, extensions), never how (Exponential serves records from
 its synced store, spezl from a p2p store over eNet). `catalog/host.json`
 `package` is the machine-readable contract; this page is the prose spec other
 docs link to (spezl `docs/spec/blocks.md`). The TS reference is `src/host/`
-(`package.ts`, `records.ts`, `record-store.ts`, `tools.ts`, `signature.ts`);
+(`package.ts`, `records.ts`, `record-store.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
 the Rust core (`apps/desktop/crates/eui-core/src/host/`) mirrors every
 pure rule. Fixtures: `fixtures/host-router.json` (package validation, replayed
 by every renderer through the core) and `fixtures/host-package.json` (records
@@ -37,6 +37,7 @@ renders against keeps its own version in its id (`catalogId`,
   "sources": ["records:*"],                         // allowlist for bindings, unset = any
   "records": { "entry": { "title": "Entry", "schema": { "type": "object", "properties": { "date": { "type": "string", "format": "date" } } } } },
   "tools": { "weather": { "kind": "mcp", "title": "Weather", "url": "https://mcp.example.com/weather" } },
+  "upstreams": ["m5"], "exposes": [/* MCP tools a host's broker runs: "Exposes" below */],
   "extensions": [{ "id": "https://acme.example/catalogs/charts/v1", "version": "1.4.0", "components": ["Gantt"] }],
   "theme": "exponential", "icon": { "glyph": "clock" }, "description": "…"
 }
@@ -125,6 +126,60 @@ run a kind (a browser cannot run a command) refuses its calls with
 Exponential's app hosts run no package tools: its server refuses a package
 with `tools` (an app reaches tools through `exponential.<noun>.<op>` and
 `harness.mcp`).
+
+## Exposes
+
+`exposes: [Expose]` lists MCP TOOLS the package offers to a host's MCP broker
+(Exponential: `/api/mcp/apps`). They are declarative bindings, never code:
+the broker lists them as `<app>__<name>` and runs them as the CALLING person,
+so no device has to be online and nothing is hosted. `upstreams: [name]`
+names the MCP servers the package's upstream bindings call; the host provides
+them (Exponential: the team's MCP servers, Settings › MCP).
+
+```jsonc
+"upstreams": ["m5"],
+"exposes": [
+  { "name": "list_entries", "title": "List entries", "description": "The time entries of a day.",
+    "input": { "type": "object", "properties": { "day": { "type": "string" } } },
+    "access": "read",
+    "run": { "records": { "op": "list", "kind": "entry", "where": { "date": "${input.day}" } } } },
+  { "name": "log_comment", "title": "Log a comment", "description": "Comment the logged hours on an issue.",
+    "input": { "type": "object", "properties": { "issue": { "type": "string" }, "hours": { "type": "number" } }, "required": ["issue", "hours"] },
+    "access": "write",
+    "run": { "action": "exponential.comments.create", "args": { "issueId": "${input.issue}", "body": "Logged ${input.hours} h" } } },
+  { "name": "find_customer", "title": "Find a customer", "description": "Search m5 customers.",
+    "input": { "type": "object", "properties": { "q": { "type": "string" } } },
+    "access": "read",
+    "run": { "upstream": "m5", "tool": "search_customers", "args": { "query": "${input.q}" } } }
+]
+```
+
+| key | rule |
+| --- | --- |
+| `name` | `^[a-z][a-z0-9_]*$`, at most 40, never `__`, unique |
+| `title` / `description` | non-blank, at most 80 / 1024 characters |
+| `input` | a JSON Schema `{type: "object", properties?}`: the tool's `inputSchema` |
+| `access` | `read` or `write`: who may see it (a read-only connection never lists a write tool) |
+| `run` | EXACTLY ONE of `records` / `action` / `upstream` |
+
+- `records: {op: list | get | upsert, kind, id?, where?, data?, limit?}` reads
+  or writes the package's OWN records of a declared kind. A delete is
+  destructive and never exposed.
+- `action` (+ `args`) calls a host function (`exponential.<noun>.<op>`). It
+  reads when the last word of its name is list, get, show, catalog,
+  activity or files; anything else writes.
+- `upstream` (+ `tool`, `args`) calls a tool of one of the package's
+  `upstreams` with the person's own credential. Its level is the tool's live
+  annotations: it reads only with `readOnlyHint: true`.
+
+Every string in `run` may hold `${input.<path>}` (dotted keys into the
+call's input; the first key must be a declared input property). A string
+that is exactly one template keeps the value's type; inside text the value
+is printed. Destructive is never exposed: a name holding delete, merge, close,
+end, remove or trash is refused, and a `read` binding whose run writes is
+refused. At most 32 tools. `exposeIssues` returns every issue with its eMCP
+error code; the host adds its own rules on top (Exponential: only grantable,
+non-destructive actions; upstreams the team has).
 
 ## Extensions
 

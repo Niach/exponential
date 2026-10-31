@@ -47,7 +47,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use exponential_agent_runtime::engine::host::RunBackend;
+use eagent::engine::host::RunBackend;
 
 use crate::host::{EngineCommand, EngineExit, EngineHost, KillFeed, KillReason, SessionCtx};
 use crate::local::EnginePhase;
@@ -608,7 +608,7 @@ pub(crate) fn upsert_run_record(
 
 // EXP-758: the phase edges the end sequence emits, in order (the core's,
 // shared with `NoBackend`).
-pub(crate) use exponential_agent_runtime::engine::host::end_phases;
+pub(crate) use eagent::engine::host::end_phases;
 
 /// `steer::publish` with the ACP path's hooks. The differences from the PTY
 /// path are all consequences of there being no terminal: `write_input`

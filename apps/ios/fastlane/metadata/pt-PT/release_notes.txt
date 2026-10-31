@@ -1,7 +1,5 @@
-- As sessões chegam diretamente do dispositivo que as executa
-- Uma sessão cujo dispositivo está offline indica-o e volta a ligar-se sozinha quando ele regressa
-- As mensagens das sessões são seladas nos teus dispositivos, por isso o servidor já não as consegue ler
-- Uma pergunta de um chat que iniciaste chega ao telemóvel como notificação e mostra a própria pergunta
-- Tocar numa decisão na caixa de entrada abre o chat que está à tua espera
-- As histórias mostram as últimas 24 horas e o separador Histórias de um chat mostra-as no lugar
-- As chamadas continuam quando mudas entre altifalante, auscultadores e Bluetooth
+- Os planos abrem numa página própria, com um índice e as suas imagens
+- Histórias mais calmas: um cartão por plano ou resultado, cada um com uma etiqueta
+- Nova app abre logo o editor e o agente dá nome à sua app
+- A linha de trabalho mostra que ferramenta o agente está a escrever e há quanto tempo
+- As respostas rápidas acima do campo de texto leem-se melhor

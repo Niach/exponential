@@ -145,9 +145,14 @@ mod pickers;
 mod picker;
 mod pins;
 mod plan_card;
+mod plan_page;
+// #EXP-1493: THE Outline + THE Mosaic (the plan page's low-level pieces).
+mod outline;
+mod mosaic;
 // Thread 58cb32df: the transcript's surface card + command dividers.
 mod surface_card;
 // S-3: THE story ring + THE story viewer.
+mod story_badge;
 mod story_ring;
 mod story_viewer;
 // STORIES TAB: the session screen's Stories tab body + THE PR review pane.

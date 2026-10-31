@@ -94,11 +94,16 @@ import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.thread.ThreadScreen
+import com.exponential.app.ui.plan.LocalOpenPlanPage
+import com.exponential.app.ui.plan.OpenPlanPage
+import com.exponential.app.ui.plan.PlanPageScreen
 import com.exponential.app.ui.threads.ThreadsScreen
 import com.exponential.app.ui.threads.ThreadsViewModel
 import com.exponential.app.ui.session.AgentSessionScreen
 import com.exponential.app.ui.issue.IssueScreen
 import com.exponential.app.ui.settings.AgentSettingsScreen
+import com.exponential.app.ui.settings.McpActivityScreen
+import com.exponential.app.ui.settings.McpSettingsScreen
 import com.exponential.app.ui.settings.PromptSettingsScreen
 import com.exponential.app.ui.settings.PromptsSettingsScreen
 import com.exponential.app.ui.thread.AgentConversationScreen
@@ -199,7 +204,9 @@ fun AppNavHost() {
             // Same snapshot hazard as the issue route — the screens read
             // their id from SavedStateHandle once.
             is DeepLinkBus.Target.Session -> {
-                val route = sessionTargetRoute(target.id, webLinkResolver.sessionTarget(target.id))
+                // #EXP-1493: a session with a waiting plan of its own = THE plan page.
+                val route = webLinkResolver.planPageTarget(target.id)?.let { Routes.planPage(target.id, it) }
+                    ?: sessionTargetRoute(target.id, webLinkResolver.sessionTarget(target.id))
                 val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
                 guarded {
                     teamSwitch?.let(viewModel::applyTeamSwitch)
@@ -615,6 +622,10 @@ private fun AuthenticatedNav(
         LocalEntityNavigator provides entityNavigator,
         LocalLeaveGuard provides leaveGuard,
         LocalPageHeaderActions provides pageHeaderActions,
+        // #EXP-1493: every way in pushes THE plan page.
+        LocalOpenPlanPage provides OpenPlanPage { sessionId, messageId ->
+            navController.navigate(Routes.planPage(sessionId, messageId))
+        },
     ) {
     NavHost(
         navController = navController,
@@ -871,6 +882,11 @@ private fun AuthenticatedNav(
                 )
                 // The devices page, moved here from the tab bar (chats.json `shell`).
                 SettingsNav.DEVICES -> AgentsScreen(onBack = back)
+                // #VAPP-185: Settings › MCP (settings-mcp.json); Activity is its own page.
+                SettingsNav.MCP -> McpSettingsScreen(
+                    onBack = back,
+                    onOpenActivity = { navController.navigate(Routes.MCP_ACTIVITY) },
+                )
                 else -> TeamSettingsScreen(onBack = back)
             }
             }
@@ -982,6 +998,13 @@ private fun AuthenticatedNav(
                 },
             )
         }
+        composable(Routes.PLAN_PAGE_PATTERN) {
+            // #EXP-1493: THE plan page (plan-page.json), a pushed page.
+            PlanPageScreen(
+                onBack = { navController.popBackStack() },
+                onOpenSession = { id -> navController.navigate(Routes.session(id)) },
+            )
+        }
         composable(Routes.SESSION_PATTERN) { entry ->
             // EXP-1291: the RAW session view (the live transcript).
             AgentSessionScreen(
@@ -1070,6 +1093,9 @@ private fun AuthenticatedNav(
                 onCreated = {},
                 onDeleted = { navController.popBackStack() },
             )
+        }
+        composable(Routes.MCP_ACTIVITY) {
+            McpActivityScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.PROMPT_NEW) {
             PromptSettingsScreen(

@@ -1,10 +1,10 @@
 //! The coding agents the launcher can spawn (EXP-201). EXP-1426: the enum and
-//! its pure metadata moved to `exponential_agent_runtime::agent`; this module
+//! its pure metadata moved to `eagent::agent`; this module
 //! re-exports them (so `coding::CodingAgent` and `crate::agent::*` keep
 //! working) and keeps the one settings-backed method, the fresh-install
 //! default model, as [`CodingAgentExt`].
 
-pub use exponential_agent_runtime::agent::*;
+pub use eagent::agent::*;
 
 /// What a [`CodingAgent`] answers from Exponential's settings / contract
 /// defaults rather than from its own vocabulary.

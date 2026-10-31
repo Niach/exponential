@@ -12,6 +12,8 @@ import type { RecordKind } from "./records"
 import { RECORDS_SCHEME } from "./record-store"
 import { validateTools } from "./tools"
 import type { PackageTool } from "./tools"
+import { validatePackageExposes, validateUpstreams } from "./exposes"
+import type { PackageExpose } from "./exposes"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
@@ -71,6 +73,13 @@ export interface AppPackage {
   tools?: Record<string, PackageTool>
   /** VAPP-161: the extension catalogs it needs beyond `catalogId`. */
   extensions?: PackageExtension[]
+  /** VAPP-180: the MCP tools it exposes to a host's MCP broker
+   *  (`host/exposes.ts`): declarative bindings over its records, the host's
+   *  actions or its upstreams, run as the calling person. */
+  exposes?: PackageExpose[]
+  /** VAPP-180: the MCP server names (the host's, e.g. a team's servers) its
+   *  `upstream` bindings call. */
+  upstreams?: string[]
 }
 
 /** VAPP-161: an extension catalog a package needs: its id, the minimum
@@ -193,6 +202,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
       })
     }
   if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
+  if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
+  if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))
   if (pkg.extensions !== undefined) issues.push(...validateExtensions(pkg.extensions, catalogIds, extensions))
   return issues
 }

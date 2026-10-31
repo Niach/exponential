@@ -16,16 +16,20 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "api@0.14.90",
+      "package": "api@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "app@0.14.90",
+      "package": "app@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
       "package": "arbitrary@1.4.2",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "ascii@1.1.0",
+      "reason": "dev-dependency only — compiled for tests and benchmarks, never linked into a distributed artifact"
     },
     {
       "package": "async_io_stream@0.3.3",
@@ -40,6 +44,10 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "chunked_transfer@1.5.0",
+      "reason": "dev-dependency only — compiled for tests and benchmarks, never linked into a distributed artifact"
+    },
+    {
       "package": "cocoa-foundation@0.1.2",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
@@ -48,11 +56,11 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "codemode@0.14.90",
+      "package": "codemode@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "coding@0.14.90",
+      "package": "coding@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -88,7 +96,7 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "domain@0.14.90",
+      "package": "domain@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -96,11 +104,23 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "eagent@0.1.0",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "ecore@0.1.0",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "emcp@0.2.0",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
       "package": "enet-core@0.1.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "engine@0.14.90",
+      "package": "engine@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -140,15 +160,15 @@
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "eui-core@0.2.1",
+      "package": "eui-core@0.3.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "eui-gpui@0.2.1",
+      "package": "eui-gpui@0.3.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "exp-cli@0.14.90",
+      "package": "exp-cli@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -164,7 +184,7 @@
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "exponential-ui-ffi@0.2.1",
+      "package": "exponential-ui-ffi@0.3.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -376,11 +396,11 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "steer@0.14.90",
+      "package": "steer@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "sync@0.14.90",
+      "package": "sync@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -396,16 +416,20 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "terminal@0.14.90",
+      "package": "terminal@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "theme@0.14.90",
+      "package": "theme@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
       "package": "thread_local@1.1.10",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "tiny_http@0.12.0",
+      "reason": "dev-dependency only — compiled for tests and benchmarks, never linked into a distributed artifact"
     },
     {
       "package": "tokio-socks@0.5.3",
@@ -424,7 +448,7 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "ui@0.14.90",
+      "package": "ui@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -432,7 +456,7 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "updater@0.14.90",
+      "package": "updater@0.14.91",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {

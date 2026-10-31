@@ -119,6 +119,38 @@ impl Builder<'_, '_> {
         if count < 2 {
             return;
         }
+        // EXP-1495: the `i / n` pill over the track's top-end corner (out
+        // of flow, mirrored under RTL, hidden from AT: each page already
+        // says `page i of n`).
+        if bool_prop(&owner.props, "counter") {
+            self.style_default(pages, &[("position", json!("relative"))]);
+            let text = self.string_with("pageCounter", &[("page", &(page + 1).to_string()), ("total", &count.to_string())]);
+            let inset = json!("$spacing.sm");
+            let c = self.part_in(pages, &owner, "counter", "Text", NodeKind::Leaf, json!({"position": "absolute", "top": inset, "insetInlineEnd": inset, "pointerEvents": "none"}), json!({"text": text, "lines": 1}), "");
+            self.nodes[c as usize].accessibility = Some(json!({"hidden": true}));
+        }
+        // EXP-1495: the thumbnail strip under the track, before the controls:
+        // one 52 x 52 button per PAGE (URLs past the page count ignored, a
+        // missing one = the empty muted square); a press goes to its page.
+        if let Some(urls) = owner.props.get("thumbnails").and_then(Value::as_array).cloned() {
+            let strip = self.part(&owner, "thumbnails", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "justifyContent": "flex-start", "overflowX": "auto"}), json!({"page": page}));
+            for i in 0..count {
+                let suffix = format!(".{i}");
+                let label = self.string_with("pageOf", &[("page", &(i + 1).to_string()), ("total", &count.to_string())]);
+                let selected = i == page;
+                let t = self.part_in(strip, &owner, "thumbnail", "Box", NodeKind::Container, json!({"position": "relative", "flexShrink": 0, "overflow": "hidden"}), json!({"target": i, "selected": selected}), &suffix);
+                self.nodes[t as usize].pressable = true;
+                self.nodes[t as usize].accessibility = Some(json!({"role": "button", "label": label, "current": selected}));
+                if selected {
+                    self.add_state(t, "selected");
+                }
+                if let Some(src) = urls.get(i).and_then(Value::as_str).filter(|u| !u.is_empty()) {
+                    let img = self.part_in(t, &owner, "thumbnailImage", "Image", NodeKind::Leaf, json!({"position": "absolute", "inset": 0, "width": "100%", "height": "100%"}), json!({"src": src, "alt": "", "fit": "cover"}), &suffix);
+                    self.nodes[img as usize].part_query = None;
+                    self.nodes[img as usize].accessibility = Some(json!({"hidden": true}));
+                }
+            }
+        }
         // The controls row under the pages: previous, the dots, next. Each
         // button carries the page it goes to (`target`).
         let controls = self.part(&owner, "controls", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center"}), json!({}));

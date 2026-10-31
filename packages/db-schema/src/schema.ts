@@ -779,6 +779,13 @@ export const comments = pgTable(
       (): AnyPgColumn => agents.id,
       { onDelete: `set null` }
     ),
+    // #VAPP-186: the app whose MCP tool wrote it (/api/mcp/apps runs it as
+    // the calling member, `source` mcp): the caption reads "via <app>"
+    // instead of "via MCP". Stamped by the broker, never by input; a
+    // deleted app falls back to "via MCP". SYNCED.
+    viaAppId: uuid(`via_app_id`).references((): AnyPgColumn => apps.id, {
+      onDelete: `set null`,
+    }),
     // SLOP-4: who may read it. `team` (default) never leaves the team;
     // `reporter` shows on the reporter's magic-link page and, from a member,
     // is emailed to the submission's reporter address. Reporter-written rows
@@ -2296,6 +2303,10 @@ export const apps = pgTable(
     // names) the app may run as the viewer WITHOUT the consent card; the
     // creator or an owner grants them on the app's settings page.
     grantedTools: jsonb(`granted_tools`).$type<string[]>().notNull().default([]),
+    // #VAPP-183: the exposed MCP tools (`exposes[].name`) an owner switched
+    // off: the broker (`/api/mcp/apps`) never lists or runs them. SERVER-ONLY
+    // (behind the apps shape's column allowlist; tRPC `apps.mcp`).
+    mcpDisabledTools: jsonb(`mcp_disabled_tools`).$type<string[]>().notNull().default([]),
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
     ...timestamps,
   },
@@ -3382,6 +3393,12 @@ export const widgetSubmissions = pgTable(
 // credentials keep full membership access); a personal key minted with the
 // same team/board selection (FEED-76) carries it in `apikeys.metadata.scope`
 // and is confined the same way, on /api/mcp only.
+// #VAPP-181 (@exp/emcp fixtures/access.json): one row per (user, client,
+// KIND). `builtin` = the /api/mcp grant above (every row written before);
+// `apps` = a /api/mcp/apps grant: exactly ONE team in `team_ids`, no boards,
+// `all_apps` (apps created later included) XOR a non-empty `app_ids`, and
+// `access` read | full (a builtin grant is always full). A malformed row
+// grants nothing.
 export const mcpGrants = pgTable(
   `mcp_grants`,
   {
@@ -3401,9 +3418,48 @@ export const mcpGrants = pgTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    // Documented varchar (@exp/emcp GRANT_KINDS): builtin | apps.
+    kind: varchar({ length: 16 }).notNull().default(`builtin`),
+    allApps: boolean(`all_apps`).notNull().default(false),
+    appIds: jsonb(`app_ids`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    // Documented varchar (@exp/emcp GRANT_ACCESS): read | full.
+    access: varchar({ length: 8 }).notNull().default(`full`),
     ...timestamps,
   },
-  (table) => [unique().on(table.userId, table.clientId)]
+  (table) => [unique(`mcp_grants_user_client_kind_unique`).on(table.userId, table.clientId, table.kind)]
+)
+
+// #VAPP-183 (@exp/emcp access.json `memberPolicy`): the member × app access
+// policy, the Settings › MCP Access table. One row per (app, member) an
+// owner set: `level` none | read | write; no row = `write` (a member's
+// default is Full). The broker intersects it with the client's grant and the
+// tool's level. SERVER-ONLY (tRPC `appAccess`), never a shape. Rows go with
+// the app (cascade) and with the member's leaving the team (B5,
+// lib/emcp/revoke.ts).
+export const appAccess = pgTable(
+  `app_access`,
+  {
+    id: uuidPk(),
+    appId: uuid(`app_id`)
+      .notNull()
+      .references(() => apps.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // Documented varchar (@exp/emcp POLICY_LEVELS): none | read | write.
+    level: varchar({ length: 8 }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    unique(`app_access_app_user_unique`).on(table.appId, table.userId),
+    index(`idx_app_access_team_user`).on(table.teamId, table.userId),
+  ]
 )
 
 // #EXP-1491: the eMCP audit, one row per MCP tool call on /api/mcp (and the

@@ -11,12 +11,9 @@
 //! `sessions_{stop,end}`. A one-shot CLI command therefore calls them instead
 //! of syncing a shape.
 //!
-//! Wire: the route runs a STATELESS streamable-HTTP transport with JSON
-//! responses (`sessionIdGenerator: undefined, enableJsonResponse: true`), so a
-//! bare `tools/call` needs no `initialize` handshake and no session header.
-//! The transport refuses a request whose `Accept` does not list both
-//! `application/json` and `text/event-stream` (406). A tool result is
-//! `{content: [{type: "text", text}], isError?}`: the text is the tool's
+//! Wire: EXP-1492: the `emcp` crate's client (rmcp's Streamable HTTP), one
+//! connection per call (`initialize`, then the `tools/call`). A tool result
+//! is `{content: [{type: "text", text}], isError?}`: the text is the tool's
 //! `JSON.stringify` output on success and the error sentence on failure.
 //!
 //! The bearer is the account's own credential (session token or `expu_` key)
@@ -37,100 +34,57 @@ use crate::trpc::TrpcClient;
 /// must never trip the ordinary 30s budget).
 const MCP_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// What the transport requires (406 without both).
-const MCP_ACCEPT: &str = "application/json, text/event-stream";
-
 /// The MCP tools' page cap (`pageInput.limit.max`).
 pub const MAX_PAGE: u32 = 200;
 
-#[derive(Serialize)]
-struct RpcRequest<'a> {
-    jsonrpc: &'static str,
-    id: u32,
-    method: &'static str,
-    params: RpcParams<'a>,
-}
+/// The `clientInfo.name` these calls announce.
+const CLIENT_NAME: &str = "exponential-desktop";
 
-#[derive(Serialize)]
-struct RpcParams<'a> {
-    name: &'a str,
-    arguments: &'a Value,
-}
-
-#[derive(Deserialize)]
-struct RpcResponse {
-    #[serde(default)]
-    result: Option<ToolResult>,
-    #[serde(default)]
-    error: Option<RpcError>,
-}
-
-#[derive(Deserialize)]
-struct RpcError {
-    #[serde(default)]
-    message: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ToolResult {
-    #[serde(default)]
-    content: Vec<ToolContent>,
-    #[serde(default)]
-    is_error: bool,
-}
-
-#[derive(Deserialize)]
-struct ToolContent {
-    #[serde(rename = "type", default)]
-    kind: String,
-    #[serde(default)]
-    text: String,
-}
-
-/// The JSON-RPC body for one `tools/call` (pure, unit-tested).
-pub fn tool_call_body(name: &str, arguments: &Value) -> String {
-    serde_json::to_string(&RpcRequest {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: RpcParams { name, arguments },
-    })
-    .unwrap_or_default()
-}
-
-/// Decode a `tools/call` response: the tool's JSON output, or its error
-/// sentence as [`ApiError::Http`] (status 400 — the server answered, the tool
-/// refused). A success text that is not JSON comes back as a JSON string.
-pub fn parse_tool_response(body: &str) -> Result<Value, ApiError> {
-    let response: RpcResponse =
-        serde_json::from_str(body).map_err(|e| ApiError::Decode(format!("mcp tools/call: {e}")))?;
-    if let Some(error) = response.error {
-        return Err(ApiError::Http {
-            status: 400,
-            message: error.message,
-        });
+/// An MCP client failure as the API error the HTTP calls answer: 401 is the
+/// dead session, 426 the stale build, a JSON-RPC error the server's
+/// sentence (status 400: the server answered, the call was refused).
+fn mcp_error(error: emcp::ClientError) -> ApiError {
+    match error {
+        emcp::ClientError::Http(status) => crate::error::status_error_authed(status, ""),
+        emcp::ClientError::Rpc { message, .. } => ApiError::Http { status: 400, message },
+        emcp::ClientError::Timeout => ApiError::Transport { message: "the MCP call timed out".to_string(), offline: true },
+        emcp::ClientError::Transport(message) => ApiError::Transport { message, offline: false },
     }
-    let result = response
-        .result
-        .ok_or_else(|| ApiError::Decode("mcp tools/call: no result".to_string()))?;
-    let text = result
-        .content
-        .iter()
-        .filter(|content| content.kind == "text")
-        .map(|content| content.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    if result.is_error {
-        return Err(ApiError::Http {
-            status: 400,
-            message: text,
-        });
+}
+
+/// One `tools/call` on the instance's own `/api/mcp` as the account: the MCP
+/// call result as the server sent it (`content`, `structuredContent`,
+/// `isError`, `_meta`). The IDE's `harness.mcp` reads it whole.
+pub fn call_tool_result(trpc: &TrpcClient, name: &str, arguments: &Value) -> Result<Value, ApiError> {
+    let upstream = emcp::Upstream {
+        name: "exponential".to_string(),
+        url: format!("{}/api/mcp", trpc.base_url()),
+        headers: trpc.auth_headers(),
+    };
+    emcp::client::call_once(&upstream, CLIENT_NAME, name, arguments.clone(), MCP_TIMEOUT).map_err(mcp_error)
+}
+
+/// A call result → the tool's JSON output, or its error sentence as
+/// [`ApiError::Http`] (status 400). A success text that is not JSON comes
+/// back as a JSON string.
+pub fn decode_tool_result(result: &Value) -> Result<Value, ApiError> {
+    let text = result["content"]
+        .as_array()
+        .map(|content| {
+            content
+                .iter()
+                .filter(|item| item["type"] == "text")
+                .filter_map(|item| item["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    if result["isError"] == true {
+        return Err(ApiError::Http { status: 400, message: text });
     }
     Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
 }
 
-/// One `tools/call` against `/api/mcp`, decoded to the tool's JSON output.
 /// NEW-4: the server's noun tools take an `op` beside the op's fields
 /// (`exponential_sessions {op: "list", ...}`); the CLI's typed calls build
 /// their fields and stamp the op here.
@@ -143,14 +97,9 @@ pub fn with_op(op: &str, mut arguments: Value) -> Value {
     }
 }
 
+/// One `tools/call` against `/api/mcp`, decoded to the tool's JSON output.
 pub fn call_tool(trpc: &TrpcClient, name: &str, arguments: &Value) -> Result<Value, ApiError> {
-    let body = trpc.post_json(
-        "/api/mcp",
-        &tool_call_body(name, arguments),
-        MCP_ACCEPT,
-        MCP_TIMEOUT,
-    )?;
-    parse_tool_response(&body)
+    decode_tool_result(&call_tool_result(trpc, name, arguments)?)
 }
 
 fn call_typed<T: serde::de::DeserializeOwned>(
@@ -502,86 +451,79 @@ pub fn sessions_end(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::trpc::tests::{has_header, one_shot_server};
     use crate::StaticToken;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
-    /// The captured request's `tools/call` name and arguments, compared as
-    /// VALUES: `serde_json` keeps source order only with `preserve_order`,
-    /// which feature unification turns on for the whole workspace (the
-    /// exponential-ui crate) but not for `cargo test -p api`, so a byte
-    /// comparison of the body passes in one build and fails in the other.
-    fn tool_call(request: &str) -> (String, serde_json::Value) {
-        let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
-        let json: serde_json::Value = serde_json::from_str(body).unwrap_or_else(|err| panic!("{err}: {request}"));
-        let params = &json["params"];
-        (
-            params["name"].as_str().unwrap_or_default().to_string(),
-            params["arguments"].clone(),
-        )
+    /// A fake `/api/mcp`: an emcp server answering every call with `text`,
+    /// recording (tool, arguments). The client's token is the server's
+    /// grant, so a call proves the bearer rode along.
+    struct Fake {
+        text: String,
+        seen: Arc<Mutex<Vec<(String, Value)>>>,
     }
 
-    fn client(base: &str) -> TrpcClient {
-        TrpcClient::new(base, Arc::new(StaticToken("tok".to_string())))
+    impl emcp::ToolProvider for Fake {
+        fn tools(&self) -> Result<Vec<Value>, String> {
+            Ok(Vec::new())
+        }
+
+        fn call(&self, _caller: &emcp::Caller, name: &str, arguments: Value) -> Value {
+            self.seen.lock().unwrap().push((name.to_string(), arguments));
+            if self.text.starts_with("ERR ") {
+                return serde_json::json!({ "content": [{ "type": "text", "text": &self.text[4..] }], "isError": true });
+            }
+            serde_json::json!({ "content": [{ "type": "text", "text": self.text }] })
+        }
     }
 
-    #[test]
-    fn the_call_body_is_a_bare_tools_call() {
-        let body = tool_call_body("exponential_sessions", &serde_json::json!({"id": "s1", "op": "get"}));
-        assert_eq!(
-            body,
-            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"exponential_sessions","arguments":{"id":"s1","op":"get"}}}"#
-        );
+    fn fake(text: &str) -> (TrpcClient, Arc<Mutex<Vec<(String, Value)>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let info = emcp::ServerInfo { name: "exponential".into(), version: "1".into(), instructions: None };
+        let server = emcp::Server::serve_at(info, Arc::new(Fake { text: text.to_string(), seen: seen.clone() }), Vec::new(), "/api/mcp").unwrap();
+        let token = server.grant(&emcp::SessionId::new("cli").unwrap(), "cli").into();
+        let base = server.base().to_string();
+        std::mem::forget(server);
+        (TrpcClient::new(&base, Arc::new(StaticToken(token))), seen)
+    }
+
+    fn last(seen: &Arc<Mutex<Vec<(String, Value)>>>) -> (String, Value) {
+        seen.lock().unwrap().last().cloned().expect("a call reached the server")
     }
 
     #[test]
     fn a_tool_error_surfaces_its_sentence() {
-        let body = r#"{"jsonrpc":"2.0","id":1,"result":{"isError":true,"content":[{"type":"text","text":"Session is not live"}]}}"#;
-        match parse_tool_response(body) {
-            Err(ApiError::Http { status, message }) => {
-                assert_eq!(status, 400);
-                assert_eq!(message, "Session is not live");
-            }
-            other => panic!("expected the tool error, got {other:?}"),
+        let result = serde_json::json!({ "isError": true, "content": [{ "type": "text", "text": "Session is not live" }] });
+        match decode_tool_result(&result) {
+            Err(ApiError::Http { status: 400, message }) => assert_eq!(message, "Session is not live"),
+            other => panic!("{other:?}"),
         }
-        let rpc = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params"}}"#;
-        assert!(
-            matches!(parse_tool_response(rpc), Err(ApiError::Http { message, .. }) if message == "Invalid params")
-        );
+        let (client, _) = fake("ERR Session is not live");
+        assert!(matches!(call_tool(&client, "exponential_sessions", &serde_json::json!({})), Err(ApiError::Http { status: 400, message }) if message == "Session is not live"));
     }
 
     #[test]
     fn a_non_json_text_comes_back_as_a_string() {
-        let body = r#"{"result":{"content":[{"type":"text","text":"plain"}]}}"#;
-        assert_eq!(
-            parse_tool_response(body).unwrap(),
-            Value::String("plain".into())
-        );
+        let result = serde_json::json!({ "content": [{ "type": "text", "text": "done" }] });
+        assert_eq!(decode_tool_result(&result).unwrap(), Value::String("done".into()));
     }
 
     #[test]
-    fn devices_list_posts_to_the_mcp_route_and_decodes_rows() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"[{\"deviceId\":\"d1\",\"label\":\"build box\",\"kind\":\"server\",\"online\":true,\"agents\":[\"claude\"],\"caps\":[],\"isDefault\":true}]"}]}}"#,
-        );
-        let devices = devices_list(&client(&base), None).unwrap();
+    fn a_refused_bearer_is_unauthorized() {
+        let (client, _) = fake("{}");
+        let stranger = TrpcClient::new(client.base_url(), Arc::new(StaticToken("nope".to_string())));
+        assert!(matches!(call_tool(&stranger, "exponential_devices", &serde_json::json!({})), Err(ApiError::Unauthorized)));
+    }
+
+    #[test]
+    fn devices_list_calls_the_tool_and_decodes_rows() {
+        let (client, seen) = fake(r#"[{"deviceId":"d1","label":"build box","kind":"server","online":true,"agents":["claude"],"caps":[],"isDefault":true}]"#);
+        let devices = devices_list(&client, None).unwrap();
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].device_id, "d1");
         assert_eq!(devices[0].label, "build box");
         assert!(devices[0].online && devices[0].is_default);
         assert_eq!(devices[0].agents, vec!["claude".to_string()]);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/mcp HTTP/1.1"), "{request}");
-        assert!(has_header(&request, "Authorization: Bearer tok"));
-        assert!(has_header(
-            &request,
-            "Accept: application/json, text/event-stream"
-        ));
-        assert_eq!(
-            tool_call(&request),
-            ("exponential_devices".to_string(), serde_json::json!({"limit": 200, "op": "list"}))
-        );
+        assert_eq!(last(&seen), ("exponential_devices".to_string(), serde_json::json!({"limit": 200, "op": "list"})));
     }
 
     #[test]
@@ -618,12 +560,9 @@ mod tests {
 
     #[test]
     fn sessions_send_posts_the_tool_call_and_decodes_the_ids() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"sessionId\":\"s1\",\"messageId\":null}"}]}}"#,
-        );
+        let (client, seen) = fake(r#"{"sessionId":"s1","messageId":null}"#);
         let sent = sessions_send(
-            &client(&base),
+            &client,
             &SessionsSendInput {
                 session_id: Some("s0".into()),
                 text: Some("go on".into()),
@@ -633,10 +572,8 @@ mod tests {
         .unwrap();
         assert_eq!(sent.session_id, "s1");
         assert_eq!(sent.message_id, None);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/mcp HTTP/1.1"), "{request}");
         assert_eq!(
-            tool_call(&request),
+            last(&seen),
             ("exponential_sessions_send".to_string(), serde_json::json!({"sessionId": "s0", "text": "go on"}))
         );
     }
@@ -651,13 +588,9 @@ mod tests {
             ),
             (sessions_end, ("exponential_sessions", serde_json::json!({"id": "s1", "op": "end"}))),
         ] {
-            let (base, captured) = one_shot_server(
-                200,
-                r#"{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"ok\":true}"}]}}"#,
-            );
-            call(&client(&base), "s1").unwrap();
-            let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-            assert_eq!(tool_call(&request), (expected.0.to_string(), expected.1));
+            let (client, seen) = fake(r#"{"ok":true}"#);
+            call(&client, "s1").unwrap();
+            assert_eq!(last(&seen), (expected.0.to_string(), expected.1));
         }
     }
 
@@ -675,22 +608,15 @@ mod tests {
 
     #[test]
     fn sessions_get_reads_the_tree_by_id() {
-        let tree = r#"{\"root\":{\"id\":\"r1\",\"status\":\"idle\",\"displayTitle\":\"Fix\"},\"issues\":[{\"issueId\":\"i1\",\"identifier\":\"EXP-1\",\"title\":\"Fix\",\"status\":\"backlog\"}],\"pullRequests\":[],\"guide\":[],\"children\":[{\"id\":\"c1\",\"parentId\":\"r1\",\"depth\":1,\"status\":\"running\"}],\"messages\":[]}"#;
-        let (base, captured) = one_shot_server(
-            200,
-            Box::leak(
-                format!(r#"{{"jsonrpc":"2.0","id":1,"result":{{"content":[{{"type":"text","text":"{tree}"}}]}}}}"#)
-                    .into_boxed_str(),
-            ),
-        );
-        let tree = sessions_get(&client(&base), "c1").unwrap();
+        let tree = r#"{"root":{"id":"r1","status":"idle","displayTitle":"Fix"},"issues":[{"issueId":"i1","identifier":"EXP-1","title":"Fix","status":"backlog"}],"pullRequests":[],"guide":[],"children":[{"id":"c1","parentId":"r1","depth":1,"status":"running"}],"messages":[]}"#;
+        let (client, seen) = fake(tree);
+        let tree = sessions_get(&client, "c1").unwrap();
         assert_eq!(tree.root.display_title.as_deref(), Some("Fix"));
         assert_eq!(tree.issues[0].identifier.as_deref(), Some("EXP-1"));
         assert_eq!(tree.session("c1").map(|row| row.depth), Some(1));
         assert!(tree.session("nope").is_none());
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
-            tool_call(&request),
+            last(&seen),
             ("exponential_sessions".to_string(), serde_json::json!({"id": "c1", "messages": 0, "op": "get"}))
         );
     }

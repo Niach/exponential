@@ -45,6 +45,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import com.exponential.app.domain.ThreadRowAction
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.session.LocalAskCardTrailing
+import com.exponential.app.ui.plan.LocalOpenPlanPage
+import com.exponential.app.domain.PlanPage
 import androidx.compose.ui.platform.LocalDensity
 import com.exponential.app.ui.components.JumpToBottomButton
 import com.exponential.app.ui.session.isNearBottom
@@ -1301,7 +1303,50 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
         return
     }
     Column(Modifier.testTag(if (row is SessionTree.ThreadRow.Plan) "thread-plan-card" else "thread-question-card")) {
-        PlanAskCard(row, onAnswer, onDecidePlan)
+        if (row is SessionTree.ThreadRow.Plan) {
+            // #EXP-1493: THE plan page (plan-page.json `copy.openPlan`), the
+            // header action left of a host's own trailing link.
+            val outer = LocalAskCardTrailing.current
+            val openPlan = LocalOpenPlanPage.current
+            CompositionLocalProvider(
+                LocalAskCardTrailing provides {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PlanPageOpenButton { openPlan.open(row.sessionId, row.id) }
+                        outer?.invoke()
+                    }
+                },
+            ) {
+                PlanAskCard(row, onAnswer, onDecidePlan)
+            }
+        } else {
+            PlanAskCard(row, onAnswer, onDecidePlan)
+        }
+    }
+}
+
+/** #EXP-1493: THE plan card's header action (a ghost button, `ui-fullscreen`
+ *  + `copy.openPlan`) opening THE plan page. */
+@Composable
+fun PlanPageOpenButton(onOpen: () -> Unit) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val tint = if (pressed) MaterialTheme.colorScheme.onSurface else Muted
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onOpen)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .testTag(PlanPage.TestIds.OPEN_PLAN),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(ExpIcons.uiFullscreen, contentDescription = null, tint = tint, modifier = Modifier.size(12.dp))
+        Text(
+            PlanPage.Copy.OPEN_PLAN,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+            color = tint,
+            maxLines = 1,
+        )
     }
 }
 

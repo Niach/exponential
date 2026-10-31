@@ -55,7 +55,10 @@ export function DocsPage() {
               <a href="/docs/coding/">desktop IDE hands issues to your agent</a>
               {` `}(running locally on your machine), which implements,
               pushes, and opens the GitHub PR. Merging the PR completes the
-              issue and can notify the person who reported it.
+              issue and can notify the person who reported it. What your
+              sessions say is{` `}
+              <a href="/docs/coding/#watch-steer">sealed end to end</a> on
+              your devices; the server stores it encrypted.
             </p>
             <p>
               It syncs in real time across web, iOS, Android, and the native

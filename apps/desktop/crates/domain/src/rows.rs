@@ -484,6 +484,10 @@ pub struct Comment {
     /// member): the card names the agent and drops `via MCP`.
     #[serde(default)]
     pub author_agent_id: Option<String>,
+    /// #VAPP-186: the app whose MCP tool wrote it — the caption reads
+    /// `via <app>` while that app syncs, else `via MCP`.
+    #[serde(default)]
+    pub via_app_id: Option<String>,
     /// EXP-741: the top-level comment this one replies to (one level deep);
     /// `None` = a top-level card.
     #[serde(default)]

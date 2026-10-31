@@ -1,3 +1,4 @@
+import { viaAppOf } from "@/lib/emcp/via-app"
 import { z } from "zod"
 import { boardIconSchema } from "@exp/db-schema/domain"
 import { TRPCError } from "@trpc/server"
@@ -197,9 +198,15 @@ import {
 } from "./handlers/attachments-list"
 import {
   assertAttachmentUploadAccess,
+  assertLooseAttachmentUploadAccess,
   finalizeSignedAttachmentUpload,
   mintSignedAttachmentUpload,
 } from "./handlers/attachments-upload"
+import {
+  prepareSessionImageBytes,
+  rollbackSessionImage,
+  sessionAttachmentValues,
+} from "@/lib/storage/session-attachment-upload"
 import { requestSessionCompaction } from "./handlers/sessions-compact"
 import { deviceAccountLogin } from "./handlers/device-account-login"
 import {
@@ -219,6 +226,7 @@ import {
   filterVisibleTeamIds,
   grantScopeFilter,
   isBoardGranted,
+  isTeamFullyGranted,
   isTeamVisible,
   reporterFallbackAllowed,
   GRANT_MATCHES_NOTHING,
@@ -239,6 +247,7 @@ function buildCtx(user: McpUser, request: Request): Context {
     db,
     request,
     viaMcp: true,
+    ...(viaAppOf(request) ? { viaAppId: viaAppOf(request) } : {}),
     session: {
       user: {
         id: user.id,
@@ -263,7 +272,7 @@ function buildCtx(user: McpUser, request: Request): Context {
   } as unknown as Context
 }
 
-function caller(user: McpUser, request: Request) {
+export function caller(user: McpUser, request: Request) {
   return appRouter.createCaller(buildCtx(user, request))
 }
 
@@ -4270,7 +4279,7 @@ export function registerExponentialTools(
 
   /** Settings → MCP servers, auto-starting the connect for `serverId`. */
   const mcpConnectUrl = (teamSlug: string, serverId: string) =>
-    `${appBaseUrl()}/t/${encodeURIComponent(teamSlug)}/settings/mcp-servers?connect=${serverId}`
+    `${appBaseUrl()}/t/${encodeURIComponent(teamSlug)}/settings/mcp?connect=${serverId}`
 
   const loadTeamSlug = async (teamId: string) => {
     const [team] = await db
@@ -4391,11 +4400,31 @@ export function registerExponentialTools(
   // an upload URL + curl line (the guide_write shape) and a later call
   // with `attachmentId` alone finalizes the row. The signed halves live in
   // handlers/attachments-upload.ts; the access checks stay here.
+  //
+  // EXP-1516: no issueId = a LOOSE upload (issue, draft, message and board
+  // NULL), the composer's paste path (lib/storage/
+  // session-attachment-upload.ts), so `sessions_send({attachmentIds})` can
+  // claim it. Its team is never a parameter: the caller's session's team
+  // (X-Exp-Session-Id; an agent's clamped access covers only that one), else
+  // the ONE team this connection may write to, else a clear error.
+  async function resolveLooseUploadTeam(): Promise<string> {
+    const own = await loadCallerSession()
+    if (own) return own.teamId
+    const teamIds = (await getUserTeamIds(user.id)).filter((id) =>
+      isTeamFullyGranted(access, id)
+    )
+    if (teamIds.length === 1) return teamIds[0]!
+    throw new Error(
+      teamIds.length === 0
+        ? `No team to upload into: pass issueId.`
+        : `Without issueId the file lands in your session's team, and this connection has no session but ${teamIds.length} teams: pass issueId, or upload from a session.`
+    )
+  }
 
   server.registerTool(
     `exponential_attachments_upload`,
     {
-      description: `Attach a file to an issue (UUID or identifier). With dataBase64: uploads the bytes now (base64 inflates ~33%). Without it: returns attachmentId, a 10-minute signed uploadUrl and a ready curl line for filename/contentType (+ optional commentId); then call again with attachmentId alone to finalize. Images (png/jpeg/webp/gif/avif, 10 MB) and video/audio (50 MB) return "markdown" to embed; other types (50 MB) land in Files, no markdown, never embed. Storage limits apply.`,
+      description: `Upload a file to an issue (issueId: UUID or identifier), or without issueId a loose file in your session's team for sessions_send attachmentIds. With dataBase64: uploads the bytes now (base64 inflates ~33%). Without it: returns attachmentId, a 10-minute signed uploadUrl and a ready curl line for filename/contentType (+ optional commentId); then call again with attachmentId alone to finalize. Images (png/jpeg/webp/gif/avif, 10 MB) and video/audio (50 MB) return "markdown" to embed; other types (50 MB) land in Files, no markdown, never embed. Storage limits apply.`,
       inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
         filename: z.string().min(1).max(255).optional(),
@@ -4439,13 +4468,9 @@ export function registerExponentialTools(
             })
           )
         }
-        if (
-          issueIdInput === undefined ||
-          filenameInput === undefined ||
-          contentTypeInput === undefined
-        ) {
+        if (filenameInput === undefined || contentTypeInput === undefined) {
           throw new Error(
-            `issueId, filename and contentType are required (with dataBase64 to upload now, without it to get a signed upload URL).`
+            `filename and contentType are required (with dataBase64 to upload now, without it to get a signed upload URL).`
           )
         }
         // Canonicalized (lowercase essence) so the exact-match inline-image
@@ -4458,6 +4483,65 @@ export function registerExponentialTools(
           filenameInput,
           isImage ? `image` : `file`
         )
+        if (issueIdInput === undefined) {
+          if (commentId !== undefined) {
+            throw new Error(
+              `commentId needs issueId: a loose upload is not on an issue.`
+            )
+          }
+          const teamId = await resolveLooseUploadTeam()
+          await assertLooseAttachmentUploadAccess({
+            teamId,
+            userId: user.id,
+            access,
+          })
+          if (dataBase64 === undefined) {
+            return ok(
+              await mintSignedAttachmentUpload({
+                teamId,
+                userId: user.id,
+                filename,
+                contentType,
+                origin: process.env.BETTER_AUTH_URL
+                  ? appBaseUrl()
+                  : new URL(request.url).origin,
+              })
+            )
+          }
+          const looseBody = new Uint8Array(Buffer.from(dataBase64, `base64`))
+          if (looseBody.byteLength === 0) {
+            throw new Error(`Decoded file is empty. Check the base64 payload.`)
+          }
+          // The paste path's own half: limits, storage budget, key scheme,
+          // pixel probe, upload; then its owner-less row.
+          const prepared = await prepareSessionImageBytes(
+            { filename, contentType, body: looseBody },
+            { teamId }
+          )
+          try {
+            await db
+              .insert(attachments)
+              .values(sessionAttachmentValues(prepared, { teamId }, user.id))
+          } catch (error) {
+            await rollbackSessionImage(prepared.storageKey)
+            throw error
+          }
+          return ok({
+            id: prepared.attachmentId,
+            url: prepared.url,
+            ...(isImage
+              ? { markdown: `![${alt ?? ``}](${prepared.url})` }
+              : isInlineMediaContentType(contentType)
+                ? { markdown: `[${filename}](${prepared.url})` }
+                : {}),
+            filename: prepared.filename,
+            contentType: prepared.contentType,
+            sizeBytes: prepared.sizeBytes,
+            width: prepared.width,
+            height: prepared.height,
+            durationMs: null,
+          })
+        }
         const issueId = await resolveIssueId(issueIdInput, user.id, access)
         const issueCtx = await assertAttachmentUploadAccess({
           issueId,

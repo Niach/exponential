@@ -225,7 +225,8 @@ exponential sessions stop 1a2b3c4d
               account on the target, and <code>--follow</code> tails the
               session&apos;s transcript right after the start. Transcripts live only on the device that
               ran the session, so <code>sessions log</code> streams them
-              through the steer relay like the app does. That needs the
+              from the device over eNet, end-to-end encrypted, like the app
+              does (through your own daemon when one runs). That needs the
               device online, and a live session shows its transcript only to
               its owner.
             </p>
@@ -361,21 +362,20 @@ exponential update
               rather than waiting for its next scheduled check.
             </p>
             <p>
-              You rarely need it, though: the install script turns automatic
-              updates on (<code>EXP_NO_AUTOUPDATE=1</code> leaves them off),
-              and a CLI installed some other way asks on its first session.{` `}
-              <code>exponential update --auto on</code> or{` `}
-              <code>--auto off</code> changes it later. With
-              auto-update on, commands check once a day and restart
-              themselves on the new build, and the daemon updates on its own
-              schedule, waiting until no session is running before it
-              restarts. A server&apos;s <strong>Device settings</strong> also
-              show its version under <strong>Update</strong>, with an{` `}
+              You rarely need it, though: automatic updates are on unless you
+              opt out (<code>EXP_NO_AUTOUPDATE=1</code> at install, or{` `}
+              <code>exponential update --auto off</code> later; a headless
+              server that never answered the prompt updates too). Commands
+              check once a day and restart themselves on the new build; the
+              daemon checks every 15 minutes and restarts at the next pause
+              between turns of its sessions, at most 10 minutes later. Every
+              session it cuts continues on the new build by itself. A
+              server&apos;s <strong>Device settings</strong> also show its
+              version under <strong>Update</strong>, with an{` `}
               <strong>Update</strong> button that asks the daemon to update
-              right away. While sessions are still running it reads{` `}
-              <strong>Queued</strong> and the update applies as soon as the
-              last one closes; <strong>Update now…</strong> ends them and
-              restarts on the new version at once. The stored choice is{` `}
+              right away. While sessions hold it, it reads{` `}
+              <strong>Queued</strong>; <strong>Update now…</strong> restarts on
+              the new version at once. The stored choice is{` `}
               <code>cliAutoUpdate</code> in settings.json.
             </p>
             <p>

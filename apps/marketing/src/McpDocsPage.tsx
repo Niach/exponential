@@ -14,7 +14,8 @@ const SECTIONS: DocsSectionType[] = [
   { id: `clients`, num: `03`, label: `Client setup` },
   { id: `tools`, num: `04`, label: `Tool reference` },
   { id: `recipes`, num: `05`, label: `Recipes` },
-  { id: `your-own-servers`, num: `06`, label: `Your own servers` },
+  { id: `app-tools`, num: `06`, label: `App tools` },
+  { id: `your-own-servers`, num: `07`, label: `Your own servers` },
 ]
 
 /* Tool reference — the 16 noun tools (NEW-4), mirroring apps/web/src/lib/emcp/nouns.ts:
@@ -346,12 +347,61 @@ npx mcp-remote ${LINKS.app.mcp}
               in{` `}
               <a href="/docs/cli/#daemon">CLI &amp; daemon</a>.
             </p>
+            <DocsCallout kind="note" title="Session content is sealed">
+              Messages, cards and reports are end-to-end encrypted on the
+              device that writes them, and the server stores only ciphertext.
+              Agents running on your devices read them through the app; a
+              client connected straight to <code>/api/mcp</code> (ChatGPT,
+              claude.ai) sees a session&apos;s metadata (who, when, state), not
+              its text.
+            </DocsCallout>
           </DocsSection>
 
-          {/* ── 06 Your own servers ── */}
+          {/* ── 06 App tools ── */}
+          <DocsSection id="app-tools" num="06" label="App tools">
+            <h2>App tools</h2>
+            <p>
+              Apps can declare MCP tools (see{` `}
+              <a href="/docs/apps/">Apps</a>). A team&apos;s app tools have
+              their own endpoint, next to the built-in one:
+            </p>
+            <DocsCode language="text">{`${LINKS.app.mcp}/apps`}</DocsCode>
+            <p>
+              Each tool is listed as <code>&lt;app&gt;__&lt;tool&gt;</code> with the
+              app&apos;s own description and its read-only or destructive hint,
+              and runs as you: on the app&apos;s records, on Exponential&apos;s
+              own tools within the team, or on an outside server with your
+              connected account. When an app publishes a new version, the
+              endpoint tells connected clients that the list changed.
+            </p>
+            <p>
+              Connecting a client asks for its own consent: one team, then{` `}
+              <strong>All apps</strong> (later ones included) or a pick of
+              apps, each with its tool count and the accounts it needs (connect
+              them right there), then <strong>Read only</strong> or{` `}
+              <strong>Full</strong>.
+            </p>
+            <p>
+              Owners decide the rest. Per member and app, access is none, read
+              or full (Full by default), and the consent can never grant more.
+              On the app&apos;s settings page, <strong>MCP tools</strong> lists
+              every tool with its Read/Write level and an owner&apos;s switch
+              to take one off the endpoint; <strong>Accounts</strong> shows the
+              outside servers the app calls and your connection to each. A
+              member who leaves the team loses their app grants with it, and a
+              trashed app&apos;s tools disappear.
+            </p>
+            <DocsCallout kind="note" title="Planned">
+              A Settings list of your connected MCP clients with a revoke
+              button, and the owner&apos;s per-member access screen. Both work
+              on the server already; the screens come next.
+            </DocsCallout>
+          </DocsSection>
+
+          {/* ── 07 Your own servers ── */}
           <DocsSection
             id="your-own-servers"
-            num="06"
+            num="07"
             label="Your own servers"
           >
             <h2>Your own MCP servers</h2>
@@ -384,7 +434,8 @@ npx mcp-remote ${LINKS.app.mcp}
               <code>exponential mcp set-secret &lt;server&gt;</code> reads a
               key from a no-echo prompt or stdin (never a command line), and
               {` `}<code>exponential mcp disconnect &lt;server&gt;</code>
-              {` `}deletes your credential.
+              {` `}revokes your token at the provider (where it supports
+              that) and deletes your credential.
             </p>
             <p>
               Pick the servers a session gets under{` `}

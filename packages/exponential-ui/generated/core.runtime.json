@@ -619,6 +619,34 @@
           "enum": "traceStatus"
         }
       }
+    },
+    "outlineItem": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "count": {
+          "type": "number",
+          "bindable": true
+        }
+      }
+    },
+    "picture": {
+      "properties": {
+        "src": {
+          "type": "url",
+          "required": true
+        },
+        "alt": {
+          "type": "string"
+        }
+      }
     }
   },
   "functions": {
@@ -1708,10 +1736,42 @@
         "indicators": {
           "type": "boolean",
           "default": true
+        },
+        "counter": {
+          "type": "boolean",
+          "default": false
+        },
+        "thumbnails": {
+          "type": "array",
+          "items": {
+            "type": "url"
+          }
         }
       },
       "events": [
         "change"
+      ]
+    },
+    "Mosaic": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "pictures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "picture"
+          },
+          "required": true
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "events": [
+        "select"
       ]
     },
     "Tabs": {
@@ -1987,6 +2047,32 @@
             "shape": "option"
           },
           "required": true
+        }
+      },
+      "events": [
+        "select"
+      ]
+    },
+    "Outline": {
+      "kind": "macro",
+      "group": "navigation",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "outlineItem"
+          },
+          "required": true
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "caption": {
+          "type": "string"
         }
       },
       "events": [

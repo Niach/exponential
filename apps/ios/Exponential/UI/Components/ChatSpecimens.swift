@@ -593,7 +593,34 @@ struct SessionXrefSpecimens: View {
 struct StorySpecimensScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["story-ring", "story-viewer", "story-tab"]
+    static let kinds: Set<String> = [
+        "story-ring", "story-viewer", "story-tab",
+        // #EXP-1493 captures: THE plan page, a plan cover, a gallery.
+        "plan-page", "story-viewer-plan", "story-viewer-gallery",
+    ]
+
+    /// #EXP-1493: a big plan (plan-page.json `countCases[0]`'s shape) with
+    /// generated pictures (`SpecimenPicture`).
+    static let bigPlan: TreeMessageCard? = TreeMessageCard.parse(###"{"kind": "plan", "plan": "# Plan: editor-first app creation and MCP for eApps\n\nA new app opens straight in the editor; every app gets an MCP endpoint.\n\n## Current state\n- the form comes first\n- apps have no MCP surface\n\n## Part A: editor-first creation\nCreating an app no longer starts from a form. The editor opens on an empty canvas with the chat docked.\n\n![web editor new](/api/attachments/specimen-0)\n![web editor preview](/api/attachments/specimen-1)\n![web editor data](/api/attachments/specimen-2)\n![ios editor new](/api/attachments/specimen-3)\n\nThe data tab keeps inline edit.\n\n## Part B: MCP for **eApps**\nEach team's apps are reachable at one MCP endpoint.\n\n![mcp access](/api/attachments/specimen-4)\n![oauth](/api/attachments/specimen-5)\n\n## Phased issues\n1. Contract\n2. Web + natives", "decision": null, "pictures": [{"label": "web-editor-new", "attachmentId": "specimen-0", "width": 1440, "height": 900}, {"label": "web-editor-preview", "attachmentId": "specimen-1", "width": 1440, "height": 900}, {"label": "web-editor-data", "attachmentId": "specimen-2", "width": 1440, "height": 900}, {"label": "ios-editor-new", "attachmentId": "specimen-3", "width": 1440, "height": 900}, {"label": "mcp-access", "attachmentId": "specimen-4", "width": 1440, "height": 900}, {"label": "oauth", "attachmentId": "specimen-5", "width": 1440, "height": 900}], "questions": [{"id": "q1", "prompt": "How should clients address the MCP endpoint for a team's apps?", "options": [{"label": "One endpoint per team", "description": "/mcp/t/acme, tools prefixed by app"}, {"label": "One endpoint per app", "description": "/mcp/apps/:id"}]}, {"id": "q2", "prompt": "Keep the form as a fallback?", "options": [{"label": "Yes"}, {"label": "No"}]}, {"id": "q3", "prompt": "Which platforms first?", "multi": true, "options": [{"label": "Web"}, {"label": "iOS"}, {"label": "Android"}]}], "description": "A new app opens straight in the editor; every app gets an MCP endpoint."}"###)
+
+    /// plan-page.json `specimen.card` (THE styleguide plan-page specimen ×4).
+    static let planPageCard: TreeMessageCard? = TreeMessageCard.parse(###"{"kind": "plan", "plan": "# Plan: editor-first app creation\n\nA new app opens straight in the editor; every app gets an MCP endpoint.\n\n## Current state\n- Creating an app starts from a form.\n- The editor opens only after the first save.\n\n## Part A: editor-first creation\nThe editor opens on an empty canvas with the chat docked.\n\n![web editor new](/api/attachments/sg-1)\n![web editor preview](/api/attachments/sg-2)\n![web editor data](/api/attachments/sg-3)\n![web editor versions](/api/attachments/sg-4)\n\n## Part B: MCP for eApps\nEach team's apps answer at one MCP endpoint, scoped by a team token.\n\n## Phased issues\n1. The contract\n2. The editor\n3. The MCP endpoint", "decision": null, "pictures": [{"label": "web-editor-1", "attachmentId": "sg-1", "width": 1440, "height": 900}, {"label": "web-editor-2", "attachmentId": "sg-2", "width": 1440, "height": 900}, {"label": "web-editor-3", "attachmentId": "sg-3", "width": 1440, "height": 900}, {"label": "web-editor-4", "attachmentId": "sg-4", "width": 1440, "height": 900}], "questions": [{"id": "endpoint", "prompt": "How should clients address the MCP endpoint for a team's apps?", "multi": false, "custom": true, "options": [{"label": "One endpoint per team", "description": "/mcp/t/acme, tools prefixed by app"}, {"label": "One endpoint per app", "description": "/mcp/apps/:id"}]}, {"id": "chat", "prompt": "Keep the floating chat layout in the editor?", "multi": false, "custom": false, "options": [{"label": "Keep it"}, {"label": "Dock it right"}]}]}"###)
+
+    private static let galleryCard: TreeMessageCard? = TreeMessageCard.parse(###"{"kind": "surface", "story": true, "title": "Story row, all platforms", "description": "iOS: rings only, 24 h", "surface": {"root": {"id": "r", "component": "Text", "props": {"text": "done"}}}, "pictures": [{"label": "ios-chats-story-row-0", "attachmentId": "specimen-0", "width": 1440, "height": 900, "caption": null}, {"label": "ios-chats-story-row-1", "attachmentId": "specimen-1", "width": 1440, "height": 900, "caption": null}, {"label": "ios-chats-story-row-2", "attachmentId": "specimen-2", "width": 1440, "height": 900, "caption": null}, {"label": "ios-chats-story-row-3", "attachmentId": "specimen-3", "width": 1440, "height": 900, "caption": null}, {"label": "ios-chats-story-row-4", "attachmentId": "specimen-4", "width": 1440, "height": 900, "caption": null}, {"label": "ios-chats-story-row-5", "attachmentId": "specimen-5", "width": 1440, "height": 900, "caption": null}]}"###)
+
+    /// One ring: the big plan (waiting) and a six-picture result.
+    static let planRings: [Stories.StoryRing] = Stories.rings(
+        now: now,
+        sessions: [
+            Stories.SessionInput(id: "apps", rootId: "apps", name: "Editor-first app creation", agentId: nil, startedByAgentId: nil),
+        ],
+        agents: [],
+        messages: [
+            Stories.MessageInput(id: "big-plan", sessionId: "apps", authorSessionId: "apps", createdAt: 1799999760000, answeredAt: nil, card: bigPlan),
+            Stories.MessageInput(id: "story-row", sessionId: "apps", authorSessionId: "apps", createdAt: 1799996400000, answeredAt: nil, card: galleryCard),
+        ],
+        reads: []
+    )
 
     private static let now: Double = 1800000000000
     private static let smallRing: CGFloat = 36
@@ -726,6 +753,20 @@ struct StorySpecimensScreen: View {
                         .padding(16)
                         .accessibilityIdentifier("story-tab-specimen")
                 }
+            } else if kind == "plan-page" {
+                NavigationStack {
+                    PlanPageScreen(
+                        sessionId: "apps", messageId: "plan", specimen: Self.planPageCard,
+                        specimenChatName: PlanPage.Specimen.chatName
+                    )
+                }
+            } else if kind == "story-viewer-plan" || kind == "story-viewer-gallery" {
+                StoryViewer(
+                    rings: Self.planRings, startKey: Self.planRings[0].key,
+                    startStory: kind == "story-viewer-plan" ? "big-plan" : "story-row", startPicture: 2,
+                    card: { id in id == "big-plan" ? Self.bigPlan : Self.galleryCard }, avatar: Self.avatar,
+                    fraction: kind == "story-viewer-plan" ? 0.4 : 0.5, onClose: {}
+                )
             } else if kind == "story-viewer" {
                 StoryViewer(
                     rings: Self.rings, startKey: Self.rings[0].key, card: Self.card, avatar: Self.avatar, fraction: 0,

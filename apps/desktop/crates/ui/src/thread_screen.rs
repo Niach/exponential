@@ -1323,6 +1323,26 @@ pub(crate) fn plan_card(
         .into_any_element()
 }
 
+/// #EXP-1493: a plan card's `Open plan` (plan-page.json `copy.openPlan`,
+/// testIds.openPlan): the ghost button with the `ui-fullscreen` concept
+/// that opens THE plan page.
+pub(crate) fn open_plan_button(session_id: &str, message_id: &str, cx: &App) -> AnyElement {
+    let page = &domain::plan_page::PLAN_PAGE;
+    let (session_id, id) = (session_id.to_string(), message_id.to_string());
+    gpui_component::button::Button::new(SharedString::from(format!("{}-{message_id}", page.test_ids.open_plan)))
+        .ghost()
+        .web_xs()
+        .cursor_pointer()
+        .icon(Icon::new(registry::UI_FULLSCREEN).xsmall().text_color(cx.theme().muted_foreground))
+        .label(page.copy.open_plan.clone())
+        .text_color(cx.theme().muted_foreground)
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            crate::plan_page::open(&session_id, &id, window, cx);
+        })
+        .into_any_element()
+}
+
 /// #EXP-1464: a trailing element of a card's label line (`Open chat`),
 /// pushed to its end.
 fn label_meta(meta: Option<AnyElement>) -> Option<AnyElement> {
@@ -1331,11 +1351,12 @@ fn label_meta(meta: Option<AnyElement>) -> Option<AnyElement> {
 
 pub(crate) fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::PlanFacts<'a>)> {
     match row {
-        SessionThreadRow::Plan { id, plan, questions, surface, decision, fresh, answers, feedback, surface_data, .. } => Some((
+        SessionThreadRow::Plan { id, session_id, plan, questions, surface, decision, fresh, answers, feedback, surface_data } => Some((
             id,
             plan,
             crate::plan_card::PlanFacts {
                 message_id: id,
+                session_id,
                 questions,
                 surface: surface.as_ref(),
                 decision: decision.as_deref(),
@@ -1400,6 +1421,25 @@ pub(crate) fn ask_row_card_with(
             text,
             images,
         );
+        // #EXP-1493 (plan-page.json WAYS IN): the card's header action
+        // `Open plan` (a superseded card has none), before the row's own
+        // meta (an expanded Needs-you row's `Open chat`). Only where a team
+        // reads it (the styleguide's cards carry none).
+        let meta = match (text.team_id(), facts.decision) {
+            (Some(_), decision) if decision != Some("superseded") => {
+                let open = open_plan_button(facts.session_id, id, cx);
+                Some(
+                    h_flex()
+                        .flex_shrink_0()
+                        .gap_3()
+                        .items_center()
+                        .child(open)
+                        .children(meta)
+                        .into_any_element(),
+                )
+            }
+            _ => meta,
+        };
         return Some(plan_card(markdown, facts, text.answers(), meta, images, window, cx));
     }
     let (id, question, facts) = question_facts(row)?;
@@ -3541,11 +3581,9 @@ impl ThreadScreenView {
             crate::story_viewer::open_tab(&team_id, &root_id, &story.id, picture, window, cx);
         });
         let images = self.images.clone();
-        let text = ThreadText::team(model.root.team_id.as_deref()).answering(true);
         let tab_body = crate::story_tab::TabBody {
             images: &images,
             load_pictures: true,
-            text: &text,
             card_for: &crate::story_tab::store_story_card,
         };
         let body = crate::story_tab::story_tab_body(ring.as_ref().as_ref(), lead, &tab_body, Some(on_open), window, cx);

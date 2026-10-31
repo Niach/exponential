@@ -23,6 +23,9 @@ vi.mock(`@/lib/collections`, () => ({
   teamCollection: { tag: `teams` },
   sessionCollection: { tag: `sessions`, get: (id: string) => data.sessions.get(id) },
 }))
+vi.mock(`@/hooks/use-session-tree`, () => ({
+  useDigestMessages: () => ({ messages: [] }),
+}))
 vi.mock(`@/hooks/use-session`, () => ({
   useSession: () => ({ data: { user: { id: `me` } } }),
 }))

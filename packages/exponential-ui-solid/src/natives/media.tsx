@@ -183,6 +183,20 @@ export function AvatarNative(props: NativeProps): JSX.Element {
   )
 }
 
+/** One thumbnail of the strip (round 6 §3): a button over its picture
+ *  (through the host's media request), the empty muted square without one. */
+function CarouselThumbnail(props: { attrs: Attrs; src: string; current: boolean; label: string; onPress: () => void }): JSX.Element {
+  const ctx = useSurfaceContext()
+  const url = createMediaSrc(() => ctx.host, () => props.src)
+  return (
+    <button type="button" {...props.attrs} aria-label={props.label} aria-current={props.current ? `true` : undefined} data-current={props.current ? `true` : undefined} onClick={() => props.onPress()}>
+      <Show when={props.src && url()}>
+        <img class="xui-carousel-thumb" src={url()} alt="" aria-hidden="true" loading="lazy" decoding="async" draggable={false} />
+      </Show>
+    </button>
+  )
+}
+
 export function CarouselNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
@@ -216,6 +230,48 @@ export function CarouselNative(props: NativeProps): JSX.Element {
   const byId = createMemo(() => new Map(pages().map((n, i) => [n.id, { node: n, index: i }])))
   const ids = createMemo(() => pages().map((n) => n.id), undefined, { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) })
   const pageOf = (i: number) => ctx.t(`pageOf`, { page: i + 1, total: pages().length })
+  // EXP-1495 (round 6 §3): the counter pill and the thumbnail strip, both
+  // only with two or more pages.
+  const counter = () => many() && bool(props.props.counter)
+  const thumbnails = createMemo(() => (many() && Array.isArray(props.props.thumbnails) ? (props.props.thumbnails as unknown[]) : null))
+  let strip: HTMLDivElement | undefined
+  createEffect(() => {
+    // The current thumbnail scrolled into view (the strip only: never the
+    // page around it).
+    const p = page()
+    thumbnails()
+    const el = strip
+    const thumb = el?.children[p] as HTMLElement | undefined
+    if (!el || !thumb) return
+    const a = el.getBoundingClientRect()
+    const b = thumb.getBoundingClientRect()
+    const delta = b.left < a.left ? b.left - a.left : b.right > a.right ? b.right - a.right : 0
+    if (delta !== 0) el.scrollLeft += delta
+  })
+  const trackView = (
+    <div ref={track} class="xui-carousel-track" onScroll={onScroll} aria-live="polite">
+      <For each={ids()}>
+        {(id) => {
+          const entry = createMemo<{ node: UiNode; index: number }>((prev) => byId().get(id) ?? prev!)
+          // Round 2 §7: only the ACTIVE page is placed; the others stay
+          // mounted for swiping, hidden from AT, inert, `data-xui-inactive`.
+          // `inert` as the ATTRIBUTE (React 19 writes `inert=""`; Solid's
+          // `inert={true}` sets only the property).
+          const active = () => entry().index === page()
+          const attrs = () => {
+            const a = { ...part(`page`, active() && `selected`) }
+            if (!active()) delete a[`data-xui-id`]
+            return a
+          }
+          return (
+            <div {...attrs()} role="group" aria-roledescription={ctx.t(`slide`)} aria-label={pageOf(entry().index)} aria-hidden={active() ? undefined : true} data-xui-inactive={active() ? undefined : ``} ref={(el) => createRenderEffect(() => el.toggleAttribute(`inert`, !active()))}>
+              <NodeView node={entry().node} />
+            </div>
+          )
+        }}
+      </For>
+    </div>
+  )
   return (
     <div
       {...props.rootProps}
@@ -227,28 +283,31 @@ export function CarouselNative(props: NativeProps): JSX.Element {
         else if (e.key === `ArrowLeft`) go(page() + (rtl ? 1 : -1))
       }}
     >
-      <div ref={track} class="xui-carousel-track" onScroll={onScroll} aria-live="polite">
-        <For each={ids()}>
-          {(id) => {
-            const entry = createMemo<{ node: UiNode; index: number }>((prev) => byId().get(id) ?? prev!)
-            // Round 2 §7: only the ACTIVE page is placed; the others stay
-            // mounted for swiping, hidden from AT, inert, `data-xui-inactive`.
-            // `inert` as the ATTRIBUTE (React 19 writes `inert=""`; Solid's
-            // `inert={true}` sets only the property).
-            const active = () => entry().index === page()
-            const attrs = () => {
-              const a = { ...part(`page`, active() && `selected`) }
-              if (!active()) delete a[`data-xui-id`]
-              return a
-            }
-            return (
-              <div {...attrs()} role="group" aria-roledescription={ctx.t(`slide`)} aria-label={pageOf(entry().index)} aria-hidden={active() ? undefined : true} data-xui-inactive={active() ? undefined : ``} ref={(el) => createRenderEffect(() => el.toggleAttribute(`inert`, !active()))}>
-                <NodeView node={entry().node} />
-              </div>
-            )
-          }}
-        </For>
-      </div>
+      <Show when={counter()} fallback={trackView}>
+        <div class="xui-carousel-stage">
+          {trackView}
+          <span {...part(`counter`)} aria-hidden="true">
+            {ctx.t(`pageCounter`, { page: page() + 1, total: pages().length })}
+          </span>
+        </div>
+      </Show>
+      <Show when={thumbnails()}>
+        {(urls) => (
+          <div ref={strip} {...part(`thumbnails`)}>
+            <For each={ids()}>
+              {(id) => {
+                const index = () => byId().get(id)?.index ?? 0
+                const current = () => index() === page()
+                const src = () => {
+                  const u = urls()[index()]
+                  return typeof u === `string` ? u : ``
+                }
+                return <CarouselThumbnail attrs={part.at(`thumbnail`, index(), current() && `selected`)} src={src()} current={current()} label={pageOf(index())} onPress={() => go(index())} />
+              }}
+            </For>
+          </div>
+        )}
+      </Show>
       <Show when={many()}>
         <div {...withClass(part(`controls`), `xui-carousel-controls`)}>
           <button type="button" {...withClass(part(`previous`), `xui-carousel-nav`)} aria-label={ctx.t(`previous`)} disabled={!bool(props.props.loop) && page() === 0} onClick={() => go(page() - 1)}>

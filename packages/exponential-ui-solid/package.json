@@ -1,6 +1,6 @@
 {
   "name": "@exponential_app/eui-solid",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "Exponential UI for SolidJS: the core A2UI catalog painted on plain elements (floating-ui, aria-hidden) with the same DOM, the same compiled stylesheet and the same runtime themes as the React renderer, run through the conformance suite and the web-parity check.",
   "license": "Apache-2.0",

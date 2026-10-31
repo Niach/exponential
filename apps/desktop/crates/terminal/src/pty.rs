@@ -13,18 +13,18 @@
 /// EXP-1426 part 4: `SpawnSpec`, `ChildExit` and the login `PATH` moved to
 /// the agent runtime (the agent transport spawns with them over pipes); the
 /// PTY half below keeps using them under their old paths.
-pub use exponential_agent_runtime::spawn::{login_path, prewarm_login_path, ChildExit, SpawnSpec};
+pub use eagent::spawn::{login_path, prewarm_login_path, ChildExit, SpawnSpec};
 /// EXP-1426 part 4b: the headless PTY (open/spawn, the shared writer, resize,
 /// the wait thread, kill) moved too — the engine's ACP `terminal/*`
 /// capability opens one with no emulator. Only the cell metrics stay here.
-pub use exponential_agent_runtime::spawn::{build_command, winsize, ExitSlot, Pty};
+pub use eagent::spawn::{build_command, winsize, ExitSlot, Pty};
 
 /// Open a PTY at `cols`×`rows` and spawn `spec` with the slave as its
 /// controlling tty (§6.3). The pixel extent starts at the emulator's
 /// default cell size; the paint side corrects it via [`Pty::resize`] once
 /// it knows the real metrics.
 pub fn open(spec: &SpawnSpec, cols: u16, rows: u16) -> anyhow::Result<Pty> {
-    Ok(exponential_agent_runtime::spawn::open_pty(
+    Ok(eagent::spawn::open_pty(
         spec,
         cols,
         rows,

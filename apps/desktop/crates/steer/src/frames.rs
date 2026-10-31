@@ -1,9 +1,9 @@
 //! The frozen wire protocol's Rust mirror. EXP-1426: the module lives in
-//! `exponential_agent_runtime::wire::frames` now and is re-exported here
+//! `eagent::wire::frames` now and is re-exported here
 //! whole, so `steer::frames::*` and the flat `steer::*` re-exports keep
 //! resolving and the serde wire is the same bytes.
 
-pub use exponential_agent_runtime::wire::frames::*;
+pub use eagent::wire::frames::*;
 
 /// The contract owns every vocabulary the wire carries. These checks lived
 /// beside the types; the core cannot depend on `domain`, so they pin the

@@ -104,6 +104,14 @@ A value fires the node's `scanned` handler (`xui-action`, and
 `plugin.onAction`) once per distinct value. Without `qrScanner` (or when
 `start` returns `false`) the scanner shows `Camera unavailable`.
 
+### The Carousel thumbnails
+
+Round 6 (EXP-1495) paints through the Solid painter: a Carousel with
+`counter: true` shows the `i / n` pill and one with `thumbnails: [url…]`
+the strip under its pages (two or more pages). A thumbnail press pages like
+a dot, so the page gets `xui-action` with `event: "change"` and
+`payload.page`.
+
 ## Events
 
 Every event is a `CustomEvent` that bubbles and is composed. When there is

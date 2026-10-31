@@ -711,9 +711,13 @@ internal fun CarouselIndicatorLeaf(cx: LeafContext) {
     val count = max(cx.props.num("count") ?: 0.0, 0.0).toInt()
     val page = (cx.props.num("page") ?: 0.0).roundToInt()
     val dot = cx.part("Carousel", "indicator")
+    // The current dot = the recipe's `selected` state (neutral: primary), the
+    // rest its base (neutral: border), like the gpui painter.
+    val current = cx.part("Carousel", "indicator", states = listOf("selected"))
     val size = dot.width ?: 8f
     val gap = cx.spacing("xs")
-    val base = dot.style.background ?: cx.ink
+    val base = dot.style.background ?: cx.ink.copy(alpha = cx.ink.alpha * 0.35f)
+    val currentFill = current.style.background ?: cx.ink
     val model = cx.model
     val index = cx.index
     LeafFrame {
@@ -722,7 +726,7 @@ internal fun CarouselIndicatorLeaf(cx: LeafContext) {
                 Box(
                     Modifier
                         .size(size.dp)
-                        .background(if (i == page) base else base.copy(alpha = base.alpha * 0.35f), CircleShape)
+                        .background(if (i == page) currentFill else base, CircleShape)
                         .clickable(role = Role.Tab) { model.carouselPage(index, i) }
                         .semantics {
                             contentDescription = cx.string("pageOf", mapOf("page" to i + 1, "total" to count))

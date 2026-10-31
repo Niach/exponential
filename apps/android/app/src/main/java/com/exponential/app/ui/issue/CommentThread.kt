@@ -310,6 +310,7 @@ fun CommentThread(
                                 reporterName = reporterName,
                                 canModerate = canModerate,
                                 agents = state.agents,
+                                appNames = state.appNames,
                                 attachmentsByComment = attachmentsByComment,
                                 onOpenAttachment = { attachment ->
                                     if (isMarkdownAttachment(

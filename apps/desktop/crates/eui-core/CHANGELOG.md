@@ -5,6 +5,12 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1493: the Carousel `counter` frame sits at the track's top-END corner (`insetInlineEnd: $spacing.sm`, mirrored under RTL), off the page's own heading.
+
+## 0.3.0 (2026-10-31)
+
+- VAPP-180: `validate_package` checks a package's `exposes` (MCP tools a host's broker runs) and `upstreams`, mirroring `src/host/exposes.ts` line by line (`host/exposes.rs`: `expose_issues` with the eMCP error codes, `validate_package_exposes`, `validate_upstreams`, the `package.exposes` contract constants); `host-router.json` replays it.
+
 ## 0.2.1 (2026-10-30)
 
 - Version-only bump with the SDK (eui-gpui 0.2.1: per-cluster font fallback, YO-30); unchanged from 0.2.0.
