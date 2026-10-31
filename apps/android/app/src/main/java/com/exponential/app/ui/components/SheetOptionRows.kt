@@ -146,6 +146,8 @@ internal fun TextFieldRow(
     trailing: (@Composable () -> Unit)? = null,
     /** Fires when the field loses focus (a blur-saved row); null = nothing. */
     onFocusLost: (() -> Unit)? = null,
+    /** VAPP-178: a muted word after the label (the Data form's `optional`). */
+    labelHint: String? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     Row(
@@ -159,6 +161,7 @@ internal fun TextFieldRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        RowLabelHint(labelHint)
         val fieldStyle = MaterialTheme.typography.bodyMedium.copy(
             color = MaterialTheme.colorScheme.onSurface.copy(
                 alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
@@ -212,6 +215,9 @@ internal fun PickerRow(
      * session). Null (the default, and a per-option null) keeps the bare label.
      */
     optionIcon: ((String) -> ImageVector?)? = null,
+    /** VAPP-178: a muted word after the label (the Data form's `optional`). */
+    labelHint: String? = null,
+    modifier: Modifier = Modifier,
 ) {
     val rows = remember(options, optionLabel, optionIcon) {
         options.map { option ->
@@ -236,6 +242,8 @@ internal fun PickerRow(
             valueIcon = selected?.let { optionIcon?.invoke(it) },
             enabled = enabled,
             onClick = open,
+            labelHint = labelHint,
+            modifier = modifier,
         )
     }
 }
@@ -258,6 +266,8 @@ internal fun PickerValueRow(
      *  picker chip's look), instead of a [valueIcon]. */
     valueAgent: String? = null,
     enabled: Boolean = true,
+    /** VAPP-178: a muted word after the label (the Data form's `optional`). */
+    labelHint: String? = null,
 ) {
     val contentAlpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary
     Row(
@@ -279,6 +289,7 @@ internal fun PickerValueRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        RowLabelHint(labelHint)
         // The picked option's own glyph, right before its name: both sit at
         // the END of the weighted rest of the row (iOS/web), never against the
         // label.
@@ -344,6 +355,8 @@ internal fun SwitchRow(
     modifier: Modifier = Modifier,
     /** NEW-57: the caption under the title (Meeting mode's who): smaller, muted, second line. */
     description: String? = null,
+    /** VAPP-178: a muted word after the title (the Data form's `optional`). */
+    labelHint: String? = null,
 ) {
     Row(
         modifier = modifier
@@ -364,13 +377,16 @@ internal fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(end = if (description != null) 12.dp else 0.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
-                ),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
+                    ),
+                )
+                RowLabelHint(labelHint)
+            }
             if (description != null) {
                 Text(
                     description,
@@ -383,6 +399,19 @@ internal fun SwitchRow(
         }
         GlassSwitch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
+}
+
+/** VAPP-178: the muted word after a form row's label (`optional`). */
+@Composable
+private fun RowLabelHint(hint: String?) {
+    if (hint == null) return
+    Text(
+        hint,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        maxLines = 1,
+        modifier = Modifier.padding(start = 6.dp),
+    )
 }
 
 /** The slot a [GlassSwitch] fills: a settings row's full size, a menu row's,

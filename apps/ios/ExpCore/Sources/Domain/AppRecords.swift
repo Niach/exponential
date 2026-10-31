@@ -6,7 +6,10 @@ import Foundation
 /// binding's query grammar and the value it emits over the synced
 /// `app_records` rows (VAPP-161: also spelled `records:<kind>?…`).
 /// `AppRecordsTests` replays `queryCases`, `sourceCases`, `valueCases` and
-/// `countLabelCases`. Values are `CardJSON` (keys sorted when encoded).
+/// `countLabelCases`, and (VAPP-178, the editor's DATA tab, fixture
+/// `dataTab`) `kindCases`, `columnCases`, `rowsCases`, `cellCases`,
+/// `formCases`, `inputCases` and `parseCases`. Values are `CardJSON` (keys
+/// sorted when encoded).
 public enum AppRecords {
     // MARK: - Fixture constants
 
@@ -373,6 +376,292 @@ public enum AppRecords {
             ])
         }
         return .object(out)
+    }
+
+    // MARK: - The Data tab (VAPP-178, fixture `dataTab`)
+
+    /// The editor's records browser and form (TS `APP_DATA_TAB`).
+    public enum DataTab {
+        public enum Copy {
+            /// `{kind} · {n}`.
+            public static let kindOption = "{kind} · {n}"
+            public static let addRecord = "Add record"
+            public static let edit = "Edit"
+            public static let delete = "Delete"
+            public static let deleteTitle = "Delete this record?"
+            public static let deleteBody = "The app stops showing it. This cannot be undone."
+            public static let by = "by"
+            public static let updated = "updated"
+            public static let empty = "No records yet"
+            public static let noKinds = "This app keeps no records"
+            public static let emptyTitle = "—"
+            /// `New {kind}`.
+            public static let newTitle = "New {kind}"
+            /// `Edit {kind}`.
+            public static let editTitle = "Edit {kind}"
+            public static let save = "Save"
+            public static let cancel = "Cancel"
+            public static let yes = "Yes"
+            public static let no = "No"
+            public static let none = "None"
+            public static let optional = "optional"
+            public static let listHint = "Comma-separated"
+
+            public static func kindOption(_ kind: String, count: Int) -> String {
+                kindOption
+                    .replacingOccurrences(of: "{kind}", with: kind)
+                    .replacingOccurrences(of: "{n}", with: String(count))
+            }
+
+            public static func newTitle(_ kind: String) -> String {
+                newTitle.replacingOccurrences(of: "{kind}", with: kind)
+            }
+
+            public static func editTitle(_ kind: String) -> String {
+                editTitle.replacingOccurrences(of: "{kind}", with: kind)
+            }
+        }
+
+        /// The wide table's fixed columns (pt); phones draw no table.
+        public enum Columns {
+            public static let byWidth: Double = 96
+            public static let updatedWidth: Double = 88
+            public static let menuWidth: Double = 40
+            public static let minWidth: Double = 64
+            public static let gap: Double = 8
+            /// A field type (or a string's format) → its fixed width.
+            public static let typeWidths: [String: Double] = [
+                "date": 104, "time": 64, "date-time": 152, "number": 64, "integer": 64, "boolean": 56,
+            ]
+        }
+
+        /// A string `format` → the text field's placeholder.
+        public static let placeholders: [String: String] = [
+            "date": "YYYY-MM-DD",
+            "time": "HH:MM",
+            "date-time": "YYYY-MM-DDTHH:MM",
+        ]
+
+        public enum TestIds {
+            public static let kind = "app-data-kind"
+            public static let add = "app-data-add"
+            public static let row = "app-data-row"
+            public static let menu = "app-data-row-menu"
+            public static let form = "app-data-form"
+            public static let save = "app-data-save"
+            public static let error = "app-data-error"
+        }
+    }
+
+    /// One kind of the head manifest with its live count.
+    public struct DataKind: Equatable, Sendable {
+        public let kind: String
+        public let count: Int
+
+        public init(kind: String, count: Int) {
+            self.kind = kind
+            self.count = count
+        }
+    }
+
+    /// The head manifest's kinds, sorted by name, each with its live count
+    /// (TS `dataKinds`, `kindCases`); a row of an undeclared kind is ignored.
+    /// `manifest` = the head package (nil = a draft), `rowKinds` = the kind
+    /// of every synced row of the app.
+    public static func dataKinds(manifest: CardJSON?, rowKinds: [String]) -> [DataKind] {
+        let declared = manifest?.objectValue?["records"]?.objectValue ?? [:]
+        var counts: [String: Int] = [:]
+        for kind in rowKinds { counts[kind, default: 0] += 1 }
+        return declared.keys.sorted(by: scalarLess).map { DataKind(kind: $0, count: counts[$0] ?? 0) }
+    }
+
+    /// The head manifest's `records.<kind>.schema` (nil = undeclared).
+    public static func dataSchema(manifest: CardJSON?, kind: String) -> CardJSON? {
+        manifest?.objectValue?["records"]?.objectValue?[kind]?.objectValue?["schema"]
+    }
+
+    private static func properties(_ schema: CardJSON) -> [String: CardJSON] {
+        schema.objectValue?["properties"]?.objectValue ?? [:]
+    }
+
+    private static func requiredNames(_ schema: CardJSON) -> [String] {
+        guard case let .array(items)? = schema.objectValue?["required"] else { return [] }
+        return items.compactMap { item in
+            if case let .string(name) = item { return name }
+            return nil
+        }
+    }
+
+    /// The columns (TS `dataColumns`, `columnCases`): the `required` names
+    /// in their order, then every other property sorted by name (never the
+    /// declaration order: a Swift dictionary has none).
+    public static func dataColumns(_ schema: CardJSON) -> [String] {
+        let names = properties(schema)
+        var required: [String] = []
+        for name in requiredNames(schema) where names[name] != nil && !required.contains(name) {
+            required.append(name)
+        }
+        let rest = names.keys.filter { !required.contains($0) }.sorted(by: scalarLess)
+        return required + rest
+    }
+
+    /// A kind's rows, `updatedAt` desc, ties by id asc (TS `dataRows`,
+    /// `rowsCases`).
+    public static func dataRows(_ rows: [Row], kind: String) -> [Row] {
+        rows
+            .filter { $0.kind == kind }
+            .sorted { a, b in
+                a.updatedAt == b.updatedAt ? scalarLess(a.id, b.id) : scalarLess(b.updatedAt, a.updatedAt)
+            }
+    }
+
+    /// One cell's text (TS `cellText`, `cellCases`): null / missing = "",
+    /// a boolean = Yes / No, a number as written (`3`, never `3.0`), a list
+    /// = its items joined `, `, an object = its JSON.
+    public static func cellText(_ value: CardJSON?) -> String {
+        switch value {
+        case nil, .null?: return ""
+        case let .bool(b)?: return b ? DataTab.Copy.yes : DataTab.Copy.no
+        case let .number(n)?: return numberText(n)
+        case let .string(s)?: return s
+        case let .array(items)?: return items.map { cellText($0) }.joined(separator: ", ")
+        case let v?: return v.compactString
+        }
+    }
+
+    /// A form field's control.
+    public enum DataControl: String, Equatable, Sendable {
+        case text, number, `switch`, select, list
+    }
+
+    /// One labelled field of the Add / Edit form (TS `DataFormField`).
+    public struct DataFormField: Equatable, Sendable {
+        public let name: String
+        public let control: DataControl
+        public let required: Bool
+        /// A date / time / date-time text field's hint.
+        public let placeholder: String?
+        /// A select's values (a string enum).
+        public let options: [String]?
+        /// A list's item type (string | number | integer | boolean).
+        public let itemType: String?
+
+        public init(
+            name: String, control: DataControl, required: Bool,
+            placeholder: String? = nil, options: [String]? = nil, itemType: String? = nil
+        ) {
+            self.name = name
+            self.control = control
+            self.required = required
+            self.placeholder = placeholder
+            self.options = options
+            self.itemType = itemType
+        }
+    }
+
+    private static func stringValue(_ value: CardJSON?) -> String? {
+        if case let .string(s)? = value { return s }
+        return nil
+    }
+
+    /// The form's fields, in column order (TS `formFields`, `formCases`).
+    public static func formFields(_ schema: CardJSON) -> [DataFormField] {
+        let props = properties(schema)
+        let required = requiredNames(schema)
+        return dataColumns(schema).map { name in
+            let field = props[name]?.objectValue ?? [:]
+            let isRequired = required.contains(name)
+            switch stringValue(field["type"]) {
+            case "boolean":
+                return DataFormField(name: name, control: .switch, required: isRequired)
+            case "number", "integer":
+                return DataFormField(name: name, control: .number, required: isRequired)
+            case "array":
+                let item = stringValue(field["items"]?.objectValue?["type"]) ?? "string"
+                return DataFormField(name: name, control: .list, required: isRequired, itemType: item)
+            default:
+                if case let .array(values)? = field["enum"] {
+                    let options = values.compactMap { stringValue($0) }
+                    return DataFormField(name: name, control: .select, required: isRequired, options: options)
+                }
+                let placeholder = stringValue(field["format"]).flatMap { DataTab.placeholders[$0] }
+                return DataFormField(name: name, control: .text, required: isRequired, placeholder: placeholder)
+            }
+        }
+    }
+
+    /// A control's input: a switch holds a boolean, every other control text.
+    public enum DataInput: Equatable, Sendable {
+        case text(String)
+        case flag(Bool)
+
+        public var text: String {
+            if case let .text(value) = self { return value }
+            return ""
+        }
+
+        public var flag: Bool {
+            if case let .flag(value) = self { return value }
+            return false
+        }
+    }
+
+    /// A stored value → the control's initial input (TS `formInput`,
+    /// `inputCases`): a list joined `, `, a number as written, null = empty.
+    public static func formInput(_ control: DataControl, _ value: CardJSON?) -> DataInput {
+        if control == .switch { return .flag(value == .bool(true)) }
+        switch value {
+        case nil, .null?: return .text("")
+        case let .array(items)? where control == .list:
+            return .text(items.map { cellText($0) }.joined(separator: ", "))
+        default: return .text(text(value))
+        }
+    }
+
+    /// JS `Number(text)` when it parses to a finite number, else the raw
+    /// text (so the server names it).
+    private static func parseNumber(_ raw: String) -> CardJSON {
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let n = jsNumber(raw), n.isFinite
+        else { return .string(raw) }
+        return .number(n)
+    }
+
+    private static func parseItem(_ raw: String, _ type: String?) -> CardJSON {
+        switch type {
+        case "number", "integer": return parseNumber(raw)
+        case "boolean": return raw == "true" ? .bool(true) : raw == "false" ? .bool(false) : .string(raw)
+        default: return .string(raw)
+        }
+    }
+
+    /// The inputs → the record's data (TS `formData`, `parseCases`): an
+    /// empty field = null, numbers and list items parse (unparsable stays the
+    /// raw text); CREATE omits the nulls, EDIT keeps them (null clears).
+    public static func formData(_ schema: CardJSON, inputs: [String: DataInput], editing: Bool) -> [String: CardJSON] {
+        var data: [String: CardJSON] = [:]
+        for field in formFields(schema) {
+            let input = inputs[field.name]
+            let value: CardJSON
+            if field.control == .switch {
+                value = .bool(input?.flag ?? false)
+            } else {
+                let raw = input?.text ?? ""
+                if field.control == .list {
+                    let items = raw
+                        .split(separator: ",", omittingEmptySubsequences: false)
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    value = items.isEmpty ? .null : .array(items.map { parseItem($0, field.itemType) })
+                } else if raw.isEmpty {
+                    value = .null
+                } else {
+                    value = field.control == .number ? parseNumber(raw) : .string(raw)
+                }
+            }
+            if value != .null || editing { data[field.name] = value }
+        }
+        return data
     }
 
     // MARK: - Settings → Apps → the app

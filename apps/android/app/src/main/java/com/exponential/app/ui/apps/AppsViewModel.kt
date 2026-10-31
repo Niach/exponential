@@ -9,6 +9,8 @@ import com.exponential.app.data.api.AppUpdateInput
 import com.exponential.app.data.api.AppsApi
 import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
+import com.exponential.app.data.api.TrpcException
+import com.exponential.app.data.api.isOfflineError
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AppEntity
@@ -46,6 +48,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import at.exponential.ui.json.JsonValue
 
 // VAPP-110 (fixtures/apps.json, web `hooks/use-apps.ts`): the SELECTED team's
 // APPS off the synced `apps` shape (trashed rows hidden; Exponential ships no
@@ -402,6 +407,67 @@ class AppEditorViewModel @Inject constructor(
                 _failure.value = FailedAction("delete", "the app", trpcErrorMessage(t, "")) { delete(onDone) }
             } finally {
                 _deleting.value = false
+            }
+        }
+    }
+
+    private val _recordSaving = MutableStateFlow(false)
+    /** VAPP-178: a Data form's Save in flight. */
+    val recordSaving: StateFlow<Boolean> = _recordSaving
+
+    private val _recordError = MutableStateFlow<String?>(null)
+    /** VAPP-178: the server's BAD_REQUEST (the schema's issues), shown
+     *  INLINE under the form; anything else is the failed-action toast. */
+    val recordError: StateFlow<String?> = _recordError
+
+    fun clearRecordError() {
+        _recordError.value = null
+    }
+
+    /** VAPP-178: the Data form's Save = `apps.records.upsert {id, kind, data,
+     *  recordId?}` as the viewer (create without [recordId], else a shallow
+     *  patch); [onDone] closes the form. */
+    fun saveRecord(kind: String, data: Map<String, JsonValue>, recordId: String?, onDone: () -> Unit) {
+        if (_recordSaving.value) return
+        val accountId = auth.activeAccountId.value ?: return
+        _recordSaving.value = true
+        _recordError.value = null
+        viewModelScope.launch {
+            try {
+                val body = Json.parseToJsonElement(JsonValue.Obj(data).orderedJson) as JsonObject
+                api.recordsUpsert(accountId, appId, kind, body, recordId)
+                onDone()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                if (!isOfflineError(t) && t is TrpcException && t.code == "BAD_REQUEST" && !t.isPlanLimit) {
+                    _recordError.value = trpcErrorMessage(t, "")
+                } else {
+                    _failure.value = FailedAction("save", "the record", trpcErrorMessage(t, ""))
+                }
+            } finally {
+                _recordSaving.value = false
+            }
+        }
+    }
+
+    private val _recordDeleting = MutableStateFlow(false)
+    val recordDeleting: StateFlow<Boolean> = _recordDeleting
+
+    /** VAPP-178: a confirmed Delete = `apps.records.delete {id, recordId}`. */
+    fun deleteRecord(recordId: String, onDone: () -> Unit) {
+        if (_recordDeleting.value) return
+        val accountId = auth.activeAccountId.value ?: return
+        _recordDeleting.value = true
+        viewModelScope.launch {
+            try {
+                api.recordsDelete(accountId, appId, recordId)
+                onDone()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                onDone()
+                _failure.value = FailedAction("delete", "the record", trpcErrorMessage(t, "")) { deleteRecord(recordId) {} }
+            } finally {
+                _recordDeleting.value = false
             }
         }
     }

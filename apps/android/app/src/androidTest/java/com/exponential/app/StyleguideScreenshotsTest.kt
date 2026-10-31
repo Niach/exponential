@@ -33,6 +33,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.AppExport
+import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.ComposerAgentRow
@@ -138,7 +139,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
+ *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
  *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
@@ -864,6 +865,16 @@ class StyleguideScreenshotsTest {
             Espresso.pressBack()
             flow.waitForGone(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
             flow.settle()
+        }
+        // --- sg_app-data (VAPP-178, app-records.json `dataTab` PHONES): the
+        // Data segment: the kind select + Add record over the picked kind's
+        // rows (Working hours' seeded records, newest first).
+        if (ScreenshotFlow.anyRequested("sg_app-data")) {
+            composeRule.onNode(hasTestTag("app-editor-tab-${Apps.EditorTabs.DATA}")).performClick()
+            flow.waitFor(hasTestTag(Apps.TestIds.DATA), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag(AppRecords.DataTestIds.ROW), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_app-data")
         }
         Espresso.pressBack()
         flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)

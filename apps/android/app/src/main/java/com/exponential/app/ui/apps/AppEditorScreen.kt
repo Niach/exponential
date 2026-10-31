@@ -113,7 +113,8 @@ import dev.chrisbanes.haze.rememberHazeState
 // `components/apps/app-editor.tsx`): THE EDITOR on a phone = the header
 // (glyph + name + the version pill + the trailing `…` menu: Versions with its
 // count, Settings, Export once there is a version, Delete app for the creator
-// or an owner) with the Chat | Preview segmented control under it, and ONE
+// or an owner) with the Chat | Preview | Data segmented control under it
+// (VAPP-178: Data = the app's records, `AppDataTab`), and ONE
 // pane. Chat = the member's EDITOR SESSION (the agent channel's rows + THE
 // composer; none yet = the empty chat whose first send opens it); Preview =
 // the head package's first template through the app host. Versions and
@@ -125,11 +126,12 @@ import dev.chrisbanes.haze.rememberHazeState
 // empty draft discards it. The route keys the app by ID, so a draft's slug
 // following its new name changes nothing here.
 
-private enum class EditorTab(val id: String) { Chat(Apps.EditorTabs.CHAT), Preview(Apps.EditorTabs.PREVIEW) }
+private enum class EditorTab(val id: String) { Chat(Apps.EditorTabs.CHAT), Preview(Apps.EditorTabs.PREVIEW), Data(Apps.EditorTabs.DATA) }
 
 private fun tabLabel(tab: EditorTab) = when (tab) {
     EditorTab.Chat -> Apps.Copy.TAB_CHAT
     EditorTab.Preview -> Apps.Copy.TAB_PREVIEW
+    EditorTab.Data -> Apps.Copy.TAB_DATA
 }
 
 @Composable
@@ -256,6 +258,12 @@ fun AppEditorScreen(
                     appId = viewModel.appId,
                     teamId = entry.teamId,
                     me = me,
+                    modifier = Modifier.padding(padding),
+                )
+                EditorTab.Data -> AppDataTab(
+                    app = entry,
+                    records = records,
+                    viewModel = viewModel,
                     modifier = Modifier.padding(padding),
                 )
             }

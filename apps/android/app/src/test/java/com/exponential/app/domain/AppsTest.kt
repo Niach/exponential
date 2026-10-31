@@ -100,6 +100,7 @@ class AppsTest {
             menu["delete"]!!.jsonPrimitive.content to Apps.Copy.MENU_DELETE,
             tabs["chat"]!!.jsonPrimitive.content to Apps.Copy.TAB_CHAT,
             tabs["preview"]!!.jsonPrimitive.content to Apps.Copy.TAB_PREVIEW,
+            tabs["data"]!!.jsonPrimitive.content to Apps.Copy.TAB_DATA,
             tabs["versions"]!!.jsonPrimitive.content to Apps.Copy.TAB_VERSIONS,
             tabs["settings"]!!.jsonPrimitive.content to Apps.Copy.TAB_SETTINGS,
             c("preview") to Apps.Copy.PREVIEW,
@@ -113,7 +114,7 @@ class AppsTest {
         assertEquals(null, copy["create"])
         assertEquals(null, copy["rename"])
         assertEquals(setOf("versions", "settings", "export", "delete"), menu.keys)
-        assertEquals(setOf("chat", "preview", "versions", "settings"), tabs.keys)
+        assertEquals(setOf("chat", "preview", "data", "versions", "settings"), tabs.keys)
         // VAPP-177: the floating layout's copy is gone.
         for (gone in listOf("dockToSide", "float", "working", "openEditor")) assertEquals(null, copy[gone])
 
@@ -135,6 +136,7 @@ class AppsTest {
             "importApp" to Apps.TestIds.IMPORT_APP, "starter" to Apps.TestIds.STARTER,
             "menu" to Apps.TestIds.MENU, "settings" to Apps.TestIds.SETTINGS,
             "versionPreview" to Apps.TestIds.VERSION_PREVIEW, "versionRestore" to Apps.TestIds.VERSION_RESTORE,
+            "data" to Apps.TestIds.DATA,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)

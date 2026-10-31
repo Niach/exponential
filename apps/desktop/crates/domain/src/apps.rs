@@ -24,6 +24,8 @@ pub struct AppsMenuCopy {
 pub struct AppsTabsCopy {
     pub chat: String,
     pub preview: String,
+    /// VAPP-178: the editor's Data tab.
+    pub data: String,
     pub versions: String,
     /// VAPP-177: the editor's Settings tab.
     pub settings: String,
@@ -129,6 +131,8 @@ pub struct AppsTestIds {
     pub settings: String,
     pub version_preview: String,
     pub version_restore: String,
+    /// VAPP-178: the Data tab.
+    pub data: String,
 }
 
 /// `fixtures/apps.json` minus its cases.
@@ -161,6 +165,8 @@ pub struct AppsEditorTabs {
 pub enum EditorTab {
     Chat,
     Preview,
+    /// VAPP-178: the app's records.
+    Data,
     Versions,
     Settings,
 }
@@ -170,6 +176,7 @@ impl EditorTab {
         match self {
             EditorTab::Chat => "chat",
             EditorTab::Preview => "preview",
+            EditorTab::Data => "data",
             EditorTab::Versions => "versions",
             EditorTab::Settings => "settings",
         }
@@ -179,6 +186,7 @@ impl EditorTab {
         match id {
             "chat" => Some(EditorTab::Chat),
             "preview" => Some(EditorTab::Preview),
+            "data" => Some(EditorTab::Data),
             "versions" => Some(EditorTab::Versions),
             "settings" => Some(EditorTab::Settings),
             _ => None,
@@ -191,6 +199,7 @@ impl EditorTab {
         match self {
             EditorTab::Chat => tabs.chat.clone(),
             EditorTab::Preview => tabs.preview.clone(),
+            EditorTab::Data => tabs.data.clone(),
             EditorTab::Versions => tabs.versions.clone(),
             EditorTab::Settings => tabs.settings.clone(),
         }
@@ -424,7 +433,7 @@ mod tests {
             assert_eq!(tab.as_str(), case["tab"].as_str().unwrap(), "{case}");
             assert_eq!(sheet.map(EditorTab::as_str), case["sheet"].as_str(), "{case}");
         }
-        assert_eq!(EditorTab::wide(), vec![EditorTab::Preview, EditorTab::Versions, EditorTab::Settings]);
+        assert_eq!(EditorTab::wide(), vec![EditorTab::Preview, EditorTab::Data, EditorTab::Versions, EditorTab::Settings]);
         assert_eq!(APPS.editor_tabs.settings_max_width, 640);
         assert!(is_draft(0) && !is_draft(1));
         assert_eq!(APPS.copy.untitled, "Untitled app");
@@ -437,6 +446,8 @@ mod tests {
         let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
         let copy = &APPS.copy;
         assert_eq!(fixture["copy"]["tabs"]["settings"], copy.tabs.settings.as_str());
+        assert_eq!(fixture["copy"]["tabs"]["data"], copy.tabs.data.as_str());
+        assert_eq!(EditorTab::Data.label(), copy.tabs.data);
         assert_eq!(fixture["copy"]["preview"], copy.preview.as_str());
         for (key, value) in [
             ("versions", &copy.menu.versions),
@@ -455,6 +466,7 @@ mod tests {
             ("versionRow", &ids.version_row),
             ("versionPreview", &ids.version_preview),
             ("versionRestore", &ids.version_restore),
+            ("data", &ids.data),
         ] {
             assert_eq!(fixture["testIds"][key], value.as_str(), "{key}");
         }

@@ -261,3 +261,138 @@ export function appRecordPurgeDue(deletedAt: Date | null, appDeletedAt: Date | n
   const cutoff = now.getTime() - RETENTION_MS
   return (deletedAt !== null && deletedAt.getTime() < cutoff) || (appDeletedAt !== null && appDeletedAt.getTime() < cutoff)
 }
+
+// VAPP-178 THE DATA TAB (fixture `dataTab`): the editor's records browser
+// and form, pure so the four clients replay the same cases.
+
+export const APP_DATA_TAB = fixture.dataTab
+export const APP_DATA_COPY = fixture.dataTab.copy
+
+/** A kind's schema field (the SDK's JSON Schema subset, host/records.ts). */
+export interface DataField {
+  type: `string` | `number` | `integer` | `boolean` | `array`
+  enum?: string[]
+  items?: { type: `string` | `number` | `integer` | `boolean` }
+  format?: `date` | `date-time` | `time`
+}
+
+export interface DataSchema {
+  type?: `object`
+  properties: Record<string, DataField>
+  required?: string[]
+}
+
+/** The head manifest's kinds, sorted by name, each with its live count
+ *  (`kindCases`); a row of an undeclared kind is ignored. */
+export function dataKinds(
+  manifest: { records?: Record<string, { schema: DataSchema }> } | null | undefined,
+  rows: readonly { kind: string }[]
+): { kind: string; count: number }[] {
+  const kinds = Object.keys(manifest?.records ?? {}).sort()
+  return kinds.map((kind) => ({ kind, count: rows.filter((row) => row.kind === kind).length }))
+}
+
+/** The columns (`columnCases`): the `required` names in their order, then
+ *  every other property sorted by name (never the declaration order: a
+ *  host's JSON layer may lose it). */
+export function dataColumns(schema: DataSchema): string[] {
+  const names = Object.keys(schema.properties)
+  const required = (schema.required ?? []).filter((name, i, all) => names.includes(name) && all.indexOf(name) === i)
+  return [...required, ...names.filter((name) => !required.includes(name)).sort()]
+}
+
+/** A kind's rows, `updatedAt` desc, ties by id (`rowsCases`). */
+export function dataRows<T extends { id: string; kind: string; updatedAt: string }>(rows: readonly T[], kind: string): T[] {
+  return rows
+    .filter((row) => row.kind === kind)
+    .sort((a, b) => (a.updatedAt === b.updatedAt ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.updatedAt < b.updatedAt ? 1 : -1))
+}
+
+/** One cell's text (`cellCases`). */
+export function cellText(value: unknown): string {
+  if (value === null || value === undefined) return ``
+  if (typeof value === `boolean`) return value ? APP_DATA_COPY.yes : APP_DATA_COPY.no
+  if (typeof value === `number`) return String(value)
+  if (typeof value === `string`) return value
+  if (Array.isArray(value)) return value.map(cellText).join(`, `)
+  return JSON.stringify(value)
+}
+
+export type DataControl = `text` | `number` | `switch` | `select` | `list`
+
+export interface DataFormField {
+  name: string
+  control: DataControl
+  required: boolean
+  placeholder?: string
+  options?: string[]
+  itemType?: `string` | `number` | `integer` | `boolean`
+}
+
+/** The form's fields, in column order (`formCases`). */
+export function formFields(schema: DataSchema): DataFormField[] {
+  const required = schema.required ?? []
+  return dataColumns(schema).map((name) => {
+    const field = schema.properties[name]!
+    const base = { name, required: required.includes(name) }
+    if (field.type === `boolean`) return { ...base, control: `switch` }
+    if (field.type === `number` || field.type === `integer`) return { ...base, control: `number` }
+    if (field.type === `array`) return { ...base, control: `list`, itemType: field.items?.type ?? `string` }
+    if (field.enum) return { ...base, control: `select`, options: field.enum }
+    const placeholder = field.format ? (APP_DATA_TAB.placeholders as Record<string, string>)[field.format] : undefined
+    return placeholder ? { ...base, control: `text`, placeholder } : { ...base, control: `text` }
+  })
+}
+
+/** A stored value → the control's initial input (`inputCases`): a switch
+ *  takes a boolean, every other control text. */
+export function formInput(control: DataControl, value: unknown): string | boolean {
+  if (control === `switch`) return value === true
+  if (value === null || value === undefined) return ``
+  if (control === `list` && Array.isArray(value)) return value.map((item) => cellText(item)).join(`, `)
+  return typeof value === `string` ? value : String(value)
+}
+
+function parseNumber(text: string): number | string {
+  const n = Number(text)
+  return text.trim() !== `` && Number.isFinite(n) ? n : text
+}
+
+function parseItem(text: string, type: DataFormField[`itemType`]): unknown {
+  if (type === `number` || type === `integer`) return parseNumber(text)
+  if (type === `boolean`) return text === `true` ? true : text === `false` ? false : text
+  return text
+}
+
+/** The inputs → the record's data (`parseCases`): an empty field = null,
+ *  numbers and list items parse (unparsable stays the raw text, so the
+ *  server names it); CREATE omits the nulls, EDIT keeps them (null clears). */
+export function formData(schema: DataSchema, inputs: Record<string, string | boolean | undefined>, editing: boolean): Record<string, unknown> {
+  const data: Record<string, unknown> = {}
+  for (const field of formFields(schema)) {
+    const input = inputs[field.name]
+    let value: unknown
+    if (field.control === `switch`) value = input === true
+    else {
+      const text = typeof input === `string` ? input : ``
+      if (field.control === `list`) {
+        const items = text
+          .split(`,`)
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+        value = items.length > 0 ? items.map((item) => parseItem(item, field.itemType)) : null
+      } else if (text === ``) value = null
+      else value = field.control === `number` ? parseNumber(text) : text
+    }
+    if (value !== null || editing) data[field.name] = value
+  }
+  return data
+}
+
+/** A column's fixed width in px (`columns.typeWidths`), or null = it shares
+ *  the rest of the row. */
+export function columnWidth(field: DataField): number | null {
+  const widths = APP_DATA_TAB.columns.typeWidths as Record<string, number>
+  if (field.type === `string`) return field.format ? (widths[field.format] ?? null) : null
+  return widths[field.type] ?? null
+}

@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-31-app-data-tab`,
+    date: `2026-10-31`,
+    title: `App data in the editor`,
+    summary: `The app editor's Data tab lists an app's records and lets you add, edit and delete them.`,
+    body: `- **Data tab**: pick a kind of record to see them as a table with who changed each one and when.
+- **Add and edit**: a form built from the app's own fields; mistakes are shown right under the form.
+- **Phones**: Data sits next to Chat and Preview.`,
+  },
+  {
     id: `2026-10-31-app-editor-tabs`,
     date: `2026-10-31`,
     title: `App editor tabs`,

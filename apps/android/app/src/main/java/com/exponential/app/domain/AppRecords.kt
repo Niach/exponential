@@ -295,6 +295,188 @@ object AppRecords {
         updatedAt = isoTimestamp(entity.updatedAt),
     )
 
+    // VAPP-178 THE DATA TAB (fixture `dataTab`): the editor's records browser
+    // and form, pure so the four clients replay the same cases
+    // (`AppRecordsTest` replays every `dataTab.*Cases`).
+    object DataCopy {
+        const val KIND_OPTION = "{kind} · {n}"
+        const val ADD_RECORD = "Add record"
+        const val EDIT = "Edit"
+        const val DELETE = "Delete"
+        const val DELETE_TITLE = "Delete this record?"
+        const val DELETE_BODY = "The app stops showing it. This cannot be undone."
+        const val BY = "by"
+        const val UPDATED = "updated"
+        const val EMPTY = "No records yet"
+        const val NO_KINDS = "This app keeps no records"
+        const val EMPTY_TITLE = "—"
+        const val NEW_TITLE = "New {kind}"
+        const val EDIT_TITLE = "Edit {kind}"
+        const val SAVE = "Save"
+        const val CANCEL = "Cancel"
+        const val YES = "Yes"
+        const val NO = "No"
+        const val NONE = "None"
+        const val OPTIONAL = "optional"
+        const val LIST_HINT = "Comma-separated"
+    }
+
+    /** Fixture `dataTab.columns` (the WIDE table's widths, px; phones do not use them). */
+    object DataColumns {
+        const val BY_WIDTH = 96
+        const val UPDATED_WIDTH = 88
+        const val MENU_WIDTH = 40
+        const val MIN_WIDTH = 64
+        const val GAP = 8
+        val TYPE_WIDTHS: Map<String, Int> = mapOf(
+            "date" to 104, "time" to 64, "date-time" to 152, "number" to 64, "integer" to 64, "boolean" to 56,
+        )
+    }
+
+    /** Fixture `dataTab.placeholders`: a text field's hint by string format. */
+    val DATA_PLACEHOLDERS: Map<String, String> = mapOf("date" to "YYYY-MM-DD", "time" to "HH:MM", "date-time" to "YYYY-MM-DDTHH:MM")
+
+    object DataTestIds {
+        const val KIND = "app-data-kind"
+        const val ADD = "app-data-add"
+        const val ROW = "app-data-row"
+        const val MENU = "app-data-row-menu"
+        const val FORM = "app-data-form"
+        const val SAVE = "app-data-save"
+        const val ERROR = "app-data-error"
+    }
+
+    data class DataKind(val kind: String, val count: Int)
+
+    /** The manifest's `records` block (null = none). */
+    private fun recordsBlock(manifest: JsonValue?): Map<String, JsonValue> = manifest?.get("records")?.obj ?: emptyMap()
+
+    /** A kind's schema in [manifest] (null = undeclared). */
+    fun dataSchema(manifest: JsonValue?, kind: String): JsonValue? = recordsBlock(manifest)[kind]?.get("schema")
+
+    /** The head manifest's kinds, sorted by name, each with its live count
+     *  (`kindCases`); [rowKinds] = the kind of every synced row of the app (an
+     *  undeclared one is ignored). */
+    fun dataKinds(manifest: JsonValue?, rowKinds: List<String>): List<DataKind> =
+        recordsBlock(manifest).keys.sorted().map { kind -> DataKind(kind, rowKinds.count { it == kind }) }
+
+    /** The columns (`columnCases`): the `required` names in their order, then
+     *  every other property sorted by name. */
+    fun dataColumns(schema: JsonValue?): List<String> {
+        val names = schema?.get("properties")?.obj?.keys ?: emptySet()
+        val required = (schema?.get("required")?.array ?: emptyList()).mapNotNull { it.string }.filter { it in names }.distinct()
+        return required + names.filter { it !in required }.sorted()
+    }
+
+    /** A kind's rows, `updatedAt` desc, ties by id (`rowsCases`). */
+    fun dataRows(rows: List<Row>, kind: String): List<Row> =
+        rows.filter { it.kind == kind }.sortedWith { a, b ->
+            if (a.updatedAt == b.updatedAt) a.id.compareTo(b.id) else b.updatedAt.compareTo(a.updatedAt)
+        }
+
+    /** One cell's text (`cellCases`): null/missing = "", a boolean Yes/No, a
+     *  number as written (`3`, never `3.0`), a list joined `, `, an object its JSON. */
+    fun cellText(value: JsonValue?): String = when (value) {
+        null, JsonValue.Null -> ""
+        is JsonValue.Bool -> if (value.v) DataCopy.YES else DataCopy.NO
+        is JsonValue.Num -> value.displayText
+        is JsonValue.Str -> value.v
+        is JsonValue.Arr -> value.v.joinToString(", ") { cellText(it) }
+        is JsonValue.Obj -> value.orderedJson
+    }
+
+    /** The phone row's title + subtitle: the first column's cell
+     *  (`copy.emptyTitle` when empty), the other non-empty cells joined ` · `. */
+    fun rowTitle(columns: List<String>, row: Row): String =
+        columns.firstOrNull()?.let { cellText(row.data[it]) }?.takeIf { it.isNotEmpty() } ?: DataCopy.EMPTY_TITLE
+
+    fun rowSubtitle(columns: List<String>, row: Row): String =
+        columns.drop(1).map { cellText(row.data[it]) }.filter { it.isNotEmpty() }.joinToString(" · ")
+
+    object Controls {
+        const val TEXT = "text"
+        const val NUMBER = "number"
+        const val SWITCH = "switch"
+        const val SELECT = "select"
+        const val LIST = "list"
+    }
+
+    data class FormField(
+        val name: String,
+        /** [Controls]. */
+        val control: String,
+        val required: Boolean,
+        val placeholder: String? = null,
+        val options: List<String>? = null,
+        val itemType: String? = null,
+    )
+
+    /** The form's fields, in column order (`formCases`). */
+    fun formFields(schema: JsonValue?): List<FormField> {
+        val required = (schema?.get("required")?.array ?: emptyList()).mapNotNull { it.string }
+        val properties = schema?.get("properties")?.obj ?: emptyMap()
+        return dataColumns(schema).map { name ->
+            val field = properties[name]
+            val isRequired = name in required
+            val type = field?.get("type")?.string
+            val enum = field?.get("enum")?.array
+            when {
+                type == "boolean" -> FormField(name, Controls.SWITCH, isRequired)
+                type == "number" || type == "integer" -> FormField(name, Controls.NUMBER, isRequired)
+                type == "array" -> FormField(name, Controls.LIST, isRequired, itemType = field?.get("items")?.get("type")?.string ?: "string")
+                enum != null -> FormField(name, Controls.SELECT, isRequired, options = enum.mapNotNull { it.string })
+                else -> FormField(name, Controls.TEXT, isRequired, placeholder = field?.get("format")?.string?.let { DATA_PLACEHOLDERS[it] })
+            }
+        }
+    }
+
+    /** A stored value → the control's initial input (`inputCases`): a switch
+     *  takes a Boolean, every other control a String. */
+    fun formInput(control: String, value: JsonValue?): Any {
+        if (control == Controls.SWITCH) return value == JsonValue.Bool(true)
+        if (value == null || value == JsonValue.Null) return ""
+        if (control == Controls.LIST && value is JsonValue.Arr) return value.v.joinToString(", ") { cellText(it) }
+        return if (value is JsonValue.Str) value.v else value.displayText
+    }
+
+    private fun parseNumber(text: String): JsonValue {
+        val n = if (text.trim().isEmpty()) null else jsNumber(text)
+        return if (n != null && n.isFinite()) JsonValue.Num(n) else JsonValue.Str(text)
+    }
+
+    private fun parseItem(text: String, type: String?): JsonValue = when (type) {
+        "number", "integer" -> parseNumber(text)
+        "boolean" -> if (text == "true") JsonValue.Bool(true) else if (text == "false") JsonValue.Bool(false) else JsonValue.Str(text)
+        else -> JsonValue.Str(text)
+    }
+
+    /** The inputs (String or Boolean by control) → the record's data
+     *  (`parseCases`): an empty field = null, numbers and list items parse
+     *  (unparsable stays the raw text, so the server names it); CREATE omits
+     *  the nulls, EDIT keeps them (null clears). */
+    fun formData(schema: JsonValue?, inputs: Map<String, Any?>, editing: Boolean): Map<String, JsonValue> {
+        val data = LinkedHashMap<String, JsonValue>()
+        for (field in formFields(schema)) {
+            val input = inputs[field.name]
+            val value: JsonValue = if (field.control == Controls.SWITCH) {
+                JsonValue.Bool(input == true)
+            } else {
+                val text = input as? String ?: ""
+                when {
+                    field.control == Controls.LIST -> {
+                        val items = text.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                        if (items.isEmpty()) JsonValue.Null else JsonValue.Arr(items.map { parseItem(it, field.itemType) })
+                    }
+                    text.isEmpty() -> JsonValue.Null
+                    field.control == Controls.NUMBER -> parseNumber(text)
+                    else -> JsonValue.Str(text)
+                }
+            }
+            if (value != JsonValue.Null || editing) data[field.name] = value
+        }
+        return data
+    }
+
     /** Settings → Apps → the app: "1,240 records", "1,240 of 25,000 records"
      *  ([max] = the team's quota, null = unlimited), "No records". */
     fun recordsCountLabel(count: Int, max: Long?): String {

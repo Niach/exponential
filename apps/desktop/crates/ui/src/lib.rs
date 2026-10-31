@@ -76,6 +76,8 @@ mod exponential_ui_screen;
 mod exponential_ui_host;
 // VAPP-110: the Apps page, one app's editor, the New app / Rename form.
 mod app_export_dialog;
+// VAPP-178: the editor's Data tab (records browser + form).
+mod app_data_tab;
 mod app_import_dialog;
 mod app_screen;
 mod apps_view;

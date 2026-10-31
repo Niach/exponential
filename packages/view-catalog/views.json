@@ -2224,6 +2224,51 @@
       }
     },
     {
+      "id": "app-data",
+      "group": "coding",
+      "title": "App editor · Data",
+      "blurb": "VAPP-178 (fixtures/app-records.json `dataTab`): the editor's Data tab: the kind Select (`entry · 14`) and Add record, then the records of that kind as a table (the schema's columns, by, updated, a … menu with Edit and Delete). Phones show the same toolbar over one row per record.",
+      "order": 57,
+      "web": {
+        "route": "/t/$teamSlug/apps/$appSlug?tab=data",
+        "anchor": {
+          "testId": "app-editor-data",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/apps/$appSlug?tab=data",
+        "anchor": {
+          "testId": "app-editor-data",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "app:working-hours:data"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-data",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-data",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "`?tab=data` on the seeded Working hours app (DEMO_APP_SLUG) and its month of `entry` records.",
+        "web-mobile": "`?tab=data` opens the Data segment.",
+        "desktop": "`app:<slug>:data` opens the editor on that tab.",
+        "ios": "The live walk: Apps → Working hours → the Data segment.",
+        "android": "See ios: the same walk in StyleguideScreenshotsTest."
+      }
+    },
+    {
       "id": "app-versions",
       "group": "coding",
       "title": "App editor · Versions",

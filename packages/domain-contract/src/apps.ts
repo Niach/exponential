@@ -13,7 +13,7 @@ export const APPS_EDITOR_TABS = fixture.editorTabs
 
 /** VAPP-177: the editor's tabs (web ≥ md and desktop: Preview | Versions |
  *  Settings; phones: Chat | Preview + the `…` menu's sheets). */
-export type AppEditorTab = `chat` | `preview` | `versions` | `settings`
+export type AppEditorTab = `chat` | `preview` | `data` | `versions` | `settings`
 /** The phone menu items that open a tab body as a sheet. */
 export type AppEditorSheet = `versions` | `settings`
 

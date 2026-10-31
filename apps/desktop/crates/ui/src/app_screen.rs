@@ -1,7 +1,7 @@
 //! VAPP-110 — one app's EDITOR ([`Screen::App`], web `app-editor.tsx`,
 //! fixtures/apps.json THE EDITOR). VAPP-177 (`editorTabs`): header = the
 //! app's glyph + name + the version pill, then the SegmentedControl of
-//! `editorTabs.wide` (Preview | Versions | Settings, `copy.tabs.*`); body =
+//! `editorTabs.wide` (Preview | Data | Versions | Settings, `copy.tabs.*`); body =
 //! two panes `5fr : 7fr` with a hairline between: the CHAT (the member's
 //! editor session, [`crate::agent_screen::AgentScreenView::for_app`]: the
 //! agent channel's rows and THE composer; the first send
@@ -12,6 +12,8 @@
 //!   (`applyTemplate`, surface `app`) in a 12px frame, repainting on every
 //!   synced upsert; a previewed older version sits under the `Viewing v{n}`
 //!   banner with Restore and Current.
+//! - DATA (VAPP-178): the head package's records, browsed and edited
+//!   ([`crate::app_data_tab::AppDataTab`]).
 //! - VERSIONS: one grouped list, newest first: `v{n}` + the note over
 //!   `who · relative time`; the head row = the `Current` badge, every other
 //!   row = Preview (ghost, → the Preview tab on that version) + Restore
@@ -184,6 +186,8 @@ pub struct AppScreenView {
     tab: EditorTab,
     /// VAPP-177: the Settings tab's body, built once the app resolves.
     settings: Option<Entity<crate::settings::app_detail::AppDetailPane>>,
+    /// VAPP-178: the Data tab's body, built once the app resolves.
+    data: Option<Entity<crate::app_data_tab::AppDataTab>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -236,6 +240,7 @@ impl AppScreenView {
             settings_scroll: ScrollHandle::new(),
             tab: editor_tab(None, false).0,
             settings: None,
+            data: None,
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
@@ -301,6 +306,7 @@ impl AppScreenView {
             if self.chat.is_none() {
                 let app_id = app_id.clone();
                 self.chat = Some(cx.new(|cx| crate::agent_screen::AgentScreenView::for_app(app_id.clone(), window, cx)));
+                self.data = Some(cx.new(|cx| crate::app_data_tab::AppDataTab::new(app_id.clone(), cx)));
                 self.settings =
                     Some(cx.new(|cx| crate::settings::app_detail::AppDetailPane::new(app_id, window, cx)));
             }
@@ -760,6 +766,7 @@ impl AppScreenView {
         match self.tab {
             EditorTab::Versions => self.render_versions(cx),
             EditorTab::Settings => self.render_settings(),
+            EditorTab::Data => self.data.clone().map(|data| v_flex().size_full().min_h_0().child(data).into_any_element()).unwrap_or_else(|| div().into_any_element()),
             EditorTab::Preview | EditorTab::Chat => self.render_preview(cx),
         }
     }
@@ -849,6 +856,9 @@ mod tests {
         // An unknown or phone-only tab = the default (`editorTabCases`).
         assert_eq!(editor_tab(Some("chat"), false).0, EditorTab::Preview);
         assert_eq!(editor_tab(Some("settings"), false).0, EditorTab::Settings);
+        // VAPP-178: `app:<slug>:data` opens the Data tab.
+        assert_eq!(split_app_spec("working-hours:data"), ("working-hours", Some("data")));
+        assert_eq!(editor_tab(Some("data"), false).0, EditorTab::Data);
     }
 
     /// The seeded Team dashboard package (the app catalog's Stack, Grid,
