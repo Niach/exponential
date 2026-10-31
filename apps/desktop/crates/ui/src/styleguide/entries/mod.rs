@@ -69,6 +69,9 @@ pub(crate) mod code_block;
 // VAPP-162: the round-5 Exponential UI pieces, painted from the specimens.
 pub(crate) mod qr_code;
 pub(crate) mod qr_scanner;
+// EXP-1495: the round-6 Exponential UI macros, painted from the specimens.
+pub(crate) mod outline;
+pub(crate) mod mosaic;
 pub(crate) mod nav_rail;
 pub(crate) mod sidebar_rows;
 pub(crate) mod voice_level;
@@ -150,6 +153,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: nav_rail::ID, owner: nav_rail::OWNER, render: nav_rail::render },
     Entry { id: voice_level::ID, owner: voice_level::OWNER, render: voice_level::render },
     Entry { id: sidebar_rows::ID, owner: sidebar_rows::OWNER, render: sidebar_rows::render },
+    Entry { id: outline::ID, owner: outline::OWNER, render: outline::render },
+    Entry { id: mosaic::ID, owner: mosaic::OWNER, render: mosaic::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },

@@ -73,6 +73,8 @@ import { entry as sealedLocked } from "./sealed-locked.tsx"
 import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
 import { entry as qrCode } from "./qr-code.tsx"
+import { entry as outline } from "./outline.tsx"
+import { entry as mosaic } from "./mosaic.tsx"
 import { entry as qrScanner } from "./qr-scanner.tsx"
 import { entry as navRail } from "./nav-rail.tsx"
 import { entry as sidebarRows } from "./sidebar-rows.tsx"
@@ -111,6 +113,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   navRail,
   voiceLevel,
   sidebarRows,
+  outline,
+  mosaic,
   composerDialog,
   issueContextMenu,
   sessionRow,

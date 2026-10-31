@@ -109,6 +109,7 @@
     { "id": "ask-dock", "class": "expressible", "with": "Card + Markdown + Radio / ChoiceTiles + Button; the stacked compact cards are Row surface card" },
     { "id": "dock-card", "class": "expressible", "with": "DockCard (the catalog's own: the row over a bottom Drawer with its footer slot); the pile is Box + the stack geometry" },
     { "id": "plan-card", "class": "expressible", "with": "Card + Markdown + Image + ChoiceTiles + Radio + Button; the Preview frame is a Box" },
+    { "id": "plan-page", "class": "expressible", "with": "SplitView + Outline + Section + Markdown + Mosaic + Carousel (counter, thumbnails) + Button" },
     { "id": "code-block", "class": "expressible", "with": "CodeBlock (the catalog's own)" },
     { "id": "feedback-states", "class": "expressible", "with": "Spinner + Button loading + Skeleton + Toast; the mark's stroke sweep is IconDisc (app extension)" },
     { "id": "threads", "class": "expressible", "with": "Section ×3 + Row (identifier, title, meta word, trailing device Icon) + LiveDot" },

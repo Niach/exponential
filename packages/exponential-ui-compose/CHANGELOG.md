@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1495 (round 6): the Carousel `counter` pill (tabular figures, hidden from TalkBack) and `thumbnails` strip (a thumbnail press pages through the Carousel, the current thumbnail kept in view inside the strip) painted from the core's frames; the Outline and Mosaic macros through the Box / Text / Image paths. `ResolvedTextStyle.fontFeatures` (OpenType settings, painter-side).
+
 ## 0.2.1 (2026-10-30)
 
 - YO-30: the tests replay `fixtures/text-clusters.json` (ICU grapheme clusters). No painter change.

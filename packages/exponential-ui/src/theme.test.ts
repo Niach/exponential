@@ -65,7 +65,7 @@ describe(`recipe contract`, () => {
     expect(parts.Section.props).toEqual([`tint`, `tree`, `open`, `collapsible`])
     expect(parts.Switch.parts).toContain(`track`)
     expect(parts.Button.props).toEqual([`variant`, `size`, `disabled`, `loading`])
-    expect(Object.keys(parts).length).toBe(89) // VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner
+    expect(Object.keys(parts).length).toBe(91) // VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic
     // Round 1: a template-built slot part (AlertDialog's footer) and painter-supplied discriminators.
     expect(parts.AlertDialog.parts).toEqual([`root`, `footer`, `cancel`, `confirm`])
     expect(parts.CodeBlock.props).toContain(`kind`)

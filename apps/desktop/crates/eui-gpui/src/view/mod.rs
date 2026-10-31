@@ -293,6 +293,9 @@ pub struct SurfaceView {
     layers: Vec<Layer>,
     lists: HashMap<u32, ListOutput>,
     scrolls: HashMap<u32, ScrollOutput>,
+    /// EXP-1495: the page each Carousel thumbnail strip last scrolled to
+    /// (strip id → page): a new page brings its thumbnail into view.
+    thumbnail_pages: HashMap<String, i64>,
     toasts: Vec<ToastSpec>,
     rtl: bool,
     surface_height: f32,
@@ -497,6 +500,7 @@ impl SurfaceView {
             layers: Vec::new(),
             lists: HashMap::new(),
             scrolls: HashMap::new(),
+            thumbnail_pages: HashMap::new(),
             toasts: Vec::new(),
             rtl: false,
             surface_height: 0.0,
@@ -930,6 +934,7 @@ impl SurfaceView {
         };
         let wall_ns = started.elapsed().as_nanos() as u64;
         self.after_layout(out, changed, old_nodes, pre, theme.as_deref(), mode, window, cx);
+        self.follow_thumbnails(cx);
         self.stats.measure_calls = calls;
         self.stats.layout_ns = layout_ns;
         self.stats.wall_ns = wall_ns;
@@ -950,6 +955,42 @@ impl SurfaceView {
                 wall_ns / 1000,
                 self.layers.len()
             );
+        }
+    }
+
+    /// EXP-1495 (round 6 §3): the current Carousel thumbnail scrolled into
+    /// view, the STRIP only (never the page around it), whenever the page
+    /// changes (and on the first pass).
+    fn follow_thumbnails(&mut self, cx: &mut Context<Self>) {
+        let strips: Vec<(u32, String, String, i64)> = self
+            .cache
+            .nodes
+            .iter()
+            .filter(|n| !n.removed && n.part.as_deref() == Some("thumbnails") && n.owner_component.as_deref() == Some("Carousel"))
+            .filter_map(|n| Some((n.index, n.id.clone(), n.owner.clone()?, n.props.get("page").and_then(serde_json::Value::as_i64).unwrap_or(0))))
+            .collect();
+        self.thumbnail_pages.retain(|id, _| strips.iter().any(|s| s.1 == *id));
+        for (index, id, owner, page) in strips {
+            if self.thumbnail_pages.insert(id.clone(), page) == Some(page) {
+                continue;
+            }
+            let (Some(s), Some(strip)) = (self.scrolls.get(&index).copied(), self.frames.get(index as usize).copied()) else { continue };
+            let Some(thumb) = self.cache.index_of(&format!("{owner}.thumbnail.{page}")).and_then(|t| self.frames.get(t as usize).copied()) else { continue };
+            // Frames are content positions: the thumbnail's span against the
+            // strip's visible window [offset, offset + width].
+            let left = thumb.x - strip.x;
+            let x = if left < s.offset_x {
+                left
+            } else if left + thumb.w > s.offset_x + strip.w {
+                left + thumb.w - strip.w
+            } else {
+                continue;
+            };
+            let x = x.clamp(0.0, (s.content_width - strip.w).max(0.0));
+            if self.surface.scroll_to(&id, x, s.offset_y) {
+                self.scrolls.insert(index, ScrollOutput { offset_x: x, ..s });
+                cx.notify();
+            }
         }
     }
 

@@ -96,7 +96,7 @@ struct ComponentCase {
 #[test]
 fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_booleans() {
     let cases: Vec<ComponentCase> = cases(&fixture("catalog-components.json"));
-    assert_eq!(cases.len(), 579, "EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five");
+    assert_eq!(cases.len(), 583, "EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five; EXP-1495: + Outline, Mosaic, Carousel counter");
     let mut seen: Vec<String> = cases.iter().map(|c| c.node.component.clone()).collect::<HashSet<_>>().into_iter().collect();
     seen.sort();
     let mut names = component_names(false);

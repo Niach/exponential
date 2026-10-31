@@ -3453,6 +3453,72 @@
       }
     },
     {
+      "id": "exponential-ui-outline",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Outline",
+      "blurb": "An anchor list: one row per section, the active one marked by a 2 px bar, a trailing count. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/outline/.",
+      "order": 104,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-outline",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-outline"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-outline",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-outline",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-mosaic",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Mosaic",
+      "blurb": "A wide picture group: one large picture beside two small ones, a +N tile past three. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/mosaic/.",
+      "order": 105,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-mosaic",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-mosaic"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-mosaic",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-mosaic",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-qr-scanner",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · QrScanner",
