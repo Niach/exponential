@@ -3382,6 +3382,12 @@ export const widgetSubmissions = pgTable(
 // credentials keep full membership access); a personal key minted with the
 // same team/board selection (FEED-76) carries it in `apikeys.metadata.scope`
 // and is confined the same way, on /api/mcp only.
+// #VAPP-181 (@exp/emcp fixtures/access.json): one row per (user, client,
+// KIND). `builtin` = the /api/mcp grant above (every row written before);
+// `apps` = a /api/mcp/apps grant: exactly ONE team in `team_ids`, no boards,
+// `all_apps` (apps created later included) XOR a non-empty `app_ids`, and
+// `access` read | full (a builtin grant is always full). A malformed row
+// grants nothing.
 export const mcpGrants = pgTable(
   `mcp_grants`,
   {
@@ -3401,9 +3407,18 @@ export const mcpGrants = pgTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    // Documented varchar (@exp/emcp GRANT_KINDS): builtin | apps.
+    kind: varchar({ length: 16 }).notNull().default(`builtin`),
+    allApps: boolean(`all_apps`).notNull().default(false),
+    appIds: jsonb(`app_ids`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    // Documented varchar (@exp/emcp GRANT_ACCESS): read | full.
+    access: varchar({ length: 8 }).notNull().default(`full`),
     ...timestamps,
   },
-  (table) => [unique().on(table.userId, table.clientId)]
+  (table) => [unique(`mcp_grants_user_client_kind_unique`).on(table.userId, table.clientId, table.kind)]
 )
 
 // #EXP-1491: the eMCP audit, one row per MCP tool call on /api/mcp (and the
