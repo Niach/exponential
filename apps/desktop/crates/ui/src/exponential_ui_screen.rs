@@ -680,9 +680,9 @@ mod tests {
         // Every visible core component (74: round 3's 70 + EXP-1259's SearchList
         // + EXP-1324's Trace and TraceItem + EXP-1280's ChoiceTiles + N-12's
         // DockCard; then VAPP-126's layout macros; NEW-77's VoiceWave;
-        // VAPP-162's MessageBubble, CallSurface, Plan, QrCode, QrScanner) +
-        // the home demo.
-        assert_eq!(specimens().len(), 88);
+        // VAPP-162's MessageBubble, CallSurface, Plan, QrCode, QrScanner;
+        // round 6's Outline and Mosaic) + the home demo.
+        assert_eq!(specimens().len(), 90);
         for (id, node) in specimens() {
             let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
             assert!(tree.is_ok(), "{id}: {:?}", tree.err());
