@@ -62,6 +62,7 @@ export const appAccessRouter = router({
     const toolApps = appRows
       .filter((a) => exposesOf(a.package).length > 0)
       .map(({ package: pkg, ...a }) => ({ ...a, toolCount: exposesOf(pkg).length }))
+      .sort((a, b) => a.name.localeCompare(b.name, `en`, { sensitivity: `base` }))
     const owner = me.role === `owner`
     const members = await ctx.db
       .select({ userId: teamMembers.userId, role: teamMembers.role, name: users.name, email: users.email, image: users.image })

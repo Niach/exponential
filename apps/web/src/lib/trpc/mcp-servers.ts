@@ -18,7 +18,7 @@
 import { isSessionPrincipal } from "@/lib/sessions/host"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull } from "drizzle-orm"
 import {
   MAX_MCP_SERVER_NAME,
   MAX_MCP_SERVER_NAMES,
@@ -31,6 +31,7 @@ import { router, authedProcedure, type Context } from "@/lib/trpc"
 import {
   mcpCredentials,
   mcpOauthFlows,
+  apps,
   mcpServers,
   sessions,
   teamMembers,
@@ -74,6 +75,9 @@ export type McpServerListRow = McpServer & {
   sharedCount: number
   sharedUserIds: string[]
   connectedUserIds: string[]
+  /** #VAPP-185: the apps whose head package declares this server in
+   * `upstreams` (names, alphabetical): Settings › MCP's "Used by". */
+  usedBy: string[]
 }
 
 const nameSchema = z.string().trim().min(1).max(MAX_MCP_SERVER_NAME)
@@ -277,6 +281,18 @@ export const mcpServersRouter = router({
           .from(teamMembers)
           .where(eq(teamMembers.teamId, input.teamId)),
       ])
+      const teamApps = await ctx.db
+        .select({ name: apps.name, package: apps.package })
+        .from(apps)
+        .where(and(eq(apps.teamId, input.teamId), isNull(apps.deletedAt)))
+      const usedBy = (server: string) =>
+        teamApps
+          .filter((app) => {
+            const upstreams = (app.package as { upstreams?: unknown } | null)?.upstreams
+            return Array.isArray(upstreams) && upstreams.includes(server)
+          })
+          .map((app) => app.name)
+          .sort((a, b) => a.localeCompare(b))
       const memberIds = new Set(members.map((member) => member.userId))
       const now = new Date()
       return rows.map((row) => {
@@ -315,6 +331,7 @@ export const mcpServersRouter = router({
           sharedCount: sharedUserIds.length,
           sharedUserIds,
           connectedUserIds,
+          usedBy: usedBy(row.name),
         }
       })
     }),

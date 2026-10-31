@@ -32,7 +32,7 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
 
   const connect = async (serverId: string, auth: string | null) => {
     if (auth !== `oauth`) {
-      window.location.href = `/t/${teamSlug}/settings/mcp-servers?connect=${serverId}`
+      window.location.href = `/t/${teamSlug}/settings/mcp?connect=${serverId}`
       return
     }
     setBusy(serverId)

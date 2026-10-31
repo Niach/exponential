@@ -111,6 +111,7 @@ import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$t
 import { Route as TTeamSlugSettingsNotificationsRouteImport } from './routes/t/$teamSlug/settings/notifications'
 import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
 import { Route as TTeamSlugSettingsMcpServersRouteImport } from './routes/t/$teamSlug/settings/mcp-servers'
+import { Route as TTeamSlugSettingsMcpRouteImport } from './routes/t/$teamSlug/settings/mcp'
 import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
 import { Route as TTeamSlugSettingsIssuesRouteImport } from './routes/t/$teamSlug/settings/issues'
 import { Route as TTeamSlugSettingsImportRouteImport } from './routes/t/$teamSlug/settings/import'
@@ -136,6 +137,7 @@ import { Route as TTeamSlugSettingsAgentsIndexRouteImport } from './routes/t/$te
 import { Route as TTeamSlugBoardsBoardSlugIndexRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/index'
 import { Route as TTeamSlugSettingsPromptsNewRouteImport } from './routes/t/$teamSlug/settings/prompts/new'
 import { Route as TTeamSlugSettingsPromptsPromptIdRouteImport } from './routes/t/$teamSlug/settings/prompts/$promptId'
+import { Route as TTeamSlugSettingsMcpActivityRouteImport } from './routes/t/$teamSlug/settings/mcp_.activity'
 import { Route as TTeamSlugSettingsBoardsArchivedRouteImport } from './routes/t/$teamSlug/settings/boards/archived'
 import { Route as TTeamSlugSettingsBoardsBoardIdRouteImport } from './routes/t/$teamSlug/settings/boards/$boardId'
 import { Route as TTeamSlugSettingsAppsAppIdRouteImport } from './routes/t/$teamSlug/settings/apps/$appId'
@@ -675,6 +677,11 @@ const TTeamSlugSettingsMcpServersRoute =
     path: '/mcp-servers',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
+const TTeamSlugSettingsMcpRoute = TTeamSlugSettingsMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
+} as any)
 const TTeamSlugSettingsLabelsRoute = TTeamSlugSettingsLabelsRouteImport.update({
   id: '/labels',
   path: '/labels',
@@ -816,6 +823,12 @@ const TTeamSlugSettingsPromptsPromptIdRoute =
   TTeamSlugSettingsPromptsPromptIdRouteImport.update({
     id: '/prompts/$promptId',
     path: '/prompts/$promptId',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsMcpActivityRoute =
+  TTeamSlugSettingsMcpActivityRouteImport.update({
+    id: '/mcp_/activity',
+    path: '/mcp/activity',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
 const TTeamSlugSettingsBoardsArchivedRoute =
@@ -972,6 +985,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
   '/t/$teamSlug/settings/issues': typeof TTeamSlugSettingsIssuesRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
+  '/t/$teamSlug/settings/mcp': typeof TTeamSlugSettingsMcpRoute
   '/t/$teamSlug/settings/mcp-servers': typeof TTeamSlugSettingsMcpServersRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
@@ -993,6 +1007,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/apps/$appId': typeof TTeamSlugSettingsAppsAppIdRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
+  '/t/$teamSlug/settings/mcp/activity': typeof TTeamSlugSettingsMcpActivityRoute
   '/t/$teamSlug/settings/prompts/$promptId': typeof TTeamSlugSettingsPromptsPromptIdRoute
   '/t/$teamSlug/settings/prompts/new': typeof TTeamSlugSettingsPromptsNewRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
@@ -1105,6 +1120,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
   '/t/$teamSlug/settings/issues': typeof TTeamSlugSettingsIssuesRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
+  '/t/$teamSlug/settings/mcp': typeof TTeamSlugSettingsMcpRoute
   '/t/$teamSlug/settings/mcp-servers': typeof TTeamSlugSettingsMcpServersRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
@@ -1126,6 +1142,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/apps/$appId': typeof TTeamSlugSettingsAppsAppIdRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
+  '/t/$teamSlug/settings/mcp/activity': typeof TTeamSlugSettingsMcpActivityRoute
   '/t/$teamSlug/settings/prompts/$promptId': typeof TTeamSlugSettingsPromptsPromptIdRoute
   '/t/$teamSlug/settings/prompts/new': typeof TTeamSlugSettingsPromptsNewRoute
   '/t/$teamSlug/boards/$boardSlug': typeof TTeamSlugBoardsBoardSlugIndexRoute
@@ -1243,6 +1260,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
   '/t/$teamSlug/settings/issues': typeof TTeamSlugSettingsIssuesRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
+  '/t/$teamSlug/settings/mcp': typeof TTeamSlugSettingsMcpRoute
   '/t/$teamSlug/settings/mcp-servers': typeof TTeamSlugSettingsMcpServersRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
@@ -1264,6 +1282,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/apps/$appId': typeof TTeamSlugSettingsAppsAppIdRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
+  '/t/$teamSlug/settings/mcp_/activity': typeof TTeamSlugSettingsMcpActivityRoute
   '/t/$teamSlug/settings/prompts/$promptId': typeof TTeamSlugSettingsPromptsPromptIdRoute
   '/t/$teamSlug/settings/prompts/new': typeof TTeamSlugSettingsPromptsNewRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
@@ -1381,6 +1400,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/import'
     | '/t/$teamSlug/settings/issues'
     | '/t/$teamSlug/settings/labels'
+    | '/t/$teamSlug/settings/mcp'
     | '/t/$teamSlug/settings/mcp-servers'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/notifications'
@@ -1402,6 +1422,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/apps/$appId'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
+    | '/t/$teamSlug/settings/mcp/activity'
     | '/t/$teamSlug/settings/prompts/$promptId'
     | '/t/$teamSlug/settings/prompts/new'
     | '/t/$teamSlug/boards/$boardSlug/'
@@ -1514,6 +1535,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/import'
     | '/t/$teamSlug/settings/issues'
     | '/t/$teamSlug/settings/labels'
+    | '/t/$teamSlug/settings/mcp'
     | '/t/$teamSlug/settings/mcp-servers'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/notifications'
@@ -1535,6 +1557,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/apps/$appId'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
+    | '/t/$teamSlug/settings/mcp/activity'
     | '/t/$teamSlug/settings/prompts/$promptId'
     | '/t/$teamSlug/settings/prompts/new'
     | '/t/$teamSlug/boards/$boardSlug'
@@ -1651,6 +1674,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/import'
     | '/t/$teamSlug/settings/issues'
     | '/t/$teamSlug/settings/labels'
+    | '/t/$teamSlug/settings/mcp'
     | '/t/$teamSlug/settings/mcp-servers'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/notifications'
@@ -1672,6 +1696,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/apps/$appId'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
+    | '/t/$teamSlug/settings/mcp_/activity'
     | '/t/$teamSlug/settings/prompts/$promptId'
     | '/t/$teamSlug/settings/prompts/new'
     | '/t/$teamSlug/boards/$boardSlug/'
@@ -2481,6 +2506,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsMcpServersRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/mcp': {
+      id: '/t/$teamSlug/settings/mcp'
+      path: '/mcp'
+      fullPath: '/t/$teamSlug/settings/mcp'
+      preLoaderRoute: typeof TTeamSlugSettingsMcpRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/settings/labels': {
       id: '/t/$teamSlug/settings/labels'
       path: '/labels'
@@ -2656,6 +2688,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsPromptsPromptIdRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/mcp_/activity': {
+      id: '/t/$teamSlug/settings/mcp_/activity'
+      path: '/mcp/activity'
+      fullPath: '/t/$teamSlug/settings/mcp/activity'
+      preLoaderRoute: typeof TTeamSlugSettingsMcpActivityRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/settings/boards/archived': {
       id: '/t/$teamSlug/settings/boards/archived'
       path: '/boards/archived'
@@ -2768,6 +2807,7 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsImportRoute: typeof TTeamSlugSettingsImportRoute
   TTeamSlugSettingsIssuesRoute: typeof TTeamSlugSettingsIssuesRoute
   TTeamSlugSettingsLabelsRoute: typeof TTeamSlugSettingsLabelsRoute
+  TTeamSlugSettingsMcpRoute: typeof TTeamSlugSettingsMcpRoute
   TTeamSlugSettingsMcpServersRoute: typeof TTeamSlugSettingsMcpServersRoute
   TTeamSlugSettingsMembersRoute: typeof TTeamSlugSettingsMembersRoute
   TTeamSlugSettingsNotificationsRoute: typeof TTeamSlugSettingsNotificationsRoute
@@ -2783,6 +2823,7 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsAppsAppIdRoute: typeof TTeamSlugSettingsAppsAppIdRoute
   TTeamSlugSettingsBoardsBoardIdRoute: typeof TTeamSlugSettingsBoardsBoardIdRoute
   TTeamSlugSettingsBoardsArchivedRoute: typeof TTeamSlugSettingsBoardsArchivedRoute
+  TTeamSlugSettingsMcpActivityRoute: typeof TTeamSlugSettingsMcpActivityRoute
   TTeamSlugSettingsPromptsPromptIdRoute: typeof TTeamSlugSettingsPromptsPromptIdRoute
   TTeamSlugSettingsPromptsNewRoute: typeof TTeamSlugSettingsPromptsNewRoute
   TTeamSlugSettingsAgentsIndexRoute: typeof TTeamSlugSettingsAgentsIndexRoute
@@ -2800,6 +2841,7 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsImportRoute: TTeamSlugSettingsImportRoute,
     TTeamSlugSettingsIssuesRoute: TTeamSlugSettingsIssuesRoute,
     TTeamSlugSettingsLabelsRoute: TTeamSlugSettingsLabelsRoute,
+    TTeamSlugSettingsMcpRoute: TTeamSlugSettingsMcpRoute,
     TTeamSlugSettingsMcpServersRoute: TTeamSlugSettingsMcpServersRoute,
     TTeamSlugSettingsMembersRoute: TTeamSlugSettingsMembersRoute,
     TTeamSlugSettingsNotificationsRoute: TTeamSlugSettingsNotificationsRoute,
@@ -2815,6 +2857,7 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsAppsAppIdRoute: TTeamSlugSettingsAppsAppIdRoute,
     TTeamSlugSettingsBoardsBoardIdRoute: TTeamSlugSettingsBoardsBoardIdRoute,
     TTeamSlugSettingsBoardsArchivedRoute: TTeamSlugSettingsBoardsArchivedRoute,
+    TTeamSlugSettingsMcpActivityRoute: TTeamSlugSettingsMcpActivityRoute,
     TTeamSlugSettingsPromptsPromptIdRoute:
       TTeamSlugSettingsPromptsPromptIdRoute,
     TTeamSlugSettingsPromptsNewRoute: TTeamSlugSettingsPromptsNewRoute,
