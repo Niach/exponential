@@ -85,6 +85,7 @@
     { "id": "getting-started", "class": "expressible", "with": "Section (title, Meter in the leading slot, Docs Link trailing) + Collapsible + Row" },
     { "id": "apps", "class": "expressible", "with": "Section (New app as its action) + Row per app (glyph, name, the version Chip, the … Menu); the built-in row the same with its Built-in Chip" },
     { "id": "app", "class": "native", "with": "the editor session's conversation feed native; the preview is a nested Exponential UI surface, the versions Drawer is Row + Chip, the phones' switch Segmented" },
+    { "id": "app-draft", "class": "native", "with": "the app editor on a draft (no version yet): the same native editor as app, its Chat tab with the empty preview" },
     { "id": "app-consent", "class": "expressible", "with": "Dialog: the operation's words as its title, the body Text, a CodeBlock of the arguments, Deny + Allow Buttons (the destructive Allow variant)" },
     { "id": "app-export", "class": "expressible", "with": "Dialog: the title Text, one Row with a Switch (Include records), the Export Button; the file hand-off is the host's" },
     { "id": "app-import", "class": "expressible", "with": "Dialog: a multi-line TextField (monospace), a Choose file Button, a List of destructive Text rows (path: message), the Import Button" },
