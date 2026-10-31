@@ -4902,27 +4902,50 @@
         "sha256": "c27767def011ad7cef4504125e19f702b16bc7cb766b061f797467309046f262"
       }
     },
-    "settings-mcp-servers": {
+    "settings-mcp": {
       "desktop": {
-        "file": "shots/settings-mcp-servers/desktop.webp",
-        "width": 1800,
-        "height": 1126,
-        "bytes": 69204,
-        "sha256": "21db1c7678fb446253be05a9b362e409356c18d3767d0593f9a56b05a77b71c3"
+        "file": "shots/settings-mcp/desktop.webp",
+        "width": 1440,
+        "height": 1100,
+        "bytes": 36818,
+        "sha256": "9edcce968fea66f71df5468f61560b6143b50c0f559949ba7bbdeb39eea57c9d"
       },
       "web": {
-        "file": "shots/settings-mcp-servers/web.webp",
+        "file": "shots/settings-mcp/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 76274,
-        "sha256": "9ba022af2d6068e30266abe4ec0b1170de8519592a089b93eec25654c881f3c0"
+        "bytes": 44914,
+        "sha256": "4f307767d9cd3467bb1adaf75916a3887ee7947aec2ecf7966c64527c5b4fc92"
       },
       "web-mobile": {
-        "file": "shots/settings-mcp-servers/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 76704,
-        "sha256": "607c76bb9e200f68c881d4499d625824ed1b1865190cfce16d603ee0e14d331b"
+        "file": "shots/settings-mcp/web-mobile.webp",
+        "width": 780,
+        "height": 1688,
+        "bytes": 36250,
+        "sha256": "122d7fcd53bb4d9836140395aeca739aae1f5e1b2f1fd62ca454ce762ca387bc"
+      }
+    },
+    "settings-mcp-activity": {
+      "desktop": {
+        "file": "shots/settings-mcp-activity/desktop.webp",
+        "width": 1440,
+        "height": 1100,
+        "bytes": 26122,
+        "sha256": "101252cdeae8392825e81582c8b14624bbd5b70068d1dcd9d4054dc289d5e4a4"
+      },
+      "web": {
+        "file": "shots/settings-mcp-activity/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 34860,
+        "sha256": "f88fa01227e3f82e0cc5c83ccf4bbf9191114e5dc8ddb1eedf3f5224e164af70"
+      },
+      "web-mobile": {
+        "file": "shots/settings-mcp-activity/web-mobile.webp",
+        "width": 780,
+        "height": 1688,
+        "bytes": 22328,
+        "sha256": "48ffe863b7b75a14ba15e3b4a7e18b7d6141629348e45baf4cbe27380b4085b4"
       }
     },
     "settings-members": {
