@@ -1,7 +1,7 @@
-/* The drafts of "Agents get their own seat" (NEW-10): how input reaches
-   windows when the desktop owns the compositor (sd-*), the libraries and
-   their one glue (lm-*), the agent that manages agents (oa-*) and an agent
-   editing the desktop's own UI (ue-*). Drawn in HTML and CSS with CSS-only
+/* The drafts of "ExponentialOS" (NEW-10): the whole system as layers
+   (os-*), how input reaches windows when the system owns the compositor
+   (sd-*), the agent that manages agents (oa-*) and an agent editing the
+   desktop's own UI (ue-*). Drawn in HTML and CSS with CSS-only
    motion (styles/blog-agent-desktop.css), one loop per figure. */
 import { Bot, Calendar, Code, FileText, Folder, Gamepad2, Globe, Keyboard, MessageSquare, Mic, Monitor, MousePointer2, Search, TriangleAlert, Wifi } from "lucide-react"
 
@@ -17,7 +17,7 @@ function Wire({ tone }: { tone: `you` | `agent` }) {
 
 export function SeatsDiagram() {
   return (
-    <div className="sd" role="img" aria-label="Two input routes through one compositor: your keyboard and mouse reach your seat and the windows on your monitor, a game among them; an agent's tool calls go through ePilot to a virtual seat and reach only the windows in its offscreen agent space, one of them a Brave window lent from your screen. Below, the foreground mode for macOS, Windows and X11: one seat, your input held, Esc to take it back">
+    <div className="sd" role="img" aria-label="Two input routes through one compositor: your keyboard and mouse reach your seat and the windows on your monitor, a game among them; an agent's tool calls go through ePilot to a virtual seat and reach only the windows in its offscreen agent space, one of them a Brave window lent from your screen. ">
       <div className="sd-lane sd-lane--you">
         <span className="sd-node sd-node--src">
           <Keyboard size={12} />
@@ -66,56 +66,11 @@ export function SeatsDiagram() {
 
       <div className="sd-foot">
         <span>
-          <span className="sd-chip sd-chip--fg">foreground</span> macOS · Windows · X11 · eDE: one seat, your input held while the agent acts, <kbd>Esc</kbd> takes it back
+          <span className="sd-chip sd-chip--fg">your seat</span> the real keyboard, mouse and monitors
         </span>
         <span>
-          <span className="sd-chip sd-chip--bg">background</span> eDE only: the agent's own seat, yours untouched
+          <span className="sd-chip sd-chip--bg">agent seats</span> virtual, one per agent, offscreen; yours is never touched
         </span>
-      </div>
-    </div>
-  )
-}
-
-/* ── 2. The modules: every capability is an MCP server, eMCP is the glue ── */
-
-const LIBS = [
-  { id: `agent`, name: `eAgent`, does: `runs agents · orchestrates many` },
-  { id: `pilot`, name: `ePilot`, does: `computer use` },
-  { id: `talk`, name: `eTalk`, does: `voice in and out` },
-  { id: `tools`, name: `ede-tools`, does: `the desktop's settings, UI, apps` },
-  { id: `ui`, name: `eUI`, does: `every screen, as data` },
-  { id: `net`, name: `eNet`, does: `peer to peer` },
-]
-
-export function ModuleMap() {
-  return (
-    <div className="lm" role="img" aria-label="Three apps on top, Exponential, Spezl and eDE, each a composition of the same libraries: eAgent, ePilot, eTalk, ede-tools, eUI and eNet. Below them one bar, eMCP, through which an agent run reaches every tool: a call travels from eAgent through eMCP to ePilot">
-      <div className="lm-apps">
-        <span className="lm-app">
-          <b>Exponential</b> teams, issues, coding sessions
-        </span>
-        <span className="lm-app">
-          <b>Spezl</b> one agent for everyone
-        </span>
-        <span className="lm-app">
-          <b>eDE</b> the desktop
-        </span>
-      </div>
-      <div className="lm-libs">
-        {LIBS.map((lib) => (
-          <span key={lib.id} className={`lm-lib lm-lib--${lib.id}`}>
-            <b>{lib.name}</b>
-            <em>{lib.does}</em>
-            <i className="lm-port" aria-hidden />
-          </span>
-        ))}
-      </div>
-      <div className="lm-bus">
-        <b>eMCP</b> serve · combine · grant · audit · code mode
-        <span className="lm-call" aria-hidden>
-          left_click {`{ window: "brave", x: 812, y: 96 }`}
-        </span>
-        <i className="lm-pulse" aria-hidden />
       </div>
     </div>
   )
@@ -168,7 +123,7 @@ export function OrchestraDiagram() {
         </span>
       </div>
       <div className="oa-foot">
-        Same rules, two homes: Exponential's server (a team, synced) and <b>eagent-hub</b> (local, one person: Spezl, eDE)
+        <b>eagent-hub</b> · the same rules on your computer and on a team's server
       </div>
     </div>
   )

@@ -4,7 +4,7 @@
    reduced-motion freeze (blog-concepts.css) apply. ─── */
 
 .sd,
-.lm,
+.os,
 .oa,
 .ue {
   position: relative;
@@ -13,7 +13,7 @@
 }
 
 .sd em,
-.lm em,
+.os em,
 .oa em,
 .ue em {
   font-style: normal;
@@ -210,187 +210,6 @@
   }
   50% {
     box-shadow: 0 0 0 3px rgb(167 139 250 / 0.18);
-  }
-}
-
-/* ═══ 2. The module map ═══ */
-.lm {
-  --lm-t: 8s;
-  --freeze: 3.4s;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px;
-}
-
-.lm-apps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.lm-app {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 9px 11px;
-  border: 1px solid var(--bc-line);
-  border-radius: 9px;
-  background: var(--bc-fill-2);
-  color: var(--bc-muted);
-  font-size: 10.5px;
-}
-
-.lm-app b {
-  color: var(--bc-ink);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.lm-libs {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.lm-lib {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-height: 62px;
-  padding: 9px 10px;
-  border: 1px solid var(--bc-line);
-  border-radius: 9px;
-  background: var(--bc-fill);
-}
-
-.lm-lib b {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.lm-lib em {
-  color: var(--bc-muted);
-  font-size: 10px;
-}
-
-.lm-port {
-  position: absolute;
-  bottom: -9px;
-  left: 50%;
-  width: 2px;
-  height: 9px;
-  background: var(--bc-line);
-}
-
-.lm-lib--agent {
-  animation: lm-from var(--lm-t) ease-in-out infinite;
-}
-
-.lm-lib--pilot {
-  animation: lm-to var(--lm-t) ease-in-out infinite;
-}
-
-.lm-bus {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  overflow: hidden;
-  border: 1px solid rgb(45 212 191 / 0.35);
-  border-radius: 9px;
-  background: rgb(45 212 191 / 0.07);
-  color: var(--bc-muted);
-}
-
-.lm-bus b {
-  color: #99f6e4;
-  font-size: 12.5px;
-}
-
-.lm-call {
-  margin-left: auto;
-  padding: 2px 7px;
-  border-radius: 5px;
-  background: rgb(0 0 0 / 0.35);
-  color: #99f6e4;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  animation: lm-call var(--lm-t) ease-in-out infinite;
-}
-
-.lm-pulse {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 18%;
-  background: linear-gradient(90deg, transparent, rgb(45 212 191 / 0.22), transparent);
-  animation: lm-pulse var(--lm-t) ease-in-out infinite;
-}
-
-@keyframes lm-from {
-  0%,
-  8%,
-  42%,
-  100% {
-    border-color: var(--bc-line);
-    box-shadow: none;
-  }
-  12%,
-  38% {
-    border-color: rgb(167 139 250 / 0.6);
-    box-shadow: 0 0 0 3px rgb(167 139 250 / 0.15);
-  }
-}
-
-@keyframes lm-to {
-  0%,
-  34%,
-  70%,
-  100% {
-    border-color: var(--bc-line);
-    box-shadow: none;
-  }
-  38%,
-  66% {
-    border-color: rgb(167 139 250 / 0.6);
-    box-shadow: 0 0 0 3px rgb(167 139 250 / 0.15);
-  }
-}
-
-@keyframes lm-pulse {
-  0%,
-  14% {
-    left: 0;
-    opacity: 0;
-  }
-  18% {
-    opacity: 1;
-  }
-  34% {
-    left: 22%;
-    opacity: 1;
-  }
-  40%,
-  100% {
-    left: 22%;
-    opacity: 0;
-  }
-}
-
-@keyframes lm-call {
-  0%,
-  12%,
-  70%,
-  100% {
-    opacity: 0;
-  }
-  18%,
-  64% {
-    opacity: 1;
   }
 }
 
@@ -933,16 +752,6 @@
   }
 
   .sd-wire i {
-    display: none;
-  }
-
-  .lm-apps,
-  .lm-libs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .lm-port,
-  .lm-call {
     display: none;
   }
 
