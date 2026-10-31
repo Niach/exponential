@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-31-desktop-plan-answers`,
+    date: `2026-10-31`,
+    title: `Answering plans works again on desktop`,
+    summary: `The desktop app answers plan and question cards again.`,
+    body: `- **Fixed**: desktop 0.14.87 and 0.14.88 couldn't approve, reject or answer a plan or question card; the card showed "Couldn't answer the question" and opened again. Desktop 0.14.89 fixes it.
+- **Self-hosting**: this release removes server support for desktop below 0.14.89. Set \`CLIENT_MIN_VERSION_DESKTOP\` to 0.14.89 before upgrading (see \`selfhost/.env.example\`).`,
+  },
+  {
     id: `2026-10-31-native-enet-dial`,
     date: `2026-10-31`,
     title: `Watching sessions connects on iOS and Android`,
