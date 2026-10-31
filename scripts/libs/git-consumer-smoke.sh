@@ -10,18 +10,19 @@
 # both does, and the lock must hold ONE copy of every crate of this repo
 # (`cargo tree -d`).
 #
-#   scripts/libs/git-consumer-smoke.sh <etalk|epilot|agent-runtime> [rev]
+#   scripts/libs/git-consumer-smoke.sh <etalk|epilot|emcp|eagent> [rev]
 #   (rev defaults to HEAD, which must be committed; the release workflows
 #   pass the tagged commit)
 set -euo pipefail
 
-lib="${1:?usage: git-consumer-smoke.sh <etalk|epilot|agent-runtime> [rev]}"
+lib="${1:?usage: git-consumer-smoke.sh <etalk|epilot|emcp|eagent> [rev]}"
 repo="$(git rev-parse --show-toplevel)"
 rev="${2:-$(git -C "$repo" rev-parse HEAD)}"
 case "$lib" in
   etalk) crates="etalk etalk-codec etalk-engine etalk-crispasr etalk-wakeword etalk-gpui" ;;
   epilot) crates="epilot epilot-screen" ;;
-  agent-runtime) crates="exponential-agent-runtime" ;;
+  emcp) crates="emcp" ;;
+  eagent) crates="eagent exponential-agent-runtime" ;;
   *) echo "unknown library: $lib" >&2; exit 2 ;;
 esac
 
@@ -29,6 +30,7 @@ esac
 # tag this lib's manifests name for it, else at that lib's newest tag.
 case "$lib" in
   etalk) peers="eui:eui-core,eui-gpui epilot:epilot,epilot-screen" ;;
+  epilot) peers="emcp:emcp" ;;
   *) peers="" ;;
 esac
 manifests="$(for c in $crates; do git -C "$repo" show "$rev:apps/desktop/crates/$c/Cargo.toml"; done)"
@@ -43,13 +45,21 @@ for p in $peers; do
   done
 done
 
+# EXP-1507: the optional parts a consumer turns on (emcp's code mode), so
+# the smoke builds them from the checkout too.
+features_of() {
+  case "$1" in
+    emcp) printf ', features = ["codemode"]' ;;
+  esac
+}
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/src"
 src="git = \"file://$repo\", rev = \"$rev\""
 {
   printf '[package]\nname = "consumer-smoke"\nversion = "0.0.0"\nedition = "2024"\npublish = false\n\n[dependencies]\n'
-  for c in $crates; do printf '%s = { %s }\n' "$c" "$src"; done
+  for c in $crates; do printf '%s = { %s%s }\n' "$c" "$src" "$(features_of "$c")"; done
   printf '%s' "$tagged"
   printf '\n# A dependency'"'"'s [patch] never reaches its consumers: copied (docs/libraries.md).\n'
   printf '[patch."https://github.com/zed-industries/zed"]\nztracing = { %s }\nztracing_macro = { %s }\n' "$src" "$src"

@@ -5,6 +5,13 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1493: the Carousel `counter` pill paints at the track's top-END corner (the core's frame, mirrored under RTL); the current page dot takes the `indicator` recipe's `selected` state (neutral: primary), the others its base.
+
+## 0.3.0 (2026-10-31)
+
+- EXP-1495 (round 6): `Outline` and `Mosaic` paint through the Box / Text / Image paths (no painter of their own); the Carousel `counter` pill counts in tabular figures (`TextStyle.tabular`, measure = paint) and the `thumbnails` strip keeps the current page's thumbnail in view.
+- VAPP-180 (with the SDK): a package's `exposes` and `upstreams`, validated by the core.
+
 ## 0.2.1 (2026-10-30)
 
 - YO-30: the tests replay `fixtures/text-clusters.json`. No painter change.

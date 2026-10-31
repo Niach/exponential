@@ -126,6 +126,8 @@ internal fun RegularCommentRow(
     canModerate: Boolean = false,
     /** #EXP-1383: the synced agents an agent author resolves to. */
     agents: List<AgentSettings.AgentRowLike> = emptyList(),
+    /** #VAPP-186: the live synced apps' names a `via_app_id` resolves to. */
+    appNames: Map<String, String> = emptyMap(),
 ) {
     val author = comment.authorId?.let { usersById[it] }
     // #EXP-1383 (agent-settings.json `actor`): an agent's session wrote it →
@@ -185,6 +187,7 @@ internal fun RegularCommentRow(
             CommentCardContent(
                 comment = comment,
                 authorName = authorName,
+                viaAppName = comment.viaAppId?.let { appNames[it] },
                 isAuthor = currentUserId != null && comment.authorId == currentUserId,
                 canModerate = canModerate,
                 isEditing = editingId == comment.id,
@@ -233,6 +236,7 @@ internal fun RegularCommentRow(
                             CommentCardContent(
                                 comment = reply,
                                 authorName = replyAuthorName,
+                                viaAppName = reply.viaAppId?.let { appNames[it] },
                                 isAuthor = currentUserId != null && reply.authorId == currentUserId,
                                 canModerate = canModerate,
                                 isEditing = editingId == reply.id,
@@ -268,6 +272,7 @@ internal fun RegularCommentRow(
 private fun CommentCardContent(
     comment: CommentEntity,
     authorName: String,
+    viaAppName: String?,
     isAuthor: Boolean,
     canModerate: Boolean,
     isEditing: Boolean,
@@ -328,13 +333,13 @@ private fun CommentCardContent(
                 modifier = Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.width(6.dp))
-            // EXP-741: "via MCP" — an agent posted it over MCP; SLOP-4:
+            // EXP-741: "via MCP" (#VAPP-186: "via <app>") — posted over MCP; SLOP-4:
             // "reporter" / "to reporter" in the same slot — the same captions
             // on every client (`commentCaption`).
             Text(
                 relativeTime(comment.createdAt) +
                     (if (comment.editedAt != null) " · edited" else "") +
-                    (commentCaption(comment)?.let { " · $it" } ?: ""),
+                    (commentCaption(comment, viaAppName)?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.bodySmall,
                 color = CommentMeta,
             )

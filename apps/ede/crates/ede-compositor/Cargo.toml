@@ -1,0 +1,44 @@
+[package]
+name = "ede-compositor"
+description = "eDE's Wayland compositor (smithay): floating windows with edge snapping, layer-shell, winit for development"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = ["winit", "xwayland"]
+# X11 apps and games through Xwayland (needs the Xwayland binary at runtime).
+xwayland = ["smithay/xwayland"]
+# Nested in a window on X11 or Wayland (Cinnamon/X11 for development).
+# backend_drm (pure Rust, no libdrm link) names the render node for dmabuf v4.
+winit = ["smithay/backend_winit", "smithay/backend_drm"]
+# The real session: libseat, udev, DRM/KMS + GBM, libinput. Needs
+# libudev, libinput, libgbm, libseat and libdrm headers to build.
+udev = [
+    "smithay/backend_drm",
+    "smithay/backend_gbm",
+    "smithay/backend_libinput",
+    "smithay/backend_udev",
+    "smithay/backend_session_libseat",
+    "smithay/backend_egl",
+    "smithay/renderer_multi",
+    "dep:xcursor",
+]
+
+[dependencies]
+smithay = { workspace = true, features = ["wayland_frontend", "desktop", "renderer_gl", "renderer_pixman"] }
+serde.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+bitflags = "2"
+xcursor = { version = "0.3", optional = true }
+
+[dev-dependencies]
+wayland-client = "0.31.10"
+wayland-protocols = { version = "0.32.8", features = ["client", "staging", "unstable"] }
+wayland-protocols-wlr = { version = "0.3.8", features = ["client"] }
+wayland-protocols-misc = { version = "0.3.8", features = ["client"] }
+tempfile = "3"
+x11rb = "0.13"

@@ -26,6 +26,8 @@ docs/reviews/
 # Rust (apps/desktop)
 /apps/desktop/target
 /apps/desktop/target-*/
+/apps/ede/target
+/apps/ede/target-deb
 
 # Built widget artifacts (emitted by packages/widget into the web public dir)
 apps/web/public/widget/

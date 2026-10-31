@@ -25,6 +25,7 @@ export const COMMENT_COLUMNS = [
   `edited_at`,
   // #EXP-1383: the agent whose session wrote it (author_id = its member).
   `author_agent_id`,
+  `via_app_id`,
   `created_at`,
   `updated_at`,
 ]

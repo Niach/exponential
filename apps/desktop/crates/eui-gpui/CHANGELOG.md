@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.3.0 (2026-10-31)
+
+- VAPP-180 (with the SDK): a package's `exposes` and `upstreams`, validated by the core.
+
 ## 0.2.1 (2026-10-30)
 
 - YO-30: font fallback per grapheme cluster (`fallback::cluster_runs`, applied wherever the painter and the measurer shape): a cluster the run's face cannot shape whole (Nunito lacks U+0329 in `/ˈʃpɛtsl̩/`) shapes whole in the first fallback face that covers it, so combining marks attach to their base instead of painting as a free-standing glyph (macOS). Markdown spans and code tokens get the sans fallback chain too. `letterSpacing` follows clusters (a mark adds none), as CSS does. `fixtures/text-clusters.json` replays it.

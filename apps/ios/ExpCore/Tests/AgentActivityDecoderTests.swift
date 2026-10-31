@@ -483,6 +483,33 @@ final class AgentActivityDecoderTests: XCTestCase {
         XCTAssertEqual(bare.state, .ended)
         XCTAssertNil(bare.startedAt)
         XCTAssertNil(bare.tokens)
+        XCTAssertNil(bare.writing)
+    }
+
+    func testTheTurnEdgeCarriesTheToolCallBeingWritten() throws {
+        // EXP-1501: `writing` rides the same frame, the name raw.
+        guard case let .turn(edge) = try XCTUnwrap(try decode(#"""
+            {"kind":"turn","state":"started","startedAt":1793464976000,"tokens":12480,
+             "writing":{"tool":"mcp__exponential__exponential_show","startedAt":1793465046000}}
+            """#)) else { return XCTFail("not a turn") }
+        XCTAssertEqual(
+            edge.writing,
+            WorkingWriting(tool: "mcp__exponential__exponential_show", startedAt: 1_793_465_046_000)
+        )
+        XCTAssertEqual(edge.startedAt, 1_793_464_976_000)
+
+        // A frame without it (the call landed) is not writing.
+        guard case let .turn(cleared) = try XCTUnwrap(
+            try decode(#"{"kind":"turn","state":"started","startedAt":1793464976000}"#)
+        ) else { return XCTFail("not a turn") }
+        XCTAssertNil(cleared.writing)
+
+        // An unreadable one (no start stamp) is not writing either — never fatal.
+        guard case let .turn(broken) = try XCTUnwrap(
+            try decode(#"{"kind":"turn","state":"started","writing":{"tool":"Edit"}}"#)
+        ) else { return XCTFail("not a turn") }
+        XCTAssertEqual(broken.state, .started)
+        XCTAssertNil(broken.writing)
     }
 
     // MARK: - The latest-wins slots

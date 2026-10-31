@@ -46,7 +46,9 @@ import androidx.room.TypeConverters
     //      schema kept in place (Android 0.14.73-0.14.77); the history before
     //      it lives in git. Older versions fall back to destructive + resync
     //      (DatabaseHolder).
-    version = 105,
+    // v106 (#VAPP-186): comments.via_app_id ("via <app>"), explicit
+    //      [MIGRATION_105_106]; only the comments shape refetches.
+    version = 106,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

@@ -1,5 +1,5 @@
 {
-  "$comment": "S-3 STORIES ×4 (owner 2026-10-28: 'agent stories as a new way the agent communicates ... decisions/questions and results land here, instagram-story-like UI ... swipeable. all questions and drafts propagate to the top. minimal text ... default to visual only'). Stories REPLACE the Guide's text and the Dock's plan/question rows; the STORIES TAB (below) is where they stay browsable. A STORY = a session's OWN show card (`messages` row with author_session_id = session_id, card kind `plan` | `question` | `surface`, posted by `exponential_show`) that is a story: `card.story` true, or `card.story` absent and (kind plan|question, or a resolved picture). A plan/question with `questionId` (an engine's relay ask) and an `ask` mirror never are. KIND: plan → `plan`, question → `question`, surface → `result`. A plan waits while `decision` is null (any decision, `superseded` included, = gone); a question waits while `answeredAt` and `answer` are both null (answered = gone). THE 24 H WINDOW (#EXP-1461, owner 2026-10-30: 'only stories from the last 24 hours'): a RING keeps a story while its age (now − createdAt) < `constants.windowHours` hours, waiting or not, seen or not; an older one leaves every ring (it stays in the chat and on the Stories tab, which never cuts). SEEN = createdAt <= the viewer's mark of the story's ROOT: max(session_reads.read_at, session_reads.story_seen_at) of the row (user = viewer, session = rootId); no row = unseen. A host marks a story seen when it is SHOWN in the viewer: `sessions.markStoriesSeen({sessionId: rootId, at: createdAt})`, the server keeps the greatest. RINGS = `stories(input)`: one ring per AGENT (key `agent:<id>`: the root's own agentId (its agent conversation) else the root's startedByAgentId; title = the agent's name, `assistant` from the host's agent row) and one per ROOT chat with no agent (key `root:<rootId>`; title = the root's name). A ring's stories: waiting first, then unseen, then seen, each group oldest first (createdAt, then id), so the viewer opens on what needs the person. A ring: `waiting` = its waiting count, `unseen` = any story waiting or unseen. RING ORDER: the Assistant's ring first (whatever its state), then rings with waiting, then rings with unseen, then the rest, each group by its newest story (createdAt desc, then key). A ring with no story left is absent. A STORY (out): id (the message id), sessionId, rootId, sessionName (the posting session's name), kind, waiting, seen, createdAt, meta = '<copy kind> · <age>' (age: < 1 min `now`, < 60 min `<m>m`, < 24 h `<h>h`, else `<d>d`, floored), title = a result's card title, a question's text, a plan's first plain line (ask-dock `askDockTitle`), else null; pictures = the card's RESOLVED pictures (attachmentId set) in card order {label, attachmentId, width, height, caption}; surface = the card has a surface; text = a plan's markdown when it has neither a picture nor a surface, else null; footer = `plan` (THE plan options of ask-dock.json: Approve = approve, Change = reject + its feedback field) | `choices` (a question with options: its option chips, + the free-text field when custom) | `reply` (a question with no options: the free-text field) | `none` (a result); autoAdvanceMs = `constants.autoAdvanceMs` for a result, else null (a decision never advances on its own). An answer goes through THE card-answer path (`sessions.answer`, the same as the in-chat card); the story then drops out (answered). STORY RING (styleguide `story-ring`, eUI `StoryRing`: an avatar inside a ring split into one arc per story, `ring.gap` degrees apart, `ring.width` px; a waiting story's arc = the plan/question tint (ask-dock tints), an unseen one = foreground, a seen one = the glass-stroke hairline): THE STORY ROW (#EXP-1461, owner 2026-10-30: 'hide agents/people without a story from the last 24h completely: no empty rings or placeholders. If nobody has one, hide the row entirely'): the chats header row draws ONLY rings, `storyRow(bubbleAgentIds, rings)` (every mirror replays `rowCases`, comparing `bubbles` and the `rest` keys): `bubbles` = the agent bubbles (chats.json BUBBLES, listAgents order, the Assistant first) whose agent has a ring, each wearing THAT ring (its icon in its colour, its name under it, the bubble's long-press agent menu), then `rest` = the rings no bubble wears (the root rings, an agent ring whose agent has no bubble) in ring order (the root's session avatar, its name under it). A bubble without a ring is NOT drawn (no amber/hairline ring, no placeholder); both empty = NO row at all (nothing reserves its height: the filter chips lead the page). A tap opens THE viewer at that ring. LAYOUT ×4 (`row`): one line that scrolls sideways, starting at the list column's leading edge (the chips' edge), items `row.gap` apart, each item EXACTLY `row.itemWidth` wide and never shrunk by its neighbours (the ring at the bubble size, chats.json shell `bubble`, centred, the name one line under it `row.labelGap` below, truncated to the item width), `row.padBottom` under the names; no separate ring row ×4. STORY VIEWER (styleguide `story-viewer`; Exponential-specific, not eUI; #EXP-1432 owner 2026-10-29: 'they should all stack ... the story can either be an image OR a a2ui view ... +description for both ... flatten all stories, but make it visually distinct what stories belong together ... on all platforms'). THE viewer steps through FRAMES, never through stories with an inner pager: `storyFrames(ring)` (every mirror replays `frameCases`, comparing the WHOLE array) flattens the ring's stories in order, a story = one frame per resolved picture (pictures WIN: a picture story's surface stays in the chat, it was the card that only repeated the title), else one `surface` frame, else one `text` frame (a plan's markdown), else one `title` frame (a bare question). A frame: story (index in the ring), storyId, index/count (its place among its story's frames), kind, picture (the index in story.pictures, else null), title = the story's title (null on a `text` frame: the markdown already begins with it), description = a picture's caption, else the story's `description` (the show card's optional `description`; null on a `text` frame), footer = the story's footer on its LAST frame only (`none` before it), autoAdvanceMs = the story's. Every frame has its own timer (a result's frames each advance after `autoAdvanceMs`, a decision's never). Top: THE StoryProgress with ONE segment per FRAME, `progress.height` tall: segments of the same story `progress.gap` apart, a new story starts `progress.storyGap` after the last one (so what belongs together reads as one group); done = foreground, the current = its fill fraction, todo = the glass-stroke track. Header: the ring's avatar inside its StoryRing (agent mark / the chat row's brand mark), the story's `sessionName`, `meta` muted, the close ghost glyph; a tap on the avatar or name opens that session (the #1309 back stack) and closes the viewer. Under the header: the frame's title (one line, semibold) and its description (muted, up to 3 lines) when set; each says it ONCE (no title inside the body, no label line over a surface, no caption under the picture: the description IS the caption). Body: a `picture` frame = the picture fitted (contain) on black (on wide it fills the modal edge to edge: the modal has its aspect); a `surface` frame = THE surface renderer (chats.json `surfaceCard`'s tree, NO card chrome around it); a `text` frame = the plan markdown; a `title` frame = nothing (the title says it). Footer: per the frame's `footer`. PHONES (iOS, Android, web-mobile) = FULL SCREEN over everything, Instagram-like: the picture fills the screen edge to edge (fitted on black, behind the status bar), a surface frame fills it the same way (scrolls when taller); the progress, header, title and description FLOAT over the top on a scrim (at least `viewer.scrimHeight` px tall: black 0.88 at the edge, 0.8 behind the band's text, fading to clear over the last `viewer.scrimFade` px past it, so a picture's own text never collides with the title), the footer floats over the bottom on the mirrored scrim; no card, no inset panel. WIDE (web md+, the IDE) = a centered modal over a scrim on the list (`viewer.radius`), SIZED BY ITS FRAME (#EXP-1463, owner 2026-10-30: 'don't force the portrait/phone aspect ratio on desktop ... a landscape picture shows landscape, a portrait one portrait, fit within the viewport'): `storyViewerSize(picture, viewport)` (every mirror replays `sizeCases`): a picture frame whose picture has a size = the picture fitted (contain) into the viewport less `viewer.inset` (x on each side: the side arrows' room; y top and bottom), at least `viewer.minWidth` wide (the picture centred on black inside); any other frame (surface, text, title, or a picture with no size: the host may pass the loaded image's natural size instead) = `viewer.width` × `viewer.height`, each capped by the same box. The modal takes the new size when the frame changes (no animation required). The SAME frame layout inside it (the picture fills the modal on black, the floating header over it), the side arrows sit OUTSIDE the modal and a press on them steps (never a scrim press: only a press on the bare scrim closes). NAVIGATION (frames): tap the right third / swipe left / ArrowRight / the side arrow (wide) = next frame, past the last = the next ring, past the last ring = close; left third / swipe right / ArrowLeft = previous frame (the first frame of a ring = the previous ring's last); swipe down / Escape / the close glyph = close; holding a press pauses the timer. Opening at a story (a tile) = its first frame; at a thumbnail = that picture's frame (`storyFrameIndex`). Marking seen: a frame's story when the frame is shown. TOOL: `exponential_show {story?, description?}` (description = the story's one line under its title, a surface/result card's `description`): default true for ask/plan/pictures, false for a plain surface (a status card stays in the chat only); a surface may carry `pictures` (labels; each returned curl uploads one) so a result story shows screenshots. PR BODIES read the stories: pr-body.json `storyCases`. Mirrors: desktop domain::stories, iOS ExpCore Stories.swift, Android domain/Stories.kt replay `cases` comparing the WHOLE expected array. STORIES TAB ×4 (owner 2026-10-29: 'the guide tab got completely vibed away ... we still want it but calling it stories. you should see them still afterwards like the guides were. just all less text'): the session screen's strip ends with ONE `tab.copy.label` tab, pinned right where the Guide was (not part of session-thread.json `tabs`; every host draws it after the last chip; phones icon-only like Conversation, the concept `thread-stories`, md+/IDE icon + label; a page of the phones' pager, the last one), with a dot (the Guide's dot) while `storyTab(input).unseen`. FOLD `storyTab(input + rootId)` (every mirror replays `tabCases`, comparing the WHOLE ring): every story the ROOT's tree ever posted (a story's root = rootId; the same story rule as the ring), NEVER expiring; a settled plan/question STAYS (waiting false, seen true, footer `none`, meta = '<copy kind> · <tab.copy outcome> · <age>', outcome = `approved` | `changed` (rejected) | `answered`), a superseded plan drops (a newer plan replaced it). seen = settled, or createdAt <= the root's mark (as the ring). Order: waiting first (oldest first), then the rest NEWEST first (createdAt desc, then id desc). Out = ONE StoryRing (key/agentId/title/assistant as `stories` keys the root's ring; waiting = the count; unseen = any waiting or unseen) so a tile opens THE viewer on it; null = no story (or rootId not a root) = the empty state. BODY (top to bottom, ONE scroll, centred column like the conversation): (1) the PR block while session-thread.json `guidePullRequest` is set: in a linear open stack the `tab.copy.stack` band + THE StackRail (the Guide's, unchanged), then ONE `tab.copy.changes` row (the diff glyph, `+a −d · n files` from THE DiffCounts) opening THE review pane (the Guide's complete-diff page: md+/IDE the file tree beside the file cards, phones the cards + file sheet; its back row reads `‹ tab.copy.label`); no PR = no block. (2) `tile.leadGap` under the PR block, the stories INLINE in fold order (#EXP-1462, owner 2026-10-30: 'shows ALL stories forever, with no 24h cut. Show them INLINE like before, not as a list': the Guide's way, each story's content drawn in place, never a list of title rows), `tile.listGap` apart, NO band: a story SECTION = line 1 the title (one line, truncated; none = the copy kind word) with `meta` muted at the trailing end (a waiting section tints its meta with the plan/question tint of ask-dock and leads with the tint dot); then its description (the story's `description`, muted, wrapping, every line) `tile.textGap` under it; then its BODY `tile.gap` under that, by the frame rule (pictures win): pictures = ONE horizontal row of pictures (each `tile.thumbHeight` tall, width by aspect capped at `tile.thumbMaxWidth`, both per form factor: `wide` = web md+ and the IDE, `phone` = web-mobile, iOS, Android; `tile.radius`, `tile.gap` apart, the glass-stroke hairline; scrolls sideways when it overflows) with ONE muted line under each = the picture's caption, else its label (A PR's pictures group by their STORY, in card order: no platform columns, the label already names the platform); else a surface = THE surface renderer inline (chats.json `surfaceCard`'s tree in its frame, the column's width, no title over it; presses behave as in the chat); else a plan's text = the plan markdown inline (THE markdown renderer, the body size); else (a bare question) nothing under the line. A tap on line 1 or the description opens THE viewer on the tab's ring at that story, a tap on a picture at that picture (its index); the viewer behaves as from a ring (marks seen, answers a waiting one, a settled one has no footer and never auto-advances away: results still do). (3) none at all = THE EmptyState (`tab.copy.empty`, the concept `thread-stories`, no subtitle); the PR block still shows above it. Styleguide `story-tab` (Exponential-specific, not eUI) draws `tab.specimen`.",
+  "$comment": "S-3 STORIES ×4 (owner 2026-10-28: 'agent stories as a new way the agent communicates ... decisions/questions and results land here, instagram-story-like UI ... swipeable. all questions and drafts propagate to the top. minimal text ... default to visual only'). Stories REPLACE the Guide's text and the Dock's plan/question rows; the STORIES TAB (below) is where they stay browsable. A STORY = a session's OWN show card (`messages` row with author_session_id = session_id, card kind `plan` | `question` | `surface`, posted by `exponential_show`) that is a story: `card.story` true, or `card.story` absent and (kind plan|question, or a resolved picture). A plan/question with `questionId` (an engine's relay ask) and an `ask` mirror never are. KIND: plan → `plan`, question → `question`, surface → `result`. A plan waits while `decision` is null (any decision, `superseded` included, = gone); a question waits while `answeredAt` and `answer` are both null (answered = gone). THE 24 H WINDOW (#EXP-1461, owner 2026-10-30: 'only stories from the last 24 hours'): a RING keeps a story while its age (now − createdAt) < `constants.windowHours` hours, waiting or not, seen or not; an older one leaves every ring (it stays in the chat and on the Stories tab, which never cuts). SEEN = createdAt <= the viewer's mark of the story's ROOT: max(session_reads.read_at, session_reads.story_seen_at) of the row (user = viewer, session = rootId); no row = unseen. A host marks a story seen when it is SHOWN in the viewer: `sessions.markStoriesSeen({sessionId: rootId, at: createdAt})`, the server keeps the greatest. RINGS = `stories(input)`: one ring per AGENT (key `agent:<id>`: the root's own agentId (its agent conversation) else the root's startedByAgentId; title = the agent's name, `assistant` from the host's agent row) and one per ROOT chat with no agent (key `root:<rootId>`; title = the root's name). A ring's stories (#EXP-1493, owner 2026-10-31: 'needs-you first, then results, newest first'; 'far too many stories'): a session's NEWER result REPLACES its older results in the ring (the newest result per posting session stays; another session's result stays; the Stories tab keeps them all); then waiting first, then the rest, each NEWEST first (createdAt desc, then id desc), so the viewer opens on the latest thing that needs the person. A ring: `waiting` = its waiting count, `unseen` = any story waiting or unseen. RING ORDER: the Assistant's ring first (whatever its state), then rings with waiting, then rings with unseen, then the rest, each group by its newest story (createdAt desc, then key). A ring with no story left is absent. A STORY (out): id (the message id), sessionId, rootId, sessionName (the posting session's name), kind, waiting, seen, createdAt, meta = '<copy kind> · <age>' (age: < 1 min `now`, < 60 min `<m>m`, < 24 h `<h>h`, else `<d>d`, floored), title = a result's card title, a question's text, a plan's first plain line (ask-dock `askDockTitle`), else null; pictures = the card's RESOLVED pictures (attachmentId set) in card order {label, attachmentId, width, height, caption}; surface = the card has a surface; counts = a plan's plan-page.json `planCounts(card)` {sections, pictures, questions}, else null; footer = `open` (a plan, waiting or settled: THE plan page, plan-page.json; a story never decides a plan) | `choices` (a question with options: its option chips, + the free-text field when custom) | `reply` (a question with no options: the free-text field) | `none` (a result); autoAdvanceMs = `constants.autoAdvanceMs` for a result, else null (a decision never advances on its own). An answer goes through THE card-answer path (`sessions.answer`, the same as the in-chat card); the story then drops out (answered). STORY RING (styleguide `story-ring`, eUI `StoryRing`: an avatar inside a ring split into one arc per story, `ring.gap` degrees apart, `ring.width` px; a waiting story's arc = the plan/question tint (ask-dock tints), an unseen one = foreground, a seen one = the glass-stroke hairline): THE STORY ROW (#EXP-1461, owner 2026-10-30: 'hide agents/people without a story from the last 24h completely: no empty rings or placeholders. If nobody has one, hide the row entirely'): the chats header row draws ONLY rings, `storyRow(bubbleAgentIds, rings)` (every mirror replays `rowCases`, comparing `bubbles` and the `rest` keys): `bubbles` = the agent bubbles (chats.json BUBBLES, listAgents order, the Assistant first) whose agent has a ring, each wearing THAT ring (its icon in its colour, its name under it, the bubble's long-press agent menu), then `rest` = the rings no bubble wears (the root rings, an agent ring whose agent has no bubble) in ring order (the root's session avatar, its name under it). A bubble without a ring is NOT drawn (no amber/hairline ring, no placeholder); both empty = NO row at all (nothing reserves its height: the filter chips lead the page). A tap opens THE viewer at that ring. LAYOUT ×4 (`row`): one line that scrolls sideways, starting at the list column's leading edge (the chips' edge), items `row.gap` apart, each item EXACTLY `row.itemWidth` wide and never shrunk by its neighbours (the ring at the bubble size, chats.json shell `bubble`, centred, the name one line under it `row.labelGap` below, truncated to the item width), `row.padBottom` under the names; no separate ring row ×4. STORY VIEWER (styleguide `story-viewer`; Exponential-specific, not eUI; #EXP-1432 owner 2026-10-29: 'they should all stack ... the story can either be an image OR a a2ui view ... +description for both ... flatten all stories, but make it visually distinct what stories belong together ... on all platforms'). #EXP-1493 (owner 2026-10-31: big plans 'are unusable as stories: you step through everything'; this REPLACES #EXP-1432's per-picture frames): THE viewer steps through ONE FRAME PER STORY: `storyFrames(ring)` (every mirror replays `frameCases`, comparing the WHOLE array), in ring order. A frame: story (index in the ring), storyId, kind = `plan` (every plan) | `gallery` (pictures WIN: a picture story's surface stays in the chat) | `surface` | `title` (a bare question), pictures = the story's resolved picture count, title, description (the story's), footer (the story's), autoAdvanceMs (the story's; on a gallery PER PICTURE). A PLAN frame = its COVER: the first picture fitted on black (none = the bare black body), the KIND BADGE over the title, the description, then over the bottom scrim the counts line (plan-page `planCountsLine`), a row of up to 4 picture thumbnails (40 px tall, `tile.radius`, the current = a 2 px foreground ring) + `+N` muted, and the footer `open` = ONE full-width primary button `plan-page copy.openPlan` opening THE plan page (the viewer closes); a tap on the cover picture = the same. A GALLERY frame = THE eUI Carousel of the story's pictures (fitted on black, swipe left/right inside the picture steps the PICTURE, the 'i / n' counter top-right of the picture, the picture's caption (else its label) muted under it, a thumbnail filmstrip (eUI Carousel `thumbnails`, 52 px squares, the current = a 2 px foreground ring) floating over the bottom scrim when n > 1); its timer steps the pictures every `autoAdvanceMs` and then the story (a decision's never moves on its own). Top: THE StoryProgress with ONE segment per STORY (`progress.gap` apart; `progress.storyGap` is retired), `progress.height` tall: done = foreground, the current = its fill fraction (a gallery: (picture + its fraction) / n), todo = the glass-stroke track. The KIND BADGE (`badge`) leads the frame's title line ×4. Header: the ring's avatar inside its StoryRing (agent mark / the chat row's brand mark), the story's `sessionName`, `meta` muted, the close ghost glyph; a tap on the avatar or name opens that session (the #1309 back stack) and closes the viewer. Under the header: the frame's title (one line, semibold) and its description (muted, up to 3 lines) when set; each says it ONCE (no title inside the body, no label line over a surface, no caption under the picture: the description IS the caption). Body: a `picture` frame = the picture fitted (contain) on black (on wide it fills the modal edge to edge: the modal has its aspect); a `surface` frame = THE surface renderer (chats.json `surfaceCard`'s tree, NO card chrome around it); a `plan` frame = its cover (above); a `gallery` frame = the carousel (above); a `title` frame = nothing (the title says it). Footer: per the frame's `footer`. PHONES (iOS, Android, web-mobile) = FULL SCREEN over everything, Instagram-like: the picture fills the screen edge to edge (fitted on black, behind the status bar), a surface frame fills it the same way (scrolls when taller); the progress, header, title and description FLOAT over the top on a scrim (at least `viewer.scrimHeight` px tall: black 0.88 at the edge, 0.8 behind the band's text, fading to clear over the last `viewer.scrimFade` px past it, so a picture's own text never collides with the title), the footer floats over the bottom on the mirrored scrim; no card, no inset panel. WIDE (web md+, the IDE) = a centered modal over a scrim on the list (`viewer.radius`), SIZED BY ITS FRAME (#EXP-1463, owner 2026-10-30: 'don't force the portrait/phone aspect ratio on desktop ... a landscape picture shows landscape, a portrait one portrait, fit within the viewport'): `storyViewerSize(picture, viewport)` (every mirror replays `sizeCases`): a picture frame whose picture has a size = the picture fitted (contain) into the viewport less `viewer.inset` (x on each side: the side arrows' room; y top and bottom), at least `viewer.minWidth` wide (the picture centred on black inside); any other frame (surface, text, title, or a picture with no size: the host may pass the loaded image's natural size instead) = `viewer.width` × `viewer.height`, each capped by the same box. The modal takes the new size when the frame changes (no animation required). The SAME frame layout inside it (the picture fills the modal on black, the floating header over it), the side arrows sit OUTSIDE the modal and a press on them steps (never a scrim press: only a press on the bare scrim closes). NAVIGATION (frames = stories): a swipe INSIDE a gallery's picture steps its picture first (past its last = the next frame); a tap ANYWHERE on a plan cover opens THE plan page (with or without a picture; swipes, the side arrows and the keys still step); elsewhere tap the right third / swipe left outside a picture / ArrowRight / the side arrow (wide) = next frame, past the last = the next ring, past the last ring = close; left third / swipe right / ArrowLeft = previous frame (the first frame of a ring = the previous ring's last); swipe down / Escape / the close glyph = close; holding a press pauses the timer. Opening at a story (a tile) = its frame (`storyFrameIndex`); at a thumbnail = its frame with the gallery at that picture. Marking seen: a frame's story when the frame is shown. TOOL: `exponential_show {story?, description?}` (description = the story's one line under its title, a surface/result card's `description`): default true for ask/plan/pictures, false for a plain surface (a status card stays in the chat only); a surface may carry `pictures` (labels; each returned curl uploads one) so a result story shows screenshots. PR BODIES read the stories: pr-body.json `storyCases`. Mirrors: desktop domain::stories, iOS ExpCore Stories.swift, Android domain/Stories.kt replay `cases` comparing the WHOLE expected array. STORIES TAB ×4 (owner 2026-10-29: 'the guide tab got completely vibed away ... we still want it but calling it stories. you should see them still afterwards like the guides were. just all less text'): the session screen's strip ends with ONE `tab.copy.label` tab, pinned right where the Guide was (not part of session-thread.json `tabs`; every host draws it after the last chip; phones icon-only like Conversation, the concept `thread-stories`, md+/IDE icon + label; a page of the phones' pager, the last one), with a dot (the Guide's dot) while `storyTab(input).unseen`. FOLD `storyTab(input + rootId)` (every mirror replays `tabCases`, comparing the WHOLE ring): every story the ROOT's tree ever posted (a story's root = rootId; the same story rule as the ring), NEVER expiring; a settled plan/question STAYS (waiting false, seen true, footer `none` (a plan keeps `open`), meta = '<copy kind> · <tab.copy outcome> · <age>', outcome = `approved` | `changed` (rejected) | `answered`), a superseded plan drops (a newer plan replaced it). seen = settled, or createdAt <= the root's mark (as the ring). Order: waiting first, then the rest, each NEWEST first (createdAt desc, then id desc) (#EXP-1493). The tab never drops a replaced result. Out = ONE StoryRing (key/agentId/title/assistant as `stories` keys the root's ring; waiting = the count; unseen = any waiting or unseen) so a tile opens THE viewer on it; null = no story (or rootId not a root) = the empty state. BODY (top to bottom, ONE scroll, centred column like the conversation): (1) the PR block while session-thread.json `guidePullRequest` is set: in a linear open stack the `tab.copy.stack` band + THE StackRail (the Guide's, unchanged), then ONE `tab.copy.changes` row (the diff glyph, `+a −d · n files` from THE DiffCounts) opening THE review pane (the Guide's complete-diff page: md+/IDE the file tree beside the file cards, phones the cards + file sheet; its back row reads `‹ tab.copy.label`); no PR = no block. (2) `tile.leadGap` under the PR block, the stories INLINE in fold order (#EXP-1462, owner 2026-10-30: 'shows ALL stories forever, with no 24h cut. Show them INLINE like before, not as a list': the Guide's way, each story's content drawn in place, never a list of title rows), `tile.listGap` apart, NO band: a story SECTION = line 1 THE kind badge (`badge`, #EXP-1493) then the title (one line, truncated; none = the copy kind word) with `meta` muted at the trailing end (a waiting section tints its meta with the plan/question tint of ask-dock and leads with the tint dot); then its description (the story's `description`, muted, wrapping, every line) `tile.textGap` under it; then its BODY `tile.gap` under that, by the frame rule: a PLAN (#EXP-1493) = the counts line (plan-page `planCountsLine`) muted under it, then its pictures row as below (none = nothing more); a tap anywhere on a plan section opens THE plan page (never the viewer, never the markdown inline); else (pictures win) pictures (a result or question) = ONE horizontal row of pictures (each `tile.thumbHeight` tall, width by aspect capped at `tile.thumbMaxWidth`, both per form factor: `wide` = web md+ and the IDE, `phone` = web-mobile, iOS, Android; `tile.radius`, `tile.gap` apart, the glass-stroke hairline; scrolls sideways when it overflows) with ONE muted line under each = the picture's caption, else its label (A PR's pictures group by their STORY, in card order: no platform columns, the label already names the platform); else a surface = THE surface renderer inline (chats.json `surfaceCard`'s tree in its frame, the column's width, no title over it; presses behave as in the chat); else (a bare question) nothing under the line. A tap on line 1 or the description opens THE viewer on the tab's ring at that story, a tap on a picture at that picture (its index); the viewer behaves as from a ring (marks seen, answers a waiting one, a settled one has no footer and never auto-advances away: results still do). (3) none at all = THE EmptyState (`tab.copy.empty`, the concept `thread-stories`, no subtitle); the PR block still shows above it. Styleguide `story-tab` (Exponential-specific, not eUI) draws `tab.specimen`.",
   "constants": {
     "windowHours": 24,
     "autoAdvanceMs": 6000
@@ -23,7 +23,8 @@
   "progress": {
     "height": 3,
     "gap": 4,
-    "storyGap": 10
+    "storyGap": 10,
+    "$comment": "storyGap is retired (#EXP-1493: one segment per story); kept for old mirrors until every host reads `gap` only."
   },
   "viewer": {
     "width": 440,
@@ -138,7 +139,7 @@
               "description": null,
               "pictures": [],
               "surface": false,
-              "text": null,
+              "counts": null,
               "footer": "choices",
               "autoAdvanceMs": null
             }
@@ -336,8 +337,12 @@
               "description": null,
               "pictures": [],
               "surface": false,
-              "text": "## Roll back\n\nRevert **v2** first.",
-              "footer": "plan",
+              "counts": {
+                "sections": 1,
+                "pictures": 0,
+                "questions": 0
+              },
+              "footer": "open",
               "autoAdvanceMs": null
             },
             {
@@ -362,7 +367,7 @@
                 }
               ],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             },
@@ -380,7 +385,7 @@
               "description": null,
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             }
@@ -567,7 +572,7 @@
               "description": null,
               "pictures": [],
               "surface": false,
-              "text": null,
+              "counts": null,
               "footer": "reply",
               "autoAdvanceMs": null
             },
@@ -585,7 +590,7 @@
               "description": null,
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             }
@@ -767,7 +772,7 @@
               "description": null,
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             }
@@ -796,7 +801,7 @@
               "description": null,
               "pictures": [],
               "surface": false,
-              "text": null,
+              "counts": null,
               "footer": "choices",
               "autoAdvanceMs": null
             }
@@ -825,7 +830,7 @@
               "description": null,
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             }
@@ -854,7 +859,7 @@
               "description": null,
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             }
@@ -883,7 +888,7 @@
               "description": null,
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             }
@@ -1127,7 +1132,7 @@
               "description": null,
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "choices",
               "autoAdvanceMs": null
             }
@@ -1156,8 +1161,12 @@
               "description": null,
               "pictures": [],
               "surface": false,
-              "text": "## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.",
-              "footer": "plan",
+              "counts": {
+                "sections": 1,
+                "pictures": 0,
+                "questions": 0
+              },
+              "footer": "open",
               "autoAdvanceMs": null
             },
             {
@@ -1174,7 +1183,7 @@
               "description": null,
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             }
@@ -1203,7 +1212,7 @@
               "description": "Paddings match on all four platforms.",
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             }
@@ -1232,7 +1241,253 @@
               "description": null,
               "pictures": [],
               "surface": true,
-              "text": null,
+              "counts": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "#EXP-1493: waiting first, then the rest, each newest first; a session's newer result replaces its older one (another session's stays); a plan counts its sections, resolved pictures and questions and opens its page",
+      "input": {
+        "now": 1800000000000,
+        "sessions": [
+          {
+            "id": "r9",
+            "rootId": "r9",
+            "name": "Editor-first app creation",
+            "agentId": null,
+            "startedByAgentId": null
+          },
+          {
+            "id": "c9",
+            "rootId": "r9",
+            "name": "iOS lane",
+            "agentId": null,
+            "startedByAgentId": null
+          }
+        ],
+        "agents": [],
+        "messages": [
+          {
+            "id": "res-old",
+            "sessionId": "r9",
+            "authorSessionId": "r9",
+            "createdAt": 1799982000000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "title": "First pass",
+              "story": true,
+              "surface": {
+                "root": {}
+              }
+            }
+          },
+          {
+            "id": "res-new",
+            "sessionId": "r9",
+            "authorSessionId": "r9",
+            "createdAt": 1799992800000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "title": "Second pass",
+              "pictures": [
+                {
+                  "label": "web a",
+                  "attachmentId": "g1",
+                  "width": 1440,
+                  "height": 900,
+                  "caption": "Wide"
+                },
+                {
+                  "label": "ios a",
+                  "attachmentId": "g2",
+                  "width": 1179,
+                  "height": 2556
+                }
+              ]
+            }
+          },
+          {
+            "id": "res-child",
+            "sessionId": "c9",
+            "authorSessionId": "c9",
+            "createdAt": 1799985600000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "title": "iOS pass",
+              "story": true,
+              "surface": {
+                "root": {}
+              }
+            }
+          },
+          {
+            "id": "q-older",
+            "sessionId": "c9",
+            "authorSessionId": "c9",
+            "createdAt": 1799989200000,
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Keep the floating chat?",
+              "options": [
+                "Yes",
+                "No"
+              ]
+            }
+          },
+          {
+            "id": "plan-newer",
+            "sessionId": "r9",
+            "authorSessionId": "r9",
+            "createdAt": 1799996400000,
+            "answeredAt": null,
+            "card": {
+              "kind": "plan",
+              "plan": "# Editor-first\n\n## Part A\n![a](/api/attachments/p1)\n![b](/api/attachments/p2)\n\n## Part B\ntext",
+              "decision": null,
+              "description": "A new app opens in the editor.",
+              "pictures": [
+                {
+                  "label": "web-editor",
+                  "attachmentId": "p1",
+                  "width": 1440,
+                  "height": 900
+                },
+                {
+                  "label": "web-pending",
+                  "attachmentId": null
+                }
+              ],
+              "questions": [
+                {
+                  "id": "q1",
+                  "prompt": "?",
+                  "options": []
+                },
+                {
+                  "id": "q2",
+                  "prompt": "?",
+                  "options": []
+                }
+              ]
+            }
+          }
+        ],
+        "reads": []
+      },
+      "expected": [
+        {
+          "key": "root:r9",
+          "agentId": null,
+          "rootId": "r9",
+          "title": "Editor-first app creation",
+          "assistant": false,
+          "waiting": 2,
+          "unseen": true,
+          "stories": [
+            {
+              "id": "plan-newer",
+              "sessionId": "r9",
+              "rootId": "r9",
+              "sessionName": "Editor-first app creation",
+              "kind": "plan",
+              "waiting": true,
+              "seen": false,
+              "createdAt": 1799996400000,
+              "meta": "Plan · 1h",
+              "title": "Editor-first",
+              "description": "A new app opens in the editor.",
+              "pictures": [
+                {
+                  "label": "web-editor",
+                  "attachmentId": "p1",
+                  "width": 1440,
+                  "height": 900,
+                  "caption": null
+                }
+              ],
+              "surface": false,
+              "counts": {
+                "sections": 2,
+                "pictures": 1,
+                "questions": 2
+              },
+              "footer": "open",
+              "autoAdvanceMs": null
+            },
+            {
+              "id": "q-older",
+              "sessionId": "c9",
+              "rootId": "r9",
+              "sessionName": "iOS lane",
+              "kind": "question",
+              "waiting": true,
+              "seen": false,
+              "createdAt": 1799989200000,
+              "meta": "Question · 3h",
+              "title": "Keep the floating chat?",
+              "description": null,
+              "pictures": [],
+              "surface": false,
+              "counts": null,
+              "footer": "choices",
+              "autoAdvanceMs": null
+            },
+            {
+              "id": "res-new",
+              "sessionId": "r9",
+              "rootId": "r9",
+              "sessionName": "Editor-first app creation",
+              "kind": "result",
+              "waiting": false,
+              "seen": false,
+              "createdAt": 1799992800000,
+              "meta": "Result · 2h",
+              "title": "Second pass",
+              "description": null,
+              "pictures": [
+                {
+                  "label": "web a",
+                  "attachmentId": "g1",
+                  "width": 1440,
+                  "height": 900,
+                  "caption": "Wide"
+                },
+                {
+                  "label": "ios a",
+                  "attachmentId": "g2",
+                  "width": 1179,
+                  "height": 2556,
+                  "caption": null
+                }
+              ],
+              "surface": false,
+              "counts": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
+            },
+            {
+              "id": "res-child",
+              "sessionId": "c9",
+              "rootId": "r9",
+              "sessionName": "iOS lane",
+              "kind": "result",
+              "waiting": false,
+              "seen": false,
+              "createdAt": 1799985600000,
+              "meta": "Result · 4h",
+              "title": "iOS pass",
+              "description": null,
+              "pictures": [],
+              "surface": true,
+              "counts": null,
               "footer": "none",
               "autoAdvanceMs": 6000
             }
@@ -1269,15 +1524,18 @@
         "rings": [
           {
             "key": "agent:ag2",
-            "agentId": "ag2"
+            "agentId": "ag2",
+            "stories": []
           },
           {
             "key": "root:t1",
-            "agentId": null
+            "agentId": null,
+            "stories": []
           },
           {
             "key": "agent:as",
-            "agentId": "as"
+            "agentId": "as",
+            "stories": []
           }
         ]
       },
@@ -1300,19 +1558,23 @@
         "rings": [
           {
             "key": "root:t2",
-            "agentId": null
+            "agentId": null,
+            "stories": []
           },
           {
             "key": "agent:ag9",
-            "agentId": "ag9"
+            "agentId": "ag9",
+            "stories": []
           },
           {
             "key": "agent:ag1",
-            "agentId": "ag1"
+            "agentId": "ag1",
+            "stories": []
           },
           {
             "key": "root:t1",
-            "agentId": null
+            "agentId": null,
+            "stories": []
           }
         ]
       },
@@ -1334,11 +1596,13 @@
         "rings": [
           {
             "key": "agent:ag1",
-            "agentId": "ag1"
+            "agentId": "ag1",
+            "stories": []
           },
           {
             "key": "root:t1",
-            "agentId": null
+            "agentId": null,
+            "stories": []
           }
         ]
       },
@@ -1731,6 +1995,21 @@
       "case": 1
     }
   },
+  "badge": {
+    "$comment": "#EXP-1493 THE kind badge ×4 = THE Pill (sm, readonly; styleguide `pill`) with the `icons` concept leading and the `copy` kind word, tinted per `tints` (the ask-dock tints: plan primary, question yellow; a result = the closed-check emerald): the word + glyph in the tint, the tint at `fill` alpha behind, the tint at `stroke` alpha as its border.",
+    "icons": {
+      "plan": "coding-plan",
+      "question": "ui-help",
+      "result": "ui-check"
+    },
+    "tints": {
+      "plan": "primary",
+      "question": "yellow",
+      "result": "emerald"
+    },
+    "fill": 0.14,
+    "stroke": 0.3
+  },
   "tabCases": [
     {
       "name": "nothing: the empty state",
@@ -2011,7 +2290,7 @@
             "description": null,
             "pictures": [],
             "surface": false,
-            "text": null,
+            "counts": null,
             "footer": "choices",
             "autoAdvanceMs": null
           },
@@ -2044,7 +2323,7 @@
               }
             ],
             "surface": true,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": 6000
           },
@@ -2062,7 +2341,7 @@
             "description": null,
             "pictures": [],
             "surface": false,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": null
           },
@@ -2080,8 +2359,12 @@
             "description": null,
             "pictures": [],
             "surface": false,
-            "text": "Drop the undo step",
-            "footer": "none",
+            "counts": {
+              "sections": 0,
+              "pictures": 0,
+              "questions": 0
+            },
+            "footer": "open",
             "autoAdvanceMs": null
           },
           {
@@ -2098,8 +2381,12 @@
             "description": null,
             "pictures": [],
             "surface": false,
-            "text": "## Batch-edit labels\n\nOne request per change.",
-            "footer": "none",
+            "counts": {
+              "sections": 1,
+              "pictures": 0,
+              "questions": 0
+            },
+            "footer": "open",
             "autoAdvanceMs": null
           },
           {
@@ -2116,7 +2403,7 @@
             "description": null,
             "pictures": [],
             "surface": true,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": 6000
           }
@@ -2232,7 +2519,7 @@
               }
             ],
             "surface": true,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": 6000
           }
@@ -2489,7 +2776,7 @@
             "description": null,
             "pictures": [],
             "surface": false,
-            "text": null,
+            "counts": null,
             "footer": "choices",
             "autoAdvanceMs": null
           },
@@ -2522,7 +2809,7 @@
               }
             ],
             "surface": true,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": 6000
           },
@@ -2540,7 +2827,7 @@
             "description": null,
             "pictures": [],
             "surface": false,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": null
           },
@@ -2558,8 +2845,12 @@
             "description": null,
             "pictures": [],
             "surface": false,
-            "text": "Drop the undo step",
-            "footer": "none",
+            "counts": {
+              "sections": 0,
+              "pictures": 0,
+              "questions": 0
+            },
+            "footer": "open",
             "autoAdvanceMs": null
           },
           {
@@ -2576,8 +2867,12 @@
             "description": null,
             "pictures": [],
             "surface": false,
-            "text": "## Batch-edit labels\n\nOne request per change.",
-            "footer": "none",
+            "counts": {
+              "sections": 1,
+              "pictures": 0,
+              "questions": 0
+            },
+            "footer": "open",
             "autoAdvanceMs": null
           },
           {
@@ -2594,7 +2889,7 @@
             "description": null,
             "pictures": [],
             "surface": true,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": 6000
           }
@@ -2604,10 +2899,8 @@
         {
           "story": 0,
           "storyId": "q-wait",
-          "index": 0,
-          "count": 1,
           "kind": "title",
-          "picture": null,
+          "pictures": 0,
           "title": "Ship the picker as is?",
           "description": null,
           "footer": "choices",
@@ -2616,22 +2909,8 @@
         {
           "story": 1,
           "storyId": "res-web",
-          "index": 0,
-          "count": 2,
-          "kind": "picture",
-          "picture": 0,
-          "title": "Label picker",
-          "description": "Mixed state",
-          "footer": "none",
-          "autoAdvanceMs": 6000
-        },
-        {
-          "story": 1,
-          "storyId": "res-web",
-          "index": 1,
-          "count": 2,
-          "kind": "picture",
-          "picture": 1,
+          "kind": "gallery",
+          "pictures": 2,
           "title": "Label picker",
           "description": null,
           "footer": "none",
@@ -2640,10 +2919,8 @@
         {
           "story": 2,
           "storyId": "q-done",
-          "index": 0,
-          "count": 1,
           "kind": "title",
-          "picture": null,
+          "pictures": 0,
           "title": "Which board?",
           "description": null,
           "footer": "none",
@@ -2652,34 +2929,28 @@
         {
           "story": 3,
           "storyId": "plan-no",
-          "index": 0,
-          "count": 1,
-          "kind": "text",
-          "picture": null,
-          "title": null,
+          "kind": "plan",
+          "pictures": 0,
+          "title": "Drop the undo step",
           "description": null,
-          "footer": "none",
+          "footer": "open",
           "autoAdvanceMs": null
         },
         {
           "story": 4,
           "storyId": "plan-ok",
-          "index": 0,
-          "count": 1,
-          "kind": "text",
-          "picture": null,
-          "title": null,
+          "kind": "plan",
+          "pictures": 0,
+          "title": "Batch-edit labels",
           "description": null,
-          "footer": "none",
+          "footer": "open",
           "autoAdvanceMs": null
         },
         {
           "story": 5,
           "storyId": "old-result",
-          "index": 0,
-          "count": 1,
           "kind": "surface",
-          "picture": null,
+          "pictures": 0,
           "title": "First draft",
           "description": null,
           "footer": "none",
@@ -2705,7 +2976,7 @@
             "description": null,
             "pictures": [],
             "surface": true,
-            "text": null,
+            "counts": null,
             "footer": "choices",
             "autoAdvanceMs": null
           },
@@ -2723,8 +2994,12 @@
             "description": null,
             "pictures": [],
             "surface": false,
-            "text": "## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.",
-            "footer": "plan",
+            "counts": {
+              "sections": 1,
+              "pictures": 0,
+              "questions": 0
+            },
+            "footer": "open",
             "autoAdvanceMs": null
           },
           {
@@ -2741,7 +3016,7 @@
             "description": null,
             "pictures": [],
             "surface": true,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": 6000
           },
@@ -2759,7 +3034,7 @@
             "description": "Paddings match on all four platforms.",
             "pictures": [],
             "surface": true,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": 6000
           },
@@ -2777,7 +3052,7 @@
             "description": null,
             "pictures": [],
             "surface": true,
-            "text": null,
+            "counts": null,
             "footer": "none",
             "autoAdvanceMs": 6000
           }
@@ -2787,10 +3062,8 @@
         {
           "story": 0,
           "storyId": "board-question",
-          "index": 0,
-          "count": 1,
           "kind": "surface",
-          "picture": null,
+          "pictures": 0,
           "title": "Which accent for the board header?",
           "description": null,
           "footer": "choices",
@@ -2799,22 +3072,18 @@
         {
           "story": 1,
           "storyId": "triage-plan",
-          "index": 0,
-          "count": 1,
-          "kind": "text",
-          "picture": null,
-          "title": null,
+          "kind": "plan",
+          "pictures": 0,
+          "title": "Close the duplicates",
           "description": null,
-          "footer": "plan",
+          "footer": "open",
           "autoAdvanceMs": null
         },
         {
           "story": 2,
           "storyId": "triage-result",
-          "index": 0,
-          "count": 1,
           "kind": "surface",
-          "picture": null,
+          "pictures": 0,
           "title": "Today's triage",
           "description": null,
           "footer": "none",
@@ -2823,10 +3092,8 @@
         {
           "story": 3,
           "storyId": "designer-result",
-          "index": 0,
-          "count": 1,
           "kind": "surface",
-          "picture": null,
+          "pictures": 0,
           "title": "Spacing review",
           "description": "Paddings match on all four platforms.",
           "footer": "none",
@@ -2835,11 +3102,157 @@
         {
           "story": 4,
           "storyId": "ship-result",
-          "index": 0,
-          "count": 1,
           "kind": "surface",
-          "picture": null,
+          "pictures": 0,
           "title": "Checklist done",
+          "description": null,
+          "footer": "none",
+          "autoAdvanceMs": 6000
+        }
+      ]
+    },
+    {
+      "name": "#EXP-1493: ONE frame per story: a plan = its cover (footer open), a picture result = one gallery frame (per-picture timer), a surface, a bare title",
+      "input": {
+        "stories": [
+          {
+            "id": "plan-newer",
+            "sessionId": "r9",
+            "rootId": "r9",
+            "sessionName": "Editor-first app creation",
+            "kind": "plan",
+            "waiting": true,
+            "seen": false,
+            "createdAt": 1799996400000,
+            "meta": "Plan · 1h",
+            "title": "Editor-first",
+            "description": "A new app opens in the editor.",
+            "pictures": [
+              {
+                "label": "web-editor",
+                "attachmentId": "p1",
+                "width": 1440,
+                "height": 900,
+                "caption": null
+              }
+            ],
+            "surface": false,
+            "counts": {
+              "sections": 2,
+              "pictures": 1,
+              "questions": 2
+            },
+            "footer": "open",
+            "autoAdvanceMs": null
+          },
+          {
+            "id": "q-older",
+            "sessionId": "c9",
+            "rootId": "r9",
+            "sessionName": "iOS lane",
+            "kind": "question",
+            "waiting": true,
+            "seen": false,
+            "createdAt": 1799989200000,
+            "meta": "Question · 3h",
+            "title": "Keep the floating chat?",
+            "description": null,
+            "pictures": [],
+            "surface": false,
+            "counts": null,
+            "footer": "choices",
+            "autoAdvanceMs": null
+          },
+          {
+            "id": "res-new",
+            "sessionId": "r9",
+            "rootId": "r9",
+            "sessionName": "Editor-first app creation",
+            "kind": "result",
+            "waiting": false,
+            "seen": false,
+            "createdAt": 1799992800000,
+            "meta": "Result · 2h",
+            "title": "Second pass",
+            "description": null,
+            "pictures": [
+              {
+                "label": "web a",
+                "attachmentId": "g1",
+                "width": 1440,
+                "height": 900,
+                "caption": "Wide"
+              },
+              {
+                "label": "ios a",
+                "attachmentId": "g2",
+                "width": 1179,
+                "height": 2556,
+                "caption": null
+              }
+            ],
+            "surface": false,
+            "counts": null,
+            "footer": "none",
+            "autoAdvanceMs": 6000
+          },
+          {
+            "id": "res-child",
+            "sessionId": "c9",
+            "rootId": "r9",
+            "sessionName": "iOS lane",
+            "kind": "result",
+            "waiting": false,
+            "seen": false,
+            "createdAt": 1799985600000,
+            "meta": "Result · 4h",
+            "title": "iOS pass",
+            "description": null,
+            "pictures": [],
+            "surface": true,
+            "counts": null,
+            "footer": "none",
+            "autoAdvanceMs": 6000
+          }
+        ]
+      },
+      "expected": [
+        {
+          "story": 0,
+          "storyId": "plan-newer",
+          "kind": "plan",
+          "pictures": 1,
+          "title": "Editor-first",
+          "description": "A new app opens in the editor.",
+          "footer": "open",
+          "autoAdvanceMs": null
+        },
+        {
+          "story": 1,
+          "storyId": "q-older",
+          "kind": "title",
+          "pictures": 0,
+          "title": "Keep the floating chat?",
+          "description": null,
+          "footer": "choices",
+          "autoAdvanceMs": null
+        },
+        {
+          "story": 2,
+          "storyId": "res-new",
+          "kind": "gallery",
+          "pictures": 2,
+          "title": "Second pass",
+          "description": null,
+          "footer": "none",
+          "autoAdvanceMs": 6000
+        },
+        {
+          "story": 3,
+          "storyId": "res-child",
+          "kind": "surface",
+          "pictures": 0,
+          "title": "iOS pass",
           "description": null,
           "footer": "none",
           "autoAdvanceMs": 6000

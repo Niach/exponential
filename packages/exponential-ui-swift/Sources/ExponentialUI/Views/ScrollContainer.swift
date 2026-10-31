@@ -33,6 +33,8 @@ struct ScrollContainer: View {
         let space = "xui-scroll-\(node.id)"
         let anchor = "xui-scroll-anchor-\(node.id)"
         let jump = model.scrollJumps[index]
+        let follow = ThumbnailFollow.target(node: node, index: index, model: model)
+        let followAnchor = "xui-scroll-follow-\(node.id)"
         ScrollViewReader { proxy in
             ScrollView(axes, showsIndicators: true) {
                 ZStack(alignment: .topLeading) {
@@ -46,6 +48,14 @@ struct ScrollContainer: View {
                         .id(anchor)
                         .accessibilityHidden(true)
                         .allowsHitTesting(false)
+                    if let follow {
+                        Color.clear
+                            .frame(width: follow.width, height: 1)
+                            .padding(.leading, follow.minX)
+                            .id(followAnchor)
+                            .accessibilityHidden(true)
+                            .allowsHitTesting(false)
+                    }
                 }
                 .frame(width: content.width, height: content.height, alignment: .topLeading)
                 .background {
@@ -70,8 +80,33 @@ struct ScrollContainer: View {
                 guard j != nil else { return }
                 proxy.scrollTo(anchor, anchor: .topLeading)
             }
+            // EXP-1495: a Carousel's thumbnail strip keeps the current
+            // page's thumbnail in view (`nearest`: no anchor = the least
+            // scroll that shows it); the new offset reaches the core through
+            // the usual report.
+            .onAppear { if follow != nil { proxy.scrollTo(followAnchor) } }
+            .onChange(of: follow) { _, f in
+                guard f != nil else { return }
+                if model.reducedMotion {
+                    proxy.scrollTo(followAnchor)
+                } else {
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(followAnchor) }
+                }
+            }
         }
         .frame(width: size.width, height: size.height)
+    }
+}
+
+/// Round-6 §3: where the Carousel `thumbnails` strip's current thumbnail
+/// sits inside the strip's content (nil for any other scroller).
+@MainActor
+enum ThumbnailFollow {
+    static func target(node: NodeInfo, index: Int, model: SurfaceModel) -> CGRect? {
+        guard node.ownerComponent == "Carousel", node.part == "thumbnails", let owner = node.owner,
+              let page = node.props.num("page"), let i = model.index(of: "\(owner).thumbnail.\(Int(page))") else { return nil }
+        let f = model.frame(i)
+        return CGRect(x: f.minX - model.frame(index).minX, y: 0, width: f.width, height: f.height)
     }
 }
 

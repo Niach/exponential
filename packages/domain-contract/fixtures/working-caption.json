@@ -1,0 +1,108 @@
+{
+  "$comment": "EXP-1501: the transcript's WORKING ROW caption ×4 (web `lib/working-caption.ts` = the TS reference, desktop `ui::session_rows::working_caption`, iOS ExpCore `AgentWorkflow.workingCaption`, Android `domain/AgentWorkflow.kt` `workingCaption`); every mirror replays `cases` and compares the WHOLE string. The row itself is the existing working indicator (the agent's working mark + one muted caption), nothing new. HEAD: a running workflow's caption (EXP-850 §7, `workflowCaption`) wins; else the `turn` slot's `writing` state (the agent is STREAMING one tool call's input, claude `input_json_delta`) reads `copy.writing` with {tool} = the tool's name, whitespace collapsed, an `mcp__<server>__` prefix dropped (everything after the second `__`), or `copy.writingBlank` for a blank name; else `{verb}…` with verb = contract `steerWorking.verbs[|startedAt| % len]`; else (no turn start) `copy.fallback` with no group at all. GROUP: `({duration} · ↓ {tokens} tokens)`, either part omitted while unknown (tokens absent or 0), the group omitted when both are; the duration measures from `writing.startedAt` while writing (the stream's own clock, so a 54 s plan card reads 54s, not the turn's age), else from the turn's `startedAt`; ladder `37s` / `2m 04s` / `1h 03m`, a negative span reads 0s; tokens `812` / `12.4k` / `1.2M` (one decimal, truncated). WIRE: `turn.writing = {tool, startedAt}` rides the latest-wins `turn` slot (frames.rs `TurnWriting`), set by the publisher when a tool_use block opens, re-published at most every `steerWorking.tokenTickMs` while its input streams (each re-publish is engine activity, so the device heartbeat's `sessionActivity` keeps `lastActivityAt` and the stall watchdog truthful), and cleared (absent) once the consolidated tool call lands or the turn ends.",
+  "copy": {
+    "fallback": "Working…",
+    "writing": "Writing {tool}…",
+    "writingBlank": "Writing a tool call…"
+  },
+  "cases": [
+    {
+      "name": "no turn start reads the bare fallback",
+      "input": {
+        "startedAt": null,
+        "now": 1793465100000,
+        "tokens": null,
+        "writing": null
+      },
+      "expected": "Working…"
+    },
+    {
+      "name": "a turn's verb, clock and tokens",
+      "input": {
+        "startedAt": 1793464976000,
+        "now": 1793465100000,
+        "tokens": 12480,
+        "writing": null
+      },
+      "expected": "Weaving… (2m 04s · ↓ 12.4k tokens)"
+    },
+    {
+      "name": "a streaming tool call names the tool and runs its own clock",
+      "input": {
+        "startedAt": 1793464976000,
+        "now": 1793465100000,
+        "tokens": 12480,
+        "writing": {
+          "tool": "ExitPlanMode",
+          "startedAt": 1793465046000
+        }
+      },
+      "expected": "Writing ExitPlanMode… (54s · ↓ 12.4k tokens)"
+    },
+    {
+      "name": "an MCP tool drops its mcp__server__ prefix",
+      "input": {
+        "startedAt": 1793464976000,
+        "now": 1793465100000,
+        "tokens": null,
+        "writing": {
+          "tool": "mcp__exponential__exponential_show",
+          "startedAt": 1793465038000
+        }
+      },
+      "expected": "Writing exponential_show… (1m 02s)"
+    },
+    {
+      "name": "a nameless tool reads as a tool call",
+      "input": {
+        "startedAt": 1793464976000,
+        "now": 1793465100000,
+        "tokens": null,
+        "writing": {
+          "tool": "  ",
+          "startedAt": 1793465096600
+        }
+      },
+      "expected": "Writing a tool call… (3s)"
+    },
+    {
+      "name": "whitespace in the name collapses",
+      "input": {
+        "startedAt": 1793464976000,
+        "now": 1793465100000,
+        "tokens": null,
+        "writing": {
+          "tool": " Write\n",
+          "startedAt": 1793465099000
+        }
+      },
+      "expected": "Writing Write… (1s)"
+    },
+    {
+      "name": "a writing state without a turn start still names the tool and keeps its clock",
+      "input": {
+        "startedAt": null,
+        "now": 1793465100000,
+        "tokens": null,
+        "writing": {
+          "tool": "Edit",
+          "startedAt": 1793465095000
+        }
+      },
+      "expected": "Writing Edit… (5s)"
+    },
+    {
+      "name": "a clock ahead of ours reads 0s",
+      "input": {
+        "startedAt": 1793464976000,
+        "now": 1793465100000,
+        "tokens": null,
+        "writing": {
+          "tool": "Edit",
+          "startedAt": 1793465104000
+        }
+      },
+      "expected": "Writing Edit… (0s)"
+    }
+  ]
+}

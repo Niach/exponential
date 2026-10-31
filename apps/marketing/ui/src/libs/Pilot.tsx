@@ -2,8 +2,9 @@
    apps/desktop/crates/epilot (EXP-1273, the tools and the lock) and
    apps/desktop/crates/epilot-screen (screen memory,
    fixtures/screen-memory.json), both renamed and made consumable as a git
-   dependency by EXP-1425; the names are docs/libraries.md's. No release tag
-   is cut yet. */
+   dependency by EXP-1425; the names are docs/libraries.md's. Tag
+   epilot-v0.1.0; since EXP-1492 (#1499) master serves the tools through
+   emcp, which the next tag carries. */
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { StatusChip } from "../../../src/components/blog/StatusChip"
 import { DocsTable, IcArrow, PageHero } from "../components/Content"
@@ -54,8 +55,9 @@ export default function Pilot({ path }: PageProps) {
           <h2>Status</h2>
           <p>
             ePilot runs today inside the Exponential desktop app and the <code>exponential</code> CLI daemon, where coding
-            sessions use it. The library is its own pair of crates, consumed as a git dependency; no release tag is cut
-            yet.
+            sessions use it. The library is its own pair of crates, consumed as a git dependency on the{` `}
+            <code>epilot-v0.1.0</code> tag. On master its tools are served through{` `}
+            <a className="content-link" href="/mcp/">eMCP</a>; the next tag carries that.
           </p>
           <DocsTable
             head={[`Part`, `Where`, ``]}

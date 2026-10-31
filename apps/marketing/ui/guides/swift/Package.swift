@@ -1,6 +1,6 @@
 // swift-tools-version: 5.10
 // A fresh SwiftUI app on the Exponential UI SDK. An app depends on the release:
-//   .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.2.0")
+//   .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.3.0")
 // with `package: "exponential-ui-swift"` below. This guide builds the
 // monorepo's package by path so CI checks it without a download (its
 // Binaries/ExponentialUIFFI.xcframework comes from

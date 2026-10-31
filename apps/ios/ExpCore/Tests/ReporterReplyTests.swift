@@ -14,6 +14,7 @@ final class ReporterReplyTests: XCTestCase {
 
     private struct Captions: Decodable {
         let viaMcp: String
+        let viaApp: String
         let separator: String
         let cases: [CaptionCase]
     }
@@ -22,6 +23,7 @@ final class ReporterReplyTests: XCTestCase {
         let source: String
         let audience: String
         let authorAgentId: String?
+        let viaAppName: String?
         let caption: String?
     }
 
@@ -78,13 +80,16 @@ final class ReporterReplyTests: XCTestCase {
     func testCaptionsFollowThePinnedOrder() throws {
         let captions = try fixture().captions
         XCTAssertEqual(ReporterReply.viaMcpCaption, captions.viaMcp)
+        XCTAssertEqual(ReporterReply.viaAppCaption, captions.viaApp)
         XCTAssertEqual(ReporterReply.captionSeparator, captions.separator)
         XCTAssertTrue(captions.cases.contains { $0.source == "mcp" && $0.audience == "reporter" })
         for c in captions.cases {
             XCTAssertEqual(
-                ReporterReply.caption(source: c.source, audience: c.audience, authorAgentId: c.authorAgentId),
+                ReporterReply.caption(
+                    source: c.source, audience: c.audience, authorAgentId: c.authorAgentId, viaAppName: c.viaAppName
+                ),
                 c.caption,
-                "\(c.source)/\(c.audience)/\(c.authorAgentId ?? "-")"
+                "\(c.source)/\(c.audience)/\(c.authorAgentId ?? "-")/\(c.viaAppName ?? "-")"
             )
         }
     }

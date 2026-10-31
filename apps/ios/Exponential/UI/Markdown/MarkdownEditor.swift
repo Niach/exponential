@@ -662,6 +662,20 @@ extension EnvironmentValues {
         get { self[MarkdownLinkHandlerKey.self] }
         set { self[MarkdownLinkHandlerKey.self] = newValue }
     }
+
+    var markdownImageTapHandler: MarkdownImageTapHandler? {
+        get { self[MarkdownImageTapHandlerKey.self] }
+        set { self[MarkdownImageTapHandlerKey.self] = newValue }
+    }
+}
+
+/// #EXP-1502: a read-only render's picture tap, given the picture's markdown
+/// `src`. Set by the plan page so ANY picture of the plan (alone on its line
+/// or mid-sentence) opens THE plan lightbox (plan-page.json); nil = no tap.
+typealias MarkdownImageTapHandler = (String) -> Void
+
+private struct MarkdownImageTapHandlerKey: EnvironmentKey {
+    nonisolated(unsafe) static let defaultValue: MarkdownImageTapHandler? = nil
 }
 
 // MARK: - Block Text Editor (UIViewRepresentable)
@@ -1467,11 +1481,12 @@ private struct BlockImageView: View {
     }
 
     @Environment(\.motion) private var motion
+    @Environment(\.markdownImageTapHandler) private var onImageTap
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .topTrailing) {
-                imageBody
+                tappableImage
                     .frame(maxWidth: .infinity)
                     .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(maxHeight: maxHeight ?? .infinity, alignment: .leading)
@@ -1507,6 +1522,19 @@ private struct BlockImageView: View {
             }
         }
         .task(id: url) { await loadImage() }
+    }
+
+    /// A read-only picture under a `markdownImageTapHandler` (the plan page)
+    /// opens on a tap; anywhere else the picture takes no tap.
+    @ViewBuilder
+    private var tappableImage: some View {
+        if isReadOnly, let onImageTap {
+            imageBody
+                .contentShape(Rectangle())
+                .onTapGesture { onImageTap(url) }
+        } else {
+            imageBody
+        }
     }
 
     @ViewBuilder

@@ -1,4 +1,4 @@
-/* The library family (EXP-1421, docs/libraries.md): the five open libs
+/* The library family (EXP-1421, docs/libraries.md): the open libs
    Exponential is built from, in nav order. The marketing front page's
    library section, the footer, every lib's docs sidebar and the header
    sections all read this one list, so the libs always link each other. */
@@ -16,11 +16,14 @@ export type Library = {
 }
 
 export const LIBRARIES: readonly Library[] = [
-  { name: `eUI`, href: `/ui/`, desc: `Generative UI: an agent sends A2UI, native renderers paint it on web, iOS, Android and desktop.`, status: `shipped`, label: `0.2.0` },
-  { name: `eTalk`, href: `/talk/`, desc: `Speech in and out for agents: push to talk and spoken replies on your own GPU.`, status: `in-progress`, label: `0.1.0 beta` },
+  { name: `eUI`, href: `/ui/`, desc: `Generative UI: an agent sends A2UI, native renderers paint it on web, iOS, Android and desktop.`, status: `shipped`, label: `0.3.0` },
+  { name: `eTalk`, href: `/talk/`, desc: `Speech in and out for agents: push to talk, spoken replies and calls on your own GPU.`, status: `in-progress`, label: `0.2.3 beta` },
   { name: `ePilot`, href: `/pilot/`, desc: `Computer use: the agent plans, acts on the real screen, and looks again.`, status: `shipped`, label: `0.1.0` },
   { name: `eNet`, href: `/net/`, desc: `Peer to peer and end-to-end encrypted tunnels between every client, on iroh.`, status: `shipped`, label: `0.1.0` },
-  { name: `eApps`, href: `/apps/`, desc: `The app package format: templates, bindings, records and tools as data, never code.`, status: `in-progress`, label: `in the app` },
+  { name: `eApps`, href: `/apps/`, desc: `The app package format: templates, bindings, records and MCP tools as data, never code.`, status: `in-progress`, label: `in eUI` },
+  { name: `eMCP`, href: `/mcp/`, desc: `MCP for devices: a loopback server for your tools, a client with OAuth and a vault.`, status: `shipped`, label: `0.1.0` },
+  { name: `eAgent`, href: `/agent/`, desc: `Runs your own Claude Code or Codex over ACP: one local account, no server.`, status: `in-progress`, label: `0.1.0` },
+  { name: `eCore`, href: `/core/`, desc: `The plain types the modules share: ids, grants, verdicts, errors and the event envelope.`, status: `in-progress`, label: `built` },
 ]
 
 /** A one-page lib's header level: its name, no sub-links. */

@@ -69,3 +69,59 @@ fn one_page_has_no_controls() {
     s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
     assert!(!s.nodes().iter().any(|n| n.id == "root.controls"));
 }
+
+// EXP-1495 (round-6 contract §3): the counter pill and the thumbnail strip.
+
+fn frame(out: &eui_core::surface::LayoutOutput, s: &mut Surface, id: &str) -> (f32, f32, f32, f32) {
+    let (i, _) = find(s, id);
+    let f = out.frames.iter().find(|f| f.index == i).unwrap_or_else(|| panic!("{id} framed"));
+    (f.x, f.y, f.w, f.h)
+}
+
+#[test]
+fn the_counter_sits_over_the_tracks_top_end_corner_and_counts_from_one() {
+    let mut s = carousel(json!({"counter": true}));
+    let out = s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
+    let (_, counter) = find(&mut s, "root.counter");
+    assert_eq!(counter["text"], json!("1 / 3"));
+    let (px, py, pw, _) = frame(&out, &mut s, "root.page");
+    let (cx, cy, cw, ch) = frame(&out, &mut s, "root.counter");
+    assert_eq!(((px + pw) - (cx + cw), cy - py, ch), (8.0, 8.0, 20.0), "inset sm from the top and the end edge, 20 tall");
+    let nodes = s.nodes();
+    let page = nodes.iter().position(|n| n.id == "root.page").unwrap() as u32;
+    assert_eq!(nodes.iter().find(|n| n.id == "root.counter").unwrap().parent, Some(page), "an overlay of the track");
+    assert_eq!(nodes.iter().find(|n| n.id == "root.counter").unwrap().accessibility, Some(json!({"hidden": true})));
+
+    let (next, _) = find(&mut s, "root.next");
+    s.event(next, "press", None);
+    s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
+    assert_eq!(find(&mut s, "root.counter").1["text"], json!("2 / 3"));
+    assert!(!carousel(json!({})).nodes().iter().any(|n| n.id == "root.counter"));
+}
+
+#[test]
+fn the_strip_holds_one_52_square_per_page_before_the_controls_and_a_press_pages() {
+    let mut s = carousel(json!({"thumbnails": ["a.png", "", "c.png", "ignored.png"]}));
+    let out = s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
+    let nodes = s.nodes();
+    let root = nodes.iter().position(|n| n.id == "root").unwrap() as u32;
+    let kids: Vec<&str> = nodes.iter().filter(|n| n.parent == Some(root)).map(|n| n.id.as_str()).collect();
+    assert_eq!(kids, ["root.page", "root.thumbnails", "root.controls"]);
+    let strip = nodes.iter().position(|n| n.id == "root.thumbnails").unwrap() as u32;
+    let thumbs: Vec<&str> = nodes.iter().filter(|n| n.parent == Some(strip)).map(|n| n.id.as_str()).collect();
+    assert_eq!(thumbs, ["root.thumbnail.0", "root.thumbnail.1", "root.thumbnail.2"], "one per page, the extra URL ignored");
+    assert!(nodes.iter().any(|n| n.id == "root.thumbnailImage.0"));
+    assert!(!nodes.iter().any(|n| n.id == "root.thumbnailImage.1"), "a missing URL = the empty square");
+    let t0 = nodes.iter().find(|n| n.id == "root.thumbnail.0").unwrap();
+    assert!(t0.states.iter().any(|st| st == "selected"));
+    assert_eq!(t0.accessibility, Some(json!({"role": "button", "label": "Page 1 of 3", "current": true})));
+    let (x0, _, w, h) = frame(&out, &mut s, "root.thumbnail.0");
+    let (x1, _, _, _) = frame(&out, &mut s, "root.thumbnail.1");
+    assert_eq!((w, h, x1 - x0), (52.0, 52.0, 60.0), "52 x 52, gap sm");
+
+    let (t2, _) = find(&mut s, "root.thumbnail.2");
+    s.event(t2, "press", None);
+    s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
+    assert_eq!(find(&mut s, "root.indicator").1["page"], json!(2));
+    assert!(s.nodes().iter().find(|n| n.id == "root.thumbnail.2").unwrap().states.iter().any(|st| st == "selected"));
+}

@@ -30,7 +30,7 @@ domain = { path = "../domain" }
 # EXP-1426: the event vocabulary (frames, activity caps, the redactor,
 # workflow) and the login-screen scrapers live in the server-free agent core; the old module paths
 # re-export it.
-exponential-agent-runtime = { path = "../exponential-agent-runtime" }
+eagent = { path = "../eagent" }
 # The ONLY tokio in the desktop workspace (§3.5/§8): tokio-tungstenite needs a
 # reactor, and it runs on its own runtime, isolated from gpui's executors and
 # from the blocking reqwest sync/tRPC stack.

@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc-client"
+import type { WorkingWriting } from "@/lib/working-caption"
 import { releaseTurnLog } from "@/lib/session-turn-events"
 import {
   ackAnswer,
@@ -342,6 +343,9 @@ export type ActivityEvent =
        *  every `steerWorking.tokenTickMs`. A republish that omits it never
        *  blanks what the slot already learned. */
       tokens?: number
+      /** EXP-1501: the tool call whose input is streaming. The frame's WHOLE
+       *  state: absent = not writing. */
+      writing?: { tool: string; startedAt: number }
       at?: number
     }
   // EXP-850 §2: everything the CLI is running in the background — the FULL
@@ -637,6 +641,9 @@ export interface SteerSessionSnapshot {
   turnStartedAt: number | null
   /** Output tokens this turn has produced so far, or null while unknown. */
   turnTokens: number | null
+  /** EXP-1501: the tool call whose input is streaming right now, or null —
+   *  the working caption's `Writing {tool}…`. */
+  turnWriting: WorkingWriting | null
   /** EXP-850 §2: what the CLI is running in the background — the strip above
    *  the composer. Empty = no strip. */
   backgroundTasks: BackgroundTask[]
@@ -845,6 +852,7 @@ export function createSteerSessionStore(
   // caption's duration/token group is optional).
   let turnStartedAt: number | null = null
   let turnTokens: number | null = null
+  let turnWriting: WorkingWriting | null = null
   // EXP-850 §2/§3: the two new latest-wins slots. `workflows` is keyed per
   // workflow id, in first-appearance order (a Map preserves insertion order).
   let backgroundTasks: BackgroundTask[] = []
@@ -917,6 +925,7 @@ export function createSteerSessionStore(
     turnState,
     turnStartedAt,
     turnTokens,
+    turnWriting,
     backgroundTasks,
     taskList,
     queue,
@@ -945,6 +954,7 @@ export function createSteerSessionStore(
       turnState,
       turnStartedAt,
       turnTokens,
+      turnWriting,
       backgroundTasks,
       taskList,
       queue,
@@ -1415,6 +1425,16 @@ export function createSteerSessionStore(
         if (typeof tokens === `number` && Number.isFinite(tokens) && tokens >= 0) {
           turnTokens = Math.round(tokens)
         }
+        // EXP-1501: unlike the two above, `writing` is the frame's WHOLE
+        // state — absent means the tool call landed (or the turn ended).
+        const writing = next === `started` ? event.writing : undefined
+        turnWriting =
+          writing &&
+          typeof writing.tool === `string` &&
+          typeof writing.startedAt === `number` &&
+          Number.isFinite(writing.startedAt)
+            ? { tool: writing.tool, startedAt: writing.startedAt }
+            : null
         return
       }
       case `background_tasks`: {
@@ -1618,6 +1638,7 @@ export function createSteerSessionStore(
     // EXP-850: the same rule for the three slots the replay restates.
     turnStartedAt = null
     turnTokens = null
+    turnWriting = null
     backgroundTasks = []
     taskList = []
     // EXP-861: the replay restates the device's queue too.
@@ -1706,6 +1727,7 @@ export function createSteerSessionStore(
       turnState,
       turnStartedAt,
       turnTokens,
+      turnWriting,
       backgroundTasks,
       taskList,
       queue,
@@ -1739,6 +1761,7 @@ export function createSteerSessionStore(
     turnState = savedSlots.turnState
     turnStartedAt = savedSlots.turnStartedAt
     turnTokens = savedSlots.turnTokens
+    turnWriting = savedSlots.turnWriting
     backgroundTasks = savedSlots.backgroundTasks
     taskList = savedSlots.taskList
     queue = savedSlots.queue

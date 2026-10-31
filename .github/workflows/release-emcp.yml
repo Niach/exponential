@@ -1,0 +1,96 @@
+name: release-emcp
+
+# EXP-1492: publishes eMCP (MCP on rmcp for the devices and spezl) on `emcp-v<semver>` tags, the
+# eUI pattern (release-eui.yml): one tag = one version of every crate below,
+# checked against their Cargo.toml first. Crates: emcp.
+# Not on crates.io (publish = false): consumers depend on the tag with git = + tag =.
+# A dispatched dry run tests and stops before publishing anything.
+
+on:
+  push:
+    tags: ["emcp-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (semver, must match the crates)"
+        required: true
+      dry_run:
+        description: "Dry run: test, publish nothing, create no release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  VERSION: ${{ github.event.inputs.version || '' }}
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+
+jobs:
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          v="${VERSION:-${GITHUB_REF_NAME#emcp-v}}"
+          echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "not a semver version: $v"; exit 1; }
+          for c in emcp; do
+            crate=$(grep -m1 '^version' "apps/desktop/crates/$c/Cargo.toml" | cut -d'"' -f2)
+            [ "$crate" = "$v" ] || { echo "apps/desktop/crates/$c/Cargo.toml is $crate, the tag says $v: bump it first"; exit 1; }
+          done
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: [version, pick]
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Linux system deps
+        if: runner.environment == 'github-hosted'
+        # No GUI: rustls on ring only (emcp turns no aws-lc on).
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libssl-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
+      - name: Cargo tests (eMCP)
+        working-directory: apps/desktop
+        run: cargo test --no-fail-fast --locked -p emcp --features codemode
+      - name: A git consumer builds (docs/libraries.md, the git-tag policy)
+        run: scripts/libs/git-consumer-smoke.sh emcp "$GITHUB_SHA"
+
+  release:
+    needs: [version, test]
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release notes
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          printf '%s\n\n' "eMCP $V. Install: a git dependency (not on crates.io: the crate compiles repo fixtures in with include_str!)." > notes.md
+          printf '```toml\n%b\n```\n' "emcp = { git = \"https://github.com/Niach/exponential\", tag = \"emcp-v$V\" }" >> notes.md
+          cat notes.md
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: emcp-v${{ needs.version.outputs.version }}
+          name: eMCP ${{ needs.version.outputs.version }}
+          make_latest: false
+          body_path: notes.md
+          files: |
+            LICENSE
+            NOTICE

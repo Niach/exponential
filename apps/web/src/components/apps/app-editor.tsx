@@ -476,6 +476,7 @@ export function AppEditor({
     <div className="w-full" style={isMobile ? undefined : { maxWidth: APPS_EDITOR_TABS.settingsMaxWidth }} data-testid={APPS_TEST_IDS.settings}>
       <AppSettingsTab
         teamId={teamId}
+        teamSlug={teamSlug}
         app={app}
         canManage={canManage}
         canGrant={canGrant}

@@ -1,18 +1,18 @@
 //! EXP-920 — what an Exponential MCP tool's RESULT points at. The rule moved
 //! to the agent core (EXP-1426 part 4b,
-//! `exponential_agent_runtime::engine::exp_tool_refs`); this module keeps the
+//! `eagent::engine::exp_tool_refs`); this module keeps the
 //! old name-keyed entry (the spec is Exponential's contract table), the
 //! fixture lock and the pins of the values the core inlines.
 
 use serde_json::Value;
 use steer::EntityRef;
 
-pub use exponential_agent_runtime::engine::exp_tool_refs::{list_ref_noun, tool_result_payload};
+pub use eagent::engine::exp_tool_refs::{list_ref_noun, tool_result_payload};
 
-/// [`exponential_agent_runtime::engine::exp_tool_refs::exp_tool_refs`] for
+/// [`eagent::engine::exp_tool_refs::exp_tool_refs`] for
 /// one of Exponential's tools, its spec looked up by name.
 pub fn exp_tool_refs(tool_name: &str, result: &Value, input: &Value) -> Vec<EntityRef> {
-    exponential_agent_runtime::engine::exp_tool_refs::exp_tool_refs(
+    eagent::engine::exp_tool_refs::exp_tool_refs(
         steer::exp_tool::exp_tool_preview_spec(tool_name),
         result,
         input,
@@ -76,7 +76,7 @@ mod tests {
     /// fails here instead of drifting.
     #[test]
     fn the_core_caps_are_the_contract_caps() {
-        use exponential_agent_runtime::engine::exp_tool_refs::{ENTITY_REF_KINDS, TEXT_MAX};
+        use eagent::engine::exp_tool_refs::{ENTITY_REF_KINDS, TEXT_MAX};
         assert_eq!(TEXT_MAX, domain::contract::EXP_TOOL_PREVIEW_TEXT_MAX);
         assert_eq!(ENTITY_REF_KINDS, domain::contract::ENTITY_REF_KIND_VALUES);
     }

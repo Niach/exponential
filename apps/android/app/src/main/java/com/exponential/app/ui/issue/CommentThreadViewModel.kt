@@ -76,6 +76,9 @@ data class CommentThreadState(
      *  comment, the creation row) and an agent assignee resolve against it
      *  (`AgentSettings.issueActor`). */
     val agents: List<AgentSettings.AgentRowLike> = emptyList(),
+    /** #VAPP-186: the live synced apps' names by id, a comment's
+     *  `via_app_id` resolves against it ("via <app>"). */
+    val appNames: Map<String, String> = emptyMap(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -157,10 +160,11 @@ class CommentThreadViewModel @Inject constructor(
         combine(
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
             dbFlow.scopedQuery(emptyList()) { it.agentDefinitionDao().observeAll() },
-        ) { users, agents -> users to agents.map { it.actorRow() } },
+            dbFlow.scopedQuery(emptyList()) { it.appDao().observeAll() },
+        ) { users, agents, apps -> Triple(users, agents.map { it.actorRow() }, apps.associate { it.id to it.name }) },
         auth.userId,
         teamVocabulary,
-    ) { issue, (comments, events, labels), (users, agents), userId, (statusRows, team) ->
+    ) { issue, (comments, events, labels), (users, agents, appNames), userId, (statusRows, team) ->
         CommentThreadState(
             issue = issue,
             comments = comments,
@@ -171,6 +175,7 @@ class CommentThreadViewModel @Inject constructor(
             statuses = IssueStatusResolver.teamStatuses(statusRows),
             estimationType = team?.estimationType,
             agents = agents,
+            appNames = appNames,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CommentThreadState())
 

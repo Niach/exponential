@@ -29,6 +29,8 @@ struct ChatStoriesHost<Content: View>: View {
     @State private var opened: StoryViewerTarget?
     /// The session the header's tap opens once the viewer is gone.
     @State private var pendingSession: Stories.Story?
+    /// #EXP-1493: the plan a cover's Open plan opens once the viewer is gone.
+    @State private var pendingPlan: Stories.Story?
 
     var body: some View {
         let rings = model.rings(now: now, teamId: teamId)
@@ -58,6 +60,10 @@ struct ChatStoriesHost<Content: View>: View {
                     pendingSession = story
                     opened = nil
                 },
+                onOpenPlan: { story in
+                    pendingPlan = story
+                    opened = nil
+                },
                 onClose: { opened = nil }
             )
             .environment(deps)
@@ -66,6 +72,11 @@ struct ChatStoriesHost<Content: View>: View {
     }
 
     private func openPendingSession() {
+        if let plan = pendingPlan {
+            pendingPlan = nil
+            pushRoute(.planPage(accountId: accountId, sessionId: plan.sessionId, messageId: plan.id))
+            return
+        }
         guard let story = pendingSession else { return }
         pendingSession = nil
         pushRoute(.thread(

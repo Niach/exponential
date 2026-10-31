@@ -19,12 +19,22 @@ data class ResolvedTextStyle(
     val textTransform: String? = null,
     /** `italic`; null = normal. */
     val fontStyle: String? = null,
+    /** OpenType feature settings (`tnum` = tabular figures); null = the font's defaults. A painter-side rule, never the core's. */
+    val fontFeatures: String? = null,
 ) {
     /** From the facade's record. */
     constructor(f: FfiTextStyle) : this(f.fontSize, f.fontWeight.toInt(), f.lineHeight, f.fontFamily, f.letterSpacing, f.textTransform, f.fontStyle)
 
     /** Italic? */
     val italic: Boolean get() = fontStyle == "italic"
+
+    /**
+     * EXP-1495 (round-6 §3): the parts whose figures are tabular, so a
+     * counting text keeps its width as it counts (the Carousel `counter`
+     * pill, `i / n`). The measurer and the leaf apply the same rule.
+     */
+    fun forPart(ownerComponent: String?, part: String?): ResolvedTextStyle =
+        if (ownerComponent == "Carousel" && part == "counter" && fontFeatures == null) copy(fontFeatures = "tnum") else this
 
     companion object {
         /** The body default (14 / 400 / 20). */

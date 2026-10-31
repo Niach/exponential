@@ -598,6 +598,10 @@ interface AppDao {
     @Query("SELECT * FROM apps WHERE id = :id AND deleted_at IS NULL LIMIT 1")
     fun observeById(id: String): Flow<AppEntity?>
 
+    /** #VAPP-186: every live app, the names a comment's "via <app>" reads. */
+    @Query("SELECT * FROM apps WHERE deleted_at IS NULL")
+    fun observeAll(): Flow<List<AppEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: AppEntity)
 

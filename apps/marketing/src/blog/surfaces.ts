@@ -47,3 +47,34 @@ export const EXPENSE_SURFACE: Nested = {
     },
   ],
 }
+
+/** "ExponentialOS": the desktop's agent chat (Super+Space), one
+ *  request done in the background, written as a core-catalog tree. */
+export const DESKTOP_CHAT_SURFACE: Nested = {
+  id: `root`,
+  component: `Card`,
+  props: { title: `Your agent`, description: `local · Claude Code` },
+  children: [
+    {
+      id: `feed`,
+      component: `Stack`,
+      props: { direction: `vertical`, gap: `sm`, align: `stretch` },
+      children: [
+        { id: `ask`, component: `MessageBubble`, props: { side: `out`, text: `Download my September payouts from the bank and put them in my tax folder.`, time: `14:02` } },
+        {
+          id: `trace`,
+          component: `Trace`,
+          props: { size: `sm` },
+          children: [
+            { id: `t1`, component: `TraceItem`, props: { title: `Borrowed your Brave window into agent space 1`, size: `sm`, status: `done` } },
+            { id: `t2`, component: `TraceItem`, props: { title: `Clicked Export CSV on the payouts page`, description: `delivered, verified`, size: `sm`, status: `done` } },
+            { id: `t3`, component: `TraceItem`, props: { title: `Moved payouts-2026-09.csv to ~/Steuer/2026-09`, size: `sm`, status: `done` } },
+            { id: `t4`, component: `TraceItem`, props: { title: `Gave Brave back to your screen`, size: `sm`, status: `running` } },
+          ],
+        },
+        { id: `reply`, component: `MessageBubble`, props: { side: `in`, author: `agent`, text: `Done, without touching your mouse. The CSV is in **~/Steuer/2026-09**.`, time: `14:03` } },
+        { id: `composer`, component: `Composer`, props: { placeholder: `Ask, or hold F13 to talk` } },
+      ],
+    },
+  ],
+}

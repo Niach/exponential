@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 # EXP-1426: the single-account agent core (server-free); this crate re-exports
 # the modules that moved there, so every caller keeps its old path.
-exponential-agent-runtime = { path = "../exponential-agent-runtime" }
+eagent = { path = "../eagent" }
 # eTalk: the voice, call and meeting state machines (packages/etalk/fixtures).
 etalk = { path = "../etalk", default-features = false }
 # §3.1 dependency direction: coding ──▶ api, terminal (never ui, never steer —

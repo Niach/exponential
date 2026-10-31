@@ -27,11 +27,19 @@ object Routes {
     const val SESSION_PATTERN = "session/{sessionId}"
     fun session(sessionId: String): String = "session/$sessionId"
 
+    /** #EXP-1493: THE plan page (plan-page.json) of one plan card
+     *  (`messageId`) a session posted, a pushed page. */
+    const val PLAN_PAGE_PATTERN = "plan/{sessionId}/{messageId}"
+    fun planPage(sessionId: String, messageId: String): String = "plan/$sessionId/$messageId"
+
     /** #EXP-1381 (settings-nav.json): ONE team settings category's own page,
      *  `section` = a `SettingsNav` row id (General, Members, Labels, Boards,
      *  Agents, Repositories, Prompts, Devices). */
     const val TEAM_SETTINGS_PATTERN = "team-settings/{section}"
     fun teamSettings(section: String): String = "team-settings/$section"
+
+    /** #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`). */
+    const val MCP_ACTIVITY = "settings/mcp/activity"
 
     const val AGENTS_SETTINGS = "settings/agents"
     // NEW-2: an agent = a definition row (`agents.id`).

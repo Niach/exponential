@@ -60,6 +60,8 @@ internal fun ComposerRepliesRow(
                     size = PillSize.Sm,
                     mode = PillMode.Action,
                     enabled = !pending,
+                    // Floats over the transcript: the opaque card under the glass.
+                    opaque = true,
                     maxLines = 1,
                     modifier = Modifier.widthIn(max = 240.dp),
                 )

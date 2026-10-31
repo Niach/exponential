@@ -59,6 +59,8 @@ public enum EmptyStateCopy {
         .devices,
         .signedInDevices,
         .mcpServers,
+        .mcpClients,
+        .mcpActivity,
         .builtinToolsNoMatch,
         .widgets,
         .labels,
@@ -170,6 +172,14 @@ public extension EmptyStateCopy.State {
     static let mcpServers = Self(
         id: "mcp-servers", size: .list, icon: "settings-mcp",
         title: "No MCP servers yet", description: nil, action: nil
+    )
+    static let mcpClients = Self(
+        id: "mcp-clients", size: .list, icon: "settings-mcp",
+        title: "No MCP clients yet", description: nil, action: nil
+    )
+    static let mcpActivity = Self(
+        id: "mcp-activity", size: .list, icon: "ui-history",
+        title: "No MCP calls yet", description: nil, action: nil
     )
     static let builtinToolsNoMatch = Self(
         id: "builtin-tools-no-match", size: .list, icon: "ui-empty-search",

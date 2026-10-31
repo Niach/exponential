@@ -19,9 +19,9 @@ import {
   useIsMobile,
 } from "@exp/ui"
 import { StackMergeConfirmDialog } from "@/components/stack-merge-choice-dialog"
-import { renderThreadText } from "@/components/thread/thread-markdown"
 import { usePullRequestFiles } from "@/hooks/use-review-files"
 import { usePullRequestStackConfirm, usePullRequestStackView } from "@/hooks/use-stack-merge-choice"
+import { useOpenPlan } from "@/hooks/use-open-plan"
 import { useSessionNav } from "@/hooks/use-session-nav"
 import type { StoryTabState } from "@/hooks/use-stories"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -221,6 +221,7 @@ export function ThreadStories({
   const diff = files.state.kind === `files` ? files.state.files : null
   const counts = useMemo(() => (diff ? sum(diff) : null), [diff])
   const nav = useSessionNav({ teamSlug, here, back })
+  const openPlan = useOpenPlan(teamSlug)
   const [open, setOpen] = useState<{ storyId: string; picture: number } | null>(null)
   const rings = useMemo(() => (tab.ring ? [tab.ring] : []), [tab.ring])
 
@@ -251,7 +252,7 @@ export function ThreadStories({
           onOpen={(story, picture) => setOpen({ storyId: story.id, picture })}
           surfaceFor={(story) => cardSurface((tab.cardFor(story) as { surface?: unknown } | null)?.surface)}
           onSurfaceReply={onSurfaceReply}
-          renderText={renderThreadText}
+          onOpenPlan={(story) => openPlan(story.sessionId, story.id)}
         />
       )}
       <StoryViewer
@@ -264,10 +265,9 @@ export function ThreadStories({
         cardFor={tab.cardFor}
         onShown={tab.markShown}
         onOpenSession={nav.open}
-        onDecide={canReply ? tab.onDecide : undefined}
+        onOpenPlan={(story) => openPlan(story.sessionId, story.id)}
         onAnswer={canReply ? tab.onAnswer : undefined}
         pending={tab.pending}
-        renderText={renderThreadText}
       />
     </>
   )

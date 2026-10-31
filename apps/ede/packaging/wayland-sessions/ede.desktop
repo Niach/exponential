@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Exponential
+Comment=eDE, the Exponential desktop
+Exec=ede-session
+TryExec=ede-session
+Type=Application
+DesktopNames=eDE

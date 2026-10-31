@@ -138,7 +138,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
-             "v86_session_read_story_seen_at", "v87_session_seal"]
+             "v86_session_read_story_seen_at", "v87_session_seal",
+             "v88_comment_via_app"]
         )
     }
 
@@ -198,7 +199,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
-             "v86_session_read_story_seen_at", "v87_session_seal"]
+             "v86_session_read_story_seen_at", "v87_session_seal",
+             "v88_comment_via_app"]
         )
     }
 
@@ -730,7 +732,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
-             "v86_session_read_story_seen_at", "v87_session_seal"]
+             "v86_session_read_story_seen_at", "v87_session_seal",
+             "v88_comment_via_app"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -838,7 +841,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
-             "v86_session_read_story_seen_at", "v87_session_seal"]
+             "v86_session_read_story_seen_at", "v87_session_seal",
+             "v88_comment_via_app"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -3657,6 +3661,42 @@ final class DatabaseMigrationTests: XCTestCase {
         // Locked (no key here): the clear title stands in.
         XCTAssertEqual(read?.openedTitle, nil)
         try pool.write { db in try SealedRowsTouch.touch(db, rootIds: ["s-1"]) }
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #VAPP-186: v88 adds `comments.via_app_id`, resetting ONLY the comments
+    // cursor so synced rows re-arrive with it.
+    func testCommentViaAppColumnAdded() throws {
+        let pool = try makePool("vapp186-comment-via-app")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v87_session_seal")
+        try pool.write { db in
+            for shape in ["comments", "issues"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v88_comment_via_app"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["comments"])
+        }
+        let wire = Data("""
+            {"id":"c-1","issue_id":"i","team_id":"t","author_id":"u","body":"hi","kind":"regular",
+             "source":"mcp","audience":"team","via_app_id":"a-1","created_at":"x","updated_at":"x"}
+            """.utf8)
+        let row = try JSONDecoder().decode(CommentEntity.self, from: wire)
+        try pool.write { db in try row.save(db) }
+        let read = try pool.read { db in try CommentEntity.fetchOne(db, key: "c-1") }
+        XCTAssertEqual(read?.viaAppId, "a-1")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

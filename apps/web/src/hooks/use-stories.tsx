@@ -13,7 +13,7 @@ import {
   type StoryMessageInput,
   type StoryRing,
 } from "@exp/domain-contract/stories"
-import { StoryAvatar, type StoryAnswer, type StoryDecision } from "@exp/ui"
+import { StoryAvatar, type StoryAnswer } from "@exp/ui"
 import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { agentCollection, messageCollection, sessionReadsCollection } from "@/lib/collections"
@@ -120,7 +120,6 @@ export interface StoriesState {
   avatarFor: (ring: StoryRing) => ReactNode
   /** A story came on screen: mark its root seen up to it. */
   markShown: (story: Story) => void
-  onDecide: (story: Story, decision: StoryDecision) => Promise<void>
   onAnswer: (story: Story, answer: StoryAnswer) => Promise<void>
   pending: ReadonlySet<string>
 }
@@ -267,16 +266,6 @@ function useStoryParts(
 
   // THE card-answer path (the inline card's `sessions.answer`).
   const { answer, pending } = useAnswerMessage()
-  const onDecide = useCallback(
-    (story: Story, decision: StoryDecision) =>
-      answer(story.id, {
-        decision: decision.decision,
-        ...(decision.fresh ? { fresh: true } : {}),
-        ...(decision.feedback ? { feedback: decision.feedback } : {}),
-        ...(decision.surfaceData ? { surfaceData: decision.surfaceData } : {}),
-      }),
-    [answer]
-  )
   const onAnswer = useCallback(
     (story: Story, reply: StoryAnswer) =>
       answer(story.id, {
@@ -287,7 +276,7 @@ function useStoryParts(
     [answer]
   )
 
-  return { input, now, cardFor, avatarFor, markShown, onDecide, onAnswer, pending }
+  return { input, now, cardFor, avatarFor, markShown, onAnswer, pending }
 }
 
 export function useStories(teamId: string | null | undefined): StoriesState {

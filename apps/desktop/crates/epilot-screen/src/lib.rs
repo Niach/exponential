@@ -67,8 +67,7 @@ fn publish(status: Status) {
 }
 
 struct Live {
-    hub: Arc<server::Hub>,
-    url: String,
+    server: emcp::Server,
 }
 
 /// The process-wide endpoint, started on the first grant; an `Err` (no
@@ -86,10 +85,9 @@ fn live() -> Result<&'static Live, String> {
             };
             tool::call(store.as_deref(), name, arguments, engine::now_ms(), &work)
         });
-        let hub = Arc::new(server::Hub::new(call));
-        let url = server::serve(hub.clone())?;
-        log::info!("[screen] serving screen memory on {url}");
-        Ok(Live { hub, url })
+        let server = server::serve(call)?;
+        log::info!("[screen] serving screen memory on {}", server.url());
+        Ok(Live { server })
     })
     .as_ref()
     .map_err(Clone::clone)
@@ -225,14 +223,16 @@ pub fn grant(session_id: &str) -> Result<Grant, String> {
     if RUNNING.lock().unwrap().is_none() {
         return Err(fixture::copy("off").to_string());
     }
+    let id = emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
     let live = live()?;
-    Ok(Grant { url: live.url.clone(), token: live.hub.grant(session_id) })
+    Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, session_id).into() })
 }
 
 /// The run ended: its token is dead.
 pub fn revoke(session_id: &str) {
-    if let Some(Ok(live)) = LIVE.get() {
-        live.hub.revoke(session_id);
+    // An id that breaks the id rule was never granted.
+    if let (Some(Ok(live)), Ok(id)) = (LIVE.get(), emcp::SessionId::new(session_id)) {
+        live.server.revoke(&id);
     }
 }
 

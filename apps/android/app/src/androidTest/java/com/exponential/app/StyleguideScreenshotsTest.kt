@@ -84,6 +84,8 @@ import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenTestId
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenScreen
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenTestId
 import com.exponential.app.ui.styleguide.StoryRingSpecimenScreen
+import com.exponential.app.ui.styleguide.PlanPageSpecimenScreen
+import com.exponential.app.ui.styleguide.PlanPageSpecimenTestId
 import com.exponential.app.ui.styleguide.StoryTabSpecimenScreen
 import com.exponential.app.ui.styleguide.StoryTabSpecimenTestId
 import com.exponential.app.ui.styleguide.StoryRingSpecimenTestId
@@ -138,7 +140,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
- *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories
+ *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -232,6 +234,8 @@ class StyleguideScreenshotsTest {
             "sg_story-ring", "sg_story-viewer",
             // stories.json STORIES TAB: THE tab body (tabCases[1]).
             "sg_story-tab",
+            // #EXP-1493: THE plan page (plan-page.json `specimen`, phone).
+            "sg_plan-page",
         )
 
         /** #EXP-1384: the Board tab's root is up (its All issues chip). */
@@ -1381,6 +1385,10 @@ class StyleguideScreenshotsTest {
         // body over tabCases[1]'s ring, the phone size, no PR block.
         show(StoryTabSpecimenTestId) { StoryTabSpecimenScreen() }
         flow.screenshot("sg_story-tab")
+        // --- sg_plan-page (#EXP-1493, plan-page.json `specimen`): THE plan
+        // page, phone: the document from its top, the DockCard at the foot.
+        show(PlanPageSpecimenTestId) { PlanPageSpecimenScreen() }
+        flow.screenshot("sg_plan-page")
 
         finished = true
     }

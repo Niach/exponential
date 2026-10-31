@@ -13,10 +13,12 @@ apps/web          TanStack Start app (src/lib/trpc = one file per router; routes
 apps/push-relay   Hono/Bun            apps/steer-relay  presence + control + eTalk calls WS hub (Bun; no session content since VAPP-43: viewers reach the device over eNet)
 apps/marketing    exponential.at (Vite + React; ui/ = the Exponential UI section at /ui/, ui.exponential.at 301s there)   apps/styleguide   shot gallery + islands
 apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
-apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/exponential-agent-runtime = the server-free agent core (EXP-1426, never an app-crate dep); crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/eui-* + exponential-ui-ffi = the eUI SDK
+apps/ede          eDE (#NEW-10): own Cargo workspace; crates/ede-compositor = smithay compositor (winit nested for dev, headless pixman tests)
+apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/eagent = eAgent, the server-free agent core (EXP-1426/1505, never an app-crate dep; `exponential-agent-runtime` = its one-release shim); crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/eui-* + exponential-ui-ffi = the eUI SDK
 packages/db-schema        Drizzle schema + zod/domain types (authoritative; never mirrored here)
 packages/domain-contract  contract.json → per-language enums + the fixtures (×4 replay) + pure TS references
 packages/etalk            @exp/etalk: eTalk's contract (voice, voice-call, talk-listen, meeting fixtures ×4 + TS references); Rust = crates/etalk*
+packages/ecore            @exp/ecore: eCore's contract.json → Rust crate `ecore` + TS/Swift/Kotlin (ids, grants, verdicts, errors, envelope; types only, gated)
 packages/emcp             @exp/emcp: eMCP's contract (exposes, access, audit, vault, upstream fixtures + TS references); server half = apps/web/src/lib/emcp, Rust = crate emcp
 packages/ui               @exp/ui: theme, shadcn set, shared primitives, islands
 packages/design-tokens · icons (icons.json → TS/Swift/Kotlin/Rust) · emoji · electric-protocol · steer-ticket · widget · view-catalog (views.json, drift-gated) · site-shell · shots (capture pipeline) · exponential-ui{,-react,-solid,-swift,-compose} (the SDK; `-solid` = the Solid renderer + `./primitives` on `src/behaviors/`, parity-gated against React; both web renderers take their classes from the shared recipes `@exponential_app/eui/web/primitives`)

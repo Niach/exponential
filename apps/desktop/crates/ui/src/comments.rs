@@ -145,6 +145,9 @@ pub(crate) struct CommentCardProps<'a> {
     /// #EXP-1383 (agent-settings.json `actor`): the agent whose session wrote
     /// it → the card names the AGENT and wears its mark, never the member's.
     pub author_agent: Option<domain::agent_settings::AgentActorRow>,
+    /// #VAPP-186: the app whose MCP tool wrote it, resolved from the synced
+    /// apps → the caption reads `via <app>`.
+    pub via_app_name: Option<String>,
     /// SLOP-4: the issue's widget reporter — names a `source = reporter`
     /// card (the submission's `reporterName`, else the contract's anonymous
     /// name).
@@ -216,21 +219,36 @@ fn comment_author_name(comment: &Comment, author: Option<&User>, reporter_name: 
 /// `commentCaption`, fixture `captions`): `reporter` (a reporter's words),
 /// then `to reporter` (a member's words emailed out), then `via MCP` (a
 /// person's MCP client posted it; #EXP-1383: never on an agent's own
-/// comment, which already names the agent). Every part that applies shows,
-/// joined by ` · `.
-fn comment_caption(comment: &Comment) -> Option<String> {
-    let mut parts: Vec<&str> = Vec::new();
+/// comment, which already names the agent) — #VAPP-186: `via <app>` instead
+/// when an app's MCP tool wrote it and `via_app_name` resolved (a deleted
+/// app falls back to `via MCP`). Every part that applies shows, joined by
+/// ` · `.
+fn comment_caption(comment: &Comment, via_app_name: Option<&str>) -> Option<String> {
+    use domain::reporter_reply as copy;
+    let mut parts: Vec<String> = Vec::new();
     if comment.is_from_reporter() {
-        parts.push(domain::reporter_reply::REPORTER_CAPTION);
+        parts.push(copy::REPORTER_CAPTION.to_string());
     } else if comment.is_to_reporter() {
-        parts.push(domain::reporter_reply::TO_REPORTER_CAPTION);
+        parts.push(copy::TO_REPORTER_CAPTION.to_string());
     }
     if comment.source.as_deref() == Some(domain::contract::COMMENT_SOURCE_MCP)
         && comment.author_agent_id.as_deref().is_none_or(str::is_empty)
     {
-        parts.push("via MCP");
+        parts.push(match via_app_name.filter(|name| !name.is_empty()) {
+            Some(app) => copy::via_app_caption(app),
+            None => copy::VIA_MCP_CAPTION.to_string(),
+        });
     }
-    (!parts.is_empty()).then(|| parts.join(" · "))
+    (!parts.is_empty()).then(|| parts.join(copy::CAPTION_SEPARATOR))
+}
+
+/// #VAPP-186: the name of the app whose MCP tool wrote `comment`, from the
+/// synced apps; `None` = no app, or one no longer synced (deleted).
+pub(crate) fn via_app_name(comment: &Comment, cx: &gpui::App) -> Option<String> {
+    let app_id = comment.via_app_id.as_deref().filter(|id| !id.is_empty())?;
+    let store = sync::Store::try_global(cx)?;
+    let apps = store.collections().apps.read(cx);
+    apps.get(app_id).map(|app| app.name.clone())
 }
 
 /// The avatar's hue key: the author id, or the reporter's NAME for a
@@ -293,7 +311,7 @@ fn comment_card_content(
     // client, so a bot's words never read as its key owner's. SLOP-4: the
     // same slot says `reporter` on a widget reporter's words and `to
     // reporter` on a member's words that were emailed out.
-    if let Some(caption) = comment_caption(card.comment) {
+    if let Some(caption) = comment_caption(card.comment, card.via_app_name.as_deref()) {
         meta.push_str(" · ");
         meta.push_str(&caption);
     }
@@ -881,12 +899,12 @@ pub(crate) struct ThreadCommentProps {
 
 /// The meta line a synced comment wears in the thread card: the timeline's
 /// own (`relative time · edited · via MCP`).
-pub(crate) fn thread_comment_meta(comment: &Comment, now_epoch: i64) -> String {
+pub(crate) fn thread_comment_meta(comment: &Comment, via_app_name: Option<&str>, now_epoch: i64) -> String {
     let mut meta = relative_time(comment.created_at.as_deref().unwrap_or(""), now_epoch);
     if comment.edited_at.is_some() {
         meta.push_str(" · edited");
     }
-    if let Some(caption) = comment_caption(comment) {
+    if let Some(caption) = comment_caption(comment, via_app_name) {
         if !meta.is_empty() {
             meta.push_str(" · ");
         }
@@ -1173,26 +1191,26 @@ mod tests {
             comment_author_name(&reporter, None, domain::reporter_reply::ANONYMOUS_NAME),
             "Anonymous visitor"
         );
-        assert_eq!(comment_caption(&reporter).as_deref(), Some("reporter"));
+        assert_eq!(comment_caption(&reporter, None).as_deref(), Some("reporter"));
         // The avatar keys on the name — no user row exists.
         assert_eq!(avatar_key(&reporter, "Ada"), "Ada");
 
         let to_reporter = comment("user", "reporter", Some("u-1"));
-        assert_eq!(comment_caption(&to_reporter).as_deref(), Some("to reporter"));
+        assert_eq!(comment_caption(&to_reporter, None).as_deref(), Some("to reporter"));
         assert_eq!(avatar_key(&to_reporter, "Ada"), "u-1");
 
         let former = comment("user", "team", None);
         assert_eq!(comment_author_name(&former, None, "Ada"), "Former member");
-        assert_eq!(comment_caption(&former), None);
+        assert_eq!(comment_caption(&former, None), None);
         // An author id with no synced row (left the team) reads the same.
         let gone = comment("user", "team", Some("gone"));
         assert_eq!(comment_author_name(&gone, None, "Ada"), "Former member");
 
         let mcp = comment("mcp", "team", Some("u-1"));
-        assert_eq!(comment_caption(&mcp).as_deref(), Some("via MCP"));
+        assert_eq!(comment_caption(&mcp, None).as_deref(), Some("via MCP"));
         let mcp_out = comment("mcp", "reporter", Some("u-1"));
-        assert_eq!(comment_caption(&mcp_out).as_deref(), Some("to reporter · via MCP"));
-        assert_eq!(comment_caption(&comment("user", "team", Some("u-1"))), None);
+        assert_eq!(comment_caption(&mcp_out, None).as_deref(), Some("to reporter · via MCP"));
+        assert_eq!(comment_caption(&comment("user", "team", Some("u-1")), None), None);
 
         // Missing/NULL audience hydrates as `team`.
         let legacy: Comment = serde_json::from_value(json!({
@@ -1215,11 +1233,11 @@ mod tests {
             let comment: Comment = serde_json::from_value(json!({
                 "id": "c-1", "issue_id": "i-1", "source": case["source"],
                 "audience": case["audience"], "author_id": "u-1",
-                "author_agent_id": case["authorAgentId"]
+                "author_agent_id": case["authorAgentId"], "via_app_id": case["viaAppId"]
             }))
             .unwrap();
             assert_eq!(
-                comment_caption(&comment).as_deref(),
+                comment_caption(&comment, case["viaAppName"].as_str()).as_deref(),
                 case["caption"].as_str(),
                 "{case}"
             );

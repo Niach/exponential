@@ -19,6 +19,7 @@
     "./audit": "./src/audit.ts",
     "./vault": "./src/vault.ts",
     "./upstream": "./src/upstream.ts",
+    "./hub": "./src/hub.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "devDependencies": {

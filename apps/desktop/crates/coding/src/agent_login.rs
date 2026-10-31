@@ -57,7 +57,7 @@ pub struct LoginPlan {
 /// suppress exactly this).
 pub fn login_plan(settings: &Settings, agent: CodingAgent, remote: bool) -> LoginPlan {
     // EXP-1426: the argv, title and BROWSER pin are the agent core's.
-    let command = exponential_agent_runtime::login::login_command(
+    let command = eagent::login::login_command(
         agent,
         settings.resolved_path_for(agent),
         remote,
@@ -75,7 +75,7 @@ pub fn logout_in(
     agent: CodingAgent,
     env: Option<&(String, String)>,
 ) -> Result<(), String> {
-    exponential_agent_runtime::login::logout_in(
+    eagent::login::logout_in(
         agent,
         &settings.resolved_path_for(agent),
         &terminal::pty::login_path(),
@@ -573,7 +573,7 @@ fn base64url_decode(input: &str) -> Option<Vec<u8>> {
 }
 
 // EXP-1426: the login progress wire moved to the agent core.
-pub use exponential_agent_runtime::login::{LoginPhase, LoginProgress, RESULT_TEXT_MAX};
+pub use eagent::login::{LoginPhase, LoginProgress, RESULT_TEXT_MAX};
 
 #[cfg(test)]
 mod tests {

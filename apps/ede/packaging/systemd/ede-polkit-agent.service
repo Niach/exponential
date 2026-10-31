@@ -1,0 +1,11 @@
+# The authentication prompt for admin actions (polkit). eDE draws its own
+# later; until then, the agent the distro ships.
+[Unit]
+Description=eDE polkit authentication agent
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/lib/ede/ede-polkit-agent
+Restart=on-failure
+RestartSec=2

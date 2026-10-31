@@ -1,7 +1,5 @@
-- Sesije se prenose izravno s uređaja na kojem rade
-- Sesija čiji je uređaj izvan mreže to kaže i sama se ponovno spaja kad se vrati
-- Poruke u sesijama zapečaćuju se na tvojim uređajima, pa ih poslužitelj više ne može čitati
-- Pitanje iz razgovora koji si pokrenuo stiže kao obavijest na mobitel i prikazuje samo pitanje
-- Dodir na odluku u pristigloj pošti otvara razgovor koji te čeka
-- Priče prikazuju zadnja 24 sata, a kartica Priče u razgovoru prikazuje ih na mjestu
-- Pozivi rade dalje kad prebacuješ između zvučnika, slušalica i Bluetootha
+- Planovi se otvaraju na vlastitoj stranici, sa sadržajem i svojim slikama
+- Mirnije priče: jedna kartica po planu ili rezultatu, svaka s oznakom
+- Nova aplikacija odmah otvara uređivač, a agent joj daje ime
+- Radni redak pokazuje koji alat agent piše i koliko dugo
+- Brzi odgovori iznad polja za unos lakše se čitaju

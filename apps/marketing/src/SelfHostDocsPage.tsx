@@ -435,15 +435,19 @@ PUSH_RELAY_SECRET=<shared secret>
           <DocsSection id="steer" num="05" label="Steer relay">
             <h2>Steer relay</h2>
             <p>
-              Starting a coding session on your desktop from the phone or the
-              web app (and then watching and steering it live) goes through
-              the <strong>steer-relay</strong>, a second companion service. It
-              is a dumb pipe with auth: every connection dials{` `}
+              The <strong>steer-relay</strong> is a second companion service:
+              device presence, the check-in nudge, the server&apos;s kill / Stop
+              / compact commands, and eTalk voice calls. Every connection dials{` `}
               <em>out</em> to it, so the desktop never needs an inbound port,
-              and the relay itself holds device presence and session rooms in
-              memory only. Leave it unconfigured and remote start plus live
-              watch/steer are simply off. Local coding sessions on the desktop
-              are unaffected.
+              and it holds presence and rooms in memory only. Leave it
+              unconfigured and remote start, remote control and calls are
+              off. Local coding sessions on the desktop are unaffected.
+            </p>
+            <p>
+              It carries no session content. Watching and steering a running
+              session goes over eNet, end-to-end encrypted between the viewer
+              and the device that runs it; the relay never sees the activity
+              stream or your input.
             </p>
 
             <h3>Run the relay</h3>
@@ -489,10 +493,9 @@ docker run -d \\
               reachable from the internet.
             </p>
             <DocsCallout kind="warn" title="Internet-reachable ⇒ TLS, always">
-              The steering socket carries bearer steer tickets, the live
-              activity stream of your coding sessions, and remote steering
-              input. Plain <code>ws://</code> is cleartext — anyone on the
-              path can read the stream or inject input into a running agent.
+              The socket carries bearer steer tickets, the control commands
+              and voice call audio. Plain <code>ws://</code> is cleartext:
+              anyone on the path can read the tickets and listen to calls.
               Only use <code>ws://</code> on a trusted LAN; anything reachable
               from the internet (phone steering away from home) must be{` `}
               <code>wss://</code> behind TLS, which the compose stack&apos;s{` `}
@@ -611,6 +614,22 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               </EnvVar>
               <EnvVar name="BETTER_AUTH_SECRET" required>
                 32+ character secret for session signing.
+              </EnvVar>
+              <EnvVar name="VAULT_KEY">
+                The key that seals OAuth tokens and team MCP server
+                credentials at rest, <code>&lt;kid&gt;:&lt;base64 of 32 bytes&gt;</code>
+                {` `}(kid = 1–16 of <code>a-z0-9</code>): generate one with{` `}
+                <code>echo &quot;k1:$(openssl rand -base64 32)&quot;</code>.
+                Unset = a key derived from <code>BETTER_AUTH_SECRET</code>{` `}
+                (kid <code>auth</code>), with a warning at boot. A malformed
+                value stops the server at boot.
+              </EnvVar>
+              <EnvVar name="VAULT_KEYS_RETIRED">
+                Old vault keys, comma-separated, used to open only. To rotate,
+                set a new <code>VAULT_KEY</code> and move the old one here: the
+                daily sweep re-seals every value and nobody reconnects. The
+                same daily pass deletes MCP call audit rows (
+                <code>mcp_calls</code>) older than 90 days.
               </EnvVar>
               <EnvVar name="S3_ENDPOINT" required>
                 S3-compatible storage URL. Any provider works, see{` `}
@@ -814,7 +833,8 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 Steer relay WebSocket URL (e.g.{` `}
                 <code>wss://issues.example.com/steer</code> — Caddy serves the
                 compose profile&apos;s relay under <code>/steer</code>) for
-                remote start and live watch/steer. Must be{` `}
+                device presence, remote start and control, and voice calls.
+                Session content never crosses it. Must be{` `}
                 <code>wss://</code> whenever it crosses untrusted networks.
                 Unset ⇒ the subsystem is off; local coding is unaffected.
               </EnvVar>

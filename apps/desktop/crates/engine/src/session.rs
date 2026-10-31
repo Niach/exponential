@@ -8,7 +8,7 @@
 //! [`EngineHost::on_exit`](crate::EngineHost::on_exit).
 //!
 //! EXP-1426 part 4d: the session itself is the agent runtime's
-//! (`exponential_agent_runtime::engine::session`); this builds Exponential's
+//! (`eagent::engine::session`); this builds Exponential's
 //! start on it — the launcher's [`coding::PreparedLaunch`], the tRPC client,
 //! the steer runtime and publisher, the run record — with the
 //! [`RunLifecycle`] as the run's backend, and wraps the handle so its exit
@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agent_client_protocol::{Client, ConnectTo};
-use exponential_agent_runtime::engine::session as core;
+use eagent::engine::session as core;
 
 use crate::adapters::{Adapter, AdapterKind, AdapterSpec};
 use crate::host::{ChildExitLink, EngineExit, EngineHost, KillFeed, LocalSink, RunFacts};
@@ -270,7 +270,7 @@ impl EngineSession {
 }
 
 /// The core's exit (no backend result) as Exponential's.
-fn widen(exit: exponential_agent_runtime::engine::EngineExit) -> EngineExit {
+fn widen(exit: eagent::engine::EngineExit) -> EngineExit {
     EngineExit {
         session_id: exit.session_id,
         outcome: exit.outcome,
@@ -558,7 +558,7 @@ impl EngineHost for NoHost {
 // EXP-1426 part 4c: the resume handle and the start error are the agent
 // runtime's (the adapters return them); `coding` converts its `ResumeSeed`
 // and `api` its `ApiError`.
-pub use exponential_agent_runtime::engine::launch::{EngineError, ResumeHandle};
+pub use eagent::engine::launch::{EngineError, ResumeHandle};
 
 #[cfg(test)]
 mod tests {

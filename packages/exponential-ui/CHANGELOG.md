@@ -5,6 +5,12 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1493: the Carousel `counter` pill moves to the track's top-END corner (mirrored under RTL), off the page's own heading: `CAROUSEL_CLASSES.counter` = `end-2`, the base CSS `inset-inline-end` (round-6 contract §3).
+
+## 0.3.0 (2026-10-31)
+
+- VAPP-180: a package may EXPOSE MCP tools (`docs/package-format.md` "Exposes", `catalog/host.json` `package.exposes`): `exposes: [{name, title, description, input, access, run}]`, declarative bindings a host's MCP broker lists as `<app>__<name>` and runs as the calling person, `run` = exactly one of `records` (the package's own kinds: list, get, upsert), `action` (a host function; it reads when its last word is a read word) or `upstream` (+ `tool`: one of the package's new `upstreams`, the MCP server names the host provides), every string with `${input.<path>}` templates. `validatePackage` checks them against the format half of the eMCP contract (`exposeIssues` gives each issue its eMCP error code; `src/host/exposes.test.ts` replays packages/emcp `fixtures/exposes.json`): names, limits, one run, templates naming declared inputs, the package's own kinds and upstreams, destructive names never exposed, a read binding never writing. Format version stays 2 (both keys are optional). `host-router.json` gains `acme.exposes`, `acme.badexposes` and `acme.exposeslist`; the Rust core mirrors it (`host/exposes.rs`, the contract constants).
+
 ## 0.2.1 (2026-10-30)
 
 - YO-30: `fixtures/text-clusters.json` (text lays out per grapheme cluster: one fallback face per cluster, `letterSpacing` per cluster) and its reference `textClusters` / `trackedClusters`.

@@ -43,6 +43,7 @@ vi.mock(`@/components/session-account-switch`, () => ({
 let messages: unknown[] = []
 const answerMutate = vi.fn(async (_input: unknown, _opts?: unknown) => ({ txid: 1 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({ useSessionMessages: () => messages }))
+vi.mock(`@/hooks/use-open-plan`, () => ({ useOpenPlan: () => () => undefined }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: { sessions: { answer: { mutate: answerMutate } } } }))
 vi.mock(`@/lib/collections`, () => ({
   messageCollection: { utils: { awaitTxId: async () => undefined }, get: () => undefined },
@@ -91,6 +92,7 @@ function snap(over: Partial<SteerSessionSnapshot>): SteerSessionSnapshot {
     turnState: `ended`,
     turnStartedAt: null,
     turnTokens: null,
+    turnWriting: null,
     backgroundTasks: [],
     taskList: [],
     queue: [],
@@ -246,6 +248,17 @@ describe(`AgentSessionView Trace transcript`, () => {
       `Running bun run typecheck`,
     ])
     expect(lines.map((line) => line.getAttribute(`data-status`))).toEqual([`running`, `running`])
+  })
+
+  it(`EXP-1501: a streaming tool call names itself on the working row with its own clock`, () => {
+    snapshot = snap({
+      turnState: `started`,
+      turnStartedAt: Date.now() - 120_000,
+      turnWriting: { tool: `ExitPlanMode`, startedAt: Date.now() - 54_000 },
+      feed: [{ id: 1, seq: 1, kind: `narration`, text: `Planning.` }],
+    })
+    render(<AgentSessionView session={session} />)
+    expect(screen.getByText(/^Writing ExitPlanMode… \(5[45]s\)$/)).toBeTruthy()
   })
 
   it(`a call that never settled reads settled once the stream is gone`, () => {

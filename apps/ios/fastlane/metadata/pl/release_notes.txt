@@ -1,7 +1,5 @@
-- Sesje są przesyłane prosto z urządzenia, na którym działają
-- Sesja, której urządzenie jest offline, mówi o tym i sama łączy się ponownie, gdy wróci
-- Wiadomości w sesjach są pieczętowane na twoich urządzeniach, więc serwer nie może ich już czytać
-- Pytanie z czatu, który rozpocząłeś, przychodzi jako powiadomienie na telefon i pokazuje samo pytanie
-- Dotknięcie decyzji w skrzynce odbiorczej otwiera czat, który na ciebie czeka
-- Relacje pokazują ostatnie 24 godziny, a karta Relacje w czacie pokazuje je na miejscu
-- Połączenia działają dalej, gdy przełączasz między głośnikiem, słuchawkami i Bluetooth
+- Plany otwierają się na własnej stronie, ze spisem treści i obrazami
+- Spokojniejsze relacje: jedna karta na plan lub wynik, każda z etykietą
+- Nowa aplikacja od razu otwiera edytor, a agent nadaje jej nazwę
+- Wiersz pracy pokazuje, które narzędzie pisze agent i od jak dawna
+- Szybkie odpowiedzi nad polem tekstowym są czytelniejsze

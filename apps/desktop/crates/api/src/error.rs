@@ -63,7 +63,7 @@ impl std::error::Error for ApiError {}
 
 /// EXP-1426 part 4c: a start that needed the server fails as the agent
 /// runtime's `EngineError::Api` (its `Display` is this error's).
-impl From<ApiError> for exponential_agent_runtime::engine::launch::EngineError {
+impl From<ApiError> for eagent::engine::launch::EngineError {
     fn from(err: ApiError) -> Self {
         Self::Api(Box::new(err))
     }

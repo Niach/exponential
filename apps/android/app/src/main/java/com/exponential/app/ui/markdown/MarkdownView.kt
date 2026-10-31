@@ -2,6 +2,7 @@ package com.exponential.app.ui.markdown
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -105,8 +106,13 @@ fun MarkdownView(
     }
 }
 
+/** #EXP-1493: a host that opens a picture on a press (the plan page's
+ *  lightbox) provides it; null = the picture is inert. */
+val LocalMarkdownImageClick = androidx.compose.runtime.compositionLocalOf<((url: String) -> Unit)?> { null }
+
 @Composable
 private fun ImageBlockView(url: String, alt: String) {
+    val onImageClick = LocalMarkdownImageClick.current
     // Pre-size from the synced attachment probe (REV2-79) so the row reserves
     // its real height instead of measuring 0 and jumping when the bitmap
     // lands. Our own attachments whose probe hasn't synced yet reserve the
@@ -142,7 +148,8 @@ private fun ImageBlockView(url: String, alt: String) {
             .padding(vertical = 4.dp)
             .then(if (aspect != null) Modifier.aspectRatio(aspect) else Modifier)
             .clip(shape)
-            .then(if (chat) Modifier.border(PlanCard.Look.PICTURE_STROKE.dp, GlassTokens.StrokeCard, shape) else Modifier),
+            .then(if (chat) Modifier.border(PlanCard.Look.PICTURE_STROKE.dp, GlassTokens.StrokeCard, shape) else Modifier)
+            .then(if (onImageClick != null) Modifier.clickable { onImageClick(url) } else Modifier),
     )
 }
 

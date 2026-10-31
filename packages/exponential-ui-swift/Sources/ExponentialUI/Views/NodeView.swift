@@ -38,7 +38,7 @@ struct LeafContext {
 
     /// The leaf's font: the face the measurer shaped with.
     var font: Font {
-        Font(ExponentialUIFonts.font(family: textStyle.fontFamily, weight: textStyle.fontWeight, size: textStyle.fontSize, italic: style.italic) as CTFont)
+        Font(ExponentialUIFonts.font(family: textStyle.fontFamily, weight: textStyle.fontWeight, size: textStyle.fontSize, italic: style.italic, tabular: textStyle.tabular) as CTFont)
     }
 
     /// The semantic tone colour of a `tone` prop.

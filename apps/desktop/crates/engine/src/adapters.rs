@@ -1,7 +1,7 @@
 //! EXP-746 — the ACP adapters.
 //!
 //! EXP-1426 part 4c: the adapters live in the agent runtime
-//! (`exponential_agent_runtime::engine::adapters`) and start from its core
+//! (`eagent::engine::adapters`) and start from its core
 //! [`LaunchSpec`]. This module re-exports them under their old paths and keeps
 //! Exponential's launch shape, [`AdapterSpec`]: the same fields with the
 //! launcher's `coding::LaunchOptions`, converted into the core spec (the
@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-pub use exponential_agent_runtime::engine::adapters::{
+pub use eagent::engine::adapters::{
     claude, claude_wire, codex, codex_wire, confine, is_new_conversation_command, Adapter,
     AdapterKind, LaunchSpec, RunOptions, BUILD_MODE_ID, NEW_CONVERSATION_COMMAND, PLAN_MODE_ID,
 };

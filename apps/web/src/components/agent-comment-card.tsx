@@ -1,3 +1,4 @@
+import { useAppName } from "@/hooks/use-apps"
 import { createContext, useContext, useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate, useParams } from "@tanstack/react-router"
@@ -91,8 +92,9 @@ export function CommentCallRow({ item }: { item: ToolItem }) {
         null
       )
     : owner
+  const viaAppName = useAppName(comment?.viaAppId)
   const caption = [
-    commentCaption(comment ?? { source: `mcp`, audience: `team` }),
+    commentCaption(comment ?? { source: `mcp`, audience: `team` }, viaAppName),
     relativeTime(
       comment
         ? comment.createdAt

@@ -26,8 +26,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 log = "0.4"
 uuid = { workspace = true }
-# The loopback MCP endpoint: a blocking HTTP/1.1 server on its own thread.
-tiny_http = { version = "0.12", default-features = false }
+# EXP-1492: the loopback MCP endpoint is eMCP's (rmcp's Streamable HTTP),
+# through ITS release tag like every other lib (docs/libraries.md); inside
+# the desktop workspace the [patch] builds the local crate.
+emcp = { git = "https://github.com/Niach/exponential", tag = "emcp-v0.2.0" }
 # The screenshot the agent sees: fitted to the model's frame and PNG-encoded.
 # Pure Rust, already in the tree.
 image = { workspace = true, features = ["png"] }

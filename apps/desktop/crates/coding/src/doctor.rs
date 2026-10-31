@@ -46,15 +46,15 @@ use std::time::Duration;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use exponential_agent_runtime::detect as rt;
-pub use exponential_agent_runtime::detect::{
+use eagent::detect as rt;
+pub use eagent::detect::{
     is_signed_in, parse_claude_auth_status, parse_claude_auth_status_full, parse_claude_version,
     parse_codex_login_status, parse_codex_version, parse_version_output, probe_codex_acp,
     ClaudeAuthStatus, Tool, MIN_CLAUDE_ACP_VERSION, MIN_CLAUDE_VERSION, MIN_CODEX_ACP_VERSION,
 };
-// EXP-1426: the probes moved to `exponential_agent_runtime::detect`; the
+// EXP-1426: the probes moved to `eagent::detect`; the
 // crate-internal callers keep these paths.
-pub(crate) use exponential_agent_runtime::detect::{
+pub(crate) use eagent::detect::{
     output_with_stdin_timeout, output_with_timeout, probe_claude_auth_status_in,
     probe_codex_auth_in, PROBE_TIMEOUT,
 };

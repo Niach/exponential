@@ -84,7 +84,7 @@ struct InboxListContent: View {
         Button {
             markRead()
             if case let .session(sessionId) = target {
-                pushRoute(AppRoute.openingSession(sessionId, accountId: accountId, deps: deps))
+                pushRoute(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
             }
         } label: {
             label()

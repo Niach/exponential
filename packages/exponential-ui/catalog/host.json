@@ -68,6 +68,16 @@
       "transports": ["http", "stdio", "script"],
       "functionPrefix": "tools."
     },
+    "exposes": {
+      "$comment": "VAPP-180 (the format half of the eMCP contract, packages/emcp fixtures/exposes.json in the Exponential repo): `exposes: [{name, title, description, input, access, run}]` = MCP tools a host's broker lists (as `<app>__<name>`) and runs as the CALLING person, data never code. `name` matches `limits.namePattern`, at most `limits.nameMax`, never holds `limits.separator`, unique; `title` (at most titleMax) and `description` (at most descriptionMax) non-blank; `input` = a JSON Schema `{type: \"object\", properties?}`; `access` read | write; at most `limits.maxTools` tools. `run` holds EXACTLY ONE of `runKinds`: `records: {op, kind, id?, where?, data?, limit?}` over the package's OWN kinds (op in `recordOps`; `readRecordOps` read, upsert writes; a delete is destructive and refused); `action` (+ `args`) = a host function name matching `actionPattern` (it reads when the last word of its name is a `readOpWords` word, else it writes); `upstream` (+ `tool`, `args`) = one of the package's `upstreams` (the MCP server names the HOST provides: Exponential = the team's MCP servers). Every string of `run` may hold `${input.<dotted path>}` templates whose first key is a declared input property. Destructive is never exposed: an action or upstream tool whose name holds a `destructiveWords` word (words = the lowercase letter runs) is refused. A binding declared read whose run writes is refused; an upstream tool's level is its live annotations', checked by the host at call. Issues come in binding order with the eMCP error code (`exposeIssues`). What a run may reach on a given host (which actions exist and are grantable, destructive arguments, which upstreams the team has) is the host's own check on top.",
+      "limits": { "namePattern": "^[a-z][a-z0-9_]*$", "nameMax": 40, "titleMax": 80, "descriptionMax": 1024, "maxTools": 32, "separator": "__" },
+      "runKinds": ["records", "action", "upstream"],
+      "recordOps": ["list", "get", "upsert"],
+      "readRecordOps": ["list", "get"],
+      "readOpWords": ["list", "get", "show", "catalog", "activity", "files"],
+      "destructiveWords": ["delete", "merge", "close", "end", "remove", "trash"],
+      "actionPattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
     "extensions": {
       "$comment": "VAPP-161: `extensions: [{id, version, components?}]`: an extension catalog id the package needs beyond its catalogId, the minimum MAJOR.MINOR.PATCH (caret: the host's has the same major and is not lower; an unversioned registration satisfies any) and the components it uses. Install issues: an id not registered on the host (`extension <id> is not available on this host`), a version that does not satisfy (`extension <id> <have> does not satisfy ^<want>`), a component the registered extension does not define (`extension <id> has no component <name>`), a duplicate id. A host registers an extension's version as ExtensionDef.version.",
       "versionPattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
