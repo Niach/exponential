@@ -10,6 +10,12 @@
 //!   calls into the instance's own `/api/mcp`.
 //! - [`oauth`]: the same client authorized with OAuth, its credentials in a
 //!   [`oauth::Vault`] the host implements (keychain or server-backed).
+//! - [`hub`]: the LOCAL HUB (#EXP-1507): several MCP servers (upstreams
+//!   and in-process providers) behind ONE loopback endpoint, each run
+//!   granted a level per server and every call written as an `mcp_calls`
+//!   audit row (`packages/emcp/fixtures/hub.json`).
+//! - `codemode` (feature `codemode`): code mode, `exec` + `describe` over
+//!   a run's other MCP servers (moved in from `crates/codemode`).
 //! - [`contract`]: the eMCP contract of `packages/emcp` (exposes, access,
 //!   audit, vault, upstream), replayed case by case from its fixtures: the
 //!   app tool broker's rules, the same as the server broker's.
@@ -18,7 +24,10 @@
 //! own runtime threads, never under a host's executor.
 
 pub mod client;
+#[cfg(feature = "codemode")]
+pub mod codemode;
 pub mod contract;
+pub mod hub;
 pub mod oauth;
 mod runtime;
 pub mod server;
@@ -28,4 +37,4 @@ pub mod server;
 pub use ecore;
 pub use ecore::{DeliveryVerdict, ErrorCode, Failure, SessionId, Token};
 pub use client::{Client, ClientError, Upstream};
-pub use server::{Caller, RawRequest, RawResponse, RawRoute, Server, ServerInfo, ToolProvider};
+pub use server::{Caller, RawRequest, RawResponse, RawRoute, Refusal, Server, ServerInfo, ToolProvider};

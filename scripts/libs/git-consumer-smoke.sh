@@ -45,13 +45,21 @@ for p in $peers; do
   done
 done
 
+# EXP-1507: the optional parts a consumer turns on (emcp's code mode), so
+# the smoke builds them from the checkout too.
+features_of() {
+  case "$1" in
+    emcp) printf ', features = ["codemode"]' ;;
+  esac
+}
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/src"
 src="git = \"file://$repo\", rev = \"$rev\""
 {
   printf '[package]\nname = "consumer-smoke"\nversion = "0.0.0"\nedition = "2024"\npublish = false\n\n[dependencies]\n'
-  for c in $crates; do printf '%s = { %s }\n' "$c" "$src"; done
+  for c in $crates; do printf '%s = { %s%s }\n' "$c" "$src" "$(features_of "$c")"; done
   printf '%s' "$tagged"
   printf '\n# A dependency'"'"'s [patch] never reaches its consumers: copied (docs/libraries.md).\n'
   printf '[patch."https://github.com/zed-industries/zed"]\nztracing = { %s }\nztracing_macro = { %s }\n' "$src" "$src"

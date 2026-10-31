@@ -388,3 +388,107 @@ fn every_case_list_is_replayed() {
         }
     }
 }
+
+// ---------------------------------------------------------------- hub (EXP-1507)
+
+use emcp::contract::hub::{self, HubGrant, HubOutcome, RowInput};
+
+fn hub_servers() -> Vec<(String, Vec<Value>)> {
+    fixture::hub()["servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|server| (s(&server["name"]).to_string(), server["tools"].as_array().unwrap().clone()))
+        .collect()
+}
+
+fn hub_grant(value: &Value) -> HubGrant {
+    serde_json::from_value(value.clone()).expect("a hub grant")
+}
+
+#[test]
+fn hub_constants_match() {
+    let f = fixture::hub();
+    assert_eq!(f["serverNameMax"], hub::SERVER_NAME_MAX);
+    assert_eq!(f["unknownToolCode"], emcp::server::UNKNOWN_TOOL_CODE);
+    for (outcome, status) in f["outcomes"].as_object().unwrap() {
+        let parsed = HubOutcome::parse(outcome).unwrap_or_else(|| panic!("outcome {outcome}"));
+        assert_eq!(parsed.status().as_str(), s(status), "{outcome}");
+        assert_eq!(parsed.error(), f["errors"][outcome].as_str(), "{outcome}");
+    }
+    // The row is audit.json's: the same columns, nothing else.
+    let row = hub::audit_row(RowInput {
+        id: "r".into(),
+        grant: &HubGrant::default(),
+        run: "run-1",
+        name: "x",
+        args: None,
+        outcome: HubOutcome::Ok,
+        latency_ms: 0,
+        created_ms: 0,
+    });
+    let mut keys: Vec<String> = row.to_json().as_object().unwrap().keys().cloned().collect();
+    let mut columns = strings(&fixture::audit()["columns"]);
+    keys.sort();
+    columns.sort();
+    assert_eq!(keys, columns);
+}
+
+#[test]
+fn hub_server_name_cases() {
+    for case in fixture::hub()["serverNameCases"].as_array().unwrap() {
+        assert_eq!(hub::server_name_valid(s(&case["name"])), case["expected"].as_bool().unwrap(), "{}", case["name"]);
+    }
+}
+
+#[test]
+fn hub_list_cases() {
+    let servers = hub_servers();
+    for case in fixture::hub()["listCases"].as_array().unwrap() {
+        let got: Vec<String> = hub::tool_list(&hub_grant(&case["grant"]), &servers).into_iter().map(|listed| listed.name).collect();
+        assert_eq!(got, strings(&case["expected"]), "{}", case["name"]);
+    }
+}
+
+#[test]
+fn hub_call_cases() {
+    let servers = hub_servers();
+    for case in fixture::hub()["callCases"].as_array().unwrap() {
+        let grant = hub_grant(&case["grant"]);
+        let name = s(&case["call"]["name"]);
+        let routed = hub::route(&grant, &servers, name);
+        let expected = &case["expected"];
+        let want = (!expected["routed"].is_null())
+            .then(|| (s(&expected["routed"]["server"]).to_string(), s(&expected["routed"]["tool"]).to_string()));
+        assert_eq!(routed, want, "{}", case["name"]);
+        let outcome = if routed.is_some() { HubOutcome::parse(s(&case["upstream"])).unwrap() } else { HubOutcome::Unknown };
+        let row = hub::audit_row(RowInput {
+            id: "row-1".into(),
+            grant: &grant,
+            run: s(&case["run"]),
+            name,
+            args: Some(&case["call"]["arguments"]),
+            outcome,
+            latency_ms: 12,
+            created_ms: 0,
+        });
+        let want = &expected["row"];
+        assert_eq!(row.team_id.as_deref(), want["teamId"].as_str(), "{}", case["name"]);
+        assert_eq!(row.user_id.as_deref(), want["userId"].as_str(), "{}", case["name"]);
+        assert_eq!(row.client_id, s(&want["clientId"]), "{}", case["name"]);
+        assert_eq!(row.app_id, None, "{}", case["name"]);
+        assert_eq!(row.tool, s(&want["tool"]), "{}", case["name"]);
+        assert_eq!(row.status.as_str(), s(&want["status"]), "{}", case["name"]);
+        assert_eq!(row.error, want["error"].as_str(), "{}", case["name"]);
+        assert_eq!(row.args_hash, s(&want["argsHash"]), "{}", case["name"]);
+    }
+}
+
+#[test]
+fn hub_created_at_cases() {
+    for case in fixture::hub()["createdAtCases"].as_array().unwrap() {
+        let ms = case["ms"].as_i64().unwrap();
+        assert_eq!(hub::format_utc_ms(ms), s(&case["expected"]));
+        assert_eq!(audit::parse_utc_ms(s(&case["expected"])), Some(ms));
+    }
+}

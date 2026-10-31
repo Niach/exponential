@@ -28,7 +28,7 @@ uuid = { workspace = true }
 # EXP-1492: the loopback MCP endpoint is eMCP's (rmcp's Streamable HTTP),
 # through ITS release tag like every other lib (docs/libraries.md); inside
 # the desktop workspace the [patch] builds the local crate.
-emcp = { git = "https://github.com/Niach/exponential", tag = "emcp-v0.1.0" }
+emcp = { git = "https://github.com/Niach/exponential", tag = "emcp-v0.2.0" }
 image = { workspace = true, features = ["png"] }
 rusqlite = { workspace = true }
 # The focused window (app, title, rect) and the display order: the computer

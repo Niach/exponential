@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use emcp::Client;
+use crate::Client;
 
-use crate::Upstream;
+use crate::codemode::Upstream;
 
 /// One callable tool.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,7 +43,7 @@ impl Catalog {
             .cloned()
             .map(|upstream| {
                 std::thread::spawn(move || {
-                    let listed = Client::connect(&upstream, crate::server::CLIENT_NAME, LIST_TIMEOUT)
+                    let listed = Client::connect(&upstream, crate::codemode::server::CLIENT_NAME, LIST_TIMEOUT)
                         .and_then(|client| client.list_tools(LIST_TIMEOUT));
                     (upstream.name, listed)
                 })

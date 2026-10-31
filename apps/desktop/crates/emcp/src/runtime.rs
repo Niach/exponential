@@ -5,12 +5,18 @@
 use std::future::Future;
 use std::sync::OnceLock;
 
+/// The crypto provider every rustls client of this process builds from:
+/// ring, unless the host installed one already.
+pub(crate) fn install_crypto() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
         // reqwest 0.13 without a bundled provider builds its TLS from the
-        // process default: ring, unless the host installed one already.
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        // process default.
+        install_crypto();
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .thread_name("emcp")

@@ -5,9 +5,9 @@
 //! stdio: one `Start` line in (the script, the catalog's names, the
 //! limits), then `Call` and `Print` lines out and `Answer` lines in while
 //! the script runs, and ONE `Done` line at the end. The worker holds only
-//! the engine ([`crate::runtime::Engine`]): the run's credentials, the
+//! the engine ([`crate::codemode::runtime::Engine`]): the run's credentials, the
 //! upstream clients, the call pool, the console and the call log stay in
-//! the host ([`crate::runtime::Dispatcher`]), which is what every `Call`
+//! the host ([`crate::codemode::runtime::Dispatcher`]), which is what every `Call`
 //! is routed to.
 //!
 //! Why a process: boa cannot interrupt a synchronous loop and has no heap
@@ -30,8 +30,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::catalog::Catalog;
-use crate::runtime::{
+use crate::codemode::catalog::Catalog;
+use crate::codemode::runtime::{
     self, CallHost, CallRequest, CallStats, Completion, Console, Dispatcher, Engine, EngineIo, ExecError, ExecOutcome,
     Limits, Prelude,
 };
@@ -456,8 +456,8 @@ fn resident_bytes(pid: u32) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::ToolSpec;
-    use crate::runtime::Isolation;
+    use crate::codemode::catalog::ToolSpec;
+    use crate::codemode::runtime::Isolation;
     use serde_json::json;
     use std::sync::atomic::Ordering;
 
@@ -475,7 +475,7 @@ mod tests {
     fn test_command() -> WorkerCommand {
         WorkerCommand {
             program: std::env::current_exe().unwrap(),
-            args: ["--exact", "worker::tests::worker_entry", "--nocapture", "--quiet", "--test-threads=1"]
+            args: ["--exact", "codemode::worker::tests::worker_entry", "--nocapture", "--quiet", "--test-threads=1"]
                 .into_iter()
                 .map(Into::into)
                 .collect(),

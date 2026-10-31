@@ -16,7 +16,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::{LazyLock, Mutex};
 
-use crate::runtime::CallRecord;
+use crate::codemode::runtime::CallRecord;
 
 /// One finished exec, as the activity feed shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
