@@ -56,7 +56,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_137: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_139: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-app-data-tab",
     date: "2026-10-31",
     title: "App data in the editor",
