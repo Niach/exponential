@@ -130,3 +130,18 @@ export const STEER_ENET_LOST_FAILED_REDIALS = fixture.lostBanner.failedRedials
 export function steerShowConnectionLost(downMs: number, failedRedials: number): boolean {
   return downMs >= STEER_ENET_LOST_GRACE_MS && failedRedials >= STEER_ENET_LOST_FAILED_REDIALS
 }
+
+export const STEER_ENET_NO_FEED_IDLE = fixture.noFeedIdle
+
+/** EXP-1487: what an empty transcript says while NO FEED holds. */
+export type SteerNoFeedState = `offline` | `starting` | `idle`
+
+/**
+ * EXP-1487: an ended row = the device-offline copy, a busy row = starting,
+ * anything else (idle, waiting on a question) = the idle empty state, never
+ * "starting".
+ */
+export function steerNoFeedState(row: { ended: boolean; busy: boolean }): SteerNoFeedState {
+  if (row.ended) return `offline`
+  return row.busy ? `starting` : `idle`
+}

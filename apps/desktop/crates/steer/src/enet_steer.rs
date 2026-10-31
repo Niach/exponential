@@ -60,6 +60,31 @@ pub fn show_connection_lost(down: Duration, failed_redials: u32) -> bool {
     down >= LOST_GRACE && failed_redials >= LOST_FAILED_REDIALS
 }
 
+/// EXP-1487 (`noFeed`): what an empty transcript says while NO FEED holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoFeedState {
+    /// The ended row's device-offline copy.
+    Offline,
+    /// A turn is running: "The agent is starting…".
+    Starting,
+    /// Idle or waiting on a question: never "starting".
+    Idle,
+}
+
+/// EXP-1487 (TS `steerNoFeedState`).
+pub fn no_feed_state(ended: bool, busy: bool) -> NoFeedState {
+    match (ended, busy) {
+        (true, _) => NoFeedState::Offline,
+        (false, true) => NoFeedState::Starting,
+        (false, false) => NoFeedState::Idle,
+    }
+}
+
+/// EXP-1487 (`noFeedIdle`): the idle empty state's copy.
+pub const NO_FEED_IDLE_TITLE: &str = "No live transcript";
+pub const NO_FEED_IDLE_TEXT: &str =
+    "The device holding this session isn't publishing right now. Its conversation stays in the chat.";
+
 /// A join with no `activity_synced` within this long = no feed from that
 /// endpoint.
 pub const JOIN_TIMEOUT: Duration = Duration::from_millis(8_000);
@@ -791,6 +816,18 @@ mod tests {
         assert_eq!(f["staleMs"], STALE.as_millis() as u64);
         assert_eq!(f["joinTimeoutMs"], JOIN_TIMEOUT.as_millis() as u64);
         assert_eq!(f["sendTimeoutMs"], SEND_TIMEOUT.as_millis() as u64);
+        assert_eq!(f["noFeedIdle"]["title"], NO_FEED_IDLE_TITLE);
+        assert_eq!(f["noFeedIdle"]["text"], NO_FEED_IDLE_TEXT);
+        for case in f["noFeed"].as_array().unwrap() {
+            let state = match case["state"].as_str().unwrap() {
+                "offline" => NoFeedState::Offline,
+                "starting" => NoFeedState::Starting,
+                "idle" => NoFeedState::Idle,
+                other => panic!("unknown state {other}"),
+            };
+            let (ended, busy) = (case["ended"].as_bool().unwrap(), case["busy"].as_bool().unwrap());
+            assert_eq!(no_feed_state(ended, busy), state, "{}", case["name"]);
+        }
         assert_eq!(f["lostBanner"]["graceMs"], LOST_GRACE.as_millis() as u64);
         assert_eq!(f["lostBanner"]["failedRedials"], LOST_FAILED_REDIALS);
         for case in f["lostBannerCases"].as_array().unwrap() {

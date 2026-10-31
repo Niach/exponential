@@ -264,6 +264,14 @@ fn stale_ids(
 /// still owns, across every account — the scratch sweep's keep set (the
 /// caller adds its own in-process live set; an entry under our own pid at
 /// startup is a re-exec/crash leftover the reconcile ends).
+/// EXP-1487: every session the registry names, whichever process recorded
+/// it and still owned (an ended run's entry has no pid, or is gone): runs
+/// that are not over. The scratch sweep keeps them.
+pub(crate) fn recorded_ids(data_dir: &Path) -> Vec<String> {
+    let _guard = LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    load(data_dir).into_iter().filter(|entry| entry.pid.is_some()).map(|entry| entry.id).collect()
+}
+
 pub(crate) fn live_ids(data_dir: &Path) -> Vec<String> {
     let _guard = LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     live_ids_from(load(data_dir), std::process::id(), process_is_alive)

@@ -176,6 +176,27 @@ final class SteerEnetTests: XCTestCase {
         XCTAssertEqual(SteerNoFeedState.decide(sessionOver: true), .endedDeviceOffline)
     }
 
+    // EXP-1487 NO FEED, EMPTY TRANSCRIPT: ended = offline, busy = starting,
+    // anything else (idle, an open question) = the idle empty state.
+    func testNoFeedCases() throws {
+        let noFeed = try cases("noFeed")
+        XCTAssertFalse(noFeed.isEmpty)
+        for c in noFeed {
+            let name = c["name"] as? String ?? "?"
+            let ended = try XCTUnwrap(c["ended"] as? Bool, name)
+            let busy = try XCTUnwrap(c["busy"] as? Bool, name)
+            XCTAssertNotNil(c["needsInput"] as? Bool, name)
+            let state = try XCTUnwrap(SteerNoFeed.State(rawValue: c["state"] as? String ?? ""), name)
+            XCTAssertEqual(SteerNoFeed.state(ended: ended, busy: busy), state, name)
+        }
+    }
+
+    func testNoFeedIdleCopyMatchesTheFixture() throws {
+        let copy = try XCTUnwrap(try fixture()["noFeedIdle"] as? [String: Any])
+        XCTAssertEqual(copy["title"] as? String, SteerNoFeed.idleTitle)
+        XCTAssertEqual(copy["text"] as? String, SteerNoFeed.idleText)
+    }
+
     // VAPP-169 OFFLINE REDIAL: the device-offline `ended` redials on
     // everything but presence going offline; a `bye`-ended transcript never.
     func testOfflineRedialCases() throws {

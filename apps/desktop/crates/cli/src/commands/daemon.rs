@@ -1446,7 +1446,10 @@ fn sweep_scratch_dirs(ctx: &Arc<Ctx>) {
 /// There is no next loop iteration to hand it to, and a detached thread would
 /// simply die with the process before it finished the walk.
 fn sweep_scratch_dirs_now(ctx: &Ctx) {
-    let live = registry::live_ids(&ctx.data_dir);
+    let mut live = registry::live_ids(&ctx.data_dir);
+    // EXP-1487: an idle run (recorded, not ended) keeps its dir, record and
+    // journal: they are its transcript and its resume.
+    live.extend(registry::recorded_ids(&ctx.data_dir));
     let report = coding::scratch::sweep(&ctx.data_dir, &live);
     // EXP-764: the purged runs' steer journals go with their records.
     for session_id in &report.purged {

@@ -182,6 +182,33 @@ class SteerEnetTest {
     }
 
     @Test
+    fun theNoFeedCasesAreTheFixtures() {
+        // EXP-1487: fixtures/steer-enet.json `noFeedIdle` + `noFeed`.
+        val idle = fixture["noFeedIdle"]!!.jsonObject
+        assertEquals(idle["title"]!!.jsonPrimitive.content, STEER_NO_FEED_IDLE_TITLE)
+        assertEquals(idle["text"]!!.jsonPrimitive.content, STEER_NO_FEED_IDLE_TEXT)
+        val cases = fixture["noFeed"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val expected = when (val state = case["state"]!!.jsonPrimitive.content) {
+                "offline" -> SteerNoFeedState.Offline
+                "starting" -> SteerNoFeedState.Starting
+                "idle" -> SteerNoFeedState.Idle
+                else -> error("unknown noFeed state $state")
+            }
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                expected,
+                steerNoFeedState(
+                    ended = case["ended"]!!.jsonPrimitive.boolean,
+                    busy = case["busy"]!!.jsonPrimitive.boolean,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun anEncodedEnvelopeParsesBackWithItsFramesUnchanged() {
         val frames = listOf(frame("""{"t":"input","data":"hello"}"""), frame("""{"t":"input","data":"\r"}"""))
         val parsed = parseSteerEnvelope(encodeSteerEnvelope("s1", frames).decodeToString())!!

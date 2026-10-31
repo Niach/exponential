@@ -535,6 +535,16 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .multilineTextAlignment(.center)
             }
+        } else if model.feed.isEmpty, model.phase == .starting,
+                  SteerNoFeed.state(
+                      ended: model.sessionEnded, busy: (model.session ?? session).busy
+                  ) == .idle {
+            // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): NO FEED on
+            // a row that is not busy (idle, or on an open question) is never
+            // "starting": the idle empty state, while the model keeps redialing.
+            centeredState {
+                EmptyState(title: SteerNoFeed.idleTitle, description: SteerNoFeed.idleText)
+            }
         } else if model.feed.isEmpty,
                   model.phase == .connecting || model.phase == .starting || model.phase == .idle {
             // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
