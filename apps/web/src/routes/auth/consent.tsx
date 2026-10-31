@@ -17,6 +17,7 @@ import {
   type ScopeSelection,
 } from "@exp/ui"
 import { pageTitle } from "@/lib/page-title"
+import { AppsConsent } from "@/components/mcp/apps-consent"
 
 // Scope-selection consent screen for the MCP OAuth flow. The authorize
 // endpoint lands here (prompt=consent is forced server-side) with a
@@ -29,6 +30,8 @@ interface ConsentSearch {
   consent_code?: string
   client_id?: string
   scope?: string
+  /** #VAPP-182: `apps` = the client connects to `/api/mcp/apps`. */
+  resource?: string
 }
 
 export const Route = createFileRoute(`/auth/consent`)({
@@ -39,6 +42,7 @@ export const Route = createFileRoute(`/auth/consent`)({
     consent_code: (search.consent_code as string) || undefined,
     client_id: (search.client_id as string) || undefined,
     scope: (search.scope as string) || undefined,
+    resource: search.resource === `apps` ? `apps` : undefined,
   }),
   beforeLoad: async ({ location }) => {
     const session = await fetchSessionOnce()
@@ -52,7 +56,7 @@ export const Route = createFileRoute(`/auth/consent`)({
 })
 
 function ConsentPage() {
-  const { consent_code: consentCode, client_id: clientId } = Route.useSearch()
+  const { consent_code: consentCode, client_id: clientId, resource } = Route.useSearch()
 
   const [clientName, setClientName] = useState<string | null>(null)
   const [tree, setTree] = useState<Array<ScopePickerTeam> | null>(null)
@@ -79,7 +83,7 @@ function ConsentPage() {
     let cancelled = false
     Promise.all([
       trpc.mcpGrants.consentInfo.query({ clientId }),
-      trpc.mcpGrants.scopeTree.query(),
+      resource === `apps` ? Promise.resolve({ teams: [] }) : trpc.mcpGrants.scopeTree.query(),
     ])
       .then(([info, scopes]) => {
         if (cancelled) return
@@ -96,7 +100,7 @@ function ConsentPage() {
     return () => {
       cancelled = true
     }
-  }, [clientId, loadAttempt])
+  }, [clientId, loadAttempt, resource])
 
   const hasSelection = hasScopeSelection(selection)
 
@@ -134,6 +138,18 @@ function ConsentPage() {
           Start authentication again from your MCP client (in Claude Code: run
           /mcp, select the server, and authenticate).
         </p>
+      </AuthFormShell>
+    )
+  }
+
+  if (resource === `apps`) {
+    return (
+      <AuthFormShell
+        title={`${clientName ?? `MCP client`} wants to use your apps`}
+        description={`Choose which apps ${clientName ?? `this MCP client`} can use on your behalf.`}
+        footer={null}
+      >
+        <AppsConsent clientId={clientId} clientName={clientName} consentCode={consentCode} />
       </AuthFormShell>
     )
   }

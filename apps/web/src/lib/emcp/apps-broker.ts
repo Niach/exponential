@@ -122,6 +122,8 @@ export interface BrokerApp {
   id: string
   slug: string
   name: string
+  icon: string | null
+  color: string | null
   teamId: string
   grantedTools: string[]
   upstreams: string[]
@@ -160,7 +162,7 @@ export async function brokerTools(
     .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
     .limit(1)
   const rows = await db
-    .select({ id: apps.id, slug: apps.slug, name: apps.name, teamId: apps.teamId, package: apps.package, grantedTools: apps.grantedTools })
+    .select({ id: apps.id, slug: apps.slug, name: apps.name, icon: apps.icon, color: apps.color, teamId: apps.teamId, package: apps.package, grantedTools: apps.grantedTools })
     .from(apps)
     .where(and(eq(apps.teamId, teamId), isNull(apps.deletedAt)))
   const listed: { app: BrokerApp; exposes: Expose[] }[] = []
@@ -175,7 +177,7 @@ export async function brokerTools(
     if (broken.has(null)) continue
     const level = effectiveAccess({ grant, appId: row.id, teamId: row.teamId, appDeleted: false, role: member?.role ?? null, policy: policyOf(row.id) })
     listed.push({
-      app: { id: row.id, slug: row.slug, name: row.name, teamId: row.teamId, grantedTools: row.grantedTools, upstreams, level },
+      app: { id: row.id, slug: row.slug, name: row.name, icon: row.icon, color: row.color, teamId: row.teamId, grantedTools: row.grantedTools, upstreams, level },
       exposes: exposes.filter((_, i) => !broken.has(i)),
     })
   }

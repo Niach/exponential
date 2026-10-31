@@ -499,6 +499,12 @@ export function StoryViewerPanel({
     const dx = event.clientX - current.x
     const dy = event.clientY - current.y
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return
+    // stories.json: a tap anywhere on a plan's cover opens THE plan page
+    // (swipes, the arrows and the keys still step).
+    if (frame?.kind === `plan` && story && onOpenPlan) {
+      onOpenPlan(story)
+      return
+    }
     const box = event.currentTarget.getBoundingClientRect()
     const at = (event.clientX - box.left) / Math.max(1, box.width)
     if (at < 1 / 3) onPrev?.()

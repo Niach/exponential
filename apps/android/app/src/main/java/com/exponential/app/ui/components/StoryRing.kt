@@ -160,15 +160,12 @@ fun storyKindTint(kind: Stories.Kind): Color = when (kind) {
     Stories.Kind.Result -> DesignTokens.Semantic.Green
 }
 
-/** The word a waiting plan adds on the plan page (` · waiting`). */
-const val STORY_BADGE_WAITING = "waiting"
-
 /**
  * #EXP-1493 THE kind badge ×4 (stories.json `badge` = THE Pill, sm,
  * readonly): the concept icon ([Stories.Badge.icon]) + the kind word in the
  * tint, the tint at [Stories.Badge.FILL] behind and at
  * [Stories.Badge.STROKE] as its border, a capsule. [waiting] = the plan
- * page's ` · waiting`.
+ * page's 6dp needs-you dot after it (plan-page.json; no word).
  */
 @Composable
 fun StoryKindBadge(kind: Stories.Kind, waiting: Boolean = false, modifier: Modifier = Modifier) {
@@ -176,28 +173,37 @@ fun StoryKindBadge(kind: Stories.Kind, waiting: Boolean = false, modifier: Modif
     val shape = RoundedCornerShape(50)
     val word = Stories.Copy.kind(kind)
     Row(
-        modifier = modifier
-            .clip(shape)
-            .background(tint.copy(alpha = Stories.Badge.FILL), shape)
-            .border(1.dp, tint.copy(alpha = Stories.Badge.STROKE), shape)
-            .padding(horizontal = 8.dp, vertical = 3.dp)
-            .testTag("story-badge"),
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            ExpIcons.byConcept(Stories.Badge.icon(kind)) ?: ExpIcons.codingPlan,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(11.dp),
-        )
-        Text(
-            if (waiting) "$word · $STORY_BADGE_WAITING" else word,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium,
-            color = tint,
-            maxLines = 1,
-        )
+        Row(
+            modifier = Modifier
+                .clip(shape)
+                .background(tint.copy(alpha = Stories.Badge.FILL), shape)
+                .border(1.dp, tint.copy(alpha = Stories.Badge.STROKE), shape)
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+                .testTag("story-badge"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                ExpIcons.byConcept(Stories.Badge.icon(kind)) ?: ExpIcons.codingPlan,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(11.dp),
+            )
+            Text(
+                word,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = tint,
+                maxLines = 1,
+            )
+        }
+        if (waiting) {
+            Box(Modifier.size(6.dp).background(DesignTokens.Semantic.Yellow, CircleShape).testTag("story-badge-waiting"))
+        }
     }
 }
 

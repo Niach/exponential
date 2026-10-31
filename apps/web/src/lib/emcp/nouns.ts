@@ -89,7 +89,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   },
   {
     name: `attachments`,
-    blurb: `Files on an issue: list, get (metadata + contents or a signed URL), upload (bytes now, or a signed uploadUrl then finalize), delete.`,
+    blurb: `Files on an issue: list, get (metadata + contents or a signed URL), upload (bytes now, or a signed uploadUrl then finalize; no issueId = a loose file for sessions_send attachmentIds), delete.`,
     ops: {
       list: `attachments_list`,
       get: `attachments_get`,

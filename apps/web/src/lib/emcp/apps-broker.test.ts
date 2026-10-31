@@ -20,7 +20,7 @@ import {
 // (the DB-backed runs are covered by the endpoint's callers).
 
 const [listEntries, logComment, findCustomer] = fixture.validateCases[0]!.exposes as unknown as Expose[]
-const app: BrokerApp = { id: `a1`, slug: `timesheet`, name: `Timesheet`, teamId: `t1`, grantedTools: [`exponential.comments.create`], upstreams: [`m5`], level: `write` }
+const app: BrokerApp = { id: `a1`, slug: `timesheet`, name: `Timesheet`, icon: null, color: null, teamId: `t1`, grantedTools: [`exponential.comments.create`], upstreams: [`m5`], level: `write` }
 const tools: BrokerTool[] = [
   { name: `timesheet__list_entries`, app, expose: listEntries! },
   { name: `timesheet__log_comment`, app, expose: logComment! },

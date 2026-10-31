@@ -1,8 +1,10 @@
-//! `ede-compositor [--headless WxH] [-- command args…]`
+//! `ede-compositor [--udev | --headless WxH] [--config PATH] [-- command args…]`
 //!
-//! Nested by default: opens a window on the running X11 or Wayland session
-//! and serves `$XDG_RUNTIME_DIR/wayland-N`. Anything after `--` starts as a
-//! client with `WAYLAND_DISPLAY` pointing at us.
+//! Inside a running X11 or Wayland session it nests in a window (winit);
+//! from a TTY (neither `DISPLAY` nor `WAYLAND_DISPLAY` set) it takes the
+//! seat itself (udev). Either way it serves `$XDG_RUNTIME_DIR/wayland-N`, and
+//! anything after `--` starts as a client with `WAYLAND_DISPLAY` pointing at
+//! us.
 
 use std::process::Command;
 
@@ -16,6 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut args = std::env::args().skip(1);
     let mut headless: Option<(i32, i32)> = None;
+    let mut udev = std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none();
     let mut config_path = Config::default_path();
     let mut command: Vec<String> = Vec::new();
     while let Some(arg) = args.next() {
@@ -25,10 +28,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let (w, h) = size.split_once('x').ok_or("--headless needs WxH")?;
                 headless = Some((w.parse()?, h.parse()?));
             }
+            "--udev" => udev = true,
             "--config" => config_path = Some(args.next().ok_or("--config needs a path")?.into()),
             "--" => command.extend(args.by_ref()),
             "-h" | "--help" => {
-                println!("usage: ede-compositor [--headless WxH] [--config PATH] [-- command args…]");
+                println!("usage: ede-compositor [--udev | --headless WxH] [--config PATH] [-- command args…]");
                 return Ok(());
             }
             other => return Err(format!("unknown argument {other:?} (try --help)").into()),
@@ -45,6 +49,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => Config::default(),
     };
+
+    if udev && headless.is_none() {
+        #[cfg(feature = "udev")]
+        {
+            if let Some((program, rest)) = command.split_first() {
+                // Started once the socket exists (run() sets WAYLAND_DISPLAY).
+                let (program, rest) = (program.clone(), rest.to_vec());
+                return ede_compositor::backend::udev::run_with(config, move |socket| {
+                    if let Err(e) = Command::new(&program).args(&rest).env("WAYLAND_DISPLAY", socket).env_remove("DISPLAY").spawn() {
+                        tracing::warn!("{program}: {e}");
+                    }
+                });
+            }
+            return ede_compositor::backend::udev::run_with(config, |_| {});
+        }
+        #[cfg(not(feature = "udev"))]
+        return Err("no display to nest in, and built without the udev backend (cargo build --features udev)".into());
+    }
 
     let mut event_loop: EventLoop<'static, Ede> = EventLoop::try_new()?;
     let display: Display<Ede> = Display::new()?;

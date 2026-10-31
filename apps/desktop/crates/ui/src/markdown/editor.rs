@@ -710,6 +710,7 @@ fn render_image_slot(
     alt: &str,
     hooks: Option<EditorImageHooks>,
     chat: bool,
+    on_open: Option<OpenImageCallback>,
     cx: &mut App,
 ) -> gpui::AnyElement {
     let fetch_url = image_url::strip_query(url).to_string();
@@ -768,8 +769,10 @@ fn render_image_slot(
             };
             let clickable = {
                 let images = images.clone();
+                let src = url.to_string();
                 let url = fetch_url.clone();
                 let alt = alt.to_string();
+                let on_open = on_open.clone();
                 // Fixed child id — unique globally through the wrapper's id
                 // path (gpui element ids are hierarchical).
                 div()
@@ -780,6 +783,9 @@ fn render_image_slot(
                         // In the blurred-editor preview a bubbling click
                         // would also start editing behind the lightbox.
                         cx.stop_propagation();
+                        if let Some(on_open) = &on_open {
+                            return on_open(&src, window, cx);
+                        }
                         crate::image_preview::open_image_preview(
                             url.clone(),
                             alt.clone(),
@@ -871,10 +877,14 @@ fn render_image_slot(
                 .child(crate::tall_image::render_tall(&tall, display_width));
             if let Some(images) = images {
                 let images = images.clone();
+                let src = url.to_string();
                 let url = fetch_url.clone();
                 let alt = alt.to_string();
                 wrapper = wrapper.cursor_pointer().on_click(move |_, window, cx| {
                     cx.stop_propagation();
+                    if let Some(on_open) = &on_open {
+                        return on_open(&src, window, cx);
+                    }
                     crate::image_preview::open_image_preview(
                         url.clone(),
                         alt.clone(),
@@ -1240,6 +1250,8 @@ type BlurCallback = Rc<dyn Fn(&mut Window, &mut App)>;
 type OpenIssueCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 /// EXP-1188: a clicked link's raw href (see [`MarkdownView::on_open_link`]).
 type OpenLinkCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+/// #EXP-1493: a clicked picture's raw `src` (see [`MarkdownView::on_open_image`]).
+type OpenImageCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
 /// The editable markdown surface — see the module docs for the seam.
 pub struct MarkdownEditor {
@@ -2384,6 +2396,7 @@ impl MarkdownEditor {
                         alt,
                         Some(hooks),
                         false,
+                        None,
                         cx,
                     ));
                 }
@@ -2567,6 +2580,8 @@ pub struct MarkdownView {
     on_open_issue: Option<OpenIssueCallback>,
     /// EXP-1188: replaces the default link open ([`open_link_href`]).
     on_open_link: Option<OpenLinkCallback>,
+    /// #EXP-1493: replaces the default picture open (THE image preview).
+    on_open_image: Option<OpenImageCallback>,
     on_source_edit: Option<SourceEditCallback>,
     /// EXP-1188: link bare `http(s)://` URLs at render time (steer feed).
     autolink: bool,
@@ -2592,6 +2607,7 @@ impl MarkdownView {
             images: None,
             on_open_issue: None,
             on_open_link: None,
+            on_open_image: None,
             on_source_edit: None,
             autolink: false,
             selectable: false,
@@ -2628,6 +2644,17 @@ impl MarkdownView {
         on_open_link: impl Fn(&str, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_open_link = Some(Rc::new(on_open_link));
+        self
+    }
+
+    /// #EXP-1493: route a clicked picture's raw `src` through
+    /// `on_open_image` instead of THE image preview (the plan page opens its
+    /// lightbox over every picture of the plan, inline ones included).
+    pub fn on_open_image(
+        mut self,
+        on_open_image: impl Fn(&str, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_open_image = Some(Rc::new(on_open_image));
         self
     }
 
@@ -2905,6 +2932,7 @@ impl gpui::RenderOnce for MarkdownView {
                         alt,
                         None,
                         self.chat,
+                        self.on_open_image.clone(),
                         cx,
                     ));
                 }

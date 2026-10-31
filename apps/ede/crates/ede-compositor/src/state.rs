@@ -6,7 +6,7 @@ use std::{cell::RefCell, ffi::OsString, sync::Arc, time::Instant};
 
 use smithay::{
     desktop::{layer_map_for_output, PopupManager, Space, Window, WindowSurfaceType},
-    input::{keyboard::XkbConfig, Seat, SeatState},
+    input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat, SeatState},
     output::Output,
     reexports::{
         calloop::{generic::Generic, Interest, LoopHandle, LoopSignal, Mode, PostAction},
@@ -57,6 +57,9 @@ pub struct Ede {
     pub seat_state: SeatState<Ede>,
     pub data_device_state: DataDeviceState,
     pub seat: Seat<Ede>,
+    /// What the pointer looks like (a client's cursor surface, hidden, or
+    /// the default arrow); backends that draw their own cursor read it.
+    pub cursor_status: CursorImageStatus,
 }
 
 /// Per-window floating state, kept in the window's user data.
@@ -122,6 +125,7 @@ impl Ede {
             seat_state,
             data_device_state,
             seat,
+            cursor_status: CursorImageStatus::default_named(),
         }
     }
 
@@ -145,6 +149,45 @@ impl Ede {
         let x = self.space.outputs().filter_map(|o| self.space.output_geometry(o)).map(|g| g.loc.x + g.size.w).max().unwrap_or(0);
         self.space.map_output(output, (x, 0));
         layer_map_for_output(output).arrange();
+    }
+
+    /// Unplugged: the rest close ranks left to right, and the windows that
+    /// were on it (or end up on no output) reopen on the first one.
+    pub fn remove_output(&mut self, output: &Output) {
+        let center = |space: &Space<Window>, w: &Window| {
+            space.element_geometry(w).map(|g| g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0))
+        };
+        let gone = self.space.output_geometry(output);
+        let on_it: Vec<Window> = self
+            .space
+            .elements()
+            .filter(|w| gone.zip(center(&self.space, w)).is_some_and(|(g, c)| g.to_f64().contains(c)))
+            .cloned()
+            .collect();
+        self.space.unmap_output(output);
+        let outputs: Vec<Output> = self.space.outputs().cloned().collect();
+        let mut x = 0;
+        for o in outputs {
+            let w = self.space.output_geometry(&o).map(|g| g.size.w).unwrap_or(0);
+            self.space.map_output(&o, (x, 0));
+            layer_map_for_output(&o).arrange();
+            x += w;
+        }
+        let Some(area) = self.space.outputs().next().and_then(|o| self.work_area(o)) else { return };
+        let orphans: Vec<Window> = self
+            .space
+            .elements()
+            .filter(|w| on_it.contains(w) || center(&self.space, w).is_some_and(|c| self.space.output_under(c).next().is_none()))
+            .cloned()
+            .collect();
+        for w in orphans {
+            // A tiled window becomes floating again at its old size.
+            let size = self.restore_size(&w).unwrap_or(w.geometry().size);
+            self.untile(&w, None);
+            let taken: Vec<_> = self.space.elements().filter(|o| *o != &w).filter_map(|o| self.space.element_location(o)).collect();
+            let loc = layout::place_new(size, area, &taken, 32);
+            self.space.map_element(w, loc, false);
+        }
     }
 
     /// The output's area minus exclusive layer-shell zones (a panel), in
