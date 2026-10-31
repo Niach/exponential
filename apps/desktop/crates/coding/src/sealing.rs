@@ -571,6 +571,25 @@ pub fn open_body_text(root_id: &str, body: &str) -> Option<String> {
     open_body(root_id, body).text
 }
 
+/// FEED-178: [`open_body_text`] that keeps pulling the tree's wraps (every
+/// `step`, the holder woken) while the key is missing, up to `wait`. A new
+/// root's key is wrapped for the sender's install only; the device that
+/// runs it gets its wrap from a holder's `pending` pass moments later.
+pub fn open_body_text_waiting(root_id: &str, body: &str, wait: Duration, step: Duration) -> Option<String> {
+    let started = Instant::now();
+    loop {
+        let opened = open_body(root_id, body);
+        if opened.text.is_some() || opened.status != OpenStatus::NoKey || started.elapsed() >= wait {
+            return opened.text;
+        }
+        std::thread::sleep(step.min(wait.saturating_sub(started.elapsed())));
+        if let Some(service) = service() {
+            service.wake();
+            service.fetch_secrets(root_id);
+        }
+    }
+}
+
 /// The placeholder an agent reads for content this install cannot open.
 pub const LOCKED_TEXT: &str = "[sealed content this device cannot open yet]";
 

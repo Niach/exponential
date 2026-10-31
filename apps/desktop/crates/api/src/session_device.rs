@@ -67,6 +67,11 @@ pub struct SessionBrief {
     /// `false` from a server that does not send it (fails closed).
     #[serde(default)]
     pub screen_memory: bool,
+    /// EXP-1458 (FEED-178): the first person message when it is SEALED
+    /// (its envelope, untouched): `brief` was composed WITHOUT its text,
+    /// and the device opens it and puts it in as the Request itself.
+    #[serde(default)]
+    pub sealed_text: Option<String>,
 }
 
 impl SessionBrief {
@@ -460,7 +465,7 @@ mod tests {
     fn brief_queries_with_the_session_id_and_decodes_the_layers() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0","voicePolicy":true,"screenMemory":true}}}"#,
+            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0","voicePolicy":true,"screenMemory":true,"sealedText":"exp-sealed:v1:1:AAAA"}}}"#,
         );
         let brief = brief(&client(&base), SESSION).unwrap();
         assert_eq!(
@@ -473,6 +478,7 @@ mod tests {
                 root_agent_id: None,
                 voice_policy: true,
                 screen_memory: true,
+                sealed_text: Some("exp-sealed:v1:1:AAAA".to_string()),
             }
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
