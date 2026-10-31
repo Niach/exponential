@@ -1,0 +1,498 @@
+{
+  "$comment": "EXP-1507 (eMCP local hub, epic EXP-1503, 2026-10-31): ONE LOOPBACK ENDPOINT OVER SEVERAL MCP SERVERS, the device-side twin of `/api/mcp/apps`. A hub MOUNTS servers under a name (`serverNamePattern`: lowercase letters, digits and `-`, starting with a letter or digit, at most `serverNameMax`; never `__`, the separator), each an upstream MCP server (Streamable HTTP, the run's headers resolved) or an in-process tool provider; mounting a name twice replaces it. NAMING: the hub lists a mounted tool as exposes.json's qualified name with the SERVER NAME in place of the app slug (`qualifiedToolName(server, tool)`, `<server>__<tool>`, cut + hashed past 64) and resolves a call with `splitToolName` against the run's own list, so a tool whose own name holds `__` is never listed; servers are listed sorted by name and a qualified name an earlier server holds is dropped (`listToolNames`; within a server its own order). GRANTS (`listCases`): the hub admits a RUN with its own bearer token (an earlier token of the run dies; a revoke kills it) and a GRANT: `servers` = server name -> level (`read` | `write`; a server not named = `none`), plus the `teamId` and `userId` the run acts for (null on a device with no team). A tool's access is exposes.json's `upstreamAccess(annotations)` (read iff `readOnlyHint: true`, else write: destructive tools need write like every other); a tool is LISTED and CALLABLE iff access.json's `toolVisible(level, access)`. A CALL (`callCases`) to a name not on the run's list answers MCP's unknown-tool error (JSON-RPC -32602), never a hint that it exists, and is audited `denied` with error `unknownTool`; a listed call reaches its server once, as `tool` with the arguments as received. AUDIT: EVERY tools/call, denied ones included, writes ONE `mcp_calls` row (audit.json's columns, handed to the host's sink after the call, never blocking it): `id` a fresh uuid, `team_id` / `user_id` = the grant's, `client_id` = the run's session id (on a device the run is the client), `app_id` null, `tool` = the name as called, `status` = audit.json's `callStatus` of the outcome, `error` = `errors[outcome]` (null for `ok` and `isError`), `latency_ms` = the hub's wall time rounded down, `args_hash` = audit.json's `argsHash` of the arguments as received, `created_at` = ISO-8601 UTC with milliseconds. Outcomes (`outcomes`): `ok` = a result; `isError` = a result with `isError: true` -> failed; `invalidParams` = the server answered JSON-RPC -32602 -> invalid; `rpcError` = any other JSON-RPC error, `unreachable` = no connection or an HTTP error, `timeout` = no answer in time -> upstream; `unknown` = not listed for the run -> denied. Retention is the host's (audit.json `retentionDays`).",
+  "serverNamePattern": "^[a-z0-9][a-z0-9-]*$",
+  "serverNameMax": 32,
+  "outcomes": {
+    "ok": "ok",
+    "isError": "failed",
+    "invalidParams": "invalid",
+    "rpcError": "upstream",
+    "unreachable": "upstream",
+    "timeout": "upstream",
+    "unknown": "denied"
+  },
+  "errors": {
+    "ok": null,
+    "isError": null,
+    "invalidParams": "invalidArguments",
+    "rpcError": "upstreamFailed",
+    "unreachable": "upstreamFailed",
+    "timeout": "upstreamTimeout",
+    "unknown": "unknownTool"
+  },
+  "unknownToolCode": -32602,
+  "serverNameCases": [
+    {
+      "name": "files",
+      "expected": true
+    },
+    {
+      "name": "my-server-2",
+      "expected": true
+    },
+    {
+      "name": "2fa",
+      "expected": true
+    },
+    {
+      "name": "",
+      "expected": false
+    },
+    {
+      "name": "Files",
+      "expected": false
+    },
+    {
+      "name": "my_server",
+      "expected": false
+    },
+    {
+      "name": "a__b",
+      "expected": false
+    },
+    {
+      "name": "-lead",
+      "expected": false
+    },
+    {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "expected": false
+    },
+    {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "expected": true
+    }
+  ],
+  "servers": [
+    {
+      "name": "files",
+      "tools": [
+        {
+          "name": "read_file",
+          "annotations": {
+            "readOnlyHint": true
+          }
+        },
+        {
+          "name": "write_file"
+        },
+        {
+          "name": "delete_file",
+          "annotations": {
+            "destructiveHint": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "computer",
+      "tools": [
+        {
+          "name": "screenshot",
+          "annotations": {
+            "readOnlyHint": true
+          }
+        },
+        {
+          "name": "click",
+          "annotations": {
+            "readOnlyHint": false
+          }
+        },
+        {
+          "name": "bad__name",
+          "annotations": {
+            "readOnlyHint": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "linear",
+      "tools": [
+        {
+          "name": "list_issues",
+          "annotations": {
+            "readOnlyHint": true
+          }
+        }
+      ]
+    }
+  ],
+  "listCases": [
+    {
+      "name": "write on files, read on computer, nothing on linear",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "expected": [
+        "computer__screenshot",
+        "files__read_file",
+        "files__write_file",
+        "files__delete_file"
+      ]
+    },
+    {
+      "name": "no grant lists nothing",
+      "grant": {
+        "servers": {},
+        "teamId": null,
+        "userId": null
+      },
+      "expected": []
+    },
+    {
+      "name": "read everywhere lists only read-only tools",
+      "grant": {
+        "servers": {
+          "files": "read",
+          "computer": "read",
+          "linear": "read"
+        },
+        "teamId": null,
+        "userId": null
+      },
+      "expected": [
+        "computer__screenshot",
+        "files__read_file",
+        "linear__list_issues"
+      ]
+    },
+    {
+      "name": "an unknown server in the grant lists nothing extra",
+      "grant": {
+        "servers": {
+          "ghost": "write"
+        },
+        "teamId": null,
+        "userId": null
+      },
+      "expected": []
+    }
+  ],
+  "callCases": [
+    {
+      "name": "a granted read tool answers",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "run": "run-1",
+      "call": {
+        "name": "files__read_file",
+        "arguments": {
+          "path": "/tmp/a"
+        }
+      },
+      "upstream": "ok",
+      "expected": {
+        "routed": {
+          "server": "files",
+          "tool": "read_file"
+        },
+        "row": {
+          "teamId": "t1",
+          "userId": "u1",
+          "clientId": "run-1",
+          "appId": null,
+          "tool": "files__read_file",
+          "status": "ok",
+          "error": null,
+          "argsHash": "sha256:15df809ad5fadb66f0b31bafc206dcfe620d8da8767fb76e41d3603a45dc870d"
+        }
+      }
+    },
+    {
+      "name": "a granted write tool that errors is failed",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "run": "run-1",
+      "call": {
+        "name": "files__write_file",
+        "arguments": {
+          "path": "/tmp/a",
+          "text": "x"
+        }
+      },
+      "upstream": "isError",
+      "expected": {
+        "routed": {
+          "server": "files",
+          "tool": "write_file"
+        },
+        "row": {
+          "teamId": "t1",
+          "userId": "u1",
+          "clientId": "run-1",
+          "appId": null,
+          "tool": "files__write_file",
+          "status": "failed",
+          "error": null,
+          "argsHash": "sha256:a835aef067e005a76bff09fcbb9b3706400153a45f58557f82d0a2ed10d24357"
+        }
+      }
+    },
+    {
+      "name": "a write tool on a read grant is unknown",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "run": "run-1",
+      "call": {
+        "name": "computer__click",
+        "arguments": {
+          "x": 1,
+          "y": 2
+        }
+      },
+      "upstream": null,
+      "expected": {
+        "routed": null,
+        "row": {
+          "teamId": "t1",
+          "userId": "u1",
+          "clientId": "run-1",
+          "appId": null,
+          "tool": "computer__click",
+          "status": "denied",
+          "error": "unknownTool",
+          "argsHash": "sha256:689a8f1db95402580476e38c264278ce7b1e664320cfb4e9ae8d3a908cf09964"
+        }
+      }
+    },
+    {
+      "name": "a server outside the grant is unknown",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "run": "run-1",
+      "call": {
+        "name": "linear__list_issues",
+        "arguments": null
+      },
+      "upstream": null,
+      "expected": {
+        "routed": null,
+        "row": {
+          "teamId": "t1",
+          "userId": "u1",
+          "clientId": "run-1",
+          "appId": null,
+          "tool": "linear__list_issues",
+          "status": "denied",
+          "error": "unknownTool",
+          "argsHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        }
+      }
+    },
+    {
+      "name": "a name that is no tool is unknown",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "run": "run-1",
+      "call": {
+        "name": "exponential_issues",
+        "arguments": {
+          "op": "get"
+        }
+      },
+      "upstream": null,
+      "expected": {
+        "routed": null,
+        "row": {
+          "teamId": "t1",
+          "userId": "u1",
+          "clientId": "run-1",
+          "appId": null,
+          "tool": "exponential_issues",
+          "status": "denied",
+          "error": "unknownTool",
+          "argsHash": "sha256:9947f251d5afe097024f2fda1a3628ca26263332cc01f991c32fbee174509b5e"
+        }
+      }
+    },
+    {
+      "name": "arguments the server refuses are invalid",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "run": "run-1",
+      "call": {
+        "name": "files__read_file",
+        "arguments": {
+          "path": 3
+        }
+      },
+      "upstream": "invalidParams",
+      "expected": {
+        "routed": {
+          "server": "files",
+          "tool": "read_file"
+        },
+        "row": {
+          "teamId": "t1",
+          "userId": "u1",
+          "clientId": "run-1",
+          "appId": null,
+          "tool": "files__read_file",
+          "status": "invalid",
+          "error": "invalidArguments",
+          "argsHash": "sha256:e68a0cd06893b799b492d46c161213bb510a98800fa5ae27ee9ee86893a67a2c"
+        }
+      }
+    },
+    {
+      "name": "an unreachable server is upstream",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "run": "run-1",
+      "call": {
+        "name": "computer__screenshot",
+        "arguments": {}
+      },
+      "upstream": "unreachable",
+      "expected": {
+        "routed": {
+          "server": "computer",
+          "tool": "screenshot"
+        },
+        "row": {
+          "teamId": "t1",
+          "userId": "u1",
+          "clientId": "run-1",
+          "appId": null,
+          "tool": "computer__screenshot",
+          "status": "upstream",
+          "error": "upstreamFailed",
+          "argsHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        }
+      }
+    },
+    {
+      "name": "a server that never answers is upstream",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "run": "run-1",
+      "call": {
+        "name": "files__delete_file",
+        "arguments": {
+          "path": "/tmp/a"
+        }
+      },
+      "upstream": "timeout",
+      "expected": {
+        "routed": {
+          "server": "files",
+          "tool": "delete_file"
+        },
+        "row": {
+          "teamId": "t1",
+          "userId": "u1",
+          "clientId": "run-1",
+          "appId": null,
+          "tool": "files__delete_file",
+          "status": "upstream",
+          "error": "upstreamTimeout",
+          "argsHash": "sha256:15df809ad5fadb66f0b31bafc206dcfe620d8da8767fb76e41d3603a45dc870d"
+        }
+      }
+    },
+    {
+      "name": "another rpc error is upstream",
+      "grant": {
+        "servers": {
+          "files": "write",
+          "computer": "read"
+        },
+        "teamId": "t1",
+        "userId": "u1"
+      },
+      "run": "run-1",
+      "call": {
+        "name": "files__read_file",
+        "arguments": {
+          "path": "/tmp/b"
+        }
+      },
+      "upstream": "rpcError",
+      "expected": {
+        "routed": {
+          "server": "files",
+          "tool": "read_file"
+        },
+        "row": {
+          "teamId": "t1",
+          "userId": "u1",
+          "clientId": "run-1",
+          "appId": null,
+          "tool": "files__read_file",
+          "status": "upstream",
+          "error": "upstreamFailed",
+          "argsHash": "sha256:e877f6ab58c441e61056d01fc02073f833cbf957e2849be594f33996e10be718"
+        }
+      }
+    }
+  ],
+  "createdAtCases": [
+    {
+      "ms": 0,
+      "expected": "1970-01-01T00:00:00.000Z"
+    },
+    {
+      "ms": 1793491200123,
+      "expected": "2026-11-01T00:00:00.123Z"
+    },
+    {
+      "ms": 951782400000,
+      "expected": "2000-02-29T00:00:00.000Z"
+    }
+  ]
+}

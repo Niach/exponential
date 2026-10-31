@@ -37,4 +37,4 @@ pub mod server;
 pub use ecore;
 pub use ecore::{DeliveryVerdict, ErrorCode, Failure, SessionId, Token};
 pub use client::{Client, ClientError, Upstream};
-pub use server::{Caller, RawRequest, RawResponse, RawRoute, Server, ServerInfo, ToolProvider};
+pub use server::{Caller, RawRequest, RawResponse, RawRoute, Refusal, Server, ServerInfo, ToolProvider};

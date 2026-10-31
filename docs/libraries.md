@@ -36,7 +36,7 @@ consumes them as dependencies.
 | **eNet** | `enet-core` (crates.io), `exponential-net-ffi`, `exponential-net-wasm` (not published yet) | `enet` (the wasm build, planned) | `enet` (planned) | `ExponentialNet` (planned) | `enet-v*` → `release-enet.yml` | exponential.at/net/ |
 | **eApps** | inside `eui-core` for now | inside `@exponential_app/eui/host` | | | rides `eui-v*` | exponential.at/apps/ |
 | **eAgent** | `eagent` (from `coding` + `engine`, #EXP-1426; renamed from `exponential-agent-runtime` in #EXP-1505, which stays one release as a re-export shim; git dependency on the tag) | none | none | none | `eagent-v*` → `release-eagent.yml` (still accepts `agent-runtime-v*` for one release) | exponential.at/agent/ |
-| **eMCP** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/mcp/ |
+| **eMCP** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; the local hub and code mode (feature `codemode`), #EXP-1507; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/mcp/ |
 | **eCore** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | exponential.at/core/ |
 
 **eDE** (#NEW-10, ExponentialOS's desktop) is not a library: its own Cargo
@@ -145,5 +145,5 @@ release after that removes the shim crate and the old tag pattern.
 | eNet | 0.1.0 | crates.io `enet-core` (the bindings are not published yet) | `enet-v0.1.0` |
 | eUI (old name) | 0.1.1 | npm `@exponential_app/ui*` (deprecated), crates.io `exponential-ui`, Maven `at.exponential:ui-compose*` | `ui-v0.1.1` |
 | agent-runtime (now eAgent) | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
-| eMCP | 0.1.0 | GitHub release (git dependency on the tag) | `emcp-v0.1.0` |
+| eMCP | 0.2.0 | GitHub release (git dependency on the tag) | `emcp-v0.2.0` |
 | eCore | unreleased | none (built: `ecore` + the generated TS/Swift/Kotlin) | none |

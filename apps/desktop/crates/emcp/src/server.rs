@@ -62,9 +62,31 @@ pub trait ToolProvider: Send + Sync + 'static {
     /// `structuredContent`, `isError`, `_meta`); a refusal is content the
     /// agent must read, never a protocol error.
     fn call(&self, caller: &Caller, name: &str, arguments: Value) -> Value;
+    /// EXP-1507: the `tools/list` of ONE run (a provider whose list depends
+    /// on the caller's grant, the [`crate::hub`]); the default is
+    /// [`Self::tools`].
+    fn tools_for(&self, _caller: &Caller) -> Result<Vec<Value>, String> {
+        self.tools()
+    }
+    /// EXP-1507: [`Self::call`], or a protocol-level refusal (MCP's
+    /// unknown-tool error for a name the run may not see); the default
+    /// always calls.
+    fn try_call(&self, caller: &Caller, name: &str, arguments: Value) -> Result<Value, Refusal> {
+        Ok(self.call(caller, name, arguments))
+    }
     /// The run's grant ended ([`Server::revoke`]).
     fn ended(&self, _session_id: &SessionId) {}
 }
+
+/// A call a provider refuses as a JSON-RPC error rather than as content.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// Not a tool of this run: `-32602`, the text never hinting it exists.
+    UnknownTool,
+}
+
+/// MCP's unknown-tool error code (JSON-RPC invalid params).
+pub const UNKNOWN_TOOL_CODE: i32 = -32602;
 
 /// A request to a [`RawRoute`].
 #[derive(Clone, Debug)]
@@ -331,6 +353,16 @@ pub(crate) fn error_result(text: String) -> CallToolResult {
         .expect("a text error result")
 }
 
+/// The run a request belongs to (the listener put it in the parts).
+fn caller_of(context: &RequestContext<RoleServer>) -> Result<Caller, ErrorData> {
+    context
+        .extensions
+        .get::<http::request::Parts>()
+        .and_then(|parts| parts.extensions.get::<Caller>())
+        .cloned()
+        .ok_or_else(|| refusal(Failure::new(ErrorCode::Unauthorized, "This session's grant ended.")))
+}
+
 impl ServerHandler for Handler {
     fn get_info(&self) -> ServerConfig {
         let mut info = json!({
@@ -347,10 +379,11 @@ impl ServerHandler for Handler {
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         let provider = self.provider.clone();
-        let tools = tokio::task::spawn_blocking(move || provider.tools())
+        let caller = caller_of(&context)?;
+        let tools = tokio::task::spawn_blocking(move || provider.tools_for(&caller))
             .await
             .map_err(|err| ErrorData::internal_error(err.to_string(), None))?
             .map_err(|text| ErrorData::internal_error(text, None))?;
@@ -363,18 +396,17 @@ impl ServerHandler for Handler {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let caller = context
-            .extensions
-            .get::<http::request::Parts>()
-            .and_then(|parts| parts.extensions.get::<Caller>())
-            .cloned()
-            .ok_or_else(|| refusal(Failure::new(ErrorCode::Unauthorized, "This session's grant ended.")))?;
+        let caller = caller_of(&context)?;
         let provider = self.provider.clone();
         let name = request.name.to_string();
         let arguments = request.arguments.map(Value::Object).unwrap_or_else(|| json!({}));
-        let result = tokio::task::spawn_blocking(move || provider.call(&caller, &name, arguments))
+        let called = name.clone();
+        let result = tokio::task::spawn_blocking(move || provider.try_call(&caller, &called, arguments))
             .await
-            .map_err(|err| ErrorData::internal_error(err.to_string(), None))?;
+            .map_err(|err| ErrorData::internal_error(err.to_string(), None))?
+            .map_err(|Refusal::UnknownTool| {
+                ErrorData::new(rmcp::model::ErrorCode(UNKNOWN_TOOL_CODE), format!("Unknown tool: {name}"), None)
+            })?;
         let result = serde_json::from_value::<CallToolResult>(result)
             .unwrap_or_else(|err| error_result(format!("The tool answered a malformed result: {err}")));
         Ok(CallToolResponse::Complete(result))

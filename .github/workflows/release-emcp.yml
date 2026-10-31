@@ -67,7 +67,7 @@ jobs:
           workspaces: apps/desktop
       - name: Cargo tests (eMCP)
         working-directory: apps/desktop
-        run: cargo test --no-fail-fast --locked -p emcp
+        run: cargo test --no-fail-fast --locked -p emcp --features codemode
       - name: A git consumer builds (docs/libraries.md, the git-tag policy)
         run: scripts/libs/git-consumer-smoke.sh emcp "$GITHUB_SHA"
 
