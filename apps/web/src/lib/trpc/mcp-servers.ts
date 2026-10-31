@@ -50,6 +50,7 @@ import {
   type McpConnection,
 } from "@/lib/emcp/upstream/credentials"
 import { beginFlow } from "@/lib/emcp/upstream/flows"
+import { unlinkUpstream } from "@/lib/emcp/revoke"
 import { safeReturnTo } from "@/lib/emcp/upstream/urls"
 import { McpHttpError } from "@/lib/emcp/upstream/net"
 import { McpOauthError } from "@/lib/emcp/upstream/oauth-client"
@@ -519,14 +520,8 @@ export const mcpServersRouter = router({
     .mutation(async ({ ctx, input }) => {
       await assertNotAgentKey(ctx)
       const server = await loadMemberServer(ctx, input.serverId)
-      await ctx.db
-        .delete(mcpCredentials)
-        .where(
-          and(
-            eq(mcpCredentials.serverId, server.id),
-            eq(mcpCredentials.userId, ctx.session.user.id)
-          )
-        )
+      // #VAPP-184: RFC 7009 at the provider first (best effort), then the row.
+      await unlinkUpstream(ctx.db, server, ctx.session.user.id)
       return { ok: true as const }
     }),
 
