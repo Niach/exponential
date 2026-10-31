@@ -259,3 +259,30 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
     expect(toolNames((await rpc(token, `tools/list`)).body)).toEqual([])
   })
 })
+
+describe.skipIf(!ready.ok)(`the apps consent (real db, VAPP-182)`, () => {
+  it(`offers the member's apps with tool counts and upstream states, clamps and writes the grant`, async () => {
+    const { appsConsentTree, clampAppsSelection, writeAppsGrant } = await import(`./apps-consent`)
+    const w = await world()
+    const tree = await appsConsentTree(w.owner)
+    const team = tree.find((t) => t.id === w.teamId)!
+    expect(team.apps).toEqual([
+      expect.objectContaining({ id: w.appId, slug: `timesheet`, toolCount: 4, upstreams: [{ name: `m5`, serverId: null, auth: null, state: null }] }),
+    ])
+
+    // A stranger's team and an unknown app id are clamped away.
+    const outsider = await user()
+    expect(await clampAppsSelection(outsider, { teamId: w.teamId, allApps: true, appIds: [], access: `full` })).toBeNull()
+    expect(await clampAppsSelection(w.owner, { teamId: w.teamId, allApps: false, appIds: [crypto.randomUUID()], access: `full` })).toBeNull()
+    const selection = await clampAppsSelection(w.owner, { teamId: w.teamId, allApps: false, appIds: [w.appId, w.appId], access: `read` })
+    expect(selection).toEqual({ teamId: w.teamId, allApps: false, appIds: [w.appId], access: `read` })
+
+    // The grant is what the endpoint reads: a read grant lists read tools only.
+    const { clientId, token } = await client(w.owner)
+    await writeAppsGrant(w.owner, clientId, selection!)
+    expect(toolNames((await rpc(token, `tools/list`)).body)).toEqual([`timesheet__find_customer`, `timesheet__list_entries`])
+    await writeAppsGrant(w.owner, clientId, { ...selection!, access: `full` })
+    expect(toolNames((await rpc(token, `tools/list`)).body)).toHaveLength(4)
+    expect(await db.select().from(mcpGrants).where(eq(mcpGrants.clientId, clientId))).toHaveLength(1)
+  })
+})

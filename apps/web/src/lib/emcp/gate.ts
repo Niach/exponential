@@ -87,11 +87,16 @@ async function resolveCredential(
   return { userId: token.userId, clientId: token.clientId, access: token.access }
 }
 
-function unauthorized(): Response {
+/** #VAPP-182: the apps endpoint has protected-resource metadata of its own
+ * (`resource` = `/api/mcp/apps`), so a client authorizes for it and the
+ * consent page asks for apps (lib/auth/mcp-authorize-guard.ts). */
+export const APPS_RESOURCE_METADATA_PATH = `/.well-known/oauth-protected-resource/api/mcp/apps`
+
+function unauthorized(request: Request): Response {
   const baseURL = process.env.BETTER_AUTH_URL?.replace(/\/$/, ``) ?? ``
-  const wwwAuthenticate = baseURL
-    ? `Bearer resource_metadata="${baseURL}/api/auth/.well-known/oauth-protected-resource"`
-    : `Bearer`
+  const apps = new URL(request.url).pathname.replace(/\/+$/, ``) === `/api/mcp/apps`
+  const metadata = apps ? APPS_RESOURCE_METADATA_PATH : `/api/auth/.well-known/oauth-protected-resource`
+  const wwwAuthenticate = baseURL ? `Bearer resource_metadata="${baseURL}${metadata}"` : `Bearer`
   return new Response(
     JSON.stringify({
       jsonrpc: `2.0`,
@@ -118,7 +123,7 @@ export async function authenticateMcpRequest(
   request: Request
 ): Promise<{ caller: EmcpCaller } | { response: Response }> {
   const resolved = await resolveCredential(request)
-  if (!resolved) return { response: unauthorized() }
+  if (!resolved) return { response: unauthorized(request) }
 
   const [user] = await db.select().from(users).where(eq(users.id, resolved.userId)).limit(1)
   if (!user) return { response: jsonResponse(401, { error: `User not found for token` }) }
