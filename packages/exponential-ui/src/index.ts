@@ -70,6 +70,8 @@ export { tokenizeCode, codeText, ansiRuns, CODE_LANGUAGES, CODE_LANGUAGE_NAMES }
 export type { AnsiRun } from "./code"
 export { textClusters, trackedClusters } from "./text-clusters"
 export { textShimmer, TEXT_SHIMMER } from "./text-shimmer"
+export { carouselSpec } from "./carousel"
+export type { CarouselSpec, CarouselSpecInput } from "./carousel"
 export type { TextShimmer } from "./text-shimmer"
 export { voiceWave, voiceWavePath, voiceWavePhase, voiceWaveChildSize, voiceWaveChildBox, voiceWaveActivity, VOICE_WAVE, VOICE_WAVE_ACTIVITIES, VOICE_WAVE_RINGS } from "./voice-wave"
 export type { VoiceWave, VoiceWaveActivity, VoiceWaveChildBox, VoiceWaveInput, VoiceWaveRing, VoiceWaveRingName } from "./voice-wave"

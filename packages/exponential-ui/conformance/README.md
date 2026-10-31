@@ -42,6 +42,7 @@ replays them byte for byte.
 | `resizable` | `resizable.json` | panel sizes (normalize, drag, keys, extents, px → percent) within 1e-6 |
 | `virtual-list` | `virtual-list.json` | the window, scrollToIndex (sectioned: data index → row), sections, the sticky header |
 | `animations` | `animations.json` | timing + frames per theme within 1e-3; painted opacity = own × frame |
+| `carousel` | `carousel.json` | paint the Carousel: flow order + gap, the counter line above the track (start edge, text, colour), each dot's size + fill |
 | `pointer` | `pointer.json` | a pointer write lands and reads back (`-` appends, reads the last element) or is refused unchanged; reads |
 
 `manifest.json` says how each count is derived (`unit`). A renderer built on

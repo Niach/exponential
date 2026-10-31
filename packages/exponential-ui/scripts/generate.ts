@@ -20,6 +20,7 @@
 //   fixtures/style-conditions.json        round 1: style × surface/state context → the flattened style
 //   fixtures/code-tokens.json             round 1: source × language → CodeBlock tokens per line
 //   fixtures/text-shimmer.json            EXP-1324: text colour × mode → the Text shimmer colours
+//   fixtures/carousel.json                EXP-1493: theme × mode × props → THE Carousel spec (counter line, dots)
 //   fixtures/voice-wave.json              NEW-77: size × activity × level × bands × time → the VoiceWave rings (VAPP-162: + the bars)
 //   fixtures/qr-code.json                 VAPP-162: value × level → the QrCode matrix
 //   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
@@ -46,6 +47,7 @@ import { STYLE_KEYS, STYLE_STATES, resolveConditions, type ConditionContext } fr
 import { BIND_FUNCTION_NAMES, bindRowSlot, bindTree, hasRowSlots, isDataSchema, runAction } from "../src/dynamic"
 import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
 import { textShimmer } from "../src/text-shimmer"
+import { carouselSpec } from "../src/carousel"
 import { voiceWave, voiceWaveBars, type VoiceWaveBarsInput, type VoiceWaveInput } from "../src/voice-wave"
 import { qrMatrix } from "../src/qr-code"
 import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
@@ -1155,6 +1157,16 @@ function shimmerCases(file: ShimmerCaseFile) {
   return { ...file, cases: file.cases.map((c) => ({ name: c.name, color: c.color, dark: c.dark, expected: textShimmer(c.color, c.dark) })) }
 }
 
+interface CarouselCaseFile {
+  $comment: string
+  width: number
+  cases: { name: string; theme: string; mode: `light` | `dark`; direction: string; pages: number; props: { page: number; counter?: boolean; indicators?: boolean; thumbnails?: string[] }; expected?: unknown }[]
+}
+
+function carouselCases(file: CarouselCaseFile) {
+  return { ...file, cases: file.cases.map(({ expected: _, ...c }) => ({ ...c, expected: carouselSpec({ theme: c.theme, mode: c.mode, pages: c.pages, ...c.props }) })) }
+}
+
 interface VoiceWaveCaseFile {
   $comment: string
   cases: { name: string; input: VoiceWaveInput; expected?: unknown }[]
@@ -1276,6 +1288,7 @@ function renderFiles(): Record<string, string> {
     "fixtures/style-conditions.json": json(styleConditionCases(readJson<ConditionCaseFile>(`fixtures/style-conditions.json`))),
     "fixtures/code-tokens.json": json(codeCases(readJson<CodeCaseFile>(`fixtures/code-tokens.json`))),
     "fixtures/text-shimmer.json": json(shimmerCases(readJson<ShimmerCaseFile>(`fixtures/text-shimmer.json`))),
+    "fixtures/carousel.json": json(carouselCases(readJson<CarouselCaseFile>(`fixtures/carousel.json`))),
     "fixtures/voice-wave.json": json(voiceWaveCases(readJson<VoiceWaveCaseFile>(`fixtures/voice-wave.json`))),
     "fixtures/qr-code.json": json(qrCases(readJson<QrCaseFile>(`fixtures/qr-code.json`))),
     "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),

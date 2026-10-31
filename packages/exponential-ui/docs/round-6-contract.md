@@ -65,12 +65,19 @@ group box (hosts draw none).
 
 Both only with TWO OR MORE pages (like the controls row).
 
-- `counter: true` = a pill over the TRACK's top-start corner (mirrored under
-  RTL), inset `$spacing.sm` (8) from the top and the start edge, above the
-  pages, never intercepting a press or a swipe: part `counter`, text
-  `$string.pageCounter` {page: current + 1, total: n}, hidden from AT (each
-  page is already `page i of n`). Neutral: height 20, padding-x sm, radius
-  full, fill `#0000008c`, text `#ffffff` xs medium, tabular figures.
+- `counter: true` = its OWN LINE ABOVE the track (EXP-1493; it used to be a
+  pill over the track's corner and covered a page's heading on every
+  platform): part `counter`, the root's FIRST flow child, start-aligned
+  (mirrored under RTL), never intersecting the track, `gap` (the root's,
+  neutral sm = 8) above it; text `$string.pageCounter` {page: current + 1,
+  total: n}, hidden from AT (each page is already `page i of n`). Neutral:
+  height 20 (line height 20), `$color.mutedForeground`, xs medium, tabular
+  figures, no fill, no padding.
+- The dots (part `indicator`, one per page, painted from ONE recipe): every
+  dot is the base recipe (neutral 8 × 8, radius full, `$color.border`), the
+  CURRENT page's dot adds the `selected` state (neutral `$color.primary`).
+  A painter resolves each dot's recipe with ITS state; none keeps a platform
+  page-control tint.
 - `thumbnails: [url…]` = a strip under the track, BEFORE the controls row:
   part `thumbnails` (row, neutral gap sm, start-aligned, scrolling sideways
   when it overflows; the current thumbnail scrolled into view), one
@@ -82,10 +89,16 @@ Both only with TWO OR MORE pages (like the controls row).
   {page}` like a dot). A11y: each a button `$string.pageOf`, the current
   one `current`/`aria-current`.
 
-The Rust core lays both out (`layout_tree` containers: the counter is an
-overlay box of the track, out of flow; the strip a row of fixed 52 × 52
+The Rust core lays both out (`layout_tree` containers: the counter is the
+root's first flow child, `alignSelf: flex-start`; the strip a row of fixed 52 × 52
 items between the track and the controls), so FFI/gpui painters read the
 frames; the web renderers lay out with CSS.
+
+THE spec is `src/carousel.ts` carouselSpec, locked by
+`fixtures/carousel.json` (6 cases: theme × mode × direction × props → the
+flow order, the gap, the counter line, each dot's size and fill). Every
+renderer's conformance runner replays it as the `carousel` suite against
+what it PAINTED (frames + the painted counter text/colour + each dot's fill).
 
 ## 4. Per-renderer checklist
 

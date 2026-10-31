@@ -3431,10 +3431,7 @@
             {
               "style": {
                 "height": 20,
-                "paddingHorizontal": "$spacing.sm",
-                "borderRadius": "$radius.full",
-                "backgroundColor": "#0000008c",
-                "color": "#ffffff",
+                "color": "$color.mutedForeground",
                 "fontSize": "$type.size.xs",
                 "lineHeight": 20,
                 "fontWeight": "$type.weight.medium"
@@ -10056,10 +10053,7 @@
             {
               "style": {
                 "height": 20,
-                "paddingHorizontal": "$spacing.sm",
-                "borderRadius": "$radius.full",
-                "backgroundColor": "#0000008c",
-                "color": "#ffffff",
+                "color": "$color.mutedForeground",
                 "fontSize": "$type.size.xs",
                 "lineHeight": 20,
                 "fontWeight": "$type.weight.medium"
@@ -16997,10 +16991,7 @@
             {
               "style": {
                 "height": 20,
-                "paddingHorizontal": "$spacing.sm",
-                "borderRadius": "$radius.full",
-                "backgroundColor": "#0000008c",
-                "color": "#ffffff",
+                "color": "$color.mutedForeground",
                 "fontSize": "$type.size.xs",
                 "lineHeight": 20,
                 "fontWeight": "$type.weight.medium"
@@ -23928,10 +23919,7 @@
             {
               "style": {
                 "height": 20,
-                "paddingHorizontal": "$spacing.sm",
-                "borderRadius": "$radius.full",
-                "backgroundColor": "#0000008c",
-                "color": "#ffffff",
+                "color": "$color.mutedForeground",
                 "fontSize": "$type.size.xs",
                 "lineHeight": 20,
                 "fontWeight": "$type.weight.medium"

@@ -13,7 +13,7 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the fifty outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix)`, () => {
+  test(`renders the fifty outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix, EXP-1493 the Carousel spec)`, () => {
     expect(Object.keys(files).sort()).toEqual([
       `../../apps/desktop/crates/eui-core/src/generated/catalog.rs`,
       `../../apps/desktop/crates/eui-core/src/generated/descriptions.rs`,
@@ -26,6 +26,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/animations.json`,
       `fixtures/bench-list.json`,
       `fixtures/bind-time.json`,
+      `fixtures/carousel.json`,
       `fixtures/catalog-basic-map.json`,
       `fixtures/catalog-components.json`,
       `fixtures/catalog-extension.json`,

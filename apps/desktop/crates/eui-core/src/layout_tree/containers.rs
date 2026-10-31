@@ -111,6 +111,15 @@ impl Builder<'_, '_> {
         // Round 2: role descriptions `$string.carousel` / `$string.slide`.
         let (carousel, slide) = (self.string("carousel"), self.string("slide"));
         self.default_a11y(index, "roleDescription", json!(carousel));
+        // EXP-1493 (round-6 contract §3): the `i / n` counter is its own
+        // line ABOVE the track, on the start edge (mirrored under RTL),
+        // never over a page; hidden from AT (each page already says `page i
+        // of n`).
+        if count >= 2 && bool_prop(&owner.props, "counter") {
+            let text = self.string_with("pageCounter", &[("page", &(page + 1).to_string()), ("total", &count.to_string())]);
+            let c = self.part(&owner, "counter", "Text", NodeKind::Leaf, json!({"alignSelf": "flex-start"}), json!({"text": text, "lines": 1}));
+            self.nodes[c as usize].accessibility = Some(json!({"hidden": true}));
+        }
         let pages = self.part(&owner, "page", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "overflow": "hidden"}), json!({}));
         self.default_a11y(pages, "roleDescription", json!(slide));
         for i in 0..count {
@@ -118,16 +127,6 @@ impl Builder<'_, '_> {
         }
         if count < 2 {
             return;
-        }
-        // EXP-1495: the `i / n` pill over the track's top-start corner (out
-        // of flow, mirrored under RTL, hidden from AT: each page already
-        // says `page i of n`).
-        if bool_prop(&owner.props, "counter") {
-            self.style_default(pages, &[("position", json!("relative"))]);
-            let text = self.string_with("pageCounter", &[("page", &(page + 1).to_string()), ("total", &count.to_string())]);
-            let inset = json!("$spacing.sm");
-            let c = self.part_in(pages, &owner, "counter", "Text", NodeKind::Leaf, json!({"position": "absolute", "top": inset, "insetInlineStart": inset, "pointerEvents": "none"}), json!({"text": text, "lines": 1}), "");
-            self.nodes[c as usize].accessibility = Some(json!({"hidden": true}));
         }
         // EXP-1495: the thumbnail strip under the track, before the controls:
         // one 52 x 52 button per PAGE (URLs past the page count ignored, a

@@ -1,0 +1,224 @@
+{
+  "$comment": "EXP-1493: THE Carousel spec (docs/round-6-contract.md §3). Inputs hand-written (theme, mode, direction, the Carousel's props, `pages` = that many Text pages `Page <n>`, laid out at `width`); `expected` = src/carousel.ts carouselSpec. A renderer PAINTS each case and checks what it drew: the root's flow parts top to bottom equal `order` (consecutive ones `gap` apart, within 1 px), the counter (when not null) is its own line ABOVE the track: never intersecting the track's frame, its start edge on the root's start edge (the right edge under rtl), its text `text` in `color`; one dot per entry of `dots`, `width` × `height`, filled `color` (the current page = `$color.primary`, the others `$color.border`).",
+  "width": 360,
+  "cases": [
+    {
+      "name": "neutral dark counter + thumbnails, page 1",
+      "theme": "neutral",
+      "mode": "dark",
+      "direction": "ltr",
+      "pages": 3,
+      "props": {
+        "page": 0,
+        "counter": true,
+        "thumbnails": [
+          "https://example.com/1.jpg",
+          "https://example.com/2.jpg",
+          "https://example.com/3.jpg"
+        ]
+      },
+      "expected": {
+        "order": [
+          "counter",
+          "page",
+          "thumbnails",
+          "controls"
+        ],
+        "gap": 8,
+        "counter": {
+          "text": "1 / 3",
+          "color": "#a1a1a1",
+          "fontSize": 12,
+          "height": 20
+        },
+        "dots": [
+          {
+            "color": "#e5e5e5",
+            "width": 8,
+            "height": 8
+          },
+          {
+            "color": "#ffffff1a",
+            "width": 8,
+            "height": 8
+          },
+          {
+            "color": "#ffffff1a",
+            "width": 8,
+            "height": 8
+          }
+        ]
+      }
+    },
+    {
+      "name": "neutral light counter, page 2",
+      "theme": "neutral",
+      "mode": "light",
+      "direction": "ltr",
+      "pages": 3,
+      "props": {
+        "page": 1,
+        "counter": true
+      },
+      "expected": {
+        "order": [
+          "counter",
+          "page",
+          "controls"
+        ],
+        "gap": 8,
+        "counter": {
+          "text": "2 / 3",
+          "color": "#737373",
+          "fontSize": 12,
+          "height": 20
+        },
+        "dots": [
+          {
+            "color": "#e5e5e5",
+            "width": 8,
+            "height": 8
+          },
+          {
+            "color": "#171717",
+            "width": 8,
+            "height": 8
+          },
+          {
+            "color": "#e5e5e5",
+            "width": 8,
+            "height": 8
+          }
+        ]
+      }
+    },
+    {
+      "name": "neutral dark counter rtl, page 3",
+      "theme": "neutral",
+      "mode": "dark",
+      "direction": "rtl",
+      "pages": 3,
+      "props": {
+        "page": 2,
+        "counter": true
+      },
+      "expected": {
+        "order": [
+          "counter",
+          "page",
+          "controls"
+        ],
+        "gap": 8,
+        "counter": {
+          "text": "3 / 3",
+          "color": "#a1a1a1",
+          "fontSize": 12,
+          "height": 20
+        },
+        "dots": [
+          {
+            "color": "#ffffff1a",
+            "width": 8,
+            "height": 8
+          },
+          {
+            "color": "#ffffff1a",
+            "width": 8,
+            "height": 8
+          },
+          {
+            "color": "#e5e5e5",
+            "width": 8,
+            "height": 8
+          }
+        ]
+      }
+    },
+    {
+      "name": "exponential dark no counter, page 2 of 4",
+      "theme": "exponential",
+      "mode": "dark",
+      "direction": "ltr",
+      "pages": 4,
+      "props": {
+        "page": 1
+      },
+      "expected": {
+        "order": [
+          "page",
+          "controls"
+        ],
+        "gap": 8,
+        "counter": null,
+        "dots": [
+          {
+            "color": "#ffffff1a",
+            "width": 8,
+            "height": 8
+          },
+          {
+            "color": "#e5e5e5",
+            "width": 8,
+            "height": 8
+          },
+          {
+            "color": "#ffffff1a",
+            "width": 8,
+            "height": 8
+          },
+          {
+            "color": "#ffffff1a",
+            "width": 8,
+            "height": 8
+          }
+        ]
+      }
+    },
+    {
+      "name": "orange light counter, no dots",
+      "theme": "orange",
+      "mode": "light",
+      "direction": "ltr",
+      "pages": 2,
+      "props": {
+        "page": 0,
+        "counter": true,
+        "indicators": false
+      },
+      "expected": {
+        "order": [
+          "counter",
+          "page",
+          "controls"
+        ],
+        "gap": 8,
+        "counter": {
+          "text": "1 / 2",
+          "color": "#737373",
+          "fontSize": 12,
+          "height": 20
+        },
+        "dots": []
+      }
+    },
+    {
+      "name": "playful dark one page: no counter, no dots",
+      "theme": "playful",
+      "mode": "dark",
+      "direction": "ltr",
+      "pages": 1,
+      "props": {
+        "page": 0,
+        "counter": true
+      },
+      "expected": {
+        "order": [
+          "page"
+        ],
+        "gap": 8,
+        "counter": null,
+        "dots": []
+      }
+    }
+  ]
+}

@@ -228,6 +228,15 @@
       "unit": "write or read",
       "cases": 16,
       "check": "Write each `writes` case: `expected` + its read-back `read`, or `error` with the data unchanged; read each `reads` case: `expected`."
+    },
+    {
+      "id": "carousel",
+      "files": [
+        "fixtures/carousel.json"
+      ],
+      "unit": "case",
+      "cases": 6,
+      "check": "Paint the case's Carousel at `width` under its theme, mode and direction: the flow parts top to bottom equal `order` (`gap` apart within 1 px), the counter is its own line above the track (never intersecting it, on the root's start edge, its text and colour equal), each dot's size and fill equal `dots`."
     }
   ]
 }

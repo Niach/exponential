@@ -6131,10 +6131,7 @@
           "light": {
             "default": {
               "height": 20,
-              "paddingHorizontal": 8,
-              "borderRadius": 9999,
-              "backgroundColor": "#0000008c",
-              "color": "#ffffff",
+              "color": "#737373",
               "fontSize": 12,
               "lineHeight": 20,
               "fontWeight": 500
@@ -6143,10 +6140,7 @@
           "dark": {
             "default": {
               "height": 20,
-              "paddingHorizontal": 8,
-              "borderRadius": 9999,
-              "backgroundColor": "#0000008c",
-              "color": "#ffffff",
+              "color": "#a1a1a1",
               "fontSize": 12,
               "lineHeight": 20,
               "fontWeight": 500
@@ -6157,10 +6151,7 @@
           "light": {
             "default": {
               "height": 20,
-              "paddingHorizontal": 8,
-              "borderRadius": 9999,
-              "backgroundColor": "#0000008c",
-              "color": "#ffffff",
+              "color": "#737373",
               "fontSize": 12,
               "lineHeight": 20,
               "fontWeight": 500
@@ -6169,10 +6160,7 @@
           "dark": {
             "default": {
               "height": 20,
-              "paddingHorizontal": 8,
-              "borderRadius": 9999,
-              "backgroundColor": "#0000008c",
-              "color": "#ffffff",
+              "color": "#a1a1a1",
               "fontSize": 12,
               "lineHeight": 20,
               "fontWeight": 500
@@ -6183,10 +6171,7 @@
           "light": {
             "default": {
               "height": 20,
-              "paddingHorizontal": 8,
-              "borderRadius": 9999,
-              "backgroundColor": "#0000008c",
-              "color": "#ffffff",
+              "color": "#6b5b8a",
               "fontSize": 12,
               "lineHeight": 20,
               "fontWeight": 600
@@ -6195,10 +6180,7 @@
           "dark": {
             "default": {
               "height": 20,
-              "paddingHorizontal": 8,
-              "borderRadius": 9999,
-              "backgroundColor": "#0000008c",
-              "color": "#ffffff",
+              "color": "#c4b5fd",
               "fontSize": 12,
               "lineHeight": 20,
               "fontWeight": 600
@@ -6209,10 +6191,7 @@
           "light": {
             "default": {
               "height": 20,
-              "paddingHorizontal": 8,
-              "borderRadius": 9999,
-              "backgroundColor": "#0000008c",
-              "color": "#ffffff",
+              "color": "#737373",
               "fontSize": 12,
               "lineHeight": 20,
               "fontWeight": 500
@@ -6221,10 +6200,7 @@
           "dark": {
             "default": {
               "height": 20,
-              "paddingHorizontal": 8,
-              "borderRadius": 9999,
-              "backgroundColor": "#0000008c",
-              "color": "#ffffff",
+              "color": "#a1a1a1",
               "fontSize": 12,
               "lineHeight": 20,
               "fontWeight": 500
