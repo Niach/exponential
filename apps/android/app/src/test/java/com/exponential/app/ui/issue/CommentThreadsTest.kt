@@ -101,6 +101,19 @@ class CommentThreadsTest {
         )
         assertEquals(DomainContract.commentAudienceTeam, legacy.audience)
         assertFalse(legacy.isToReporter)
+        assertEquals(null, legacy.viaAppId)
+    }
+
+    // #VAPP-186: the app whose MCP tool wrote the comment syncs as `via_app_id`.
+    @Test
+    fun decodesViaAppId() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; explicitNulls = false }
+        val row = json.decodeFromString(
+            CommentEntity.serializer(),
+            """{"id":"m","issue_id":"i","team_id":"t","author_id":"u","source":"mcp",
+               "via_app_id":"a1","created_at":"$ts","updated_at":"$ts"}""",
+        )
+        assertEquals("a1", row.viaAppId)
     }
 
     // The thread groups a reporter's reply like any other comment: the ONE

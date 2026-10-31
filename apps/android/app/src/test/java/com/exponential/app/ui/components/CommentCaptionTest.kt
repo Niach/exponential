@@ -41,6 +41,7 @@ class CommentCaptionTest {
     fun `the caption parts follow the pinned order`() {
         val captions = fixture().getValue("captions").jsonObject
         assertEquals(VIA_MCP_CAPTION, captions.getValue("viaMcp").jsonPrimitive.content)
+        assertEquals(VIA_APP_CAPTION, captions.getValue("viaApp").jsonPrimitive.content)
         assertEquals(CAPTION_SEPARATOR, captions.getValue("separator").jsonPrimitive.content)
         val cases = captions.getValue("cases").jsonArray
         assertTrue(cases.isNotEmpty())
@@ -49,10 +50,11 @@ class CommentCaptionTest {
             val source = row.getValue("source").jsonPrimitive.content
             val audience = row.getValue("audience").jsonPrimitive.content
             val agentId = row.stringOrNull("authorAgentId")
+            val appName = row.stringOrNull("viaAppName")
             assertEquals(
-                "$source/$audience/$agentId",
+                "$source/$audience/$agentId/$appName",
                 row.stringOrNull("caption"),
-                commentCaption(comment(source, audience, authorAgentId = agentId)),
+                commentCaption(comment(source, audience, authorAgentId = agentId), appName),
             )
         }
     }

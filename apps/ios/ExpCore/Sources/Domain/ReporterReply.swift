@@ -25,14 +25,20 @@ public enum ReporterReply {
     public static let notificationLabel = "Reporter replied"
     /// The caption-only strings (fixture `captions`).
     public static let viaMcpCaption = "via MCP"
+    /// #VAPP-186: `{app}` = the app whose MCP tool wrote the comment.
+    public static let viaAppCaption = "via {app}"
     public static let captionSeparator = " · "
 
     /// The muted caption after a comment's time (fixture `captions`):
     /// `reporter` (source reporter), then `to reporter` (audience reporter on
     /// a non-reporter comment), then `via MCP` (source mcp, and only while
     /// `authorAgentId` is unset: #EXP-1383, an agent's comment already names
-    /// the agent). Every part that applies shows; none = nil.
-    public static func caption(source: String?, audience: String?, authorAgentId: String? = nil) -> String? {
+    /// the agent; #VAPP-186: `via <app>` instead when `viaAppName` = the
+    /// synced app its `viaAppId` resolves to). Every part that applies
+    /// shows; none = nil.
+    public static func caption(
+        source: String?, audience: String?, authorAgentId: String? = nil, viaAppName: String? = nil
+    ) -> String? {
         var parts: [String] = []
         if source == DomainContract.commentSourceReporter {
             parts.append(reporterCaption)
@@ -40,7 +46,13 @@ public enum ReporterReply {
             parts.append(toReporterCaption)
         }
         let byAgent = !(authorAgentId ?? "").isEmpty
-        if source == DomainContract.commentSourceMcp, !byAgent { parts.append(viaMcpCaption) }
+        if source == DomainContract.commentSourceMcp, !byAgent {
+            if let viaAppName, !viaAppName.isEmpty {
+                parts.append(viaAppCaption.replacingOccurrences(of: "{app}", with: viaAppName))
+            } else {
+                parts.append(viaMcpCaption)
+            }
+        }
         return parts.isEmpty ? nil : parts.joined(separator: captionSeparator)
     }
 
