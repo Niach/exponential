@@ -77,6 +77,22 @@ describe.skipIf(!ready.ok)(`#FEED-173/#FEED-174 sessions_send with no target`, (
     expect(row!.wakeOn).toContain(w.other.sessionId)
   })
 
+  it(`{wakeOn} with a name or a seal is no watch: refused, the caller untouched`, async () => {
+    const w = await world()
+    const count = await w.roots()
+    await expect(
+      sendSession({
+        userId: w.owner,
+        callerSessionId: w.child.sessionId,
+        viaMcp: true,
+        input: { wakeOn: [w.other.sessionId], name: `Watch it` },
+      })
+    ).rejects.toThrow(START_NEEDS_WORK)
+    const [row] = await db.select({ wakeOn: sessions.wakeOn }).from(sessions).where(eq(sessions.id, w.child.sessionId))
+    expect(row!.wakeOn ?? []).not.toContain(w.other.sessionId)
+    expect(await w.roots()).toBe(count)
+  })
+
   it(`no target, no text, no wakeOn: refused`, async () => {
     const w = await world()
     const count = await w.roots()

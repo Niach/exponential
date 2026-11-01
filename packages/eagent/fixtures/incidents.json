@@ -728,6 +728,22 @@
             "sessionId": "t1",
             "messageId": null
           }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 180000,
+            "data": {
+              "deviceId": "d1",
+              "id": "t2",
+              "promptId": "p1"
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "t2",
+            "messageId": null
+          }
         }
       ],
       "expect": {
@@ -741,7 +757,11 @@
             "status": "queued",
             "parentId": null
           },
-          "x1": null
+          "x1": null,
+          "t2": {
+            "status": "queued",
+            "parentId": null
+          }
         }
       }
     },

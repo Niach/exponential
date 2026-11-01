@@ -1554,7 +1554,10 @@ export const sessionsSendInputSchema = z
     if (input.answer) issue(`an answer goes to a session (sessionId)`)
     if (input.parentId && rootFacets) issue(`a child session takes no root facets`)
     if (!input.text?.trim() && !input.issueIds && !input.promptId && !input.wakeOn)
-      issue(`a new session needs text, issues or a prompt`)
+      // #FEED-173: the same words as sessions.send's START_NEEDS_WORK (eagent `copy.startNeedsWork`).
+      issue(
+        `Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session`
+      )
   })
 export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>
 
