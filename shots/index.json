@@ -4422,8 +4422,8 @@
         "file": "shots/plan-card/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 33610,
-        "sha256": "727b0d54ec34506e0b3977e907c4eaa304987fa343ac2c0846c8a9fa639bc338"
+        "bytes": 33570,
+        "sha256": "8addeedfd32b034159b106894264bfd7a3c9ee33f93dc2436f05fac4754375bf"
       },
       "ios": {
         "file": "shots/plan-card/ios.webp",
@@ -5633,8 +5633,8 @@
         "file": "shots/thread/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 64136,
-        "sha256": "0fde1d4f51c8a197c99ff4a5dcdcdd5e7039e6d5fc7c57db7b8e892ddc82ee08"
+        "bytes": 67854,
+        "sha256": "5655ac3f705734a8b604b23489525038be264f24386dc49e6f7baf02d904744a"
       },
       "ios": {
         "file": "shots/thread/ios.webp",
