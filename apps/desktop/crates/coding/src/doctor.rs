@@ -950,8 +950,10 @@ fn probe_profile_full(
                 None => (None, ProfileAuth { account: signed_out(now), usage_eligible: false }),
             };
             // EXP-1533: a valid long-lived token signs the profile in, whatever
-            // its browser login says (runs spend the token). Usage stays the
-            // browser login's: the token cannot read it.
+            // its browser login says (runs spend the token). `usage_eligible`
+            // stays the browser login's (the endpoint is out of the token's
+            // scope); a token-only login is read through the CLI probe
+            // instead (EXP-1607, `agent_usage::usage_targets`).
             if crate::claude_token::valid(config_dir).is_some() {
                 auth.account.signed_in = true;
                 return (Some(true), auth);

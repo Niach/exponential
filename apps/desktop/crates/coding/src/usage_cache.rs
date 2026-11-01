@@ -432,6 +432,35 @@ pub fn poll_due(entry: &AgentCacheEntry, now: u64) -> bool {
         && now.saturating_sub(entry.fetched_at_secs) >= SHARED_TTL_SECS
 }
 
+/// EXP-1607 — the floor between two usage probes of a token-only claude
+/// login ([`crate::claude_token::probe_usage`]). The probe is a MODEL
+/// request (a few hundred Haiku tokens against the very windows it reads),
+/// not an endpoint GET, so it gets its own, much slower cadence: a run on
+/// the login reports live in between, and this only catches what moved
+/// elsewhere (claude.ai, another machine).
+pub const TOKEN_PROBE_SECS: u64 = 30 * 60;
+
+/// The same floor for a person pressing Refresh (or a popover opening on a
+/// run): sooner, never per click.
+pub const TOKEN_PROBE_FORCED_SECS: u64 = 5 * 60;
+
+/// EXP-1607 — may a token-only login spend a probe now? Never read = yes; a
+/// window that reset since = yes (its 100 % is what the person waits to see
+/// fall); otherwise only past [`TOKEN_PROBE_SECS`] since the last attempt or
+/// live frame ([`TOKEN_PROBE_FORCED_SECS`] when forced). Every floor of
+/// [`poll_due`] still stands on top (the forced path has already cleared
+/// its schedule through [`force_due`]).
+pub fn token_probe_due(entry: &AgentCacheEntry, now: u64, forced: bool) -> bool {
+    if !poll_due(entry, now) {
+        return false;
+    }
+    if entry.fetched_at_secs == 0 || reset_due(entry, now) {
+        return true;
+    }
+    let floor = if forced { TOKEN_PROBE_FORCED_SECS } else { TOKEN_PROBE_SECS };
+    now.saturating_sub(entry.fetched_at_secs) >= floor
+}
+
 /// EXP-964 — has a window the cache HOLDS reset since it was read?
 ///
 /// Bounded at both ends on purpose: a stamp already behind the read is not
@@ -1296,6 +1325,44 @@ mod tests {
     /// it IS refreshed (the CLI's predicate is true for any past instant) —
     /// the laptop that slept through its own expiry rotates on the first beat
     /// instead of waiting for a 401.
+    /// EXP-1607: a token-only login is probed on its first read, then at
+    /// most every half hour (five minutes when forced), and right after a
+    /// window it holds resets; the shared TTL stands on top of all of it.
+    #[test]
+    fn a_token_probe_is_rationed() {
+        let now = 1_800_000_000;
+        assert!(token_probe_due(&AgentCacheEntry::default(), now, false), "never read");
+
+        let mut entry = AgentCacheEntry {
+            fetched_at_secs: now - 600,
+            next_poll_at_secs: now - 300,
+            usage: Some(AgentUsage {
+                fetched_at: crate::agent_accounts::iso_from_unix_secs((now - 600) as i64).unwrap(),
+                stale: false,
+                windows: vec![UsageWindow {
+                    key: "weekly".into(),
+                    label: "Week".into(),
+                    percent: 40,
+                    resets_at: crate::agent_accounts::iso_from_unix_secs((now + 3600) as i64),
+                }],
+            }),
+            ..AgentCacheEntry::default()
+        };
+        assert!(poll_due(&entry, now), "the endpoint cadence alone would read it");
+        assert!(!token_probe_due(&entry, now, false), "ten minutes is too soon");
+        assert!(token_probe_due(&entry, now, true), "a Refresh past five minutes reads");
+        assert!(token_probe_due(&entry, now - 600 + TOKEN_PROBE_SECS, false));
+
+        // Its window reset since the read: probe now.
+        entry.usage.as_mut().unwrap().windows[0].resets_at =
+            crate::agent_accounts::iso_from_unix_secs((now - 60) as i64);
+        assert!(token_probe_due(&entry, now, false));
+
+        // Inside the shared TTL nothing is due, forced or not.
+        entry.fetched_at_secs = now - 10;
+        assert!(!token_probe_due(&entry, now, true));
+    }
+
     #[test]
     fn an_expired_claude_token_is_due() {
         let now = 1_700_000_000;

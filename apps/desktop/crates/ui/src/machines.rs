@@ -252,9 +252,9 @@ const COPY_SWITCH_PROMPT: &str = "{label} · Switch to Keep signed in";
 pub(crate) const COPY_SWITCH_TO_KEEP_SIGNED_IN: &str = "Switch to Keep signed in";
 pub(crate) const COPY_RENEW_KEEP_SIGNED_IN: &str = "Renew Keep signed in";
 pub(crate) const COPY_KEEP_SIGNED_IN_NOTE: &str =
-    "Keep signed in: lasts 1 year, no usage windows (Anthropic grants inference only). We remind you to renew.";
+    "Keep signed in: lasts 1 year, shows the 5h and weekly windows (not per model). We remind you to renew.";
 pub(crate) const COPY_BROWSER_LOGIN_NOTE: &str =
-    "Browser login: shows usage windows, but can sign out when its refresh rotates.";
+    "Browser login: shows every usage window, but can sign out when its refresh rotates.";
 pub(crate) const COPY_USE_BROWSER_LOGIN: &str = "Use browser login (Advanced)";
 pub(crate) const COPY_USE_KEEP_SIGNED_IN: &str = "Use Keep signed in";
 /// An older device's refusal of a long-lived Add (its
