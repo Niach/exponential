@@ -605,11 +605,6 @@ final class StyleguideScreenshots: XCTestCase {
         // its input focused and prefilled with the token after the `#`.
         let composerField = anyElement(app, identified: "agent-composer-field")
         composerField.tap()
-        // EXP-1551: sg_chat-issues typed in the picker's search, so the first
-        // tap can go to ending that edit: tap again until the keyboard is up.
-        if !app.keyboards.firstMatch.waitForExistence(timeout: 2) {
-            composerField.tap()
-        }
         app.typeText("Explain #")
         let refSheet = anyElement(app, identified: "issue-ref-search-sheet")
         expect(refSheet, within: Wait.nav, "Typing # did not open the search-list sheet")
