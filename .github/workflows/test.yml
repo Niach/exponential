@@ -147,7 +147,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
-      - name: Linux system deps (smithay; ede-portal: PipeWire + a dbus-daemon for its tests)
+      - name: Linux system deps (smithay, plus PipeWire and dbus for ede-portal)
         run: |
           sudo apt-get update && sudo apt-get install -y \
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
