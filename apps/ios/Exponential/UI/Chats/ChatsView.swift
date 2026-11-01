@@ -479,6 +479,8 @@ private struct AgentSettingsTarget: Hashable, Identifiable {
 struct ChatLeadMark: View {
     let lead: Chats.ChatLead
     var cli: String?
+    /// The glyph's side: the list's 52pt disc, or the header's smaller one.
+    var size: CGFloat = 24
 
     static var chatGlyph: String {
         AppIcons.conceptOrName(Chats.Shell.chatLead) ?? AppIcons.actionChat
@@ -487,20 +489,20 @@ struct ChatLeadMark: View {
     var body: some View {
         switch lead {
         case .needsYou:
-            AppIcon(Self.chatGlyph, size: 24)
+            AppIcon(Self.chatGlyph, size: size)
                 .foregroundStyle(.white)
                 .needsYouBadge()
         case .working:
             AgentWorkingMark(agent: cli)
-                .frame(width: 22, height: 22)
+                .frame(width: size * 22 / 24, height: size * 22 / 24)
         case .open:
-            AppIcon(AppIcons.prOpen, size: 24)
+            AppIcon(AppIcons.prOpen, size: size)
                 .foregroundStyle(DesignTokens.Semantic.green)
         case .merged:
-            AppIcon(AppIcons.prMerged, size: 24)
+            AppIcon(AppIcons.prMerged, size: size)
                 .foregroundStyle(DesignTokens.Avatar.violet)
         case .waiting:
-            AppIcon(Self.chatGlyph, size: 24)
+            AppIcon(Self.chatGlyph, size: size)
                 .foregroundStyle(.white)
         }
     }
