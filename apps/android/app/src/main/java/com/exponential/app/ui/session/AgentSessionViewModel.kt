@@ -401,7 +401,16 @@ class AgentSessionViewModel @AssistedInject constructor(
         session,
         steerDeviceFlow(dbFlow, session.map { it?.teamId }.distinctUntilChanged(), auth.userId),
         auth.userId,
-    ) { row, devices, userId ->
+        // #EXP-1541: a session under this row (the queued-root exception needs none).
+        session.map { it?.id }.distinctUntilChanged().flatMapLatest { id ->
+            if (id == null) {
+                flowOf(false)
+            } else {
+                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(id) }
+                    .map { tree -> tree.any { it.id != id } }
+            }
+        },
+    ) { row, devices, userId, hasSubSessions ->
         if (row == null || !SessionDeviceMove.visible(SessionKind.sessionKindOf(row.agentId))) {
             return@combine SessionDeviceMoveState()
         }
@@ -411,6 +420,9 @@ class AgentSessionViewModel @AssistedInject constructor(
             teamId = row.teamId,
             shared = row.shared,
             cli = row.cli,
+            queuedRoot = SessionDeviceMove.queuedRoot(row.status, row.parentId, hasSubSessions),
+            starterId = row.userId,
+            viewerId = userId,
         )
         SessionDeviceMoveState(
             visible = true,

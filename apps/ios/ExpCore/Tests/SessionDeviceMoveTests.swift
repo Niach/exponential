@@ -155,4 +155,90 @@ final class SessionDeviceMoveTests: XCTestCase {
         let row = try JSONDecoder().decode(SessionEntity.self, from: Data(json.utf8))
         XCTAssertEqual(row.deviceId, "a")
     }
+
+    // MARK: - #EXP-1541: session-device-move.json
+
+    private func fixture() throws -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/session-device-move.json")
+        let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+        return try XCTUnwrap(json as? [String: Any])
+    }
+
+    func testFixtureCopyMatches() throws {
+        let reasons = try XCTUnwrap(try fixture()["reasons"] as? [String: String])
+        XCTAssertEqual(reasons["offline"], SessionDeviceMove.reasonOffline)
+        XCTAssertEqual(reasons["visibility"], SessionDeviceMove.reasonVisibility)
+        XCTAssertEqual(reasons["noLogin"], SessionDeviceMove.reasonNoLogin)
+    }
+
+    func testReplaysVisibilityCases() throws {
+        let cases = try XCTUnwrap(try fixture()["visibilityCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let input = try XCTUnwrap(testCase["input"] as? [String: Bool])
+            let got = SessionDeviceMove.visibilityMove(
+                sessionShared: input["sessionShared"]!,
+                targetShared: input["targetShared"]!,
+                queuedRoot: input["queuedRoot"]!,
+                targetIsStarters: input["targetIsStarters"]!,
+                moverIsStarter: input["moverIsStarter"]!
+            )
+            XCTAssertEqual(got, testCase["expected"] as? Bool, testCase["name"] as? String ?? "")
+        }
+    }
+
+    func testReplaysQueuedRootCases() throws {
+        let cases = try XCTUnwrap(try fixture()["queuedRootCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            XCTAssertEqual(
+                SessionDeviceMove.queuedRoot(
+                    status: try XCTUnwrap(testCase["status"] as? String),
+                    parentId: testCase["parentId"] as? String,
+                    hasSubSessions: try XCTUnwrap(testCase["hasSubSessions"] as? Bool)
+                ),
+                try XCTUnwrap(testCase["expected"] as? Bool),
+                "\(testCase)"
+            )
+        }
+    }
+
+    func testReplaysTargetCases() throws {
+        let raw = try fixture()
+        let reasons = try XCTUnwrap(raw["reasons"] as? [String: String])
+        let cases = try XCTUnwrap(raw["targetCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let target = try XCTUnwrap(testCase["device"] as? [String: Any])
+            let session = try XCTUnwrap(testCase["session"] as? [String: Any])
+            let mover = try XCTUnwrap(testCase["mover"] as? String)
+            let ownerId = try XCTUnwrap(target["deviceOwner"] as? String)
+            let device = SteerDevice(
+                deviceId: "target",
+                deviceLabel: "Target",
+                agents: (target["signedIn"] as? Bool) == true ? ["claude"] : ["codex"],
+                online: try XCTUnwrap(target["online"] as? Bool),
+                sharedTeamIds: (target["targetShared"] as? Bool) == true ? ["t1"] : [],
+                owner: ownerId == mover ? nil : DeviceOwner(id: ownerId, name: "Mate")
+            )
+            let reason = SessionDeviceMove.rowBlockedReason(
+                device,
+                sessionTeamId: "t1",
+                sessionShared: try XCTUnwrap(session["shared"] as? Bool),
+                agent: "claude",
+                queuedRoot: try XCTUnwrap(session["queuedRoot"] as? Bool),
+                starterId: session["starter"] as? String,
+                viewerId: mover
+            )
+            let expected = (testCase["expected"] as? String).flatMap { reasons[$0] }
+            XCTAssertEqual(reason, expected, name)
+        }
+    }
 }
