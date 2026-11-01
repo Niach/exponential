@@ -22,6 +22,7 @@ import {
   messages,
   prompts,
   repositories,
+  sessionIssues,
   sessions,
   userVoiceSettings,
   type Session,
@@ -86,7 +87,8 @@ import { attachmentLine } from "@/lib/sessions/attachment-lines"
 import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
 import { composeIssueBrief } from "@exp/domain-contract/session-brief"
 import { isSealedBody, validSealedBody } from "@/lib/sessions/sealed"
-import { createTreeKeyInTx } from "@/lib/sessions/tree-keys"
+import { createTreeKeyInTx, dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
+import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
 
@@ -984,6 +986,22 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
     .returning({ id: sessions.id })
   if (updated.length === 0) moveRaced()
   await postMovedMessage(tx, session, movedText(from, target.name))
+  if (target.shared !== session.shared) await restampRootVisibilityInTx(tx, session.id, target.shared)
+}
+
+/** #FEED-177: the visibility mirrors copied at insert time follow a queued
+ *  root that adopted its new box's sharing (as an agent's move,
+ *  trpc/agents.ts): its messages and issue links (conversations follow by
+ *  trigger, re-stamped here too). Private → shared neutralises what only
+ *  its starter could read (`hidePrivateLinesInTx`); shared → private drops
+ *  the teammates' wraps of its key (`dropNonReaderKeysInTx`). */
+async function restampRootVisibilityInTx(tx: Tx, rootId: string, shared: boolean) {
+  const tree = tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.rootId, rootId))
+  await tx.update(messages).set({ shared }).where(eq(messages.rootId, rootId))
+  await tx.update(conversations).set({ shared }).where(inArray(conversations.sessionId, tree))
+  await tx.update(sessionIssues).set({ shared }).where(inArray(sessionIssues.sessionId, tree))
+  if (shared) await hidePrivateLinesInTx(tx, [rootId])
+  else await dropNonReaderKeysInTx(tx, [rootId])
 }
 
 /** #FEED-172 (packages/eagent/fixtures/reuse.json): the target's tree has

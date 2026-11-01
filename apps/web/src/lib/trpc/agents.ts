@@ -25,6 +25,7 @@ import {
 import { assertTeamMember, assertTeamOwner } from "@/lib/auth/membership"
 import { loadAgentForUser } from "@/lib/agents/conversation"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
+import { dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import { assertRunnerVocabulary, resolveSessionDevice, resolveSessionDeviceInTx } from "@/lib/sessions/send"
 import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
@@ -321,6 +322,8 @@ export const agentsRouter = router({
             // #EXP-1409: what a private chat's bus wrote in full while only
             // the owner read these trees goes neutral for their new readers.
             await hidePrivateLinesInTx(tx, ids)
+            // #FEED-177: trees gone private keep only their readers' key wraps.
+            if (!moved.shared) await dropNonReaderKeysInTx(tx, ids)
           }
         }
         const { triggerState: _state, ...rest } = updated!
