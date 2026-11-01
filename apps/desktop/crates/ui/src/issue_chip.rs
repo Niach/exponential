@@ -94,6 +94,9 @@ pub(crate) struct IssueChip {
     /// than inventing a status.
     status: Option<ResolvedStatus>,
     max_title_width: Option<Pixels>,
+    /// EXP-1551: cap the WHOLE chip (web `max-w-[20rem]`): the title
+    /// ellipsizes into what is left, the identifier and the ✕ never shrink.
+    max_width: Option<Pixels>,
     /// Take the row's leftover width and truncate the title into it, instead
     /// of the default "never shrink, the parent wraps me" a chip row wants.
     flexible: bool,
@@ -116,6 +119,7 @@ pub(crate) fn issue_chip(
         title: title.into(),
         status: None,
         max_title_width: None,
+        max_width: None,
         flexible: false,
         small: false,
         on_click: None,
@@ -136,6 +140,13 @@ impl IssueChip {
     /// not). Without it the title takes what the parent gives it.
     pub(crate) fn max_title_width(mut self, width: Pixels) -> Self {
         self.max_title_width = Some(width);
+        self
+    }
+
+    /// EXP-1551: cap the whole chip's width (the composer's subject chips,
+    /// web's `max-w-[20rem]`); the title truncates, the ✕ stays.
+    pub(crate) fn max_width(mut self, width: Pixels) -> Self {
+        self.max_width = Some(width);
         self
     }
 
@@ -210,6 +221,7 @@ impl RenderOnce for IssueChip {
                     chip.flex_shrink_0()
                 }
             })
+            .when_some(self.max_width, |chip, width| chip.max_w(width))
             .items_center()
             .gap(px(ISSUE_CHIP_GAP))
             .px(px(ISSUE_CHIP_PAD_X))

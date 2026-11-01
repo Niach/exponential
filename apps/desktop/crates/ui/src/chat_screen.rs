@@ -89,6 +89,12 @@ const PROMPT_MAX_W: f32 = 640.;
 /// EXP-1155: the subject band's cap — about three rows of issue chips; past
 /// it the band scrolls on its own.
 const CHIPS_MAX_H: f32 = 88.;
+/// EXP-1551 (web launch-headline.tsx `gap-x-2 gap-y-1.5`): the headline
+/// row's gaps between the verb and the chips, across and down.
+const HEADLINE_GAP_X: f32 = 8.;
+const HEADLINE_GAP_Y: f32 = 6.;
+/// EXP-1551 (web subject-chips.tsx `max-w-[20rem]`): a subject chip's cap.
+const SUBJECT_CHIP_MAX_W: f32 = 320.;
 
 /// FEED-100 (EXP-1249's mark, restored): the DAWN above the page's composer
 /// column — the brand mark's edge, the half of it that shows (a clip of half
@@ -1959,30 +1965,42 @@ impl ChatScreenView {
         let chips = self.render_chips(cx)?;
         // NEW-3: an agent's chip IS the headline (no verb).
         let verb = chat_launch::headline(&kind);
+        // EXP-1551 (web launch-headline.tsx): the verb and the chips are ONE
+        // wrapping row (`flex-wrap gap-x-2 gap-y-1.5`), so chips wrap onto
+        // new lines under the verb. EXP-1155: 30 issue chips wrap into many
+        // rows; past the cap they scroll in their own band, never the dialog.
         Some(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .flex_wrap()
-                .items_center()
-                .gap_2()
-                .px_1()
-                .children((!verb.is_empty()).then(|| {
-                    div()
-                        .flex_shrink_0()
-                        .text_lg()
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .text_color(cx.theme().foreground)
-                        .child(verb)
-                }))
-                .child(chips)
-                .into_any_element(),
+            crate::scroll_pane::capped_v_scroll(
+                "chat-chips-scroll",
+                &self.chips_scroll,
+                px(CHIPS_MAX_H),
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_x(px(HEADLINE_GAP_X))
+                    .gap_y(px(HEADLINE_GAP_Y))
+                    .px_1()
+                    .children((!verb.is_empty()).then(|| {
+                        div()
+                            .flex_shrink_0()
+                            .text_lg()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(cx.theme().foreground)
+                            .child(verb)
+                            .into_any_element()
+                    }))
+                    .children(chips),
+            )
+            .w_full()
+            .into_any_element(),
         )
     }
 
     /// The subject chips: one per checked issue, or the action's one. They
     /// sit in the HEADLINE (EXP-1019), not in the card's leading slot.
-    fn render_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    fn render_chips(&self, cx: &mut gpui::Context<Self>) -> Option<Vec<AnyElement>> {
         let muted = cx.theme().muted_foreground;
         let mut chips: Vec<AnyElement> = Vec::new();
         match &self.subject {
@@ -2006,7 +2024,7 @@ impl ChatScreenView {
                             row.title.clone(),
                         )
                         .status(row.resolved.clone())
-                        .max_title_width(px(220.))
+                        .max_width(px(SUBJECT_CHIP_MAX_W))
                         .on_remove(
                             ("chat-chip-issue-remove", ix),
                             cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -2022,10 +2040,18 @@ impl ChatScreenView {
                     Some(action) => (action.name.clone(), action.icon.clone()),
                     None => ("Action".to_string(), None),
                 };
+                // EXP-1551 (web subject-chips.tsx): capped like an issue
+                // chip, the name ellipsizes, the ✕ always shows.
                 chips.push(
                     glass_pill("chat-chip-action", PillSize::Sm, PillMode::Readonly, cx)
-                        .child(crate::icons::action_icon(icon.as_deref()).xsmall().text_color(muted))
-                        .child(div().text_xs().child(SharedString::from(name)))
+                        .max_w(px(SUBJECT_CHIP_MAX_W))
+                        .pr_1()
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .child(crate::icons::action_icon(icon.as_deref()).xsmall().text_color(muted)),
+                        )
+                        .child(div().min_w_0().truncate().text_xs().child(SharedString::from(name)))
                         .child(
                             crate::composer::composer_tool(
                                 "chat-chip-action-remove",
@@ -2033,6 +2059,7 @@ impl ChatScreenView {
                                 cx,
                             )
                             .tooltip("Remove")
+                            .flex_shrink_0()
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.clear_subject(cx);
                             })),
@@ -2041,24 +2068,7 @@ impl ChatScreenView {
                 );
             }
         }
-        // EXP-1155: 30 issue chips wrap into many rows; past the cap
-        // they scroll in their own band beside the verb, never the dialog.
-        Some(
-            crate::scroll_pane::capped_v_scroll(
-                "chat-chips-scroll",
-                &self.chips_scroll,
-                px(CHIPS_MAX_H),
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_1()
-                    .children(chips),
-            )
-            .flex_1()
-            .into_any_element(),
-        )
+        Some(chips)
     }
 
     /// EXP-868: the open team pool behind the issue picker    /// EXP-868: the open team pool behind the issue picker, rebuilt only when
