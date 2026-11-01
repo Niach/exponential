@@ -1,5 +1,6 @@
 package com.exponential.app.ui.agent
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -44,6 +45,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  * circle wears the foreground ring, the others the glass hairline; no name
  * under a circle (it is the label and the accessibility label).
  */
+/** Every circle's glyph (web `size-5` inside the 40 px bubble). */
+private val GLYPH = 16.dp
+
 @Composable
 internal fun ComposerAgentRowView(
     state: ComposerAgentRow.State<SessionTree.AgentRow>,
@@ -81,7 +85,7 @@ internal fun ComposerAgentRowView(
                         ring = if (picked) MaterialTheme.colorScheme.onSurface else GlassTokens.StrokeCard,
                         ringWidth = if (picked) ComposerAgentRow.RING_WIDTH.dp else GlassTokens.Hairline,
                         ringGap = ComposerAgentRow.RING_GAP.dp,
-                        glyph = 16.dp,
+                        glyph = GLYPH,
                     )
                 }
             }
@@ -92,6 +96,9 @@ internal fun ComposerAgentRowView(
                 picked = temporary,
                 onPick = onPick,
             ) {
+                // The same bubble as the agent circles (background gap, bg
+                // muted disc); the dotted glyph at the agents' glyph size in
+                // the muted foreground: the selection is the RING, never the glyph.
                 Box(
                     modifier = Modifier
                         .size(size)
@@ -101,14 +108,18 @@ internal fun ComposerAgentRowView(
                             CircleShape,
                         )
                         .padding(ComposerAgentRow.RING_GAP.dp)
-                        .clip(CircleShape),
+                        .clip(CircleShape)
+                        .background(DesignTokens.Palette.Background, CircleShape)
+                        .padding(ComposerAgentRow.RING_GAP.dp)
+                        .clip(CircleShape)
+                        .background(DesignTokens.Palette.Muted, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         ExpIcons.uiIconPlaceholder,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        modifier = Modifier.size(size - (ComposerAgentRow.RING_GAP * 2).dp),
+                        tint = DesignTokens.Palette.MutedForeground,
+                        modifier = Modifier.size(GLYPH),
                     )
                 }
             }

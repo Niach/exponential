@@ -519,29 +519,25 @@ async function recipeTypeIssueRef(page: Page): Promise<void> {
  * (composer-menu.json test ids). The submenu opens on hover from md up, so the
  * recipe hovers the row and waits for the search list's rows inside it.
  */
-async function recipeOpenComposerMenuImplement(page: Page): Promise<void> {
-  // S-3 (composer-home.json `agentRow`): the home preselects the Assistant
-  // and the + menu is photographed for it, like desktop's shot (S-5): a
-  // Temporary session's every-row menu is taller than the room below the
-  // centered composer, flips up and covered the agent picker row. Wait for
-  // the row: it renders once the agents shape is in, after the composer.
-  await page
+async function recipeOpenComposerMenuTemporary(page: Page): Promise<void> {
+  // EXP-1551: the four clients photograph ONE state, the phones' sheet: the
+  // agent row on Temporary session (composer-home.json `agentRow`) and the +
+  // menu open at its ROOT with every runner and work row (composer-menu.json
+  // case 1), no submenu open. The row renders once the agents shape is in,
+  // after the composer.
+  const temporary = page
     .getByTestId(`composer-agent-temporary`)
     .filter({ visible: true })
     .first()
-    .waitFor({ timeout: 20_000 })
-    .catch(() => undefined)
+  await temporary.waitFor({ timeout: 20_000 })
+  await temporary.click()
   const plus = page.getByTestId(`agent-composer-plus-button`)
   await plus.first().waitFor({ timeout: 30_000 })
   await plus.first().click()
-  const row = page.getByTestId(`agent-composer-menu-implement-issue`)
-  await row.first().waitFor({ timeout: 15_000 })
-  await row.first().hover()
-  await page
-    .getByTestId(`search-list-row`)
-    .filter({ visible: true })
-    .first()
-    .waitFor({ timeout: 15_000 })
+  await page.getByTestId(`agent-composer-menu-device`).first().waitFor({ timeout: 15_000 })
+  // Park the pointer off the menu: a hovered row would light (and open its
+  // submenu) where the other clients light none.
+  await page.mouse.move(0, 0)
 }
 
 /** NEW-2: the home composer's `/` menu — the team's prompts. */
@@ -550,6 +546,9 @@ async function recipeTypeSlashInComposer(page: Page): Promise<void> {
   await field.waitFor({ timeout: 30_000 })
   // Focus, never click: the composer's decorations can sit over the field.
   await field.focus()
+  // EXP-1551: park the pointer first: the menu opens under wherever it was
+  // and a hovered row steals the lit row from the first one.
+  await page.mouse.move(0, 0)
   await page.keyboard.type(`/`)
   await page.getByTestId(`slash-menu`).first().waitFor({ timeout: 15_000 })
 }
@@ -789,7 +788,7 @@ export const RECIPES: Record<string, Recipe> = {
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
   typeIssueRef: recipeTypeIssueRef,
-  openComposerMenuImplement: recipeOpenComposerMenuImplement,
+  openComposerMenuTemporary: recipeOpenComposerMenuTemporary,
   typeSlashInComposer: recipeTypeSlashInComposer,
   typeSlashInSessionComposer: recipeTypeSlashInSessionComposer,
   scrollToWorkCards: recipeScrollToWorkCards,
