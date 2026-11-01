@@ -633,6 +633,23 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
     }
 
+    /// EXP-1604: THE Motion box (eui-motion README "Painting a Motion" §4):
+    /// unstyled, the composition's px size, shrinking to the available
+    /// width with its aspect kept (`width: W`, `maxWidth: 100%`,
+    /// `aspectRatio: W/H`). A style `width` / `height` wins; a `src`
+    /// animation (size unknown until fetched) gets no default.
+    fn motion_box(&mut self, index: u32) {
+        let n = &self.nodes[index as usize];
+        let Some((w, h)) = motion_size(&n.props) else { return };
+        let (has_w, has_h) = (n.base_style.contains_key("width"), n.base_style.contains_key("height"));
+        if !has_w && !has_h {
+            self.style_default(index, &[("width", json!(w)), ("maxWidth", json!("100%"))]);
+        }
+        if !(has_w && has_h) {
+            self.style_default(index, &[("aspectRatio", json!(w / h))]);
+        }
+    }
+
     pub(crate) fn is_overlay(component: &str) -> bool {
         OVERLAYS.contains(&component)
     }
@@ -745,6 +762,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         match node.component.as_str() {
             "Image" | "Video" => self.media_ratio(index),
             "ZoomableImage" => self.zoomable_box(index),
+            "Motion" => self.motion_box(index),
             // VAPP-162: a vertical `bar` (THE navigation rail) is a column of
             // fixed items: as wide as its root recipe (72), `items × tabBar`
             // tall, never stretched across its parent (full height is the
@@ -1110,6 +1128,18 @@ pub fn build_subtree(node: &UiNode, parent: &LNode, scope: &str, seed: BuildSeed
     b.add(node, Some(0), layer, scope, false);
     b.flush_toasts();
     Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues }
+}
+
+/// EXP-1604: a Motion's composition size in px: the dialect's `size`, else
+/// the inline Lottie's `w` × `h`; `None` for a `src` animation.
+pub fn motion_size(props: &Props) -> Option<(f64, f64)> {
+    let pos = |v: Option<&Value>| v.and_then(Value::as_f64).filter(|v| v.is_finite() && *v > 0.0);
+    let size = props.get("size").and_then(Value::as_array);
+    let from_size = size.and_then(|a| Some((pos(a.first())?, pos(a.get(1))?)));
+    from_size.or_else(|| {
+        let l = props.get("lottie")?;
+        Some((pos(l.get("w"))?, pos(l.get("h"))?))
+    })
 }
 
 /// EXP-1586: a ZoomableImage's width / height without a style `height`:

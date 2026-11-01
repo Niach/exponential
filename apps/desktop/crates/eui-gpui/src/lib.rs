@@ -32,6 +32,7 @@ pub mod fallback;
 pub mod host;
 pub mod measure;
 pub mod media;
+pub mod motion;
 pub mod paint;
 pub mod runtime;
 pub mod text;

@@ -368,6 +368,8 @@ pub fn a11y_label(n: &PlacedNode, strings: &StringTable) -> Option<SharedString>
         "Image" | "Video" => str_of(n, "alt").or_else(|| str_of(n, "title")),
         // EXP-1586: an img named by its alt (a11y.json).
         "ZoomableImage" => str_of(n, "alt"),
+        // EXP-1604: an img named by its label (a11y.json).
+        "Motion" => str_of(n, "label"),
         "Avatar" => str_of(n, "name"),
         "Box" | "Extension" => str_of(n, "label").or_else(|| str_of(n, "title")).or_else(|| str_of(n, "text")),
         "Spinner" => str_of(n, "label").or_else(|| strings.get("loading").map(String::as_str)),
@@ -491,6 +493,9 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         // NEW-77: an img named by its label; decorative without one.
         ("VoiceWave", None) if str_of(n, "label").is_some() => Role::Image,
         ("VoiceWave", None) => return None,
+        // EXP-1604: an img named by its label; decorative without one.
+        ("Motion", None) if str_of(n, "label").is_some() => Role::Image,
+        ("Motion", None) => return None,
         ("QrCode", None) if str_of(n, "label").is_some() => Role::Image,
         ("QrCode", None) => return None,
         ("QrScanner", None) => Role::Image,
