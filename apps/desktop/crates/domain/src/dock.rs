@@ -182,7 +182,15 @@ pub enum DockSource {
     },
     #[serde(rename_all = "camelCase")]
     Question { id: String, text: String, session_name: Option<String>, created_at: i64 },
-    Tasks { queue: Option<DockQueue> },
+    #[serde(rename_all = "camelCase")]
+    Tasks {
+        /// #EXP-1545: a thread's Live child carrying the card (its name leads
+        /// the caption); `None` = the root / the session view.
+        #[serde(default)]
+        session_name: Option<String>,
+        /// THE Queue, or `None` when nothing is to do.
+        queue: Option<DockQueue>,
+    },
     Queued { messages: Vec<DockQueuedMessage> },
     /// EXP-1323's suggested-tasks card while ANY item is open
     /// ([`suggestion_sources`]).
@@ -288,7 +296,7 @@ pub fn dock_rows(sources: &[DockSource]) -> Vec<DockRow> {
                     0,
                 ));
             }
-            DockSource::Tasks { queue } => {
+            DockSource::Tasks { session_name, queue } => {
                 let Some(queue) = queue else { continue };
                 let Some(first) = queue.todo.items.first() else { continue };
                 rows.push((
@@ -298,7 +306,7 @@ pub fn dock_rows(sources: &[DockSource]) -> Vec<DockRow> {
                         tint: DockTint::Muted,
                         icon: DOCK.icons.tasks.clone(),
                         label: queue.todo.title.clone(),
-                        caption: queue.completed.as_ref().map(|c| c.title.clone()),
+                        caption: tasks_caption(session_name.as_deref(), queue.completed.as_ref().map(|c| c.title.as_str())),
                         meta: first.description.clone(),
                         title: first.label.clone(),
                         expandable: true,
@@ -349,6 +357,59 @@ pub fn dock_rows(sources: &[DockSource]) -> Vec<DockRow> {
         order(a.kind).cmp(&order(b.kind)).then(at.cmp(bt)).then_with(|| a.id.cmp(&b.id))
     });
     rows.into_iter().map(|(row, _)| row).collect()
+}
+
+/// `sessionName · completed title`, either alone, `None` when both are missing.
+fn tasks_caption(session_name: Option<&str>, completed: Option<&str>) -> Option<String> {
+    let parts: Vec<&str> = [session_name, completed].into_iter().flatten().collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// #EXP-1545: a session of a thread's tree that may carry the Dock's ONE
+/// `tasks` card. `active_at` = epoch ms of its last turn (else its start),
+/// `None` = no activity yet; `open` = its Queue has a todo item to show.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadQueueCandidate {
+    pub session_id: String,
+    pub name: String,
+    pub root: bool,
+    pub ended: bool,
+    pub active_at: Option<i64>,
+    pub open: bool,
+}
+
+/// Whose Queue a thread's Dock shows ([`thread_dock_queue`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadDockQueue {
+    pub session_id: String,
+    /// `None` for the root, else the child's name.
+    pub session_name: Option<String>,
+}
+
+/// #EXP-1545: the root's Queue while it is open, else the most recently
+/// active Live child's (no activity = oldest, ties by id ascending), else
+/// none. An ended session contributes nothing.
+pub fn thread_dock_queue(candidates: &[ThreadQueueCandidate]) -> Option<ThreadDockQueue> {
+    let live = || candidates.iter().filter(|c| c.open && !c.ended);
+    if let Some(root) = live().find(|c| c.root) {
+        return Some(ThreadDockQueue { session_id: root.session_id.clone(), session_name: None });
+    }
+    let mut best: Option<&ThreadQueueCandidate> = None;
+    for candidate in live() {
+        let better = match best {
+            None => true,
+            Some(b) => {
+                candidate.active_at > b.active_at
+                    || (candidate.active_at == b.active_at && candidate.session_id < b.session_id)
+            }
+        };
+        if better {
+            best = Some(candidate);
+        }
+    }
+    best.map(|b| ThreadDockQueue { session_id: b.session_id.clone(), session_name: Some(b.name.clone()) })
 }
 
 fn ask_row(kind: AskDockKind, id: &str, text: &str, session_name: &Option<String>, questions: usize) -> DockRow {
@@ -487,6 +548,18 @@ mod tests {
                 .map(|row| serde_json::from_value(row.clone()).unwrap())
                 .collect();
             let got = suggestion_sources(&rows);
+            assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn thread_queue_matches_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["threadQueueCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let candidates: Vec<ThreadQueueCandidate> = serde_json::from_value(case["candidates"].clone()).unwrap();
+            let got = thread_dock_queue(&candidates);
             assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
         }
     }

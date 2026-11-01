@@ -846,6 +846,7 @@ mod tests {
     fn every_card_enters_including_the_first_frames() {
         use std::time::Duration;
         let tasks = DockSource::Tasks {
+            session_name: None,
             queue: Some(domain::dock::DockQueue {
                 todo: domain::dock::DockQueueTodo {
                     title: "1 to do".into(),
