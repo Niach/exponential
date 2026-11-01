@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-chat-stability`,
+    date: `2026-11-01`,
+    title: `Chats stay smooth and keep what you type`,
+    summary: `Typing, sending and reopening a chat are faster and never lose your text.`,
+    body: `- **Typing**: on Android, letters no longer drop or swap, and typing and scrolling stay smooth while the agent works.
+- **Sending**: text you type while a message is sending is no longer lost, and leaving the screen no longer cancels a send or an upload. Sending and going straight back no longer freezes Android.
+- **Reopening a chat**: its task and queue cards show right away instead of after the live view connects.`,
+  },
+  {
     id: `2026-11-01-claude-long-lived-login`,
     date: `2026-11-01`,
     title: `Keep a Claude login signed in`,
