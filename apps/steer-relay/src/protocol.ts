@@ -15,6 +15,11 @@
 // relay answers any of them, from any socket, `error content_refused` and
 // drops it. Anything else that fails the parse is dropped too.
 //
+// #EXP-1525: the SEALED TUNNEL is eNet's fallback carrier: a viewer's
+// `tunnel` socket sends/receives `sealed {data}` and the host's control
+// socket `tunnel_open/data/close`; `data` is an exp-steer envelope sealed to
+// the session tree key, opaque to the relay (see the tunnel section below).
+//
 // NEW-55: BINARY frames exist for ONE pair of roles only — a voice call's
 // `caller` and `call_host` sockets (fixtures/voice-call.json `wire`). Byte 0
 // is the kind (`up` caller → host, `down` host → caller), bytes 1-2 a u16
@@ -27,6 +32,7 @@
 // The relay never decodes audio and never persists anything.
 
 import { contract } from "@exp/domain-contract"
+import steerEnet from "@exp/domain-contract/fixtures/steer-enet.json" with { type: "json" }
 import scriptCard from "@exp/domain-contract/fixtures/script-card.json" with { type: "json" }
 import voiceCall from "@exp/etalk/fixtures/voice-call.json" with { type: "json" }
 import { z } from "zod"
@@ -56,6 +62,9 @@ export const CALL_EVENT_MAX_BYTES = 8 * 1024
 export const onlineFrame = z.object({
   t: z.literal(`online`),
   deviceId: z.string().min(1).max(128),
+  // #EXP-1525: `1` = this device serves sealed relay tunnels. An older
+  // device omits it and a tunnel to it is refused `device_unsupported`.
+  tunnel: z.number().int().optional(),
   // EXP-672: presence is the deviceId → socket map and nothing more.
   // Non-strict parsing drops unknown keys; never `.strict()` — an extra key
   // would fail the parse and the device would silently go dark.
@@ -900,8 +909,32 @@ export const callEndFrame = z.object({
   reason: z.string().max(64).optional(),
 })
 
+// ── #EXP-1525: the sealed relay tunnel (fixtures/steer-enet.json `fallback`) ──
+//
+// eNet's FALLBACK carrier. A viewer's `tunnel` socket and the host device's
+// CONTROL socket exchange exp-steer envelopes SEALED to the session tree key;
+// the relay routes them by tunnel id and never opens, parses or logs `data`.
+
+/** The longest sealed `data` the relay forwards (the fixture's cap). */
+export const TUNNEL_MAX_DATA_BYTES = steerEnet.fallback.tunnelMaxDataBytes
+
+const sealedData = z.string().min(1).max(TUNNEL_MAX_DATA_BYTES)
+const tunnelId = z.string().min(1).max(64)
+
+/** viewer (tunnel socket) → relay → device: one sealed envelope. */
+export const sealedFrame = z.object({ t: z.literal(`sealed`), data: sealedData })
+
+/** device (control socket) → relay → that tunnel's viewer. */
+export const tunnelDataFrame = z.object({ t: z.literal(`tunnel_data`), tunnelId, data: sealedData })
+
+/** device (control socket): drop this viewer (bye, refused, no key). */
+export const tunnelCloseFrame = z.object({ t: z.literal(`tunnel_close`), tunnelId })
+
 export const clientFrame = z.discriminatedUnion(`t`, [
   onlineFrame,
+  sealedFrame,
+  tunnelDataFrame,
+  tunnelCloseFrame,
   compactVerdictFrame,
   callMuteFrame,
   callEventFrame,
@@ -980,12 +1013,25 @@ export type ServerFrame =
   // (the room is gone, already answered, or not its own). Those four are
   // terminal: error, `bye` with the same outcome, close.
   | { t: `error`; code: string; message?: string }
+  // #EXP-1525: relay → the host's CONTROL socket: a viewer's tunnel opened
+  // (`userId` = the viewer, from its server-minted ticket), one of its sealed
+  // envelopes, and its socket going away.
+  | { t: `tunnel_open`; tunnelId: string; sessionId: string; userId: string }
+  | { t: `tunnel_data`; tunnelId: string; data: string }
+  | { t: `tunnel_close`; tunnelId: string }
+  // #EXP-1525: relay → a TUNNEL socket: the device's sealed envelope, or why
+  // there is no device to tunnel to (then the socket closes).
+  | { t: `sealed`; data: string }
+  | { t: `tunnel_error`; code: `device_offline` | `device_unsupported` }
 
 // ── Close codes ───────────────────────────────────────────────────────────────
 
 export const CLOSE_SESSION_ENDED = 4001
 export const CLOSE_REPLACED = 4002
 export const CLOSE_UNAUTHORIZED = 4003
+/** #EXP-1525: a tunnel ended (the device dropped it, went away, or the
+ *  viewer fell too far behind). The viewer treats it as `relayDropped`. */
+export const CLOSE_TUNNEL_ENDED = 4004
 
 export function parseClientFrame(raw: string): ClientFrame | null {
   let json: unknown

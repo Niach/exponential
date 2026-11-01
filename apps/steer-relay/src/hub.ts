@@ -10,6 +10,13 @@
 // (fixtures/steer-enet.json). A content frame (`CONTENT_FRAME_TYPES`) from any
 // socket is answered `error content_refused` and dropped, never forwarded and
 // never logged beyond its type.
+//
+// #EXP-1525: one exception carries session TRAFFIC without its content: the
+// sealed tunnel (fixtures/steer-enet.json `fallback`), eNet's fallback
+// carrier. A viewer's `tunnel` socket is paired with the control socket of
+// the session's host device and the hub forwards opaque `data` (exp-steer
+// envelopes sealed to the session tree key) both ways by tunnel id. It never
+// parses, stores or logs `data`.
 
 import type { SteerTicketClaims } from "@exp/steer-ticket"
 import {
@@ -23,6 +30,7 @@ import {
   CALL_RING_TIMEOUT_MS,
   CLOSE_REPLACED,
   CLOSE_SESSION_ENDED,
+  CLOSE_TUNNEL_ENDED,
   describeClientFrameRejection,
   isContentFrameType,
   parseClientFrame,
@@ -59,7 +67,22 @@ interface Conn {
   frameTokensAt?: number
   /** Last time this socket's rejected-frame warning was logged (rate limit). */
   lastFrameWarnAt?: number
+  /** #EXP-1525: a control socket whose `online` carried `tunnel: 1`. */
+  servesTunnels?: boolean
+  /** #EXP-1525: a TUNNEL socket's id once paired with its device. */
+  tunnelId?: string
 }
+
+/** #EXP-1525: one viewer's sealed tunnel to the host device's control socket. */
+interface Tunnel {
+  tunnelId: string
+  viewer: Conn
+  control: Conn
+}
+
+/** #EXP-1525: a tunnel viewer with more than this queued is cut (it redials
+ *  and gets a fresh replay) rather than buffered without bound. */
+export const TUNNEL_HIGH_WATER = 8 * 1024 * 1024
 
 /** NEW-55: one voice call — a `caller` streaming to the member's voice
  *  device, which answers with a `call_host` socket. Exactly two sockets,
@@ -149,6 +172,8 @@ export class Hub {
    *  its ONE running callId (a second caller reads `busy`). */
   private calls = new Map<string, CallRoom>()
   private callsByDevice = new Map<string, string>()
+  /** #EXP-1525: tunnelId → its viewer and device sockets. */
+  private tunnels = new Map<string, Tunnel>()
 
   // EXP-553: monotonic counters for the admin performance page — exposed via
   // counters() on the secret-gated /stats endpoint (stats() stays gauges-only
@@ -171,6 +196,13 @@ export class Hub {
   private callFramesForwarded = 0
   private callFramesDropped = 0
   private callFramesSkipped = 0
+  /** #EXP-1525: tunnels opened, refused (device offline / unsupported), cut
+   *  for backpressure, and sealed frames forwarded each way. */
+  private tunnelsOpened = 0
+  private tunnelsRefused = 0
+  private tunnelsOverflowed = 0
+  private tunnelFramesUp = 0
+  private tunnelFramesDown = 0
 
   /** Stop every timer (for clean shutdown/tests). */
   destroy() {
@@ -195,6 +227,8 @@ export class Hub {
       this.ringCall(conn)
     } else if (claims.role === `call_host`) {
       this.answerCall(conn)
+    } else if (claims.role === `tunnel`) {
+      this.openTunnel(conn)
     }
   }
 
@@ -324,6 +358,22 @@ export class Hub {
     if (!conn) return
     this.conns.delete(sock)
 
+    // #EXP-1525: a viewer leaving tells its device; a device leaving ends
+    // every tunnel it served (each viewer falls back to eNet / redials).
+    if (conn.tunnelId) {
+      const tunnel = this.tunnels.get(conn.tunnelId)
+      if (tunnel?.viewer === conn) {
+        this.tunnels.delete(tunnel.tunnelId)
+        tunnel.control.sock.send(frame({ t: `tunnel_close`, tunnelId: tunnel.tunnelId }))
+      }
+      return
+    }
+    if (conn.claims.role === `control`) {
+      for (const tunnel of [...this.tunnels.values()]) {
+        if (tunnel.control === conn) this.endTunnel(tunnel, `device_gone`)
+      }
+    }
+
     // NEW-55: either side of a call going away ends it for the other.
     const call = this.callFor(conn)
     if (call) {
@@ -367,6 +417,7 @@ export class Hub {
           }
         }
         conn.deviceId = msg.deviceId
+        conn.servesTunnels = msg.tunnel === 1
         if (!byDevice) {
           byDevice = new Map()
           this.devices.set(conn.claims.sub, byDevice)
@@ -403,6 +454,40 @@ export class Hub {
         return
       }
 
+      // #EXP-1525: a viewer's sealed envelope, up its tunnel to the device.
+      case `sealed`: {
+        if (conn.claims.role !== `tunnel` || !conn.tunnelId) return
+        const tunnel = this.tunnels.get(conn.tunnelId)
+        if (!tunnel || tunnel.viewer !== conn) return
+        tunnel.control.sock.send(frame({ t: `tunnel_data`, tunnelId: tunnel.tunnelId, data: msg.data }))
+        this.tunnelFramesUp += 1
+        return
+      }
+
+      // #EXP-1525: the device's sealed envelope, down to that tunnel's viewer
+      // (only the control socket the tunnel was opened on may write it).
+      case `tunnel_data`: {
+        const tunnel = this.tunnels.get(msg.tunnelId)
+        if (!tunnel || tunnel.control !== conn) return
+        if (tunnel.viewer.sock.bufferedAmount() > TUNNEL_HIGH_WATER) {
+          this.tunnelsOverflowed += 1
+          this.endTunnel(tunnel, `overflow`)
+          tunnel.control.sock.send(frame({ t: `tunnel_close`, tunnelId: tunnel.tunnelId }))
+          return
+        }
+        tunnel.viewer.sock.send(frame({ t: `sealed`, data: msg.data }))
+        this.tunnelFramesDown += 1
+        return
+      }
+
+      // #EXP-1525: the device dropped the viewer (bye, refused, no key).
+      case `tunnel_close`: {
+        const tunnel = this.tunnels.get(msg.tunnelId)
+        if (!tunnel || tunnel.control !== conn) return
+        this.endTunnel(tunnel, `closed`)
+        return
+      }
+
       // NEW-55: the caller's microphone toggled — to the host, once paired.
       case `call_mute`: {
         const call = this.callFor(conn)
@@ -427,6 +512,36 @@ export class Hub {
         return
       }
     }
+  }
+
+  // ── #EXP-1525: sealed tunnels ──────────────────────────────────────────────
+
+  /** A `tunnel` ticket connected: pair it with the control socket of the
+   *  session's host device (`deviceId` under `deviceOwnerId`), which must
+   *  have announced `tunnel: 1`. Otherwise `tunnel_error` + close: the
+   *  viewer reads it as `relayUnavailable` and stays on eNet. */
+  private openTunnel(conn: Conn) {
+    const { deviceId, deviceOwnerId, sessionId, sub } = conn.claims
+    const control =
+      deviceId && sessionId ? this.controlFor({ userId: deviceOwnerId ?? sub, deviceId }) : undefined
+    const refusal = !control ? `device_offline` : !control.servesTunnels ? `device_unsupported` : null
+    if (refusal || !control || !sessionId) {
+      this.tunnelsRefused += 1
+      conn.sock.send(frame({ t: `tunnel_error`, code: refusal ?? `device_offline` }))
+      conn.sock.close(CLOSE_TUNNEL_ENDED, refusal ?? `device_offline`)
+      return
+    }
+    const tunnelId = crypto.randomUUID()
+    conn.tunnelId = tunnelId
+    this.tunnels.set(tunnelId, { tunnelId, viewer: conn, control })
+    this.tunnelsOpened += 1
+    control.sock.send(frame({ t: `tunnel_open`, tunnelId, sessionId, userId: sub }))
+  }
+
+  /** Remove a tunnel and close its viewer socket. */
+  private endTunnel(tunnel: Tunnel, reason: string) {
+    this.tunnels.delete(tunnel.tunnelId)
+    tunnel.viewer.sock.close(CLOSE_TUNNEL_ENDED, reason)
   }
 
   // ── Admin (server-to-server HTTP, secret-authed) ──────────────────────────
@@ -522,6 +637,7 @@ export class Hub {
       connections: this.conns.size,
       devices: [...this.devices.values()].reduce((n, m) => n + m.size, 0),
       calls: this.calls.size,
+      tunnels: this.tunnels.size,
     }
   }
 
@@ -540,6 +656,11 @@ export class Hub {
       callFramesForwarded: this.callFramesForwarded,
       callFramesDropped: this.callFramesDropped,
       callFramesSkipped: this.callFramesSkipped,
+      tunnelsOpened: this.tunnelsOpened,
+      tunnelsRefused: this.tunnelsRefused,
+      tunnelsOverflowed: this.tunnelsOverflowed,
+      tunnelFramesUp: this.tunnelFramesUp,
+      tunnelFramesDown: this.tunnelFramesDown,
     }
   }
 

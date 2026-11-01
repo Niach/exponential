@@ -5,6 +5,13 @@ import fixture from "../fixtures/steer-enet.json" with { type: "json" }
 import {
   encodeSteerEnvelope,
   parseSteerEnvelope,
+  type SteerCarrierAction,
+  type SteerCarrierEvent,
+  type SteerCarrierState,
+  steerCarrierStep,
+  steerConnAggregate,
+  steerConnEventValid,
+  type SteerConnRow,
   steerBatches,
   steerOfflineRedial,
   steerNoFeedState,
@@ -55,4 +62,32 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
     const frames = [{ t: `join`, channel: `activity` }]
     expect(parseSteerEnvelope(encodeSteerEnvelope(`s1`, frames))?.frames).toEqual(frames)
   })
+})
+
+describe(`sealed relay fallback + connection analytics (fixtures/steer-enet.json)`, () => {
+  for (const c of fixture.carrierCases) {
+    test(`carrier: ${c.name}`, () => {
+      expect(steerCarrierStep(c.state as SteerCarrierState, c.event as SteerCarrierEvent)).toEqual({
+        state: c.next as SteerCarrierState,
+        actions: c.actions as SteerCarrierAction[],
+      })
+    })
+  }
+  for (const c of fixture.connStats.validCases) {
+    test(`connStats valid: ${c.name}`, () => {
+      expect(steerConnEventValid(c.event)).toBe(c.valid)
+    })
+  }
+  for (const c of fixture.connStats.aggregateCases) {
+    test(`connStats aggregate: ${c.name}`, () => {
+      const { views, successRate, p50FirstFrameMs, p95FirstFrameMs, fallbackRate } = c
+      expect(steerConnAggregate(c.rows as SteerConnRow[])).toEqual({
+        views,
+        successRate,
+        p50FirstFrameMs,
+        p95FirstFrameMs,
+        fallbackRate,
+      })
+    })
+  }
 })

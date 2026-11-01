@@ -257,8 +257,9 @@ function adapt(ws: ServerWebSocket<WsData>): RelaySocket {
 }
 
 /** The ticket roles the relay opens a socket for: the device's presence and
- *  control socket, and NEW-55's voice call pair. */
-export const ACCEPTED_ROLES = [`control`, `caller`, `call_host`] as const
+ *  control socket, NEW-55's voice call pair, and #EXP-1525's sealed tunnel
+ *  (a viewer's fallback carrier to the session's host device). */
+export const ACCEPTED_ROLES = [`control`, `caller`, `call_host`, `tunnel`] as const
 
 const port = parseInt(process.env.PORT ?? `4002`, 10)
 console.log(`[steer-relay] listening on :${port}`)
@@ -314,7 +315,10 @@ export default {
     // old build's control socket may still send a large content frame: it
     // must be answered `content_refused`, not have its socket closed by a
     // payload cap, so the cap stays where the content protocol had it.
-    maxPayloadLength: 1024 * 1024,
+    // #EXP-1525: a sealed tunnel frame carries up to TUNNEL_MAX_DATA_BYTES
+    // of base64 ciphertext (one chatMaxBytes envelope, sealed) plus its
+    // JSON wrapper.
+    maxPayloadLength: 2 * 1024 * 1024,
     open(ws: ServerWebSocket<WsData>) {
       hub.onOpen(adapt(ws), ws.data.claims)
     },

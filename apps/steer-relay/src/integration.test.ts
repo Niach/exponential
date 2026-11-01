@@ -386,3 +386,42 @@ describe(`voice call end-to-end (NEW-55)`, () => {
     expect(await callerIn.nextJson()).toEqual({ t: `bye`, outcome: `device_offline` })
   })
 })
+
+// #EXP-1525: the sealed tunnel over real sockets: a viewer's envelope reaches
+// the host's control socket and the device's answer comes back, opaque.
+describe(`sealed tunnel end-to-end`, () => {
+  test(`a big sealed envelope round-trips between viewer and device`, async () => {
+    const device = await connect(ticket({ role: `control`, sub: `tunnel-host`, team: `` }))
+    const fromDevice = collector(device)
+    device.send(JSON.stringify({ t: `online`, deviceId: `tunnel-dev`, tunnel: 1 }))
+    await nudgeWhenOnline(`tunnel-host`, `tunnel-dev`)
+    expect((await fromDevice.nextJson()).t).toBe(`check_in`)
+
+    const viewer = await connect(
+      ticket({ role: `tunnel`, sub: `tunnel-viewer`, sessionId: `s-tunnel`, deviceId: `tunnel-dev`, deviceOwnerId: `tunnel-host` })
+    )
+    const fromRelay = collector(viewer)
+    const open = await fromDevice.nextJson()
+    expect(open).toMatchObject({ t: `tunnel_open`, sessionId: `s-tunnel`, userId: `tunnel-viewer` })
+
+    viewer.send(JSON.stringify({ t: `sealed`, data: `v1:1:join` }))
+    expect(await fromDevice.nextJson()).toEqual({ t: `tunnel_data`, tunnelId: open.tunnelId, data: `v1:1:join` })
+
+    // One chatMaxBytes-sized envelope, sealed and base64'd, still fits.
+    const big = `v1:1:${`A`.repeat(1_400_000)}`
+    device.send(JSON.stringify({ t: `tunnel_data`, tunnelId: open.tunnelId, data: big }))
+    expect(((await fromRelay.nextJson(5000)) as { data: string }).data.length).toBe(big.length)
+
+    viewer.close()
+    expect(await fromDevice.nextJson()).toEqual({ t: `tunnel_close`, tunnelId: open.tunnelId })
+    device.close()
+  })
+
+  test(`a tunnel to an offline device is told so`, async () => {
+    const viewer = await connect(
+      ticket({ role: `tunnel`, sub: `v`, sessionId: `s`, deviceId: `nobody`, deviceOwnerId: `nobody` })
+    )
+    const fromRelay = collector(viewer)
+    expect(await fromRelay.nextJson()).toEqual({ t: `tunnel_error`, code: `device_offline` })
+  })
+})
