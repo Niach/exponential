@@ -189,6 +189,14 @@ lto = true
 codegen-units = 1
 opt-level = "s"
 
+# EXP-1603: eUI Motion's WASM (scripts/build-motion-wasm.sh): size over
+# speed (opt-level z keeps it inside the 200 KB gz budget; sampling stays
+# far under its 0.5 ms budget).
+[profile.motion-wasm]
+inherits = "wasm"
+opt-level = "z"
+panic = "abort"
+
 [profile.dev]
 debug = "line-tables-only"
 

@@ -23,7 +23,9 @@
     "./themes/*": "./themes/*",
     "./generated/*": "./generated/*",
     "./conformance/*": "./conformance/*",
-    "./eval/*": "./eval/*"
+    "./eval/*": "./eval/*",
+    "./motion": "./src/motion/index.ts",
+    "./wasm/*": "./wasm/*"
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",

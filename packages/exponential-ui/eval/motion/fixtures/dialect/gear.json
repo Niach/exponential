@@ -1,0 +1,13 @@
+{
+  "id": "gear",
+  "variant": "dialect",
+  "prompt": "A gear icon rotating slowly, 64×64.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:24.115Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 559
+  },
+  "text": "```json\n{\n  \"size\": [64, 64],\n  \"duration\": 2000,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"gear\",\n      \"transform\": {\n        \"anchor\": [0, 0],\n        \"position\": [32, 32],\n        \"rotation\": {\n          \"keys\": [\n            {\"t\": 0, \"v\": 0, \"ease\": \"linear\"},\n            {\"t\": 2000, \"v\": 360}\n          ]\n        }\n      },\n      \"shapes\": [\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"rect\", \"position\": [0, 0], \"size\": [8, 52], \"radius\": 2},\n            {\"type\": \"rect\", \"position\": [0, 0], \"size\": [52, 8], \"radius\": 2}\n          ],\n          \"transform\": {}\n        },\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"rect\", \"position\": [0, 0], \"size\": [8, 52], \"radius\": 2},\n            {\"type\": \"rect\", \"position\": [0, 0], \"size\": [52, 8], \"radius\": 2},\n            {\"type\": \"fill\", \"color\": \"$color.foreground\"}\n          ],\n          \"transform\": {\"rotation\": 45}\n        },\n        {\"type\": \"ellipse\", \"position\": [0, 0], \"size\": [44, 44]},\n        {\"type\": \"fill\", \"color\": \"$color.foreground\"},\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"ellipse\", \"position\": [0, 0], \"size\": [18, 18]},\n            {\"type\": \"fill\", \"color\": \"$color.muted\"}\n          ],\n          \"transform\": {}\n        }\n      ]\n    }\n  ]\n}\n```"
+}

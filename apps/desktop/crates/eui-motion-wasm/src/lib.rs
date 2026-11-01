@@ -2,7 +2,7 @@
 //! eui-motion. Frames cross as a `Float32Array` in the packed display-list
 //! encoding (`eui-motion/README.md` § Packed frames).
 
-use eui_motion::{display::DisplayList, validate, Limits, Motion};
+use eui_motion::{dialect, display::DisplayList, validate, Limits, Motion};
 use serde_json::{json, Map, Value};
 use wasm_bindgen::prelude::*;
 
@@ -82,4 +82,17 @@ impl MotionPlayer {
 pub fn validate(source: &str) -> String {
     let report = validate::check(source.as_bytes(), &Limits::default());
     json!({ "errors": report.errors, "warnings": report.warnings }).to_string()
+}
+
+/// Compile a dialect document: `{"lottie": {…}}` or `{"errors": […]}`.
+#[wasm_bindgen]
+pub fn compile(source: &str) -> String {
+    let doc: Value = match serde_json::from_str(source) {
+        Ok(v) => v,
+        Err(e) => return json!({"errors": [{"code": "parse", "path": "", "message": e.to_string()}]}).to_string(),
+    };
+    match dialect::compile(&doc) {
+        Ok(l) => json!({ "lottie": l }).to_string(),
+        Err(issues) => json!({ "errors": issues }).to_string(),
+    }
 }

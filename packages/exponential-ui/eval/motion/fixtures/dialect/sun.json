@@ -1,0 +1,13 @@
+{
+  "id": "sun",
+  "variant": "dialect",
+  "prompt": "A sun with rays that grow and shrink while the sun rotates, 120×120.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:28.276Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 1309
+  },
+  "text": "```json\n{\n  \"size\": [120, 120],\n  \"duration\": 2000,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"core\",\n      \"transform\": {\n        \"anchor\": [60, 60],\n        \"position\": [60, 60],\n        \"scale\": {\n          \"keys\": [\n            {\"t\": 0, \"v\": [100, 100], \"ease\": \"ease-in-out\"},\n            {\"t\": 1000, \"v\": [94, 94], \"ease\": \"ease-in-out\"},\n            {\"t\": 2000, \"v\": [100, 100]}\n          ]\n        }\n      },\n      \"shapes\": [\n        {\"type\": \"ellipse\", \"position\": [60, 60], \"size\": [40, 40]},\n        {\n          \"type\": \"gradient-fill\",\n          \"kind\": \"radial\",\n          \"start\": [60, 60],\n          \"end\": [60, 80],\n          \"stops\": [[0, \"$color.warning\"], [1, \"$color.accent\"]]\n        }\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"rays\",\n      \"transform\": {\n        \"anchor\": [60, 60],\n        \"position\": [60, 60],\n        \"rotation\": {\n          \"keys\": [\n            {\"t\": 0, \"v\": 0},\n            {\"t\": 2000, \"v\": 360}\n          ]\n        }\n      },\n      \"shapes\": [\n        {\n          \"type\": \"group\",\n          \"transform\": {\n            \"anchor\": [60, 60],\n            \"position\": [60, 60],\n            \"scale\": {\n              \"keys\": [\n                {\"t\": 0, \"v\": [80, 80], \"ease\": \"ease-in-out\"},\n                {\"t\": 1000, \"v\": [115, 115], \"ease\": \"ease-in-out\"},\n                {\"t\": 2000, \"v\": [80, 80]}\n              ]\n            }\n          },\n          \"shapes\": [\n            {\"type\": \"rect\", \"position\": [60, 18], \"size\": [6, 16], \"radius\": 3},\n            {\n              \"type\": \"repeater\",\n              \"copies\": 8,\n              \"transform\": {\n                \"anchor\": [60, 60],\n                \"position\": [60, 60],\n                \"rotation\": 45\n              }\n            },\n            {\"type\": \"fill\", \"color\": \"$color.warning\"}\n          ]\n        }\n      ]\n    }\n  ]\n}\n```"
+}

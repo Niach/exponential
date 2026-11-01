@@ -49,3 +49,10 @@ log = "0.4"
 # X11 on Linux: a server without a display answers "not available" at
 # runtime, nothing is needed at load time).
 epilot = { path = "../epilot" }
+
+# EXP-1603: `exponential motion` (import/compile/decompile/check/render) on
+# the eUI Motion engine with its tiny-skia raster; `gif` (already in the
+# lock) writes the animated previews, `base64` inlines local image assets.
+eui-motion = { path = "../eui-motion", features = ["raster"] }
+gif = "0.13"
+base64 = "0.22"

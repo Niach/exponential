@@ -1,0 +1,13 @@
+{
+  "id": "blink",
+  "variant": "dialect",
+  "prompt": "A round smiley face that blinks once every two seconds, 80×80.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:52.482Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 792
+  },
+  "text": "```json\n{\n  \"size\": [80, 80],\n  \"duration\": 2000,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"eyes\",\n      \"transform\": {},\n      \"shapes\": [\n        {\n          \"type\": \"group\",\n          \"transform\": {\n            \"anchor\": [29, 32],\n            \"position\": [29, 32],\n            \"scale\": {\n              \"keys\": [\n                {\"t\": 0, \"v\": [100, 100], \"ease\": \"hold\"},\n                {\"t\": 1700, \"v\": [100, 100], \"ease\": \"ease-in\"},\n                {\"t\": 1770, \"v\": [100, 8], \"ease\": \"ease-out\"},\n                {\"t\": 1840, \"v\": [100, 100]}\n              ]\n            }\n          },\n          \"shapes\": [\n            {\"type\": \"ellipse\", \"position\": [29, 32], \"size\": [8, 12]},\n            {\"type\": \"fill\", \"color\": \"$color.foreground\"}\n          ]\n        },\n        {\n          \"type\": \"group\",\n          \"transform\": {\n            \"anchor\": [51, 32],\n            \"position\": [51, 32],\n            \"scale\": {\n              \"keys\": [\n                {\"t\": 0, \"v\": [100, 100], \"ease\": \"hold\"},\n                {\"t\": 1700, \"v\": [100, 100], \"ease\": \"ease-in\"},\n                {\"t\": 1770, \"v\": [100, 8], \"ease\": \"ease-out\"},\n                {\"t\": 1840, \"v\": [100, 100]}\n              ]\n            }\n          },\n          \"shapes\": [\n            {\"type\": \"ellipse\", \"position\": [51, 32], \"size\": [8, 12]},\n            {\"type\": \"fill\", \"color\": \"$color.foreground\"}\n          ]\n        }\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"mouth\",\n      \"transform\": {},\n      \"shapes\": [\n        {\"type\": \"path\", \"d\": \"M22 48 C28 62 52 62 58 48\"},\n        {\"type\": \"stroke\", \"color\": \"$color.foreground\", \"width\": 4, \"cap\": \"round\", \"join\": \"round\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"face\",\n      \"transform\": {},\n      \"shapes\": [\n        {\"type\": \"ellipse\", \"position\": [40, 40], \"size\": [72, 72]},\n        {\"type\": \"fill\", \"color\": \"$color.warning\"}\n      ]\n    }\n  ]\n}\n```"
+}

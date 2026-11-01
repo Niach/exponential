@@ -1,0 +1,13 @@
+{
+  "id": "clock",
+  "variant": "dialect",
+  "prompt": "A clock face whose minute hand goes all the way round while the hour hand moves one step, 100×100.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:42.590Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 812
+  },
+  "text": "```json\n{\n  \"size\": [100, 100],\n  \"duration\": 2000,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"center\",\n      \"transform\": {\"position\": [50, 50]},\n      \"shapes\": [\n        {\"type\": \"ellipse\", \"position\": [0, 0], \"size\": [6, 6]},\n        {\"type\": \"fill\", \"color\": \"$color.primary\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"minute\",\n      \"transform\": {\n        \"anchor\": [0, 0],\n        \"position\": [50, 50],\n        \"rotation\": {\"keys\": [{\"t\": 0, \"v\": 0, \"ease\": \"ease-in-out\"}, {\"t\": 2000, \"v\": 360}]}\n      },\n      \"shapes\": [\n        {\"type\": \"path\", \"d\": \"M0 0 L0 -34\"},\n        {\"type\": \"stroke\", \"color\": \"$color.foreground\", \"width\": 3, \"cap\": \"round\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"hour\",\n      \"transform\": {\n        \"anchor\": [0, 0],\n        \"position\": [50, 50],\n        \"rotation\": {\"keys\": [{\"t\": 0, \"v\": 0, \"ease\": \"ease-in-out\"}, {\"t\": 2000, \"v\": 30}]}\n      },\n      \"shapes\": [\n        {\"type\": \"path\", \"d\": \"M0 0 L0 -22\"},\n        {\"type\": \"stroke\", \"color\": \"$color.primary\", \"width\": 4, \"cap\": \"round\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"ticks\",\n      \"transform\": {\"position\": [50, 50]},\n      \"shapes\": [\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"path\", \"d\": \"M0 -42 L0 -38\"},\n            {\"type\": \"stroke\", \"color\": \"$color.muted\", \"width\": 2, \"cap\": \"round\"},\n            {\"type\": \"repeater\", \"copies\": 12, \"transform\": {\"rotation\": 30}}\n          ]\n        }\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"face\",\n      \"transform\": {\"position\": [50, 50]},\n      \"shapes\": [\n        {\"type\": \"ellipse\", \"position\": [0, 0], \"size\": [92, 92]},\n        {\"type\": \"stroke\", \"color\": \"$color.foreground\", \"width\": 3}\n      ]\n    }\n  ]\n}\n```"
+}

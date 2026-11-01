@@ -13,17 +13,22 @@ categories = ["rendering", "graphics"]
 exclude = ["tests/", "examples/"]
 
 [features]
-default = []
+default = ["decompile"]
+# Lottie → dialect (CLI, tooling); off in the WASM (players and the server
+# validator only compile).
+decompile = []
 # The tiny-skia reference raster: the gpui painter, the conformance
 # reference, GIF previews. Off in the WASM and FFI builds.
 raster = ["dep:tiny-skia", "dep:image", "dep:base64"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+# dotLottie (zip, deflate): the version already in apps/desktop/Cargo.lock.
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 # Glyph outlines for text layers without `chars` (the version already in
 # apps/desktop/Cargo.lock via fontdb; no_std-capable, small in WASM).
-ttf-parser = { version = "0.25", default-features = false, features = ["std", "opentype-layout", "glyph-names"] }
+ttf-parser = { version = "0.25", default-features = false, features = ["std", "opentype-layout"] }
 tiny-skia = { version = "0.11.4", optional = true }
 # `raster`: decodes image assets (data URLs, files) for the reference painter.
 image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg", "webp"] }

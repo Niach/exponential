@@ -1,0 +1,13 @@
+{
+  "id": "upload",
+  "variant": "dialect",
+  "prompt": "An upload arrow that moves up out of a tray and reappears from below, looping, 64×64.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:37.457Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 1212
+  },
+  "text": "```json\n{\n  \"size\": [64, 64],\n  \"duration\": 1400,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"tray\",\n      \"shapes\": [\n        { \"type\": \"path\", \"d\": \"M12 40 V50 Q12 52 14 52 H50 Q52 52 52 50 V40\" },\n        { \"type\": \"stroke\", \"color\": \"$color.foreground\", \"width\": 4, \"cap\": \"round\", \"join\": \"round\" }\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"arrow\",\n      \"transform\": {\n        \"position\": {\n          \"keys\": [\n            { \"t\": 0, \"v\": [0, 0], \"ease\": \"ease-in\" },\n            { \"t\": 600, \"v\": [0, -44], \"ease\": \"hold\" },\n            { \"t\": 601, \"v\": [0, 44], \"ease\": \"ease-out\" },\n            { \"t\": 1300, \"v\": [0, 0] }\n          ]\n        },\n        \"opacity\": {\n          \"keys\": [\n            { \"t\": 0, \"v\": 100 },\n            { \"t\": 450, \"v\": 100, \"ease\": \"hold\" },\n            { \"t\": 600, \"v\": 0, \"ease\": \"hold\" },\n            { \"t\": 601, \"v\": 0 },\n            { \"t\": 900, \"v\": 100 }\n          ]\n        }\n      },\n      \"shapes\": [\n        { \"type\": \"path\", \"d\": \"M32 34 V12 M22 22 L32 12 L42 22\" },\n        { \"type\": \"stroke\", \"color\": \"$color.primary\", \"width\": 4, \"cap\": \"round\", \"join\": \"round\" }\n      ]\n    }\n  ]\n}\n```"
+}

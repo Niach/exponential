@@ -1,0 +1,13 @@
+{
+  "id": "error-x",
+  "variant": "dialect",
+  "prompt": "An error state: a red circle pops in and an X draws itself inside, 64×64.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:59.914Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 778
+  },
+  "text": "```json\n{\n  \"size\": [64, 64],\n  \"duration\": 1200,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"x\",\n      \"transform\": { \"anchor\": [32, 32], \"position\": [32, 32] },\n      \"shapes\": [\n        { \"type\": \"path\", \"d\": \"M22 22 L42 42\" },\n        {\n          \"type\": \"trim\",\n          \"start\": 0,\n          \"end\": {\n            \"keys\": [\n              { \"t\": 0, \"v\": 0 },\n              { \"t\": 400, \"v\": 0, \"ease\": \"ease-out\" },\n              { \"t\": 650, \"v\": 100 }\n            ]\n          }\n        },\n        { \"type\": \"stroke\", \"color\": \"#ffffff\", \"width\": 5, \"cap\": \"round\", \"join\": \"round\" }\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"x2\",\n      \"transform\": { \"anchor\": [32, 32], \"position\": [32, 32] },\n      \"shapes\": [\n        { \"type\": \"path\", \"d\": \"M42 22 L22 42\" },\n        {\n          \"type\": \"trim\",\n          \"start\": 0,\n          \"end\": {\n            \"keys\": [\n              { \"t\": 0, \"v\": 0 },\n              { \"t\": 600, \"v\": 0, \"ease\": \"ease-out\" },\n              { \"t\": 850, \"v\": 100 }\n            ]\n          }\n        },\n        { \"type\": \"stroke\", \"color\": \"#ffffff\", \"width\": 5, \"cap\": \"round\", \"join\": \"round\" }\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"circle\",\n      \"transform\": {\n        \"anchor\": [32, 32],\n        \"position\": [32, 32],\n        \"scale\": {\n          \"keys\": [\n            { \"t\": 0, \"v\": [0, 0], \"ease\": [0.34, 1.56, 0.64, 1] },\n            { \"t\": 450, \"v\": [100, 100] }\n          ]\n        },\n        \"opacity\": {\n          \"keys\": [\n            { \"t\": 0, \"v\": 0, \"ease\": \"ease-out\" },\n            { \"t\": 150, \"v\": 100 }\n          ]\n        }\n      },\n      \"shapes\": [\n        { \"type\": \"ellipse\", \"position\": [32, 32], \"size\": [56, 56] },\n        { \"type\": \"fill\", \"color\": \"$color.destructive\" }\n      ]\n    }\n  ]\n}\n```"
+}

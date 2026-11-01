@@ -1,0 +1,13 @@
+{
+  "id": "coin",
+  "variant": "dialect",
+  "prompt": "A coin spinning around its vertical axis (squash horizontally to fake 3D), 80×80.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:04:00.697Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 574
+  },
+  "text": "```json\n{\n  \"size\": [80, 80],\n  \"duration\": 1600,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"coin\",\n      \"transform\": {\n        \"anchor\": [0, 0],\n        \"position\": [40, 40],\n        \"scale\": {\n          \"keys\": [\n            {\"t\": 0, \"v\": [100, 100], \"ease\": \"ease-in-out\"},\n            {\"t\": 400, \"v\": [0, 100], \"ease\": \"ease-in-out\"},\n            {\"t\": 800, \"v\": [-100, 100], \"ease\": \"ease-in-out\"},\n            {\"t\": 1200, \"v\": [0, 100], \"ease\": \"ease-in-out\"},\n            {\"t\": 1600, \"v\": [100, 100]}\n          ]\n        }\n      },\n      \"shapes\": [\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"ellipse\", \"position\": [0, 0], \"size\": [64, 64]},\n            {\"type\": \"fill\", \"color\": \"$color.warning\"}\n          ]\n        },\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"ellipse\", \"position\": [0, 0], \"size\": [52, 52]},\n            {\"type\": \"stroke\", \"color\": \"$color.foreground\", \"width\": 3}\n          ],\n          \"transform\": {\"opacity\": 40}\n        },\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"star\", \"points\": 5, \"outerRadius\": 14, \"innerRadius\": 6, \"position\": [0, 0]},\n            {\"type\": \"fill\", \"color\": \"$color.foreground\"}\n          ],\n          \"transform\": {\"opacity\": 60}\n        }\n      ]\n    }\n  ]\n}\n```"
+}

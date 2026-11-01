@@ -84,6 +84,32 @@ fonts. `fixtures/motion-frames.json` pins display lists (JSON + packed) for
 the WASM and FFI replays; `fixtures/motion-validate.json` pins refusals;
 `catalog/limits.json › motion` the limits.
 
+## Authoring (M2, EXP-1603)
+
+- **Dialect** (`dialect.rs`, `decompile.rs`): readable JSON for people and
+  models: ms, SVG path data, CSS easing names, `$color.<token>` (compiled to a
+  Lottie slot the host fills from the theme), `{light, dark}` pairs (slot
+  `ld:<light>:<dark>`), `{"keys": […]}` on any value, `"lottie": {…}` for raw
+  keys. `compile` → Lottie; `decompile` (feature `decompile`, default on, off in
+  the WASM) → dialect. The model guide is
+  `packages/exponential-ui/eval/motion/guide.md`.
+  `tests/dialect.rs`: `decompile(compile(d)) == d` byte for byte and identical
+  display lists over the whole corpus.
+- **dotLottie** (`dotlottie.rs`): v1 and v2 archives, images inlined, themes →
+  slot overrides, state machines kept raw; `write` for our own files.
+- **CLI**: `exponential motion import | compile | decompile | check | render
+  [--gif]`.
+- **WASM**: `MotionPlayer`, `validate`, `compile`; built by
+  `scripts/build-motion-wasm.sh` into `packages/exponential-ui/wasm/motion/`
+  (committed; `SOURCE_HASH` gates drift). 193 KB gz (`profile.motion-wasm`,
+  opt-level z). `@exponential_app/eui/motion`: `motionWasmSync` (servers),
+  `loadMotionWasm` (browsers), `motionPropsProblems` (the show validator).
+- **LLM eval** (`packages/exponential-ui/eval/motion/`): 30 prompts answered
+  with the dialect guide and with an equally short raw-Lottie guide (Sonnet,
+  `record.ts`); `tests/eval.rs` scores them: dialect 30/30 valid (28/30 before
+  two fixes: `"parent": null` accepted, the eval registers a theme font like
+  hosts do), raw Lottie 30/30; mean output 1.1k vs 3.2k tokens.
+
 ## Limits
 
 2 MB source, 5,000 shapes, 120 s, 100,000 vertices per frame. Expressions
@@ -164,6 +190,4 @@ wasm-opt).
 
 - **N95 / mid Android timings**: no device on this machine; measured on the
   emulator with the FFI in M3.
-- **LLM eval (dialect vs raw Lottie, 30 prompts)**: the dialect is approved;
-  the eval needs its compiler and runs in M2 (EXP-1603), where it gates the
-  catalog prompt (≥ 95% valid on the first try).
+- **LLM eval (dialect vs raw Lottie, 30 prompts)**: ran in M2 (above).

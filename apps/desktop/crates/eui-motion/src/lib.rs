@@ -13,7 +13,11 @@
 //! ```
 
 pub mod anim;
+#[cfg(feature = "decompile")]
+mod decompile;
+pub mod dialect;
 pub mod display;
+pub mod dotlottie;
 pub mod effects;
 pub mod geom;
 mod import;

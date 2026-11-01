@@ -1,0 +1,13 @@
+{
+  "id": "wave",
+  "variant": "dialect",
+  "prompt": "A smooth wave line that ripples left to right, looping, 240×60.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:27.588Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 1179
+  },
+  "text": "```json\n{\n  \"size\": [240, 60],\n  \"duration\": 1500,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"wave\",\n      \"transform\": {},\n      \"shapes\": [\n        {\n          \"type\": \"group\",\n          \"transform\": {\n            \"position\": {\n              \"keys\": [\n                { \"t\": 0, \"v\": [0, 0], \"ease\": \"linear\" },\n                { \"t\": 1500, \"v\": [120, 0] }\n              ]\n            }\n          },\n          \"shapes\": [\n            {\n              \"type\": \"path\",\n              \"d\": \"M-120 30 C-98 10 -82 10 -60 30 C-38 50 -22 50 0 30 C22 10 38 10 60 30 C82 50 98 50 120 30 C142 10 158 10 180 30 C202 50 218 50 240 30 C262 10 278 10 300 30 C322 50 338 50 360 30\"\n            },\n            {\n              \"type\": \"stroke\",\n              \"color\": \"$color.primary\",\n              \"width\": 4,\n              \"cap\": \"round\",\n              \"join\": \"round\"\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}\n```"
+}

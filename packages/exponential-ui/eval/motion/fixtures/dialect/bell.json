@@ -1,0 +1,13 @@
+{
+  "id": "bell",
+  "variant": "dialect",
+  "prompt": "A notification bell that shakes left and right then settles, 64×64.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:30.134Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 753
+  },
+  "text": "```json\n{\n  \"size\": [64, 64],\n  \"duration\": 1500,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"clapper\",\n      \"transform\": {\n        \"anchor\": [32, 0],\n        \"position\": [32, 0],\n        \"rotation\": 0\n      },\n      \"shapes\": [\n        {\"type\": \"ellipse\", \"position\": [32, 54], \"size\": [10, 8]},\n        {\"type\": \"fill\", \"color\": \"$color.primary\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"bell\",\n      \"transform\": {\n        \"anchor\": [32, 10],\n        \"position\": [32, 10],\n        \"rotation\": {\n          \"keys\": [\n            {\"t\": 0, \"v\": 0, \"ease\": \"ease-out\"},\n            {\"t\": 150, \"v\": 18, \"ease\": \"ease-in-out\"},\n            {\"t\": 400, \"v\": -16, \"ease\": \"ease-in-out\"},\n            {\"t\": 650, \"v\": 11, \"ease\": \"ease-in-out\"},\n            {\"t\": 880, \"v\": -7, \"ease\": \"ease-in-out\"},\n            {\"t\": 1080, \"v\": 3, \"ease\": \"ease-in-out\"},\n            {\"t\": 1250, \"v\": 0}\n          ]\n        }\n      },\n      \"shapes\": [\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"path\", \"d\": \"M32 10 C21 10 15 18 15 28 L15 38 L10 46 L54 46 L49 38 L49 28 C49 18 43 10 32 10 Z\"},\n            {\"type\": \"round-corners\", \"radius\": 3},\n            {\"type\": \"fill\", \"color\": \"$color.primary\"}\n          ]\n        },\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"ellipse\", \"position\": [32, 8], \"size\": [6, 6]},\n            {\"type\": \"fill\", \"color\": \"$color.primary\"}\n          ]\n        },\n        {\n          \"type\": \"group\",\n          \"shapes\": [\n            {\"type\": \"ellipse\", \"position\": [32, 52], \"size\": [12, 8]},\n            {\"type\": \"fill\", \"color\": \"$color.primary\"}\n          ]\n        }\n      ]\n    }\n  ]\n}\n```"
+}
