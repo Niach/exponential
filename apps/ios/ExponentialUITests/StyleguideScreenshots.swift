@@ -572,7 +572,10 @@ final class StyleguideScreenshots: XCTestCase {
         let issueSearch = anyElement(app, identified: "agent-composer-submenu-search")
         expect(issueSearch, within: Wait.nav, "The issue picker has no search input")
         for title in Self.chatIssueTitles {
-            issueSearch.tap()
+            // Tap the trailing edge: the caret lands at the END, so the
+            // deletes clear the previous title whole (a centre tap leaves
+            // its head in the field).
+            issueSearch.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
             clearText(of: issueSearch)
             issueSearch.typeText(title)
             // EXP-1030: a picker row reads `IDENT Title` in ONE label (the ×4
@@ -602,6 +605,11 @@ final class StyleguideScreenshots: XCTestCase {
         // its input focused and prefilled with the token after the `#`.
         let composerField = anyElement(app, identified: "agent-composer-field")
         composerField.tap()
+        // EXP-1551: sg_chat-issues typed in the picker's search, so the first
+        // tap can go to ending that edit: tap again until the keyboard is up.
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 2) {
+            composerField.tap()
+        }
         app.typeText("Explain #")
         let refSheet = anyElement(app, identified: "issue-ref-search-sheet")
         expect(refSheet, within: Wait.nav, "Typing # did not open the search-list sheet")
