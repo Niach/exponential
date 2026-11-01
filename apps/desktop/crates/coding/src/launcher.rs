@@ -622,9 +622,9 @@ impl WorktreeProvider for GitWorktrees {
         // #EXP-1618: a session continued here (a move, a resume on a
         // re-created worktree) gets back the uncommitted work its last
         // device snapshotted to `refs/exp-wip/<branch>`.
-        match crate::auto_push::restore_wip(&clone, &worktree, branch, Some(url)) {
+        match crate::auto_push::restore_wip(&clone, &worktree.path, branch, Some(url)) {
             crate::auto_push::WipRestore::None => {}
-            restored => log::info!("auto-push: {branch} prepared in {}: {restored:?}", worktree.display()),
+            restored => log::info!("auto-push: {branch} prepared in {}: {restored:?}", worktree.path.display()),
         }
         Ok(worktree)
     }
