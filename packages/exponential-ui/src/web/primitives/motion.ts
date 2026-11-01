@@ -24,10 +24,9 @@
 // Without IntersectionObserver or requestAnimationFrame (SSR, jsdom) it
 // paints nothing and loads nothing.
 
-import { parseColor } from "../../color"
-import { MEDIA_LIMITS } from "../../host/contract"
-import type { ResolvedTheme, ModeName } from "../../theme-types"
-import { resolveToken } from "../../theme"
+// The package root is external to the web entries (like web/media.ts):
+// importing ../../theme here would bundle the whole catalog.
+import { MEDIA_LIMITS, parseColor, resolveToken, type ModeName, type ResolvedTheme } from "@exponential_app/eui"
 import type { HostPlugin } from "../host-types"
 import { fetchLimited } from "../media"
 import { mediaRequestOf, mediaUrlAllowed } from "../urls"
