@@ -4,7 +4,8 @@
 
 import limitsJson from "../catalog/limits.json" with { type: "json" }
 
-export const LIMITS: Readonly<Record<string, number>> = Object.fromEntries(Object.entries(limitsJson).filter(([k]) => !k.startsWith(`$`))) as Record<string, number>
+/** The surface limits (numbers; sections such as `motion` are their own). */
+export const LIMITS: Readonly<Record<string, number>> = Object.fromEntries(Object.entries(limitsJson).filter(([k, v]) => !k.startsWith(`$`) && typeof v === `number`)) as Record<string, number>
 /** Nodes the reducer places in one surface's tree (template nodes included). */
 export const MAX_COMPONENTS: number = limitsJson.maxComponents
 /** Component nesting levels (the root = 1). */

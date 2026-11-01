@@ -2757,23 +2757,6 @@
       ]
     },
     {
-      "name": "color",
-      "version": "0.3.3",
-      "declared": "Apache-2.0 OR MIT",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `Apache-2.0 OR MIT`",
-      "homepage": "https://github.com/linebender/color",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "LICENSE-MIT",
-          "body": "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
-        }
-      ]
-    },
-    {
       "name": "color_quant",
       "version": "1.1.0",
       "declared": "MIT",
@@ -11581,26 +11564,6 @@
       ]
     },
     {
-      "name": "peniko",
-      "version": "0.6.1",
-      "declared": "Apache-2.0 OR MIT",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `Apache-2.0 OR MIT`",
-      "homepage": "https://github.com/linebender/peniko",
-      "copyright": [
-        "Copyright (c) 2018 Raph Levien"
-      ],
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "LICENSE-MIT",
-          "body": "Copyright (c) 2018 Raph Levien\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.\n"
-        }
-      ]
-    },
-    {
       "name": "percent-encoding",
       "version": "2.3.2",
       "declared": "MIT OR Apache-2.0",
@@ -19085,23 +19048,6 @@
         }
       ],
       "buildOnly": true
-    },
-    {
-      "name": "velato",
-      "version": "0.12.0",
-      "declared": "Apache-2.0 OR MIT",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `Apache-2.0 OR MIT`",
-      "homepage": "https://github.com/linebender/velato",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "LICENSE-MIT",
-          "body": "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
-        }
-      ]
     },
     {
       "name": "version-compare",

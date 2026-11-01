@@ -119,8 +119,8 @@ pub struct StrokeStyle {
     pub dash_offset: f32,
 }
 
-/// How a layer composites onto what is below it: the W3C compositing
-/// separable/non-separable blend modes, plus the Porter-Duff operators mattes need.
+/// How a layer composites onto what is below it: the 16 W3C compositing
+/// blend modes, then the operators mattes, masks and merge paths need.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Blend {
@@ -141,14 +141,16 @@ pub enum Blend {
     Saturation,
     Color,
     Luminosity,
-    /// Porter-Duff source-in (alpha matte).
-    SrcIn,
-    /// Porter-Duff source-out (inverted alpha matte).
-    SrcOut,
-    /// Porter-Duff destination-in.
+    /// Porter-Duff destination-in: keep what is below where the layer is opaque (alpha matte).
     DstIn,
-    /// Porter-Duff destination-out.
+    /// Porter-Duff destination-out (inverted alpha matte, subtract).
     DstOut,
+    /// Destination × the layer's luminance (premultiplied; luma matte).
+    LumaIn,
+    /// Destination × (1 − the layer's luminance) (inverted luma matte).
+    LumaOut,
+    /// Porter-Duff xor (merge paths: exclude intersections).
+    Xor,
 }
 
 impl Blend {
@@ -156,6 +158,22 @@ impl Blend {
     pub fn code(self) -> u8 {
         self as u8
     }
+}
+
+/// A filter applied to a layer's content before it composites (effects,
+/// mask feather). Applied in order.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum Filter {
+    /// Gaussian blur; standard deviations in composition units (painters
+    /// multiply by their fit scale).
+    Blur { sigma_x: f32, sigma_y: f32 },
+    /// A 4×5 row-major colour matrix on straight RGBA (like SVG `feColorMatrix`).
+    ColorMatrix { m: [f32; 20] },
+    /// Map each pixel's luminance through `stops`, then mix with the original by `amount`.
+    GradientMap { stops: Vec<Stop>, amount: f32 },
+    /// A drop shadow under the content: offset in frame units, blur sigma, colour.
+    DropShadow { color: [f32; 4], dx: f32, dy: f32, sigma: f32 },
 }
 
 /// One drawing operation.
@@ -168,6 +186,8 @@ pub enum Op {
         alpha: f32,
         transform: Transform,
         clip: Vec<Verb>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        filters: Vec<Filter>,
     },
     /// Intersect the current clip with `path` until the matching `Pop`.
     Clip {
@@ -225,6 +245,10 @@ pub mod code {
     pub const BRUSH_SOLID: f32 = 0.0;
     pub const BRUSH_LINEAR: f32 = 1.0;
     pub const BRUSH_RADIAL: f32 = 2.0;
+    pub const FILTER_BLUR: f32 = 0.0;
+    pub const FILTER_COLOR_MATRIX: f32 = 1.0;
+    pub const FILTER_GRADIENT_MAP: f32 = 2.0;
+    pub const FILTER_DROP_SHADOW: f32 = 3.0;
     /// Format version, the stream's first word.
     pub const VERSION: f32 = 1.0;
 }
@@ -246,10 +270,15 @@ impl DisplayList {
                     alpha,
                     transform,
                     clip,
+                    filters,
                 } => {
                     out.extend_from_slice(&[code::LAYER, blend.code() as f32, *alpha]);
                     out.extend_from_slice(transform);
                     encode_path(clip, out);
+                    out.push(filters.len() as f32);
+                    for f in filters {
+                        encode_filter(f, out);
+                    }
                 }
                 Op::Clip { transform, path } => {
                     out.push(code::CLIP);
@@ -373,6 +402,28 @@ fn encode_brush(brush: &Brush, out: &mut Vec<f32>) {
                 *radius,
             ]);
             stops(s, out);
+        }
+    }
+}
+
+fn encode_filter(f: &Filter, out: &mut Vec<f32>) {
+    match f {
+        Filter::Blur { sigma_x, sigma_y } => out.extend_from_slice(&[code::FILTER_BLUR, *sigma_x, *sigma_y]),
+        Filter::ColorMatrix { m } => {
+            out.push(code::FILTER_COLOR_MATRIX);
+            out.extend_from_slice(m);
+        }
+        Filter::GradientMap { stops, amount } => {
+            out.extend_from_slice(&[code::FILTER_GRADIENT_MAP, *amount, stops.len() as f32]);
+            for s in stops {
+                out.push(s.offset);
+                out.extend_from_slice(&s.color);
+            }
+        }
+        Filter::DropShadow { color, dx, dy, sigma } => {
+            out.push(code::FILTER_DROP_SHADOW);
+            out.extend_from_slice(color);
+            out.extend_from_slice(&[*dx, *dy, *sigma]);
         }
     }
 }

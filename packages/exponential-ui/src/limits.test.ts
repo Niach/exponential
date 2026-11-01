@@ -31,8 +31,10 @@ const timed = <T>(budgetMs: number, f: () => T): T => {
 
 describe(`limits (catalog/limits.json)`, () => {
   test(`the constants are the contract`, () => {
-    expect(LIMITS).toEqual(Object.fromEntries(Object.entries(limitsJson).filter(([k]) => !k.startsWith(`$`))) as Record<string, number>)
+    expect(LIMITS).toEqual(Object.fromEntries(Object.entries(limitsJson).filter(([k, v]) => !k.startsWith(`$`) && typeof v === `number`)) as Record<string, number>)
     expect([MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_TEMPLATE_ITEMS, MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS]).toEqual([20000, 48, 4194304, 10000, 1024, 64])
+    // EXP-1602: eui-motion's Limits::default() (tests/validate.rs checks the Rust side).
+    expect(limitsJson.motion).toMatchObject({ maxBytes: 2097152, maxShapes: 5000, maxVertices: 100000, maxSeconds: 120, maxFps: 60, maxPlayingPerSurface: 8 })
   })
 
   test(`an id listed twice renders once (21 components naming the next twice)`, () => {
