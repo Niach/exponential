@@ -236,6 +236,8 @@ mod window_hooks;
 mod x11_dialog_type;
 pub mod window_size;
 mod shell;
+#[cfg(test)]
+mod transcript_bench;
 
 pub use actions::*;
 pub use icons::ExpIcon;
