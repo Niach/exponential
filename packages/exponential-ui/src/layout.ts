@@ -24,3 +24,5 @@ export const SKELETON_OPACITY_LOW: number = layoutJson.skeletonOpacityLow
 export const SKELETON_OPACITY_HIGH: number = layoutJson.skeletonOpacityHigh
 export const SKELETON_REDUCED_OPACITY: number = layoutJson.skeletonReducedOpacity
 export const SEARCH_LIST_FADE: number = layoutJson.searchListFade
+/** EXP-1548: the narrowest a Table column without a `width` gets; a wider table scrolls. */
+export const TABLE_COLUMN_MIN: number = layoutJson.tableColumnMin

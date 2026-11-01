@@ -5,6 +5,7 @@ import at.exponential.ui.json.JsonValue
 import at.exponential.ui.measure.ControlBox
 import at.exponential.ui.measure.SurfaceMeasurer
 import at.exponential.ui.measure.TextShaper
+import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.paint.DateModel
 import at.exponential.ui.theme.ResolvedTextStyle
@@ -101,9 +102,20 @@ class MeasurerRulesTest {
         assertEquals(m.issues.toString(), 0, m.issues.size)
         assertTrue("height ${m.surfaceSize.height}", m.surfaceSize.height > 1000f)
         assertTrue("upcalls ${m.stats.upcalls} (batched)", m.stats.upcalls <= 3)
-        // Every visible main-tree node fits the surface's width.
+        // Every visible main-tree node fits the surface's width, but a
+        // Table's content: EXP-1548, it scrolls sideways inside the table.
+        val byIndex = m.nodes.associateBy { it.index }
+        fun inTable(n: NodeInfo): Boolean {
+            var p = n.parent
+            while (p != null) {
+                val a = byIndex[p] ?: return false
+                if (a.component == "Table") return true
+                p = a.parent
+            }
+            return false
+        }
         for (n in m.nodes) {
-            if (n.hidden || n.layer != 0) continue
+            if (n.hidden || n.layer != 0 || inTable(n)) continue
             val f = m.frame(n.index)
             assertTrue("${n.id} $f", f.left >= -0.01f && f.right <= m.surfaceSize.width + 0.01f)
         }

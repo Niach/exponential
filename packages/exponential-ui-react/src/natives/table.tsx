@@ -26,7 +26,7 @@ import { partClass } from "@exponential_app/eui/web"
 import { useBoundState } from "./bound"
 import { displayString } from "@exponential_app/eui"
 import { arr, bool, BuiltinIcon, num, phrase, str, useParts, objects } from "./shared"
-import { sortRows, type TableColumn, type TableSort as Sort } from "@exponential_app/eui/web"
+import { sortRows, tableMinWidth, tableTemplate, type TableColumn, type TableSort as Sort } from "@exponential_app/eui/web"
 
 export { sortRows }
 export type { TableColumn }
@@ -54,8 +54,10 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
   const rowKeys = useMemo(() => tableRowKeys(rows, rowKey), [rows, rowKey])
   const keyOf = (_row: Record<string, unknown>, i: number) => rowKeys[i] ?? String(i)
   const order = useMemo(() => (sortBound ? rows.map((_, i) => i) : sortRows(rows, sort, columns.find((c) => c.key === sort?.key), ctx.locale)), [rows, sort, sortBound, columns, ctx.locale])
-  // The checkbox column is as wide as the checkbox (round 2 §7).
-  const template = [selectable === `multiple` ? `var(--xui-control-checkbox, 16px)` : null, ...columns.map((c) => (c.width ? `${c.width}px` : `minmax(0, 1fr)`))].filter(Boolean).join(` `)
+  // The checkbox column is as wide as the checkbox (round 2 §7); EXP-1548:
+  // header and body never narrower than the columns, the root scrolls.
+  const template = tableTemplate(columns, selectable === `multiple`)
+  const minWidth = tableMinWidth(columns, selectable === `multiple`)
   const cycle = (c: TableColumn) => {
     const next: Sort = sort?.key === c.key && sort.direction === `asc` ? { key: c.key, direction: `desc` } : { key: c.key, direction: `asc` }
     setSort(next)
@@ -229,8 +231,8 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
           </div>
         ) : null}
         {columns.map((c, ci) => (
-          <div key={c.key} role={interactive ? `gridcell` : `cell`} {...(part.atWith(`cell`, `${key}.${ci}`, { align: c.align ?? `start` }) as Record<string, string>)} data-type={c.type ?? `text`}>
-            {cell(c, row, index)}
+          <div key={c.key} role={interactive ? `gridcell` : `cell`} {...(part.atWith(`cell`, `${key}.${ci}`, { align: c.align ?? `start` }) as Record<string, string>)} data-type={c.type ?? `text`} data-truncate={c.truncate ? `true` : undefined}>
+            {c.truncate ? <span className="xui-table-text">{cell(c, row, index)}</span> : cell(c, row, index)}
           </div>
         ))}
       </div>
@@ -238,7 +240,7 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
   }
 
   const header = (
-    <div role="rowgroup" {...(part(`header`) as Record<string, string>)} data-sticky={bool(props.stickyHeader) ? `true` : undefined}>
+    <div role="rowgroup" {...(part(`header`) as Record<string, string>)} data-sticky={bool(props.stickyHeader) ? `true` : undefined} style={{ minWidth }}>
       <div role="row" aria-rowindex={1} className="xui-table-row" style={{ gridTemplateColumns: template }}>
         {selectable === `multiple` ? (
           <div role="columnheader" className="xui-table-check">
@@ -289,7 +291,7 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
       data-windowed={windowed ? `true` : undefined}
     >
       {header}
-      <div role="rowgroup" {...(part(`body`) as Record<string, string>)} className={`${(part(`body`) as { className: string }).className} xui-table-body`} ref={bodyRef}>
+      <div role="rowgroup" {...(part(`body`) as Record<string, string>)} className={`${(part(`body`) as { className: string }).className} xui-table-body`} style={{ minWidth }} ref={bodyRef}>
         {rows.length === 0 ? (
           <div role="row">
             <div role="cell" {...(part(`empty`) as Record<string, string>)}>

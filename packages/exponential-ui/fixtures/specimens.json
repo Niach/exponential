@@ -7529,6 +7529,98 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-table-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-table-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "wide · scrolls",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-wide",
+                "component": "Table",
+                "props": {
+                  "columns": [
+                    {
+                      "key": "issue",
+                      "label": "Issue",
+                      "width": 96
+                    },
+                    {
+                      "key": "title",
+                      "label": "Title"
+                    },
+                    {
+                      "key": "board",
+                      "label": "Board"
+                    },
+                    {
+                      "key": "assignee",
+                      "label": "Assignee"
+                    },
+                    {
+                      "key": "status",
+                      "label": "Status",
+                      "type": "badge"
+                    },
+                    {
+                      "key": "summary",
+                      "label": "Summary",
+                      "truncate": true
+                    },
+                    {
+                      "key": "estimate",
+                      "label": "Estimate",
+                      "type": "number",
+                      "align": "end"
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "id": "a",
+                      "issue": "APP-9",
+                      "title": "Fix crash when uploading HEIC photos from the share sheet",
+                      "board": "Mobile",
+                      "assignee": "Alice Lindqvist",
+                      "status": "In progress",
+                      "summary": "The share extension hands over a file URL the uploader cannot read once the sheet closes",
+                      "estimate": 3
+                    },
+                    {
+                      "id": "b",
+                      "issue": "APP-21",
+                      "title": "Offline queue for issue edits",
+                      "board": "Sync",
+                      "assignee": "Bob Okafor",
+                      "status": "Todo",
+                      "summary": "Edits made without a connection are lost on relaunch",
+                      "estimate": 8
+                    },
+                    {
+                      "id": "c",
+                      "issue": "APP-18",
+                      "title": "Reduce cold start below 800 ms",
+                      "board": "Performance",
+                      "assignee": "Chen Wei",
+                      "status": "Done",
+                      "summary": "Defer the sync bootstrap until after the first frame",
+                      "estimate": 5
+                    }
+                  ]
+                }
+              }
+            ]
           }
         ]
       }
