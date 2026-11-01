@@ -227,7 +227,6 @@ fun ThreadScreen(
     // ROOT, the whole tree; shown while the root is not ended; an agent
     // chat has none) and the `…` (the chat's / the agent's entries).
     val canSteer = rootRow != null && (rootRow.shared || rootRow.userId == me)
-    val rootEnded = rootRow?.isEnded == true
     val chatLead = chatLeadOf(view, pullRequests)
     val headerLead: @Composable () -> Unit = {
         if (agent != null) {
@@ -252,7 +251,7 @@ fun ThreadScreen(
     val headerSubtitle = if (agent != null) {
         listOfNotNull(AGENT_SUBTITLE, rootRow?.model?.takeIf { it.isNotBlank() }?.let(::modelLabel)).joinToString(" · ")
     } else {
-        listOfNotNull(chatStateWord(view, rootEnded), deviceLabel).joinToString(" · ")
+        listOfNotNull(chatStateWord(view), deviceLabel).joinToString(" · ")
     }
     val headerSubtitleColor = if (agent == null && view?.needsYou == true) com.exponential.app.ui.issue.NeedsInputAmber else null
     val chatMenu: List<com.exponential.app.ui.components.ChatMenuItem> = if (agent != null) {
@@ -572,14 +571,14 @@ internal fun chatLeadOf(view: SessionTree.ThreadView?, pullRequests: List<PullRe
     }
 }
 
-/** The chat header's state word (S-3's four): done, needs you, working…,
- *  else idle. */
-internal fun chatStateWord(view: SessionTree.ThreadView?, ended: Boolean): String? = when {
+/** The chat header's state word ×4 (web `ChatHeaderTitle`, iOS
+ *  `ThreadStripTabs.subtitle`): `needs input` (threads-list.json
+ *  `words.needsInput`) while it needs you, `working…` while busy, else none. */
+internal fun chatStateWord(view: SessionTree.ThreadView?): String? = when {
     view == null -> null
-    ended -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Done)
-    view.needsYou -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.NeedsYou)
+    view.needsYou -> SessionTree.ThreadRowWord.NeedsInput.text
     view.busy -> com.exponential.app.domain.Chats.Copy.PREVIEW_WORKING
-    else -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Idle)
+    else -> null
 }
 
 /** A wire timestamp as the local `HH:mm` a message row shows. */
