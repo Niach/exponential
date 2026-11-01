@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-keep-signed-in-default",
+    date: "2026-11-01",
+    title: "Claude stays signed in by default",
+    summary: "Signing Claude in now keeps it signed in for a year: open the link on any device and paste the code back.",
+    body: r#"- **Keep signed in by default**: every new Claude sign-in uses a one-year login that can't be signed out by a token refresh. It shows no usage windows, and we remind you a month before it needs renewing.
+- **Switch in one tap**: Claude logins from before show "Switch to Keep signed in" on their device.
+- **Browser login**: still there under "Use browser login (Advanced)" in the sign-in dialog."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_158: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-dismiss-cards",
     date: "2026-11-01",
     title: "Dismiss a question or plan",

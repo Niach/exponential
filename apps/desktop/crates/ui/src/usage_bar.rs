@@ -1022,8 +1022,9 @@ pub(crate) fn usage_caption(state: UsageState, as_of: Option<&str>) -> Option<St
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ChipAction {
     SignIn,
-    /// EXP-1533: a claude login's long-lived `claude setup-token` sign-in;
-    /// `renew` = the login already holds one.
+    /// EXP-1533/1612: a claude login's long-lived `claude setup-token`
+    /// sign-in, offered only when the login does NOT sign in; `renew` = the
+    /// login already holds one.
     KeepSignedIn { renew: bool },
     SignOut,
     Remove,
@@ -1033,8 +1034,8 @@ impl ChipAction {
     pub(crate) fn label(self) -> &'static str {
         match self {
             ChipAction::SignIn => "Sign in",
-            ChipAction::KeepSignedIn { renew: false } => "Keep signed in",
-            ChipAction::KeepSignedIn { renew: true } => "Renew long-lived login",
+            ChipAction::KeepSignedIn { renew: false } => crate::machines::COPY_SWITCH_TO_KEEP_SIGNED_IN,
+            ChipAction::KeepSignedIn { renew: true } => crate::machines::COPY_RENEW_KEEP_SIGNED_IN,
             ChipAction::SignOut => "Sign out",
             ChipAction::Remove => "Remove account",
         }
@@ -1059,7 +1060,8 @@ impl ChipAction {
 /// in this fixed order:
 ///
 /// * a sign-in: signed out, or a credential that expired here;
-/// * EXP-1533, keep signed in (renew once it holds one): claude only —
+/// * EXP-1612, switch to / renew Keep signed in: claude only and only when
+///   it does NOT sign in (claude's sign-in already IS Keep signed in) —
 ///   `long_lived` is `Some(holds a token)` for a claude login, else `None`;
 /// * EXP-1137, sign out: signed in — the row stays;
 /// * remove: always (EXP-944: signed out or not — a dead login is the one
@@ -1077,7 +1079,7 @@ pub(crate) fn chip_actions(
     if signs_in {
         out.push(ChipAction::SignIn);
     }
-    if let Some(renew) = long_lived {
+    if let Some(renew) = long_lived.filter(|_| !signs_in) {
         out.push(ChipAction::KeepSignedIn { renew });
     }
     if signed_in {
@@ -1987,18 +1989,27 @@ mod tests {
             chip_actions(true, Health::NeedsRelogin, None),
             vec![ChipAction::SignIn, ChipAction::SignOut, ChipAction::Remove]
         );
-        // EXP-1533: a claude login keeps signed in right after the sign-in,
-        // and renews once it holds a long-lived login.
+        // EXP-1612: a claude login that signs in signs in (claude's sign-in
+        // IS Keep signed in); one that does not offers the switch, or the
+        // renewal once it holds a long-lived login.
         assert_eq!(
             chip_actions(false, Health::SignedOut, Some(false)),
-            vec![ChipAction::SignIn, ChipAction::KeepSignedIn { renew: false }, ChipAction::Remove]
+            vec![ChipAction::SignIn, ChipAction::Remove]
+        );
+        assert_eq!(
+            chip_actions(true, Health::NeedsRelogin, Some(true)),
+            vec![ChipAction::SignIn, ChipAction::SignOut, ChipAction::Remove]
+        );
+        assert_eq!(
+            chip_actions(true, Health::Ok, Some(false)),
+            vec![ChipAction::KeepSignedIn { renew: false }, ChipAction::SignOut, ChipAction::Remove]
         );
         assert_eq!(
             chip_actions(true, Health::Ok, Some(true)),
             vec![ChipAction::KeepSignedIn { renew: true }, ChipAction::SignOut, ChipAction::Remove]
         );
-        assert_eq!(ChipAction::KeepSignedIn { renew: false }.label(), "Keep signed in");
-        assert_eq!(ChipAction::KeepSignedIn { renew: true }.label(), "Renew long-lived login");
+        assert_eq!(ChipAction::KeepSignedIn { renew: false }.label(), "Switch to Keep signed in");
+        assert_eq!(ChipAction::KeepSignedIn { renew: true }.label(), "Renew Keep signed in");
         assert!(!ChipAction::KeepSignedIn { renew: true }.destructive());
         assert!(ChipAction::SignOut.destructive() && ChipAction::Remove.destructive());
         assert!(!ChipAction::SignIn.destructive());

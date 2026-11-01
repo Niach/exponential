@@ -171,9 +171,10 @@ impl LoginTarget {
 pub struct LoginRequest {
     pub agent: CodingAgent,
     pub target: LoginTarget,
-    /// EXP-1533: `longLived: "true"` — mint a `claude setup-token` for the
-    /// target profile instead of a browser login (claude only, profile
-    /// required: [`parse_login_payload`] refuses anything else).
+    /// EXP-1533: `longLived: "true"` — mint a `claude setup-token` instead
+    /// of a browser login (claude only: [`parse_login_payload`] refuses
+    /// anything else). EXP-1612: on a profile it lands there; on an Add it
+    /// becomes a NEW profile ([`long_lived_add_plan`]).
     pub long_lived: bool,
 }
 
@@ -186,15 +187,19 @@ pub const MALFORMED_PAYLOAD: &str = "Malformed command payload.";
 /// the ambient login rotated, so the profile's copy died; it is gone.
 pub const IMPORT_REMOVED: &str = "Import was removed: sign this account in on this device instead.";
 /// EXP-1533: a `longLived` login names no claude profile of this machine.
+/// Unchanged text (EXP-1612): an older device refuses a long-lived Add with
+/// it, and clients fall back to the browser login on exactly this sentence.
 pub const LONG_LIVED_NEEDS_PROFILE: &str = "A long-lived login needs a Claude account on this machine.";
+/// EXP-1612: a `longLived` login for an agent other than claude.
+pub const LONG_LIVED_CLAUDE_ONLY: &str = "A long-lived login is Claude only.";
 
 /// Parse an `agent_login` payload: `{agent, switch?: "true"|"false",
 /// profileId?}`. `switch` is still validated but means nothing any more (a
 /// login runs in a fresh dir, so there is nothing to sign out of first);
 /// `profileId` blank or the retired `system` reads as absent. The retired
-/// `import: "true"` is refused with [`IMPORT_REMOVED`]. EXP-1533:
-/// `longLived: "true"` needs claude and a `profileId`
-/// ([`LONG_LIVED_NEEDS_PROFILE`]).
+/// `import: "true"` is refused with [`IMPORT_REMOVED`]. EXP-1533/1612:
+/// `longLived: "true"` needs claude ([`LONG_LIVED_CLAUDE_ONLY`]); with no
+/// `profileId` it is a long-lived Add.
 /// `Err` carries the refusal sentence the command completes with.
 pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, String> {
     let raw_agent = payload["agent"].as_str().unwrap_or_default();
@@ -226,8 +231,8 @@ pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, 
         "false" => false,
         _ => return Err(MALFORMED_PAYLOAD.to_string()),
     };
-    if long_lived && (agent != CodingAgent::Claude || target == LoginTarget::Add) {
-        return Err(LONG_LIVED_NEEDS_PROFILE.to_string());
+    if long_lived && agent != CodingAgent::Claude {
+        return Err(LONG_LIVED_CLAUDE_ONLY.to_string());
     }
     Ok(LoginRequest { agent, target, long_lived })
 }
@@ -250,6 +255,60 @@ pub fn long_lived_plan(
     spawn.env = command.env;
     spawn.env.push(env);
     Ok(LoginPlan { spawn, title: command.title })
+}
+
+/// EXP-1612 — a long-lived "Add account": `claude setup-token` in a fresh
+/// STAGING dir ([`begin_login`]); the caller keeps the dir and hands it to
+/// [`commit_setup_token_add`] with the scraped token, or to
+/// [`abandon_login`] when the run printed none. `Err` is the refusal sentence.
+pub fn long_lived_add_plan(
+    settings: &Settings,
+    data_dir: &Path,
+    remote: bool,
+) -> Result<(PathBuf, LoginPlan), String> {
+    let agent = CodingAgent::Claude;
+    let (staging, env) = begin_login(data_dir, agent)?;
+    let command = eagent::login::setup_token_command(settings.resolved_path_for(agent), remote);
+    let mut spawn = SpawnSpec::new(command.program).args(command.args);
+    spawn.env = command.env;
+    spawn.env.push(env);
+    Ok((staging, LoginPlan { spawn, title: command.title }))
+}
+
+/// EXP-1612 — commit a long-lived Add: the scraped token goes into the
+/// `staging` dir (0600), the dir BECOMES a new claude profile
+/// ([`agent_profiles::adopt_dir`]), its `lastLoginAt` is stamped with no
+/// email (a setup token names nobody) and its usage cache forgotten. Any
+/// failure abandons the staging dir. Returns `(profile id, expiry ISO)`;
+/// the token itself never leaves this function.
+pub fn commit_setup_token_add(
+    data_dir: &Path,
+    staging: &Path,
+    scraped: (String, Option<i64>),
+) -> Result<(String, String), String> {
+    let agent = CodingAgent::Claude;
+    let (token, lifetime) = scraped;
+    let token = crate::claude_token::SetupToken::minted(
+        token,
+        chrono::Utc::now(),
+        lifetime.unwrap_or(crate::claude_token::TOKEN_LIFETIME_SECS),
+    );
+    if let Err(err) = crate::claude_token::write(staging, &token) {
+        abandon_login(agent, staging);
+        return Err(format!("Could not store the long-lived Claude login: {err}"));
+    }
+    let profile = match agent_profiles::adopt_dir(data_dir, agent, staging) {
+        Ok(profile) => profile,
+        Err(err) => {
+            abandon_login(agent, staging);
+            return Err(format!("Could not add the account: {err}"));
+        }
+    };
+    if let Err(err) = agent_profiles::stamp_login(data_dir, agent, &profile.id, None) {
+        log::warn!("agent_login: the long-lived login stamp was not recorded ({}): {err}", profile.id);
+    }
+    crate::usage_cache::forget_profile(data_dir, agent.id(), &profile.id);
+    Ok((profile.id, token.expires_at))
 }
 
 /// EXP-1533 — the token `claude setup-token` printed on `lines`, if it is
@@ -730,11 +789,18 @@ mod tests {
         .unwrap();
         assert!(parsed.long_lived);
         assert_eq!(parsed.target, LoginTarget::Profile("0badf00d".into()));
+        // EXP-1612: a long-lived Add is valid; codex never long-lives.
+        let add = parse_login_payload(&serde_json::json!({"agent": "claude", "longLived": "true"}))
+            .unwrap();
+        assert_eq!(
+            add,
+            LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add, long_lived: true }
+        );
         for payload in [
-            serde_json::json!({"agent": "claude", "longLived": "true"}),
             serde_json::json!({"agent": "codex", "profileId": "0badf00d", "longLived": "true"}),
+            serde_json::json!({"agent": "codex", "longLived": "true"}),
         ] {
-            assert_eq!(parse_login_payload(&payload), Err(LONG_LIVED_NEEDS_PROFILE.to_string()));
+            assert_eq!(parse_login_payload(&payload), Err(LONG_LIVED_CLAUDE_ONLY.to_string()));
         }
         assert_eq!(
             parse_login_payload(&serde_json::json!({"agent": "claude", "longLived": "yes"})),
@@ -780,6 +846,48 @@ mod tests {
         };
         let _ = sign_out_in(&missing, &dir, CodingAgent::Claude, &profile.id);
         assert_eq!(crate::claude_token::read(&home), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1612: a long-lived Add runs `claude setup-token` in a fresh
+    /// staging dir; its token makes that dir a NEW profile (stamped, no
+    /// email), and the staging dir is gone either way.
+    #[test]
+    fn a_long_lived_add_becomes_a_new_profile_holding_its_token() {
+        let dir = scratch_dir("long-lived-add");
+        let settings = Settings::default();
+        let (staging, plan) = long_lived_add_plan(&settings, &dir, true).unwrap();
+        assert!(staging.is_dir());
+        assert_eq!(plan.spawn.args, vec!["setup-token".to_string()]);
+        assert!(plan.spawn.env.contains(&("BROWSER".to_string(), "true".to_string())));
+        assert!(plan
+            .spawn
+            .env
+            .contains(&("CLAUDE_CONFIG_DIR".to_string(), staging.to_string_lossy().into_owned())));
+        assert!(agent_profiles::list(&dir, CodingAgent::Claude).is_empty());
+
+        let (id, expires) = commit_setup_token_add(
+            &dir,
+            &staging,
+            ("sk-ant-oat01-added-123456".to_string(), Some(365 * 86_400)),
+        )
+        .unwrap();
+        assert!(!staging.exists());
+        let profiles = agent_profiles::list(&dir, CodingAgent::Claude);
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].id, id);
+        assert!(profiles[0].last_login_at.is_some());
+        let home = agent_profiles::profile_dir(&dir, CodingAgent::Claude, &id).unwrap();
+        let stored = crate::claude_token::valid(&home).unwrap();
+        assert_eq!(stored.token, "sk-ant-oat01-added-123456");
+        assert_eq!(stored.expires_at, expires);
+        assert_eq!(agent_profiles::known_email(&dir, CodingAgent::Claude, &id), None);
+
+        // A run that printed no token is abandoned: nothing is added.
+        let (staging, _) = long_lived_add_plan(&settings, &dir, false).unwrap();
+        abandon_login(CodingAgent::Claude, &staging);
+        assert!(!staging.exists());
+        assert_eq!(agent_profiles::list(&dir, CodingAgent::Claude).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
