@@ -392,8 +392,52 @@ data class SteerDevice(
     }
 }
 
+/** EXP-1529: `steer.tunnelTicket`'s input. */
+@Serializable
+private data class TunnelTicketInput(val sessionId: String)
+
+/**
+ * EXP-1529: `steer.tunnelTicket` = `{disabled: true}` | `{unavailable: true}`
+ * | `{ticket, url}` (url = the full ws(s) dial URL, dialled as-is). Every
+ * field optional: an older or newer server shape never fails the decode.
+ */
+@Serializable
+data class TunnelTicketResult(
+    val disabled: Boolean = false,
+    val unavailable: Boolean = false,
+    val ticket: String? = null,
+    val url: String? = null,
+)
+
+/** EXP-1529: `connStats.record`'s input (<= 50 privacy-safe eCore envelopes). */
+@Serializable
+private data class ConnStatsInput(val events: List<JsonObject>)
+
+@Serializable
+data class ConnStatsResult(val accepted: Int = 0)
+
 @Singleton
 class SteerApi @Inject constructor(private val trpc: TrpcClient) {
+
+    /** EXP-1529: a viewer ticket for the sealed relay tunnel to [sessionId]'s host device. */
+    suspend fun tunnelTicket(accountId: String, sessionId: String): TunnelTicketResult =
+        trpc.mutation(
+            accountId,
+            path = "steer.tunnelTicket",
+            input = TunnelTicketInput(sessionId),
+            inputSerializer = TunnelTicketInput.serializer(),
+            outputSerializer = TunnelTicketResult.serializer(),
+        )
+
+    /** EXP-1529: post one batch of connection analytics. */
+    suspend fun recordConnStats(accountId: String, events: List<JsonObject>): ConnStatsResult =
+        trpc.mutation(
+            accountId,
+            path = "connStats.record",
+            input = ConnStatsInput(events),
+            inputSerializer = ConnStatsInput.serializer(),
+            outputSerializer = ConnStatsResult.serializer(),
+        )
 
     /** `steer.config` — enabled iff the server has a relay configured. */
     suspend fun config(accountId: String): SteerConfigResult =

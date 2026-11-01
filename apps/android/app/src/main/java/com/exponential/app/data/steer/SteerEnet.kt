@@ -33,8 +33,9 @@ import kotlinx.serialization.json.put
 // message = one envelope {t:"exp-steer", v:1, sessionId, frames} carrying the
 // relay's own wire frames unchanged, so [SteerConnection] reads an eNet feed
 // exactly like the relay socket it replaced: [EnetSteerSocket] is a
-// [SteerSocket]. VAPP-43: the relay carries no session content, so when
-// [EnetSteerDialer] says null there is NO FEED and no fallback.
+// [SteerSocket]. VAPP-43: the relay carries no session content; EXP-1529:
+// when [EnetSteerDialer] says null (or stalls, or drops) the sealed relay
+// tunnel takes over ([FallbackSteerTransport]).
 
 private const val TAG = "SteerEnet"
 
@@ -281,8 +282,14 @@ internal class EnetSteerDialer(
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
+    /** EXP-1529: why the last [open] said null (connStats `errorClasses`). */
+    @Volatile var lastFailure: String? = null
+        private set
+
     suspend fun open(sessionId: String): EnetSteerSocket? {
+        lastFailure = "no_node"
         val peer = node() ?: return null
+        lastFailure = "no_endpoint"
         val endpoints = try {
             withTimeoutOrNull(timings.joinTimeoutMs) { discover(sessionId) }
         } catch (err: CancellationException) {
@@ -292,6 +299,7 @@ internal class EnetSteerDialer(
             null
         }
         if (endpoints.isNullOrEmpty()) return null
+        lastFailure = "refused"
         for (endpoint in endpoints) {
             if (endpoint == peer.endpointId) continue
             val socket = EnetSteerSocket(peer, sessionId, endpoint, timings, nowMs, dispatcher)
@@ -303,8 +311,12 @@ internal class EnetSteerDialer(
             }
             Log.i(TAG, "join ${endpoint.take(8)}: $result")
             when (result) {
-                EnetJoin.Joined -> return socket
+                EnetJoin.Joined -> {
+                    lastFailure = null
+                    return socket
+                }
                 EnetJoin.Timeout -> {
+                    lastFailure = "join_timeout"
                     socket.cancel()
                     return null
                 }
