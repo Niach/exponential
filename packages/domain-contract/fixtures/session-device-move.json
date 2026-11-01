@@ -1,0 +1,39 @@
+{
+  "$comment": "EXP-1252 + #EXP-1541 (#FEED-177, #EXP-1536 B3): the device-move picker's per-target refusal, replayed x4 (web apps/web/src/lib/session-device-move.ts `deviceMoveTargetReason` + `visibilityMove`, desktop crates/ui/src/device_move.rs `refusal`, iOS ExpCore SessionDeviceMove.swift `rowBlockedReason`, Android domain/SessionDeviceMove.kt `targetReason`); the server (`lib/sessions/move.ts` `resolveMoveTarget`) reads the same `visibilityMove`. ORDER: offline, then visibility, then no login (no signed-in login of the session's agent there); old builds are the CLIENT_MIN_VERSION floor's job, never a refusal. VISIBILITY: a session keeps its tree's visibility (`shared`) on a move: a target shared with the session's team (`targetShared`) must match it, EXCEPT a QUEUED ROOT with no sub-sessions (`queuedRoot`: status `queued`, no `parentId`, no session under it; nothing ran, its only content is its starter's) moving to one of its STARTER's own machines (`targetIsStarters`: the device row's owner is the session's `userId`; a row without `owner` is the viewer's own): it takes that machine's sharing, exactly as a fresh start there would. A private session never lands on a teammate's box, and only its starter (`moverIsStarter`: the viewer is the session's `userId`) may make a shared session private. `visibilityCases` = the pure rule (expected = the visibility it has there, null = refused); `queuedRootCases` = when a session counts as a queued root; `targetCases` = the whole refusal from a device row + a session + the viewer (`deviceOwner` = the row's owner id; it equals `mover` for the viewer's own row, which then carries no `owner`; `deviceOwner: null` = a row with NO owner at all, which counts as the viewer's own: the desktop's fallback for its own machine before its `devices` row has synced), expected = a `reasons` key or null (movable).",
+  "reasons": {
+    "offline": "This device is offline.",
+    "visibility": "This device is shared differently, so the session can't move here.",
+    "noLogin": "This device has no signed-in login for this agent."
+  },
+  "visibilityCases": [
+    { "name": "same visibility keeps it (private)", "input": { "sessionShared": false, "targetShared": false, "queuedRoot": false, "targetIsStarters": false, "moverIsStarter": false }, "expected": false },
+    { "name": "same visibility keeps it (shared)", "input": { "sessionShared": true, "targetShared": true, "queuedRoot": false, "targetIsStarters": false, "moverIsStarter": false }, "expected": true },
+    { "name": "a queued root adopts its starter's shared machine", "input": { "sessionShared": false, "targetShared": true, "queuedRoot": true, "targetIsStarters": true, "moverIsStarter": true }, "expected": true },
+    { "name": "a queued root adopts its starter's personal machine", "input": { "sessionShared": true, "targetShared": false, "queuedRoot": true, "targetIsStarters": true, "moverIsStarter": true }, "expected": false },
+    { "name": "a teammate may take a private queued root onto its starter's shared machine", "input": { "sessionShared": false, "targetShared": true, "queuedRoot": true, "targetIsStarters": true, "moverIsStarter": false }, "expected": true },
+    { "name": "a live or crowded tree keeps the strict rule", "input": { "sessionShared": false, "targetShared": true, "queuedRoot": false, "targetIsStarters": true, "moverIsStarter": true }, "expected": null },
+    { "name": "never onto a teammate's machine", "input": { "sessionShared": false, "targetShared": true, "queuedRoot": true, "targetIsStarters": false, "moverIsStarter": true }, "expected": null },
+    { "name": "only the starter makes a shared session private", "input": { "sessionShared": true, "targetShared": false, "queuedRoot": true, "targetIsStarters": true, "moverIsStarter": false }, "expected": null }
+  ],
+  "queuedRootCases": [
+    { "status": "queued", "parentId": null, "hasSubSessions": false, "expected": true },
+    { "status": "running", "parentId": null, "hasSubSessions": false, "expected": false },
+    { "status": "idle", "parentId": null, "hasSubSessions": false, "expected": false },
+    { "status": "queued", "parentId": "s-parent", "hasSubSessions": false, "expected": false },
+    { "status": "queued", "parentId": null, "hasSubSessions": true, "expected": false }
+  ],
+  "targetCases": [
+    { "name": "offline first, whatever else", "device": { "online": false, "targetShared": true, "signedIn": false, "deviceOwner": "u-mate" }, "session": { "shared": false, "queuedRoot": false, "starter": "u-starter" }, "mover": "u-starter", "expected": "offline" },
+    { "name": "offline beats an adoptable visibility", "device": { "online": false, "targetShared": true, "signedIn": true, "deviceOwner": "u-starter" }, "session": { "shared": false, "queuedRoot": true, "starter": "u-starter" }, "mover": "u-starter", "expected": "offline" },
+    { "name": "same visibility, signed in", "device": { "online": true, "targetShared": false, "signedIn": true, "deviceOwner": "u-starter" }, "session": { "shared": false, "queuedRoot": false, "starter": "u-starter" }, "mover": "u-starter", "expected": null },
+    { "name": "FEED-177: a queued root moves to its starter's shared machine", "device": { "online": true, "targetShared": true, "signedIn": true, "deviceOwner": "u-starter" }, "session": { "shared": false, "queuedRoot": true, "starter": "u-starter" }, "mover": "u-starter", "expected": null },
+    { "name": "a running session keeps the strict rule", "device": { "online": true, "targetShared": true, "signedIn": true, "deviceOwner": "u-starter" }, "session": { "shared": false, "queuedRoot": false, "starter": "u-starter" }, "mover": "u-starter", "expected": "visibility" },
+    { "name": "a shared queued root moves to its starter's personal machine", "device": { "online": true, "targetShared": false, "signedIn": true, "deviceOwner": "u-starter" }, "session": { "shared": true, "queuedRoot": true, "starter": "u-starter" }, "mover": "u-starter", "expected": null },
+    { "name": "a teammate never makes a shared session private", "device": { "online": true, "targetShared": false, "signedIn": true, "deviceOwner": "u-starter" }, "session": { "shared": true, "queuedRoot": true, "starter": "u-starter" }, "mover": "u-mate", "expected": "visibility" },
+    { "name": "a private queued root never lands on a teammate's machine", "device": { "online": true, "targetShared": true, "signedIn": true, "deviceOwner": "u-mate" }, "session": { "shared": false, "queuedRoot": true, "starter": "u-starter" }, "mover": "u-starter", "expected": "visibility" },
+    { "name": "a teammate's shared machine takes a shared session", "device": { "online": true, "targetShared": true, "signedIn": true, "deviceOwner": "u-mate" }, "session": { "shared": true, "queuedRoot": false, "starter": "u-starter" }, "mover": "u-mate", "expected": null },
+    { "name": "a row without an owner is the viewer's own: the starter's queued root adopts it", "device": { "online": true, "targetShared": true, "signedIn": true, "deviceOwner": null }, "session": { "shared": false, "queuedRoot": true, "starter": "u-starter" }, "mover": "u-starter", "expected": null },
+    { "name": "a row without an owner is the viewer's own: a teammate's never takes a shared session private", "device": { "online": true, "targetShared": false, "signedIn": true, "deviceOwner": null }, "session": { "shared": true, "queuedRoot": true, "starter": "u-starter" }, "mover": "u-mate", "expected": "visibility" },
+    { "name": "the visibility passes, then no login", "device": { "online": true, "targetShared": true, "signedIn": false, "deviceOwner": "u-starter" }, "session": { "shared": false, "queuedRoot": true, "starter": "u-starter" }, "mover": "u-starter", "expected": "noLogin" }
+  ]
+}

@@ -260,6 +260,9 @@ final class AgentSessionModel {
     /// thread's Guide lives there, and a `sessions_show` picture resolves
     /// against it.
     private(set) var root: SessionEntity?
+    /// #EXP-1541: a session runs under this row (the device move's
+    /// `queuedRoot` exception needs none).
+    private(set) var hasSubSessions = false
     /// The session's display title (EXP-1341 `SessionTitle`, the same name
     /// its card, chip and row read) — the screen's title.
     private(set) var title: String?
@@ -551,7 +554,14 @@ final class AgentSessionModel {
             currentDeviceId: session.deviceId,
             sessionTeamId: session.teamId,
             sessionShared: session.shared,
-            agent: agent
+            agent: agent,
+            queuedRoot: SessionDeviceMove.queuedRoot(
+                status: session.status,
+                parentId: session.parentId,
+                hasSubSessions: hasSubSessions
+            ),
+            starterId: session.userId,
+            viewerId: currentUserId
         )
         let current = devices.first { $0.deviceId == session.deviceId } ?? hostSteerDevice
         let currentName = current.map(LaunchVocabulary.deviceName)
@@ -1451,12 +1461,14 @@ final class AgentSessionModel {
         guard sessionObservationTask == nil else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let id = sessionId
-        let observation = ValueObservation.tracking { db -> (SessionEntity?, SessionEntity?, String?, String?) in
-            guard let row = try SessionQueries.session(db: db, id: id) else { return (nil, nil, nil, nil) }
+        let observation = ValueObservation.tracking { db -> (SessionEntity?, SessionEntity?, String?, String?, Bool) in
+            guard let row = try SessionQueries.session(db: db, id: id) else { return (nil, nil, nil, nil, false) }
             let root = row.isRoot ? row : try SessionQueries.session(db: db, id: row.rootId)
             let title = try SessionTree.sessionTitle(db: db, session: row)
             let threadTitle = try root.map { try SessionTree.sessionTitle(db: db, session: $0) }
-            return (row, root, title, threadTitle)
+            let hasSubSessions = try row.isRoot
+                && SessionQueries.tree(db: db, rootId: row.id).contains { $0.id != row.id }
+            return (row, root, title, threadTitle, hasSubSessions)
         }
         sessionObservationTask = Task { [weak self] in
             // The GRDB stream is one-shot: any error (a busy database, a
@@ -1467,7 +1479,7 @@ final class AgentSessionModel {
             // (EXP-410; Android's Room flow re-subscribes on its own).
             while !Task.isCancelled {
                 do {
-                    for try await (row, root, title, threadTitle) in observation.values(in: pool) {
+                    for try await (row, root, title, threadTitle, hasSubSessions) in observation.values(in: pool) {
                         guard let self else { return }
                         // A nil row is published (not swallowed): the row is
                         // gone, which `sessionEnded` reads as ended. Holding
@@ -1476,6 +1488,7 @@ final class AgentSessionModel {
                         // never report.
                         self.session = row
                         self.root = root
+                        self.hasSubSessions = hasSubSessions
                         if let title { self.title = title }
                         if let threadTitle { self.threadTitle = threadTitle }
                         // EXP-724: the run is over (or gone) — no `ended`

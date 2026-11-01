@@ -3,6 +3,13 @@ package com.exponential.app.domain
 import com.exponential.app.data.api.DeviceOwner
 import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.SteerDevice
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -132,5 +139,86 @@ class SessionDeviceMoveTest {
         assertEquals("b", input.deviceId)
         assertNull(input.text)
         assertNull(input.account)
+    }
+
+    // #EXP-1541: the pickers ×4 replay fixtures/session-device-move.json.
+
+    private val fixture: JsonObject by lazy {
+        Json.parseToJsonElement(contractFixtureJson("session-device-move.json")).jsonObject
+    }
+
+    private fun JsonObject.flag(key: String) = getValue(key).jsonPrimitive.boolean
+    private fun JsonObject.text(key: String) = this[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+
+    @Test
+    fun fixtureCopyMatches() {
+        val reasons = fixture.getValue("reasons").jsonObject
+        assertEquals(SessionDeviceMove.REASON_OFFLINE, reasons.text("offline"))
+        assertEquals(SessionDeviceMove.REASON_VISIBILITY, reasons.text("visibility"))
+        assertEquals(SessionDeviceMove.REASON_NO_LOGIN, reasons.text("noLogin"))
+    }
+
+    @Test
+    fun replaysVisibilityCases() {
+        val cases = fixture.getValue("visibilityCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val expected = case["expected"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.boolean
+            assertEquals(
+                case.text("name"),
+                expected,
+                SessionDeviceMove.visibilityMove(
+                    sessionShared = input.flag("sessionShared"),
+                    targetShared = input.flag("targetShared"),
+                    queuedRoot = input.flag("queuedRoot"),
+                    targetIsStarters = input.flag("targetIsStarters"),
+                    moverIsStarter = input.flag("moverIsStarter"),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun replaysQueuedRootCases() {
+        val cases = fixture.getValue("queuedRootCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(
+                case.toString(),
+                case.flag("expected"),
+                SessionDeviceMove.queuedRoot(case.text("status")!!, case.text("parentId"), case.flag("hasSubSessions")),
+            )
+        }
+    }
+
+    @Test
+    fun replaysTargetCases() {
+        val reasons = fixture.getValue("reasons").jsonObject
+        val cases = fixture.getValue("targetCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val target = case.getValue("device").jsonObject
+            val session = case.getValue("session").jsonObject
+            val mover = case.text("mover")!!
+            // `deviceOwner: null` / the mover's own row = a row without `owner`.
+            val ownerId = target.text("deviceOwner")
+            val reason = SessionDeviceMove.targetReason(
+                device(
+                    "target",
+                    online = target.flag("online"),
+                    shared = target.flag("targetShared"),
+                    agents = if (target.flag("signedIn")) listOf("claude") else listOf("codex"),
+                    owner = if (ownerId == null || ownerId == mover) null else DeviceOwner(id = ownerId, name = "Mate"),
+                ),
+                teamId = team,
+                shared = session.flag("shared"),
+                cli = "claude",
+                queuedRoot = session.flag("queuedRoot"),
+                starterId = session.text("starter"),
+                viewerId = mover,
+            )
+            assertEquals(case.text("name"), case.text("expected")?.let { reasons.text(it) }, reason)
+        }
     }
 }

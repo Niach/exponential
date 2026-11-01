@@ -108,6 +108,59 @@ pub(crate) struct MoveCandidate {
     pub shared_with_team: bool,
     /// The device has a signed-in, runnable login for the session's agent.
     pub has_login: bool,
+    /// #EXP-1541: whose machine it is (its `devices` row's `user_id`; `None`
+    /// = unknown, never the starter's).
+    pub owner_id: Option<String>,
+}
+
+/// #EXP-1541: the session's side of a target's refusal. `queued_root` +
+/// `starter_id` open #FEED-177's exception ([`visibility_move`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct MoveSession {
+    pub shared: bool,
+    /// [`queued_root`]: queued, a root, no sub-sessions.
+    pub queued_root: bool,
+    /// The session's starter (`sessions.user_id`).
+    pub starter_id: Option<String>,
+    /// The viewer, who would move it.
+    pub mover_id: Option<String>,
+}
+
+/// #EXP-1541: a QUEUED ROOT with no sub-sessions (nothing ran; the
+/// [`visibility_move`] exception). Fixture `queuedRootCases`.
+pub(crate) fn queued_root(status: Option<&str>, parent_id: Option<&str>, has_sub_sessions: bool) -> bool {
+    status == Some("queued") && parent_id.is_none_or(str::is_empty) && !has_sub_sessions
+}
+
+/// #FEED-177 (#EXP-1536 B3), web `visibilityMove`: a session keeps its
+/// tree's visibility on a move, except a QUEUED ROOT with no sub-sessions
+/// moving to one of its STARTER's own machines, which takes that machine's
+/// sharing; only the starter may make a shared session private. `Some` =
+/// the visibility it has there, `None` = refused. Fixture `visibilityCases`.
+pub(crate) fn visibility_move(
+    session_shared: bool,
+    target_shared: bool,
+    queued_root: bool,
+    target_is_starters: bool,
+    mover_is_starter: bool,
+) -> Option<bool> {
+    if target_shared == session_shared {
+        return Some(session_shared);
+    }
+    if !queued_root || !target_is_starters {
+        return None;
+    }
+    if session_shared && !mover_is_starter {
+        return None;
+    }
+    Some(target_shared)
+}
+
+/// #EXP-1541: a candidate's owner off its `devices` row: the row's
+/// `user_id`, else the viewer (`me`; the launch list's own machine may have
+/// no synced row yet). Fixture `targetCases` (`deviceOwner: null`).
+pub(crate) fn candidate_owner(row_owner: Option<String>, me: &str) -> Option<String> {
+    row_owner.or_else(|| (!me.is_empty()).then(|| me.to_string()))
 }
 
 /// One picker row.
@@ -121,13 +174,22 @@ pub(crate) struct MoveRow {
 }
 
 /// Why `candidate` cannot take the session, in the ×4 order (web
-/// `deviceMoveTargetReason`): offline, visibility, no login. Old builds are
-/// the CLIENT_MIN_VERSION floor's job, never a refusal here.
-pub(crate) fn refusal(candidate: &MoveCandidate, session_shared: bool) -> Option<&'static str> {
+/// `deviceMoveTargetReason`, fixture `session-device-move.json`): offline,
+/// visibility ([`visibility_move`]), no login. Old builds are the
+/// CLIENT_MIN_VERSION floor's job, never a refusal here.
+pub(crate) fn refusal(candidate: &MoveCandidate, session: &MoveSession) -> Option<&'static str> {
     if !candidate.online {
         return Some(REASON_OFFLINE);
     }
-    if candidate.shared_with_team != session_shared {
+    let starter = session.starter_id.as_deref();
+    let visibility = visibility_move(
+        session.shared,
+        candidate.shared_with_team,
+        session.queued_root,
+        starter.is_some() && candidate.owner_id.as_deref() == starter,
+        starter.is_some() && session.mover_id.as_deref() == starter,
+    );
+    if visibility.is_none() {
         return Some(REASON_VISIBILITY);
     }
     if !candidate.has_login {
@@ -143,7 +205,7 @@ pub(crate) fn refusal(candidate: &MoveCandidate, session_shared: bool) -> Option
 pub(crate) fn move_rows(
     candidates: &[MoveCandidate],
     current_device_id: Option<&str>,
-    session_shared: bool,
+    session: &MoveSession,
 ) -> Vec<MoveRow> {
     let mut rows: Vec<MoveRow> = candidates
         .iter()
@@ -156,7 +218,7 @@ pub(crate) fn move_rows(
                 reason: if current {
                     None
                 } else {
-                    refusal(candidate, session_shared)
+                    refusal(candidate, session)
                 },
             }
         })
@@ -232,6 +294,7 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
         .iter()
         .map(|device| {
             let row = device_row(&devices, &device.device_id, &me);
+            let owner_id = row.as_ref().and_then(|row| row.user_id.clone());
             MoveCandidate {
                 device_id: device.device_id.clone(),
                 label: device.label.clone(),
@@ -239,6 +302,7 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
                 online: true,
                 shared_with_team: row.as_ref().is_some_and(|row| row.is_shared_with(&team_id)),
                 has_login: device.agents.contains(&agent),
+                owner_id: candidate_owner(owner_id, &me),
             }
         })
         .collect();
@@ -270,10 +334,33 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
                 }),
                 shared_with_team: row.as_ref().is_some_and(|row| row.is_shared_with(&team_id)),
                 has_login: true,
+                owner_id: row.as_ref().and_then(|row| row.user_id.clone()),
             });
         }
     }
     out
+}
+
+/// #EXP-1541: the session's side of the refusals off the synced rows.
+pub(crate) fn move_session(session: &domain::rows::SessionRow, cx: &App) -> MoveSession {
+    let has_sub_sessions = sync::Store::try_global(cx).is_some_and(|store| {
+        store
+            .collections()
+            .sessions
+            .read(cx)
+            .iter()
+            .any(|row| row.id != session.id && row.root_id.as_deref() == Some(session.id.as_str()))
+    });
+    MoveSession {
+        shared: session.shared,
+        queued_root: queued_root(
+            session.status.as_deref(),
+            session.parent_id.as_deref(),
+            has_sub_sessions,
+        ),
+        starter_id: session.user_id.clone(),
+        mover_id: crate::queries::active_account(cx).map(|account| account.user_id),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -294,7 +381,7 @@ pub(crate) fn session_device_pin(
     }
     let current = session.device_id.clone().filter(|id| !id.is_empty())?;
     let candidates = candidates(session, cx);
-    let rows = move_rows(&candidates, Some(current.as_str()), session.shared);
+    let rows = move_rows(&candidates, Some(current.as_str()), &move_session(session, cx));
     let current_label = candidates
         .iter()
         .find(|candidate| candidate.device_id == current)
@@ -416,18 +503,24 @@ mod tests {
             online,
             shared_with_team: shared,
             has_login: login,
+            owner_id: None,
         }
+    }
+
+    /// The strict rule: no #FEED-177 exception in play.
+    fn strict(shared: bool) -> MoveSession {
+        MoveSession { shared, ..MoveSession::default() }
     }
 
     /// The refusal order: offline, then visibility, then no login.
     #[test]
     fn refusals_follow_the_contract_order() {
-        assert_eq!(refusal(&candidate("a", false, true, false), false), Some(REASON_OFFLINE));
+        assert_eq!(refusal(&candidate("a", false, true, false), &strict(false)), Some(REASON_OFFLINE));
         let online = candidate("a", true, true, false);
-        assert_eq!(refusal(&online, false), Some(REASON_VISIBILITY));
-        assert_eq!(refusal(&online, true), Some(REASON_NO_LOGIN));
-        assert_eq!(refusal(&candidate("a", true, false, true), false), None);
-        assert_eq!(refusal(&candidate("a", true, true, true), true), None);
+        assert_eq!(refusal(&online, &strict(false)), Some(REASON_VISIBILITY));
+        assert_eq!(refusal(&online, &strict(true)), Some(REASON_NO_LOGIN));
+        assert_eq!(refusal(&candidate("a", true, false, true), &strict(false)), None);
+        assert_eq!(refusal(&candidate("a", true, true, true), &strict(true)), None);
     }
 
     /// A current device the candidates do not list (its row never synced,
@@ -435,7 +528,7 @@ mod tests {
     /// never refused.
     #[test]
     fn an_unlisted_current_device_still_heads_the_rows() {
-        let rows = move_rows(&[candidate("there", true, false, true)], Some("gone"), false);
+        let rows = move_rows(&[candidate("there", true, false, true)], Some("gone"), &strict(false));
         assert_eq!(rows.len(), 2);
         assert_eq!(
             rows[0],
@@ -443,8 +536,8 @@ mod tests {
         );
         assert!(!rows[1].current);
         // No current device at all: nothing is synthesised.
-        assert_eq!(move_rows(&[candidate("there", true, false, true)], None, false).len(), 1);
-        assert_eq!(move_rows(&[candidate("there", true, false, true)], Some(""), false).len(), 1);
+        assert_eq!(move_rows(&[candidate("there", true, false, true)], None, &strict(false)).len(), 1);
+        assert_eq!(move_rows(&[candidate("there", true, false, true)], Some(""), &strict(false)).len(), 1);
     }
 
     /// The current device is selected and never refused, even offline.
@@ -457,12 +550,98 @@ mod tests {
                 candidate("server", true, true, true),
             ],
             Some("here"),
-            false,
+            &strict(false),
         );
         assert!(rows[0].current);
         assert_eq!(rows[0].reason, None);
         assert_eq!(rows[1].reason, None);
         assert_eq!(rows[2].reason, Some(REASON_VISIBILITY));
+    }
+
+    const FIXTURE: &str =
+        include_str!("../../../../../packages/domain-contract/fixtures/session-device-move.json");
+
+    fn fixture() -> serde_json::Value {
+        serde_json::from_str(FIXTURE).unwrap()
+    }
+
+    fn reason_key(reason: Option<&str>) -> Option<&'static str> {
+        reason.map(|reason| match reason {
+            REASON_OFFLINE => "offline",
+            REASON_VISIBILITY => "visibility",
+            REASON_NO_LOGIN => "noLogin",
+            other => panic!("unknown reason {other}"),
+        })
+    }
+
+    /// #EXP-1541: the copy and the pure rule replay `session-device-move.json`.
+    #[test]
+    fn replays_the_visibility_and_queued_root_cases() {
+        let fixture = fixture();
+        assert_eq!(fixture["reasons"]["offline"], REASON_OFFLINE);
+        assert_eq!(fixture["reasons"]["visibility"], REASON_VISIBILITY);
+        assert_eq!(fixture["reasons"]["noLogin"], REASON_NO_LOGIN);
+        for case in fixture["visibilityCases"].as_array().unwrap() {
+            let input = &case["input"];
+            let flag = |key: &str| input[key].as_bool().unwrap();
+            assert_eq!(
+                visibility_move(
+                    flag("sessionShared"),
+                    flag("targetShared"),
+                    flag("queuedRoot"),
+                    flag("targetIsStarters"),
+                    flag("moverIsStarter"),
+                ),
+                case["expected"].as_bool(),
+                "{}",
+                case["name"]
+            );
+        }
+        for case in fixture["queuedRootCases"].as_array().unwrap() {
+            assert_eq!(
+                queued_root(
+                    case["status"].as_str(),
+                    case["parentId"].as_str(),
+                    case["hasSubSessions"].as_bool().unwrap(),
+                ),
+                case["expected"].as_bool().unwrap(),
+                "{case}"
+            );
+        }
+    }
+
+    /// #EXP-1541: the whole per-target refusal replays `targetCases`.
+    #[test]
+    fn replays_the_target_cases() {
+        let fixture = fixture();
+        for case in fixture["targetCases"].as_array().unwrap() {
+            let device = &case["device"];
+            let session = &case["session"];
+            let candidate = MoveCandidate {
+                device_id: "target".into(),
+                label: "Target".into(),
+                online: device["online"].as_bool().unwrap(),
+                shared_with_team: device["targetShared"].as_bool().unwrap(),
+                has_login: device["signedIn"].as_bool().unwrap(),
+                // `deviceOwner: null` = a row without an owner (the viewer's own).
+                owner_id: candidate_owner(
+                    device["deviceOwner"].as_str().map(str::to_string),
+                    case["mover"].as_str().unwrap_or_default(),
+                ),
+            };
+            let move_session = MoveSession {
+                shared: session["shared"].as_bool().unwrap(),
+                queued_root: session["queuedRoot"].as_bool().unwrap(),
+                starter_id: session["starter"].as_str().map(str::to_string),
+                mover_id: case["mover"].as_str().map(str::to_string),
+            };
+            assert_eq!(
+                reason_key(refusal(&candidate, &move_session)),
+                case["expected"].as_str(),
+                "{}",
+                case["name"]
+            );
+        }
     }
 
     #[test]

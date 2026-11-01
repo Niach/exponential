@@ -93,16 +93,48 @@ export function deviceMoveAgent(
   return cli ?? currentDevice?.launchDefaults?.defaultAgent ?? `claude`
 }
 
-/** One target's refusal, or null = movable. ORDER ×4: offline, visibility,
+/** The session's side of a target's refusal. `queuedRoot` + `userId`
+ *  (its starter) open #FEED-177's exception (`visibilityMove`); unset =
+ *  the strict rule. */
+export interface DeviceMoveSession {
+  teamId: string
+  shared: boolean
+  agent: string
+  queuedRoot?: boolean
+  userId?: string | null
+}
+
+/** #EXP-1541: a QUEUED ROOT with no sub-sessions (nothing ran; the
+ *  `visibilityMove` exception). Fixture `queuedRootCases`. */
+export function deviceMoveQueuedRoot(session: {
+  status: string
+  parentId: string | null | undefined
+  hasSubSessions: boolean
+}): boolean {
+  return session.status === `queued` && !session.parentId && !session.hasSubSessions
+}
+
+/** One target's refusal, or null = movable. ORDER ×4: offline, visibility
+ *  (`visibilityMove`: the target's owner = its `owner`, else the viewer),
  *  no login (no signed-in login of the session's agent there). Old builds
- *  are the CLIENT_MIN_VERSION floor's job, never a refusal here. */
+ *  are the CLIENT_MIN_VERSION floor's job, never a refusal here.
+ *  Fixture `session-device-move.json` `targetCases`. */
 export function deviceMoveTargetReason(
-  device: Pick<SteerDevice, `online` | `sharedTeamIds` | `agentAccounts`>,
-  session: { teamId: string; shared: boolean; agent: string }
+  device: Pick<SteerDevice, `online` | `sharedTeamIds` | `agentAccounts` | `owner`>,
+  session: DeviceMoveSession,
+  viewerId?: string | null
 ): string | null {
   if (device.online === false) return REASON_OFFLINE
-  if (deviceSharedWithTeam(device, session.teamId) !== session.shared)
-    return REASON_VISIBILITY
+  const starter = session.userId ?? null
+  const ownerId = device.owner?.id ?? viewerId ?? null
+  const visibility = visibilityMove({
+    sessionShared: session.shared,
+    targetShared: deviceSharedWithTeam(device, session.teamId),
+    queuedRoot: session.queuedRoot ?? false,
+    targetIsStarters: starter !== null && ownerId === starter,
+    moverIsStarter: starter !== null && viewerId === starter,
+  })
+  if (visibility === null) return REASON_VISIBILITY
   const signedIn = flattenAccounts(device).some((option) => option.agent === session.agent)
   if (!signedIn) return REASON_NO_LOGIN
   return null
@@ -115,8 +147,8 @@ export function deviceMoveTargetReason(
  * that machine's sharing, exactly as a fresh start there would. Never onto a
  * teammate's box with a private session (the tree is private to the
  * starter), and only its starter may make a shared session private. The
- * server's rule (`resolveMoveTarget`); the pickers ×4 still read the
- * strict one (#EXP-1536 follow-up).
+ * server's rule (`resolveMoveTarget`) and the pickers' ×4 (#EXP-1541,
+ * `deviceMoveTargetReason`); fixture `visibilityCases`.
  */
 export function visibilityMove(input: {
   sessionShared: boolean
@@ -159,7 +191,10 @@ export function sessionDeviceMoveRows(
     teamId: string
     shared: boolean
     cli: string | null | undefined
-  }
+    queuedRoot?: boolean
+    userId?: string | null
+  },
+  viewerId?: string | null
 ): SessionDeviceMoveRow[] {
   const agent = deviceMoveAgent(
     session.cli,
@@ -175,7 +210,7 @@ export function sessionDeviceMoveRows(
       current,
       reason: current
         ? null
-        : deviceMoveTargetReason(device, { ...session, agent }),
+        : deviceMoveTargetReason(device, { ...session, agent }, viewerId),
     }
   })
   if (session.deviceId && !rows.some((row) => row.current)) {

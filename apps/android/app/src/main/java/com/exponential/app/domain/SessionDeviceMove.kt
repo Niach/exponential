@@ -88,12 +88,55 @@ object SessionDeviceMove {
     fun deviceUsableInTeam(device: SteerDevice, teamId: String): Boolean =
         device.sharedTeamIds.isEmpty() || sharedWithTeam(device, teamId)
 
-    /** One target's refusal, or null = movable. ORDER ×4: offline,
-     *  visibility, no login. Old builds are the CLIENT_MIN_VERSION floor's
-     *  job, never a refusal here. */
-    fun targetReason(device: SteerDevice, teamId: String, shared: Boolean, cli: String?): String? {
+    /** #EXP-1541: a QUEUED ROOT with no sub-sessions (nothing ran; the
+     *  [visibilityMove] exception). Fixture `queuedRootCases`. */
+    fun queuedRoot(status: String, parentId: String?, hasSubSessions: Boolean): Boolean =
+        status == "queued" && parentId.isNullOrEmpty() && !hasSubSessions
+
+    /** #FEED-177 (#EXP-1536 B3), web `visibilityMove`: a session keeps its
+     *  tree's visibility on a move, except a QUEUED ROOT with no sub-sessions
+     *  moving to one of its STARTER's own machines, which takes that
+     *  machine's sharing; only the starter may make a shared session
+     *  private. The visibility it has there, null = refused. Fixture
+     *  `visibilityCases`. */
+    fun visibilityMove(
+        sessionShared: Boolean,
+        targetShared: Boolean,
+        queuedRoot: Boolean,
+        targetIsStarters: Boolean,
+        moverIsStarter: Boolean,
+    ): Boolean? = when {
+        targetShared == sessionShared -> sessionShared
+        !queuedRoot || !targetIsStarters -> null
+        sessionShared && !moverIsStarter -> null
+        else -> targetShared
+    }
+
+    /** One target's refusal, or null = movable. ORDER ×4 (fixture
+     *  `session-device-move.json`): offline, visibility ([visibilityMove]:
+     *  the target's owner = its `owner`, else the viewer), no login.
+     *  [queuedRoot] + [starterId] open #FEED-177's exception; unset = the
+     *  strict rule. Old builds are the CLIENT_MIN_VERSION floor's job, never
+     *  a refusal here. */
+    fun targetReason(
+        device: SteerDevice,
+        teamId: String,
+        shared: Boolean,
+        cli: String?,
+        queuedRoot: Boolean = false,
+        starterId: String? = null,
+        viewerId: String? = null,
+    ): String? {
         if (!device.online) return REASON_OFFLINE
-        if (sharedWithTeam(device, teamId) != shared) return REASON_VISIBILITY
+        val ownerId = device.owner?.id ?: viewerId
+        val visibility = visibilityMove(
+            sessionShared = shared,
+            targetShared = sharedWithTeam(device, teamId),
+            queuedRoot = queuedRoot,
+            targetIsStarters = starterId != null && ownerId == starterId,
+            moverIsStarter = starterId != null && viewerId == starterId,
+        )
+        if (visibility == null) return REASON_VISIBILITY
         val agent = cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
         if (agent !in device.runnableAgents) return REASON_NO_LOGIN
         return null
@@ -113,6 +156,9 @@ object SessionDeviceMove {
         teamId: String,
         shared: Boolean,
         cli: String?,
+        queuedRoot: Boolean = false,
+        starterId: String? = null,
+        viewerId: String? = null,
     ): List<SessionDeviceMoveRow> {
         val rows = devices.map { device ->
             val current = device.deviceId == deviceId
@@ -122,7 +168,11 @@ object SessionDeviceMove {
                 icon = device.icon,
                 isServer = device.isServer,
                 current = current,
-                reason = if (current) null else targetReason(device, teamId, shared, cli),
+                reason = if (current) {
+                    null
+                } else {
+                    targetReason(device, teamId, shared, cli, queuedRoot, starterId, viewerId)
+                },
             )
         }
         if (!deviceId.isNullOrEmpty() && rows.none { it.current }) {
