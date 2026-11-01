@@ -133,6 +133,13 @@ impl ProfileUsage {
         self.agent == agent && self.signed_in && self.health == Health::Ok
     }
 
+    /// EXP-1532: PROVABLY unusable — signed out, or its grant is dead. Not
+    /// the same as `!eligible`: a login never probed (`unknown`) is not
+    /// known broken, and a launch that names it keeps it.
+    fn broken(&self) -> bool {
+        !self.signed_in || matches!(self.health, Health::SignedOut | Health::NeedsRelogin)
+    }
+
     /// What a person calls the login.
     fn local_name(&self) -> &str {
         &self.name
@@ -435,10 +442,18 @@ pub fn start_pick_from(
     pinned: bool,
     now_ms: i64,
 ) -> Option<StartPick> {
-    if !auto_rotate || !rotates(agent) {
+    if !rotates(agent) {
         return None;
     }
     let from = crate::agent_profiles::profile_id(account);
+    // EXP-1532: a launch bound for a BROKEN login moves off it whatever the
+    // pin or the rotation toggle say — keeping it only fails the start.
+    let own_broken = profiles
+        .iter()
+        .any(|profile| profile.profile_id == from && profile.broken());
+    if !auto_rotate && !own_broken {
+        return None;
+    }
     let mut ordered: Vec<&ProfileUsage> = profiles.iter().collect();
     ordered.sort_by_key(|profile| profile.profile_id != from);
     let ordered: Vec<ProfileUsage> = ordered.into_iter().cloned().collect();
@@ -451,10 +466,12 @@ pub fn start_pick_from(
     // MAX_USAGE_PROFILES, an API-key login that is never monitored) is not
     // known to be walled: the launch keeps it rather than blaming a sign-in.
     let own = ordered.iter().find(|profile| profile.profile_id == from)?;
-    if pinned && !own.spent_for(model, now_ms) {
+    if pinned && !own_broken && !own.spent_for(model, now_ms) {
         return None;
     }
-    let reason = if own.spent_for(model, now_ms) {
+    let reason = if own_broken {
+        format!("{} is signed out", own.name)
+    } else if own.spent_for(model, now_ms) {
         let (key, window) = spent_window(own, model, now_ms);
         format!(
             "{} hit its {} limit{}",
@@ -1031,11 +1048,31 @@ pub fn switch_prompt(from: Option<&str>, to: Option<&str>, window: &str, resets_
         (Some(from), None) => format!("from {from} to {UNNAMED_ACCOUNT}"),
         (None, None) => format!("to {UNNAMED_ACCOUNT}"),
     };
+    if window == SIGNED_OUT_WINDOW {
+        return format!("Exponential moved this session {moved}: the login was signed out on this device.");
+    }
     format!(
         "Exponential moved this session {moved}: the {} window hit its limit{}.",
         window_label(window),
         until_suffix(resets_at_ms)
     )
+}
+
+/// EXP-1532 (#FEED-181) — the device-local wall of a run whose LOGIN broke:
+/// its turn failed "Not logged in" (the engine's `signed_out` flag). The
+/// rotation beat moves it exactly like a usage wall — the same tracker,
+/// cooldown, cap and switch — so a signed-out profile never stops a thread
+/// while another login can take it. Never on the wire: the contract's
+/// `codingSessionBlocked.kinds` stay as they are.
+pub const SIGNED_OUT_KIND: &str = "signed_out";
+
+/// The window a [`SIGNED_OUT_KIND`] wall names. No profile reports it, so
+/// every healthy login counts as open on it.
+pub const SIGNED_OUT_WINDOW: &str = "signed_out";
+
+/// Whether a wall of `kind` is the rotation's to handle.
+pub fn rotation_wall(kind: &str) -> bool {
+    kind == "rate_limit" || kind == SIGNED_OUT_KIND
 }
 
 /// EXP-1281: what the switch line calls a login it cannot name.
@@ -1282,6 +1319,62 @@ mod tests {
             pick("a", &[profile("a", 100, 0), f], "session", Some("opus")).as_deref(),
             Some("f")
         );
+    }
+
+    /// EXP-1532 (#FEED-181): a RUNNING thread whose login signed out (its
+    /// turn failed "Not logged in") moves to the next healthy login with
+    /// headroom through the same tracker, and says so.
+    #[test]
+    fn a_signed_out_run_rotates_to_a_working_login() {
+        let mut a = profile("a", 0, 0);
+        a.signed_in = false;
+        a.health = Health::SignedOut;
+        let spent = profile("spent", 0, 100);
+        let b = profile("b", 50, 50);
+        let mut tracker = RotationTracker::new();
+        let mut run = walled("a", SIGNED_OUT_WINDOW, true);
+        run.resets_at_ms = None;
+        match tracker.decide(&run, &[a, spent, b], NOW) {
+            Decision::Switch { target, prompt, .. } => {
+                assert_eq!(target, "b");
+                assert_eq!(
+                    prompt,
+                    "Exponential moved this session from a@example.com to b@example.com: the login was signed out on this device."
+                );
+            }
+            other => panic!("expected a switch, got {other:?}"),
+        }
+        assert!(rotation_wall(SIGNED_OUT_KIND) && rotation_wall("rate_limit") && !rotation_wall("stuck"));
+    }
+
+    /// EXP-1532 (#FEED-181): a launch PINNED to a signed-out or dead login
+    /// moves to a working one — with rotation on or off — and says why; a
+    /// login nobody probed yet (`unknown`) is not known broken and stays.
+    #[test]
+    fn start_pick_moves_a_pinned_launch_off_a_broken_login() {
+        let mut out = profile("out", 0, 0);
+        out.signed_in = false;
+        out.health = Health::SignedOut;
+        let mut dead = profile("dead", 0, 0);
+        dead.health = Health::NeedsRelogin;
+        let ok = profile("ok", 40, 40);
+        for auto_rotate in [true, false] {
+            for broken in ["out", "dead"] {
+                let profiles = vec![out.clone(), dead.clone(), ok.clone()];
+                let pick = start_pick(&profiles, auto_rotate, CodingAgent::Claude, None, Some(broken), NOW)
+                    .expect("a broken pin moves");
+                assert_eq!(pick.to, "ok");
+                assert_eq!(pick.message, format!("Starting on ok@example.com — {broken}@example.com is signed out"));
+            }
+        }
+        let mut unknown = profile("fresh", 0, 0);
+        unknown.health = Health::Unknown;
+        let profiles = vec![unknown, ok.clone()];
+        assert_eq!(start_pick(&profiles, true, CodingAgent::Claude, None, Some("fresh"), NOW), None);
+        assert_eq!(start_pick(&profiles, false, CodingAgent::Claude, None, Some("fresh"), NOW), None);
+        // Nowhere to go: the launch keeps its account and the gate says why.
+        let profiles = vec![out.clone()];
+        assert_eq!(start_pick(&profiles, true, CodingAgent::Claude, None, Some("out"), NOW), None);
     }
 
     #[test]

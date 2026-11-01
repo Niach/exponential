@@ -24,8 +24,9 @@
 //! address gets the fresh credential, else the staging dir becomes a new
 //! profile. A login never touches an existing profile (or the ambient
 //! login) before it is known WHO signed in, so signing in as A from B's
-//! "Sign in" refreshes A and leaves B alone. [`import_ambient`] moves the
-//! CLI's own ambient login into a profile by the same rules.
+//! "Sign in" refreshes A and leaves B alone. Nothing ever copies a credential
+//! in: the CLI's own ambient login is never imported (EXP-1532, every profile
+//! signs in on its own).
 
 use std::path::{Path, PathBuf};
 
@@ -146,9 +147,6 @@ pub enum LoginTarget {
     /// reads it: the login still commits into whichever profile its EMAIL
     /// names.
     Profile(String),
-    /// Move the ambient login into a profile ([`import_ambient`]); nothing is
-    /// spawned.
-    Import,
 }
 
 impl LoginTarget {
@@ -156,7 +154,7 @@ impl LoginTarget {
     pub fn intended(&self) -> Option<&str> {
         match self {
             LoginTarget::Profile(id) => Some(id.as_str()),
-            LoginTarget::Add | LoginTarget::Import => None,
+            LoginTarget::Add => None,
         }
     }
 }
@@ -172,11 +170,16 @@ pub struct LoginRequest {
 /// failed row's `result` verbatim).
 pub const UNKNOWN_AGENT: &str = "This machine does not know that agent.";
 pub const MALFORMED_PAYLOAD: &str = "Malformed command payload.";
+/// EXP-1532: an old client's `agent_login {import: "true"}`. Importing copied
+/// a LIVE credential whose single-use refresh token the CLI still running on
+/// the ambient login rotated, so the profile's copy died; it is gone.
+pub const IMPORT_REMOVED: &str = "Import was removed: sign this account in on this device instead.";
 
 /// Parse an `agent_login` payload: `{agent, switch?: "true"|"false",
-/// profileId?, import?: "true"}`. `switch` is still validated but means
-/// nothing any more (a login runs in a fresh dir, so there is nothing to sign
-/// out of first); `profileId` blank or the retired `system` reads as absent.
+/// profileId?}`. `switch` is still validated but means nothing any more (a
+/// login runs in a fresh dir, so there is nothing to sign out of first);
+/// `profileId` blank or the retired `system` reads as absent. The retired
+/// `import: "true"` is refused with [`IMPORT_REMOVED`].
 /// `Err` carries the refusal sentence the command completes with.
 pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, String> {
     let raw_agent = payload["agent"].as_str().unwrap_or_default();
@@ -190,20 +193,18 @@ pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, 
     if !matches!(payload["switch"].as_str().unwrap_or("false"), "true" | "false") {
         return Err(MALFORMED_PAYLOAD.to_string());
     }
-    let import = match payload["import"].as_str().unwrap_or("false") {
-        "true" => true,
-        "false" => false,
+    match payload["import"].as_str().unwrap_or("false") {
+        "true" => return Err(IMPORT_REMOVED.to_string()),
+        "false" => {}
         _ => return Err(MALFORMED_PAYLOAD.to_string()),
-    };
+    }
     let profile_id = payload["profileId"]
         .as_str()
         .filter(|id| !agent_profiles::is_unpinned(Some(id)))
         .map(|id| id.trim().to_string());
-    let target = match (profile_id, import) {
-        (Some(_), true) => return Err(MALFORMED_PAYLOAD.to_string()),
-        (None, true) => LoginTarget::Import,
-        (Some(id), false) => LoginTarget::Profile(id),
-        (None, false) => LoginTarget::Add,
+    let target = match profile_id {
+        Some(id) => LoginTarget::Profile(id),
+        None => LoginTarget::Add,
     };
     Ok(LoginRequest { agent, target })
 }
@@ -214,7 +215,7 @@ pub fn already_added(email: &str) -> String {
     format!("{email} was already added. Refreshed it.")
 }
 
-/// Where a sign-in or an import landed.
+/// Where a sign-in landed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoginCommit {
     pub agent: CodingAgent,
@@ -223,7 +224,7 @@ pub struct LoginCommit {
     /// Who signed in, when the CLI says.
     pub email: Option<String>,
     /// An EXISTING profile was refreshed that the person did not aim at (an
-    /// "Add account"/Import that found its email already here, or a "Sign
+    /// "Add account" that found its email already here, or a "Sign
     /// in" on one profile that signed in as another's address).
     pub duplicate: bool,
 }
@@ -234,18 +235,6 @@ impl LoginCommit {
         self.duplicate
             .then(|| self.email.as_deref().map(already_added))
             .flatten()
-    }
-
-    /// An Import's plain result text: `Imported {email}.`, or the duplicate
-    /// warning when the login was already here.
-    pub fn import_result_text(&self) -> String {
-        if let Some(warning) = self.duplicate_warning() {
-            return warning;
-        }
-        match &self.email {
-            Some(email) => format!("Imported {email}."),
-            None => format!("Imported the {} login.", self.agent.label()),
-        }
     }
 }
 
@@ -446,75 +435,6 @@ fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::remove_file(from)
 }
 
-/// IMPORT: move `agent`'s AMBIENT login (`~/.claude`, `~/.codex`) into a
-/// profile — the same commit-by-email as a sign-in ([`commit_staging`]), with
-/// no intended profile (an existing same-email profile = duplicate). The
-/// ambient login is SIGNED OUT afterwards by deleting the store it was read
-/// from — never `claude auth logout` / `codex logout`, which would revoke the
-/// credential that just moved.
-pub fn import_ambient(settings: &Settings, data_dir: &Path, agent: CodingAgent) -> Result<LoginCommit, String> {
-    let nothing = || format!("There is no {} login to import on this machine.", agent.label());
-    let (staging, _) = begin_login(data_dir, agent)?;
-    match agent {
-        CodingAgent::Claude => {
-            let status = crate::doctor::probe_claude_auth_status_in(
-                &settings.resolved_path_for(agent),
-                &terminal::pty::login_path(),
-                None,
-            );
-            let Some(status) = status.filter(|status| status.logged_in) else {
-                abandon_login(agent, &staging);
-                return Err(nothing());
-            };
-            let store = match crate::claude_oauth::read_store(None) {
-                crate::claude_oauth::StoreRead::Found(store) => store,
-                crate::claude_oauth::StoreRead::Missing => {
-                    abandon_login(agent, &staging);
-                    return Err(nothing());
-                }
-                crate::claude_oauth::StoreRead::Denied => {
-                    abandon_login(agent, &staging);
-                    return Err(format!(
-                        "The {} credential store refused the read.",
-                        agent.label()
-                    ));
-                }
-            };
-            if let Err(err) = crate::claude_oauth::write_profile_credential(&staging, &store.document) {
-                abandon_login(agent, &staging);
-                return Err(format!("Could not store the login: {err}"));
-            }
-            if let Some(ambient) = crate::claude_trust::claude_config_path(None) {
-                copy_oauth_account(&ambient, &staging.join(CLAUDE_STATE_FILE));
-            }
-            let commit = commit_staging(settings, data_dir, agent, &staging, status.email, None)?;
-            if let Err(err) = crate::claude_oauth::delete_store(&store.source) {
-                log::warn!("agent_login: the imported ambient claude login stayed in place: {err}");
-            }
-            Ok(commit)
-        }
-        CodingAgent::Codex => {
-            let Some(auth) = crate::codex_trust::codex_home(None)
-                .map(|home| home.join(CODEX_AUTH_FILE))
-                .filter(|auth| auth.is_file())
-            else {
-                abandon_login(agent, &staging);
-                return Err(nothing());
-            };
-            if let Err(err) = std::fs::copy(&auth, staging.join(CODEX_AUTH_FILE)) {
-                abandon_login(agent, &staging);
-                return Err(format!("Could not store the login: {err}"));
-            }
-            let email = codex_identity(&auth).email;
-            let commit = commit_staging(settings, data_dir, agent, &staging, email, None)?;
-            if let Err(err) = std::fs::remove_file(&auth) {
-                log::warn!("agent_login: the imported ambient codex login stayed in place: {err}");
-            }
-            Ok(commit)
-        }
-    }
-}
-
 /// Who a codex `auth.json` is signed in as: the `email` claim of its
 /// `tokens.id_token` (a JWT payload, read WITHOUT verifying — identity only,
 /// never trusted for anything else) and the ChatGPT plan beside it.
@@ -662,10 +582,10 @@ mod tests {
 
     /// The payload's shapes, and the refusals: a blank/`system` `profileId`
     /// reads as absent (Add account), `switch` is validated and otherwise
-    /// meaningless, `import` is its own target and never combines with a
-    /// profile.
+    /// meaningless, and the retired `import` (EXP-1532) is refused with its
+    /// own sentence.
     #[test]
-    fn login_payload_parses_add_profile_or_import() {
+    fn login_payload_parses_add_or_profile_and_refuses_import() {
         let add = parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "true"}))
             .unwrap();
         assert_eq!(add, LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add });
@@ -683,10 +603,16 @@ mod tests {
             .unwrap();
             assert_eq!(parsed.target, LoginTarget::Add, "{blank:?}");
         }
-        let import = parse_login_payload(&serde_json::json!({"agent": "codex", "import": "true"}))
-            .unwrap();
-        assert_eq!(import.target, LoginTarget::Import);
-        assert_eq!(import.target.intended(), None);
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "codex", "import": "true"})),
+            Err(IMPORT_REMOVED.to_string())
+        );
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "codex", "import": "false"}))
+                .unwrap()
+                .target,
+            LoginTarget::Add
+        );
 
         // Refusals.
         assert_eq!(
@@ -709,7 +635,7 @@ mod tests {
             parse_login_payload(&serde_json::json!({
                 "agent": "claude", "profileId": "0badf00d", "import": "true"
             })),
-            Err(MALFORMED_PAYLOAD.to_string())
+            Err(IMPORT_REMOVED.to_string())
         );
     }
 
@@ -819,24 +745,6 @@ mod tests {
         assert!(!staging.exists());
         assert_eq!(agent_profiles::list(&dir, agent).len(), 3);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn an_import_result_names_the_login_or_warns_about_a_duplicate() {
-        let commit = LoginCommit {
-            agent: CodingAgent::Claude,
-            profile_id: "0badf00d".into(),
-            email: Some("dev@acme.test".into()),
-            duplicate: false,
-        };
-        assert_eq!(commit.import_result_text(), "Imported dev@acme.test.");
-        let duplicate = LoginCommit { duplicate: true, ..commit.clone() };
-        assert_eq!(
-            duplicate.import_result_text(),
-            "dev@acme.test was already added. Refreshed it."
-        );
-        let unnamed = LoginCommit { email: None, ..commit };
-        assert_eq!(unnamed.import_result_text(), "Imported the Claude Code login.");
     }
 
     /// The fixture's copy, byte for byte.

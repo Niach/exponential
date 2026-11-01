@@ -103,6 +103,9 @@ class AgentAccountsRowsTest {
             agentUsageAt = "2026-08-28T11:30:00.000Z",
         )
         assertTrue(AgentAccountsRows.agentProfileUsageRows(listOf(studio), "me") { true }.isEmpty())
+        // EXP-1532: an older device still sends the retired `importable`
+        // key; the entry decodes anyway (the decoder ignores unknown keys).
+        assertEquals("dev@acme.test", parseAgentAccounts(studio.agentAccounts)?.get("claude")?.email)
 
         // A teammate's shared machine is never "mine", and the online-ness is
         // the caller's to decide.

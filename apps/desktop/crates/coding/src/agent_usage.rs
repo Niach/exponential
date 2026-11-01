@@ -1562,6 +1562,7 @@ fn claude_keep_alive_step_at(
             wrote,
         } => {
             usage_cache::note_refresh_ok(entry, expires_at_ms, now);
+            entry.relogin_required = false;
             match wrote {
                 // The keychain refused cleanly and the rotated pair went to
                 // `<root>/.credentials.json` instead. Nothing is lost, but the
@@ -1585,6 +1586,9 @@ fn claude_keep_alive_step_at(
             expires_at_ms,
         } => {
             usage_cache::note_credential_expiry(entry, expires_at_ms);
+            // EXP-1532: the store holds a grant nobody has seen die — a
+            // fresh login landed in this profile since.
+            entry.relogin_required = false;
             // A document with no (or a non-numeric) `expiresAt` cannot be
             // scheduled off its expiry, and `refresh_if_expiring` never POSTs
             // on a guess: without the hour backoff the `None` gate would
@@ -1621,12 +1625,12 @@ fn claude_keep_alive_step_at(
             // (the precheck has to see the token to recognise it), so the
             // same long backoff applies.
             //
-            // ACCEPTED CONSEQUENCE: `apply_outcome` flips health back to `ok`
-            // if a later usage GET on the still-live ACCESS token succeeds —
-            // health is the probe's fact (EXP-849) and we do not fight it.
-            // The persisted dead marker is what matters; `needs_relogin`
-            // returns for good with the first 401 after the access token
-            // expires, which is the truth arriving a few hours late.
+            // EXP-1532: and it STAYS `needs_relogin` through a usage GET that
+            // still succeeds on the live ACCESS token. Letting that flip it
+            // back to `ok` (the EXP-849 rule) was #FEED-175: a login whose
+            // grant was spent read healthy for hours while every new run
+            // died "Not logged in" — and the start pick kept choosing it.
+            entry.relogin_required = true;
             usage_cache::note_refresh_failed(
                 entry,
                 now,
@@ -2082,7 +2086,6 @@ mod tests {
             account: Some(AgentAccount::default()),
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -2096,7 +2099,6 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -2181,7 +2183,6 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -2200,7 +2201,6 @@ mod tests {
                 }),
                 usage_eligible: false,
                 signed_in_profile: None,
-                importable: None,
                 profiles: vec![probe(MAIN)],
                 acp: None,
                 acp_note: None,
@@ -2540,7 +2540,6 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -2558,7 +2557,6 @@ mod tests {
                 }),
                 usage_eligible: true,
                 signed_in_profile: None,
-                importable: None,
                 profiles: vec![probe(MAIN)],
                 acp: None,
                 acp_note: None,

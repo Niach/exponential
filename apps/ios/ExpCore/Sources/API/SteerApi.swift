@@ -147,10 +147,6 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
     /// client lists: the top-level fields mirror the active one, and no row is
     /// ever synthesized from them.
     public let profiles: [AgentAccountProfile]?
-    /// The agent CLI's AMBIENT login (~/.claude, ~/.codex), present only
-    /// while it is signed in. Never used for a run: the doctor offers to
-    /// IMPORT it into a profile.
-    public let importable: AgentImportable?
 
     public init(
         signedIn: Bool? = nil,
@@ -158,8 +154,7 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         plan: String? = nil,
         checkedAt: String? = nil,
         profiles: [AgentAccountProfile]? = nil,
-        health: String? = nil,
-        importable: AgentImportable? = nil
+        health: String? = nil
     ) {
         self.signedIn = signedIn
         self.email = email
@@ -167,11 +162,10 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         self.checkedAt = checkedAt
         self.profiles = profiles
         self.health = health
-        self.importable = importable
     }
 
     private enum CodingKeys: String, CodingKey {
-        case signedIn, email, plan, checkedAt, profiles, health, importable
+        case signedIn, email, plan, checkedAt, profiles, health
     }
 
     public init(from decoder: Decoder) throws {
@@ -182,26 +176,6 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         checkedAt = try c.decodeIfPresent(String.self, forKey: .checkedAt)
         profiles = (try? c.decodeIfPresent([AgentAccountProfile].self, forKey: .profiles)) ?? nil
         health = try? c.decodeIfPresent(String.self, forKey: .health)
-        importable = (try? c.decodeIfPresent(AgentImportable.self, forKey: .importable)) ?? nil
-    }
-}
-
-/// The ambient login a machine could import (`agentAccounts[agent].importable`).
-public struct AgentImportable: Decodable, Equatable, Sendable {
-    public let email: String?
-    public let plan: String?
-
-    public init(email: String? = nil, plan: String? = nil) {
-        self.email = email
-        self.plan = plan
-    }
-
-    private enum CodingKeys: String, CodingKey { case email, plan }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        email = try? c.decodeIfPresent(String.self, forKey: .email)
-        plan = try? c.decodeIfPresent(String.self, forKey: .plan)
     }
 }
 

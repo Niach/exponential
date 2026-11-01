@@ -16,7 +16,7 @@
 //! [`is_signed_in`] asks the CLI afterwards.
 //!
 //! Exponential's multi-account flow (`coding::agent_login`: a staging dir
-//! per sign-in, commit by email, import of the ambient login) builds on the
+//! per sign-in, commit by email) builds on the
 //! same plan ([`login_command`]), the same sign-out ([`logout_in`]) and the
 //! same scrapers, and drives its PTY through its own terminal emulator.
 

@@ -99,6 +99,9 @@ const capsInput = z.array(z.string().min(1).max(32)).max(24)
  * claude's authorization codes are ~80 chars of `code#state`; the cap only
  * has to keep a paste of the wrong thing from becoming a 2000-char payload. */
 const AGENT_LOGIN_CODE_MAX = 512
+/** EXP-1532: the refusal of a retired `agent_login` import (byte-identical
+ *  to the device's `agent_login::IMPORT_REMOVED`). */
+export const AGENT_IMPORT_REMOVED = `Import was removed: sign this account in on this device instead.`
 const deviceIdInput = z.string().min(1).max(128)
 const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 
@@ -237,7 +240,6 @@ export function clampDoctor(
       state: item.state,
       ...(item.detail ? { detail: item.detail } : {}),
       ...(item.action ? { action: item.action } : {}),
-      ...(item.import ? { import: item.import } : {}),
     })),
     // NEW-59: the device's displays; absent / null = not reported.
     ...(input.displays
@@ -324,17 +326,6 @@ export function clampAgentAccounts(
       profiles.push(item)
     }
     if (profiles.length > 0) entry.profiles = profiles
-    // The ambient login the doctor offers to Import; present iff signed in.
-    if (account.importable) {
-      const importable: NonNullable<DeviceAgentAccount[`importable`]> = {}
-      if (account.importable.email) {
-        importable.email = account.importable.email.slice(0, MAX_ACCOUNT_EMAIL)
-      }
-      if (account.importable.plan) {
-        importable.plan = account.importable.plan.slice(0, MAX_ACCOUNT_PLAN)
-      }
-      entry.importable = importable
-    }
     out[agent] = entry
   }
   return out
@@ -1372,8 +1363,9 @@ export const devicesRouter = router({
         // only feeds the device's duplicate check — the login lands on the
         // profile whose email it signed in as; absent = Add account.
         profileId: z.string().min(1).max(64).optional(),
-        // `agent_login`: MOVE the agent's ambient login into a profile
-        // instead of signing in.
+        // EXP-1532: the RETIRED `agent_login` import. Still parsed (not
+        // stripped) so an old client's import is refused with a sentence
+        // instead of silently turning into an Add account sign-in.
         import: z.boolean().optional(),
       })
     )
@@ -1406,18 +1398,15 @@ export const devicesRouter = router({
           })
         }
         if (input.import === true) {
-          if (input.profileId) {
-            throw new TRPCError({
-              code: `BAD_REQUEST`,
-              message: `agent_login takes profileId or import, not both`,
-            })
-          }
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: AGENT_IMPORT_REMOVED,
+          })
         }
         payload = {
           agent: input.agent,
           switch: input.switch === true ? `true` : `false`,
           ...(input.profileId ? { profileId: input.profileId } : {}),
-          ...(input.import === true ? { import: `true` } : {}),
         }
       }
 

@@ -59,13 +59,6 @@ pub const NEEDS_RUNTIME: &str = "Needs the Visual C++ runtime";
 pub const DOWNLOADING: &str = "Downloading…";
 /// EXP-1232: the fetch failed; Update re-fetches.
 pub const DOWNLOAD_FAILED: &str = "Download failed";
-/// The Import confirm (the fixture's `copy.importTitle` / `importBody`).
-pub const IMPORT_BODY: &str = "Your login moves into Exponential. Sign in again outside of it.";
-
-/// The Import confirm's title for `email` (the fixture's `copy.importTitle`).
-pub fn import_title(email: &str) -> String {
-    format!("Import {email}?")
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,10 +131,6 @@ pub struct DoctorItem {
     pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<DoctorAction>,
-    /// An agent row whose CLI has a signed-in AMBIENT login: that login's
-    /// email. Clients render an `import` pill before the action pill.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub import: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -203,9 +192,6 @@ pub enum DoctorAction {
     Install,
     Update,
     SignIn,
-    /// Move the ambient login into a profile — never an item's `action`, the
-    /// pill rides [`DoctorItem::import`].
-    Import,
     Grant,
 }
 
@@ -216,14 +202,13 @@ impl DoctorAction {
             DoctorAction::Install => "Install",
             DoctorAction::Update => "Update",
             DoctorAction::SignIn => "Sign in",
-            DoctorAction::Import => "Import",
             DoctorAction::Grant => "Open System Settings",
         }
     }
 
     /// Whether ANOTHER device may trigger it (the fixture's `remote`).
     pub fn remote(self) -> bool {
-        matches!(self, DoctorAction::Update | DoctorAction::SignIn | DoctorAction::Import)
+        matches!(self, DoctorAction::Update | DoctorAction::SignIn)
     }
 }
 
@@ -285,7 +270,6 @@ fn item(key: &str, group: DoctorGroup, state: DoctorState) -> DoctorItem {
         state,
         detail: None,
         action: None,
-        import: None,
     }
 }
 
@@ -353,14 +337,6 @@ fn needs_relogin(check: &ToolCheck) -> bool {
 }
 
 fn agent_item(agent: CodingAgent, check: &ToolCheck) -> DoctorItem {
-    let mut item = agent_row(agent, check);
-    item.import = check.importable.as_ref().map(|found| {
-        crate::agent_accounts::account_name(found.email.as_deref(), found.plan.as_deref())
-    });
-    item
-}
-
-fn agent_row(agent: CodingAgent, check: &ToolCheck) -> DoctorItem {
     let key = agent.id();
     let row = |state| item(key, DoctorGroup::Agents, state);
     if agent == CodingAgent::Codex {
@@ -741,7 +717,6 @@ mod tests {
             acp: tool.agent().map(|_| version.is_some()),
             acp_note: None,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
         }
     }
@@ -859,13 +834,7 @@ mod tests {
             5 => (
                 DoctorReport {
                     git: check(Tool::Git, Some("2.55.0")),
-                    claude: ToolCheck {
-                        importable: Some(crate::agent_accounts::Importable {
-                            email: Some("dev@acme.test".into()),
-                            plan: Some("max".into()),
-                        }),
-                        ..signed_out(check(Tool::Claude, Some("2.1.289 (Claude Code)")))
-                    },
+                    claude: signed_out(check(Tool::Claude, Some("2.1.289 (Claude Code)"))),
                     codex: managed_codex(crate::managed_codex::State::NotWanted),
                 },
                 settings(false),
@@ -929,15 +898,6 @@ mod tests {
                 assert_eq!(row.action, Some(action), "{name}: {key}");
                 assert!(action.remote(), "{name}: {key}");
             }
-            let pills = case["importPills"].as_object().cloned().unwrap_or_default();
-            for row in doctor.items.iter().filter(|item| item.group == DoctorGroup::Agents) {
-                assert_eq!(
-                    row.import.as_deref(),
-                    pills.get(&row.key).and_then(Value::as_str),
-                    "{name}: {}",
-                    row.key
-                );
-            }
         }
     }
 
@@ -979,14 +939,12 @@ mod tests {
             ("needsRuntime", NEEDS_RUNTIME),
             ("downloading", DOWNLOADING),
             ("downloadFailed", DOWNLOAD_FAILED),
-            ("importBody", IMPORT_BODY),
             ("keptUncommitted", crate::worktree_lifecycle::KeptReason::Uncommitted.detail()),
             ("keptUnpushed", crate::worktree_lifecycle::KeptReason::Unpushed.detail()),
             ("keptFailed", crate::worktree_lifecycle::KeptReason::Failed.detail()),
         ] {
             assert_eq!(copy[key].as_str().unwrap(), text, "{key}");
         }
-        assert_eq!(import_title("{email}"), copy["importTitle"].as_str().unwrap());
         assert_eq!(disk_free("{size}"), copy["diskFree"].as_str().unwrap());
         assert_eq!(
             needs_version("{version}", (0, 0, 0)).replace("0.0.0", "{min}"),

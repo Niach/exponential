@@ -1172,6 +1172,11 @@ pub struct SessionCtx {
     /// instead of idling the run with nothing done. Disarmed by the seed's
     /// first answer either way.
     pub(crate) seed_retry: AtomicBool,
+    /// EXP-1532 (#FEED-181): the latest turn failed because the agent's
+    /// LOGIN is gone (ACP `auth_required`: claude's "Not logged in · Please
+    /// run /login"). The host's account rotation reads it as a wall and
+    /// moves the run to a working login; the next turn clears it.
+    pub signed_out: AtomicBool,
     /// EXP-1418: every turn this run opened ([`start_turn`]), so the
     /// lifecycle's one-second `busy` mirror reports `busy: true` for a turn
     /// that opened AND closed between two ticks (the server's yolo turn
@@ -2957,6 +2962,7 @@ fn start_turn(
         }
         (Some(_), None) => {}
     }
+    ctx.signed_out.store(false, Ordering::SeqCst);
     turns.in_flight.fetch_add(1, Ordering::SeqCst);
     ctx.turns_started.fetch_add(1, Ordering::SeqCst);
     ctx.turn_signal.set_idle(false);
@@ -3074,6 +3080,16 @@ fn start_turn(
             }
             // FEED-153: the seed refused outright — the turn stays open (the
             // row keeps reading busy) and the same prompt goes again.
+            // EXP-1532: a signed-out login is not worth a retry on the same
+            // login — the rotation moves the run instead.
+            Err(err) if is_auth_required(&err) => {
+                ctx.signed_out.store(true, Ordering::SeqCst);
+                log::warn!("engine: session {}'s login is signed out ({err})", ctx.session_id);
+                ctx.with_mapper(|mapper| mapper.on_turn_error(&err.to_string(), &mut out));
+                if remaining == 0 {
+                    ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
+                }
+            }
             Err(err) if seed && remaining == 0 && retry_blocks.is_some() && ctx.child_exit.get().is_none() => {
                 log::warn!(
                     "engine: session {}'s first turn was refused ({err}) — retrying in {}s",
@@ -3110,6 +3126,11 @@ fn start_turn(
         ctx.dispatch(out);
         Ok(())
     });
+}
+
+/// EXP-1532: the agent refused the turn because its login is gone.
+fn is_auth_required(err: &Error) -> bool {
+    matches!(err.code, agent_client_protocol::schema::v1::ErrorCode::AuthRequired)
 }
 
 /// Publish what the host is about to send as the user's own message (the

@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-agent-logins-stay-signed-in`,
+    date: `2026-11-01`,
+    title: `Agent logins stay signed in`,
+    summary: `A thread moves to another signed-in account when its login signs out, and Import is gone.`,
+    body: `- **No more copied logins**: Import is removed; every account signs in on its own device, so one copy can no longer sign another out.
+- **Automatic switch**: a new or running thread whose login is signed out continues on another healthy account on that device.
+- **Honest health**: a login whose refresh failed shows Needs re-login right away instead of OK.`,
+  },
+  {
     id: `2026-11-01-steady-live-sessions`,
     date: `2026-11-01`,
     title: `Steadier live sessions`,

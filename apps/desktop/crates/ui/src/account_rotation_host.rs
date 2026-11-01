@@ -91,7 +91,7 @@ pub fn start_account_rotation_host(cx: &mut App) {
 }
 
 /// One live session's wall in the rotation's vocabulary — `None` unless the
-/// wall is a rate limit. No record at all is a run a switch could not
+/// wall is a rate limit or (EXP-1532) a signed-out login. No record at all is a run a switch could not
 /// resume (a repo-less scratch run with a record rotates, EXP-1292).
 fn walled_run(
     session_id: &str,
@@ -101,7 +101,7 @@ fn walled_run(
     record: Option<&coding::run_registry::RunRecord>,
     idle: bool,
 ) -> Option<WalledRun> {
-    (blocked.kind == steer::activity::BLOCKED_KIND_RATE_LIMIT).then(|| WalledRun {
+    coding::account_rotation::rotation_wall(&blocked.kind).then(|| WalledRun {
         session_id: session_id.to_string(),
         chain_key: worktree.to_string_lossy().into_owned(),
         agent,

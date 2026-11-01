@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import spec from "@exp/domain-contract/fixtures/device-doctor.json"
 
@@ -12,8 +12,8 @@ import {
 } from "./device-readiness"
 
 // EXP-1196: the fixture IS the spec — every case renders its rows, its
-// pills (local: every action; remote: only remote ones), its import pills
-// and its primary.
+// pills (local: every action; remote: only remote ones) and its primary.
+// EXP-1532: there is no import pill, anywhere.
 
 interface Case {
   name: string
@@ -21,7 +21,6 @@ interface Case {
   runnable: string[]
   localPrimary: string | null
   remotePills: Record<string, string>
-  importPills?: Record<string, string>
   /** EXP-1375: the composer's non-blocking row (absent = null). */
   composerWarning?: string | null
 }
@@ -37,20 +36,11 @@ const visibleKeys = (doctor: DeviceReadinessDoctor) => {
 
 const pillsOf = (container: HTMLElement) =>
   Object.fromEntries(
-    [...container.querySelectorAll(`[data-slot=pill]:not([data-action=import])`)].map((pill) => [
+    [...container.querySelectorAll(`[data-slot=pill]`)].map((pill) => [
       pill.closest(`[data-item]`)!.getAttribute(`data-item`)!,
       pill.getAttribute(`data-action`)!,
     ])
   )
-
-const importsOf = (container: HTMLElement) =>
-  [...container.querySelectorAll(`[data-slot=pill][data-action=import]`)].map((pill) => {
-    const row = pill.closest(`[data-item]`)!
-    // The import pill sits BEFORE the row's action pill.
-    const pills = [...row.querySelectorAll(`[data-slot=pill]`)]
-    expect(pills.indexOf(pill)).toBe(0)
-    return row.getAttribute(`data-item`)!
-  })
 
 const primaryOf = (container: HTMLElement) => {
   const primaries = [...container.querySelectorAll(`[data-slot=pill]`)].filter((pill) =>
@@ -128,36 +118,14 @@ describe.each(cases)(`device-doctor.json: $name`, (fixtureCase) => {
     }
   })
 
-  it(`import pills sit before the action pill, local and remote, and confirm first`, () => {
-    const expected = fixtureCase.importPills ?? {}
+  it(`no row offers an import (EXP-1532), local or remote`, () => {
     for (const remote of [false, true]) {
-      const onAction = vi.fn()
       const { container, unmount } = render(
-        <DeviceReadiness doctor={doctor} remote={remote} onAction={onAction} />
+        <DeviceReadiness doctor={doctor} remote={remote} onAction={() => {}} />
       )
-      expect(importsOf(container)).toEqual(Object.keys(expected))
-      const first = Object.entries(expected)[0]
-      if (first) {
-        fireEvent.click(
-          container.querySelector(`[data-item=${first[0]}] [data-action=import]`)!
-        )
-        expect(onAction).not.toHaveBeenCalled()
-        expect(
-          screen.getByText(spec.copy.importTitle.replace(`{email}`, first[1]))
-        ).toBeTruthy()
-        expect(screen.getByText(spec.copy.importBody)).toBeTruthy()
-        fireEvent.click(screen.getByTestId(`device-readiness-import-confirm`))
-        expect(onAction).toHaveBeenCalledWith(first[0], `import`)
-      }
+      expect(container.querySelector(`[data-action=import]`)).toBeNull()
       unmount()
     }
-  })
-
-  it(`no import pill on another device without the agent-import cap`, () => {
-    const { container } = render(
-      <DeviceReadiness doctor={doctor} remote canImport={false} onAction={() => {}} />
-    )
-    expect(importsOf(container)).toEqual([])
   })
 
   it(`runnable agents match the fixture`, () => {

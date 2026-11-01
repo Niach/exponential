@@ -49,17 +49,16 @@
 //! re-probe on the way out re-reads the profile index, so a new profile
 //! rides the next heartbeat by itself.
 //!
-//! `import: "true"` moves the machine's AMBIENT login into a profile
-//! (`import_ambient`, the same commit by email) — no PTY at all — and
-//! completes with a plain sentence (`Imported {email}.`, or the
-//! already-added warning).
+//! The retired `import: "true"` (EXP-1532: nothing ever copies the
+//! machine's AMBIENT login into a profile) is refused by the payload parse:
+//! the command completes ok:false with `agent_login::IMPORT_REMOVED`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use coding::agent_login::{self, LoginProgress, LoginTarget};
+use coding::agent_login::{self, LoginProgress};
 use coding::{CodingAgent, Settings};
 use steer::agent_login_driver::{observe_login_screen, LoginObservation};
 use terminal::emulator::Emulator;
@@ -129,8 +128,8 @@ pub fn run(
     codes: CodeInbox,
     doctor_soon: Arc<AtomicBool>,
 ) {
-    // An unknown agent or a malformed payload is refused with the sentence
-    // the clients show verbatim.
+    // An unknown agent, a malformed payload or the retired import is refused
+    // with the sentence the clients show verbatim.
     let request = match agent_login::parse_login_payload(&command.payload) {
         Ok(request) => request,
         Err(message) => {
@@ -161,21 +160,15 @@ pub fn run(
     let thread = std::thread::Builder::new()
         .name("exp-agent-login".to_string())
         .spawn(move || {
-            let outcome = match &target {
-                LoginTarget::Import => Some(match agent_login::import_ambient(&settings, &data_dir, agent) {
-                    Ok(commit) => (true, commit.import_result_text()),
-                    Err(message) => (false, message),
-                }),
-                LoginTarget::Add | LoginTarget::Profile(_) => sign_in(
-                    &trpc,
-                    &settings,
-                    &data_dir,
-                    agent,
-                    target.intended(),
-                    &command_id,
-                    &codes,
-                ),
-            };
+            let outcome = sign_in(
+                &trpc,
+                &settings,
+                &data_dir,
+                agent,
+                target.intended(),
+                &command_id,
+                &codes,
+            );
             if let Some((ok, message)) = outcome {
                 complete_with(&trpc, &command_id, ok, &message);
             }
@@ -439,10 +432,10 @@ mod tests {
 
     /// An unknown agent never reaches a PTY, with the sentence the clients
     /// show verbatim. The same parse reads the target: Add account, an
-    /// intended profile, or an import.
+    /// intended profile; the retired import is refused (EXP-1532).
     #[test]
     fn only_claude_and_codex_are_runnable_agents() {
-        use coding::agent_login::parse_login_payload;
+        use coding::agent_login::{parse_login_payload, LoginTarget};
         // EXP-849: a retired agent id is simply unknown now.
         assert_eq!(
             parse_login_payload(&serde_json::json!({"agent": "pi", "switch": "false"})),
@@ -459,9 +452,10 @@ mod tests {
         .unwrap();
         assert_eq!(codex.agent, CodingAgent::Codex);
         assert_eq!(codex.target, LoginTarget::Profile("0badf00d".to_string()));
-        let import = parse_login_payload(&serde_json::json!({"agent": "claude", "import": "true"}))
-            .unwrap();
-        assert_eq!(import.target, LoginTarget::Import);
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "claude", "import": "true"})),
+            Err("Import was removed: sign this account in on this device instead.".to_string())
+        );
         // An unknown agent is refused before its target is looked at.
         assert!(parse_login_payload(&serde_json::json!({
             "agent": "gemini", "import": "true"
