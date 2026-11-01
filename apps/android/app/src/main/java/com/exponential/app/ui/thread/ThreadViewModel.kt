@@ -565,6 +565,13 @@ class ThreadViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** EXP-1521: whether the chat has a live tail at all (the screen reads
+     *  this; only the tail reads [liveActivity]). */
+    val hasLiveTail: StateFlow<Boolean> = liveActivity
+        .map { it != null }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     override fun onCleared() {
         releaseTail()
         super.onCleared()

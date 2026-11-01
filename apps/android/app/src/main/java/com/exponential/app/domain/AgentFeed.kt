@@ -922,6 +922,11 @@ fun activeQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
  *  with the calls it made, or every step of one multi-question ask (EXP-249).
  *  A row's id is the LOWEST feed id it covers, so the row key (and its
  *  expanded state) stays stable while the row keeps growing. */
+/** EXP-1521: the lazy list's content type: one per row shape (a single
+ *  row by its item's kind), so a recycled slot keeps its node tree. */
+val AgentFeedRow.contentType: Any
+    get() = if (this is AgentFeedRow.Single) item.javaClass else javaClass
+
 sealed interface AgentFeedRow {
     val id: Long
 

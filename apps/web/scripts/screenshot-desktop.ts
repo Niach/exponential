@@ -571,6 +571,27 @@ function feedFrames(agentComment: AgentComment | null): Record<string, unknown>[
   return frames
 }
 
+/** EXP-1521/1522: SCREENSHOT_FEED_TURN_TICKS=<n> appends n live `turn`
+ *  frames (a working agent streaming a tool call: the clock, the tokens and
+ *  "Writing…" re-sent on every tick), so the Android benchmarks type and
+ *  scroll under a live run's periodic frames. */
+function turnTicks(firstSeq: number): Record<string, unknown>[] {
+  const count = Math.max(0, Number(process.env.SCREENSHOT_FEED_TURN_TICKS ?? `0`) || 0)
+  const startedAt = Date.now()
+  return Array.from({ length: count }, (_, i) => ({
+    t: `activity`,
+    event: {
+      kind: `turn`,
+      state: `started`,
+      startedAt,
+      tokens: 1_000 + i * 120,
+      writing: { tool: `Write`, startedAt },
+      at: startedAt + i * LIVE_EVERY_MS,
+    },
+    seq: firstSeq + i,
+  }))
+}
+
 function required(config: SteerRelayConfig | null): SteerRelayConfig {
   if (config) return config
   console.error(
@@ -805,7 +826,7 @@ async function main() {
     feed: {
       sessionId,
       journal: frames.slice(0, closing),
-      live: frames.slice(closing),
+      live: [...frames.slice(closing), ...turnTicks(frames.length)],
       liveEveryMs: LIVE_EVERY_MS,
     },
   })
