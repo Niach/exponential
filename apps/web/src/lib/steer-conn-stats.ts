@@ -74,6 +74,90 @@ export function connEventRow(
   }
 }
 
+// ── Tally (EXP-1593) ─────────────────────────────────────────────────────────
+// Every client drops a failed post silently, so the server is the one place
+// a broken path can show: what the record calls did, counted per minute and
+// logged once a minute (only minutes with calls; no line = no call arrived).
+// Counts only, never content or a user.
+
+export type ConnStatsTally = {
+  accepted: number
+  rejected: number
+  invalid: number
+  unauthorized: number
+  rateLimited: number
+  failed: number
+  stored: number
+  dropped: number
+}
+
+export type ConnStatsCall =
+  | { outcome: `accepted`; stored: number; dropped: number }
+  | { outcome: `invalid`; dropped: number }
+  | { outcome: `rejected`; reason: `unauthorized` | `rate_limited` }
+  | { outcome: `failed` }
+
+const TALLY_MS = 60_000
+const emptyTally = (): ConnStatsTally => ({
+  accepted: 0,
+  rejected: 0,
+  invalid: 0,
+  unauthorized: 0,
+  rateLimited: 0,
+  failed: 0,
+  stored: 0,
+  dropped: 0,
+})
+let tally = emptyTally()
+let tallyTimer: ReturnType<typeof setInterval> | null = null
+
+/** Counts one record call; the first one starts the minute log. */
+export function countConnStatsCall(call: ConnStatsCall, log: (line: string) => void = console.log): void {
+  if (call.outcome === `accepted`) {
+    tally.accepted++
+    tally.stored += call.stored
+    tally.dropped += call.dropped
+  } else if (call.outcome === `invalid`) {
+    tally.invalid++
+    tally.dropped += call.dropped
+  } else if (call.outcome === `failed`) {
+    tally.failed++
+  } else {
+    tally.rejected++
+    if (call.reason === `unauthorized`) tally.unauthorized++
+    else tally.rateLimited++
+  }
+  if (tallyTimer) return
+  tallyTimer = setInterval(() => {
+    const line = connStatsTallyLine(takeConnStatsTally())
+    if (line) log(line)
+  }, TALLY_MS)
+  tallyTimer.unref?.()
+}
+
+/** The counts since the last take (and resets them). */
+export function takeConnStatsTally(): ConnStatsTally {
+  const out = tally
+  tally = emptyTally()
+  return out
+}
+
+/** The minute's log line; null when no call arrived. */
+export function connStatsTallyLine(t: ConnStatsTally): string | null {
+  if (t.accepted + t.rejected + t.invalid + t.failed === 0) return null
+  return (
+    `[conn-stats] record calls in the last minute: accepted ${t.accepted}, rejected ${t.rejected} ` +
+    `(unauthorized ${t.unauthorized}, rate-limited ${t.rateLimited}), invalid ${t.invalid}, failed ${t.failed}; ` +
+    `events stored ${t.stored}, dropped ${t.dropped}`
+  )
+}
+
+export function resetConnStatsTallyForTest(): void {
+  if (tallyTimer) clearInterval(tallyTimer)
+  tallyTimer = null
+  tally = emptyTally()
+}
+
 /** Store a batch; a retried flush (same envelope ids) inserts nothing new. */
 export async function recordConnEvents(
   events: unknown[],
@@ -81,11 +165,21 @@ export async function recordConnEvents(
   executor: Executor = db
 ): Promise<{ accepted: number }> {
   const accepted = acceptedConnEvents(events)
-  if (accepted.length === 0) return { accepted: 0 }
-  await executor
-    .insert(steerConnectionEvents)
-    .values(accepted.map((e) => connEventRow(e, now)))
-    .onConflictDoNothing()
+  const dropped = Math.min(events.length, STEER_CONN_STATS.batchMax) - accepted.length
+  if (accepted.length === 0) {
+    countConnStatsCall({ outcome: `invalid`, dropped })
+    return { accepted: 0 }
+  }
+  try {
+    await executor
+      .insert(steerConnectionEvents)
+      .values(accepted.map((e) => connEventRow(e, now)))
+      .onConflictDoNothing()
+  } catch (err) {
+    countConnStatsCall({ outcome: `failed` })
+    throw err
+  }
+  countConnStatsCall({ outcome: `accepted`, stored: accepted.length, dropped })
   return { accepted: accepted.length }
 }
 

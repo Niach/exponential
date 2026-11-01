@@ -34,8 +34,12 @@ vi.mock(`@/db/connection`, () => ({
 import { connStatsRouter } from "@/lib/trpc/conn-stats"
 import {
   connStatsBuckets,
+  connStatsTallyLine,
+  countConnStatsCall,
   isConnEventExpired,
   resetConnStatsRecordLimiterForTest,
+  resetConnStatsTallyForTest,
+  takeConnStatsTally,
   runConnStatsRetention,
   STEER_CONN_RETENTION_MS,
   type ConnStatsDbRow,
@@ -55,6 +59,7 @@ beforeEach(() => {
   inserted.length = 0
   deletes.length = 0
   resetConnStatsRecordLimiterForTest()
+  resetConnStatsTallyForTest()
 })
 
 describe(`connStats.record`, () => {
@@ -114,6 +119,52 @@ describe(`connStats.record`, () => {
   it(`requires a signed-in caller`, async () => {
     const anon = connStatsRouter.createCaller({ session: null, db: {}, request: new Request(`http://localhost/`) } as never)
     await expect(anon.record({ events: [] })).rejects.toThrow()
+  })
+})
+
+// EXP-1593: every client drops a failed post silently, so prod sat at 0
+// rows with no way to tell "no calls" from "every call refused". Each call is
+// counted (accepted / rejected / invalid / failed) and logged once a minute.
+describe(`connStats.record tally`, () => {
+  it(`counts every outcome, the signed-out and over-limit calls included`, async () => {
+    const e = stats.validCases.find((c) => c.valid)!.event
+    const bad = stats.validCases.find((c) => !c.valid)!.event
+    await caller().record({ events: [e, bad] })
+    await caller().record({ events: [bad] })
+    await caller().record({ events: [] })
+    await expect(caller().record({ events: Array(stats.batchMax + 1).fill(e) })).rejects.toThrow()
+    const anon = connStatsRouter.createCaller({ session: null, db: {}, request: new Request(`http://localhost/`) } as never)
+    await expect(anon.record({ events: [e] })).rejects.toMatchObject({ code: `UNAUTHORIZED` })
+    for (let i = 0; i < 31; i++) await caller(`u9`).record({ events: [{ ...e, id: `t${i}` }] })
+    expect(takeConnStatsTally()).toEqual({
+      accepted: 31,
+      rejected: 2,
+      invalid: 3,
+      unauthorized: 1,
+      rateLimited: 1,
+      failed: 0,
+      stored: 31,
+      dropped: 2,
+    })
+    expect(takeConnStatsTally().accepted).toBe(0)
+  })
+
+  it(`logs one content-free line a minute, none for a minute without calls`, async () => {
+    vi.useFakeTimers()
+    try {
+      const lines: string[] = []
+      countConnStatsCall({ outcome: `accepted`, stored: 2, dropped: 1 }, (l) => lines.push(l))
+      countConnStatsCall({ outcome: `rejected`, reason: `unauthorized` })
+      vi.advanceTimersByTime(60_000)
+      expect(lines).toEqual([
+        `[conn-stats] record calls in the last minute: accepted 1, rejected 1 (unauthorized 1, rate-limited 0), invalid 0, failed 0; events stored 2, dropped 1`,
+      ])
+      vi.advanceTimersByTime(60_000)
+      expect(lines).toHaveLength(1)
+      expect(connStatsTallyLine(takeConnStatsTally())).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

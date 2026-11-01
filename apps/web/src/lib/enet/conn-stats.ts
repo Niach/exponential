@@ -4,7 +4,8 @@
 // `ended` when the view goes. Privacy-safe eCore envelopes: no content, no
 // user, team, session or device id. Buffered and posted to
 // `connStats.record` (<= batchMax) every flushMs and on page hide; it never
-// blocks the view nor shows an error.
+// blocks the view nor shows an error. EXP-1593: posted with `keepalive`, so
+// a closing tab's page-hide flush is not cancelled with the page.
 
 import {
   STEER_CONN_STATS,
@@ -19,6 +20,17 @@ import type { FeedStats } from "./steer-feed"
 export const WEB_APP_VERSION: string = webPackage.version
 
 export type ConnStatsSink = (events: SteerConnEvent[]) => Promise<unknown>
+
+/** `connStats.record` as one non-batched tRPC POST (the body the natives
+ *  send) with `keepalive`: a flush on page hide outlives the page. */
+export const postConnStats: ConnStatsSink = (events) =>
+  fetch(`/api/trpc/connStats.record`, {
+    method: `POST`,
+    keepalive: true,
+    credentials: `same-origin`,
+    headers: { "content-type": `application/json` },
+    body: JSON.stringify({ events }),
+  })
 
 const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
@@ -157,7 +169,7 @@ export class SteerViewStats implements FeedStats {
 let shared: ConnStatsBuffer | undefined
 
 /** The tab's buffer over `sink` (connStats.record), flushed on page hide. */
-export function connStatsBuffer(sink: ConnStatsSink): ConnStatsBuffer {
+export function connStatsBuffer(sink: ConnStatsSink = postConnStats): ConnStatsBuffer {
   if (shared) return shared
   const buffer = new ConnStatsBuffer(sink)
   shared = buffer

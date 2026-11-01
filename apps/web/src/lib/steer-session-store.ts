@@ -709,13 +709,6 @@ interface SteerStoreDeps {
 
 const quiet = { context: { skipErrorToast: true } }
 
-// #EXP-1530 lands `connStats.record` beside this client; typed here until
-// the router carries it (an older server: the post fails, silently).
-type ConnStatsApi = {
-  connStats: { record: { mutate: (input: { events: unknown[] }, opts: typeof quiet) => Promise<unknown> } }
-}
-const connStatsApi = trpc as unknown as ConnStatsApi
-
 type KeyedRow = { id: string; rootId: string | null; sealPublicKey?: string | null; sealEpoch?: number | null }
 
 /** The ROOT's current seal key, when this install holds its secret. */
@@ -747,7 +740,7 @@ const defaultDeps: SteerStoreDeps = {
       stats,
     })) as unknown as WebSocket | null,
   viewStats: () => {
-    const buffer = connStatsBuffer((events) => connStatsApi.connStats.record.mutate({ events }, quiet))
+    const buffer = connStatsBuffer()
     return new SteerViewStats((event) => buffer.record(event))
   },
 }
