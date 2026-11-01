@@ -9138,6 +9138,11 @@ public object ExpIcons {
         "call-speaker" -> `volume-2`
         "call-speaker-off" -> `ear`
         "call-unmute" -> `mic-off`
+        "ci-failed" -> `circle-x`
+        "ci-passed" -> `circle-check`
+        "ci-queued" -> `circle-dashed`
+        "ci-running" -> `loader-circle`
+        "ci-skipped" -> `circle-slash`
         "coding-assistant" -> `sparkles`
         "coding-command" -> `square-slash`
         "coding-compact" -> `fold-vertical`
@@ -9450,6 +9455,16 @@ public object ExpIcons {
     public val callSpeakerOff: ImageVector get() = `ear`
     /** Concept `call-unmute`. */
     public val callUnmute: ImageVector get() = `mic-off`
+    /** Concept `ci-failed`. */
+    public val ciFailed: ImageVector get() = `circle-x`
+    /** Concept `ci-passed`. */
+    public val ciPassed: ImageVector get() = `circle-check`
+    /** Concept `ci-queued`. */
+    public val ciQueued: ImageVector get() = `circle-dashed`
+    /** Concept `ci-running`. */
+    public val ciRunning: ImageVector get() = `loader-circle`
+    /** Concept `ci-skipped`. */
+    public val ciSkipped: ImageVector get() = `circle-slash`
     /** Concept `coding-assistant`. */
     public val codingAssistant: ImageVector get() = `sparkles`
     /** Concept `coding-command`. */

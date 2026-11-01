@@ -34,6 +34,7 @@ import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.data.db.IssueDraftEntity
 import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.MessageEntity
+import com.exponential.app.data.db.PullRequestCheckEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.data.db.SessionEntity
@@ -426,6 +427,7 @@ class SyncManager @Inject constructor(
         val messageDao = db.messageDao()
         val pullRequestDao = db.pullRequestDao()
         val pullRequestIssueDao = db.pullRequestIssueDao()
+        val pullRequestCheckDao = db.pullRequestCheckDao()
         val sessionReadDao = db.sessionReadDao()
         val agentDefinitionDao = db.agentDefinitionDao()
         val eventDao = db.eventDao()
@@ -662,6 +664,16 @@ class SyncManager @Inject constructor(
                 onInsert = { pullRequestIssueDao.upsert(it) },
                 onDelete = { pullRequestIssueDao.deleteById(it.id) },
                 onRefetch = { pullRequestIssueDao.clear() },
+            ),
+            // #EXP-1611: the CI checks of every PR (team-scoped, member-only).
+            launchShape(
+                shape = "pull_request_checks", path = "/api/shapes/pull-request-checks", tableName = "pull_request_checks",
+                serializer = PullRequestCheckEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("pull_request_checks"),
+                onInsert = { pullRequestCheckDao.upsert(it) },
+                onDelete = { pullRequestCheckDao.deleteById(it.id) },
+                onRefetch = { pullRequestCheckDao.clear() },
             ),
             // EXP-1323: the viewer's read marks — static per user like pins.
             launchShape(

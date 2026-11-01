@@ -8,7 +8,8 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { newDraftNavigation } from "@/lib/issue-draft-page"
 import { trpc } from "@/lib/trpc-client"
 import { usePullRequestClose } from "@/components/session-merge-button"
-import { guideMenuEntries, type PullRequestRow, type SessionRow } from "@/lib/session-tree"
+import { usePullRequestGuideEntries } from "@/hooks/use-pull-request-checks"
+import type { PullRequestRow, SessionRow } from "@/lib/session-tree"
 import { ChatHeaderMenu, useChatMenuEntries, type useChatActions } from "@/components/thread/chat-menu"
 
 // EXP-1284 / EXP-1293 / EXP-1334: the header strip's ONE menu (THE Menu),
@@ -204,7 +205,8 @@ export function useThreadMenu({
 
 /** Thread 58cb32df (chats.json MENUS): the thread header's `…` = the chat's
  *  own menu (Delete, the rows' right-click menu)
- *  plus, while the Guide's PR is open, its Close (EXP-1338). The delete
+ *  plus the Guide PR's rows: its Checks submenu (#EXP-1611, any viewer)
+ *  and, while it is open, its Close (EXP-1338). The delete
  *  confirm is the host's (`useChatActions().dialog`). */
 export function ThreadHeaderMenu({
   root,
@@ -224,10 +226,8 @@ export function ThreadHeaderMenu({
 }) {
   const chat = useChatMenuEntries(root, actions)
   const close = usePullRequestClose(pr ?? NO_PR, canClosePr && pr !== null)
-  const prEntries: MenuEntry[] =
-    pr && close.entry && guideMenuEntries({ state: pr.state, member: canClosePr }).length > 0
-      ? [close.entry]
-      : []
+  // #EXP-1611: the PR's Checks submenu (any viewer), then its Close.
+  const prEntries = usePullRequestGuideEntries(pr, canClosePr, close.entry)
   const entries: MenuEntry[] =
     chat.length > 0 && prEntries.length > 0
       ? [...chat, { kind: `separator`, id: `sep-pr` }, ...prEntries]

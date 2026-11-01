@@ -26,6 +26,7 @@ import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionRow } from "./session-row.tsx"
 import { entry as prRow } from "./pr-row.tsx"
 import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
+import { entry as prChecks } from "./pr-checks.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
 import { entry as workScreen } from "./work-screen.tsx"
 import { entry as stackMergeChoiceDialog } from "./stack-merge-choice-dialog.tsx"
@@ -122,6 +123,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   sessionRow,
   prRow,
   prGraphBadge,
+  prChecks,
   deviceSettings,
   workScreen,
   stackMergeChoiceDialog,

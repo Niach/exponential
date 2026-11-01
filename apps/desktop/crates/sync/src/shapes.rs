@@ -1,4 +1,4 @@
-//! The 32 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 33 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 32 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 33 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 32] = [
+pub const SHAPES: [ShapeSpec; 33] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -533,6 +533,8 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "base_pull_request_id",
             "state",
             "merged_at",
+            // #EXP-1610: the aggregate CI state (contract prChecksState).
+            "checks_state",
             "created_at",
             "updated_at",
         ],
@@ -548,6 +550,29 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "pull_request_id",
             "issue_id",
             "team_id",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "pull_request_checks",
+        path: "/api/shapes/pull-request-checks",
+        // #EXP-1610: one CI check (by name) at a PR's head commit, team-
+        // scoped like `pull_requests`. Byte-matches the proxy's allowlist
+        // (`queued_flagged_at`, the watchdog's flag, stays server-side).
+        columns: &[
+            "id",
+            "team_id",
+            "pull_request_id",
+            "head_sha",
+            "name",
+            "status",
+            "conclusion",
+            "required",
+            "started_at",
+            "completed_at",
+            "details_url",
             "created_at",
             "updated_at",
         ],
@@ -855,8 +880,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_32_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 32);
+    fn registry_has_33_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 33);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1262,6 +1287,37 @@ mod tests {
             shape_by_name("pull_request_issues").unwrap().path,
             "/api/shapes/pull-request-issues"
         );
+    }
+
+    /// #EXP-1610/#EXP-1611: the CI check rows and the PR's aggregate sync,
+    /// byte for byte the proxies' allowlists (apps/web routes/api/shapes/
+    /// pull-request-checks.ts, pull-requests.ts).
+    #[test]
+    fn the_pr_checks_columns_match_the_proxies() {
+        let pulls = shape_by_name("pull_requests").unwrap();
+        assert!(pulls.columns.contains(&"checks_state"));
+        let checks = shape_by_name("pull_request_checks").unwrap();
+        assert_eq!(checks.path, "/api/shapes/pull-request-checks");
+        assert_eq!(checks.pk, PkKind::Id);
+        assert_eq!(
+            checks.columns,
+            &[
+                "id",
+                "team_id",
+                "pull_request_id",
+                "head_sha",
+                "name",
+                "status",
+                "conclusion",
+                "required",
+                "started_at",
+                "completed_at",
+                "details_url",
+                "created_at",
+                "updated_at",
+            ]
+        );
+        assert!(!checks.columns.contains(&"queued_flagged_at"));
     }
 
     /// #EXP-1383: the agent-actor / agent-assignee / instructions-hint

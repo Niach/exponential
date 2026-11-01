@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-ci-checks`,
+    date: `2026-11-01`,
+    title: `CI checks on the Merge pill`,
+    summary: `The thread's Merge pill shows the PR's CI: a spinner while checks run, Checks failing when one is red.`,
+    body: `- **Merge pill**: a spinner while checks run, Merge PR when they pass, Checks failing when one is red; merging on red asks first.
+- **Checks**: the thread's … menu lists every check with its status, duration and a link to its logs.
+- **Everywhere**: on the web, desktop, iOS and Android.`,
+  },
+  {
     id: `2026-11-01-work-never-lost`,
     date: `2026-11-01`,
     title: `Work never stays on one machine`,

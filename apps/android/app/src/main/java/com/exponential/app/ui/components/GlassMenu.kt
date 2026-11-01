@@ -224,6 +224,9 @@ fun GlassMenuItem(
     trailingIcon: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
     destructive: Boolean = false,
+    /** #EXP-1611: a trailing that sizes itself (a row's muted value + the
+     *  submenu chevron), never boxed to the icon slot; wins over [trailingIcon]. */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     DropdownMenuItem(
         // M3 sets the label in labelLarge (14/20 Medium); the tokens' menu row
@@ -232,7 +235,7 @@ fun GlassMenuItem(
         onClick = onClick,
         modifier = modifier,
         leadingIcon = if (leadingIcon == null) null else ({ MenuIconSlot(leadingIcon) }),
-        trailingIcon = if (trailingIcon == null) null else ({ MenuIconSlot(trailingIcon) }),
+        trailingIcon = trailing ?: if (trailingIcon == null) null else ({ MenuIconSlot(trailingIcon) }),
         enabled = enabled,
         colors = if (destructive) {
             GlassMenuDefaults.destructiveItemColors()

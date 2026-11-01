@@ -19,6 +19,7 @@ import {
   selectSyncedMessageSchema,
   selectSessionReadSchema,
   selectPullRequestSchema,
+  selectPullRequestCheckSchema,
   selectSyncedPullRequestIssueSchema,
   selectAttachmentSchema,
   selectCommentSchema,
@@ -421,6 +422,18 @@ export const pullRequestCollection = createCollection(
     id: `pull_requests`,
     shapeOptions: shapeOptions(`/api/shapes/pull-requests`),
     schema: selectPullRequestSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-1610 / #EXP-1611: CI per PR, one row per check at its head (the
+// Merge pill's state rides `pull_requests.checks_state`; the `…` menu's
+// Checks submenu reads these rows).
+export const pullRequestCheckCollection = createCollection(
+  electricCollectionOptions({
+    id: `pull_request_checks`,
+    shapeOptions: shapeOptions(`/api/shapes/pull-request-checks`),
+    schema: selectPullRequestCheckSchema,
     getKey: (item) => item.id,
   })
 )

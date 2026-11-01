@@ -960,8 +960,8 @@ export interface FileRoutesByFullPath {
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
-  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
+  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
@@ -1097,8 +1097,8 @@ export interface FileRoutesByTo {
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
-  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
+  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
@@ -1239,8 +1239,8 @@ export interface FileRoutesById {
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
-  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
+  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
@@ -1381,8 +1381,8 @@ export interface FileRouteTypes {
     | '/api/shapes/notifications'
     | '/api/shapes/pins'
     | '/api/shapes/prompts'
-    | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-request-checks'
+    | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
@@ -1518,8 +1518,8 @@ export interface FileRouteTypes {
     | '/api/shapes/notifications'
     | '/api/shapes/pins'
     | '/api/shapes/prompts'
-    | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-request-checks'
+    | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
@@ -1659,8 +1659,8 @@ export interface FileRouteTypes {
     | '/api/shapes/notifications'
     | '/api/shapes/pins'
     | '/api/shapes/prompts'
-    | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-request-checks'
+    | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
@@ -1791,8 +1791,8 @@ export interface RootRouteChildren {
   ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
   ApiShapesPinsRoute: typeof ApiShapesPinsRoute
   ApiShapesPromptsRoute: typeof ApiShapesPromptsRoute
-  ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
   ApiShapesPullRequestChecksRoute: typeof ApiShapesPullRequestChecksRoute
+  ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
   ApiShapesPullRequestsRoute: typeof ApiShapesPullRequestsRoute
   ApiShapesSessionIssuesRoute: typeof ApiShapesSessionIssuesRoute
   ApiShapesSessionReadsRoute: typeof ApiShapesSessionReadsRoute
@@ -3022,8 +3022,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
   ApiShapesPinsRoute: ApiShapesPinsRoute,
   ApiShapesPromptsRoute: ApiShapesPromptsRoute,
-  ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,
   ApiShapesPullRequestChecksRoute: ApiShapesPullRequestChecksRoute,
+  ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,
   ApiShapesPullRequestsRoute: ApiShapesPullRequestsRoute,
   ApiShapesSessionIssuesRoute: ApiShapesSessionIssuesRoute,
   ApiShapesSessionReadsRoute: ApiShapesSessionReadsRoute,

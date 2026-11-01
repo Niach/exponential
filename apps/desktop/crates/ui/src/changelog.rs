@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-ci-checks",
+    date: "2026-11-01",
+    title: "CI checks on the Merge pill",
+    summary: "The thread's Merge pill shows the PR's CI: a spinner while checks run, Checks failing when one is red.",
+    body: r#"- **Merge pill**: a spinner while checks run, Merge PR when they pass, Checks failing when one is red; merging on red asks first.
+- **Checks**: the thread's … menu lists every check with its status, duration and a link to its logs.
+- **Everywhere**: on the web, desktop, iOS and Android."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_161: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-work-never-lost",
     date: "2026-11-01",
     title: "Work never stays on one machine",

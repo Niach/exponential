@@ -14,14 +14,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.PrChecks
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 
 // EXP-1154/EXP-1248: the Work screen's ONE merge control (web
 // `session-merge-button.tsx`): the host builds ONE [ChangesMergeControl] (off
@@ -47,7 +50,16 @@ data class ChangesMergeControl(
      *  whole open chain through [onMergeStack]. */
     val stackConfirm: PullRequestStack.Confirm? = null,
     val onMergeStack: () -> Unit = {},
-)
+    /** #EXP-1611 (pr-checks.json MERGE PILL): the PR row's `checks_state`
+     *  (only the thread header passes it; null = none). */
+    val checksState: String? = null,
+    /** #EXP-1611: prompts.json `merge-failing-pr`, asked INSTEAD OF the
+     *  plain / stack confirm while [checksState] is failure. */
+    val failingPrompt: Prompts.Prompt? = null,
+) {
+    /** `PrChecks.mergePill` over this control. */
+    val pill: PrChecks.MergePillView get() = PrChecks.mergePill(checksState, stack = stackConfirm != null)
+}
 
 /**
  * EXP-1154: the ONE Merge PR on a phone — the SOLID WHITE capsule (the
@@ -129,13 +141,31 @@ fun MergePill(
      *  thread header wears ×4 (web `PullRequestMergePill`, desktop, iOS). */
     header: Boolean = false,
 ) {
+    // #EXP-1611: the header pill wears the PR's check state (pr-checks.json
+    // `mergePill`): pending = THE Spinner in the glyph slot, still enabled;
+    // failure = the plain pill, the red ci-failed glyph, `Checks failing`.
+    val pill = merge.pill
+    val size = if (header) PillSize.Md else PillSize.Sm
+    val failing = pill.confirm == "failing"
     MergeTrigger(merge) { onClick ->
         GlassPill(
-            merge.label,
+            if (failing) pill.label else merge.label,
             icon = ExpIcons.prMerged,
-            size = if (header) PillSize.Md else PillSize.Sm,
-            primary = header,
-            loading = merge.loading,
+            leading = if (failing && !merge.loading) {
+                {
+                    Icon(
+                        ExpIcons.ciFailed,
+                        contentDescription = null,
+                        modifier = Modifier.size(GlassPillDefaults.glyphSize(size)),
+                        tint = DesignTokens.Semantic.Red,
+                    )
+                }
+            } else {
+                null
+            },
+            size = size,
+            primary = header && pill.primary,
+            loading = merge.loading || pill.glyph == "spinner",
             enabled = !merge.loading,
             onClick = onClick,
             modifier = modifier,
@@ -172,6 +202,22 @@ const val MergeCapsuleTag = "work-merge-pr"
 @Composable
 private fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Unit) {
     val stack = merge.stackConfirm
+    // #EXP-1611: red checks ask `merge-failing-pr` INSTEAD (never two cards);
+    // its Merge merges exactly as the pill would (a stack member through its top).
+    val failing = merge.failingPrompt
+    if (failing != null && merge.pill.confirm == "failing") {
+        PromptAlert(
+            prompt = failing,
+            onDismiss = onDismiss,
+            handlers = mapOf(
+                "merge" to {
+                    onDismiss()
+                    if (stack != null) merge.onMergeStack() else merge.onConfirm()
+                },
+            ),
+        )
+        return
+    }
     if (stack != null) {
         StackMergeDialog(confirm = stack, onConfirm = merge.onMergeStack, onDismiss = onDismiss)
         return

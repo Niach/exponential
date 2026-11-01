@@ -156,6 +156,8 @@ pub mod options;
 pub mod plan_card;
 pub mod plan_page;
 pub mod placeholder_status;
+// #EXP-1611: CI on the thread's PR (Merge pill, Checks submenu), fixture-locked ×4.
+pub mod pr_checks;
 pub mod pr_graph;
 pub mod pr_stack;
 // EXP-1230: every confirm/choice prompt's words + roles, fixture-locked ×4.

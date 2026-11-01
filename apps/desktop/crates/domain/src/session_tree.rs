@@ -1367,6 +1367,8 @@ pub fn guide_pull_request<'a>(
 /// EXP-1307: one entry of the thread header's Guide `…`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GuideMenuEntry {
+    /// #EXP-1611: the PR's checks submenu (pr-checks.json CHECKS LIST).
+    Checks,
     ClosePr,
 }
 
@@ -1374,19 +1376,29 @@ impl GuideMenuEntry {
     /// The fixture's entry id.
     pub fn id(self) -> &'static str {
         match self {
+            Self::Checks => "checks",
             Self::ClosePr => "close-pr",
         }
     }
 }
 
 /// EXP-1307: the Guide `…` entries for the Guide PR's `state` (None = no
-/// PR): Close PR while the PR is open and the viewer is a member, else none
-/// (EXP-1338: no GitHub entry, only the agent opens PRs).
-pub fn guide_menu_entries(state: Option<&str>, member: bool) -> Vec<GuideMenuEntry> {
-    match state {
-        Some("open") if member => vec![GuideMenuEntry::ClosePr],
-        _ => Vec::new(),
+/// PR): #EXP-1611 `checks` first whenever the PR has at least one synced
+/// check row (any PR state, any viewer), then Close PR while the PR is open
+/// and the viewer is a member (EXP-1338: no GitHub entry, only the agent
+/// opens PRs).
+pub fn guide_menu_entries(state: Option<&str>, member: bool, checks: usize) -> Vec<GuideMenuEntry> {
+    let Some(state) = state else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    if checks > 0 {
+        entries.push(GuideMenuEntry::Checks);
     }
+    if state == "open" && member {
+        entries.push(GuideMenuEntry::ClosePr);
+    }
+    entries
 }
 
 /// EXP-1211: one open quick reply (`sessions.sendReply({messageId, itemId})`).
@@ -2871,7 +2883,8 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let input = &case["input"];
-            let ids: Vec<&str> = guide_menu_entries(input["state"].as_str(), input["member"].as_bool().unwrap())
+            let checks = input["checks"].as_u64().unwrap_or(0) as usize;
+            let ids: Vec<&str> = guide_menu_entries(input["state"].as_str(), input["member"].as_bool().unwrap(), checks)
                 .into_iter()
                 .map(GuideMenuEntry::id)
                 .collect();

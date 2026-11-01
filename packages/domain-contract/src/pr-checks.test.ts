@@ -4,6 +4,11 @@ import {
   aggregateChecksState,
   checkStatusFromGithub,
   checksBrief,
+  checksList,
+  checksSummary,
+  failingChecksBody,
+  formatCheckDuration,
+  mergePill,
   checksQueuedText,
   checksWakeText,
   mergeGate,
@@ -33,5 +38,27 @@ describe(`pr-checks fixture`, () => {
   })
   it.each(fixture.brief)(`brief`, ({ state, checks, expected }) => {
     expect(checksBrief(state as PrChecksState, checks)).toEqual(expected)
+  })
+})
+
+// #EXP-1611: the UI half.
+describe(`pr-checks UI fixture`, () => {
+  it.each(fixture.mergePill)(`merge pill $input.state stack=$input.stack`, ({ input, expected }) => {
+    expect(mergePill(input)).toEqual(expected as never)
+  })
+  it.each(fixture.formatDuration)(`duration $ms`, ({ ms, expected }) => {
+    expect(formatCheckDuration(ms)).toBe(expected)
+  })
+  it.each(fixture.checksList)(`list: $name`, ({ now, checks, expected }) => {
+    expect(checksList(checks, now)).toEqual(expected as never)
+  })
+  it.each(fixture.checksSummary)(`summary: $name`, ({ checks, expected }) => {
+    expect(checksSummary(checks)).toEqual(expected as never)
+  })
+  it.each(fixture.failingBody)(`failing body`, ({ checks, expected }) => {
+    expect(failingChecksBody(checks)).toBe(expected)
+  })
+  it(`the specimen = the first list case`, () => {
+    expect(fixture.checksList[0]?.checks).toEqual(fixture.specimen.checks)
   })
 })

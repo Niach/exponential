@@ -13,15 +13,46 @@ struct ChatMenuSheet: View {
     enum Entry: Hashable {
         case thread(Chats.ThreadMenuEntry)
         case agent(Chats.AgentMenuEntry)
+        /// #EXP-1611: the Guide PR's Checks submenu (pr-checks.json CHECKS
+        /// LIST), a page pushed in this sheet.
+        case checks
         /// EXP-1307: the Guide's Close PR (the thread header's `…` keeps it).
         case closePr
     }
 
     let title: String?
     let entries: [Entry]
+    /// #EXP-1611: the `checks` entry's summary and its page's rows.
+    var checksSummary: PrChecks.Summary?
+    var checkRows: [PrChecks.ListRow] = []
     let onPick: (Entry) -> Void
 
+    /// The pushed Checks page.
+    @State private var checksOpen = false
+    @Environment(\.motion) private var motion
+
     var body: some View {
+        Group {
+            if checksOpen {
+                GlassSheetChrome(title: nil) {
+                    VStack(spacing: 0) {
+                        PrChecksMenuBackRow { checksOpen = false }
+                        PrChecksMenuRows(rows: checkRows)
+                    }
+                    .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
+                    .padding(.top, GlassSheetTokens.headerTopPadding)
+                    .padding(.bottom, 16)
+                }
+                .transition(.move(edge: .trailing))
+            } else {
+                rows
+                    .transition(.move(edge: .leading))
+            }
+        }
+        .animation(motion.standard, value: checksOpen)
+    }
+
+    private var rows: some View {
         GlassSheetChrome(title: title) {
             VStack(spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.element) { index, entry in
@@ -29,12 +60,22 @@ struct ChatMenuSheet: View {
                         GlassDivider().padding(.vertical, 4)
                     }
                     Button {
-                        onPick(entry)
+                        if entry == .checks {
+                            checksOpen = true
+                        } else {
+                            onPick(entry)
+                        }
                     } label: {
-                        GlassMenuItemLabel(Self.label(entry), icon: Self.icon(entry), destructive: Self.destructive(entry))
+                        if entry == .checks, let checksSummary {
+                            PrChecksMenuEntryLabel(summary: checksSummary)
+                        } else {
+                            GlassMenuItemLabel(Self.label(entry), icon: Self.icon(entry), destructive: Self.destructive(entry))
+                        }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("chat-menu-\(Self.testId(entry))")
+                    .accessibilityIdentifier(
+                        entry == .checks ? PrChecks.TestIds.checksMenu : "chat-menu-\(Self.testId(entry))"
+                    )
                 }
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
@@ -51,6 +92,9 @@ struct ChatMenuSheet: View {
         switch (previous, next) {
         case (.agent(.newConversation), .agent): true
         case (.thread, .closePr), (.closePr, .thread): true
+        // #EXP-1611: the Guide's entries (Checks, Close PR) sit apart from
+        // the chat's own.
+        case (.thread, .checks), (.checks, .thread): true
         default: false
         }
     }
@@ -59,6 +103,7 @@ struct ChatMenuSheet: View {
         switch entry {
         case let .thread(e): e.label
         case let .agent(e): e.label
+        case .checks: PrChecks.Copy.checks
         case .closePr: ClosePrCopy.menuItem
         }
     }
@@ -67,6 +112,7 @@ struct ChatMenuSheet: View {
         switch entry {
         case let .thread(e): AppIcons.conceptOrName(e.icon) ?? e.icon
         case let .agent(e): AppIcons.conceptOrName(e.icon) ?? e.icon
+        case .checks: AppIcons.ciPassed
         case .closePr: AppIcons.prClosed
         }
     }
@@ -74,7 +120,7 @@ struct ChatMenuSheet: View {
     static func destructive(_ entry: Entry) -> Bool {
         switch entry {
         case let .thread(e): e.destructive
-        case .agent: false
+        case .agent, .checks: false
         case .closePr: true
         }
     }
@@ -83,6 +129,7 @@ struct ChatMenuSheet: View {
         switch entry {
         case let .thread(e): e.rawValue
         case let .agent(e): e.rawValue
+        case .checks: "checks"
         case .closePr: "close-pr"
         }
     }

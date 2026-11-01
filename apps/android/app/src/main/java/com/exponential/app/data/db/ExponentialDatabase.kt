@@ -30,6 +30,7 @@ import androidx.room.TypeConverters
         MessageEntity::class,
         PullRequestEntity::class,
         PullRequestIssueEntity::class,
+        PullRequestCheckEntity::class,
         SessionReadEntity::class,
         AgentDefinitionEntity::class,
         EventEntity::class,
@@ -50,7 +51,10 @@ import androidx.room.TypeConverters
     //      [MIGRATION_105_106]; only the comments shape refetches.
     // v107 (#EXP-1534): notifications.device_id (agent_signed_out rows),
     //      explicit [MIGRATION_106_107]; only the notifications shape refetches.
-    version = 107,
+    // v108 (#EXP-1611): pull_requests.checks_state + the pull_request_checks
+    //      table (CI on a PR), explicit [MIGRATION_107_108]; only the
+    //      pull_requests shape refetches (the new shape starts fresh).
+    version = 108,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -79,6 +83,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun pullRequestDao(): PullRequestDao
     abstract fun pullRequestIssueDao(): PullRequestIssueDao
+    abstract fun pullRequestCheckDao(): PullRequestCheckDao
     abstract fun sessionReadDao(): SessionReadDao
     abstract fun agentDefinitionDao(): AgentDefinitionDao
     abstract fun eventDao(): EventDao

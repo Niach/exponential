@@ -195,6 +195,12 @@
     "pr-batch": "boxes",
     "session-tree": "workflow",
 
+    "ci-queued": "circle-dashed",
+    "ci-running": "loader-circle",
+    "ci-passed": "circle-check",
+    "ci-failed": "circle-x",
+    "ci-skipped": "circle-slash",
+
     "sc-push": "upload",
 
     "coding-running": "play",

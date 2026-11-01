@@ -1,8 +1,8 @@
 import { useState } from "react"
-import { Button, conceptIcon, Menu, type MenuEntry } from "@exp/ui"
+import { Button, conceptIcon, Menu } from "@exp/ui"
 import { PullRequestMergePill, usePullRequestClose } from "@/components/session-merge-button"
+import { usePullRequestGuideEntries } from "@/hooks/use-pull-request-checks"
 import {
-  guideMenuEntries,
   guidePullRequest,
   THREAD_TEST_IDS,
   type PullRequestRow,
@@ -33,9 +33,10 @@ export function threadGuidePullRequest(
   return picked ? (byId.get(picked.id) ?? null) : null
 }
 
-/** The thread header's `…` on the Guide (`guideMenuEntries`, ×4): Close PR
- *  while the PR is open and the viewer is a member (EXP-1338: no GitHub
- *  entry, only the agent opens PRs). */
+/** The thread header's `…` on the Guide (`guideMenuEntries`, ×4): #EXP-1611
+ *  the Checks submenu whenever the PR has check rows (any viewer), then
+ *  Close PR while the PR is open and the viewer is a member (EXP-1338: no
+ *  GitHub entry, only the agent opens PRs). */
 export function ThreadGuideMenu({
   pr,
   canClose,
@@ -47,9 +48,7 @@ export function ThreadGuideMenu({
 }) {
   const [open, setOpen] = useState(false)
   const close = usePullRequestClose(pr, canClose)
-  const entries = guideMenuEntries({ state: pr.state, member: canClose }).flatMap(
-    (): MenuEntry[] => (close.entry ? [close.entry] : [])
-  )
+  const entries = usePullRequestGuideEntries(pr, canClose, close.entry)
   if (entries.length === 0) return null
   return (
     <>

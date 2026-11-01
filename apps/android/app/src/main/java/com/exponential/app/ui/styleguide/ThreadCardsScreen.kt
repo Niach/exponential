@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -63,6 +64,9 @@ enum class ThreadCardsKind(val testId: String) {
     SessionXref("session-xref-screen"),
     /** EXP-1553: THE PR row (web's `pr-row` entry, shot sg_pr-row). */
     PrRow("pr-row-specimen"),
+    /** #EXP-1611: the header Merge pill in its four check states + the open
+     *  Checks submenu over pr-checks.json `specimen` (shot sg_pr-checks). */
+    PrChecks("pr-checks-specimen"),
 }
 
 /**
@@ -94,6 +98,7 @@ fun ThreadCardsScreen(kind: ThreadCardsKind) {
                     ThreadCardsKind.PlanCard -> PlanCardSpecimens()
                     ThreadCardsKind.SessionXref -> SessionXrefSpecimens()
                     ThreadCardsKind.PrRow -> PrRowSpecimens()
+                    ThreadCardsKind.PrChecks -> PrChecksSpecimens()
                 }
             }
         }
@@ -129,6 +134,48 @@ private fun SessionXrefSpecimens() {
             SessionXref(SessionTree.SessionXref("report", "sg-xref-report", "Fix the sign-in redirect", null), onOpen = {})
             SessionXref(SessionTree.SessionXref("started", "sg-xref-started", "Triage", "sg-agent"), onOpen = {})
             SessionXref(SessionTree.SessionXref("reported", "sg-xref-reported", "Ship the login flow", null), onOpen = {})
+        }
+    }
+}
+
+/** #EXP-1611 (styleguide entry `pr-checks`): THE header Merge pill in its
+ *  four check states (none, pending = the spinner, success, failure = the
+ *  plain pill with the red ci-failed glyph), then THE header `…`'s Checks
+ *  submenu pushed open as a static menu panel over pr-checks.json `specimen`. */
+@Composable
+private fun PrChecksSpecimens() {
+    val states = listOf(
+        DomainContract.prChecksStateNone,
+        DomainContract.prChecksStatePending,
+        DomainContract.prChecksStateSuccess,
+        DomainContract.prChecksStateFailure,
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        states.forEach { state ->
+            com.exponential.app.ui.work.MergePill(
+                merge = com.exponential.app.ui.work.ChangesMergeControl(
+                    label = DomainContract.diffUiMergePr,
+                    loading = false,
+                    error = null,
+                    confirmPrompt = com.exponential.app.domain.Prompts.MergeRunPr.prompt(12),
+                    onConfirm = {},
+                    checksState = state,
+                ),
+                header = true,
+            )
+        }
+    }
+    val now = com.exponential.app.domain.WireTimestamps.parseEpochMs(com.exponential.app.domain.PrChecks.SPECIMEN_NOW) ?: 0L
+    val entry = com.exponential.app.ui.thread.prChecksMenuItem(com.exponential.app.domain.PrChecks.SPECIMEN, now) {} ?: return
+    com.exponential.app.ui.components.GlassMenuSurface(modifier = Modifier.width(280.dp)) {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+            com.exponential.app.ui.thread.ChatMenuPanel(
+                groups = listOf(listOf(entry)),
+                page = entry,
+                onPush = {},
+                onBack = {},
+                onPick = {},
+            )
         }
     }
 }

@@ -21,10 +21,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.PrChecks
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.ChatMenuItem
 import com.exponential.app.ui.components.CircleIconButton
@@ -32,7 +34,9 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.HeaderEdgeChrome
+import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -110,35 +114,159 @@ fun ChatHeader(
     }
 }
 
-/** The header `…`: a glass dropdown over the entries, groups divided. */
+/** The header `…`: a glass dropdown over the entries, groups divided.
+ *  #EXP-1611: a submenu entry (Checks) PUSHES its rows as the menu's page
+ *  (a back row titled with the entry), the phone arm of THE Menu's submenu. */
 @Composable
 private fun ChatHeaderMenu(groups: List<List<ChatMenuItem>>) {
     var open by remember { mutableStateOf(false) }
+    var page by remember { mutableStateOf<ChatMenuItem?>(null) }
     Box {
         CircleIconButton(
             ExpIcons.uiMore,
             "More",
-            onClick = { open = true },
+            onClick = {
+                page = null
+                open = true
+            },
             size = 44.dp,
             glyphSize = 18.dp,
             modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU),
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            groups.forEachIndexed { index, group ->
-                if (index > 0) HorizontalDivider(color = GlassMenuDefaults.DividerColor)
-                group.forEach { item ->
-                    GlassMenuItem(
-                        leadingIcon = { Icon(item.icon, contentDescription = null, modifier = Modifier.size(GlassMenuDefaults.IconSize)) },
-                        text = { Text(item.label) },
-                        destructive = item.destructive,
-                        onClick = {
-                            open = false
-                            item.onClick()
-                        },
-                        modifier = item.testTag?.let { Modifier.testTag(it) } ?: Modifier,
-                    )
-                }
-            }
+            // The pushed page follows the live rows (a running check ticks).
+            val pushed = page?.let { p -> groups.flatten().firstOrNull { it.label == p.label && it.submenu != null } }
+            ChatMenuPanel(
+                groups = groups,
+                page = pushed,
+                onPush = { page = it },
+                onBack = { page = null },
+                onPick = { item ->
+                    open = false
+                    item.onClick()
+                },
+            )
         }
     }
+}
+
+/**
+ * The header `…`'s rows ([ChatHeaderMenu]'s dropdown body; the styleguide's
+ * `pr-checks` draws the same rows in a static [GlassMenuSurface]): the
+ * groups divided, or — [page] pushed — a back row titled with that entry
+ * over its submenu rows.
+ */
+@Composable
+fun ChatMenuPanel(
+    groups: List<List<ChatMenuItem>>,
+    page: ChatMenuItem?,
+    onPush: (ChatMenuItem) -> Unit,
+    onBack: () -> Unit,
+    onPick: (ChatMenuItem) -> Unit,
+) {
+    if (page != null) {
+        GlassMenuItem(
+            leadingIcon = { Icon(ExpIcons.uiBack, contentDescription = null, modifier = Modifier.size(GlassMenuDefaults.IconSize)) },
+            text = { Text(page.label) },
+            onClick = onBack,
+        )
+        HorizontalDivider(color = GlassMenuDefaults.DividerColor)
+        page.submenu.orEmpty().forEach { item -> ChatMenuPanelRow(item, onClick = { onPick(item) }) }
+        return
+    }
+    groups.forEachIndexed { index, group ->
+        if (index > 0) HorizontalDivider(color = GlassMenuDefaults.DividerColor)
+        group.forEach { item ->
+            ChatMenuPanelRow(item, onClick = { if (item.submenu != null) onPush(item) else onPick(item) })
+        }
+    }
+}
+
+@Composable
+private fun ChatMenuPanelRow(item: ChatMenuItem, onClick: () -> Unit) {
+    GlassMenuItem(
+        leadingIcon = {
+            if (item.spinner) {
+                InlineSpinner(size = GlassMenuDefaults.IconSize, color = item.iconTint ?: GlassMenuDefaults.IconColor)
+            } else if (item.iconTint != null) {
+                Icon(item.icon, contentDescription = null, tint = item.iconTint, modifier = Modifier.size(GlassMenuDefaults.IconSize))
+            } else {
+                Icon(item.icon, contentDescription = null, modifier = Modifier.size(GlassMenuDefaults.IconSize))
+            }
+        },
+        text = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        trailing = if (item.value != null || item.submenu != null) {
+            { ChatMenuTrailing(item.value, chevron = item.submenu != null) }
+        } else {
+            null
+        },
+        destructive = item.destructive,
+        enabled = item.enabled,
+        onClick = onClick,
+        modifier = item.testTag?.let { Modifier.testTag(it) } ?: Modifier,
+    )
+}
+
+/** A row's muted value, then (a submenu entry) the chevron. */
+@Composable
+private fun ChatMenuTrailing(value: String?, chevron: Boolean) {
+    val muted = Color.White.copy(alpha = TextEmphasis.Tertiary)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (value != null) {
+            Text(value, style = MaterialTheme.typography.bodyMedium, color = muted, maxLines = 1)
+        }
+        if (chevron) {
+            if (value != null) Spacer(Modifier.width(6.dp))
+            Icon(ExpIcons.uiChevronRight, contentDescription = null, modifier = Modifier.size(GlassMenuDefaults.IconSize), tint = muted)
+        }
+    }
+}
+
+/** A check glyph's concept icon (pr-checks.json GLYPHS). */
+fun prCheckIcon(glyph: PrChecks.Glyph): ImageVector = when (glyph) {
+    PrChecks.Glyph.Queued -> ExpIcons.ciQueued
+    PrChecks.Glyph.Running -> ExpIcons.ciRunning
+    PrChecks.Glyph.Passed -> ExpIcons.ciPassed
+    PrChecks.Glyph.Failed -> ExpIcons.ciFailed
+    PrChecks.Glyph.Skipped -> ExpIcons.ciSkipped
+}
+
+/** A check tone's colour: the semantic green / red tokens, muted otherwise. */
+fun prCheckTint(tone: PrChecks.Tone): Color = when (tone) {
+    PrChecks.Tone.Green -> DesignTokens.Semantic.Green
+    PrChecks.Tone.Red -> DesignTokens.Semantic.Red
+    PrChecks.Tone.Muted -> GlassMenuDefaults.IconColor
+}
+
+/**
+ * #EXP-1611 (pr-checks.json CHECKS LIST): the header `…`'s leading Checks
+ * submenu entry — the summary glyph tinted by its tone, `Checks`, the
+ * summary value — over [PrChecks.checksList]'s rows (glyph tinted, a running
+ * check = THE Spinner, the name, the duration; a pick opens the logs via
+ * [onOpen], a row without a url is disabled). Null = no rows (no entry).
+ */
+fun prChecksMenuItem(checks: List<PrChecks.Check>, nowMs: Long, onOpen: (String) -> Unit): ChatMenuItem? {
+    val summary = PrChecks.checksSummary(checks) ?: return null
+    val rows = PrChecks.checksList(checks, nowMs).map { row ->
+        ChatMenuItem(
+            label = row.name,
+            icon = prCheckIcon(row.glyph),
+            iconTint = prCheckTint(row.tone),
+            spinner = row.glyph == PrChecks.Glyph.Running,
+            value = row.duration,
+            enabled = row.url != null,
+            onClick = { row.url?.let(onOpen) },
+            testTag = PrChecks.TEST_ID_CHECK_ROW,
+        )
+    }
+    return ChatMenuItem(
+        label = PrChecks.Copy.CHECKS,
+        icon = prCheckIcon(summary.glyph),
+        iconTint = prCheckTint(summary.tone),
+        spinner = summary.glyph == PrChecks.Glyph.Running,
+        value = summary.value,
+        onClick = {},
+        testTag = PrChecks.TEST_ID_CHECKS_MENU,
+        submenu = rows,
+    )
 }

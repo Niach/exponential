@@ -985,6 +985,36 @@ data class PullRequestEntity(
     // Contract `prState`: open | merged | closed.
     val state: String = com.exponential.app.domain.DomainContract.prStateOpen,
     @ColumnInfo(name = "merged_at") @SerialName("merged_at") @JsonNames("mergedAt") val mergedAt: String? = null,
+    // #EXP-1610/1611: contract `prChecksState` (none | pending | success |
+    // failure), the aggregate over its `pull_request_checks` rows.
+    @ColumnInfo(name = "checks_state", defaultValue = "'none'") @SerialName("checks_state") @JsonNames("checksState")
+    val checksState: String = com.exponential.app.domain.DomainContract.prChecksStateNone,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// #EXP-1610/1611: one CI check per NAME at a PR's head commit (the thread
+// header's Checks submenu, the Merge pill). Team-visible like pull_requests;
+// the server-only `queued_flagged_at` stays behind the shape's allowlist.
+@Entity(
+    tableName = "pull_request_checks",
+    indices = [Index("pull_request_id"), Index("team_id")],
+)
+@Serializable
+data class PullRequestCheckEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    @ColumnInfo(name = "pull_request_id") @SerialName("pull_request_id") @JsonNames("pullRequestId") val pullRequestId: String = "",
+    @ColumnInfo(name = "head_sha") @SerialName("head_sha") @JsonNames("headSha") val headSha: String = "",
+    val name: String = "",
+    // Contract `prCheckStatus`: queued | in_progress | completed.
+    val status: String = com.exponential.app.domain.DomainContract.prCheckStatusQueued,
+    // Contract `prCheckConclusion`; null until completed.
+    val conclusion: String? = null,
+    @ColumnInfo(defaultValue = "0") val required: PgBool = false,
+    @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String? = null,
+    @ColumnInfo(name = "completed_at") @SerialName("completed_at") @JsonNames("completedAt") val completedAt: String? = null,
+    @ColumnInfo(name = "details_url") @SerialName("details_url") @JsonNames("detailsUrl") val detailsUrl: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

@@ -438,7 +438,7 @@ struct ChatsView: View {
                     agentSettings = AgentSettingsTarget(teamId: teamId, agentId: agentId)
                 }
             }
-        case .closePr:
+        case .checks, .closePr:
             break
         }
     }

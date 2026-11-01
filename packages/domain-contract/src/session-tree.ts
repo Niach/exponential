@@ -758,7 +758,7 @@ export function guidePullRequest<T extends GuidePullRequestLike>(
   return newest(`open`) ?? newest(`merged`)
 }
 
-export type GuideMenuEntry = `close-pr`
+export type GuideMenuEntry = `checks` | `close-pr`
 
 /** EXP-1307: the thread header's `…` on the Guide: Close PR while the Guide's
  *  PR is open and the viewer is a member; empty = no trigger. EXP-1338: no
@@ -766,8 +766,13 @@ export type GuideMenuEntry = `close-pr`
 export function guideMenuEntries(input: {
   state: string | null
   member: boolean
+  /** #EXP-1611: the PR's synced check rows (pr-checks.json CHECKS LIST). */
+  checks?: number
 }): GuideMenuEntry[] {
-  return input.state === `open` && input.member ? [`close-pr`] : []
+  if (input.state === null) return []
+  const entries: GuideMenuEntry[] = (input.checks ?? 0) > 0 ? [`checks`] : []
+  if (input.state === `open` && input.member) entries.push(`close-pr`)
+  return entries
 }
 
 export const REPLIES_COPY = threadFixture.copy.replies

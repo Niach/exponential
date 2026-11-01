@@ -715,6 +715,16 @@ data class ChatMenuItem(
      *  `separates`, the IDE's `menu.separator()`): the agent menu's
      *  conversation pair sits apart from Agent settings. */
     val dividerBefore: Boolean = false,
+    /** #EXP-1611: the glyph's own tint (a check's tone); null = the row's. */
+    val iconTint: Color? = null,
+    /** #EXP-1611: THE Spinner in place of the glyph (a running check). */
+    val spinner: Boolean = false,
+    /** #EXP-1611: the row's muted trailing value (a duration, a summary). */
+    val value: String? = null,
+    val enabled: Boolean = true,
+    /** #EXP-1611: non-null = a submenu entry; a pick PUSHES these rows as
+     *  the menu's page (the header `…`'s Checks). */
+    val submenu: List<ChatMenuItem>? = null,
 )
 
 /** The icon CONCEPT of a chat menu entry (chats.json `menuCases`). */

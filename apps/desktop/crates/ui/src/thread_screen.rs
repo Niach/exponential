@@ -808,8 +808,10 @@ fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
     let root_id = model.root.id.clone();
     let chat = !crate::chat_actions::chat_entries(&root_id, cx).is_empty();
     let pull = model.pull();
+    // #EXP-1611: the PR's synced check rows lead the menu (any viewer).
+    let checks = pull.map(|pull| crate::pr_checks::checks_of(&pull.id, cx)).unwrap_or_default();
     let entries = pull
-        .map(|pull| guide_menu_entries(pull.state.as_deref(), thread_member(model, cx)))
+        .map(|pull| guide_menu_entries(pull.state.as_deref(), thread_member(model, cx), checks.len()))
         .unwrap_or_default();
     if entries.is_empty() && !chat {
         return None;
@@ -837,13 +839,14 @@ fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
         div()
             .flex_shrink_0()
             .mr(px(-crate::work_header::GHOST_ICON_HANG))
-            .child(crate::controls::PointerMenu::for_button(trigger, move |mut menu, _, cx| {
+            .child(crate::controls::PointerMenu::for_button(trigger, move |mut menu, window, cx| {
                 menu = crate::chat_actions::chat_menu_items(menu, &root_id, false, cx);
                 if chat && !entries.is_empty() {
                     menu = menu.separator();
                 }
                 for entry in &entries {
                     menu = match entry {
+                        GuideMenuEntry::Checks => crate::pr_checks::checks_submenu(menu, &checks, window, cx),
                         GuideMenuEntry::ClosePr => {
                             let pull_request_id = pull_request_id.clone();
                             menu.item(
@@ -2987,6 +2990,8 @@ impl ThreadScreenView {
             // NEW-8: a message's session is its conversation's.
             subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| this.queue_refresh(cx)));
             subscriptions.push(cx.observe(&collections.pull_requests, |this, _, cx| this.queue_refresh(cx)));
+            // #EXP-1611: the header's Merge pill + Checks submenu read them.
+            subscriptions.push(cx.observe(&collections.pull_request_checks, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
                 this.chip_cache.borrow_mut().clear();
                 this.chip_gen = this.chip_gen.wrapping_add(1);
@@ -3271,12 +3276,15 @@ impl ThreadScreenView {
         let title = title_row(&model.view.title, model.view.private, cx).id("thread-title");
         // EXP-1316: the trailing slot on EVERY tab — the Merge pill while the
         // Guide's PR is open (`Merge PR` | `Merge stack`), then the Guide `…`.
+        // #EXP-1611: the pill wears the PR's `checks_state` (pr-checks.json
+        // MERGE PILL).
         let merge = model.pull().filter(|pull| pull.is_open()).map(|pull| {
-            crate::work_header::merge_pill(
+            crate::work_header::merge_pill_with_checks(
                 SharedString::from(THREAD.test_ids.guide_merge.clone()),
                 &pull.id,
                 true,
                 crate::surface::PillSize::Md,
+                pull.checks_state.as_deref(),
                 cx,
             )
         });

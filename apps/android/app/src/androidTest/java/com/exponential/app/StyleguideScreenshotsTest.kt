@@ -130,7 +130,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_chat · sg_composer-menu · sg_chat-issues ·
  *   sg_machine-settings · sg_threads ·
- *   sg_session-row · sg_pr-row ·
+ *   sg_session-row · sg_pr-row · sg_pr-checks ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
@@ -218,6 +218,8 @@ class StyleguideScreenshotsTest {
             "sg_session-xref",
             // EXP-1553: THE PR row (a tree, a stack, an unlinked PR).
             "sg_pr-row",
+            // #EXP-1611: the Merge pill's check states + the Checks submenu.
+            "sg_pr-checks",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
             "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
             // #EXP-1388: the Chats multi-selection + the Archived entry.
@@ -1356,6 +1358,12 @@ class StyleguideScreenshotsTest {
         // `pr-row` entry, by the real PrList / StackRail.
         showThreadCards(ThreadCardsKind.PrRow)
         flow.screenshot("sg_pr-row")
+
+        // --- sg_pr-checks (#EXP-1611): THE header Merge pill in its four
+        // check states + the `…`'s Checks submenu pushed open over
+        // pr-checks.json `specimen`, by the real MergePill / ChatMenuPanel.
+        showThreadCards(ThreadCardsKind.PrChecks)
+        flow.screenshot("sg_pr-checks")
 
         // --- Thread 58cb32df (fixtures/chats.json): the Chats screen over
         // the phone tab bar, the tab bar's states, a chat's transcript as

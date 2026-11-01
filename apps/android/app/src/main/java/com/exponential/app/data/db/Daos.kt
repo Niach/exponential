@@ -722,6 +722,22 @@ interface PullRequestDao {
     suspend fun clear()
 }
 
+// #EXP-1611: the CI checks of every PR (one row per check name at its head).
+@Dao
+interface PullRequestCheckDao {
+    @Query("SELECT * FROM pull_request_checks WHERE pull_request_id = :pullRequestId ORDER BY name, id")
+    fun observeByPullRequest(pullRequestId: String): Flow<List<PullRequestCheckEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: PullRequestCheckEntity)
+
+    @Query("DELETE FROM pull_request_checks WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM pull_request_checks")
+    suspend fun clear()
+}
+
 // EXP-1291: which issues a PR closes.
 @Dao
 interface PullRequestIssueDao {

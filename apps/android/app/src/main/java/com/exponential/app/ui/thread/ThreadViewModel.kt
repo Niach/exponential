@@ -164,6 +164,15 @@ class ThreadViewModel @Inject constructor(
             }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #EXP-1611 (pr-checks.json CHECKS LIST): the Guide PR's synced CI
+     *  checks (the header `…`'s Checks submenu, the Merge pill's confirm). */
+    val guideChecks: StateFlow<List<com.exponential.app.data.db.PullRequestCheckEntity>> =
+        combine(dbFlow, pullRequests.map { SessionTree.guidePullRequest(it)?.id }.distinctUntilChanged()) { db, id -> db to id }
+            .flatMapLatest { (db, id) ->
+                if (db == null || id == null) flowOf(emptyList()) else db.pullRequestCheckDao().observeByPullRequest(id)
+            }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** S-3 (session-thread.json `chatModeCases`): an agent conversation
      *  paints chat bubbles (`threadChatMode`), a thread its transcript. */
     val isAgent: StateFlow<Boolean> = root.map {

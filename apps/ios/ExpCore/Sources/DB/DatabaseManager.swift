@@ -2935,7 +2935,48 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v90 (#EXP-1611): CI on pull requests — the new `pull_request_checks`
+        // table (shape `pull-request-checks`) and `pull_requests.checks_state`
+        // (the aggregate the Merge pill reads). The pull-requests cursor
+        // resets so synced rows re-arrive carrying it.
+        migrator.registerMigration("v90_pull_request_checks") { db in
+            try createPullRequestChecksTable(db)
+            guard try db.tableExists("pull_requests") else { return }
+            guard try db.columns(in: "pull_requests").contains(where: { $0.name == "checks_state" }) == false else { return }
+            try db.alter(table: "pull_requests") { t in
+                t.add(column: "checks_state", .text).notNull().defaults(to: "none")
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'pull-requests'
+                    """)
+            }
+        }
+
         return migrator
+    }
+
+    /// #EXP-1611: the `pull_request_checks` table, mirroring the shape
+    /// allowlist (`/api/shapes/pull-request-checks`).
+    static func createPullRequestChecksTable(_ db: Database) throws {
+        try db.create(table: "pull_request_checks", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("pull_request_id", .text).notNull().indexed()
+            t.column("head_sha", .text).notNull().defaults(to: "")
+            t.column("name", .text).notNull().defaults(to: "")
+            // queued | in_progress | completed (contract prCheckStatus).
+            t.column("status", .text).notNull().defaults(to: "queued")
+            t.column("conclusion", .text)
+            t.column("required", .boolean).notNull().defaults(to: false)
+            t.column("started_at", .text)
+            t.column("completed_at", .text)
+            t.column("details_url", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// #EXP-1383: the columns v80 adds (table, its shape, the text columns).
@@ -3199,6 +3240,8 @@ public final class DatabaseManager: @unchecked Sendable {
             // hang off, all before the issues they reference.
             try db.execute(sql: "DELETE FROM session_reads")
             try db.execute(sql: "DELETE FROM pull_request_issues")
+            // #EXP-1611: a PR's CI rows, wiped with their PR.
+            try db.execute(sql: "DELETE FROM pull_request_checks")
             try db.execute(sql: "DELETE FROM pull_requests")
             try db.execute(sql: "DELETE FROM messages")
             // NEW-3: a session's conversation, wiped with its messages.

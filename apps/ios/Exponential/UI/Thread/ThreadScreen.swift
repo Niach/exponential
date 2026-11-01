@@ -329,7 +329,12 @@ struct ThreadScreen: View {
         .background {
             Color.clear
                 .sheet(isPresented: $chatMenuOpen, onDismiss: runPendingChatPick) {
-                    ChatMenuSheet(title: chatMenuTitle, entries: chatMenuEntries) { entry in
+                    ChatMenuSheet(
+                        title: chatMenuTitle,
+                        entries: chatMenuEntries,
+                        checksSummary: rows.flatMap { PrChecks.checksSummary($0.guideChecks) },
+                        checkRows: rows.map { PrChecks.checksList($0.guideChecks, now: Date()) } ?? []
+                    ) { entry in
                         pendingChatPick = entry
                         chatMenuOpen = false
                     }
@@ -340,7 +345,7 @@ struct ThreadScreen: View {
                 .sheet(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
                     ThreadMenuSheet(
                         identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier },
-                        guideEntries: target.guide ? guideMenuEntries : nil
+                        guideEntries: target.guide ? guideMenuEntries.filter { $0 != .checks } : nil
                     ) { action in
                         pendingMenuAction = (action, target.issueId)
                         menuTarget = nil
@@ -909,6 +914,7 @@ struct ThreadScreen: View {
                 pullRequest: pullRequest,
                 issueCount: rows.pullRequestIssueIds[pullRequest.id]?.count ?? 0,
                 stackConfirm: rows.guideStackConfirm,
+                checks: rows.guideChecks,
                 state: $mergeState,
                 identifier: SessionTree.ThreadCopy.guideMergeTestId,
                 style: .toolbar
@@ -1151,7 +1157,12 @@ struct ThreadScreen: View {
             return Chats.agentMenuEntries(busy: rows.root.busy, isOwner: isOwner).map { .agent($0) }
         }
         let own = Chats.threadMenuEntries(rootStatus: rows.root.status, canSteer: canSteer, canDelete: canDelete).map { ChatMenuSheet.Entry.thread($0) }
-        return own + guideMenuEntries.map { _ in .closePr }
+        return own + guideMenuEntries.map { entry -> ChatMenuSheet.Entry in
+            switch entry {
+            case .checks: .checks
+            case .closePr: .closePr
+            }
+        }
     }
 
     private func openChatMenu() {
@@ -1172,6 +1183,9 @@ struct ThreadScreen: View {
             case .settings:
                 agentSettingsOpen = true
             }
+        case .checks:
+            // The sheet pushes its own Checks page.
+            break
         case .closePr:
             closePrTarget = rows.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
         }
@@ -1215,7 +1229,9 @@ struct ThreadScreen: View {
     /// EXP-1307: the Guide header's `…` entries (`guideMenuEntries`, fixture
     /// `guideMenuCases` ×4) over the Guide's PR; empty = no trigger.
     private var guideMenuEntries: [SessionTree.GuideMenuEntry] {
-        SessionTree.guideMenuEntries(state: rows?.guidePullRequest?.state, member: canEdit)
+        SessionTree.guideMenuEntries(
+            state: rows?.guidePullRequest?.state, member: canEdit, checks: rows?.guideChecks.count ?? 0
+        )
     }
 
     private func openGuideMenu() {

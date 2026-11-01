@@ -2,25 +2,30 @@ import { useEffect, useState, type ReactNode } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import closePrCopy from "@exp/domain-contract/fixtures/close-pr.json"
 import { contract } from "@exp/domain-contract"
+import { mergePill } from "@exp/domain-contract/pr-checks"
 import {
   conceptIcon,
   FEEDBACK_WORDS,
-  Pill,
+  PrMergePill,
   Prompt,
-  Spinner,
   type MenuEntry,
 } from "@exp/ui"
 import { closePrBody } from "@/components/close-pr-dialog"
 import { StackMergeConfirmDialog } from "@/components/stack-merge-choice-dialog"
 import { usePullRequestStackConfirm } from "@/hooks/use-stack-merge-choice"
+import { failingChecksNames, usePullRequestChecks } from "@/hooks/use-pull-request-checks"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { pullRequestCollection, pullRequestIssueCollection } from "@/lib/collections"
 import { mergeFailure } from "@/lib/merge-failure"
 import { MERGE_STACK_LABEL } from "@/lib/pr-stack"
-import { mergeIssuePrPrompt, mergeRunPrPrompt, promptActions } from "@/lib/prompts"
+import {
+  mergeFailingPrPrompt,
+  mergeIssuePrPrompt,
+  mergeRunPrPrompt,
+  promptActions,
+} from "@/lib/prompts"
 import type { PullRequestRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
-import { cn } from "@/lib/utils"
 
 // EXP-1293 Threads v2: THE merge control = ONE pill over a `pull_requests`
 // row (`pullRequests.merge({pullRequestId, stack})`). A PR in an open linear
@@ -31,6 +36,12 @@ import { cn } from "@/lib/utils"
 // Retry. The spinner holds until the
 // echo moves the row off `open`. Close (`pullRequests.close`) rides the
 // caller's menu (`usePullRequestClose`), copy = `close-pr.json` ×4.
+// #EXP-1611 (pr-checks.json MERGE PILL): the pill wears the PR's
+// `checks_state` (`mergePill`): pending = THE Spinner in place of the glyph,
+// failure = the plain pill `Checks failing` whose tap asks prompts.json
+// `merge-failing-pr` INSTEAD OF the plain/stack confirm; its Merge merges
+// exactly as the pill would have (a stack member through its top). The
+// person's merge never sends `force`.
 
 export const MERGE_PR_LABEL = contract.diffUi.mergePr
 export { MERGE_STACK_LABEL }
@@ -41,7 +52,11 @@ const PrClosedIcon = conceptIcon(`pr-closed`)
 type MergeablePr = Pick<
   PullRequestRow,
   `id` | `number` | `head` | `base` | `state` | `url` | `repositoryId`
->
+> & {
+  /** `pull_requests.checks_state` (contract prChecksState). Typed loosely:
+   *  drizzle-zod infers the contract-array enum as a non-string union. */
+  checksState?: unknown
+}
 
 /** How many issues a PR closes (the plain confirm's body). */
 function useLinkedIssueCount(pullRequestId: string, enabled: boolean): number {
@@ -69,11 +84,19 @@ export function PullRequestMergePill({
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [stackOpen, setStackOpen] = useState(false)
+  const [failingOpen, setFailingOpen] = useState(false)
   const [merging, setMerging] = useState(false)
   const open = pr.state === `open`
   const stack = usePullRequestStackConfirm(open && canMerge ? pr : null)
   const linked = useLinkedIssueCount(pr.id, open && canMerge)
-  const label = stack.confirm ? MERGE_STACK_LABEL : MERGE_PR_LABEL
+  const view = mergePill({ state: typeof pr.checksState === `string` ? pr.checksState : null, stack: Boolean(stack.confirm) })
+  const failing = view.confirm === `failing`
+  const checks = usePullRequestChecks(open && canMerge && failing ? pr.id : null)
+  const failingCopy = mergeFailingPrPrompt({
+    number: pr.number,
+    stack: Boolean(stack.confirm),
+    names: failingChecksNames(checks),
+  })
   const copy =
     linked > 0
       ? mergeIssuePrPrompt({ number: pr.number, count: linked })
@@ -84,6 +107,7 @@ export function PullRequestMergePill({
     setMerging(false)
     setConfirmOpen(false)
     setStackOpen(false)
+    setFailingOpen(false)
   }, [open])
 
   if (!open || !canMerge) return null
@@ -95,6 +119,7 @@ export function PullRequestMergePill({
       const result = await trpc.pullRequests.merge.mutate(input, SKIP_ERROR_TOAST)
       setConfirmOpen(false)
       setStackOpen(false)
+      setFailingOpen(false)
       if (result.error) {
         setMerging(false)
         failedAction(`merge`, what, result.error)
@@ -113,6 +138,7 @@ export function PullRequestMergePill({
       setMerging(false)
       setConfirmOpen(false)
       setStackOpen(false)
+      setFailingOpen(false)
       failedAction(`merge`, what, failure.message, {
         retry: () => void run(input),
       })
@@ -121,24 +147,21 @@ export function PullRequestMergePill({
 
   return (
     <>
-      <Pill
-        size="md"
-        mode="action"
-        primary
+      <PrMergePill
+        view={view}
+        merging={merging}
         disabled={merging || !stack.ready}
-        aria-label={merging ? FEEDBACK_WORDS.pending.merge : label}
-        title={label}
+        aria-label={merging ? FEEDBACK_WORDS.pending.merge : view.label}
+        title={view.label}
         data-testid="pr-merge-pill"
-        className={cn(`shrink-0`, className)}
+        className={className}
         onClick={(event) => {
           event.stopPropagation()
-          if (stack.confirm) setStackOpen(true)
+          if (failing) setFailingOpen(true)
+          else if (stack.confirm) setStackOpen(true)
           else setConfirmOpen(true)
         }}
-      >
-        {merging ? <Spinner /> : <PrMergedIcon />}
-        {label}
-      </Pill>
+      />
       <StackMergeConfirmDialog
         confirm={stackOpen ? stack.confirm : null}
         busy={merging}
@@ -157,6 +180,25 @@ export function PullRequestMergePill({
               busy: merging,
               leading: <PrMergedIcon />,
               onSelect: () => void run({ pullRequestId: pr.id }),
+            },
+          })}
+        />
+        <Prompt
+          open={failingOpen}
+          onOpenChange={setFailingOpen}
+          busy={merging}
+          title={failingCopy.title}
+          body={failingCopy.body}
+          actions={promptActions(failingCopy, {
+            merge: {
+              busy: merging,
+              testId: `pr-merge-failing-confirm`,
+              onSelect: () =>
+                void run(
+                  stack.confirm
+                    ? { pullRequestId: stack.confirm.input.issueId, stack: true }
+                    : { pullRequestId: pr.id }
+                ),
             },
           })}
         />

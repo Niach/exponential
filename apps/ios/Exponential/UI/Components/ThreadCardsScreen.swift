@@ -8,13 +8,13 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|call-controls|settings-voice|device-readiness|work-screen|session-xref>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|call-controls|settings-voice|device-readiness|work-screen|session-xref|pr-checks>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
     @Environment(AppDependencies.self) private var deps
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -89,6 +89,7 @@ struct ThreadCardsScreen: View {
                     case "device-readiness": DeviceReadinessSpecimens()
                     case "work-screen": WorkScreenSpecimens()
                     case "pr-row": PrRowSpecimens()
+                    case "pr-checks": PrChecksSpecimens()
                     default: workCards
                     }
                 }

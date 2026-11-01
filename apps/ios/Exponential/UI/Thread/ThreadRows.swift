@@ -75,6 +75,9 @@ struct ThreadRows: Sendable {
     /// expands into its session's waiting card (`sessionWaitingCard`).
     /// Never rows of their own.
     var namedCards: [SessionMessage] = []
+    /// #EXP-1611: the Guide PR's CI rows (`pull_request_checks`, synced):
+    /// the header `…`'s Checks submenu and the failing Merge confirm.
+    var guideChecks: [PrChecks.Check] = []
 
     /// A conversation WITH someone: an agent's (its header names the agent,
     /// its `…` is the agent menu), or (VAPP-110) an app's editor session.
@@ -389,6 +392,9 @@ struct ThreadRows: Sendable {
             }
         }
         let issues = try SessionQueries.issues(db: db, rootId: root.id)
+        let guideChecks = try SessionTree.guidePullRequest(pullRequests).map { guide in
+            try PullRequestCheckEntity.filter(Column("pull_request_id") == guide.id).fetchAll(db).map(PrChecks.Check.init)
+        } ?? []
         return ThreadRows(
             root: root,
             sessions: sessions,
@@ -407,6 +413,7 @@ struct ThreadRows: Sendable {
                 try IssueStatusEntity.filter(Column("team_id") == root.teamId).fetchAll(db)
             ),
             namedCards: namedCards,
+            guideChecks: guideChecks,
             stackIssueIds: stackIssueIds,
             stackIssues: stackIssues,
             xrefAgents: xrefAgents
@@ -451,6 +458,8 @@ struct ThreadRows: Sendable {
             try stamp(db, table: "issue_relations", where: "\"type\" = 'parent'", nil),
             try stamp(db, table: "issue_statuses", where: "\"team_id\" = ?1", root.teamId),
             try stamp(db, table: "pull_requests", where: "\"root_session_id\" = ?1", id),
+            // #EXP-1611: the thread PRs' CI rows (the Checks submenu).
+            try stamp(db, table: "pull_request_checks", where: "\"pull_request_id\" IN (SELECT \"id\" FROM \"pull_requests\" WHERE \"root_session_id\" = ?1)", id),
             try digest(db, table: "devices", where: "\"device_id\" = ?1", root.deviceId),
         ]
         if let agentId = root.startedByAgentId, !agentId.isEmpty {

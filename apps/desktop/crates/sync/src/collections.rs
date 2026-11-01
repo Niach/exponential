@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (32 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (33 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -46,7 +46,7 @@ use crate::store::{ShapeStore, StoreError};
 use domain::rows::{
     AgentDefRow, Attachment, Board, Comment, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
     IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow, ConversationRow,
-    Notification, Pin, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
+    Notification, Pin, PullRequestCheckRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
     EventRow, PromptRow, AppRow, AppVersionRow, AppRecordRow, SessionRow, Team, TeamInvite, TeamMember, User,
 };
 
@@ -155,7 +155,7 @@ pub fn derive_active_health(
 // Per-shape reactive collections
 // ---------------------------------------------------------------------------
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 32
+/// A typed row hydratable from the store's snake_case JSON objects. The 33
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -198,6 +198,7 @@ id_shape_row!(IssueSubscriber, "issue_subscribers");
 id_shape_row!(SessionIssueRow, "session_issues");
 id_shape_row!(PullRequestRow, "pull_requests");
 id_shape_row!(PullRequestIssueRow, "pull_request_issues");
+id_shape_row!(PullRequestCheckRow, "pull_request_checks");
 id_shape_row!(IssueStatusRow, "issue_statuses");
 id_shape_row!(DeviceRow, "devices");
 id_shape_row!(DeviceWorktreeRow, "device_worktrees");
@@ -408,7 +409,7 @@ pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T
         .collect()
 }
 
-/// The 32 collection entities (§5.8). Cloning is cheap — `Entity` handles.
+/// The 33 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
     pub teams: Entity<Collection<Team>>,
@@ -438,6 +439,9 @@ pub struct Collections {
     pub pull_requests: Entity<Collection<PullRequestRow>>,
     /// EXP-1294 pull request ↔ issue links.
     pub pull_request_issues: Entity<Collection<PullRequestIssueRow>>,
+    /// #EXP-1610 CI checks at each PR's head (the 33rd shape): the Merge
+    /// pill and the thread header's Checks submenu (#EXP-1611).
+    pub pull_request_checks: Entity<Collection<PullRequestCheckRow>>,
     /// EXP-314 per-team custom issue statuses (the 16th shape).
     pub issue_statuses: Entity<Collection<IssueStatusRow>>,
     /// EXP-481 per-user device registry (the 17th shape).
@@ -473,7 +477,7 @@ pub struct Collections {
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 32-way fan-out in one
+/// entity — the single dispatch point that keeps the 33-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -514,6 +518,8 @@ macro_rules! for_each_collection {
         let $entity = &$collections.pull_requests;
         $body;
         let $entity = &$collections.pull_request_issues;
+        $body;
+        let $entity = &$collections.pull_request_checks;
         $body;
         let $entity = &$collections.issue_statuses;
         $body;
@@ -566,6 +572,7 @@ impl Collections {
             conversations: cx.new(|_| Collection::new()),
             pull_requests: cx.new(|_| Collection::new()),
             pull_request_issues: cx.new(|_| Collection::new()),
+            pull_request_checks: cx.new(|_| Collection::new()),
             issue_statuses: cx.new(|_| Collection::new()),
             devices: cx.new(|_| Collection::new()),
             device_worktrees: cx.new(|_| Collection::new()),
@@ -624,6 +631,9 @@ impl Collections {
             "pull_request_issues" => {
                 apply_to(&self.pull_request_issues, keys, full_replace, up_to_date, sqlite, cx)
             }
+            "pull_request_checks" => {
+                apply_to(&self.pull_request_checks, keys, full_replace, up_to_date, sqlite, cx)
+            }
             "issue_statuses" => {
                 apply_to(&self.issue_statuses, keys, full_replace, up_to_date, sqlite, cx)
             }
@@ -647,7 +657,7 @@ impl Collections {
         }
     }
 
-    /// Full hydrate of all 32 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 33 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). Runs synchronously on
     /// the foreground — deliberately: every batch committed to SQLite has a
     /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
@@ -675,7 +685,7 @@ impl Collections {
         self.observe_all_with(cx, |_, cx| cx.notify())
     }
 
-    /// Run `on_change` on `V` whenever ANY of the 32 collections notifies
+    /// Run `on_change` on `V` whenever ANY of the 33 collections notifies
     /// (EXP-1326: the IDE's cached dock area re-renders on every synced
     /// change this way, so a screen reading a collection without observing
     /// it never goes stale behind the cache).
@@ -999,7 +1009,7 @@ pub struct Store {
 impl Global for Store {}
 
 impl Store {
-    /// Build the store: the shared-state entity, the 32 collection entities,
+    /// Build the store: the shared-state entity, the 33 collection entities,
     /// the [`SyncManager`], and the single foreground delta-drain task
     /// (§5.8). `on_unauthorized` is the §5.6b hook the app shell wires to
     /// `AuthStore::unauthorized_handler_fn()` — it deletes the dead token
@@ -1067,7 +1077,7 @@ impl Store {
         self.state.read(cx).session.clone()
     }
 
-    /// The 32 reactive collections.
+    /// The 33 reactive collections.
     pub fn collections(&self) -> &Collections {
         &self.collections
     }
@@ -1512,7 +1522,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 32 ShapeRow impls cover the registry exactly (a 33rd shape
+        // The 33 ShapeRow impls cover the registry exactly (a 34th shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -1534,6 +1544,7 @@ mod tests {
             ConversationRow::spec().name,
             PullRequestRow::spec().name,
             PullRequestIssueRow::spec().name,
+            PullRequestCheckRow::spec().name,
             IssueStatusRow::spec().name,
             DeviceRow::spec().name,
             DeviceWorktreeRow::spec().name,
