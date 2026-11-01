@@ -11,3 +11,6 @@
 - Agenti dostanou úkol, který jim předáte: identifikátor, název a popis
 - Záhlaví vlákna ukazuje stav relace a tlačítko Merge
 - Popisky příběhů nikdy nepřerostou prohlížeč
+- Zavřete otázku nebo plán, na který nechcete odpovídat; záhlaví vlákna ukazuje, co ještě čeká
+- Stránka Zařízení zobrazuje každé zařízení jako kartu
+- Chaty, obrazovka nového chatu a Nastavení vypadají stejně jako v ostatních aplikacích

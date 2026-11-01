@@ -11,3 +11,6 @@
 - Agenter får ärendet du ger dem: id, titel och beskrivning
 - Trådens rubrik visar sessionens status och en Merge-knapp
 - Berättelsetexter blir aldrig större än visaren
+- Avfärda en fråga eller plan du inte vill svara på; trådens rubrik visar vad som fortfarande väntar
+- Sidan Enheter visar varje enhet som ett kort
+- Chattar, skärmen för ny chatt och Inställningar ser ut som i de andra apparna

@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-dismiss-cards`,
+    date: `2026-11-01`,
+    title: `Dismiss a question or plan`,
+    summary: `Close a question or plan card you don't want to answer; the thread header shows what's still waiting.`,
+    body: `- **Dismiss**: every question and plan card has an ✕; the agent hears that you dismissed it and carries on.
+- **Waiting**: the thread header shows each question or plan still waiting; tap one to jump to it.`,
+  },
+  {
     id: `2026-11-01-composer-home-same-everywhere`,
     date: `2026-11-01`,
     title: `The new-chat screen looks the same everywhere`,

@@ -11,3 +11,6 @@
 - Los agentes reciben la incidencia que les das: identificador, título y descripción
 - La cabecera del hilo muestra el estado de la sesión y un botón Merge
 - Los pies de las historias nunca superan el visor
+- Descarta una pregunta o un plan que no quieras responder; la cabecera del hilo muestra lo que sigue pendiente
+- La página Dispositivos muestra cada dispositivo como una tarjeta
+- Los chats, la pantalla de nuevo chat y Ajustes se ven igual que en las otras apps

@@ -11,3 +11,6 @@
 - Agents krijgen het issue dat je ze geeft: id, titel en beschrijving
 - De threadkop toont de status van de sessie en een Merge-knop
 - Verhaalbijschriften worden nooit groter dan de viewer
+- Sluit een vraag of plan die je niet wilt beantwoorden; de threadkop toont wat nog wacht
+- De pagina Apparaten toont elk apparaat als kaart
+- Chats, het scherm voor een nieuwe chat en Instellingen zien eruit als in de andere apps

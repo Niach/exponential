@@ -11,3 +11,6 @@
 - Les agents reçoivent le ticket que vous leur confiez : identifiant, titre et description
 - L'en-tête du fil affiche l'état de la session et un bouton Merge
 - Les légendes des stories ne débordent plus de la visionneuse
+- Écartez une question ou un plan auquel vous ne voulez pas répondre ; l'en-tête du fil montre ce qui attend encore
+- La page Appareils affiche chaque appareil sous forme de carte
+- Les discussions, l'écran de nouvelle discussion et les Réglages ressemblent aux autres apps
