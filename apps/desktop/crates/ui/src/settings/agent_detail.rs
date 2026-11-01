@@ -862,12 +862,10 @@ impl AgentDetailPane {
         let devices: Vec<AgentDevice> =
             all.iter().filter(|device| kept.contains(&device.device_id)).cloned().collect();
         let copy = &ASSISTANT.copy;
-        let caption = |text: &str, cx: &App| {
-            div()
-                .px_1()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(SharedString::from(text.to_string()))
+        // EXP-1557: each group heads with THE band (web/iOS/Android
+        // `GlassSectionHeader`), never a muted caption over the group.
+        let band = |text: &str, cx: &App| {
+            crate::surface::glass_section_header(SharedString::from(text.to_string()), None, cx)
         };
         // Identity: the brand mark (never a stored icon) + the name.
         let mark = div()
@@ -948,9 +946,9 @@ impl AgentDetailPane {
         let mut body = section(cx)
             .gap_4()
             .child(crate::surface::glass_group_rows(vec![identity_row]))
-            .child(v_flex().w_full().gap_1().child(caption(&copy.runs_on, cx)).child(runs_on))
-            .child(v_flex().w_full().gap_1().child(caption(&copy.check_in, cx)).child(check_in))
-            .child(v_flex().w_full().gap_1().child(caption(&copy.voice, cx)).child(voice));
+            .child(v_flex().w_full().child(band(&copy.runs_on, cx)).child(runs_on))
+            .child(v_flex().w_full().child(band(&copy.check_in, cx)).child(check_in))
+            .child(v_flex().w_full().child(band(&copy.voice, cx)).child(voice));
         if let Some(message) = self.error.clone() {
             body = body.child(crate::action_error::field_error(message, cx).px_1());
         }

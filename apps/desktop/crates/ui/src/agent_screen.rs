@@ -1024,7 +1024,19 @@ impl Render for AgentScreenView {
             .py_12()
         });
         let conversation: AnyElement = match chat_empty {
-            Some(empty) => div().flex_1().min_h_0().w_full().pt_8().child(empty).into_any_element(),
+            // EXP-1557 (web parity): the empty state sits CENTRED in the
+            // pane above the floating Dock, never pinned to its top.
+            Some(empty) => div()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .pt_8()
+                .pb(px(band_height.max(16.) + crate::dock::DOCK_GAP))
+                .child(empty)
+                .into_any_element(),
             None => {
                 let list = gpui::list(
                     self.list.clone(),

@@ -2,7 +2,7 @@
 //! block the contract `packages/domain-contract/fixtures/getting-started.json`
 //! specifies ×4: a header row (title, the muted `{done} of {total}`, a
 //! progress meter, a trailing Docs button) in the group band, over flat
-//! flat rows (no dividers, EXP-1320), one per visible step: done rows muted with a green
+//! flat hairline-divided rows (the fixture's list; EXP-1557), one per visible step: done rows muted with a green
 //! check, the ONE next row expanded (its `why` + a primary `cta` button),
 //! later rows plain with a quiet chevron ([`GettingStartedList`]).
 //!
@@ -753,8 +753,7 @@ pub(crate) fn getting_started_visible(nav: &Entity<Navigation>, cx: &mut App) ->
 /// first and the target runs in the window that opened it (dialogs never
 /// nest, and a navigation needs the opener's screens).
 fn run_target(target: Target, team_id: String, window: &mut Window, cx: &mut App) {
-    let in_dialog =
-        native_dialog::opener_of_window(window.window_handle().window_id(), cx).is_some();
+    let in_dialog = native_dialog::has_open_dialog(window, cx);
     if in_dialog {
         native_dialog::close_then(window, cx, move |window, cx| {
             run_target_here(target, team_id, window, cx)
@@ -797,7 +796,8 @@ fn run_target_here(target: Target, team_id: String, window: &mut Window, cx: &mu
 // ---------------------------------------------------------------------------
 
 /// THE block (web `GettingStartedList`): the group band (title, progress,
-/// meter, Docs) over flat rows (no dividers, EXP-1320), one per entry, at most
+/// meter, Docs) over flat hairline-divided rows (web `divide-y
+/// divide-glass-stroke`, EXP-1557), one per entry, at most
 /// [`MAX_W`] wide and centred in its column. Pure over `model`, so the
 /// styleguide draws it from a fixture case with `team_id` `None` (inert).
 #[derive(IntoElement)]
@@ -814,11 +814,22 @@ impl GettingStartedList {
 
 impl RenderOnce for GettingStartedList {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // EXP-1557: the fixture's hairline between rows (web `divide-y`);
+        // the Next row's top and bottom hairlines are its neighbours'.
+        let stroke = t::glass::STROKE_ROW.to_hsla();
         let rows: Vec<gpui::AnyElement> = self
             .model
             .entries
             .iter()
-            .map(|entry| step_row(entry, self.team_id.as_deref(), cx))
+            .enumerate()
+            .map(|(index, entry)| {
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .when(index > 0, |this| this.border_t_1().border_color(stroke))
+                    .child(step_row(entry, self.team_id.as_deref(), cx))
+                    .into_any_element()
+            })
             .collect();
         v_flex()
             .id(TEST_ID_BLOCK)
@@ -884,7 +895,7 @@ fn band(model: &Model, cx: &App) -> gpui::AnyElement {
         .into_any_element()
 }
 
-/// One step row: flat, no hairline (EXP-1320).
+/// One step row: flat; the list draws the hairline between rows (EXP-1557).
 fn step_row(
     entry: &Entry,
     team_id: Option<&str>,

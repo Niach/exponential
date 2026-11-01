@@ -538,6 +538,9 @@ fn yolo_rail(yolo: bool, sc_failing: bool) -> YoloRail {
 
 /// FEED-3: hover-reveal group name for the rail's board rows — the
 /// gear that jumps to the board's settings page shows only under the cursor.
+/// EXP-1557: the rail's bottom fade (the search list's `FADE_HEIGHT`).
+const RAIL_FADE_H: f32 = 24.;
+
 const BOARD_ROW_GROUP: &str = "rail-board-row";
 /// EXP-1294: the agent rows' twin of [`BOARD_ROW_GROUP`].
 const AGENT_ROW_GROUP: &str = "rail-agent-row";
@@ -2337,6 +2340,21 @@ impl Render for RailView {
         // content knows whether to keep clearance under its last row.
         let whats_new_card = self.render_whats_new_card(cx);
         let whats_new_clearance = whats_new_card.is_some();
+        // EXP-1557: rows running on under the footer fade out instead of
+        // being cut mid-row (the search list's bottom-fade idiom), into the
+        // ground the Shell paints at the pane's bottom edge.
+        let rail_fade = (!whats_new_clearance)
+            .then(|| {
+                let pane = self.rail_scroll.bounds();
+                let max = f32::from(self.rail_scroll.max_offset().y);
+                let offset = f32::from(self.rail_scroll.offset().y);
+                let more = max > 0. && -offset < max - 1.;
+                let height = f32::from(window.viewport_size().height);
+                (more && height > 0.).then(|| {
+                    theme::background_gradient_color_at(f32::from(pane.bottom()) / height)
+                })
+            })
+            .flatten();
         // EXP-997: the column's 8px gutter belongs to the SCROLL CONTENT and
         // the footer rows, not the column — the scroll pane spans the full
         // column width. EXP-1095: the vendored thumb (6-8px, inset 4 in a
@@ -2438,6 +2456,19 @@ impl Render for RailView {
                     .right_0()
                     .px_2()
                     .child(card)
+            }))
+            .children(rail_fade.map(|ground| {
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(RAIL_FADE_H))
+                    .bg(gpui::linear_gradient(
+                        180.,
+                        gpui::linear_color_stop(ground.opacity(0.), 0.),
+                        gpui::linear_color_stop(ground, 1.),
+                    ))
             })))
             // EXP-723: the web sidebar footer's order, top to bottom — the
             // muted Getting-started re-entry point, the sync spinner, then

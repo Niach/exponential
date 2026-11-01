@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-desktop-dialogs-in-window",
+    date: "2026-11-01",
+    title: "Desktop looks like the web app",
+    summary: "Desktop dialogs open inside the window over a dimmed backdrop, and Settings matches the web page.",
+    body: r#"- **Dialogs in the window**: Add device, Device settings, Join a team, Getting started, export, search and every confirm open over a dimmed backdrop; a click outside or Escape closes them.
+- **Settings**: the pages use the web app's type size, row style and switches."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_149: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-agents-get-the-issue",
     date: "2026-11-01",
     title: "Agents get the issue you hand them",
@@ -54,6 +65,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **No prompt needed**: sending just the issue wakes the agent."#,
 };
 
+/// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
 const PREVIOUS_148: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-sealed-agent-sends",

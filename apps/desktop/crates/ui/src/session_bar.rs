@@ -798,8 +798,9 @@ impl SessionBar {
         }
         root
             // min_h(0) so the flex child can shrink; the grid element itself
-            // guards the 0-height case (§6.9).
-            .child(div().flex_1().min_h_0().child(view))
+            // guards the 0-height case (§6.9). EXP-1557: inset like the
+            // Files and Source control panes, never flush on the card edge.
+            .child(div().flex_1().min_h_0().p_3().child(view))
             .when_some(exit_code, |this, code| this.child(exit_strip(code, cx)))
             .into_any_element()
     }

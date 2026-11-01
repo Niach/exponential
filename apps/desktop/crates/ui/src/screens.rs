@@ -992,6 +992,17 @@ pub(crate) fn take_dev_composer_menu(dialog: bool) -> bool {
         && !TAKEN.swap(true, Ordering::SeqCst)
 }
 
+/// EXP-1557 — `EXP_DEV_COMPOSER_TEXT=<text>` types `<text>` into Home's
+/// composer once (the first page composer with a team and synced shapes):
+/// `Explain #APP` opens the `#` search list at the caret, prefilled with
+/// `APP` (web's `typeIssueRef`, the `search-list` capture).
+pub(crate) fn take_dev_composer_text() -> Option<String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static TAKEN: AtomicBool = AtomicBool::new(false);
+    let text = std::env::var("EXP_DEV_COMPOSER_TEXT").ok().filter(|text| !text.is_empty())?;
+    (!TAKEN.swap(true, Ordering::SeqCst)).then_some(text)
+}
+
 /// #EXP-1535 — `EXP_DEV_COMPOSER_MENU=session-account` opens a session
 /// composer's "+" menu with its Account submenu open, once (the first
 /// session view whose menu has the Account row).

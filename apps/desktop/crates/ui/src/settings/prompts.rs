@@ -13,6 +13,7 @@
 //! The list is LIVE off the synced `prompts` shape (body-less rows); the body
 //! comes from `prompts.get` when a page opens.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, App, AppContext as _, ClickEvent, Entity, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
@@ -629,6 +630,9 @@ impl Render for PromptPage {
         // Read-only draws no save strip at all (web parity).
         if !read_only {
             let disabled = !self.can_submit(cx);
+            let off = disabled && !self.submitting;
+            let (primary, primary_foreground) =
+                (cx.theme().primary, cx.theme().primary_foreground);
             form = form.child(
                 h_flex().min_w_0().justify_end().gap_2().child(self.pending.apply(
                     Button::new("prompt-submit")
@@ -636,7 +640,19 @@ impl Render for PromptPage {
                         .cursor_pointer()
                         .web_sm()
                         .label(submit_label(creating))
-                        .disabled(disabled && !self.submitting)
+                        .disabled(off)
+                        // EXP-1557: disabled = the SAME primary button at 50%
+                        // (web Button `disabled:opacity-50`), not the
+                        // component's 15% tint with muted text, which read
+                        // as a different, dark control. The refinement is
+                        // replayed over the component's disabled style.
+                        .when(off, |button| {
+                            button
+                                .bg(primary)
+                                .border_color(primary)
+                                .text_color(primary_foreground)
+                                .opacity(0.5)
+                        })
                         .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
                     crate::feedback::PENDING_SAVE,
                     cx,

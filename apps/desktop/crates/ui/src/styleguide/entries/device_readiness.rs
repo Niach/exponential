@@ -5,6 +5,7 @@
 //! offered) and from another device (only Update / Sign in). Inert: a
 //! gallery has nowhere to send a pill or a switch.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{div, px, App, Div, IntoElement, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
@@ -67,10 +68,41 @@ fn specimen(
         ))
 }
 
+/// EXP-1557: the view's SUBJECT first (web `DeviceReadinessSpecimen`, the
+/// natives' specimen line for line): the fixture's low-disk case (its LAST)
+/// from another device, then the composer's low-disk row, so the desktop
+/// `device-readiness` capture shows the Storage band, not the first case.
+fn low_disk_specimen(cases: &[(String, coding::device_doctor::DeviceDoctor)], cx: &App) -> Option<Div> {
+    let (name, doctor) = cases.last()?;
+    let muted = cx.theme().muted_foreground;
+    let caption = |text: SharedString| div().pt_2p5().text_xs().text_color(muted).child(text);
+    let props = |id: &str| BlockProps { id: SharedString::from(id.to_string()), ..BlockProps::default() };
+    let warning = device_readiness::warning_row(doctor, false);
+    Some(
+        v_flex()
+            .w(px(WIDTH))
+            .gap_1p5()
+            .child(caption(SharedString::from(name.clone())))
+            .child(device_readiness::render_sections(
+                &device_readiness::sections(doctor, false, None),
+                props("sg-device-readiness-low-disk"),
+                cx,
+            ))
+            .when_some(warning, |this, row| {
+                this.child(caption("Composer".into())).child(device_readiness::render_single(
+                    &row,
+                    props("sg-device-readiness-composer"),
+                    cx,
+                ))
+            }),
+    )
+}
+
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let foreground = cx.theme().foreground;
-    let mut column = v_flex().gap_8();
-    for (index, (name, doctor)) in cases().iter().enumerate() {
+    let cases = cases();
+    let mut column = v_flex().gap_8().children(low_disk_specimen(&cases, cx));
+    for (index, (name, doctor)) in cases.iter().enumerate() {
         column = column.child(
             v_flex()
                 .gap_3()

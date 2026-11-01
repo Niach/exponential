@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { STEER_CONN_STATS, steerConnEventValid, type SteerConnEvent } from "@exp/domain-contract/steer-enet"
-import { ConnStatsBuffer, SteerViewStats } from "./conn-stats"
+import { ConnStatsBuffer, connStatsBuffer, postConnStats, SteerViewStats } from "./conn-stats"
 
 // EXP-1527 (steer-enet.json `connStats`): the web's steer.view events.
 
@@ -70,5 +70,40 @@ describe(`ConnStatsBuffer`, () => {
     await vi.advanceTimersByTimeAsync(STEER_CONN_STATS.flushMs)
     expect(posted).toEqual([STEER_CONN_STATS.batchMax, 3])
     expect(buffer.size).toBe(0)
+  })
+})
+
+// EXP-1593: a tab closed before the next flush lost every event it held:
+// its page-hide flush went through the batched tRPC fetch, which the browser
+// cancels with the page. It posts with keepalive now (a view killed with the
+// page keeps only its `settled`, fixture `connStats`).
+describe(`a closing tab`, () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it(`posts what it holds on page hide with keepalive, as connStats.record`, async () => {
+    const fetchMock = vi.fn(async () => new Response(`{"result":{"data":{"accepted":1}}}`))
+    vi.stubGlobal(`fetch`, fetchMock)
+    const buffer = connStatsBuffer()
+    const view = new SteerViewStats((e) => buffer.record(e))
+    view.start()
+    view.applied(`iroh_relay`, true)
+    window.dispatchEvent(new Event(`pagehide`))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(`/api/trpc/connStats.record`)
+    expect(init).toMatchObject({ method: `POST`, keepalive: true, credentials: `same-origin` })
+    expect(init.headers).toEqual({ "content-type": `application/json` })
+    const { events } = JSON.parse(init.body as string) as { events: SteerConnEvent[] }
+    expect(events.map((e) => e.data.phase)).toEqual([`settled`])
+    expect(events.every(steerConnEventValid)).toBe(true)
+    expect(buffer.size).toBe(0)
+  })
+
+  it(`postConnStats sends the plain body the server reads`, async () => {
+    const fetchMock = vi.fn(async () => new Response(`{}`))
+    vi.stubGlobal(`fetch`, fetchMock)
+    await postConnStats([])
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+    expect(JSON.parse(init.body as string)).toEqual({ events: [] })
   })
 })

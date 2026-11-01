@@ -886,7 +886,9 @@ impl Render for Shell {
         if blocked {
             let sheet_layer = Root::render_sheet_layer(window, cx);
             let dialog_layer = Root::render_dialog_layer(window, cx);
-            let toast_layer = crate::toast::render_layer(window, cx);
+            // EXP-1557: the in-window dialogs, above the content.
+        let native_dialog_layer = crate::native_dialog::render_layer(window, cx);
+        let toast_layer = crate::toast::render_layer(window, cx);
             // The titlebar renders here too — without it this window would be
             // undraggable/unclosable on Windows/Linux (no native chrome) —
             // but as the CHROME-ONLY strip (EXP-364): the tab row belongs to
@@ -920,7 +922,8 @@ impl Render for Shell {
                         // select text in and drag by its decoration.
                         .child(crate::text_selection_guard::selection_guard())
                         .children(sheet_layer)
-                        .children(dialog_layer)
+                        .children(native_dialog_layer)
+                    .children(dialog_layer)
                         .child(toast_layer),
                 )
                 .into_any_element();
@@ -1148,6 +1151,8 @@ impl Render for Shell {
         let preview_host = crate::issue_preview::host_for_window(window, cx);
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
+        // EXP-1557: the in-window dialogs, above the content.
+        let native_dialog_layer = crate::native_dialog::render_layer(window, cx);
         let toast_layer = crate::toast::render_layer(window, cx);
         // EXP-1275: the BLOCKING wait (team/account switch, sign-out)
         // paints over everything, the toasts included.
@@ -1218,6 +1223,7 @@ impl Render for Shell {
                     .child(crate::text_selection_guard::selection_guard())
                     .child(preview_host)
                     .children(sheet_layer)
+                    .children(native_dialog_layer)
                     .children(dialog_layer)
                     .child(toast_layer)
                     .children(blocking_layer),
