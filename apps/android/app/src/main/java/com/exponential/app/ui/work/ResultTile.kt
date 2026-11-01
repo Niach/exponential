@@ -6,24 +6,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,20 +28,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import coil3.size.Size
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.sessionResultIsTall
 import com.exponential.app.domain.sessionResultTileWidth
-import com.exponential.app.domain.tallImageStripRanges
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
@@ -179,155 +163,22 @@ private fun TallTileImage(entry: SessionResultEntry, tileHeight: Int, modifier: 
     }
 }
 
-/** The shot at full size, in app: dark scrim, FIT so nothing is cropped away,
- *  a tap anywhere (or Back) closes it. EXP-1149: the picture pinch-zooms and
- *  pans (`ZoomableBox`, double tap toggles), decoded at its ORIGINAL size so a
- *  zoomed view stays sharp; zoomed, only Close, Back or a double tap leave.
- *  A TALL shot (EXP-1128) instead fits to WIDTH and scrolls; only Close and
- *  Back dismiss it, since a scrim tap would fight the scroll. */
+/** The shot at full size: THE picture viewer (EXP-1586) over this one
+ *  picture; a TALL shot (EXP-1128) opens at fit-width from its top. */
 @Composable
 internal fun ResultPreviewDialog(
     entry: SessionResultEntry,
     onDismiss: () -> Unit,
 ) {
-    val tall = sessionResultIsTall(entry)
-    val context = LocalContext.current
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.92f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (tall) {
-                TallImageScroll(entry)
-            } else {
-                val width = entry.width
-                val height = entry.height
-                val aspect = if (width != null && height != null && width > 0 && height > 0) {
-                    width.toFloat() / height.toFloat()
-                } else {
-                    null
-                }
-                ZoomableBox(
-                    modifier = Modifier.fillMaxSize().testTag("work-result-preview"),
-                    contentAspect = aspect,
-                    onTap = onDismiss,
-                ) {
-                    AsyncImage(
-                        model = remember(entry.attachmentId) {
-                            ImageRequest.Builder(context)
-                                .data(sessionResultImageUrl(entry))
-                                .size(Size.ORIGINAL)
-                                .build()
-                        },
-                        contentDescription = entry.label,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(8.dp),
-            ) {
-                Icon(
-                    ExpIcons.uiClose,
-                    contentDescription = "Close",
-                    tint = Color.White.copy(alpha = 0.9f),
-                )
-            }
-        }
+    val items = remember(entry.attachmentId, entry.label) {
+        listOf(PictureViewerItem(id = entry.attachmentId, src = sessionResultImageUrl(entry), label = entry.label))
     }
-}
-
-/**
- * EXP-1128: the tall viewer's body — the picture as a column of region-decoded
- * STRIPS (`tallImageStripRanges`), each sized from the width scale before it
- * decodes so the scroll never jumps. Never upscaled past its natural width.
- */
-@Composable
-private fun TallImageScroll(entry: SessionResultEntry) {
-    val sourceWidth = entry.width ?: return
-    val sourceHeight = entry.height ?: return
-    val load = rememberTallImage(entry)
-    val source = load.source
-    val density = LocalDensity.current
-    BoxWithConstraints(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        val naturalDp = with(density) { sourceWidth.toDp() }
-        val columnWidth = if (maxWidth < naturalDp) maxWidth else naturalDp
-        val columnPx = with(density) { columnWidth.roundToPx() }
-        // dp per source row: the strip heights are known before any decode.
-        val rowDp = columnWidth.value / sourceWidth
-        val strips = remember(sourceHeight) { tallImageStripRanges(sourceHeight) }
-        when (source) {
-            // Coil at the column's width: the fallback scrolls as one picture.
-            TallImageSource.Unsupported -> Box(
-                modifier = Modifier
-                    .width(columnWidth)
-                    .fillMaxHeight()
-                    .verticalScroll(rememberScrollState())
-                    .testTag("work-result-preview"),
-            ) {
-                AsyncImage(
-                    model = sessionResultImageUrl(entry),
-                    contentDescription = entry.label,
-                    contentScale = ContentScale.FillWidth,
-                    modifier = Modifier.fillMaxWidth().height((sourceHeight * rowDp).dp),
-                )
-            }
-            is TallImageSource.Failed -> Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    source.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = TextEmphasis.Secondary),
-                )
-                Spacer(Modifier.height(12.dp))
-                TallImageRetry(load.retry)
-            }
-            else -> Unit
-        }
-        val decoder = (source as? TallImageSource.Regions)?.decoder
-        if (source is TallImageSource.Loading || decoder != null) LazyColumn(
-            modifier = Modifier.width(columnWidth).fillMaxHeight().testTag("work-result-preview"),
-        ) {
-            itemsIndexed(strips, key = { index, _ -> index }) { _, (top, rows) ->
-                val stripHeight = (rows * rowDp).dp
-                val strip by produceState<ImageBitmap?>(null, decoder, columnPx) {
-                    value = decoder?.let {
-                        withContext(Dispatchers.Default) {
-                            decodeTallRegion(it, top, rows, columnPx)?.asImageBitmap()
-                        }
-                    }
-                }
-                Box(modifier = Modifier.fillMaxWidth().height(stripHeight)) {
-                    strip?.let {
-                        Image(
-                            bitmap = it,
-                            contentDescription = if (top == 0) entry.label else null,
-                            contentScale = ContentScale.FillWidth,
-                            modifier = Modifier.fillMaxWidth().height(stripHeight),
-                        )
-                    }
-                }
-            }
-        }
-    }
+    PictureViewer(items = items, onClose = onDismiss)
 }
 
 /** A failed tall load's one control: a tap runs the download again. */
 @Composable
-private fun TallImageRetry(onRetry: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TallImageRetry(onRetry: () -> Unit, modifier: Modifier = Modifier) {
     GlassPill(
         label = "Retry",
         icon = ExpIcons.uiRefresh,

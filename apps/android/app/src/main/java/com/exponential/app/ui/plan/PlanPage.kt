@@ -1,7 +1,6 @@
 package com.exponential.app.ui.plan
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -50,8 +49,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
@@ -78,6 +75,7 @@ import com.exponential.app.ui.markdown.LocalMarkdownBodyStyle
 import com.exponential.app.ui.markdown.LocalMarkdownImageClick
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MdStyle
+import com.exponential.app.ui.markdown.attachmentIdFromUrl
 import com.exponential.app.ui.session.LocalAskCardPlain
 import com.exponential.app.ui.session.TranscriptBodyStyle
 import com.exponential.app.ui.theme.DesignTokens
@@ -85,7 +83,8 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.thread.PlanAskCard
 import com.exponential.app.ui.thread.ThreadPlanDecision
-import com.exponential.app.ui.work.ZoomableBox
+import com.exponential.app.ui.work.PictureViewer
+import com.exponential.app.ui.work.PictureViewerItem
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -528,58 +527,12 @@ fun PlanOutlineList(
     }
 }
 
-/** THE lightbox: every plan picture in document order, fitted on black,
- *  pinch-zoom, `‹ i / n ›`; a tap on the scrim, the close glyph or Back closes. */
-@OptIn(ExperimentalFoundationApi::class)
+/** THE lightbox: every plan picture in document order in THE picture
+ *  viewer (EXP-1586): zoomable, `‹ i / n ›`; the close glyph or Back closes. */
 @Composable
 private fun PlanLightbox(pictures: List<PlanPage.Picture>, start: Int, onDismiss: () -> Unit) {
-    if (pictures.isEmpty()) return
-    val pager = rememberPagerState(initialPage = start.coerceIn(0, pictures.lastIndex)) { pictures.size }
-    val scope = rememberCoroutineScope()
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.92f)).testTag("plan-lightbox")) {
-            HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { index ->
-                ZoomableBox(modifier = Modifier.fillMaxSize(), contentAspect = null, onTap = onDismiss) {
-                    AsyncImage(
-                        model = pictures[index].src,
-                        contentDescription = pictures[index].alt,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-            CircleIconButton(
-                ExpIcons.uiClose,
-                "Close",
-                onClick = onDismiss,
-                modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp),
-            )
-            Row(
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                CircleIconButton(
-                    ExpIcons.uiChevronLeft,
-                    "Previous",
-                    enabled = pager.currentPage > 0,
-                    onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } },
-                )
-                Text(
-                    "${pager.currentPage + 1} / ${pictures.size}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.9f),
-                )
-                CircleIconButton(
-                    ExpIcons.uiChevronRight,
-                    "Next",
-                    enabled = pager.currentPage < pictures.lastIndex,
-                    onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
-                )
-            }
-        }
+    val items = remember(pictures) {
+        pictures.map { PictureViewerItem(id = attachmentIdFromUrl(it.src) ?: it.src, src = it.src, label = it.alt) }
     }
+    PictureViewer(items = items, start = start, onClose = onDismiss)
 }

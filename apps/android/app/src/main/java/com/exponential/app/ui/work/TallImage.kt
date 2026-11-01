@@ -109,12 +109,16 @@ class TallImageLoad(val source: TallImageSource, val retry: () -> Unit)
  * the load is replaced or the composable leaves.
  */
 @Composable
-fun rememberTallImage(entry: SessionResultEntry): TallImageLoad {
+fun rememberTallImage(entry: SessionResultEntry): TallImageLoad = rememberTallImage(entry.attachmentId)
+
+/** EXP-1586: the same load for any attachment (THE picture viewer's pages). */
+@Composable
+fun rememberTallImage(attachmentId: String): TallImageLoad {
     val context = LocalContext.current
-    var attempt by remember(entry.attachmentId) { mutableIntStateOf(0) }
-    val source by produceState<TallImageSource>(TallImageSource.Loading, entry.attachmentId, attempt) {
+    var attempt by remember(attachmentId) { mutableIntStateOf(0) }
+    val source by produceState<TallImageSource>(TallImageSource.Loading, attachmentId, attempt) {
         value = TallImageSource.Loading
-        value = runCatching { loadTallImageBytes(context, entry.attachmentId) }.fold(
+        value = runCatching { loadTallImageBytes(context, attachmentId) }.fold(
             onSuccess = { bytes ->
                 withContext(Dispatchers.Default) { openTallRegionDecoder(bytes) }
                     ?.let { TallImageSource.Regions(it) }
