@@ -5,3 +5,6 @@
 - Răspunsurile rapide de deasupra câmpului de text se citesc mai ușor
 - Aplicațiile au în editor filele Chat, Date, Versiuni și Setări
 - Setări › MCP este o singură pagină pentru serverele MCP, instrumentele aplicațiilor și activitate
+- Sesiunile live continuă să transmită, criptate end-to-end, când conexiunea directă cu dispozitivul cade
+- Textul scris în timp ce se trimite un comentariu rămâne în editor
+- Un fir arată sarcinile sesiunii copil care rulează

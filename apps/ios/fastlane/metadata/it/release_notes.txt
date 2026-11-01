@@ -5,3 +5,6 @@
 - Le risposte rapide sopra il campo di testo sono più leggibili
 - Le app hanno le schede Chat, Dati, Versioni e Impostazioni nell'editor
 - Impostazioni › MCP è un'unica pagina per server MCP, strumenti delle app e attività
+- Le sessioni live continuano lo streaming, con crittografia end-to-end, quando la connessione diretta al dispositivo cade
+- Il testo che scrivi mentre un commento viene inviato resta nel compositore
+- Un thread mostra le attività della sua sessione figlia in esecuzione

@@ -5,3 +5,6 @@
 - Les réponses rapides au-dessus du champ de saisie sont plus lisibles
 - Les apps ont des onglets Chat, Données, Versions et Réglages dans l'éditeur
 - Réglages › MCP réunit vos serveurs MCP, les outils des apps et l'activité sur une page
+- Les sessions en direct continuent de diffuser, chiffrées de bout en bout, quand la connexion directe à l'appareil tombe
+- Le texte saisi pendant l'envoi d'un commentaire reste dans le champ de saisie
+- Un fil affiche les tâches de sa session enfant en cours

@@ -1,0 +1,4 @@
+- Live sessions keep streaming, end-to-end encrypted, when the direct connection to the device drops
+- Text you type while a comment is sending stays in the composer
+- Backing out of an issue no longer cancels a comment that is still sending
+- A thread shows the tasks of its running child session
