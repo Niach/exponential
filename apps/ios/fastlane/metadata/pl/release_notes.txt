@@ -14,3 +14,6 @@
 - Odrzuć pytanie lub plan, na które nie chcesz odpowiadać; nagłówek wątku pokazuje, co jeszcze czeka
 - Strona Urządzenia pokazuje każde urządzenie jako kartę
 - Czaty, ekran nowego czatu i Ustawienia wyglądają tak samo jak w innych aplikacjach
+- Powiększanie obrazów: każda przeglądarka obrazów powiększa i przesuwa
+- Claude domyślnie pozostaje zalogowany: nowe logowanie trwa rok
+- Szerokie tabele przewijają się w bok zamiast ściskać kolumny

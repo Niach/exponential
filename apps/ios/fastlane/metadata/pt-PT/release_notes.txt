@@ -14,3 +14,6 @@
 - Dispense uma pergunta ou um plano a que não quer responder; o cabeçalho do fio mostra o que ainda aguarda
 - A página Dispositivos mostra cada dispositivo como um cartão
 - As conversas, o ecrã de nova conversa e as Definições têm o mesmo aspeto das outras apps
+- Ampliar imagens: todos os visualizadores de imagens fazem zoom e deslocam
+- O Claude mantém a sessão iniciada por predefinição: um novo início de sessão dura um ano
+- As tabelas largas deslocam-se na horizontal em vez de comprimir as colunas

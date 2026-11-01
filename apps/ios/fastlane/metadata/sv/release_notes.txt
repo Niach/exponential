@@ -14,3 +14,6 @@
 - Avfärda en fråga eller plan du inte vill svara på; trådens rubrik visar vad som fortfarande väntar
 - Sidan Enheter visar varje enhet som ett kort
 - Chattar, skärmen för ny chatt och Inställningar ser ut som i de andra apparna
+- Zooma in på bilder: alla bildvisare zoomar och panorerar
+- Claude förblir inloggad som standard: en ny inloggning varar ett år
+- Breda tabeller rullar i sidled i stället för att klämma ihop kolumnerna

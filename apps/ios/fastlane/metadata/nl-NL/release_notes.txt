@@ -14,3 +14,6 @@
 - Sluit een vraag of plan die je niet wilt beantwoorden; de threadkop toont wat nog wacht
 - De pagina Apparaten toont elk apparaat als kaart
 - Chats, het scherm voor een nieuwe chat en Instellingen zien eruit als in de andere apps
+- Inzoomen op afbeeldingen: elke afbeeldingsviewer zoomt en schuift
+- Claude blijft standaard ingelogd: een nieuwe login houdt een jaar
+- Brede tabellen scrollen zijwaarts in plaats van hun kolommen samen te persen

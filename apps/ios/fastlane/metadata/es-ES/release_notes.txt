@@ -14,3 +14,6 @@
 - Descarta una pregunta o un plan que no quieras responder; la cabecera del hilo muestra lo que sigue pendiente
 - La página Dispositivos muestra cada dispositivo como una tarjeta
 - Los chats, la pantalla de nuevo chat y Ajustes se ven igual que en las otras apps
+- Amplía las imágenes: todos los visores de imágenes hacen zoom y desplazamiento
+- Claude sigue con la sesión iniciada por defecto: un nuevo inicio de sesión dura un año
+- Las tablas anchas se desplazan en horizontal en lugar de comprimir sus columnas

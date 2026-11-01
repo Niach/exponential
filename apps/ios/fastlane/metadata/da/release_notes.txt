@@ -14,3 +14,6 @@
 - Luk et spørgsmål eller en plan, du ikke vil besvare; trådens overskrift viser, hvad der stadig venter
 - Siden Enheder viser hver enhed som et kort
 - Chats, skærmen til ny chat og Indstillinger ser ud som i de andre apps
+- Zoom ind på billeder: alle billedfremvisere kan zoome og panorere
+- Claude forbliver logget ind som standard: et nyt login holder et år
+- Brede tabeller ruller sidelæns i stedet for at klemme kolonnerne

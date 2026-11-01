@@ -14,3 +14,6 @@
 - Odbacite pitanje ili plan na koji ne želite odgovoriti; zaglavlje niti prikazuje što još čeka
 - Stranica Uređaji prikazuje svaki uređaj kao karticu
 - Razgovori, zaslon novog razgovora i Postavke izgledaju kao u ostalim aplikacijama
+- Zumiranje slika: svaki preglednik slika zumira i pomiče
+- Claude prema zadanim postavkama ostaje prijavljen: nova prijava traje godinu dana
+- Široke tablice pomiču se vodoravno umjesto da sabijaju stupce

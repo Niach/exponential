@@ -14,3 +14,6 @@
 - Zavřete otázku nebo plán, na který nechcete odpovídat; záhlaví vlákna ukazuje, co ještě čeká
 - Stránka Zařízení zobrazuje každé zařízení jako kartu
 - Chaty, obrazovka nového chatu a Nastavení vypadají stejně jako v ostatních aplikacích
+- Přibližování obrázků: každý prohlížeč obrázků umí přiblížit a posouvat
+- Claude zůstává ve výchozím stavu přihlášený: nové přihlášení vydrží rok
+- Široké tabulky se posouvají do stran, místo aby mačkaly sloupce

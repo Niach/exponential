@@ -14,3 +14,6 @@
 - Dismiss a question or plan you don't want to answer; the thread header shows what's still waiting
 - The Devices page shows each device as a card
 - Chats, the new-chat screen and Settings look the same as on the other apps
+- Zoom into pictures: every picture viewer zooms and pans
+- Claude stays signed in by default: a new login lasts a year
+- Wide tables scroll sideways instead of squeezing their columns

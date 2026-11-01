@@ -14,3 +14,6 @@
 - Hylkää kysymys tai suunnitelma, johon et halua vastata; ketjun otsikkorivi näyttää, mikä vielä odottaa
 - Laitteet-sivu näyttää jokaisen laitteen korttina
 - Keskustelut, uuden keskustelun näkymä ja Asetukset näyttävät samalta kuin muissa sovelluksissa
+- Kuvien zoomaus: jokainen kuvankatselin zoomaa ja panoroi
+- Claude pysyy oletuksena kirjautuneena: uusi kirjautuminen kestää vuoden
+- Leveät taulukot vierivät sivuttain sarakkeiden puristamisen sijaan
