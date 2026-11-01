@@ -302,6 +302,12 @@ impl Node {
         chat::send(&self.shared, peer, body).await
     }
 
+    /// The path our chat link to `peer` runs on right now (`None` = no
+    /// live link yet).
+    pub fn chat_path(&self, peer: &EndpointId) -> Option<chat::ChatPath> {
+        self.shared.chat.path(peer)
+    }
+
     // --- files ---------------------------------------------------------
 
     pub async fn blob_add(&self, data: Vec<u8>) -> Result<BlobRef> {

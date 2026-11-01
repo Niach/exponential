@@ -35,11 +35,17 @@
 //!    each attempt re-mints (tickets last ~60s). Backoff resets after a
 //!    connection lived ≥ [`crate::BACKOFF_RESET_AFTER`] (outliving the ticket
 //!    window proves the path — there is no `online` ack frame to key on).
-//! 6. keepalive (EXP-414): a [`PING_INTERVAL`] outbound ping plus a
+//! 6. P2P FALLBACK (`steer-enet.json` `fallback`): `online` carries
+//!    `tunnel: 1`, so the relay may open sealed TUNNELS to this device on
+//!    this socket (`tunnel_open` / `tunnel_data` / `tunnel_close`); each is
+//!    served by [`crate::tunnel::serve`] like an eNet viewer, its envelopes
+//!    sealed to the session's tree key and queued back up this socket.
+//! 7. keepalive (EXP-414): a [`PING_INTERVAL`] outbound ping plus a
 //!    [`LIVENESS_TIMEOUT`] inbound-silence watchdog — the socket would
 //!    otherwise idle silently forever and a NAT-killed path would leave the
 //!    device offline on the relay while this side still believes it's online.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -361,13 +367,11 @@ async fn connect_and_listen(
         Err(crate::DialError::Other(reason)) => return ConnectionOutcome::ConnectFailed(reason),
     };
 
-    // §8.3 #3 — announce presence immediately on open. EXP-672: the deviceId
-    // and nothing else; the label, the agent lists, the launch defaults and
-    // the caps every start gates on all ride `devices.register`.
-    let online = ClientFrame::Online {
-        device_id: &device.device_id,
-    }
-    .to_json();
+    // §8.3 #3 — announce presence immediately on open. EXP-672: the deviceId;
+    // the label, the agent lists, the launch defaults and the caps every
+    // start gates on all ride `devices.register`. P2P fallback: `tunnel: 1`
+    // = this device serves sealed tunnels (an older one omits it).
+    let online = online_frame(&device.device_id);
     if let Err(err) = ws.send(Message::Text(online)).await {
         return ConnectionOutcome::ConnectFailed(crate::redact_ticket(&err.to_string()));
     }
@@ -388,6 +392,10 @@ async fn connect_and_listen(
     // on the next turn. Per connection: a reply queued for a socket that has
     // since dropped dies with it (the relay's ask times out).
     let (out_tx, out_rx) = flume::unbounded::<String>();
+    // P2P fallback: this socket's open tunnels → their served data queues.
+    // Dropping a queue (tunnel_close, or this connection ending) ends the
+    // tunnel's viewer.
+    let mut tunnels: HashMap<String, flume::Sender<String>> = HashMap::new();
 
     loop {
         tokio::select! {
@@ -423,6 +431,12 @@ async fn connect_and_listen(
                     last_rx = Instant::now();
                 }
                 match msg {
+                    Some(Ok(Message::Text(text))) if text.contains("\"tunnel_") => {
+                        match crate::tunnel::TunnelFrame::parse(&text) {
+                            Some(frame) => tunnel_frame(frame, &mut tunnels, &out_tx),
+                            None => log::debug!("steer control: malformed tunnel frame ignored"),
+                        }
+                    }
                     Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
                         // EXP-481: the server persisted new work — pull now.
                         // Non-blocking by contract (see [`CheckInFn`]).
@@ -475,6 +489,44 @@ async fn connect_and_listen(
                     None => return ConnectionOutcome::Dropped { lived: established.elapsed() },
                 }
             }
+        }
+    }
+}
+
+/// `{t:"online", deviceId, tunnel: 1}`.
+fn online_frame(device_id: &str) -> String {
+    let mut frame: serde_json::Value =
+        serde_json::from_str(&ClientFrame::Online { device_id }.to_json()).expect("the online frame is JSON");
+    frame["tunnel"] = serde_json::Value::from(1);
+    frame.to_string()
+}
+
+/// One relay tunnel frame: `tunnel_open` starts serving it, `tunnel_data`
+/// feeds it, `tunnel_close` ends it.
+fn tunnel_frame(
+    frame: crate::tunnel::TunnelFrame,
+    tunnels: &mut HashMap<String, flume::Sender<String>>,
+    out_tx: &flume::Sender<String>,
+) {
+    use crate::tunnel::TunnelFrame;
+    match frame {
+        TunnelFrame::Open(open) => {
+            let (data_tx, data_rx) = flume::unbounded();
+            if let Some(previous) = tunnels.insert(open.tunnel_id.clone(), data_tx) {
+                drop(previous);
+            }
+            tokio::spawn(crate::tunnel::serve(open, out_tx.clone(), data_rx));
+        }
+        TunnelFrame::Data { tunnel_id, data } => match tunnels.get(&tunnel_id) {
+            Some(tx) => {
+                if tx.send(data).is_err() {
+                    tunnels.remove(&tunnel_id);
+                }
+            }
+            None => log::debug!("steer control: data for an unknown tunnel {tunnel_id} ignored"),
+        },
+        TunnelFrame::Close { tunnel_id } => {
+            tunnels.remove(&tunnel_id);
         }
     }
 }
@@ -570,6 +622,12 @@ mod tests {
             other => panic!("expected RetryAfter, got {other:?}"),
         }
         assert_eq!(backoff.bound(), Duration::from_millis(500), "base doubled once");
+    }
+
+    #[test]
+    fn online_announces_the_tunnel() {
+        let frame: serde_json::Value = serde_json::from_str(&online_frame("dev-1")).unwrap();
+        assert_eq!(frame, serde_json::json!({"t": "online", "deviceId": "dev-1", "tunnel": 1}));
     }
 
     #[test]

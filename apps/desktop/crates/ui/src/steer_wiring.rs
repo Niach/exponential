@@ -258,6 +258,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let on_call_ring: steer::control_channel::CallRingFn = Arc::new(move |ring| {
                 let _ = ring_tx.send(ring);
             });
+            // P2P analytics (`connStats`): this app's views and served feeds.
+            steer::conn_stats::install(runtime.handle(), Arc::clone(&trpc) as _, "desktop");
             let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(trpc));
             let handle = spawn_control_channel(
                 &runtime,
@@ -282,6 +284,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
 /// Stop the control socket for `account_id` (§8.3) — from
 /// `session::sign_out_active`.
 pub fn stop_control_channel(account_id: &str, cx: &mut App) {
+    steer::conn_stats::uninstall();
     crate::enet_wiring::stop(account_id, cx);
     if let Some(channels) = ControlChannels::global_ref(cx) {
         channels.update(cx, |channels, _| {

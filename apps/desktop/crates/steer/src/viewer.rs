@@ -3,10 +3,11 @@
 //!
 //! [`publisher`] serves a session this machine is hosting; this module is
 //! the other end of that wire, what web/iOS/Android have had since EXP-249.
-//! VAPP-43: it talks to the session's DEVICE over eNet's chat channel and
-//! nothing else (`fixtures/steer-enet.json`): the endpoints
+//! VAPP-43: it talks to the session's DEVICE over eNet's chat channel
+//! (`fixtures/steer-enet.json`), falling back to a sealed relay tunnel (see
+//! the carriers below): the endpoints
 //! `installs.forSession` names, newest first, each sent a `join` until one
-//! answers with its replay up to `activity_synced` within
+//! answers with its `activity_reset` within
 //! [`enet_steer::JOIN_TIMEOUT`]. It turns everything that arrives into
 //! [`ViewerEvent`]s on a channel, and sends steering back up: whole composer
 //! messages and semantic answers (EXP-730: a question is answered ONLY by
@@ -21,35 +22,54 @@
 //!
 //! [`SteerFeed`]: crate::feed::SteerFeed
 //!
+//! ## The carriers (P2P stabilisation, `steer-enet.json` `fallback`)
+//!
+//! eNet is the PRIMARY carrier; a sealed relay TUNNEL (`tunnel.rs`, the
+//! same envelopes sealed to the session tree key) is its automatic,
+//! invisible fallback, run by the one carrier rule
+//! ([`tunnel::carrier_step`], replayed against `carrierCases`): eNet first;
+//! the relay leg opens when eNet has delivered nothing within
+//! [`tunnel::STALL`], has no feed, or drops mid-stream; eNet keeps
+//! redialing in the background and takes over on its `activity_reset`, the
+//! relay closing once eNet delivers on. Frames apply only from the active
+//! carrier; steering goes out on it. No relay leg (a keyless tree, no
+//! secret here, the device offline or older on the relay) = eNet only.
+//!
 //! ## The reconnect rules
 //!
 //! | signal | meaning | what happens |
 //! |---|---|---|
-//! | NO FEED: no node, no endpoint, every endpoint refused, or no `activity_synced` in time | the device is not reachable (or not running the session yet) | a live row: [`ViewerPhase::Starting`] + jittered 3s→30s redial; an ended row: [`ViewerPhase::Ended`] `device_offline`, NOT terminal (VAPP-169): a silent redial on a kick (presence online, a wakeup) or every [`enet_steer::STALE`] |
-//! | `bye` | the run (or a stored replay, `history`) is finished | [`ViewerPhase::Ended`], stop |
-//! | `error` after the join | the device stopped serving the session | treated as NO FEED |
-//! | [`enet_steer::STALE`] of silence while live | the feed is dead, not the agent quiet (the device beats every 30s) | silent re-join |
-//! | a failed send, a closed subscription | the device went away | a silent redial on the backoff; [`ViewerPhase::Reconnecting`] only per `lostBanner` (EXP-1487) |
+//! | NO FEED: both carriers failed (eNet: no node, no endpoint, every endpoint refused, no `activity_reset` in time; relay: unavailable or dropped) | the device is not reachable (or not running the session yet) | a live row: [`ViewerPhase::Starting`] + jittered 3s→30s eNet redial (each redial retries the relay leg too); an ended row: [`ViewerPhase::Ended`] `device_offline`, NOT terminal (VAPP-169): a silent redial on a kick (presence online, a wakeup) or every [`enet_steer::STALE`] |
+//! | `bye` on the active carrier | the run (or a stored replay, `history`) is finished | [`ViewerPhase::Ended`], stop |
+//! | `error`, [`enet_steer::STALE`] of silence, a failed send, no `activity_synced` in time | that carrier's feed is gone | the other carrier takes the feed (eNet → relay at once); the phase holds |
 //!
-//! EXP-1487 (`lostBanner`): a live feed that drops (any of the above) holds
-//! its phase while it redials; "Connection lost" ([`ViewerPhase::Reconnecting`])
-//! shows only after [`enet_steer::LOST_GRACE`] down AND
-//! [`enet_steer::LOST_FAILED_REDIALS`] failed redials since the drop.
+//! EXP-1487 (`lostBanner`): with NEITHER carrier active after a live feed,
+//! the phase holds while both redial; "Connection lost"
+//! ([`ViewerPhase::Reconnecting`]) shows only after
+//! [`enet_steer::LOST_GRACE`] AND [`enet_steer::LOST_FAILED_REDIALS`]
+//! failed redials (of both carriers) since.
 //!
-//! "Connected" here means JOINED: everything the handle sends is gated on
-//! the join answer (web gates the composer on the `live` phase for the same
-//! reason).
+//! Every open is one `steer.view` (`conn_stats.rs`): `settled` at the first
+//! applied frame (or [`conn_stats::SETTLE_AFTER`] without one), `ended` when
+//! the viewer closes.
+//!
+//! "Connected" here means JOINED: a carrier is active (its device answered
+//! the join); everything the handle sends is gated on it (web gates the
+//! composer on the `live` phase for the same reason).
 //!
 //! [`enet_steer::STALE`]: crate::enet_steer::STALE
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use api::error::ApiError;
+use api::steer::TunnelTicketResult;
 
+use crate::conn_stats;
 use crate::enet_steer;
+use crate::tunnel::{self, Carrier, CarrierAction, CarrierEvent, CarrierState, TunnelKeys};
 use crate::frames::{ActivityEvent, ClientFrame, ViewerFrame};
 use crate::{Backoff, SteerRuntime};
 
@@ -82,6 +102,14 @@ pub struct ViewerTimings {
     /// EXP-1487: how long a dropped live feed redials silently at least
     /// (the fixture's `lostBanner.graceMs`).
     pub lost_grace: Duration,
+    /// P2P fallback: no eNet frame by then opens the relay leg (`stallMs`).
+    pub stall: Duration,
+    /// A join (either carrier) with no `activity_synced` by then is no feed.
+    pub join_timeout: Duration,
+    /// A dropped relay leg reopens after these (`relayRetryMs`).
+    pub relay_retry: Vec<Duration>,
+    /// A view with no first frame by then settles `failed` (`connStats`).
+    pub settle_after: Duration,
 }
 
 impl Default for ViewerTimings {
@@ -93,6 +121,10 @@ impl Default for ViewerTimings {
             liveness_tick: Duration::from_secs(5),
             offline_redial: enet_steer::STALE,
             lost_grace: enet_steer::LOST_GRACE,
+            stall: tunnel::STALL,
+            join_timeout: enet_steer::JOIN_TIMEOUT,
+            relay_retry: tunnel::RELAY_RETRY.to_vec(),
+            settle_after: conn_stats::SETTLE_AFTER,
         }
     }
 }
@@ -104,6 +136,11 @@ pub trait EnetViewerSource: Send + Sync + 'static {
     /// BLOCKING (`installs.forSession`): the endpoint ids (hex) of the
     /// installs running `session_id`, newest first.
     fn endpoints(&self, session_id: &str) -> Result<Vec<String>, ApiError>;
+    /// BLOCKING (`steer.tunnelTicket`): the sealed relay tunnel's ticket,
+    /// eNet's fallback carrier. Default: no relay leg.
+    fn tunnel_ticket(&self, _session_id: &str) -> Result<TunnelTicketResult, ApiError> {
+        Ok(TunnelTicketResult::Unavailable)
+    }
 }
 
 /// The production source: this account's install node and the registry's
@@ -123,6 +160,10 @@ impl EnetViewerSource for InstallViewerSource {
             .into_iter()
             .map(|install| install.endpoint_id)
             .collect())
+    }
+
+    fn tunnel_ticket(&self, session_id: &str) -> Result<TunnelTicketResult, ApiError> {
+        api::steer::tunnel_ticket(&self.trpc, session_id)
     }
 }
 
@@ -275,9 +316,20 @@ pub struct ViewerHandle {
     connected: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
     session_ended: Arc<AtomicBool>,
+    carrier: Arc<AtomicU8>,
 }
 
 impl ViewerHandle {
+    /// The carrier whose frames apply right now (diagnostics and tests:
+    /// carriers are invisible in the UI).
+    pub fn carrier(&self) -> Option<Carrier> {
+        match self.carrier.load(Ordering::SeqCst) {
+            1 => Some(Carrier::Enet),
+            2 => Some(Carrier::Relay),
+            _ => None,
+        }
+    }
+
     /// Send one message to the agent: the text (chunked), then a SEPARATE
     /// `\r` frame. Bundled into one write, TUIs read the trailing return as
     /// part of a PASTE and insert a newline instead of submitting (EXP-72).
@@ -503,12 +555,14 @@ pub fn spawn_viewer_with(
     let running = Arc::new(AtomicBool::new(true));
     let connected = Arc::new(AtomicBool::new(false));
     let session_ended = Arc::new(AtomicBool::new(false));
+    let carrier = Arc::new(AtomicU8::new(0));
     let handle = ViewerHandle {
         cmd_tx,
         events_tx: events_tx.clone(),
         connected: connected.clone(),
         running: running.clone(),
         session_ended: session_ended.clone(),
+        carrier: carrier.clone(),
     };
     runtime.handle().spawn(run_viewer_loop(
         session_id,
@@ -519,6 +573,7 @@ pub fn spawn_viewer_with(
         running,
         connected,
         session_ended,
+        carrier,
     ));
     handle
 }
@@ -527,21 +582,51 @@ pub fn spawn_viewer_with(
 // The task
 // ---------------------------------------------------------------------------
 
-/// How one feed ended — the whole reconnect policy keys on this.
+/// A failure label (`connStats.errorClasses`).
+type Class = &'static str;
+
+/// How one carrier leg failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LegFailure {
+    /// eNet: nothing answered the join (no node, no endpoint, refused, no
+    /// `activity_reset` in time).
+    NoFeed(Class),
+    /// The leg had a feed (or a socket) and lost it.
+    Dropped(Class),
+    /// Relay: there is no relay leg for this session right now.
+    Unavailable(Class),
+}
+
+impl LegFailure {
+    fn class(self) -> Class {
+        match self {
+            LegFailure::NoFeed(class) | LegFailure::Dropped(class) | LegFailure::Unavailable(class) => class,
+        }
+    }
+}
+
+/// What a leg task tells the loop.
 #[derive(Debug)]
-enum ConnEnd {
-    /// The handle said stop.
-    Shutdown,
-    /// The handle said redial now.
-    Kicked,
-    /// `bye`: the run (or its stored replay) is finished.
-    Ended(Option<String>),
-    /// NO FEED: nothing answered the join, or the device stopped serving.
-    NoFeed,
-    /// Live but mute past the staleness window. Silent re-join.
-    Stale,
-    /// A failed send.
-    Dropped(Option<String>),
+enum LegMsg {
+    /// One device frame. `path` = the `connStats` path, on the leg's
+    /// `activity_reset`.
+    Frame { carrier: Carrier, gen: u64, text: String, path: Option<&'static str> },
+    Failed { carrier: Carrier, gen: u64, failure: LegFailure },
+}
+
+/// What the loop asks of a leg.
+enum LegOut {
+    Frames(Vec<String>),
+    /// Re-send `join` (the stand-by relay becoming the feed).
+    Join,
+    /// `leave` and end.
+    Close,
+}
+
+/// A running leg task (dropping it ends the task: its `out` disconnects).
+struct Leg {
+    gen: u64,
+    out: flume::Sender<LegOut>,
 }
 
 /// Emits phase changes without repeating itself.
@@ -564,6 +649,99 @@ impl Phases {
     }
 }
 
+/// The `steer.view` numbers of this open (`connStats`).
+struct ViewStats {
+    opened: Instant,
+    /// open → the first applied frame, and the carrier that delivered it.
+    first: Option<(u64, &'static str)>,
+    settled: bool,
+    fallbacks: u32,
+    reconnects: u32,
+    failures: std::collections::BTreeMap<&'static str, u32>,
+    last_error: Option<&'static str>,
+}
+
+impl ViewStats {
+    fn new() -> ViewStats {
+        ViewStats {
+            opened: Instant::now(),
+            first: None,
+            settled: false,
+            fallbacks: 0,
+            reconnects: 0,
+            failures: Default::default(),
+            last_error: None,
+        }
+    }
+
+    fn failed(&mut self, class: Class) {
+        let class = conn_stats::error_class(class);
+        *self.failures.entry(class).or_default() += 1;
+        self.last_error = Some(class);
+    }
+
+    fn data(&self, phase: &'static str) -> conn_stats::ConnData {
+        conn_stats::ConnData {
+            phase,
+            outcome: if self.first.is_some() { "ok" } else { "failed" },
+            path: self.first.map(|(_, path)| path),
+            first_frame_ms: self.first.map(|(ms, _)| ms),
+            error_class: if self.first.is_some() { None } else { self.last_error.or(Some("other")) },
+            ..Default::default()
+        }
+    }
+
+    /// `settled`, once: the first frame, or the settle window without one.
+    fn settle(&mut self) {
+        if self.settled {
+            return;
+        }
+        self.settled = true;
+        conn_stats::record(conn_stats::KIND_VIEW, conn_stats::SOURCE_VIEWER, self.data("settled"));
+    }
+
+    fn ended(&mut self) {
+        let mut data = self.data("ended");
+        data.error_class = self.last_error.filter(|_| self.first.is_none()).or(data.error_class);
+        data.duration_ms = Some(self.opened.elapsed().as_millis() as u64);
+        data.fallbacks = Some(self.fallbacks);
+        data.reconnects = Some(self.reconnects);
+        data.failures = (!self.failures.is_empty()).then(|| self.failures.clone());
+        conn_stats::record(conn_stats::KIND_VIEW, conn_stats::SOURCE_VIEWER, data);
+    }
+}
+
+/// The viewer loop's state: the carrier rule ([`tunnel::carrier_step`])
+/// over an eNet leg and a sealed relay leg, the phases and the analytics.
+struct Run {
+    session_id: String,
+    enet: Option<Arc<dyn EnetViewerSource>>,
+    events_tx: flume::Sender<ViewerEvent>,
+    timings: ViewerTimings,
+    running: Arc<AtomicBool>,
+    connected: Arc<AtomicBool>,
+    session_ended: Arc<AtomicBool>,
+    carrier_flag: Arc<AtomicU8>,
+    phases: Phases,
+    backoff: Backoff,
+    carriers: CarrierState,
+    enet_leg: Option<Leg>,
+    relay_leg: Option<Leg>,
+    legs_tx: flume::Sender<LegMsg>,
+    gen: u64,
+    stall_at: Option<Instant>,
+    enet_redial_at: Option<Instant>,
+    relay_reopen_at: Option<Instant>,
+    relay_attempt: usize,
+    /// The last eNet / relay attempt failed (cleared by its reset).
+    enet_failed: bool,
+    relay_failed: bool,
+    /// EXP-1487: since when NEITHER carrier is active after a live feed,
+    /// and how many redials (of both) failed since.
+    lost: Option<(Instant, u32)>,
+    stats: ViewStats,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_viewer_loop(
     session_id: String,
@@ -574,97 +752,68 @@ async fn run_viewer_loop(
     running: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
     session_ended: Arc<AtomicBool>,
+    carrier_flag: Arc<AtomicU8>,
 ) {
-    let mut phases = Phases {
-        tx: events_tx.clone(),
-        current: None,
+    let (legs_tx, legs_rx) = flume::unbounded();
+    let mut run = Run {
+        session_id,
+        enet,
+        phases: Phases { tx: events_tx.clone(), current: None },
+        events_tx,
+        backoff: Backoff::new(timings.retry_base, timings.retry_cap),
+        timings,
+        running,
+        connected,
+        session_ended,
+        carrier_flag,
+        carriers: CarrierState::INITIAL,
+        enet_leg: None,
+        relay_leg: None,
+        legs_tx,
+        gen: 0,
+        stall_at: None,
+        enet_redial_at: None,
+        relay_reopen_at: None,
+        relay_attempt: 0,
+        enet_failed: false,
+        relay_failed: false,
+        lost: None,
+        stats: ViewStats::new(),
     };
-    phases.set(ViewerPhase::Connecting);
-    let mut backoff = Backoff::new(timings.retry_base, timings.retry_cap);
-    // EXP-1487: since when a LIVE feed is down, and how many redials since
-    // failed. `None` = never joined yet, or joined again.
-    let mut lost: Option<(Instant, u32)> = None;
-
-    while running.load(Ordering::SeqCst) {
-        let end = match join_over_enet(enet.as_ref(), &session_id).await {
-            Some(mut link) => {
-                lost = None;
-                let end =
-                    pump_connection(&mut link, &events_tx, &mut phases, &cmd_rx, &timings, &mut backoff, &connected)
-                        .await;
-                if !matches!(end, ConnEnd::Shutdown | ConnEnd::Ended(_) | ConnEnd::Kicked) {
-                    lost = Some((Instant::now(), 0));
-                }
-                end
-            }
-            None => {
-                if let Some((_, failed)) = lost.as_mut() {
-                    *failed += 1;
-                }
-                ConnEnd::NoFeed
-            }
-        };
-        // EXP-1487 (`lostBanner`): a dropped live feed reads "Connection
-        // lost" only past the grace AND the failed redials.
-        let show_lost = lost.is_some_and(|(since, failed)| {
-            since.elapsed() >= timings.lost_grace && failed >= enet_steer::LOST_FAILED_REDIALS
-        });
-
-        if connected.swap(false, Ordering::SeqCst) {
-            let _ = events_tx.send(ViewerEvent::Connected(false));
-        }
-
-        // The delay this end earns before the next join, and whether there
-        // IS a next join.
-        let delay = match end {
-            ConnEnd::Shutdown => {
-                running.store(false, Ordering::SeqCst);
-                return;
-            }
-            ConnEnd::Ended(outcome) => {
-                stop(&running, &mut phases, ViewerPhase::Ended { outcome });
-                return;
-            }
-            ConnEnd::NoFeed => {
-                // VAPP-43: the relay carries no session content, so there is
-                // no fallback. An ended row's transcript lives on its device;
-                // a live one may still be connecting (an `in_review` run is
-                // still alive and steerable, EXP-194).
-                // VAPP-169: the device-offline copy is not terminal: redial
-                // under it on a kick or every `offline_redial`, silently
-                // (the phase holds; NO FEED again re-sets the same one).
-                if session_ended.load(Ordering::SeqCst) {
-                    phases.set(ViewerPhase::device_offline());
-                    timings.offline_redial
-                } else {
-                    // EXP-1487: a feed that WAS live redials under its phase
-                    // until the lost rule says otherwise.
-                    match lost {
-                        Some(_) if show_lost => phases.set(ViewerPhase::Reconnecting),
-                        Some(_) => {}
-                        None => phases.set(ViewerPhase::Starting),
-                    }
-                    backoff.next_delay_equal_jitter()
-                }
-            }
-            // The user (or a wakeup) asked: no delay, no phase flap.
-            ConnEnd::Kicked => Duration::ZERO,
-            ConnEnd::Stale => {
-                // Live on paper over a feed that said nothing for two
-                // keepalives: re-join under the live phase.
-                log::debug!("steer viewer: silent re-join (no frames for {:?})", timings.live_stale);
-                Duration::ZERO
-            }
-            ConnEnd::Dropped(reason) => {
-                if let Some(reason) = reason {
-                    log::debug!("steer viewer: dropped: {reason}");
-                }
-                // EXP-1487: the drop itself is silent; the redials decide.
-                backoff.next_delay_equal_jitter()
-            }
-        };
-        if wait(delay, &cmd_rx, &running).await.is_break() {
+    run.phases.set(ViewerPhase::Connecting);
+    run.step(CarrierEvent::Start);
+    loop {
+        if !run.running.load(Ordering::SeqCst) {
+            run.close();
             return;
+        }
+        let deadline = run.next_deadline();
+        tokio::select! {
+            cmd = cmd_rx.recv_async() => match cmd {
+                Ok(ViewerCmd::Frames(frames)) => {
+                    // Steering goes out on the ACTIVE carrier (a failed send
+                    // comes back as that leg's drop).
+                    if let Some(leg) = run.active_leg() {
+                        let _ = leg.out.send(LegOut::Frames(frames));
+                    }
+                }
+                Ok(ViewerCmd::Kick) => run.kick(),
+                Ok(ViewerCmd::Shutdown) | Err(_) => {
+                    run.running.store(false, Ordering::SeqCst);
+                    run.close();
+                    return;
+                }
+            },
+            msg = legs_rx.recv_async() => {
+                // `run` holds a sender: the channel never closes.
+                let Ok(msg) = msg else { continue };
+                if let Some(outcome) = run.leg_msg(msg) {
+                    run.close();
+                    stop(&run.running, &mut run.phases, ViewerPhase::Ended { outcome });
+                    return;
+                }
+            }
+            _ = tokio::time::sleep_until(deadline.into()) => run.timers(),
         }
     }
 }
@@ -677,120 +826,504 @@ fn stop(running: &Arc<AtomicBool>, phases: &mut Phases, phase: ViewerPhase) {
     phases.set(phase);
 }
 
-/// One joined feed's select loop.
-async fn pump_connection(
-    link: &mut EnetLink,
-    events_tx: &flume::Sender<ViewerEvent>,
-    phases: &mut Phases,
-    cmd_rx: &flume::Receiver<ViewerCmd>,
+impl Run {
+    fn active_leg(&self) -> Option<&Leg> {
+        match self.carriers.active? {
+            Carrier::Enet => self.enet_leg.as_ref(),
+            Carrier::Relay => self.relay_leg.as_ref(),
+        }
+    }
+
+    fn next_deadline(&self) -> Instant {
+        let settle = (!self.stats.settled).then(|| self.stats.opened + self.timings.settle_after);
+        [self.stall_at, self.enet_redial_at, self.relay_reopen_at, settle]
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or_else(|| Instant::now() + Duration::from_secs(3_600))
+    }
+
+    /// One carrier event: the rule's next state, and its side actions run.
+    /// Returns whether the event's frame applies.
+    fn step(&mut self, event: CarrierEvent) -> bool {
+        let before = self.carriers.active;
+        let (next, actions) = tunnel::carrier_step(self.carriers, event);
+        self.carriers = next;
+        let mut apply = false;
+        for action in actions {
+            match action {
+                CarrierAction::DialEnet => self.spawn_enet(),
+                CarrierAction::ArmStall => self.stall_at = Some(Instant::now() + self.timings.stall),
+                CarrierAction::OpenRelay => self.spawn_relay(),
+                CarrierAction::RejoinRelay => match &self.relay_leg {
+                    Some(leg) => {
+                        let _ = leg.out.send(LegOut::Join);
+                    }
+                    None => self.spawn_relay(),
+                },
+                CarrierAction::CloseRelay => {
+                    if let Some(leg) = self.relay_leg.take() {
+                        let _ = leg.out.send(LegOut::Close);
+                    }
+                    self.relay_attempt = 0;
+                }
+                CarrierAction::ReopenRelayLater => {
+                    self.relay_leg = None;
+                    let retry = &self.timings.relay_retry;
+                    let delay = retry[self.relay_attempt.min(retry.len() - 1)];
+                    self.relay_attempt += 1;
+                    self.relay_reopen_at = Some(Instant::now() + delay);
+                }
+                CarrierAction::RedialEnetLater => {
+                    self.enet_leg = None;
+                    // VAPP-169: under the device-offline copy (both carriers
+                    // failed, the row ended) eNet redials on the slow beat.
+                    let delay = if self.session_ended.load(Ordering::SeqCst) && self.relay_failed {
+                        self.timings.offline_redial
+                    } else {
+                        self.backoff.next_delay_equal_jitter()
+                    };
+                    self.enet_redial_at = Some(Instant::now() + delay);
+                }
+                CarrierAction::Apply => apply = true,
+                CarrierAction::Drop => {}
+            }
+        }
+        self.sync_active(before);
+        apply
+    }
+
+    /// The active carrier changed: `Connected`, the lost clock, the flag.
+    fn sync_active(&mut self, before: Option<Carrier>) {
+        let now = self.carriers.active;
+        self.carrier_flag.store(carrier_code(now), Ordering::SeqCst);
+        match (before, now) {
+            (None, Some(_)) => {
+                if self.stats.first.is_some() {
+                    self.stats.reconnects += 1;
+                }
+                self.lost = None;
+                if !self.connected.swap(true, Ordering::SeqCst) {
+                    let _ = self.events_tx.send(ViewerEvent::Connected(true));
+                }
+            }
+            (Some(_), None) => {
+                if self.stats.first.is_some() {
+                    self.lost = Some((Instant::now(), 0));
+                }
+                if self.connected.swap(false, Ordering::SeqCst) {
+                    let _ = self.events_tx.send(ViewerEvent::Connected(false));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn next_gen(&mut self) -> u64 {
+        self.gen += 1;
+        self.gen
+    }
+
+    fn spawn_enet(&mut self) {
+        if self.enet_leg.is_some() {
+            return;
+        }
+        self.enet_redial_at = None;
+        let gen = self.next_gen();
+        let (out, out_rx) = flume::unbounded();
+        self.enet_leg = Some(Leg { gen, out });
+        tokio::spawn(enet_leg(
+            self.enet.clone(),
+            self.session_id.clone(),
+            gen,
+            self.timings.clone(),
+            self.legs_tx.clone(),
+            out_rx,
+        ));
+    }
+
+    fn spawn_relay(&mut self) {
+        self.relay_reopen_at = None;
+        self.stats.fallbacks += 1;
+        let gen = self.next_gen();
+        let (out, out_rx) = flume::unbounded();
+        if let Some(previous) = self.relay_leg.replace(Leg { gen, out }) {
+            let _ = previous.out.send(LegOut::Close);
+        }
+        tokio::spawn(relay_leg(
+            self.enet.clone(),
+            self.session_id.clone(),
+            gen,
+            self.timings.clone(),
+            self.legs_tx.clone(),
+            out_rx,
+        ));
+    }
+
+    fn current_gen(&self, carrier: Carrier) -> Option<u64> {
+        match carrier {
+            Carrier::Enet => self.enet_leg.as_ref().map(|leg| leg.gen),
+            Carrier::Relay => self.relay_leg.as_ref().map(|leg| leg.gen),
+        }
+    }
+
+    /// One leg message. `Some(outcome)` = the active carrier said `bye`.
+    fn leg_msg(&mut self, msg: LegMsg) -> Option<Option<String>> {
+        match msg {
+            LegMsg::Frame { carrier, gen, text, path } => {
+                if self.current_gen(carrier) != Some(gen) {
+                    return None;
+                }
+                let reset = ViewerFrame::parse(&text).is_some_and(|frame| matches!(frame, ViewerFrame::ActivityReset));
+                let event = match (carrier, reset) {
+                    (Carrier::Enet, true) => CarrierEvent::EnetReset,
+                    (Carrier::Enet, false) => CarrierEvent::EnetSynced,
+                    (Carrier::Relay, true) => CarrierEvent::RelayReset,
+                    (Carrier::Relay, false) => CarrierEvent::RelaySynced,
+                };
+                if reset {
+                    match carrier {
+                        Carrier::Enet => self.enet_failed = false,
+                        Carrier::Relay => {
+                            self.relay_failed = false;
+                            self.relay_attempt = 0;
+                        }
+                    }
+                }
+                if !self.step(event) {
+                    return None;
+                }
+                if reset && carrier == Carrier::Enet && self.relay_leg.is_some() {
+                    log::info!("steer viewer: {} back on eNet", self.session_id);
+                }
+                self.apply(&text, path.unwrap_or(match carrier {
+                    Carrier::Enet => conn_stats::PATH_DIRECT,
+                    Carrier::Relay => conn_stats::PATH_SERVER_FALLBACK,
+                }))
+            }
+            LegMsg::Failed { carrier, gen, failure } => {
+                if self.current_gen(carrier) != Some(gen) {
+                    return None;
+                }
+                log::debug!("steer viewer: {carrier:?} leg of {} failed: {failure:?}", self.session_id);
+                self.stats.failed(failure.class());
+                let event = match (carrier, failure) {
+                    (Carrier::Enet, LegFailure::NoFeed(_)) => CarrierEvent::EnetNoFeed,
+                    (Carrier::Enet, _) => CarrierEvent::EnetDropped,
+                    // A relay that WAS the feed and goes away is a drop.
+                    (Carrier::Relay, LegFailure::Unavailable(_)) if self.carriers.active != Some(Carrier::Relay) => {
+                        CarrierEvent::RelayUnavailable
+                    }
+                    (Carrier::Relay, _) => CarrierEvent::RelayDropped,
+                };
+                match carrier {
+                    Carrier::Enet => {
+                        self.enet_failed = true;
+                        self.enet_leg = None;
+                    }
+                    Carrier::Relay => {
+                        self.relay_failed = true;
+                        self.relay_leg = None;
+                    }
+                }
+                if event == CarrierEvent::EnetDropped && self.carriers.active == Some(Carrier::Enet) {
+                    log::info!("steer viewer: eNet feed of {} dropped ({}); falling back", self.session_id, failure.class());
+                }
+                self.step(event);
+                self.no_feed();
+                None
+            }
+        }
+    }
+
+    /// EXP-1487 + `fallback` VISIBLE STATE, after a failure: the lost
+    /// banner counts failed redials of BOTH carriers once neither is active;
+    /// NO FEED (both failed) reads starting / device offline.
+    fn no_feed(&mut self) {
+        if self.carriers.active.is_some() {
+            return;
+        }
+        if let Some((since, failed)) = self.lost.as_mut() {
+            *failed += 1;
+            if since.elapsed() >= self.timings.lost_grace && *failed >= enet_steer::LOST_FAILED_REDIALS {
+                self.phases.set(ViewerPhase::Reconnecting);
+            }
+        }
+        if !(self.enet_failed && self.relay_failed) {
+            return;
+        }
+        if self.session_ended.load(Ordering::SeqCst) {
+            // VAPP-169: not terminal: the loop keeps redialing under it.
+            self.phases.set(ViewerPhase::device_offline());
+        } else if self.lost.is_none() {
+            self.phases.set(ViewerPhase::Starting);
+        }
+    }
+
+    /// One frame of the active carrier → the UI. `Some(outcome)` = `bye`.
+    fn apply(&mut self, text: &str, path: &'static str) -> Option<Option<String>> {
+        let frame = ViewerFrame::parse(text);
+        if matches!(frame, Some(ViewerFrame::Activity { .. } | ViewerFrame::ActivityReset)) {
+            if !self.phases.is(&ViewerPhase::Live) {
+                self.phases.set(ViewerPhase::Live);
+                self.backoff.reset();
+            }
+            if self.stats.first.is_none() {
+                self.stats.first = Some((self.stats.opened.elapsed().as_millis() as u64, path));
+                self.stats.settle();
+            }
+        }
+        let event = match frame? {
+            ViewerFrame::Activity { event, seq } => ViewerEvent::Activity(seq, event),
+            ViewerFrame::ActivityReset => ViewerEvent::Reset,
+            ViewerFrame::ActivitySynced { first_seq, truncated, .. } => {
+                ViewerEvent::Synced { first_seq, truncated: truncated.unwrap_or(false) }
+            }
+            ViewerFrame::HistoryChunk { request_id, events, seqs, done } => {
+                // A `None` slot is an event kind this build does not know
+                // (compat review R6 #3): dropped AFTER the zip so the
+                // numbering of its neighbours stays right.
+                let events = events
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(ix, event)| Some((seqs.get(ix).copied(), event?)))
+                    .collect();
+                ViewerEvent::HistoryPage { request_id, events, done }
+            }
+            // Counted by the leg's liveness; forwarded because EXP-656
+            // uses it as an end-of-replay signal.
+            ViewerFrame::Keepalive => ViewerEvent::Keepalive,
+            // eNet has no close frame: a `bye` IS the end.
+            ViewerFrame::Bye { outcome } => return Some(outcome.filter(|o| o != "ended")),
+            // The legs turn an `error` into their drop.
+            ViewerFrame::Error { .. } => return None,
+        };
+        let _ = self.events_tx.send(event);
+        None
+    }
+
+    /// A wakeup nudge: a pending redial or reopen runs now. A healthy feed
+    /// is left alone (its legs watch their own staleness).
+    fn kick(&mut self) {
+        let now = Instant::now();
+        if self.enet_leg.is_none() && self.carriers.active != Some(Carrier::Enet) {
+            self.enet_redial_at = Some(now);
+        }
+        if self.relay_reopen_at.is_some() {
+            self.relay_reopen_at = Some(now);
+        }
+    }
+
+    fn timers(&mut self) {
+        let now = Instant::now();
+        if self.stall_at.is_some_and(|at| at <= now) {
+            self.stall_at = None;
+            self.step(CarrierEvent::Stall);
+        }
+        if self.enet_redial_at.is_some_and(|at| at <= now) {
+            self.enet_redial_at = None;
+            if self.carriers.active != Some(Carrier::Enet) {
+                self.spawn_enet();
+            }
+        }
+        if self.relay_reopen_at.is_some_and(|at| at <= now) {
+            self.relay_reopen_at = None;
+            // The reopen is the stall's: nothing active, no relay leg.
+            self.step(CarrierEvent::Stall);
+        }
+        if !self.stats.settled && now >= self.stats.opened + self.timings.settle_after {
+            self.stats.settle();
+        }
+    }
+
+    /// The viewer closes: both legs leave, the `ended` view is recorded.
+    fn close(&mut self) {
+        for leg in [self.enet_leg.take(), self.relay_leg.take()].into_iter().flatten() {
+            let _ = leg.out.send(LegOut::Close);
+        }
+        if self.connected.swap(false, Ordering::SeqCst) {
+            let _ = self.events_tx.send(ViewerEvent::Connected(false));
+        }
+        self.carrier_flag.store(carrier_code(None), Ordering::SeqCst);
+        if self.stats.first.is_none() && !self.stats.settled {
+            // Closed before anything settled: the view still counts.
+            self.stats.settle();
+        }
+        self.stats.ended();
+    }
+}
+
+fn carrier_code(carrier: Option<Carrier>) -> u8 {
+    match carrier {
+        None => 0,
+        Some(Carrier::Enet) => 1,
+        Some(Carrier::Relay) => 2,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The legs
+// ---------------------------------------------------------------------------
+
+/// One carrier's link to the device.
+enum Wire {
+    Enet(EnetLink),
+    Relay(RelayLink),
+}
+
+impl Wire {
+    async fn next(&mut self) -> Result<String, LegFailure> {
+        match self {
+            Wire::Enet(link) => link.next().await.ok_or(LegFailure::Dropped("closed")),
+            Wire::Relay(link) => link.next().await,
+        }
+    }
+
+    async fn send(&mut self, frames: Vec<String>) -> bool {
+        match self {
+            Wire::Enet(link) => link.send(frames).await,
+            Wire::Relay(link) => link.send(&frames).await,
+        }
+    }
+
+    async fn leave(self) {
+        match self {
+            Wire::Enet(link) => link.leave(),
+            Wire::Relay(link) => link.close().await,
+        }
+    }
+}
+
+/// The eNet leg: DISCOVERY, then the feed until it drops.
+async fn enet_leg(
+    source: Option<Arc<dyn EnetViewerSource>>,
+    session_id: String,
+    gen: u64,
+    timings: ViewerTimings,
+    msgs: flume::Sender<LegMsg>,
+    out: flume::Receiver<LegOut>,
+) {
+    let deadline = Instant::now() + timings.join_timeout;
+    match join_over_enet(source.as_ref(), &session_id, timings.join_timeout).await {
+        Ok(link) => {
+            let path = conn_stats::enet_path(link.node.chat_path(&link.device));
+            run_leg(Carrier::Enet, gen, Wire::Enet(link), path, deadline, &timings, &msgs, &out).await;
+        }
+        Err(class) => {
+            let _ = msgs.send(LegMsg::Failed { carrier: Carrier::Enet, gen, failure: LegFailure::NoFeed(class) });
+        }
+    }
+}
+
+/// The relay leg: the tree key, a tunnel ticket, the sealed join, then the
+/// feed until it drops.
+async fn relay_leg(
+    source: Option<Arc<dyn EnetViewerSource>>,
+    session_id: String,
+    gen: u64,
+    timings: ViewerTimings,
+    msgs: flume::Sender<LegMsg>,
+    out: flume::Receiver<LegOut>,
+) {
+    match open_tunnel(source, &session_id).await {
+        Ok(link) => {
+            log::info!("steer viewer: relay tunnel open for {session_id}");
+            let deadline = Instant::now() + timings.join_timeout;
+            let path = conn_stats::PATH_SERVER_FALLBACK;
+            run_leg(Carrier::Relay, gen, Wire::Relay(link), path, deadline, &timings, &msgs, &out).await;
+        }
+        Err(failure) => {
+            log::debug!("steer viewer: no relay tunnel for {session_id}: {failure:?}");
+            let _ = msgs.send(LegMsg::Failed { carrier: Carrier::Relay, gen, failure });
+        }
+    }
+}
+
+/// One joined leg's select loop: frames to the loop, steering out, its own
+/// staleness and `activity_synced` deadline.
+#[allow(clippy::too_many_arguments)]
+async fn run_leg(
+    carrier: Carrier,
+    gen: u64,
+    mut wire: Wire,
+    path: &'static str,
+    deadline: Instant,
     timings: &ViewerTimings,
-    backoff: &mut Backoff,
-    connected: &Arc<AtomicBool>,
-) -> ConnEnd {
+    msgs: &flume::Sender<LegMsg>,
+    out: &flume::Receiver<LegOut>,
+) {
     let mut liveness = tokio::time::interval(timings.liveness_tick);
     liveness.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // Any inbound frame proves the feed — including the device's
     // `keepalive` beat, which exists for exactly this (EXP-648).
     let mut last_rx = Instant::now();
-    // `join_over_enet` returned only once the device answered the join with
-    // its replay: what the handle sends from here is applied.
-    if !connected.swap(true, Ordering::SeqCst) {
-        let _ = events_tx.send(ViewerEvent::Connected(true));
-    }
-    loop {
+    let mut synced_by = Some(deadline);
+    let failure = loop {
         tokio::select! {
-            cmd = cmd_rx.recv_async() => match cmd {
-                Ok(ViewerCmd::Frames(frames)) => {
-                    if !link.send(frames).await {
-                        return ConnEnd::Dropped(Some("send failed".into()));
+            cmd = out.recv_async() => match cmd {
+                Ok(LegOut::Frames(frames)) => {
+                    if !wire.send(frames).await {
+                        break LegFailure::Dropped("send_failed");
                     }
                 }
-                Ok(ViewerCmd::Kick) => {
-                    // A wakeup nudge, not a Reconnect button: a feed that
-                    // spoke inside the staleness window is healthy, and
-                    // re-joining it would buy a full replay and nothing else.
-                    if last_rx.elapsed() <= timings.live_stale {
-                        continue;
+                Ok(LegOut::Join) => {
+                    if !wire.send(vec![ClientFrame::join().to_json()]).await {
+                        break LegFailure::Dropped("send_failed");
                     }
-                    // EXP-1487: no `leave` before a re-join: the join restarts
-                    // the feed, and a `leave` sent beside it could land after
-                    // it and end the new feed.
-                    return ConnEnd::Kicked;
+                    synced_by = Some(Instant::now() + timings.join_timeout);
                 }
-                Ok(ViewerCmd::Shutdown) | Err(_) => {
-                    link.leave();
-                    return ConnEnd::Shutdown;
+                Ok(LegOut::Close) | Err(_) => {
+                    wire.leave().await;
+                    return;
                 }
             },
-            frame = link.next() => {
-                let Some(text) = frame else {
-                    return ConnEnd::Dropped(Some("subscription closed".into()));
+            frame = wire.next() => {
+                let text = match frame {
+                    Ok(text) => text,
+                    Err(failure) => break failure,
                 };
                 last_rx = Instant::now();
-                match ViewerFrame::parse(&text) {
-                    Some(ViewerFrame::Activity { event, seq }) => {
-                        if !phases.is(&ViewerPhase::Live) {
-                            phases.set(ViewerPhase::Live);
-                            backoff.reset();
-                        }
-                        let _ = events_tx.send(ViewerEvent::Activity(seq, event));
+                let tag = frame_tag(&text);
+                match tag.as_deref() {
+                    Some("error") => {
+                        log::debug!("steer viewer: the device stopped serving the session over {carrier:?}: {text}");
+                        let unauthorized = text.contains(enet_steer::ERROR_UNAUTHORIZED);
+                        break LegFailure::Dropped(if unauthorized { "unauthorized" } else { "closed" });
                     }
-                    Some(ViewerFrame::ActivityReset) => {
-                        if !phases.is(&ViewerPhase::Live) {
-                            phases.set(ViewerPhase::Live);
-                            backoff.reset();
-                        }
-                        let _ = events_tx.send(ViewerEvent::Reset);
-                    }
-                    Some(ViewerFrame::ActivitySynced { first_seq, truncated, .. }) => {
-                        let _ = events_tx.send(ViewerEvent::Synced {
-                            first_seq,
-                            truncated: truncated.unwrap_or(false),
-                        });
-                    }
-                    Some(ViewerFrame::HistoryChunk { request_id, events, seqs, done }) => {
-                        // A `None` slot is an event kind this build does not
-                        // know (compat review R6 #3): dropped AFTER the zip so
-                        // the numbering of its neighbours stays right.
-                        let events = events
-                            .into_iter()
-                            .enumerate()
-                            .filter_map(|(ix, event)| Some((seqs.get(ix).copied(), event?)))
-                            .collect();
-                        let _ = events_tx.send(ViewerEvent::HistoryPage { request_id, events, done });
-                    }
-                    Some(ViewerFrame::Keepalive) => {
-                        // Counted by the `last_rx` stamp above; never a phase
-                        // change. Forwarded because EXP-656 uses it as an
-                        // end-of-replay signal.
-                        let _ = events_tx.send(ViewerEvent::Keepalive);
-                    }
-                    // eNet has no close frame: a `bye` IS the end.
-                    Some(ViewerFrame::Bye { outcome }) => {
-                        return ConnEnd::Ended(outcome.filter(|o| o != "ended"));
-                    }
-                    Some(ViewerFrame::Error { code, .. }) => {
-                        log::debug!("steer viewer: the device stopped serving the session ({code})");
-                        return ConnEnd::NoFeed;
-                    }
-                    // Unknown frames: ignored, never a teardown.
-                    None => log::debug!("steer viewer: unparseable frame ignored"),
+                    Some("activity_synced") => synced_by = None,
+                    _ => {}
+                }
+                let path = (tag.as_deref() == Some("activity_reset")).then_some(path);
+                let bye = tag.as_deref() == Some("bye");
+                let _ = msgs.send(LegMsg::Frame { carrier, gen, text, path });
+                if bye {
+                    // The device dropped this viewer with it.
+                    return;
                 }
             },
             _ = liveness.tick() => {
                 // EXP-648: silence past two device keepalives means the feed
                 // is dead, not that the agent is parked on a question.
                 if last_rx.elapsed() > timings.live_stale {
-                    // A re-join follows: no `leave` (see the kick above).
-                    return ConnEnd::Stale;
+                    break LegFailure::Dropped("stale");
+                }
+                if synced_by.is_some_and(|by| Instant::now() > by) {
+                    break LegFailure::Dropped("join_timeout");
                 }
             }
         }
-    }
+    };
+    let _ = msgs.send(LegMsg::Failed { carrier, gen, failure });
+}
+
+fn frame_tag(text: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|value| value.get("t").and_then(|t| t.as_str()).map(str::to_string))
 }
 
 /// A joined eNet feed: the device's frames arrive on `sub`; `held` = what
-/// arrived while joining (the replay), delivered first.
+/// arrived while joining, delivered first.
 struct EnetLink {
     node: Arc<enet_core::Node>,
     device: enet_core::EndpointId,
@@ -835,82 +1368,154 @@ impl EnetLink {
 const LEAVE_FRAME: &str = r#"{"t":"leave"}"#;
 
 /// DISCOVERY: `join` each install running the session, newest first, until
-/// one answers with its replay up to `activity_synced` within
-/// [`enet_steer::JOIN_TIMEOUT`]. `None` = NO FEED.
-async fn join_over_enet(source: Option<&Arc<dyn EnetViewerSource>>, session_id: &str) -> Option<EnetLink> {
-    let source = source?;
-    let node = source.node()?;
+/// one answers with its `activity_reset` within `join_timeout` (the
+/// replay then streams; its `activity_synced` is due by the same deadline).
+/// `Err` = NO FEED, with its class.
+async fn join_over_enet(
+    source: Option<&Arc<dyn EnetViewerSource>>,
+    session_id: &str,
+    join_timeout: Duration,
+) -> Result<EnetLink, Class> {
+    let source = source.ok_or("no_node")?;
+    let node = source.node().ok_or("no_node")?;
     let lookup = Arc::clone(source);
     let id = session_id.to_string();
     let endpoints = match tokio::task::spawn_blocking(move || lookup.endpoints(&id)).await {
         Ok(Ok(endpoints)) => endpoints,
         Ok(Err(err)) => {
             log::debug!("steer viewer: installs.forSession failed: {err}");
-            return None;
+            return Err("other");
         }
-        Err(_) => return None,
+        Err(_) => return Err("other"),
     };
     let own = node.endpoint_id();
     let join = ClientFrame::join().to_json();
+    let mut failure = "no_endpoint";
     for device in endpoints.iter().filter_map(|hex| crate::enet::parse_endpoint(hex)).filter(|id| *id != own) {
         let sub = enet_steer::subscribe(session_id, device);
         if let Err(err) = enet_steer::send_envelope(&node, device, session_id, &[join.clone()]).await {
             log::debug!("steer viewer: eNet join to {} failed: {err}", crate::enet::endpoint_hex(&device));
+            failure = if err.to_lowercase().contains("refused") || err.contains("not allowed") { "refused" } else { "send_failed" };
             continue;
         }
-        let deadline = tokio::time::Instant::now() + enet_steer::JOIN_TIMEOUT;
-        let mut held = VecDeque::new();
+        let deadline = tokio::time::Instant::now() + join_timeout;
         loop {
             let Ok(Ok(frame)) = tokio::time::timeout_at(deadline, sub.frames.recv_async()).await else {
                 log::debug!("steer viewer: eNet join to {} unanswered", crate::enet::endpoint_hex(&device));
+                failure = "join_timeout";
                 break;
             };
-            let tag = serde_json::from_str::<serde_json::Value>(&frame)
-                .ok()
-                .and_then(|value| value.get("t").and_then(|t| t.as_str()).map(str::to_string));
-            match tag.as_deref() {
+            match frame_tag(&frame).as_deref() {
                 Some("error") => {
                     log::debug!("steer viewer: {} refused the eNet join: {frame}", crate::enet::endpoint_hex(&device));
+                    failure = if frame.contains(enet_steer::ERROR_UNAUTHORIZED) { "unauthorized" } else { "refused" };
                     break;
                 }
-                Some("activity_synced") => {
-                    held.push_back(frame);
+                Some("activity_reset") => {
                     log::info!("steer viewer: joined {session_id} over eNet");
-                    return Some(EnetLink { node, device, session_id: session_id.to_string(), sub, held });
+                    let held = VecDeque::from([frame]);
+                    return Ok(EnetLink { node, device, session_id: session_id.to_string(), sub, held });
                 }
-                _ => held.push_back(frame),
+                // A frame of an earlier feed of this pair: not this join's.
+                _ => {}
             }
         }
     }
-    None
+    Err(failure)
 }
 
-/// Interruptible delay between joins: `Break` on shutdown, `Continue` on a
-/// kick (redial now) or the delay elapsing. Frames sent meanwhile are
-/// dropped here — the handle already refused them, so this only catches the
-/// race where the feed died between the check and the send.
-async fn wait(
-    delay: Duration,
-    cmd_rx: &flume::Receiver<ViewerCmd>,
-    running: &Arc<AtomicBool>,
-) -> std::ops::ControlFlow<()> {
-    if !running.load(Ordering::SeqCst) {
-        return std::ops::ControlFlow::Break(());
-    }
-    let deadline = tokio::time::Instant::now() + delay;
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep_until(deadline) => return std::ops::ControlFlow::Continue(()),
-            cmd = cmd_rx.recv_async() => match cmd {
-                Ok(ViewerCmd::Shutdown) | Err(_) => {
-                    running.store(false, Ordering::SeqCst);
-                    return std::ops::ControlFlow::Break(());
+/// A joined sealed relay tunnel (`steer-enet.json` `fallback`): the tunnel
+/// socket, the tree key, and what one sealed envelope held beyond the frame
+/// returned.
+struct RelayLink {
+    ws: crate::WsStream,
+    keys: TunnelKeys,
+    session_id: String,
+    held: VecDeque<String>,
+}
+
+impl RelayLink {
+    async fn next(&mut self) -> Result<String, LegFailure> {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::Message;
+        loop {
+            if let Some(frame) = self.held.pop_front() {
+                return Ok(frame);
+            }
+            match self.ws.next().await {
+                Some(Ok(Message::Text(text))) => {
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+                    match value.get("t").and_then(|t| t.as_str()) {
+                        Some("sealed") => {
+                            let data = value.get("data").and_then(|d| d.as_str()).unwrap_or_default();
+                            match tunnel::open(&self.keys, &self.session_id, data) {
+                                Some(envelope) => self.held.extend(envelope.frames.iter().map(|f| f.to_string())),
+                                None => log::debug!("steer viewer: a sealed frame did not open; dropped"),
+                            }
+                        }
+                        Some("tunnel_error") => {
+                            let code = value.get("code").and_then(|c| c.as_str()).unwrap_or("other");
+                            return Err(LegFailure::Unavailable(conn_stats::error_class(code)));
+                        }
+                        _ => {}
+                    }
                 }
-                Ok(ViewerCmd::Kick) => return std::ops::ControlFlow::Continue(()),
-                Ok(ViewerCmd::Frames(_)) => continue,
+                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return Err(LegFailure::Dropped("relay_closed")),
+                Some(Ok(_)) => {}
             }
         }
     }
+
+    /// One sealed envelope of `frames`. `false` = gone.
+    async fn send(&mut self, frames: &[String]) -> bool {
+        use futures_util::SinkExt;
+        let body = enet_steer::envelope_bytes(&self.session_id, frames);
+        let Some(data) = tunnel::seal(&self.keys, &body) else {
+            log::warn!("steer viewer: an envelope ({} bytes) did not seal; dropped", body.len());
+            return true;
+        };
+        let frame = serde_json::json!({ "t": "sealed", "data": data }).to_string();
+        self.ws.send(tokio_tungstenite::tungstenite::Message::Text(frame)).await.is_ok()
+    }
+
+    async fn close(mut self) {
+        let _ = self.send(&[LEAVE_FRAME.to_string()]).await;
+        let _ = self.ws.close(None).await;
+    }
+}
+
+/// The relay leg's AVAILABILITY and dial: this install's tree secret, then
+/// `steer.tunnelTicket`, the dial, the sealed `join`.
+async fn open_tunnel(source: Option<Arc<dyn EnetViewerSource>>, session_id: &str) -> Result<RelayLink, LegFailure> {
+    let source = source.ok_or(LegFailure::Unavailable("no_node"))?;
+    let id = session_id.to_string();
+    let keys = tokio::task::spawn_blocking(move || tunnel::resolve_keys(&id)).await.ok().flatten();
+    let keys = keys.ok_or(LegFailure::Unavailable("no_key"))?;
+    let id = session_id.to_string();
+    let ticket = tokio::task::spawn_blocking(move || source.tunnel_ticket(&id)).await;
+    let url = match ticket {
+        Ok(Ok(TunnelTicketResult::Ticket(ticket))) => ticket.url,
+        Ok(Ok(TunnelTicketResult::Disabled | TunnelTicketResult::Unavailable)) => {
+            return Err(LegFailure::Unavailable("device_offline"))
+        }
+        Ok(Err(err)) => {
+            log::debug!("steer viewer: steer.tunnelTicket failed: {err}");
+            return Err(LegFailure::Dropped("ticket_failed"));
+        }
+        Err(_) => return Err(LegFailure::Dropped("ticket_failed")),
+    };
+    let ws = match crate::dial(&url).await {
+        Ok(ws) => ws,
+        Err(err) => {
+            log::debug!("steer viewer: tunnel dial failed: {err:?}");
+            return Err(LegFailure::Dropped("relay_closed"));
+        }
+    };
+    let mut link = RelayLink { ws, keys, session_id: session_id.to_string(), held: VecDeque::new() };
+    if !link.send(&[ClientFrame::join().to_json()]).await {
+        return Err(LegFailure::Dropped("relay_closed"));
+    }
+    Ok(link)
 }
 
 #[cfg(test)]

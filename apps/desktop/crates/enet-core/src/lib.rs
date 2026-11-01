@@ -58,7 +58,7 @@ pub use blobs::BlobRef;
 #[cfg(feature = "node")]
 pub use call::{CallId, CALL_ALPN};
 #[cfg(feature = "node")]
-pub use chat::{ChatMessage, CHAT_ALPN, MAX_CHAT_MESSAGE};
+pub use chat::{ChatMessage, ChatPath, CHAT_ALPN, MAX_CHAT_MESSAGE};
 #[cfg(feature = "node")]
 pub use config::{NetConfig, RelayChoice, DEFAULT_RELAY_URL};
 pub use error::{NetError, Result};

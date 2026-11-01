@@ -509,20 +509,21 @@ pub(crate) enum PublisherCmd {
     /// Clean end: `bye {outcome}` to the eNet viewers (child exit, local
     /// stop, kill-watch).
     Shutdown { outcome: Option<String> },
-    /// VAPP-33: an eNet viewer sent `join` (an allowed one: `enet_steer`
-    /// checked the access rule): reset + replay + synced, then the live feed.
-    EnetJoin(crate::enet_steer::EnetPeer),
-    /// VAPP-33: an eNet viewer sent `leave`.
-    EnetLeave(enet_core::EndpointId),
-    /// VAPP-33: one client frame from an eNet viewer (JSON text, the relay's
+    /// VAPP-33: a viewer (an eNet endpoint or, P2P fallback, a sealed relay
+    /// tunnel) sent `join` (an allowed one: `enet_steer` checked the access
+    /// rule): reset + replay + synced, then the live feed.
+    Join(crate::enet_steer::FeedPeer),
+    /// VAPP-33: a viewer sent `leave` (or its tunnel closed).
+    Leave(crate::enet_steer::PeerId),
+    /// VAPP-33: one client frame from a viewer (JSON text, the relay's
     /// shape).
-    EnetFrame { from: enet_core::EndpointId, frame: String },
+    Frame { from: crate::enet_steer::PeerId, frame: String },
     /// VAPP-43: a session-scoped command the relay sent down the CONTROL
     /// socket ([`control`]).
     Control(ControlCmd),
     /// Tests only: a raw viewer queue (no eNet node), joined like a viewer.
     #[cfg(test)]
-    Tap(enet_core::EndpointId, TapTx),
+    Tap(crate::enet_steer::PeerId, TapTx),
 }
 
 /// Tests only: [`PublisherCmd::Tap`]'s queue.
@@ -984,9 +985,9 @@ impl Loop<'_> {
     /// to end.
     fn command(&mut self, cmd: PublisherCmd) -> Option<Steered> {
         match cmd {
-            PublisherCmd::EnetJoin(peer) => self.feeds.join(peer, &self.recorder.journal),
-            PublisherCmd::EnetLeave(id) => self.feeds.leave(&id),
-            PublisherCmd::EnetFrame { from, frame } => {
+            PublisherCmd::Join(peer) => self.feeds.join(peer, &self.recorder.journal),
+            PublisherCmd::Leave(id) => self.feeds.leave(&id),
+            PublisherCmd::Frame { from, frame } => {
                 let Some(frame) = ServerFrame::parse(&frame) else {
                     log::debug!("steer publisher: unparseable eNet frame ignored");
                     return None;
@@ -1268,13 +1269,13 @@ mod tests {
     /// What the tests inject: an eNet viewer's frames, from the tap's peer.
     struct Inject {
         cmd_tx: flume::Sender<PublisherCmd>,
-        from: enet_core::EndpointId,
+        from: crate::enet_steer::PeerId,
     }
 
     impl Inject {
         fn send(&self, message: Message) -> Result<(), ()> {
             let Message::Text(frame) = message else { return Err(()) };
-            self.cmd_tx.send(PublisherCmd::EnetFrame { from: self.from, frame }).map_err(|_| ())
+            self.cmd_tx.send(PublisherCmd::Frame { from: self.from.clone(), frame }).map_err(|_| ())
         }
     }
 
@@ -1284,8 +1285,8 @@ mod tests {
     /// as that viewer.
     fn tap(handle: &PublisherHandle) -> (flume::Receiver<String>, Inject) {
         let (tx, rx) = flume::unbounded();
-        let from = tap_peer();
-        handle.cmd_tx.send(PublisherCmd::Tap(from, TapTx(tx))).unwrap();
+        let from = crate::enet_steer::PeerId::Enet(tap_peer());
+        handle.cmd_tx.send(PublisherCmd::Tap(from.clone(), TapTx(tx))).unwrap();
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), r#"{"t":"activity_reset"}"#);
         loop {
             let frame = rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -2307,7 +2308,7 @@ mod tests {
         sender.send(ActivityEvent::narration("first"));
         sender.send(ActivityEvent::tool("Edit", Some("a.rs".into())));
         let (tx, rx) = flume::unbounded();
-        handle.cmd_tx.send(PublisherCmd::Tap(tap_peer(), TapTx(tx))).unwrap();
+        handle.cmd_tx.send(PublisherCmd::Tap(crate::enet_steer::PeerId::Enet(tap_peer()), TapTx(tx))).unwrap();
         let frames: Vec<String> = (0..4).map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap()).collect();
         assert_eq!(frames[0], r#"{"t":"activity_reset"}"#);
         assert!(frames[1].contains(r#""text":"first""#), "{:?}", frames[1]);
