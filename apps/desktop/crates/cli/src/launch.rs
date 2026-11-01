@@ -213,6 +213,9 @@ pub fn start_foreground(
 
     let live = answer_tapped_registry(Arc::clone(&ctx.trpc));
     let slot: Arc<Mutex<Option<Arc<RunningSession>>>> = Arc::new(Mutex::new(None));
+    // EXP-1542 (review): the run's worktree, handed on when it moved away
+    // ([`coding::run_cleanup::hand_off_on_exit`]).
+    let cleanup_slot: Arc<Mutex<Option<coding::RunCleanup>>> = Arc::new(Mutex::new(None));
     let deps = Arc::new(pickup_deps(PickupHost {
         ctx: Arc::clone(&ctx),
         runtime,
@@ -226,12 +229,16 @@ pub fn start_foreground(
         foreign_host: Arc::new(|_session_id: &str| false),
         on_launched: {
             let slot = Arc::clone(&slot);
-            Arc::new(move |session: Arc<RunningSession>, _cleanup| {
+            let cleanup_slot = Arc::clone(&cleanup_slot);
+            Arc::new(move |session: Arc<RunningSession>, cleanup| {
                 // EXP-758 (EXP-478): this process is the run's only registry:
                 // there is no session list to push into, so the gate ends here.
                 session.release_launch_hold();
                 if let Ok(mut slot) = slot.lock() {
                     *slot = Some(session);
+                }
+                if let Ok(mut slot) = cleanup_slot.lock() {
+                    *slot = cleanup;
                 }
             })
         },
@@ -245,7 +252,8 @@ pub fn start_foreground(
                 .ok()
                 .and_then(|mut slot| slot.take())
                 .ok_or_else(|| anyhow!("the session launched but its handle was lost"))?;
-            let pickup = spawn_foreground_pickup(ctx, deps, sent.session_id.clone());
+            let cleanup = cleanup_slot.lock().ok().and_then(|mut slot| slot.take());
+            let pickup = spawn_foreground_pickup(ctx, deps, sent.session_id.clone(), cleanup);
             Ok(ForegroundStart::Running(ForegroundSession { session, _live: live, _pickup: pickup }))
         }
         LaunchQueued::Disabled { reason } => Ok(ForegroundStart::Refused(reason)),
@@ -270,6 +278,10 @@ const FOREGROUND_POLL: Duration = Duration::from_secs(15);
 /// its conversation's).
 const FOREGROUND_SHAPES: &[&str] = &["sessions", "messages", "conversations"];
 
+/// What the foreground syncs: [`FOREGROUND_SHAPES`] plus (EXP-1542) the
+/// `events` holding a move's record, read when present, never waited on.
+const FOREGROUND_SYNC: &[&str] = &["sessions", "messages", "conversations", "events"];
+
 /// EXP-1292: the foreground `code`/`run` process is the ONLY host of its
 /// session — it holds the claim lock, so the daemon on the same machine
 /// skips the row — so it runs its own one-session pickup: the person
@@ -284,10 +296,17 @@ fn spawn_foreground_pickup(
     ctx: Arc<Ctx>,
     deps: Arc<PickupDeps>,
     session_id: String,
+    cleanup: Option<coding::RunCleanup>,
 ) -> Option<std::thread::JoinHandle<()>> {
     std::thread::Builder::new()
         .name("exp-foreground-pickup".to_string())
-        .spawn(move || run_foreground_pickup(&ctx, &deps, &session_id))
+        .spawn(move || {
+            run_foreground_pickup(&ctx, &deps, &session_id);
+            // EXP-1542 (review): this process never runs the daemon's
+            // finish: a run that moved away hands its branch on as it exits
+            // (and the daemon retries whatever is left once it is gone).
+            coding::run_cleanup::hand_off_on_exit(&deps.coding.trpc, &session_id, cleanup.as_ref());
+        })
         .inspect_err(|err| log::warn!("foreground pickup failed to spawn: {err}"))
         .ok()
 }
@@ -315,7 +334,7 @@ fn run_foreground_pickup(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
                             if up_to_date {
                                 synced.insert(shape);
                             }
-                            changed |= FOREGROUND_SHAPES.contains(&shape);
+                            changed |= FOREGROUND_SYNC.contains(&shape);
                         }
                     }
                 }
@@ -361,7 +380,7 @@ fn start_foreground_sync(ctx: &Ctx, db_path: &std::path::Path) -> Option<Arc<syn
         base_url: ctx.account.instance_url.clone(),
         db_path: db_path.to_path_buf(),
         token: ctx.auth.token_provider_fn(&ctx.account.id),
-        shapes: Some(FOREGROUND_SHAPES),
+        shapes: Some(FOREGROUND_SYNC),
     };
     match manager.start_account(config) {
         Ok(_) => Some(manager),
@@ -389,6 +408,10 @@ fn foreground_pass(
     let views = deps.live.live_views();
     let in_flight = std::collections::HashSet::new();
     let revive_held = deps.live.revive_held();
+    // EXP-1542: the move records, once that shape synced (else empty).
+    let moves = coding::pickup::move_records(&crate::commands::daemon::read_shape_rows::<domain::rows::EventRow>(
+        store, "events",
+    ));
     let actions = coding::pickup::plan(coding::pickup::PickupInput {
         device_id: &deps.device_id,
         sessions: &rows,
@@ -396,6 +419,7 @@ fn foreground_pass(
         live: &views,
         in_flight: &in_flight,
         revive_held: &revive_held,
+        moves: &moves,
     });
     for action in actions {
         let ours = match &action {

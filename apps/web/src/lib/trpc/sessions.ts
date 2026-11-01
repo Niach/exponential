@@ -37,6 +37,12 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { composeSessionBrief, stampAgentInstructionsAt } from "@/lib/sessions/brief"
+import {
+  handOffOutcomeValues,
+  moveStateOf,
+  recordHandOff,
+  type SessionMoveState,
+} from "@/lib/sessions/move"
 import { markConsumedLinesRead } from "@/lib/sessions/reads"
 import { configureSession, mcpPicks } from "@/lib/sessions/configure"
 import {
@@ -556,8 +562,34 @@ export const sessionsRouter = router({
       // runs on are the ones of THIS moment (stamped after the compose read
       // them, so an edit racing the fetch still reads as changed).
       await stampAgentInstructionsAt(session.id)
-      return brief
+      // EXP-1542: the move this session continues (null = none): its
+      // device waits for the source's hand-off before it cuts a worktree.
+      return { ...brief, moved: await moveStateOf(session) }
     }),
+
+  /** EXP-1542 (#FEED-169): the move a continuation came from and whether
+   *  its source device handed the branch on yet (the continuation's device
+   *  polls it while it waits). Null = it never moved. */
+  moveState: authedProcedure
+    .input(z.object({ sessionId: uuid }))
+    .query(async ({ ctx, input }): Promise<SessionMoveState | null> => {
+      const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
+      await assertDeviceHost(ctx.session.user.id, session)
+      return moveStateOf(session)
+    }),
+
+  /** EXP-1542: the SOURCE device of a move reports its hand-off (the branch
+   *  pushed, the work parked on `leftover`, or nothing to hand on). Once
+   *  per move; a repeat returns the first record. */
+  handedOff: authedProcedure
+    .input(
+      z.object({
+        moveId: uuid,
+        outcome: z.enum(handOffOutcomeValues),
+        leftover: z.string().min(1).max(255).nullish(),
+      })
+    )
+    .mutation(({ ctx, input }) => recordHandOff(ctx.session.user.id, input)),
 
   /** EXP-1334: the session's server-only MCP pick (sorted ids) — for
    *  whoever may steer it (the composer's MCP submenu; the host device

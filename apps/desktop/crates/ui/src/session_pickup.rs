@@ -96,6 +96,8 @@ pub(crate) fn install(cx: &mut App) {
     cx.observe(&collections.messages, |_, cx| schedule(cx)).detach();
     // NEW-8: a message's session is its conversation's.
     cx.observe(&collections.conversations, |_, cx| schedule(cx)).detach();
+    // EXP-1542: a move's record (and its hand-off) re-plans.
+    cx.observe(&collections.events, |_, cx| schedule(cx)).detach();
     let local = LocalSessions::global(cx);
     cx.observe(&local, |_, cx| schedule(cx)).detach();
     schedule(cx);
@@ -243,6 +245,8 @@ fn run_pass(cx: &mut App) {
     let stalled = cx.global::<PickupHost>().stalled.clone();
     let views = live.live_views();
     let revive_held = live.revive_held();
+    // EXP-1542: the server's move records (a moved session's hand-off).
+    let moves = pickup::move_records(&collections.events.read(cx).iter().cloned().collect::<Vec<_>>());
     let mut actions: Vec<PickupAction> = pickup::plan(PickupInput {
         device_id: &device_id,
         sessions: &sessions,
@@ -250,6 +254,7 @@ fn run_pass(cx: &mut App) {
         live: &views,
         in_flight: &in_flight,
         revive_held: &revive_held,
+        moves: &moves,
     });
     // Rows this host claimed whose launch failed transiently read `running`
     // — the plan only launches `queued` ones.

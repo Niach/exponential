@@ -58,6 +58,32 @@ pub fn base_fallback_note(wanted: &str, picked: &str) -> String {
     }
 }
 
+/// EXP-1542 (#FEED-169, review): a session that moved here from a device
+/// that did not hand its work off in time (offline, or still pushing).
+pub fn hand_off_missing_note(branch: &str) -> String {
+    format!(
+        "Note: this session moved here from another device that did not hand its work off in time (it may be offline), so `{branch}` may be missing its latest commits. They reach origin (on `{branch}`, or a `{}` branch) once that device is back; check `git fetch` and `git log origin/{branch}` before you build on it, and tell the person in your first reply if the task depends on it.",
+        crate::run_cleanup::LEFTOVER_BRANCH_PREFIX
+    )
+}
+
+/// EXP-1542: a session that moved back to a device whose worktree could
+/// not fast-forward to what the other device handed off (local edits, or
+/// it diverged).
+pub fn hand_off_behind_note(branch: &str) -> String {
+    format!(
+        "Note: this session moved back here from another device, and `origin/{branch}` has work this worktree does not (it has local changes, or the two diverged). Fetch and merge `origin/{branch}` before you continue."
+    )
+}
+
+/// EXP-1542: the old device could not push the session's branch (origin's
+/// had moved on) and parked its work on `parked` instead.
+pub fn hand_off_parked_note(branch: &str, parked: &str) -> String {
+    format!(
+        "Note: the device this session moved from could not push `{branch}` (origin's copy had moved on) and parked its unpushed work on `origin/{parked}`. Merge or cherry-pick it before you continue."
+    )
+}
+
 /// EXP-935: what a resume that SWITCHES the account closes its first turn
 /// with. A switch carries no prompt of its own, so a native reload used to
 /// sit idle until a person typed — from the outside, switching the account

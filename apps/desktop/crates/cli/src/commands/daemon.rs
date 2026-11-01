@@ -2553,6 +2553,9 @@ const DAEMON_SHAPES: &[&str] = &[
     // EXP-1458: an engine reply's `@email` mentions → `mentionUserIds`
     // (`coding::sealing::note_users`).
     "users",
+    // EXP-1542: the server's move records (`session.moved` /
+    // `session.handed_off`): this device hands a moved session's branch on.
+    "events",
 ];
 
 /// EXP-1457: how often the 1Hz loop looks for a team change.
@@ -2689,7 +2692,7 @@ impl SyncedShapes {
 /// The work a delta wakes, `None` = nothing the worker reads.
 fn delta_work(shape: &str) -> Option<DaemonWork> {
     match shape {
-        "sessions" | "messages" | "conversations" | "session_issues" => Some(DaemonWork::Pickup),
+        "sessions" | "messages" | "conversations" | "session_issues" | "events" => Some(DaemonWork::Pickup),
         _ => None,
     }
 }
@@ -3004,7 +3007,13 @@ impl DaemonHost {
             // EXP-1458: agent-to-agent messages that came over eNet ahead
             // of their synced copy (deduped by id against it).
             coding::direct_inbox::merge(&mut messages);
-            self.pickup_pass(&rows, &messages);
+            // EXP-1542: the server's move records (empty until synced).
+            let moves = if self.synced.ready(&["events"]) {
+                coding::pickup::move_records(&read_shape_rows::<domain::rows::EventRow>(&store, "events"))
+            } else {
+                Vec::new()
+            };
+            self.pickup_pass(&rows, &messages, &moves);
         }
     }
 
@@ -3012,7 +3021,7 @@ impl DaemonHost {
     /// resumes block on the network and git (a first clone takes minutes),
     /// so each runs on its own thread with its row held in flight; the rest
     /// only touch a live engine and run right here.
-    fn pickup_pass(&mut self, rows: &[SessionRow], messages: &[MessageRow]) {
+    fn pickup_pass(&mut self, rows: &[SessionRow], messages: &[MessageRow], moves: &[coding::pickup::MoveRecord]) {
         let live = &self.pickup.live;
         for session_id in live.prune() {
             log::debug!("pickup: session {session_id}'s engine is gone");
@@ -3033,6 +3042,7 @@ impl DaemonHost {
             live: &views,
             in_flight: &excluded,
             revive_held: &revive_held,
+            moves,
         });
         // EXP-1292: rows this host claimed whose launch failed transiently
         // (or whose claim answer was lost) read `running` — plan only
@@ -4092,6 +4102,8 @@ mod tests {
         assert_eq!(delta_work("messages"), Some(DaemonWork::Pickup));
         assert_eq!(delta_work("conversations"), Some(DaemonWork::Pickup));
         assert_eq!(delta_work("session_issues"), Some(DaemonWork::Pickup));
+        // EXP-1542: a move's record re-plans (its source hands off).
+        assert_eq!(delta_work("events"), Some(DaemonWork::Pickup));
         assert_eq!(delta_work("issue_events"), None);
         assert_eq!(delta_work("labels"), None);
     }
