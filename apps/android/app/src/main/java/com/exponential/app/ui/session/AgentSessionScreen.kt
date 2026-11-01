@@ -4,6 +4,7 @@ import com.exponential.app.domain.TaskQueue
 import androidx.compose.runtime.Stable
 import androidx.compose.foundation.shape.CircleShape
 import com.exponential.app.data.api.AnswerInput
+import com.exponential.app.ui.components.ComposerDraftSync
 import com.exponential.app.ui.components.TranscriptLoadEarlierButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.ExpCheckbox
@@ -4719,7 +4720,10 @@ internal fun SessionComposer(
     // picked row splices against this very value. The draft string still lives
     // in the connection — it has to survive a reconnect — so this is the
     // caret's home, not the text's.
-    var composerField by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    // EXP-1520: the field is local while typing; the draft is adopted only
+    // on an outside rewrite (ComposerDraftSync).
+    val draftSync = remember(viewModel) { ComposerDraftSync(viewModel.draft) }
+    var composerField by draftSync
     promptCaret[0] = composerField.selection.min
     promptCaret[1] = composerField.selection.max
     // The ARMED latch (BlockTextField parity, EXP-322): only a TEXT change may
@@ -4727,22 +4731,11 @@ internal fun SessionComposer(
     // `@ann@example.com` must not pop it — on a phone the caret moves on every
     // tap, and a menu that reopens on a tap is a menu nothing can dismiss.
     var composerArmed by remember { mutableStateOf(false) }
-    // The draft is the authority (EXP-621). Reconciled in an EFFECT and only
-    // when the text ACTUALLY differs: the draft round-trips through a
-    // StateFlow, so doing it in composition reset the caret mid-typing and
-    // dropped the IME's in-flight composing word. The selection is CLAMPED
-    // into the new text rather than jumped to its end, and `composition` is
-    // dropped on purpose — it indexes characters that are gone. An outside
-    // rewrite (a send clearing the draft, a `/` pick, a restored draft) is not
-    // typing, so it also DISARMS.
-    LaunchedEffect(draft) {
-        if (composerField.text != draft) {
-            val start = composerField.selection.start.coerceIn(0, draft.length)
-            val end = composerField.selection.end.coerceIn(0, draft.length)
-            composerField = TextFieldValue(draft, TextRange(start, end))
-            composerArmed = false
-        }
-    }
+    // The draft stays the store (EXP-621), but the field only takes it on an
+    // OUTSIDE rewrite (a send clearing the draft, a `/` pick, a restored
+    // draft), never the echo of its own typing (EXP-1520). An outside rewrite
+    // is not typing, so it also DISARMS.
+    LaunchedEffect(draftSync) { draftSync.follow { composerArmed = false } }
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     // `#` needs no plumbing beyond the handler the feed already builds — the
     // composer sits OUTSIDE that provider (what the user types must stay the
