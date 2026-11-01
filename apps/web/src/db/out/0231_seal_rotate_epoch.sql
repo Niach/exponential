@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "seal_rotate_epoch" integer;

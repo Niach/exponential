@@ -51,6 +51,9 @@ struct State {
     publics: HashMap<String, (u32, [u8; 32])>,
     /// session → root (every tree member, roots map to themselves).
     roots: HashMap<String, String>,
+    /// #FEED-177: root → the epoch a rotation must supersede
+    /// (`sessions.seal_rotate_epoch`, as last seen).
+    rotations: HashMap<String, u32>,
 }
 
 /// The tree keys this install holds. Cheap to share (`Arc`); every method
@@ -176,9 +179,11 @@ impl Keyring {
     }
 
     /// Learns the session → root map and the roots' current keys from the
-    /// host's synced `sessions` rows (every pickup pass calls it).
-    pub fn note_sessions(&self, rows: &[SessionRow]) {
+    /// host's synced `sessions` rows (every pickup pass calls it). Returns
+    /// whether a root newly asks for a rotation (#FEED-177).
+    pub fn note_sessions(&self, rows: &[SessionRow]) -> bool {
         let mut keys = Vec::new();
+        let mut flagged = false;
         {
             let mut state = write(&self.state);
             for row in rows {
@@ -187,6 +192,12 @@ impl Keyring {
                     state.roots.insert(row.id.clone(), root.to_string());
                 }
                 if row.is_root() {
+                    match row.seal_rotate_epoch.and_then(|e| u32::try_from(e).ok()) {
+                        Some(epoch) => flagged |= state.rotations.insert(row.id.clone(), epoch) != Some(epoch),
+                        None => {
+                            state.rotations.remove(&row.id);
+                        }
+                    }
                     if let (Some(key), Some(epoch)) = (row.seal_public_key.as_deref(), row.seal_epoch) {
                         if let (Ok(public), Ok(epoch)) = (public_key_from_b64(key), u32::try_from(epoch)) {
                             keys.push((row.id.clone(), epoch, public));
@@ -198,6 +209,34 @@ impl Keyring {
         for (root, epoch, public) in keys {
             self.set_current(&root, epoch, public);
         }
+        flagged
+    }
+
+    /// #FEED-177: the roots this install should ROTATE now, with the epoch
+    /// each supersedes: flagged (`seal_rotate_epoch`), still at that epoch
+    /// as far as this install knows, and its secret held (a live reader).
+    /// Whether this install MAY rotate (the starter's or the executing
+    /// device's) is the server's call (`sessionKeys.create`).
+    pub fn rotations_due(&self) -> Vec<(String, u32)> {
+        let state = read(&self.state);
+        let mut due: Vec<(String, u32)> = state
+            .rotations
+            .iter()
+            .filter(|(root, flagged)| {
+                state.publics.get(*root).is_some_and(|(epoch, _)| epoch <= flagged)
+                    && state.secrets.get(*root).is_some_and(|held| {
+                        state.publics.get(*root).is_some_and(|(epoch, _)| held.contains_key(epoch))
+                    })
+            })
+            .map(|(root, flagged)| (root.clone(), *flagged))
+            .collect();
+        due.sort();
+        due
+    }
+
+    /// The flag of `root` is handled (rotated here, or by another writer).
+    pub fn rotated(&self, root_id: &str) {
+        write(&self.state).rotations.remove(root_id);
     }
 
     /// Whether a missing secret of `root` may be fetched now (rate limit).
@@ -411,7 +450,10 @@ pub fn changed() -> u64 {
 
 /// Feeds the synced `sessions` rows (session → root, current keys).
 pub fn note_sessions(rows: &[SessionRow]) {
-    with_keyring(|keyring| keyring.note_sessions(rows));
+    // #FEED-177: a newly flagged root rotates in the holder's next pass.
+    if with_keyring(|keyring| keyring.note_sessions(rows)) {
+        wake_holder();
+    }
 }
 
 /// EXP-1458: the users the host's synced `users` rows name, `(id, email)`:
