@@ -982,6 +982,7 @@ impl Render for AgentScreenView {
                     None,
                     &self.dock,
                     &composer,
+                    None,
                     &text,
                     window,
                     cx,

@@ -1523,7 +1523,10 @@ pub(crate) fn docked_ids(rows: &[SessionThreadRow]) -> HashSet<String> {
 /// composer; returns the band and the open card's sheet. `suggestions` =
 /// the root's id when its suggested-tasks cards dock too (the thread).
 /// S-3: no plan / question source (a story now, inline in the
-/// Conversation) and nothing opens itself.
+/// Conversation) and nothing opens itself. #EXP-1545: `queue_from` = the
+/// Live child ([`domain::dock::thread_dock_queue`]'s pick) whose Queue the
+/// `tasks` card shows, named in its caption, its sheet that child's Trace;
+/// `None` = the root's own.
 #[allow(clippy::too_many_arguments)] // the host's facts
 pub(crate) fn root_dock(
     prefix: &str,
@@ -1531,6 +1534,7 @@ pub(crate) fn root_dock(
     suggestions: Option<&str>,
     state: &Entity<crate::dock::DockState>,
     composer: &Entity<crate::steer_viewer::SteerSessionView>,
+    queue_from: Option<(&Entity<crate::steer_viewer::SteerSessionView>, &str)>,
     text: &ThreadText,
     window: &mut Window,
     cx: &mut App,
@@ -1540,6 +1544,14 @@ pub(crate) fn root_dock(
         sources.extend(suggestion_sources(rows));
     }
     sources.extend(composer.read(cx).session_dock_sources(cx));
+    if let Some((child, name)) = queue_from {
+        let queue = child.read(cx).dock_queue();
+        for source in &mut sources {
+            if matches!(source, DockSource::Tasks { .. }) {
+                *source = DockSource::Tasks { session_name: Some(name.to_string()), queue: queue.clone() };
+            }
+        }
+    }
     let dock_rows = domain::dock::dock_rows(&sources);
     let sheet = match state.read(cx).sheet_id().map(str::to_string) {
         Some(open) => match dock_rows.iter().find(|row| row.id == open).cloned() {
@@ -1550,7 +1562,12 @@ pub(crate) fn root_dock(
                         Some(suggestions_sheet(id, *start_all, items, text.team_id(), cx))
                     }
                     Some(_) => None,
-                    None => composer.update(cx, |composer, cx| composer.render_session_dock_sheet(&dock_row, window, cx)),
+                    None => match queue_from {
+                        Some((child, _)) if dock_row.kind == domain::dock::DockKind::Tasks => {
+                            child.update(cx, |child, cx| child.render_session_dock_sheet(&dock_row, window, cx))
+                        }
+                        _ => composer.update(cx, |composer, cx| composer.render_session_dock_sheet(&dock_row, window, cx)),
+                    },
                 });
                 content.map(|content| crate::dock::sheet(state, &dock_row, content, window, cx))
             }
@@ -2778,6 +2795,33 @@ struct StoriesState {
     stack_hovered: Option<String>,
 }
 
+/// #EXP-1545: a Live child's relay viewer, read for its Queue only.
+struct QueueFeed {
+    /// The child's name as the thread's tabs show it.
+    name: String,
+    view: Entity<crate::steer_viewer::SteerSessionView>,
+    _sub: Subscription,
+}
+
+/// #EXP-1545: the tree's Live (not ended) children with their tab names
+/// (top-level chips and the sessions folded under them).
+fn live_children(view: &SessionThreadView, root_id: &str, cx: &App) -> Vec<(String, String)> {
+    view.tabs
+        .iter()
+        .filter_map(|tab| match tab {
+            ThreadTab::Session { session_id, name, nested, .. } => Some(
+                std::iter::once((session_id.clone(), name.clone()))
+                    .chain(nested.iter().map(|item| (item.session_id.clone(), item.name.clone())))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .flatten()
+        .filter(|(id, _)| id != root_id)
+        .filter(|(id, _)| crate::session_data::session(id, cx).is_some_and(|row| !row.is_ended()))
+        .collect()
+}
+
 pub(crate) struct ThreadScreenView {
     root_id: String,
     stories: StoriesState,
@@ -2831,6 +2875,10 @@ pub(crate) struct ThreadScreenView {
     /// it is the main thing: its raw work is the body, in place.
     main: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
     _main_sub: Option<Subscription>,
+    /// #EXP-1545 (dock.json THREAD QUEUE): one relay viewer per Live child
+    /// of the tree, read for its Queue only (its per-session slots, seeded
+    /// LOCAL FIRST from the last-known memo), while the Conversation shows.
+    queue_feeds: HashMap<String, QueueFeed>,
     _missing_tick: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -2916,6 +2964,7 @@ impl ThreadScreenView {
             _tail_sub: None,
             main: None,
             _main_sub: None,
+            queue_feeds: HashMap::new(),
             _missing_tick: missing_tick,
             _subscriptions: subscriptions,
         };
@@ -3009,6 +3058,9 @@ impl ThreadScreenView {
             view.update(cx, |view, cx| view.shutdown(cx));
         }
         self._main_sub = None;
+        for (_, feed) in self.queue_feeds.drain() {
+            feed.view.update(cx, |view, _| view.shutdown());
+        }
         if let (ThreadChildSel::Issue(_), Some(view)) = (&self.child, &self.issue_view) {
             view.update(cx, |detail, cx| {
                 detail.flush_title(cx);
@@ -3268,6 +3320,78 @@ impl ThreadScreenView {
         }
     }
 
+    /// #EXP-1545: keep ONE remote relay viewer per Live (not ended) child
+    /// in `live` (session id, the tab's name) and drop the rest; each
+    /// repaints the thread only when its Queue moved.
+    fn sync_queue_feeds(&mut self, live: Vec<(String, String)>, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let keep: HashSet<&str> = live.iter().map(|(id, _)| id.as_str()).collect();
+        let gone: Vec<String> = self.queue_feeds.keys().filter(|id| !keep.contains(id.as_str())).cloned().collect();
+        for id in gone {
+            if let Some(feed) = self.queue_feeds.remove(&id) {
+                feed.view.update(cx, |view, _| view.shutdown());
+            }
+        }
+        for (id, name) in live {
+            if let Some(feed) = self.queue_feeds.get_mut(&id) {
+                feed.name = name;
+                continue;
+            }
+            let view = cx.new(|cx| {
+                crate::steer_viewer::SteerSessionView::with_source(
+                    id.clone(),
+                    crate::steer_viewer::FeedSource::Remote { handle: None },
+                    window,
+                    cx,
+                )
+            });
+            let mut last = view.read(cx).dock_queue();
+            let sub = cx.observe(&view, move |_, view, cx| {
+                let queue = view.read(cx).dock_queue();
+                if queue != last {
+                    last = queue;
+                    cx.notify();
+                }
+            });
+            self.queue_feeds.insert(id, QueueFeed { name, view, _sub: sub });
+        }
+    }
+
+    /// #EXP-1545 (`threadDockQueue` ×4): the Live child whose Queue the
+    /// Dock's `tasks` card shows, with its name; `None` = the root's own
+    /// (open, or nothing to show at all).
+    fn thread_queue_from(&self, model: &ThreadModel, cx: &App) -> Option<(Entity<crate::steer_viewer::SteerSessionView>, String)> {
+        use domain::dock::{thread_dock_queue, ThreadQueueCandidate};
+        let active_at = |row: &SessionRow| {
+            row.last_turn_at
+                .as_deref()
+                .and_then(domain::session_tree::iso_ms)
+                .or_else(|| row.started_at.as_deref().and_then(domain::session_tree::iso_ms))
+        };
+        let mut candidates = vec![ThreadQueueCandidate {
+            session_id: self.root_id.clone(),
+            name: model.view.title.clone(),
+            root: true,
+            ended: model.root.is_ended(),
+            active_at: active_at(&model.root),
+            open: self.composer.read(cx).dock_queue().is_some(),
+        }];
+        for (id, feed) in &self.queue_feeds {
+            let row = crate::session_data::session(id, cx);
+            candidates.push(ThreadQueueCandidate {
+                session_id: id.clone(),
+                name: feed.name.clone(),
+                root: false,
+                ended: row.as_ref().is_none_or(SessionRow::is_ended),
+                active_at: row.as_ref().and_then(active_at),
+                open: feed.view.read(cx).dock_queue().is_some(),
+            });
+        }
+        let pick = thread_dock_queue(&candidates)?;
+        let name = pick.session_name?;
+        let feed = self.queue_feeds.get(&pick.session_id)?;
+        Some((feed.view.clone(), name))
+    }
+
     /// NEW-6 (N-1): keep the ONE session's view while it is the body.
     fn sync_main(&mut self, main: Option<&str>, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.main.as_ref().map(|(id, _)| id.as_str()) == main {
@@ -3453,6 +3577,7 @@ impl ThreadScreenView {
         // messages and banners, then THE composer; a reader who may not
         // reply keeps the cards inline and gets no band.
         let may_message = self.composer.read(cx).may_message();
+        let queue_from = if may_message { self.thread_queue_from(model, cx) } else { None };
         let (band, sheet) = if may_message {
             root_dock(
                 "thread",
@@ -3460,6 +3585,7 @@ impl ThreadScreenView {
                 Some(&self.root_id),
                 &self.dock,
                 &self.composer,
+                queue_from.as_ref().map(|(view, name)| (view, name.as_str())),
                 &self.text,
                 window,
                 cx,
@@ -3721,6 +3847,13 @@ impl Render for ThreadScreenView {
             .then(|| model.view.live_session_id.clone())
             .flatten();
         self.sync_tail(live.as_deref(), window, cx);
+        // #EXP-1545: the Live children's Queues ride the Conversation's Dock.
+        let children = if on_conversation && main.is_none() && self.child == ThreadChildSel::Conversation {
+            live_children(&model.view, &self.root_id, cx)
+        } else {
+            Vec::new()
+        };
+        self.sync_queue_feeds(children, window, cx);
         // EXP-1323: what is on screen is read — the thread (the whole tree's
         // agent replies) or the session open in place (its own).
         match self.focus_id().map(str::to_string) {

@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-thread-dock-child-tasks",
+    date: "2026-11-01",
+    title: "A child's tasks in the thread",
+    summary: "The Dock of a thread shows the tasks of a running child session when the root has none.",
+    body: r#"- **Tasks card**: when the root session has no open tasks, the thread's Dock shows the tasks of the most recently active running child, named in the card.
+- **Sheet**: opening the card shows that child's full task list."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_144: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-chat-stability",
     date: "2026-11-01",
     title: "Chats stay smooth and keep what you type",

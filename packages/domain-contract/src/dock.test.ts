@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/dock.json" with { type: "json" }
 import toastFixture from "../fixtures/toast-stack.json" with { type: "json" }
-import { dock, dockAutoOpen, dockRows, suggestionSources, DOCK_AUTO_OPEN_GRACE_MS, DOCK_STACK, type DockKind, type DockRow, type DockSource } from "./dock"
+import { dock, dockAutoOpen, dockRows, suggestionSources, threadDockQueue, DOCK_AUTO_OPEN_GRACE_MS, DOCK_STACK, type DockKind, type DockRow, type DockSource, type ThreadQueueCandidate } from "./dock"
 
 describe(`dockRows`, () => {
   for (const entry of fixture.rowCases) {
@@ -36,6 +36,14 @@ describe(`dockAutoOpen`, () => {
     test(entry.name, () => {
       const rows = entry.rowIds.map(([id, kind]) => ({ id: id!, kind: kind as DockKind }))
       expect(dockAutoOpen({ previous: entry.previous, rows })).toBe(entry.expected)
+    })
+  }
+})
+
+describe(`threadDockQueue`, () => {
+  for (const entry of fixture.threadQueueCases) {
+    test(entry.name, () => {
+      expect(threadDockQueue(entry.candidates as ThreadQueueCandidate[])).toEqual(entry.expected)
     })
   }
 })

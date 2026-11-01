@@ -39,7 +39,9 @@ final class DockTests: XCTestCase {
                 sessionName: raw["sessionName"] as? String, createdAt: try number(raw["createdAt"])
             )
         case "tasks":
-            guard let queue = raw["queue"] as? [String: Any] else { return .tasks(nil) }
+            guard let queue = raw["queue"] as? [String: Any] else {
+                return .tasks(nil, sessionName: raw["sessionName"] as? String)
+            }
             let todo = try XCTUnwrap(queue["todo"] as? [String: Any])
             return .tasks(Dock.QueueSummary(
                 todoTitle: try XCTUnwrap(todo["title"] as? String),
@@ -47,7 +49,7 @@ final class DockTests: XCTestCase {
                     Dock.QueueSummary.Item(label: $0["label"] as? String ?? "", description: $0["description"] as? String)
                 },
                 completedTitle: (queue["completed"] as? [String: Any])?["title"] as? String
-            ))
+            ), sessionName: raw["sessionName"] as? String)
         case "suggestions":
             return .suggestions(
                 id: try XCTUnwrap(raw["id"] as? String), label: try XCTUnwrap(raw["label"] as? String),
@@ -142,6 +144,28 @@ final class DockTests: XCTestCase {
             }
             let expected = try XCTUnwrap(c["expected"] as? [[String: Any]]).map(source)
             XCTAssertEqual(Dock.suggestionSources(rows), expected, c["name"] as? String ?? "")
+        }
+    }
+
+    /// #EXP-1545 `threadDockQueue`: the candidates in, the WHOLE pick out.
+    func testThreadQueueCases() throws {
+        let all = try list("threadQueueCases")
+        XCTAssertFalse(all.isEmpty)
+        for c in all {
+            let candidates = try XCTUnwrap(c["candidates"] as? [[String: Any]]).map { r in
+                Dock.ThreadQueueCandidate(
+                    sessionId: try XCTUnwrap(r["sessionId"] as? String),
+                    name: try XCTUnwrap(r["name"] as? String),
+                    root: try XCTUnwrap(r["root"] as? Bool),
+                    ended: try XCTUnwrap(r["ended"] as? Bool),
+                    activeAt: (r["activeAt"] as? NSNumber)?.doubleValue,
+                    open: try XCTUnwrap(r["open"] as? Bool)
+                )
+            }
+            let expected = (c["expected"] as? [String: Any]).map { e in
+                Dock.ThreadDockQueue(sessionId: e["sessionId"] as? String ?? "", sessionName: e["sessionName"] as? String)
+            }
+            XCTAssertEqual(Dock.threadDockQueue(candidates), expected, c["name"] as? String ?? "")
         }
     }
 
