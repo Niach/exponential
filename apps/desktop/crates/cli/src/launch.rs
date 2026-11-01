@@ -407,7 +407,9 @@ fn foreground_pass(
             | PickupAction::Kill { session_id: id }
             // EXP-1252: the row names another device now: this engine stops
             // without a row write.
-            | PickupAction::Release { session_id: id } => id == session_id,
+            | PickupAction::Release { session_id: id }
+            // EXP-1542: its branch goes to origin when it moved away.
+            | PickupAction::HandOff { session_id: id, .. } => id == session_id,
             // EXP-1341: a revive is the daemon's (or the desktop's) work —
             // this process runs ONE engine.
             PickupAction::Launch { .. }
