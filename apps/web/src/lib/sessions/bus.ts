@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { ASSISTANT_SILENT_EVENTS, assistantAgentIds } from "@/lib/agents/assistant-chat"
 import type { CodingSessionBlocked, MessageCard, MessageEventKind } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
+import { sliceUnits } from "@exp/eagent/copy"
 import {
   ASK_PLAN_LEAD,
   ASK_PRIVATE_PLAN_LEAD,
@@ -258,7 +259,7 @@ export async function busRelayTurn(
 const ASK_PLAN_MAX = 2000
 
 function clip(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
+  return text.length > max ? `${sliceUnits(text, max - 1).trimEnd()}…` : text
 }
 
 /** The text a listener's agent reads for a child's open card: the question
@@ -491,7 +492,7 @@ export async function reportSummary(
     text = last?.body.trim() ?? ``
     if (isSealedBody(text)) text = ``
   }
-  return (text || REPORT_FALLBACK).slice(0, REPORT_MAX)
+  return sliceUnits(text || REPORT_FALLBACK, REPORT_MAX)
 }
 
 /** `child` ended: its `report` card reaches every listener and wakes it,

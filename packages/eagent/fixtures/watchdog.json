@@ -1150,6 +1150,80 @@
           }
         }
       }
+    },
+    {
+      "name": "a usage wall's reset without a timezone never expires; a bare date is UTC midnight",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "needsInput": true,
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "session",
+              "resetsAt": "1970-01-01T00:05:00"
+            }
+          },
+          {
+            "id": "r2",
+            "needsInput": true,
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "session",
+              "resetsAt": "1970-01-02"
+            }
+          },
+          {
+            "id": "r3",
+            "needsInput": true,
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "session",
+              "resetsAt": "1970-01-01T01:05:00+01:00"
+            }
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 86400000
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 86400000
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "blocked": {
+              "kind": "rate_limit",
+              "since": 0,
+              "window": "session",
+              "resetsAt": "1970-01-01T00:05:00"
+            },
+            "needsInput": true
+          },
+          "r2": {
+            "blocked": null,
+            "needsInput": false
+          },
+          "r3": {
+            "blocked": null,
+            "needsInput": false
+          }
+        }
+      }
     }
   ],
   "silentCases": [

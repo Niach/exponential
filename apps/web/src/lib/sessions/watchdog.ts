@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
+import { stampMs } from "@exp/eagent/copy"
 import { db } from "@/db/connection"
 import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
@@ -337,9 +338,10 @@ async function clearExpiredWalls(now: Date): Promise<number> {
       )
       .for(`update`, { skipLocked: true })
     // Parsed here, never cast in SQL: the stamp is a free string from the
-    // device, and a malformed one must not fail the whole tick.
+    // device, and a malformed one must not fail the whole tick. The spec's
+    // parser (#EXP-1510): a timezone-less stamp never expires.
     const expired = rows.filter((row) => {
-      const at = Date.parse(row.blocked?.resetsAt ?? ``)
+      const at = stampMs(row.blocked?.resetsAt ?? ``)
       return Number.isFinite(at) && at <= now.getTime()
     })
     await clearBlockedInTx(

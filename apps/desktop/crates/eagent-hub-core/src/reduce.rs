@@ -940,7 +940,7 @@ fn reply(ctx: &mut Ctx, data: ReplyData) -> Step<StepResult> {
         return refuse(ErrorCode::Invalid, text(&["replyEmpty"]));
     }
     if data.card.as_ref().is_some_and(|card| !matches!(card, Card::Question { .. } | Card::Plan { .. })) {
-        return refuse(ErrorCode::Invalid, "A reply's card is a question or a plan");
+        return refuse(ErrorCode::Invalid, text(&["replyCard"]));
     }
     let sealed = data.sealed == Some(true);
     let message_id = post(
