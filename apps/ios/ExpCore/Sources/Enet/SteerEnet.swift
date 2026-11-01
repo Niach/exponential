@@ -147,6 +147,13 @@ public protocol SteerEnetCarrier: AnyObject, Sendable {
     func open(sessionId: String, peer: String) async -> SteerEnetLink
     /// One chat message to `peer`, returned once acked.
     func send(peer: String, body: Data) async throws
+    /// EXP-1531 connStats: how `peer` is reached right now, `direct` |
+    /// `iroh_relay`; nil = no open connection (or no node).
+    func pathKind(peer: String) async -> String?
+}
+
+extension SteerEnetCarrier {
+    public func pathKind(peer: String) async -> String? { nil }
 }
 
 /// The frames one joined device sends for one session, plus the ordered
@@ -164,21 +171,44 @@ public final class SteerEnetLink: @unchecked Sendable {
     private var outbox: AsyncStream<[String]>.Continuation?
     private var sender: Task<Void, Never>?
     private var onSendFailure: (@Sendable () -> Void)?
+    /// EXP-1531: the peer's last connection closed (`peerDisconnected`)
+    /// before anyone read the stream: `stream` reports the drop at once.
+    private var dropped = false
+    /// An envelope arrived: this link rode a live connection (a
+    /// `peerDisconnected` the pump hands over before that is about an older
+    /// connection, not this one).
+    private var received = false
+    /// SUBSCRIPTIONS: the links this one shares its device feed with.
+    private let inbox: SteerEnetInbox?
 
+    /// - Parameter inbox: where the carrier registers this link; a `leave`
+    ///   goes out only while no other live link of the same (session, peer)
+    ///   is registered there (the device keys viewers by endpoint, so it
+    ///   would end THAT link's feed too).
     public init(
         sessionId: String,
         peer: String,
+        inbox: SteerEnetInbox? = nil,
         send: @escaping @Sendable (Data) async throws -> Void
     ) {
         self.sessionId = sessionId
         self.peer = peer
+        self.inbox = inbox
         let (stream, continuation) = AsyncStream<[String]>.makeStream()
         outbox = continuation
         let sendBody = send
         let sessionId = sessionId
+        let me = ObjectIdentifier(self)
         sender = Task.detached { [weak self] in
             // ONE ordered stream of sends: each awaited (acked) before the next.
             for await frames in stream {
+                // EXP-1487: re-checked at send time, a newer link of the same
+                // (session, peer) may have joined since `close` queued it.
+                if frames == [SteerEnet.leaveFrame],
+                   inbox?.sharesFeed(sessionId: sessionId, peer: peer, besides: me) == true {
+                    logger.info("eNet steer leave skipped: another link reads this feed")
+                    continue
+                }
                 do {
                     try await SteerEnetLink.withTimeout(.milliseconds(SteerEnet.sendTimeoutMs)) {
                         try await sendBody(SteerEnet.encode(sessionId: sessionId, frames: frames))
@@ -197,6 +227,7 @@ public final class SteerEnetLink: @unchecked Sendable {
     /// The inbox hands over one envelope's frames.
     func receive(_ frames: [String]) {
         lock.lock()
+        if !closed { received = true }
         if closed {
             lock.unlock()
         } else if let sink {
@@ -221,7 +252,7 @@ public final class SteerEnetLink: @unchecked Sendable {
                     let frames = queue.removeFirst()
                     lock.unlock()
                     continuation.resume(returning: frames)
-                } else if closed || Task.isCancelled {
+                } else if closed || dropped || Task.isCancelled {
                     lock.unlock()
                     continuation.resume(returning: nil)
                 } else {
@@ -239,16 +270,18 @@ public final class SteerEnetLink: @unchecked Sendable {
     }
 
     /// Every envelope from here on (anything buffered first), in order. One
-    /// reader; `onSendFailure` fires once if a send fails or times out (the
-    /// device dropped us: redial).
+    /// reader; `onSendFailure` fires once if a send fails or times out, or
+    /// the peer's last connection closed (the device dropped us: redial).
     public func stream(onSendFailure: @escaping @Sendable () -> Void) -> AsyncStream<[String]> {
         let (stream, continuation) = AsyncStream<[String]>.makeStream()
         lock.lock()
-        self.onSendFailure = onSendFailure
+        let droppedAlready = dropped && !closed
+        self.onSendFailure = droppedAlready ? nil : onSendFailure
         for frames in queue { continuation.yield(frames) }
         queue = []
         if closed { continuation.finish() } else { sink = continuation }
         lock.unlock()
+        if droppedAlready { onSendFailure() }
         return stream
     }
 
@@ -260,11 +293,15 @@ public final class SteerEnetLink: @unchecked Sendable {
     /// Re-send `join` (the stale rule): the device restarts the feed.
     public func rejoin() { send([SteerEnet.joinFrame]) }
 
-    /// Unsubscribe; `leave` goes out first when asked (best effort).
+    /// Unsubscribe; `leave` goes out first when asked (best effort), and
+    /// only when no other live link reads the same (session, peer) feed
+    /// (SUBSCRIPTIONS, the desktop's `ViewerSubscription::shared`).
     public func close(sendLeave: Bool = false) {
+        let shared = sendLeave
+            && inbox?.sharesFeed(sessionId: sessionId, peer: peer, besides: ObjectIdentifier(self)) == true
         lock.lock()
         guard !closed else { lock.unlock(); return }
-        if sendLeave { outbox?.yield([SteerEnet.leaveFrame]) }
+        if sendLeave, !shared { outbox?.yield([SteerEnet.leaveFrame]) }
         closed = true
         outbox?.finish()
         let sink = self.sink, waiter = self.waiter, hooks = closeHooks
@@ -290,6 +327,28 @@ public final class SteerEnetLink: @unchecked Sendable {
         }
         callback?()
     }
+
+    /// EXP-1531: the peer's LAST connection closed (hung up, or the QUIC
+    /// idle timeout found it dead): ends the link at once exactly like a
+    /// failed send, instead of waiting out `staleMs`. A joiner still reading
+    /// (`next`) wakes with nil and moves on. Ignored until an envelope
+    /// arrived: the pump is ordered, so an earlier disconnect is a previous
+    /// connection's (a redial's link must not die of its predecessor's drop).
+    func peerDisconnected() {
+        let (callback, pending) = lock.withLock { () -> ((@Sendable () -> Void)?, CheckedContinuation<[String]?, Never>?) in
+            guard !closed, received else { return (nil, nil) }
+            dropped = true
+            let pending = waiter
+            waiter = nil
+            defer { onSendFailure = nil }
+            return (onSendFailure, pending)
+        }
+        pending?.resume(returning: nil)
+        callback?()
+    }
+
+    /// Whether the peer's connection closed under this link.
+    var isDropped: Bool { lock.withLock { dropped } }
 
     static func withTimeout<T: Sendable>(
         _ timeout: Duration, _ body: @escaping @Sendable () async throws -> T
@@ -335,6 +394,24 @@ public final class SteerEnetInbox: @unchecked Sendable {
             links[key]?.removeValue(forKey: ObjectIdentifier(link))
             if links[key]?.isEmpty == true { links.removeValue(forKey: key) }
         }
+    }
+
+    /// SUBSCRIPTIONS: whether a live link other than `besides` reads
+    /// `sessionId` from `peer` (then a `leave` would end its feed too).
+    public func sharesFeed(sessionId: String, peer: String, besides: ObjectIdentifier) -> Bool {
+        lock.withLock {
+            (links[Self.key(sessionId, peer)] ?? [:]).contains { $0.key != besides && $0.value.link != nil }
+        }
+    }
+
+    /// EXP-1531 `peerDisconnected`: the last connection to `peer` closed,
+    /// so every link joined to it ends at once (the send-failure path).
+    public func peerDisconnected(_ peer: String) {
+        let peer = peer.lowercased()
+        let targets = lock.withLock {
+            links.values.flatMap { $0.values.compactMap(\.link) }.filter { $0.peer.lowercased() == peer }
+        }
+        for link in targets { link.peerDisconnected() }
     }
 
     /// One chat message from `from`. True when it was a steer envelope
@@ -525,7 +602,8 @@ public enum SteerEnetJoiner {
                         }
                     }
                 }
-                return nil
+                // EXP-1531: the peer hung up mid-join: the next endpoint.
+                return link.isDropped ? .refused : nil
             }
             group.addTask {
                 try? await Task.sleep(until: deadline, clock: .continuous)
@@ -566,6 +644,7 @@ public final class InstallSteerCarrier: SteerEnetCarrier {
         let link = SteerEnetLink(
             sessionId: sessionId,
             peer: peer,
+            inbox: inbox,
             send: { try await service.sendChat(peer: peer, body: $0) }
         )
         inbox.register(link)
@@ -579,6 +658,10 @@ public final class InstallSteerCarrier: SteerEnetCarrier {
 
     public func send(peer: String, body: Data) async throws {
         try await service.sendChat(peer: peer, body: body)
+    }
+
+    public func pathKind(peer: String) async -> String? {
+        await service.pathKind(peer: peer)
     }
 }
 

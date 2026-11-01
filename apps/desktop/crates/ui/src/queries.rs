@@ -702,20 +702,28 @@ impl MessageInboxEntry {
 /// [`domain::inbox_route::inbox_row_target`] (`None` = the tap only marks
 /// it read).
 fn row_session_target(item: &domain::rows::Notification) -> Option<String> {
-    match domain::inbox_route::inbox_row_target(
-        item.kind.as_deref(),
-        item.issue_id.as_deref(),
-        item.session_id.as_deref(),
-    ) {
+    match row_target(item) {
         domain::inbox_route::InboxRowTarget::Session { session_id } => Some(session_id),
         _ => None,
     }
 }
 
+/// #EXP-1456/#EXP-1534: where a row opens (inbox-route.json).
+pub fn row_target(item: &domain::rows::Notification) -> domain::inbox_route::InboxRowTarget {
+    domain::inbox_route::inbox_row_target(
+        item.kind.as_deref(),
+        item.issue_id.as_deref(),
+        item.session_id.as_deref(),
+        item.device_id.as_deref(),
+    )
+}
+
 /// One blocked run (EXP-980): an issue-less `session_blocked` row is its own
 /// entry, like an agent message. Click marks it read and opens the run —
 /// unless the run has been pruned (`session_id` NULL), when the row is still
-/// worth reading but leads nowhere.
+/// worth reading but leads nowhere. #EXP-1534: a team-less `agent_signed_out`
+/// row is the same entry; it opens its device's settings (none once the
+/// device is removed).
 pub struct SessionInboxEntry {
     pub item: domain::rows::Notification,
     /// The synced team's name (`None` when the team row hasn't synced).
@@ -730,6 +738,12 @@ impl SessionInboxEntry {
     /// The run to open (inbox-route.json); `None` once pruned.
     pub fn session_id(&self) -> Option<String> {
         row_session_target(&self.item)
+    }
+
+    /// Where the row opens (inbox-route.json): its run, or its device's
+    /// settings for an `agent_signed_out` row.
+    pub fn target(&self) -> domain::inbox_route::InboxRowTarget {
+        row_target(&self.item)
     }
 }
 
@@ -804,8 +818,8 @@ pub fn inbox(cx: &App) -> InboxData {
     }
 }
 
-/// The issue-less kinds the inbox renders: agent messages (EXP-801) and
-/// blocked runs (EXP-980). Any other issue-less kind is unknown-future and
+/// The issue-less kinds the inbox renders: agent messages (EXP-801),
+/// blocked runs (EXP-980) and signed-out agent logins (#EXP-1534). Any other issue-less kind is unknown-future and
 /// skipped everywhere this is consulted (SLOP-4: the helpdesk's issue-less
 /// `support_reply` rows are gone; `reporter_reply` is issue-scoped).
 fn issueless_kind_renderable(kind: Option<&str>) -> bool {
@@ -813,12 +827,13 @@ fn issueless_kind_renderable(kind: Option<&str>) -> bool {
         kind,
         Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE)
             | Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED)
+            | Some(domain::contract::NOTIFICATION_TYPE_AGENT_SIGNED_OUT)
     )
 }
 
 /// EXP-699: the rail's Inbox dot — any unread notification the inbox can
 /// render (issue-keyed rows need the issue AND its board synced, issue-less
-/// rows count only as `agent_message` or `session_blocked`): the [`inbox`]
+/// rows count only as `agent_message`, `session_blocked` or `agent_signed_out`): the [`inbox`]
 /// renderability rule without the grouping work.
 pub fn inbox_unread(cx: &App) -> bool {
     let collections = Store::global(cx).collections();
@@ -889,7 +904,8 @@ fn build_inbox_entries(
                 );
                 continue;
             }
-            // `issueless_kind_renderable` left only the blocked run.
+            // `issueless_kind_renderable` left a blocked run or a signed-out
+            // agent login (#EXP-1534): the same issue-less row.
             order.push(Key::Session(notification.id.clone()));
             by_session.insert(
                 notification.id.clone(),
@@ -1688,6 +1704,42 @@ mod tests {
         // The run is gone; the row stays, it just leads nowhere.
         assert_eq!(second.session_id(), None);
         assert_eq!(entries.iter().map(InboxEntry::unread).sum::<usize>(), 3);
+    }
+
+    /// #EXP-1534 (inbox-route.json): a team-less `agent_signed_out` row lists
+    /// as the blocked-run row and opens its device's settings; a removed
+    /// device (`device_id` NULL) still lists but leads nowhere.
+    #[test]
+    fn inbox_lists_signed_out_agents_as_session_rows() {
+        let signed_out = |id: &str, device_id: Option<&str>, created_at: &str| {
+            let mut row = notification(id, None, None, "agent_signed_out", created_at, false);
+            row.device_id = device_id.map(str::to_string);
+            row
+        };
+        let entries = build_inbox_entries(
+            vec![
+                signed_out("a-1", Some("d-1"), "2026-11-01T10:00:00Z"),
+                signed_out("a-2", None, "2026-11-01T09:00:00Z"),
+            ],
+            |_| None,
+            |_| Some("Acme".to_string()),
+        );
+        assert_eq!(entries.len(), 2);
+        let InboxEntry::Session(first) = &entries[0] else {
+            panic!("expected a Session entry");
+        };
+        assert_eq!(
+            first.target(),
+            domain::inbox_route::InboxRowTarget::Device {
+                device_id: "d-1".to_string()
+            }
+        );
+        assert_eq!(first.session_id(), None);
+        assert_eq!(first.team_name, None);
+        let InboxEntry::Session(second) = &entries[1] else {
+            panic!("expected a Session entry");
+        };
+        assert_eq!(second.target(), domain::inbox_route::InboxRowTarget::None);
     }
 
     /// #EXP-1456 (inbox-route.json): an issue-less agent message naming a

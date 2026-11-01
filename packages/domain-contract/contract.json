@@ -226,7 +226,8 @@
       "pr_merged",
       "reporter_reply",
       "agent_message",
-      "session_blocked"
+      "session_blocked",
+      "agent_signed_out"
     ]
   },
   "prState": {

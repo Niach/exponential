@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import type { Attachment, User } from "@/db/schema"
 import type { CommentAudience } from "@exp/db-schema/domain"
 import { MAX_COMMENT_ATTACHMENTS } from "@/lib/domain"
+import { composerAfterSend } from "@exp/domain-contract/composer-send"
 import {
   acceptedImageContentTypes,
   acceptedVideoUploadContentTypes,
@@ -137,7 +138,10 @@ export function CommentComposer({
       (draft ? readTabMemory<string>(draft.owner, draft.slot) : undefined) ??
       initialText
   )
+  // EXP-1543: the live field, read when a send settles.
+  const textRef = useRef(text)
   const setText = (next: string) => {
+    textRef.current = next
     setTextState(next)
     if (draft) writeTabMemory(draft.owner, draft.slot, next)
   }
@@ -221,6 +225,9 @@ export function CommentComposer({
 
   const submit = async () => {
     if (submitting || !canSubmit) return
+    // EXP-1543 (composer-send.json): the field stays editable while the
+    // comment is in flight; a success clears only what went out.
+    const sentText = text
     setSubmitting(true)
     try {
       // Upload sequentially, persisting each id as it lands — a mid-batch
@@ -270,15 +277,24 @@ export function CommentComposer({
         }
         if (items[i].uploadedId) ids.push(items[i].uploadedId!)
       }
-      await onSubmit(text.trim(), ids, audience)
-      setText(``)
+      await onSubmit(sentText.trim(), ids, audience)
+      const after = composerAfterSend({
+        outcome: `sent`,
+        sent: { text: sentText, attachments: items.map((item) => item.key) },
+        current: {
+          text: textRef.current,
+          attachments: pendingRef.current.map((item) => item.key),
+        },
+      })
+      setText(after.text)
       // SLOP-4: every send drops back to a team comment, so an internal
       // follow-up never mails the reporter (iOS and Android do the same).
       setToReporter(false)
+      const keep = new Set(after.attachments)
       for (const item of items) {
-        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+        if (item.previewUrl && !keep.has(item.key)) URL.revokeObjectURL(item.previewUrl)
       }
-      setPending([])
+      setPending((prev) => prev.filter((item) => keep.has(item.key)))
     } catch (error) {
       // FEED-79: the create mutation's refusal is already the tRPC link's
       // toast; an upload or media step that failed first gets this one. A
@@ -384,7 +400,6 @@ export function CommentComposer({
       <ComposerTool
         aria-label="Add image"
         title="Add image"
-        disabled={submitting}
         onClick={() => {
           filePickerOpenRef.current = true
           imageInputRef.current?.click()
@@ -395,7 +410,6 @@ export function CommentComposer({
       <ComposerTool
         aria-label="Attach files"
         title="Attach files"
-        disabled={submitting}
         onClick={() => {
           filePickerOpenRef.current = true
           fileInputRef.current?.click()
@@ -408,7 +422,6 @@ export function CommentComposer({
       <ComposerTool
         aria-label="Insert issue reference"
         title="Insert issue reference"
-        disabled={submitting}
         onClick={() =>
           textareaRef.current?.insertText(
             issueRefInsertionText(textareaRef.current.charBeforeCaret())
@@ -426,7 +439,6 @@ export function CommentComposer({
         <ComposerTool
           aria-label="Insert emoji"
           title="Insert emoji"
-          disabled={submitting}
         >
           <EmojiIcon />
         </ComposerTool>
@@ -505,7 +517,6 @@ export function CommentComposer({
         value={text}
         onValueChange={setText}
         users={users}
-        disabled={submitting}
         // The card IS the field chrome — the textarea drops its own fill,
         // hairline and focus stroke (`resize-none` is stock since EXP-698).
         className="min-h-16 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"

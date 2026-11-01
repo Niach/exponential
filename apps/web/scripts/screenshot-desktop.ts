@@ -50,6 +50,7 @@ import {
   type SteerTicketSeed,
 } from "@/lib/steer"
 import {
+  assertDemoBenchQueue,
   assertDemoLiveSessions,
   DEMO_TASK_LIST,
   DEMO_TRACE_FEED,
@@ -615,6 +616,8 @@ async function resolveTarget() {
   // have stopped it, and the legacy ticket row's sweep deletes it once no stub
   // has heartbeated it for 2h, which is exactly the gap before a rerun.
   await assertDemoLiveSessions()
+  // #EXP-1538: the Dock benches' queued message (SCREENSHOT_FEED_QUEUED=1).
+  await assertDemoBenchQueue()
   const [session] = await db
     .select({ id: sessions.id })
     .from(sessions)

@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -132,6 +133,9 @@ fun AgentsScreen(
     // #EXP-1381: pushed from the Team page's Devices row (settings-nav.json)
     // the page wears a back + "Devices" top bar instead of the tab headline.
     onBack: (() -> Unit)? = null,
+    // #EXP-1534: the `devices` row id whose settings sheet opens once the
+    // list lands (an agent_signed_out inbox row / push); null = none.
+    openDeviceRowId: String? = null,
     viewModel: AgentsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -170,6 +174,15 @@ fun AgentsScreen(
     // The machine row whose settings sheet (EXP-481) is open — the sheet owns
     // Update and Remove now, confirm dialog included.
     var settingsTargetId by remember { mutableStateOf<String?>(null) }
+    // #EXP-1534: [openDeviceRowId]'s sheet opens ONCE (closing it stays closed),
+    // when the caller's own row with that `devices` id has synced.
+    var openedDeviceRow by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(openDeviceRowId, devices) {
+        if (openDeviceRowId == null || openedDeviceRow) return@LaunchedEffect
+        val target = devices?.firstOrNull { it.isMine && it.rowId == openDeviceRowId } ?: return@LaunchedEffect
+        settingsTargetId = target.deviceId
+        openedDeviceRow = true
+    }
     // EXP-1169: the "My devices" header's Add device pill (web + desktop twin).
     var showAddDevice by remember { mutableStateOf(false) }
     // EXP-862: the sign-in a chip (or the Add-account pill) asked for — the

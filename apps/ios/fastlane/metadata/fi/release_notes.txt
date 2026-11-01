@@ -5,3 +5,6 @@
 - Kirjoituskentän yläpuolella olevat pikavastaukset ovat helpompia lukea
 - Sovelluksilla on editorissa välilehdet Keskustelu, Data, Versiot ja Asetukset
 - Asetukset › MCP on yksi sivu MCP-palvelimille, sovellusten työkaluille ja toiminnalle
+- Live-istunnot jatkavat suoratoistoa päästä päähän salattuna, kun suora yhteys laitteeseen katkeaa
+- Teksti, jonka kirjoitat kommentin lähtiessä, jää kirjoituskenttään
+- Ketju näyttää käynnissä olevan aliistuntonsa tehtävät

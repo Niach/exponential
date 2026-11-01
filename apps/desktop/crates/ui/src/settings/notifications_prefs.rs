@@ -44,7 +44,7 @@ use domain::contract::{
     NOTIFICATION_TYPE_ISSUE_CREATED, NOTIFICATION_TYPE_ISSUE_MENTION,
     NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED, NOTIFICATION_TYPE_PR_MERGED,
     NOTIFICATION_TYPE_PR_OPENED, NOTIFICATION_TYPE_REPORTER_REPLY,
-    NOTIFICATION_TYPE_SESSION_BLOCKED,
+    NOTIFICATION_TYPE_AGENT_SIGNED_OUT, NOTIFICATION_TYPE_SESSION_BLOCKED,
 };
 
 use crate::coding_flow::CodingHub;
@@ -81,7 +81,7 @@ fn no_transport_alert(cx: &gpui::App) -> gpui::Div {
 }
 
 /// Web `TYPE_ROWS` — verbatim labels + hints, contract-locked type values.
-const TYPE_ROWS: [(&str, &str, &str); 9] = [
+const TYPE_ROWS: [(&str, &str, &str); 10] = [
     (
         NOTIFICATION_TYPE_ISSUE_CREATED,
         "New feedback",
@@ -126,6 +126,12 @@ const TYPE_ROWS: [(&str, &str, &str); 9] = [
         NOTIFICATION_TYPE_SESSION_BLOCKED,
         "Blocked sessions",
         "One of your coding sessions hits a rate limit.",
+    ),
+    // #EXP-1534: one inbox row (and push) when a device loses a login.
+    (
+        NOTIFICATION_TYPE_AGENT_SIGNED_OUT,
+        "Signed-out agents",
+        "One of your devices loses an agent login.",
     ),
 ];
 

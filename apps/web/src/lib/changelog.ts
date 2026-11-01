@@ -33,6 +33,22 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Accounts**: logins show as Claude or Codex icons; an amber dot marks one that is signed out or at its limit, and hovering or tapping it shows the email, plan, usage limits and Sign in.`,
   },
   {
+    id: `2026-11-01-agent-signed-out`,
+    date: `2026-11-01`,
+    title: `Signed-out logins reach your inbox`,
+    summary: `When one of your devices loses an agent login, you get one notification that opens that device's settings.`,
+    body: `- **Once per login**: one inbox row and push when a login signs out; the next only after it was signed in again.
+- **Straight to the fix**: tapping it opens the device's settings to sign in again.`,
+  },
+  {
+    id: `2026-11-01-comments-keep-typed-text`,
+    date: `2026-11-01`,
+    title: `Comments keep what you type while they send`,
+    summary: `Text typed or files added while a comment is sending stay in the composer.`,
+    body: `- **Keep typing**: the comment field stays editable while a comment sends, and only what went out clears.
+- **Leave anytime**: on Android, backing out of an issue no longer cancels a comment that is still sending.`,
+  },
+  {
     id: `2026-11-01-thread-dock-child-tasks`,
     date: `2026-11-01`,
     title: `A child's tasks in the thread`,

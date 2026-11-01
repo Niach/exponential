@@ -2916,6 +2916,25 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v89 (#EXP-1534): `notifications.device_id` — the devices row an
+        // `agent_signed_out` row is about (its tap opens that device's
+        // settings); NULL on every other type and once the device is removed.
+        // The notifications cursor resets so synced rows re-arrive carrying it.
+        migrator.registerMigration("v89_notification_device_id") { db in
+            guard try db.tableExists("notifications") else { return }
+            guard try db.columns(in: "notifications").contains(where: { $0.name == "device_id" }) == false else { return }
+            try db.alter(table: "notifications") { t in
+                t.add(column: "device_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'notifications'
+                    """)
+            }
+        }
+
         return migrator
     }
 

@@ -1,11 +1,14 @@
 //! #EXP-1456: where an inbox row (and its toast) opens ×4. An issue row opens
 //! its issue; an issue-less row naming a session opens that session (an
 //! agent's question or plan, a mention, a wall); [`session_target`] is the
-//! session entity ref's rule. Byte-locked by
+//! session entity ref's rule; #EXP-1534: an `agent_signed_out` row opens its
+//! device's settings. Byte-locked by
 //! `packages/domain-contract/fixtures/inbox-route.json`; mirrors TS
 //! `src/inbox-route.ts`, iOS `InboxRoute.swift`, Android `InboxRoute.kt`.
 
-use crate::contract::{NOTIFICATION_TYPE_AGENT_MESSAGE, NOTIFICATION_TYPE_SESSION_BLOCKED};
+use crate::contract::{
+    NOTIFICATION_TYPE_AGENT_MESSAGE, NOTIFICATION_TYPE_AGENT_SIGNED_OUT, NOTIFICATION_TYPE_SESSION_BLOCKED,
+};
 
 /// Which face an issue row opens on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,6 +22,8 @@ pub enum IssueFace {
 pub enum InboxRowTarget {
     Issue { issue_id: String, face: Option<IssueFace> },
     Session { session_id: String },
+    /// #EXP-1534: the Devices page with this device's settings open.
+    Device { device_id: String },
     /// Nowhere: the tap only marks the row read.
     None,
 }
@@ -27,8 +32,14 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     value.filter(|id| !id.is_empty())
 }
 
-/// The row's target, read off its `type`, `issue_id` and `session_id`.
-pub fn inbox_row_target(kind: Option<&str>, issue_id: Option<&str>, session_id: Option<&str>) -> InboxRowTarget {
+/// The row's target, read off its `type`, `issue_id`, `session_id` and
+/// `device_id`.
+pub fn inbox_row_target(
+    kind: Option<&str>,
+    issue_id: Option<&str>,
+    session_id: Option<&str>,
+    device_id: Option<&str>,
+) -> InboxRowTarget {
     let agent_message = kind == Some(NOTIFICATION_TYPE_AGENT_MESSAGE);
     if let Some(issue_id) = non_empty(issue_id) {
         return InboxRowTarget::Issue {
@@ -41,7 +52,12 @@ pub fn inbox_row_target(kind: Option<&str>, issue_id: Option<&str>, session_id: 
         Some(session_id) if session_row => InboxRowTarget::Session {
             session_id: session_id.to_string(),
         },
-        _ => InboxRowTarget::None,
+        _ => match non_empty(device_id) {
+            Some(device_id) if kind == Some(NOTIFICATION_TYPE_AGENT_SIGNED_OUT) => InboxRowTarget::Device {
+                device_id: device_id.to_string(),
+            },
+            _ => InboxRowTarget::None,
+        },
     }
 }
 
@@ -107,6 +123,7 @@ mod tests {
                 },
             },
             "session" => InboxRowTarget::Session { session_id: s("sessionId") },
+            "device" => InboxRowTarget::Device { device_id: s("deviceId") },
             "none" => InboxRowTarget::None,
             other => panic!("unknown kind {other}"),
         }
@@ -136,6 +153,7 @@ mod tests {
                 row["type"].as_str(),
                 row["issueId"].as_str(),
                 row["sessionId"].as_str(),
+                row["deviceId"].as_str(),
             );
             assert_eq!(got, expected_row(&case["expected"]), "{}", case["name"]);
         }

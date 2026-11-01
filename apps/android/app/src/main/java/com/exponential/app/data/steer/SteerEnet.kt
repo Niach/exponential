@@ -91,6 +91,28 @@ private val JOIN = buildJsonObject {
 }
 private val LEAVE = buildJsonObject { put("t", "leave") }
 
+/**
+ * EXP-1487 SUBSCRIPTIONS: the open [EnetSteerSocket]s per (viewer node,
+ * session, device endpoint). The device keys viewers by endpoint, so a
+ * `leave` ends EVERY feed of that pair on this install: only the last open
+ * socket of a pair sends it (the desktop's `ViewerSubscription::shared`).
+ */
+internal object EnetSteerSubscribers {
+    private val open = mutableMapOf<Triple<String, String, String>, MutableSet<EnetSteerSocket>>()
+
+    fun add(key: Triple<String, String, String>, socket: EnetSteerSocket) = synchronized(open) {
+        open.getOrPut(key) { mutableSetOf() }.add(socket)
+    }
+
+    /** Drops [socket]; true = no other socket of [key] is open. */
+    fun remove(key: Triple<String, String, String>, socket: EnetSteerSocket): Boolean = synchronized(open) {
+        val sockets = open[key] ?: return true
+        sockets.remove(socket)
+        if (sockets.isEmpty()) open.remove(key)
+        sockets.isEmpty()
+    }
+}
+
 /** How a join probe of one endpoint ended. */
 internal enum class EnetJoin { Joined, NoSuchSession, Refused, Timeout }
 
@@ -121,7 +143,10 @@ internal class EnetSteerSocket(
     // The probe already joined: the connection's own join would only restart the feed.
     @Volatile private var swallowJoin = false
 
+    private val key = Triple(node.endpointId, sessionId, endpoint)
+
     init {
+        EnetSteerSubscribers.add(key, this)
         // UNDISPATCHED: subscribed before the probe's join can be answered.
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             node.chats.collect { chat ->
@@ -138,9 +163,18 @@ internal class EnetSteerSocket(
                 }
             }
         }
+        // EXP-1531: the last connection to the device closed: the feed is
+        // gone now, not a staleMs from now (dropped exactly like a failed send).
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            node.disconnects.collect { peer -> if (peer == endpoint) end("peer disconnected") }
+        }
     }
 
     override val incoming: ReceiveChannel<String> get() = texts
+
+    /** EXP-1531: the node's path kind to the device (`direct` | `iroh_relay`), `direct` when it does not know. */
+    override val path: String
+        get() = if (node.pathKind(endpoint) == "iroh_relay") "iroh_relay" else "direct"
 
     /**
      * Sends `join` and holds the replay until `activity_synced`; on
@@ -240,18 +274,22 @@ internal class EnetSteerSocket(
         }
     }
 
-    private fun end(why: String) {
-        if (closed) return
+    /** Ends the feed; true = this call ended it and it was the pair's last open socket. */
+    @Synchronized
+    private fun end(why: String): Boolean {
+        if (closed) return false
         closed = true
         reason = why
         inbox.close()
+        return EnetSteerSubscribers.remove(key, this)
     }
 
     override fun cancel() {
-        val wasOpen = !closed
-        end("cancelled")
+        // An ended feed was already dropped by the device, and a `leave` while
+        // another socket of the pair is open would end ITS feed (EXP-1487).
+        val leave = end("cancelled")
         texts.close()
-        if (!wasOpen) {
+        if (!leave) {
             scope.cancel()
             return
         }

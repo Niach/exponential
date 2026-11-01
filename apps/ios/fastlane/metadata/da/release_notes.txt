@@ -5,3 +5,6 @@
 - Hurtigsvar over tekstfeltet er nemmere at læse
 - Apps får fanerne Chat, Data, Versioner og Indstillinger i editoren
 - Indstillinger › MCP er én side til dine MCP-servere, appværktøjer og aktivitet
+- Live-sessioner fortsætter med at streame, end-to-end-krypteret, når den direkte forbindelse til enheden falder ud
+- Tekst, du skriver, mens en kommentar sendes, bliver i skrivefeltet
+- En tråd viser opgaverne for sin kørende undersession

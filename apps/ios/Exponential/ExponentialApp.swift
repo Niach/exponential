@@ -47,6 +47,9 @@ struct ExponentialApp: App {
                         // (EXP-243) — and since EXP-621 they are app-scoped, so
                         // revival belongs here rather than in the one session
                         // screen that happens to be mounted.
+                        // EXP-1531: the eNet node re-probes the network and
+                        // migrates its paths alongside (iOS never tells it).
+                        dependencies.installNode?.networkChange()
                         dependencies.steerSessions.reconnectAll(reason: "foreground")
                     default: break
                     }

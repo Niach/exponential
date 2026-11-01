@@ -94,7 +94,7 @@ private struct AppPackageSurface: View {
                 pushRoute(.issue(accountId: accountId, id: issueId))
             }
         )
-        if let templateId = Apps.firstTemplateId(packageJSON: packageJSON) {
+        if let templateId = Apps.previewTemplate(packageJSON: packageJSON) {
             host.apply(surfaceId: Apps.Preview.surfaceId, packageId: packageId, templateId: templateId)
         }
         appHost = host

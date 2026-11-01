@@ -28,6 +28,11 @@ class DeepLinkBus @Inject constructor() {
         // straight to the run that hit the wall.
         data class Session(val id: String) : Target
 
+        // exponential://device/{id} — an agent_signed_out push tap or inbox
+        // row (#EXP-1534): the Devices page with that device's (devices row
+        // id) settings open.
+        data class Device(val deviceId: String) : Target
+
         // EXP-1284: a tapped thread link in agent prose — the Thread screen.
         data class Thread(val id: String) : Target
 
@@ -112,6 +117,10 @@ class DeepLinkBus @Inject constructor() {
 
     fun openSession(id: String) {
         _target.value = Target.Session(id)
+    }
+
+    fun openDevice(deviceId: String) {
+        _target.value = Target.Device(deviceId)
     }
 
     fun openThread(id: String) {

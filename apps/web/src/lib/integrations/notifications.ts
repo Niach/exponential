@@ -55,6 +55,7 @@ import { askText as busAskText } from "@/lib/sessions/bus"
 import { reporterFacingText } from "@/lib/reporter/report-text"
 import type { CodingSessionBlocked, MessageCard } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
+import { agentSignOutTitle, type AgentSignOut } from "@/lib/agent-sign-out"
 
 // The canonical push `data.type` discriminator vocabulary (D8/D13). The web
 // emits these; the native clients route on them. Every value is now a real
@@ -1124,6 +1125,53 @@ export async function notifyDeviceShareRemoved(args: {
     })
   } catch (err) {
     console.error(`[notify] device share removed failed:`, err)
+  }
+}
+
+/**
+ * #EXP-1534: logins one of the owner's devices held healthy now read
+ * signed_out / needs_relogin (`detectAgentSignOuts` decided: once per login
+ * until it reads `ok` again). ONE row per login to the device's OWNER,
+ * issue-less AND team-less (the device is theirs, not a team's), carrying
+ * `device_id`: the inbox row and the push open that device's settings ×4
+ * (inbox-route.json). Push-first, muted per type by the usual prefs; email
+ * follows via the digest. Best-effort, never throws: the caller is the
+ * device's register / heartbeat.
+ */
+export async function notifyAgentSignOuts(args: {
+  ownerId: string
+  /** The devices row id (`devices.id`), not the machine's own id. */
+  deviceId: string
+  deviceLabel: string
+  signOuts: AgentSignOut[]
+}): Promise<void> {
+  if (args.signOuts.length === 0) return
+  try {
+    const delivered = await db
+      .insert(notifications)
+      .values(
+        args.signOuts.map((signOut) => ({
+          userId: args.ownerId,
+          deviceId: args.deviceId,
+          type: `agent_signed_out` as const,
+          title: agentSignOutTitle(signOut, args.deviceLabel),
+          pushedAt: new Date(),
+        }))
+      )
+      .returning({ id: notifications.id, userId: notifications.userId, title: notifications.title })
+    recordNotificationFanout({ requested: delivered.length, inserted: delivered.length })
+    const pushable = await pushRecipients(delivered, `agent_signed_out`)
+    for (const row of pushable) {
+      await sendToUsers([{ userId: row.userId, data: { notificationId: row.id } }], {
+        title: row.title,
+        body: row.title,
+        data: { type: `agent_signed_out`, deviceId: args.deviceId },
+      }).catch((err) => {
+        console.error(`[notify] push fan-out failed:`, err)
+      })
+    }
+  } catch (err) {
+    console.error(`[notify] agent_signed_out failed:`, err)
   }
 }
 

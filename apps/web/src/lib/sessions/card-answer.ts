@@ -90,9 +90,11 @@ export function answeredCard(card: MessageCard | null, input: CardAnswerInput): 
  *  the clear part is checked (the server never opens `sealed`): a valid
  *  envelope of the same kind, a plan's decision. The stored clear fields
  *  stay unless the answer sets them; `answered: true` marks it. */
+export const SEALED_CARD_PLAIN_ANSWER_MESSAGE = `This card is sealed: answer it with sealedCard (the card re-sealed with the answers)`
+
 function answeredSealedCard(card: MessageCard, input: CardAnswerInput): CardAnswerResult {
   const sealed = input.sealedCard
-  if (!sealed) return bad(`This card is sealed: answer it with sealedCard (the card re-sealed with the answers)`)
+  if (!sealed) return bad(SEALED_CARD_PLAIN_ANSWER_MESSAGE)
   if (input.answer !== undefined || input.answers !== undefined || input.feedback !== undefined || input.surfaceData !== undefined) {
     return bad(`This card is sealed: its answers go inside sealedCard, never beside it`)
   }

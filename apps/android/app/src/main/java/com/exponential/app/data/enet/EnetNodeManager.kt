@@ -1,5 +1,8 @@
 package com.exponential.app.data.enet
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.util.Log
 import com.exponential.app.data.api.InstallsApi
@@ -13,7 +16,9 @@ import com.exponential.app.data.sealed.SealedFfi
 import com.exponential.app.data.sealed.SealedKeys
 import com.exponential.app.data.sealed.TreeKeyHolder
 import com.exponential.app.data.sealed.TreeKeyStore
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -53,6 +58,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 @Singleton
 class EnetNodeManager @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val auth: AuthRepository,
     private val teams: MultiAccountTeamRepository,
     private val api: InstallsApi,
@@ -100,6 +106,47 @@ class EnetNodeManager @Inject constructor(
         }
         scope.launch { loop() }
         scope.launch { holderLoop() }
+        registerNetworkCallback()
+    }
+
+    /**
+     * EXP-1531: the network may have changed (app foreground, a network back):
+     * every running node re-probes and migrates its paths. Mobile OSes never
+     * tell the native side, so a viewer would otherwise sit on a dead path
+     * until QUIC's idle timeout.
+     */
+    fun networkChange(reason: String) {
+        val running = nodes.values.filter { it.node != null }
+        if (running.isEmpty()) return
+        Log.i(TAG, "network change ($reason) -> ${running.size} node(s)")
+        for (node in running) {
+            scope.launch {
+                try {
+                    node.networkChange()
+                } catch (err: CancellationException) {
+                    throw err
+                } catch (err: Throwable) {
+                    Log.w(TAG, "eNet network change failed: ${err.javaClass.simpleName}")
+                }
+            }
+        }
+    }
+
+    // The registration replays the CURRENT network at once (only when one
+    // exists): that one is no change (SyncManager's same rule).
+    private val sawFirstNetwork = AtomicBoolean(false)
+
+    private fun registerNetworkCallback() {
+        val manager = context.getSystemService(ConnectivityManager::class.java) ?: return
+        runCatching {
+            sawFirstNetwork.set(manager.activeNetwork == null)
+            manager.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    if (!sawFirstNetwork.getAndSet(true)) return
+                    networkChange("network-available")
+                }
+            })
+        }.onFailure { Log.w(TAG, "network callback not registered: ${it.message}") }
     }
 
     /** This install's registry id for [accountId] once its node registered (the sealed writers' `installId`). */

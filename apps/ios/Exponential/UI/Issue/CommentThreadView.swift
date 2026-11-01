@@ -1187,7 +1187,7 @@ private struct CommentCardContent: View {
                 issueId: issueId,
                 attachmentsApi: deps.attachmentsApi
             )
-            pendingAttachments = outcome.items
+            pendingAttachments = CommentAttachmentUploads.restamp(pendingAttachments, from: outcome.items)
             if let failure = outcome.failure {
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "upload", thing: "the attachments"),

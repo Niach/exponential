@@ -20,7 +20,9 @@ import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.ComposerSend
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.MARKDOWN_PREVIEW_MAX_BYTES
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
@@ -94,6 +96,8 @@ class CommentThreadViewModel @Inject constructor(
     private val appContext: android.content.Context,
     // EXP-824: video / audio picks are normalised before they queue.
     private val mediaPreparer: MediaPreparer,
+    // EXP-1543: a comment send outlives the screen (`launchDetached`).
+    private val store: SteerConnectionStore,
 ) : ViewModel() {
 
     // Reactive account scoping: all queries re-scope on account switch (no
@@ -359,19 +363,25 @@ class CommentThreadViewModel @Inject constructor(
     }
 
     /**
-     * Upload everything in [target] that hasn't landed yet, sequentially,
-     * stamping each entry's `uploadedId` so a retry after a mid-batch failure
-     * never re-uploads. Returns the ids in order, or null when an upload
-     * failed (the pending list — and the draft — survive, so Send retries).
+     * Upload everything in [items] that hasn't landed yet, sequentially,
+     * stamping each entry's `uploadedId` on the live pick in [target] (by
+     * key: one added or removed meanwhile is left alone, EXP-1543) so a
+     * retry after a mid-batch failure never re-uploads. Returns [items]
+     * stamped, or null when an upload failed (the pending list and the
+     * draft survive, so Send retries).
      */
     private suspend fun uploadPendingAttachments(
         accountId: String,
         issueId: String,
         target: MutableStateFlow<List<PendingAttachment>>,
-    ): List<String>? {
-        val items = target.value
-        for ((index, item) in items.withIndex()) {
-            if (item.uploadedId != null) continue
+        items: List<PendingAttachment> = target.value,
+    ): List<PendingAttachment>? {
+        val stamped = mutableListOf<PendingAttachment>()
+        for (item in items) {
+            if (item.uploadedId != null) {
+                stamped += item
+                continue
+            }
             val uploadedId = try {
                 if (item.isImage) {
                     issueImagesApi.upload(
@@ -395,11 +405,11 @@ class CommentThreadViewModel @Inject constructor(
                 _commentFailure.value = FailedAction("upload", "the attachment", trpcErrorMessage(t, ""))
                 return null
             }
-            target.value = target.value.mapIndexed { i, entry ->
-                if (i == index) entry.copy(uploadedId = uploadedId) else entry
-            }
+            val entry = item.copy(uploadedId = uploadedId)
+            stamped += entry
+            target.value = target.value.map { if (it.key == item.key) entry else it }
         }
-        return target.value.mapNotNull { it.uploadedId }
+        return stamped
     }
 
     /**
@@ -477,16 +487,23 @@ class CommentThreadViewModel @Inject constructor(
     }
 
     /**
-     * Post the current draft. Clears it and invokes [onSent] only when the
-     * comment actually lands — a declined/failed send keeps the draft AND the
-     * pending attachments (already-uploaded ones hold their id, so a retry
-     * uploads only what is left). [onSent] receives the server's
-     * `reporterEmailed` (SLOP-4): true/false = a reporter-audience reply the
-     * screen toasts, null = a team comment.
+     * Post the draft as Send finds it. EXP-1543 (composer-send.json): the
+     * field stays editable while the comment is in flight; when it lands the
+     * text clears only if the field still equals what was sent and only the
+     * sent files leave ([ComposerSend.settle]); a failed upload or post keeps
+     * everything (already-uploaded files hold their id, so a retry uploads
+     * only what is left). Runs on the store's scope, not the ViewModel's:
+     * backing out right after Send never cancels it. [onSent] receives the
+     * server's `reporterEmailed` (SLOP-4): true/false = a reporter-audience
+     * reply the screen toasts, null = a team comment.
      */
     fun send(onSent: (reporterEmailed: Boolean?) -> Unit = {}) {
-        val text = _draft.value.trim()
-        if ((text.isEmpty() && _pendingAttachments.value.isEmpty()) || _sending.value) return
+        val sentText = _draft.value
+        val sent = _pendingAttachments.value
+        val body = sentText.trim()
+        if ((body.isEmpty() && sent.isEmpty()) || _sending.value) return
+        val issueId = issueIdFlow.value ?: return
+        val accountId = auth.activeAccountId.value ?: return
         // EXP-741: a reply is an ordinary comment with parentId; the target
         // is read at send time and cleared with the draft.
         val parentId = _replyTarget.value?.parentId
@@ -496,35 +513,43 @@ class CommentThreadViewModel @Inject constructor(
         } else {
             null
         }
-        viewModelScope.launch {
+        store.launchDetached {
             _sending.value = true
-            val result = createComment(text, parentId, audience)
-            if (result != null) {
-                _draft.value = ""
-                _pendingAttachments.value = emptyList()
-                _replyTarget.value = null
-                _reporterAudience.value = false
+            try {
+                val result = createComment(accountId, issueId, body, sent, parentId, audience)
+                    ?: return@launchDetached
+                // A rebind to another issue already swapped the draft out.
+                if (issueIdFlow.value == issueId) {
+                    val after = ComposerSend.settle(
+                        ComposerSend.Outcome.Sent, sentText, sent, _draft.value, _pendingAttachments.value,
+                    )
+                    _draft.value = after.text
+                    _pendingAttachments.value = after.attachments
+                    if (_replyTarget.value?.parentId == parentId) _replyTarget.value = null
+                    _reporterAudience.value = false
+                }
                 onSent(result.reporterEmailed)
+            } finally {
+                _sending.value = false
             }
-            _sending.value = false
         }
     }
 
     // Returns the server's answer only when the comment was actually posted
     // (null otherwise), so the composer keeps the draft (and the pending
-    // attachments) when the send is declined (nothing to post) or an
-    // upload/the request fails.
-    suspend fun createComment(
-        text: String,
-        parentId: String? = null,
-        audience: String? = null,
+    // attachments) when an upload or the request fails.
+    private suspend fun createComment(
+        accountId: String,
+        issueId: String,
+        body: String,
+        pending: List<PendingAttachment>,
+        parentId: String?,
+        audience: String?,
     ): CreateCommentResult? {
-        val issueId = issueIdFlow.value ?: return null
-        val accountId = auth.activeAccountId.value ?: return null
-        val body = text.trim()
         // Upload on send, sequentially — a comment is only created once every
         // attachment it links has a row.
-        val attachmentIds = uploadPendingAttachments(accountId, issueId, _pendingAttachments)
+        val attachmentIds = uploadPendingAttachments(accountId, issueId, _pendingAttachments, pending)
+            ?.mapNotNull { it.uploadedId }
             ?: return null
         // Attachment-only comments are allowed; an empty one is not.
         if (body.isEmpty() && attachmentIds.isEmpty()) return null
@@ -553,6 +578,7 @@ class CommentThreadViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return false
         val body = text.trim()
         val uploadedIds = uploadPendingAttachments(accountId, issueId, _editAttachments)
+            ?.mapNotNull { it.uploadedId }
             ?: return false
         val attachmentIds = keptAttachmentIds + uploadedIds
         if (body.isEmpty() && attachmentIds.isEmpty()) return false

@@ -130,6 +130,28 @@ struct AgentsView: View {
         .task(id: teamState.activeTeamId) {
             await resolveTeamOwner()
         }
+        // #EXP-1534 (inbox-route.json): a signed-out login's inbox row or
+        // push lands here with its devices ROW id; the settings sheet opens
+        // once the list holds that machine.
+        .onChange(of: deviceRowIds, initial: true) { _, _ in openPendingDeviceSettings() }
+        .onChange(of: deps.deepLinkBus.pendingDeviceSettingsRowId) { _, _ in openPendingDeviceSettings() }
+    }
+
+    /// The listed machines' synced devices ROW ids (nil = not loaded yet).
+    private var deviceRowIds: [String]? {
+        viewModel?.devices?.compactMap(\.rowId)
+    }
+
+    /// #EXP-1534: open the pending device's settings — the caller's own
+    /// registered machine whose devices ROW id the tap named. Cleared as soon
+    /// as the list has loaded, found or not (a removed machine opens nothing).
+    private func openPendingDeviceSettings() {
+        guard let rowId = deps.deepLinkBus.pendingDeviceSettingsRowId,
+              let devices = viewModel?.devices else { return }
+        deps.deepLinkBus.pendingDeviceSettingsRowId = nil
+        guard let device = devices.first(where: { $0.rowId == rowId && $0.isMine && $0.isRegistered })
+        else { return }
+        settingsTarget = DeviceSettingsTarget(id: device.deviceId)
     }
 
     /// FEED-149: owners own the destructive surface (`resolveTeamAccess`) —

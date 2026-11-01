@@ -81,11 +81,13 @@ class FcmService : FirebaseMessagingService() {
         // Issue pushes carry an issueId (a reporter's reply too, SLOP-4);
         // issue-less agent_message / session_blocked pushes carrying a
         // sessionId (a decision, a mention, a wall) route to that session
-        // (#EXP-1456, the inbox row's rule).
+        // (#EXP-1456, the inbox row's rule); a team-less agent_signed_out
+        // push carrying a deviceId opens that device's settings (#EXP-1534).
         val target = PushDeepLinks.target(
             type = data["type"],
             issueId = data["issueId"],
             sessionId = data["sessionId"],
+            deviceId = data["deviceId"],
         )
 
         // The push carries its recipient's server user id. A push for a

@@ -5,3 +5,6 @@
 - Szybkie odpowiedzi nad polem tekstowym są czytelniejsze
 - Aplikacje mają w edytorze karty Czat, Dane, Wersje i Ustawienia
 - Ustawienia › MCP to jedna strona na serwery MCP, narzędzia aplikacji i aktywność
+- Sesje na żywo nadal się przesyłają, szyfrowane end-to-end, gdy bezpośrednie połączenie z urządzeniem zostanie zerwane
+- Tekst wpisany podczas wysyłania komentarza zostaje w polu edycji
+- Wątek pokazuje zadania swojej działającej sesji podrzędnej

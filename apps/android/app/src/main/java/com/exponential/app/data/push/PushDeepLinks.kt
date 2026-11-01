@@ -24,6 +24,9 @@ object PushDeepLinks {
     /** Push `type` of a blocked coding run (EXP-980) — issue-less, carries a run. */
     const val TYPE_SESSION_BLOCKED = "session_blocked"
 
+    /** Push `type` of a lost agent login (#EXP-1534) — team-less, carries a device. */
+    const val TYPE_AGENT_SIGNED_OUT = "agent_signed_out"
+
     /** Query param carrying the push's recipient through the deep link. */
     const val PARAM_USER_ID = "userId"
 
@@ -48,6 +51,9 @@ object PushDeepLinks {
          *  agent's decision or an @mention, #EXP-1456). */
         data class Session(val id: String) : Target
 
+        /** #EXP-1534: the Devices page with this device's (devices row id) settings open. */
+        data class Device(val deviceId: String) : Target
+
         /** The My Work inbox — where an agent's message renders (EXP-801). */
         data object Inbox : Target
     }
@@ -60,17 +66,24 @@ object PushDeepLinks {
      * An issue-less `agent_message` or `session_blocked` naming a session
      * opens THAT session (an Assistant's decision, an @mention, a wall); one
      * without (a broadcast, a pruned run) lands in the inbox, where its row
-     * lives.
+     * lives. #EXP-1534: an `agent_signed_out` naming a device opens that
+     * device's settings; one without (the device was removed) the inbox.
      */
     fun target(
         type: String?,
         issueId: String?,
         sessionId: String? = null,
-    ): Target? = when (val row = InboxRoute.inboxRowTarget(type, issueId, sessionId)) {
+        deviceId: String? = null,
+    ): Target? = when (val row = InboxRoute.inboxRowTarget(type, issueId, sessionId, deviceId)) {
         is InboxRoute.RowTarget.Issue -> if (row.results) Target.IssueGuide(row.issueId) else Target.Issue(row.issueId)
         is InboxRoute.RowTarget.Session -> Target.Session(row.sessionId)
+        is InboxRoute.RowTarget.Device -> Target.Device(row.deviceId)
         InboxRoute.RowTarget.None ->
-            if (type == TYPE_AGENT_MESSAGE || type == TYPE_SESSION_BLOCKED) Target.Inbox else null
+            if (type == TYPE_AGENT_MESSAGE || type == TYPE_SESSION_BLOCKED || type == TYPE_AGENT_SIGNED_OUT) {
+                Target.Inbox
+            } else {
+                null
+            }
     }
 
     /**
@@ -84,6 +97,7 @@ object PushDeepLinks {
             is Target.Issue -> "exponential://issue/${target.id}"
             is Target.IssueGuide -> "exponential://issue/${target.id}?$PARAM_FACE=$FACE_GUIDE"
             is Target.Session -> "exponential://session/${target.id}"
+            is Target.Device -> "exponential://device/${target.deviceId}"
             Target.Inbox -> "exponential://inbox"
         }
         if (targetUserId.isNullOrEmpty()) return base

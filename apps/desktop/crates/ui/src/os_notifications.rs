@@ -184,17 +184,23 @@ enum Route {
     Session { session_id: String },
     /// #NEW-68: a Settings section (the voice tray's Voice settings…).
     Settings { section: crate::settings::SettingsSection },
+    /// #EXP-1534: an `agent_signed_out` row — the Devices page with this
+    /// devices row's settings open.
+    Device { device_id: String },
 }
 
 fn route_for(row: &Notification) -> Route {
     // #EXP-1456 (inbox-route.json), the inbox row's own rule: an issue row
     // opens its issue; an issue-less `agent_message` / `session_blocked`
     // naming a session (an Assistant's decision, a mention, a wall) opens
-    // that session; anything else (a pruned session, a broadcast) the Inbox.
-    use domain::inbox_route::{inbox_row_target, InboxRowTarget};
-    match inbox_row_target(row.kind.as_deref(), row.issue_id.as_deref(), row.session_id.as_deref()) {
+    // that session; #EXP-1534: an `agent_signed_out` row its device's
+    // settings; anything else (a pruned session, a broadcast, a removed
+    // device) the Inbox.
+    use domain::inbox_route::InboxRowTarget;
+    match queries::row_target(row) {
         InboxRowTarget::Issue { issue_id, .. } => Route::Issue { issue_id },
         InboxRowTarget::Session { session_id } => Route::Session { session_id },
+        InboxRowTarget::Device { device_id } => Route::Device { device_id },
         InboxRowTarget::None => Route::Inbox,
     }
 }
@@ -607,6 +613,12 @@ fn land_now(route: Route, window: &mut Window, cx: &mut App) {
             navigation::navigate(window, cx, Screen::Settings);
             sidebar::select_settings_section(window, cx, section);
         }
+        // #EXP-1534: the inbox row's own landing — the Devices page, the
+        // device's settings dialog on top.
+        Route::Device { device_id } => {
+            navigation::navigate(window, cx, Screen::Devices);
+            crate::device_settings::open(window, cx, device_id);
+        }
         // EXP-1294: beside the Inbox, like an issue the toast opens.
         // #EXP-1493: a session waiting on its own plan = THE plan page.
         Route::Session { session_id } => {
@@ -718,6 +730,7 @@ mod tests {
             issue_id: Some(format!("issue-{id}")),
             team_id: None,
             session_id: None,
+            device_id: None,
             kind: Some("issue_comment".to_string()),
             title: Some(format!("Title {id}")),
             body: Some(format!("Body {id}")),
@@ -745,6 +758,35 @@ mod tests {
             kind: Some(NOTIFICATION_TYPE_SESSION_BLOCKED.to_string()),
             ..row(id, "2026-08-27T10:00:00+00:00")
         }
+    }
+
+    /// #EXP-1534: a team-less signed-out-agent row naming its device.
+    fn signed_out_row(id: &str, device_id: Option<&str>) -> Notification {
+        Notification {
+            issue_id: None,
+            device_id: device_id.map(str::to_string),
+            kind: Some(domain::contract::NOTIFICATION_TYPE_AGENT_SIGNED_OUT.to_string()),
+            title: Some("Claude Code account a@b.dev is signed out on mint".to_string()),
+            body: None,
+            ..row(id, "2026-11-01T10:00:00+00:00")
+        }
+    }
+
+    /// #EXP-1534 (inbox-route.json): a signed-out agent login toasts its
+    /// own sentence and opens its device's settings; a removed device the
+    /// Inbox.
+    #[test]
+    fn a_signed_out_agent_routes_to_its_device() {
+        let toast = compose(&[signed_out_row("a", Some("d-1"))]).unwrap();
+        assert_eq!(toast.title, "Claude Code account a@b.dev is signed out on mint");
+        assert_eq!(toast.body, "");
+        assert_eq!(
+            toast.route,
+            Route::Device {
+                device_id: "d-1".to_string()
+            }
+        );
+        assert_eq!(route_for(&signed_out_row("b", None)), Route::Inbox);
     }
 
     fn focus(tool: ToolWindow, inbox_tab: InboxTab, screen: Option<Screen>) -> FocusedSurface {

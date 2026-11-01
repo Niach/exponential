@@ -30,7 +30,7 @@
 // login that needs it (the row's warning triangle and gear are gone). No play
 // button: the Agent page composer's device picker is the one way to start a
 // run.
-import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import {
   DEVICE_CARD,
   DEVICES_LIST_COPY,
@@ -102,6 +102,8 @@ export function MyMachines({
   latestVersions,
   teamId,
   isTeamOwner = false,
+  openSettingsRowId,
+  onSettingsClosed,
 }: {
   devices: SteerDevice[] | null
   onChanged: () => void
@@ -110,6 +112,11 @@ export function MyMachines({
   teamId?: string
   /** FEED-149: the caller owns `teamId` — its Team devices rows offer Remove. */
   isTeamOwner?: boolean
+  /** #EXP-1534 (inbox-route.json): the devices row (`rowId`) whose settings
+   *  open on arrival — an `agent_signed_out` inbox row or push. */
+  openSettingsRowId?: string
+  /** Called once that arrival's settings close. */
+  onSettingsClosed?: () => void
 }) {
   const [addServerOpen, setAddServerOpen] = useState(false)
   const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null)
@@ -174,6 +181,12 @@ export function MyMachines({
   // Re-resolved each render so the dialog always edits the LIVE synced row.
   const settingsTarget =
     mine?.find((device) => device.deviceId === settingsTargetId) ?? null
+  const arrival = openSettingsRowId
+    ? mine?.find((device) => device.rowId === openSettingsRowId)?.deviceId
+    : undefined
+  useEffect(() => {
+    if (arrival) setSettingsTargetId(arrival)
+  }, [arrival])
 
   const dropCopy = removeDeviceSharePrompt(
     dropTarget?.deviceLabel || dropTarget?.deviceId || `this device`
@@ -280,7 +293,9 @@ export function MyMachines({
         device={settingsTarget}
         open={settingsTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setSettingsTargetId(null)
+          if (open) return
+          setSettingsTargetId(null)
+          if (arrival) onSettingsClosed?.()
         }}
         latestVersions={latestVersions}
         onChanged={onChanged}

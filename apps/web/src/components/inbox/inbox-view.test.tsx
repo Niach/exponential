@@ -15,6 +15,7 @@ const navigate = vi.hoisted(() => vi.fn())
 vi.mock(`@tanstack/react-router`, () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
   useNavigate: () => navigate,
+  useParams: () => ({ teamSlug: `acme` }),
 }))
 vi.mock(`@/lib/collections`, () => ({
   notificationCollection: { tag: `notifications` },
@@ -141,6 +142,39 @@ describe(`InboxView message rows`, () => {
     data.notifications = [message(`n5`, null)]
     render(<InboxView compact from="inbox" />)
     fireEvent.click(screen.getByTestId(`inbox-row-agent_message`))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  // #EXP-1534 (inbox-route.json): a device's signed-out login, team-less.
+  const signedOut = (deviceId: string | null): Notification =>
+    ({
+      id: `n6`,
+      type: `agent_signed_out`,
+      issueId: null,
+      teamId: null,
+      sessionId: null,
+      deviceId,
+      title: `Claude Code account d@acme.dev is signed out on mint`,
+      body: null,
+      readAt: null,
+      createdAt: new Date(`2026-10-04T10:00:00Z`),
+    }) as unknown as Notification
+
+  it(`lists a signed-out login in a team's stream and opens its device's settings`, () => {
+    data.notifications = [signedOut(`dev-row`)]
+    render(<InboxView compact teamId="t1" from="inbox" />)
+    fireEvent.click(screen.getByTestId(`inbox-row-agent_signed_out`))
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/devices`,
+      params: { teamSlug: `acme` },
+      search: { device: `dev-row` },
+    })
+  })
+
+  it(`opens nothing for a removed device`, () => {
+    data.notifications = [signedOut(null)]
+    render(<InboxView compact from="inbox" />)
+    fireEvent.click(screen.getByTestId(`inbox-row-agent_signed_out`))
     expect(navigate).not.toHaveBeenCalled()
   })
 })

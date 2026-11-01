@@ -277,6 +277,58 @@ final class SteerEnetTests: XCTestCase {
         link.close()
     }
 
+    /// SUBSCRIPTIONS (EXP-1487): a superseded link of the same (session,
+    /// peer) closes WITHOUT `leave` while another link reads that feed (the
+    /// device keys viewers by endpoint: it would end the newer feed); the
+    /// last one leaves.
+    func testOnlyTheLastLinkOfASessionAndPeerSendsLeave() async throws {
+        let carrier = FakeCarrier(endpoints: ["dev"])
+        let superseded = await carrier.open(sessionId: "s1", peer: "dev")
+        let newer = await carrier.open(sessionId: "s1", peer: "dev")
+        let otherSession = await carrier.open(sessionId: "s2", peer: "dev")
+        let leaves = { carrier.sent("dev").filter { $0.types == ["leave"] } }
+        superseded.close(sendLeave: true)
+        newer.send([#"{"t":"keepalive"}"#])
+        try await waitUntil { carrier.sent("dev").contains { $0.types == ["keepalive"] } }
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(leaves().isEmpty, "a superseded link must not end the newer feed")
+        newer.close(sendLeave: true)
+        try await waitUntil { leaves().count == 1 }
+        XCTAssertEqual(leaves().first?.sessionId, "s1")
+        otherSession.close(sendLeave: true)
+        try await waitUntil { leaves().count == 2 }
+    }
+
+    /// EXP-1531: `peerDisconnected` ends every link joined to that peer at
+    /// once (the send-failure callback), not another peer's, and not a link
+    /// no envelope reached yet (an older connection's drop).
+    func testPeerDisconnectedEndsTheJoinedPeersLinksAtOnce() async throws {
+        let carrier = FakeCarrier(endpoints: ["dev", "other"])
+        let joined = await carrier.open(sessionId: "s1", peer: "dev")
+        let elsewhere = await carrier.open(sessionId: "s1", peer: "other")
+        let fresh = await carrier.open(sessionId: "s2", peer: "dev")
+        carrier.push("dev", [#"{"t":"keepalive"}"#])
+        carrier.push("other", [#"{"t":"keepalive"}"#])
+        let dropped = expectation(description: "dev dropped")
+        let otherDropped = expectation(description: "other dropped")
+        otherDropped.isInverted = true
+        let freshDropped = expectation(description: "fresh dropped")
+        freshDropped.isInverted = true
+        _ = joined.stream { dropped.fulfill() }
+        _ = elsewhere.stream { otherDropped.fulfill() }
+        _ = fresh.stream { freshDropped.fulfill() }
+        carrier.disconnect("DEV")
+        await fulfillment(of: [dropped, otherDropped, freshDropped], timeout: 0.5)
+        // A drop before anyone reads the stream is reported on attach.
+        let late = await carrier.open(sessionId: "s1", peer: "dev")
+        carrier.push("dev", [#"{"t":"keepalive"}"#])
+        carrier.disconnect("dev")
+        let lateDropped = expectation(description: "late dropped")
+        _ = late.stream { lateDropped.fulfill() }
+        await fulfillment(of: [lateDropped], timeout: 0.5)
+        for link in [joined, elsewhere, fresh, late] { link.close() }
+    }
+
     private func assertNoFeed(_ carrier: FakeCarrier, _ reason: SteerEnetNoFeed, file: StaticString = #filePath, line: UInt = #line) async {
         let outcome = await SteerEnetJoiner.join(carrier: carrier, accountId: "a", sessionId: "s1", timeout: .seconds(2))
         guard case let .noFeed(got) = outcome else { return XCTFail("joined, expected \(reason)", file: file, line: line) }
@@ -334,7 +386,7 @@ private final class FakeCarrier: SteerEnetCarrier, @unchecked Sendable {
     }
 
     func open(sessionId: String, peer: String) async -> SteerEnetLink {
-        let link = SteerEnetLink(sessionId: sessionId, peer: peer, send: { [weak self] in try await self?.send(peer: peer, body: $0) })
+        let link = SteerEnetLink(sessionId: sessionId, peer: peer, inbox: inbox, send: { [weak self] in try await self?.send(peer: peer, body: $0) })
         inbox.register(link)
         link.onClose { [weak self, weak link] in
             guard let self else { return }
@@ -364,5 +416,10 @@ private final class FakeCarrier: SteerEnetCarrier, @unchecked Sendable {
 
     func push(_ peer: String, _ frames: [String]) {
         inbox.deliver(from: peer, body: SteerEnet.encode(sessionId: "s1", frames: frames))
+    }
+
+    /// The node's `peerDisconnected` (the service pump hands it over).
+    func disconnect(_ peer: String) {
+        inbox.peerDisconnected(peer)
     }
 }

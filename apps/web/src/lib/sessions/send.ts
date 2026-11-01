@@ -40,6 +40,7 @@ import {
 } from "@/lib/apps/editor-session"
 import { flattenAccounts } from "@/lib/accounts/account-option"
 import { answerSessionCardInTx } from "@/lib/sessions/answer"
+import { SEALED_CARD_PLAIN_ANSWER_MESSAGE } from "@/lib/sessions/card-answer"
 import {
   assertCanSteer,
   isSessionPrincipal,
@@ -339,14 +340,46 @@ async function assertSealedForTree(tx: Tx, rootId: string, text: string): Promis
   }
 }
 
-export const PLAIN_IN_SEALED_TREE_MESSAGE = `This chat is sealed: its messages must be sealed too (update the app)`
+export const PLAIN_IN_SEALED_TREE_MESSAGE = `This chat is sealed: its messages must be sealed too`
+
+/** #FEED-184: the first desktop/CLI release whose agents seal every send
+ *  and card answer, even when launched before the device's key holder ran. */
+export const SEALING_WRITER_MIN_VERSION = `0.14.96`
+
+/** #FEED-184: what a refused plaintext write says about its writer: the
+ *  device (and its version) the session runs on, and what sealing needs. */
+export async function plainWriterHint(
+  database: Pick<Db, `select`>,
+  writerSessionId: string | null | undefined
+): Promise<string> {
+  const needs = `the desktop app or CLI ${SEALING_WRITER_MIN_VERSION} or newer`
+  const [writer] = writerSessionId
+    ? await database
+        .select({ label: devices.label, kind: devices.kind, version: devices.version })
+        .from(sessions)
+        .innerJoin(devices, and(eq(devices.userId, sessions.userId), eq(devices.deviceId, sessions.deviceId)))
+        .where(eq(sessions.id, writerSessionId))
+        .limit(1)
+    : []
+  if (!writer) return `: sealing needs ${needs} (or an up-to-date web, iOS or Android app)`
+  const app = writer.kind === `desktop` ? `desktop app` : `CLI`
+  const version = writer.version ? ` ${writer.version}` : ``
+  return `: device "${writer.label}" (${app}${version}) sent it in clear. Sealing needs ${needs}: update it and restart its ${writer.kind === `desktop` ? `app` : `daemon`}`
+}
 
 /** EXP-1472: a keyed tree takes no plaintext content from a writer (server
  *  lines are not writers'). Every client seals for a keyed root; a body that
- *  arrives in clear is a writer that failed open, refused before it lands. */
-export async function assertNotPlainInSealedTree(tx: Pick<Db, `select`>, rootId: string): Promise<void> {
+ *  arrives in clear is a writer that failed open, refused before it lands.
+ *  #FEED-184: the refusal names the writer's device and the version needed. */
+export async function assertNotPlainInSealedTree(
+  tx: Pick<Db, `select`>,
+  rootId: string,
+  writerSessionId?: string | null
+): Promise<void> {
   const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
-  if (root?.sealEpoch != null) throw new TRPCError({ code: `BAD_REQUEST`, message: PLAIN_IN_SEALED_TREE_MESSAGE })
+  if (root?.sealEpoch == null) return
+  const hint = await plainWriterHint(tx, writerSessionId)
+  throw new TRPCError({ code: `BAD_REQUEST`, message: `${PLAIN_IN_SEALED_TREE_MESSAGE}${hint}` })
 }
 
 /** The person message of a send (text and/or attachments), or null.
@@ -371,7 +404,7 @@ async function postSendMessage(
   if (input.seal) await createTreeKeyInTx(tx, sealUserId, { ...input.seal, rootId: session.rootId })
   if (!text.trim() && !input.attachmentIds?.length) return null
   if (isSealedBody(text)) await assertSealedForTree(tx, session.rootId, text)
-  else if (text.trim()) await assertNotPlainInSealedTree(tx, session.rootId)
+  else if (text.trim()) await assertNotPlainInSealedTree(tx, session.rootId, from?.sessionId)
   if (input.refIssueIds?.length) await assertIssuesInTeam(tx, session.teamId, input.refIssueIds)
   const messageId = from?.asSession
     ? await postSessionInput(tx, session, from.sessionId, text)
@@ -692,6 +725,11 @@ export async function sendSession(args: {
       outcome = await startRoot(starter, uploaderIds, input, caller, args.viaMcp === true)
     }
   } catch (err) {
+    // #FEED-184: a plaintext answer to a sealed card names its writer.
+    if (err instanceof TRPCError && err.message === SEALED_CARD_PLAIN_ANSWER_MESSAGE) {
+      const hint = await plainWriterHint(db, caller?.id)
+      throw new TRPCError({ code: err.code, message: `${SEALED_CARD_PLAIN_ANSWER_MESSAGE}${hint}` })
+    }
     // A concurrent retry committed the same key first: its result.
     if (clientMessageId && uniqueViolationConstraint(err) === CLIENT_MESSAGE_ID_UNIQUE) {
       const sent = await clientMessageResult(uploaderIds, clientMessageId)

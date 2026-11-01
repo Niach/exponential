@@ -48,7 +48,9 @@ import androidx.room.TypeConverters
     //      (DatabaseHolder).
     // v106 (#VAPP-186): comments.via_app_id ("via <app>"), explicit
     //      [MIGRATION_105_106]; only the comments shape refetches.
-    version = 106,
+    // v107 (#EXP-1534): notifications.device_id (agent_signed_out rows),
+    //      explicit [MIGRATION_106_107]; only the notifications shape refetches.
+    version = 107,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

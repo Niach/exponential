@@ -56,9 +56,14 @@ class SteerEnetTest {
     private class FakeNode(override val endpointId: String = "viewer") : PeerNode {
         private val flow = MutableSharedFlow<PeerChat>(extraBufferCapacity = 256)
         override val chats = flow
+        val drops = MutableSharedFlow<String>(extraBufferCapacity = 16)
+        override val disconnects = drops
         val sent = CopyOnWriteArrayList<Pair<String, JsonObject>>()
         @Volatile var device: FakeNode.(peer: String, envelope: SteerEnvelope) -> Unit = { _, _ -> }
         @Volatile var refuse: (String) -> Boolean = { false }
+
+        @Volatile var paths: Map<String, String> = emptyMap()
+        override fun pathKind(peer: String): String? = paths[peer]
 
         override fun allowedPeers(): Set<String> = emptySet()
         override fun allow(peer: String) = Unit
@@ -358,6 +363,56 @@ class SteerEnetTest {
         assertTrue(withTimeout(2_000) { socket.incoming.receiveCatching() }.isClosed)
     }
 
+    // ── EXP-1487 SUBSCRIPTIONS / EXP-1531 a lost peer ───────────────────
+
+    @Test
+    fun onlyTheLastSocketOfASessionAndDeviceSendsLeave() = runBlocking {
+        // A replaced dial cancelled while the newer one is joined must not
+        // end the newer feed: the device keys viewers by endpoint.
+        val node = FakeNode().apply { serve(live = "dev-a") }
+        val first = dialer(node, listOf("dev-a"))!!.open(SESSION)!!
+        val second = dialer(node, listOf("dev-a"))!!.open(SESSION)!!
+        first.cancel()
+        delay(150)
+        assertEquals(listOf("join", "join"), node.sentTypes("dev-a"))
+        // The newer feed still gets the device's frames.
+        repeat(3) { second.next() }
+        node.deliver("dev-a", SESSION, """{"t":"keepalive"}""")
+        assertEquals("keepalive", tag(second.next()))
+        second.cancel()
+        withTimeout(2_000) { while (node.sentTypes("dev-a").size < 3) delay(5) }
+        assertEquals(listOf("join", "join", "leave"), node.sentTypes("dev-a"))
+    }
+
+    @Test
+    fun aDisconnectOfTheJoinedPeerEndsTheFeedAtOnce() = runBlocking {
+        val node = FakeNode().apply { serve(live = "dev-a") }
+        // staleMs far beyond the test: only the disconnect can end it.
+        val slow = EnetSteerDialer(
+            node = { node },
+            discover = { listOf("dev-a") },
+            timings = fast.copy(staleMs = 60_000),
+            dispatcher = Dispatchers.Default,
+        )
+        val socket = slow.open(SESSION)!!
+        try {
+            repeat(3) { socket.next() }
+            // Another peer's disconnect is not this feed's.
+            check(node.drops.tryEmit("dev-b"))
+            delay(50)
+            node.deliver("dev-a", SESSION, """{"t":"keepalive"}""")
+            assertEquals("keepalive", tag(socket.next()))
+            check(node.drops.tryEmit("dev-a"))
+            assertTrue(withTimeout(1_000) { socket.incoming.receiveCatching() }.isClosed)
+            assertEquals("peer disconnected", socket.closeReason())
+        } finally {
+            socket.cancel()
+        }
+        // An ended feed sends no leave.
+        delay(100)
+        assertEquals(listOf("join"), node.sentTypes("dev-a"))
+    }
+
     // ── the connection over eNet ────────────────────────────────────────
 
     private fun row(status: String) = SessionEntity(
@@ -481,6 +536,67 @@ class SteerEnetTest {
             assertEquals(1, discoveries.get())
         } finally {
             connection.close()
+        }
+    }
+
+    /**
+     * EXP-1531 through EXP-1529's carrier switch: the joined device's
+     * `peerDisconnected` is an eNet DROP, so the relay opens at once (the
+     * stall timer and staleMs are far beyond the test).
+     */
+    @Test
+    fun aDisconnectOfTheJoinedPeerOpensTheRelayAtOnce() = runBlocking {
+        val node = FakeNode().apply { serve(live = "dev-a") }
+        val enet = EnetSteerTransport(
+            EnetSteerDialer(
+                node = { node },
+                discover = { listOf("dev-a") },
+                timings = fast.copy(staleMs = 60_000),
+                dispatcher = Dispatchers.Default,
+            ),
+        )
+        val relayDials = AtomicInteger()
+        val relay = object : SteerTunnelDialer {
+            override suspend fun open(sessionId: String): TunnelOpen {
+                relayDials.incrementAndGet()
+                return TunnelOpen.Unavailable("device_offline")
+            }
+        }
+        val timings = SteerFallbackTimings(stallMs = 60_000, enetRedialMs = listOf(60_000), carrierWaitMs = 1_000)
+        val socket = FallbackSteerTransport(enet, relay, timings, System::currentTimeMillis, Dispatchers.Default)
+            .open(SESSION)!!
+        try {
+            repeat(3) { socket.next() }
+            assertEquals(0, relayDials.get())
+            check(node.drops.tryEmit("dev-a"))
+            withTimeout(2_000) { while (relayDials.get() == 0) delay(5) }
+            assertEquals(1, relayDials.get())
+        } finally {
+            socket.cancel()
+        }
+    }
+
+    /** EXP-1531: the node's path kind to the joined device is connStats' `path`, through the carrier switch too. */
+    @Test
+    fun thePathKindOfTheJoinedDeviceIsTheFeedsPath() = runBlocking {
+        val node = FakeNode().apply { serve(live = "dev-a") }
+        val dialer = EnetSteerDialer(node = { node }, discover = { listOf("dev-a") }, timings = fast, dispatcher = Dispatchers.Default)
+        val direct = dialer.open(SESSION)!!
+        try {
+            assertEquals("direct", direct.path)
+            node.paths = mapOf("dev-a" to "iroh_relay")
+            assertEquals("iroh_relay", direct.path)
+        } finally {
+            direct.cancel()
+        }
+        val carried = FallbackSteerTransport(EnetSteerTransport(dialer), null, dispatcher = Dispatchers.Default).open(SESSION)!!
+        try {
+            repeat(3) { carried.next() }
+            assertEquals("iroh_relay", carried.path)
+            node.paths = emptyMap()
+            assertEquals("direct", carried.path)
+        } finally {
+            carried.cancel()
         }
     }
 

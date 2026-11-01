@@ -56,6 +56,28 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_147: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-agent-signed-out",
+    date: "2026-11-01",
+    title: "Signed-out logins reach your inbox",
+    summary: "When one of your devices loses an agent login, you get one notification that opens that device's settings.",
+    body: r#"- **Once per login**: one inbox row and push when a login signs out; the next only after it was signed in again.
+- **Straight to the fix**: tapping it opens the device's settings to sign in again."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_146: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-comments-keep-typed-text",
+    date: "2026-11-01",
+    title: "Comments keep what you type while they send",
+    summary: "Text typed or files added while a comment is sending stay in the composer.",
+    body: r#"- **Keep typing**: the comment field stays editable while a comment sends, and only what went out clears.
+- **Leave anytime**: on Android, backing out of an issue no longer cancels a comment that is still sending."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_145: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-thread-dock-child-tasks",
     date: "2026-11-01",

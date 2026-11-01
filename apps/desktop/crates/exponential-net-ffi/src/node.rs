@@ -178,6 +178,10 @@ pub enum EnetEvent {
     /// `reason` = `local` | `remote` | `failed: …`.
     CallEnded { call: u64, reason: String },
     PeerRefused { peer: String, alpn: String },
+    /// EXP-1531: the last open connection to `peer` closed (hung up, idle
+    /// timeout, network change): a viewer joined to it treats its feed as
+    /// dropped now instead of waiting out its stale timer.
+    PeerDisconnected { peer: String },
 }
 
 impl From<net::Event> for EnetEvent {
@@ -199,6 +203,7 @@ impl From<net::Event> for EnetEvent {
             net::Event::PeerRefused { peer, alpn } => {
                 EnetEvent::PeerRefused { peer: peer.to_string(), alpn: String::from_utf8_lossy(&alpn).into_owned() }
             }
+            net::Event::PeerDisconnected { peer } => EnetEvent::PeerDisconnected { peer: peer.to_string() },
         }
     }
 }
@@ -324,6 +329,30 @@ impl EnetNode {
     pub async fn send_chat(&self, peer: String, body: Vec<u8>) -> Result<EnetChatMessage, EnetError> {
         let (node, peer) = (self.node.clone(), peer_id(&peer)?);
         on_rt(async move { Ok(node.send_chat(peer, body).await?.into()) }).await
+    }
+
+    // links (EXP-1531)
+
+    /// How `peer` is reached right now: `direct` | `iroh_relay` (the
+    /// connStats `path` values), `None` = no open connection.
+    pub fn path_kind(&self, peer: String) -> Result<Option<String>, EnetError> {
+        Ok(self.node.path_kind(&peer_id(&peer)?).map(|p| p.as_str().to_string()))
+    }
+
+    /// Whether any connection to `peer` is open.
+    pub fn is_connected(&self, peer: String) -> Result<bool, EnetError> {
+        Ok(self.node.is_connected(&peer_id(&peer)?))
+    }
+
+    /// Call on app foreground and on network regained: iroh re-probes the
+    /// network and migrates its paths (mobile OSes do not tell native code).
+    pub async fn network_change(&self) {
+        let node = self.node.clone();
+        let _ = on_rt(async move {
+            node.network_change().await;
+            Ok(())
+        })
+        .await;
     }
 
     // files

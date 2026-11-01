@@ -511,6 +511,7 @@ public enum AppIcons {
         "nav-terminal": "square-terminal",
         "nav-threads": "list-tree",
         "notification-agent-message": "bot",
+        "notification-agent-signed-out": "log-out",
         "notification-issue-assigned": "user-plus",
         "notification-issue-comment": "message-square",
         "notification-issue-created": "circle-dot",
@@ -905,6 +906,8 @@ public enum AppIcons {
     public static let navThreads: String = "list-tree"
     /// Concept `notification-agent-message`.
     public static let notificationAgentMessage: String = "bot"
+    /// Concept `notification-agent-signed-out`.
+    public static let notificationAgentSignedOut: String = "log-out"
     /// Concept `notification-issue-assigned`.
     public static let notificationIssueAssigned: String = "user-plus"
     /// Concept `notification-issue-comment`.
