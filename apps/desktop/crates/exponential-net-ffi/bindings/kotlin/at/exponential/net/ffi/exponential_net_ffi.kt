@@ -748,13 +748,19 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_hang_up(
     ): Short
+    external fun uniffi_exponential_net_ffi_checksum_method_enetnode_is_connected(
+    ): Short
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_join_space(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_leave_space(
     ): Short
+    external fun uniffi_exponential_net_ffi_checksum_method_enetnode_network_change(
+    ): Short
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_next_event(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_online(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_method_enetnode_path_kind(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_put_record(
     ): Short
@@ -846,14 +852,20 @@ external fun uniffi_exponential_net_ffi_fn_method_enetnode_get_record(`ptr`: Lon
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_method_enetnode_hang_up(`ptr`: Long,`call`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_net_ffi_fn_method_enetnode_is_connected(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_net_ffi_fn_method_enetnode_join_space(`ptr`: Long,`space`: RustBuffer.ByValue,`bootstrap`: RustBuffer.ByValue,
 ): Long
 external fun uniffi_exponential_net_ffi_fn_method_enetnode_leave_space(`ptr`: Long,`space`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_net_ffi_fn_method_enetnode_network_change(`ptr`: Long,
+): Long
 external fun uniffi_exponential_net_ffi_fn_method_enetnode_next_event(`ptr`: Long,
 ): Long
 external fun uniffi_exponential_net_ffi_fn_method_enetnode_online(`ptr`: Long,`timeoutMs`: Long,
 ): Long
+external fun uniffi_exponential_net_ffi_fn_method_enetnode_path_kind(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_method_enetnode_put_record(`ptr`: Long,`space`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`value`: RustBuffer.ByValue,
 ): Long
 external fun uniffi_exponential_net_ffi_fn_method_enetnode_records(`ptr`: Long,`space`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -2152,12 +2164,23 @@ public interface EnetNodeInterface {
     fun `hangUp`(`call`: kotlin.ULong)
     
     /**
+     * Whether any connection to `peer` is open.
+     */
+    fun `isConnected`(`peer`: kotlin.String): kotlin.Boolean
+    
+    /**
      * Subscribes to a space (32 bytes): its records arrive as
      * `EnetEvent.Record`, and its state is pulled from neighbours.
      */
     suspend fun `joinSpace`(`space`: kotlin.ByteArray, `bootstrap`: List<kotlin.String>)
     
     fun `leaveSpace`(`space`: kotlin.ByteArray)
+    
+    /**
+     * Call on app foreground and on network regained: iroh re-probes the
+     * network and migrates its paths (mobile OSes do not tell native code).
+     */
+    suspend fun `networkChange`()
     
     /**
      * The next event; `None` once the node is shut down.
@@ -2168,6 +2191,12 @@ public interface EnetNodeInterface {
      * Waits until the home relay is connected (no-op without relays).
      */
     suspend fun `online`(`timeoutMs`: kotlin.ULong)
+    
+    /**
+     * How `peer` is reached right now: `direct` | `iroh_relay` (the
+     * connStats `path` values), `None` = no open connection.
+     */
+    fun `pathKind`(`peer`: kotlin.String): kotlin.String?
     
     suspend fun `putRecord`(`space`: kotlin.ByteArray, `key`: kotlin.String, `value`: kotlin.ByteArray): EnetRecord
     
@@ -2525,6 +2554,23 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
 
     
     /**
+     * Whether any connection to `peer` is open.
+     */
+    @Throws(EnetException::class)override fun `isConnected`(`peer`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_is_connected(
+        it,
+        FfiConverterString.lower(`peer`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Subscribes to a space (32 bytes): its records arrive as
      * `EnetEvent.Record`, and its state is pulled from neighbours.
      */
@@ -2561,6 +2607,31 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     }
     
     
+
+    
+    /**
+     * Call on app foreground and on network regained: iroh re-probes the
+     * network and migrates its paths (mobile OSes do not tell native code).
+     */
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `networkChange`() {
+        return uniffiRustCallAsync(
+        callWithHandle { uniffiHandle ->
+            UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_network_change(
+                uniffiHandle,
+                
+            )
+        },
+        { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.ffi_exponential_net_ffi_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        UniffiNullRustCallStatusErrorHandler,
+    )
+    }
 
     
     /**
@@ -2609,6 +2680,24 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         EnetException.ErrorHandler,
     )
     }
+
+    
+    /**
+     * How `peer` is reached right now: `direct` | `iroh_relay` (the
+     * connStats `path` values), `None` = no open connection.
+     */
+    @Throws(EnetException::class)override fun `pathKind`(`peer`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_path_kind(
+        it,
+        FfiConverterString.lower(`peer`),_status)
+}
+    }
+    )
+    }
+    
 
     
     @Throws(EnetException::class)
@@ -3701,6 +3790,20 @@ sealed class EnetEvent {
         companion object
     }
     
+    /**
+     * EXP-1531: the last open connection to `peer` closed (hung up, idle
+     * timeout, network change): a viewer joined to it treats its feed as
+     * dropped now instead of waiting out its stale timer.
+     */
+    data class PeerDisconnected(
+        val `peer`: kotlin.String) : EnetEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
 
     
 
@@ -3742,6 +3845,9 @@ public object FfiConverterTypeEnetEvent : FfiConverterRustBuffer<EnetEvent>{
                 )
             7 -> EnetEvent.PeerRefused(
                 FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            8 -> EnetEvent.PeerDisconnected(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
@@ -3804,6 +3910,13 @@ public object FfiConverterTypeEnetEvent : FfiConverterRustBuffer<EnetEvent>{
                 + FfiConverterString.allocationSize(value.`alpn`)
             )
         }
+        is EnetEvent.PeerDisconnected -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`peer`)
+            )
+        }
     }
 
     override fun write(value: EnetEvent, buf: ByteBuffer) {
@@ -3847,6 +3960,11 @@ public object FfiConverterTypeEnetEvent : FfiConverterRustBuffer<EnetEvent>{
                 buf.putInt(7)
                 FfiConverterString.write(value.`peer`, buf)
                 FfiConverterString.write(value.`alpn`, buf)
+                Unit
+            }
+            is EnetEvent.PeerDisconnected -> {
+                buf.putInt(8)
+                FfiConverterString.write(value.`peer`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
