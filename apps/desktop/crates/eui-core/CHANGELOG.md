@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1586: THE ZoomableImage box (`width: 100%` + `layout_tree::zoomable_aspect_ratio`: natural ratio, a tall picture capped at a square, else 16:9; a style height wins) and its `zoom` event writing the bound `scale` before it fires.
 - EXP-1493: the Carousel `counter` frame sits at the track's top-END corner (`insetInlineEnd: $spacing.sm`, mirrored under RTL), off the page's own heading.
 
 ## 0.3.0 (2026-10-31)

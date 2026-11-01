@@ -18,6 +18,7 @@ mod motion;
 mod paint;
 mod pinned;
 pub(crate) mod state;
+mod zoom;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -311,6 +312,8 @@ pub struct SurfaceView {
     /// The hover-opened trigger keyboard focus sits in.
     focus_trigger: Option<String>,
     fields: HashMap<String, Field>,
+    /// EXP-1586: the ZoomableImage views by node id.
+    zooms: HashMap<String, zoom::Zoom>,
     revisions: HashMap<String, u64>,
     hover_timer: Option<(String, Task<()>)>,
     /// The core's hover-overlay close delays (`OutEvent::HoverTimer`).
@@ -514,6 +517,7 @@ impl SurfaceView {
             pending_focus: None,
             focus_trigger: None,
             fields: HashMap::new(),
+            zooms: HashMap::new(),
             revisions: HashMap::new(),
             hover_timer: None,
             hover_close_timers: HashMap::new(),
@@ -1298,10 +1302,14 @@ impl SurfaceView {
 
     /// Focus handles for focusable non-field nodes, kept by id; field states.
     fn sync_handles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_zooms(window, cx);
         let mut handles = HashMap::new();
         for n in self.cache.nodes.iter().filter(|n| !n.removed) {
             if (state::is_focusable(n) || self.scroll_focusable(n.index)) && !state::is_text_field(n) {
-                let h = self.focus_handles.remove(&n.id).unwrap_or_else(|| cx.focus_handle());
+                // EXP-1586: a ZoomableImage's stop is its view's own handle
+                // (the view takes the keys).
+                let own = self.zooms.get(&n.id).map(|z| gpui::Focusable::focus_handle(z.entity.read(cx), cx));
+                let h = own.unwrap_or_else(|| self.focus_handles.remove(&n.id).unwrap_or_else(|| cx.focus_handle()));
                 handles.insert(n.id.clone(), h);
             }
         }

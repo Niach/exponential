@@ -6,6 +6,8 @@
 //! view. They moved here out of the IDE's `controls.rs` / `surface.rs` /
 //! `usage_bar.rs` / `usage_sheet.rs`; the IDE re-exports every one under its
 //! old name, so a doc comment's EXP-… rationale still reads as it did there.
+//! [`ZoomableImage`] (EXP-1586) is new here: the catalog native's painter and
+//! the view the IDE's lightbox embeds.
 //!
 //! Every token value comes from the host's [`crate::chrome::Chrome`]:
 //! builders that take a `cx` read [`crate::chrome::Chrome::global`], the pure
@@ -32,6 +34,7 @@ mod pills;
 mod rows;
 mod sizing;
 mod voice_wave;
+mod zoomable_image;
 
 pub use animation::{until_next_step, SteppedAnimationElement, SteppedAnimationExt, SMOOTH_STEP};
 pub use buttons::{
@@ -72,3 +75,4 @@ pub use rows::{
 };
 pub use sizing::{WebControl, WebText, CTL_LG_H, CTL_MD_H, CTL_SM_H};
 pub use voice_wave::{voice_wave, VoiceWaveChild, VoiceWaveColors};
+pub use zoomable_image::{ZoomControls, ZoomPart, ZoomStrings, ZoomableImage, ZoomableImageEvent, ZoomableImageOptions, TAP_DELAY};

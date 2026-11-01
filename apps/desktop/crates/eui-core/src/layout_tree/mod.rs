@@ -617,6 +617,19 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
     }
 
+    /// EXP-1586: THE ZoomableImage box (catalog/style.json `zoomableImage`):
+    /// as wide as its parent; without a style `height` it takes
+    /// [`zoomable_aspect_ratio`].
+    fn zoomable_box(&mut self, index: u32) {
+        let n = &self.nodes[index as usize];
+        let has_height = n.base_style.contains_key("height");
+        let ratio = zoomable_aspect_ratio(&n.props);
+        self.style_default(index, &[("width", json!("100%"))]);
+        if !has_height {
+            self.style_default(index, &[("aspectRatio", json!(ratio))]);
+        }
+    }
+
     pub(crate) fn is_overlay(component: &str) -> bool {
         OVERLAYS.contains(&component)
     }
@@ -728,6 +741,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         // Round 2 §7: explicit sizes instead of browser defaults.
         match node.component.as_str() {
             "Image" | "Video" => self.media_ratio(index),
+            "ZoomableImage" => self.zoomable_box(index),
             // VAPP-162: a vertical `bar` (THE navigation rail) is a column of
             // fixed items: as wide as its root recipe (72), `items × tabBar`
             // tall, never stretched across its parent (full height is the
@@ -1095,6 +1109,19 @@ pub fn build_subtree(node: &UiNode, parent: &LNode, scope: &str, seed: BuildSeed
     Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues }
 }
 
+/// EXP-1586: a ZoomableImage's width / height without a style `height`:
+/// naturalWidth / naturalHeight (a TALL picture, w/h under `tallAspect`,
+/// capped at a square so a full-page capture opens as a window onto its
+/// top), else `mediaAspectRatio` (16:9).
+pub fn zoomable_aspect_ratio(props: &Props) -> f64 {
+    let num = |k: &str| props.get(k).and_then(Value::as_f64).filter(|v| v.is_finite() && *v > 0.0);
+    match (num("naturalWidth"), num("naturalHeight")) {
+        (Some(w), Some(h)) if crate::zoom::zoom_is_tall(crate::zoom::ZoomSize { width: w, height: h }) => 1.0,
+        (Some(w), Some(h)) => w / h,
+        _ => crate::layout::MEDIA_ASPECT_RATIO,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1104,5 +1131,15 @@ mod tests {
         assert_eq!(builtin_icon("CodeBlock.copy"), Some("ui-copy"));
         assert_eq!(builtin_icon("Table.sortIcon.asc"), Some("ui-chevron-up"));
         assert_eq!(builtin_icon("Nope.x"), None);
+    }
+
+    #[test]
+    fn a_zoomable_box_follows_its_picture() {
+        let p = |v: Value| v.as_object().cloned().unwrap_or_default();
+        assert!((zoomable_aspect_ratio(&p(json!({"naturalWidth": 1440, "naturalHeight": 900}))) - 1.6).abs() < 1e-9);
+        // A tall picture opens as a square window onto its top.
+        assert_eq!(zoomable_aspect_ratio(&p(json!({"naturalWidth": 1000, "naturalHeight": 8000}))), 1.0);
+        assert!((zoomable_aspect_ratio(&p(json!({"naturalWidth": 600, "naturalHeight": 900}))) - 600.0 / 900.0).abs() < 1e-9);
+        assert_eq!(zoomable_aspect_ratio(&p(json!({}))), crate::layout::MEDIA_ASPECT_RATIO);
     }
 }

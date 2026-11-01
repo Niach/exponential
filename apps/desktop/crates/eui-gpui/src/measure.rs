@@ -1068,6 +1068,15 @@ impl<'a> GpuiMeasure<'a> {
             ("Icon", _) => plain((16.0, 16.0)),
             ("Avatar", _) => plain((32.0, 32.0)),
             ("Image" | "Video", _) => plain(self.media(props, inner)),
+            // EXP-1586: as wide as offered, height by the picture's ratio
+            // (the core's `width: 100%` + `aspectRatio` decide in a flow).
+            ("ZoomableImage", _) => {
+                let w = match inner {
+                    None => eui_core::layout::MEDIA_INTRINSIC_WIDTH as f32,
+                    Some(x) => x.max(0.0),
+                };
+                plain((w, w / eui_core::layout_tree::zoomable_aspect_ratio(props) as f32))
+            }
             ("AudioPlayer", _) => {
                 let title = str_prop(props, "title");
                 // Round 2 §7: the title line + `$spacing.xs` + a controls

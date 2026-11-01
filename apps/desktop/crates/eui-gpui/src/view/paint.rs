@@ -230,7 +230,8 @@ impl SurfaceView {
             el = el.text_color(c);
         }
         let ghost = self.ghosting.get();
-        if !ghost {
+        // EXP-1586: a ZoomableImage's view is its own a11y node and tab stop.
+        if !ghost && n.component != "ZoomableImage" {
             el = self.accessible(el, n);
             if let Some(h) = self.focus_handles.get(&n.id) {
                 el = el.track_focus(h);
@@ -815,6 +816,9 @@ impl SurfaceView {
             ("Icon", _) => natives::icon(&lcx),
             ("Avatar", _) => natives::avatar(&lcx),
             ("Image", _) => natives::image(&lcx, window, cx),
+            // An exiting layer paints nothing live (the view is the open tree's).
+            ("ZoomableImage", _) if self.ghosting.get() => return None,
+            ("ZoomableImage", _) => self.zoom_element(&n.id, w, h, cx)?,
             ("Video", _) => natives::video(&lcx, self.media_play(n, "mp4")),
             ("AudioPlayer", _) => natives::audio(&lcx, self.media_play(n, "m4a")),
             ("Spinner", _) => natives::spinner(&lcx),
