@@ -8,3 +8,6 @@
 - Las sesiones en directo siguen transmitiendo, con cifrado de extremo a extremo, cuando se cae la conexión directa con el dispositivo
 - El texto que escribes mientras se envía un comentario se queda en el editor
 - Un hilo muestra las tareas de su sesión secundaria en curso
+- Los agentes reciben la incidencia que les das: identificador, título y descripción
+- La cabecera del hilo muestra el estado de la sesión y un botón Merge
+- Los pies de las historias nunca superan el visor

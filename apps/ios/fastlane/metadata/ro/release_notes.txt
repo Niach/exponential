@@ -8,3 +8,6 @@
 - Sesiunile live continuă să transmită, criptate end-to-end, când conexiunea directă cu dispozitivul cade
 - Textul scris în timp ce se trimite un comentariu rămâne în editor
 - Un fir arată sarcinile sesiunii copil care rulează
+- Agenții primesc sarcina pe care le-o dai: identificator, titlu și descriere
+- Antetul firului arată starea sesiunii și un buton Merge
+- Legendele poveștilor nu mai depășesc vizualizatorul

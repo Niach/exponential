@@ -8,3 +8,6 @@
 - Sesje na żywo nadal się przesyłają, szyfrowane end-to-end, gdy bezpośrednie połączenie z urządzeniem zostanie zerwane
 - Tekst wpisany podczas wysyłania komentarza zostaje w polu edycji
 - Wątek pokazuje zadania swojej działającej sesji podrzędnej
+- Agenci dostają zgłoszenie, które im przekazujesz: identyfikator, tytuł i opis
+- Nagłówek wątku pokazuje stan sesji i przycisk Merge
+- Podpisy historii nigdy nie wychodzą poza przeglądarkę

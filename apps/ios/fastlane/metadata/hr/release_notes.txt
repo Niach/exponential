@@ -8,3 +8,6 @@
 - Sesije uživo nastavljaju prijenos, šifrirano s kraja na kraj, kada izravna veza s uređajem padne
 - Tekst koji upišeš dok se komentar šalje ostaje u polju za pisanje
 - Nit prikazuje zadatke svoje pokrenute podsesije
+- Agenti dobivaju zadatak koji im predate: oznaku, naslov i opis
+- Zaglavlje niti prikazuje stanje sesije i gumb Merge
+- Opisi priča nikad ne prerastu preglednik

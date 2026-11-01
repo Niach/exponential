@@ -8,3 +8,6 @@
 - Live-sessioner fortsætter med at streame, end-to-end-krypteret, når den direkte forbindelse til enheden falder ud
 - Tekst, du skriver, mens en kommentar sendes, bliver i skrivefeltet
 - En tråd viser opgaverne for sin kørende undersession
+- Agenter får det issue, du giver dem: id, titel og beskrivelse
+- Trådens overskrift viser sessionens status og en Merge-knap
+- Historietekster bliver aldrig større end fremviseren

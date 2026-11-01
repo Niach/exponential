@@ -8,3 +8,6 @@
 - Live-Sitzungen streamen Ende-zu-Ende-verschlüsselt weiter, wenn die direkte Verbindung zum Gerät abbricht
 - Text, den du tippst, während ein Kommentar gesendet wird, bleibt im Eingabefeld
 - Ein Thread zeigt die Aufgaben seiner laufenden Untersitzung
+- Agenten bekommen das Issue, das du ihnen gibst: Kennung, Titel und Beschreibung
+- Die Thread-Kopfzeile zeigt den Status der Sitzung und eine Merge-Schaltfläche
+- Story-Beschriftungen werden nie größer als der Viewer
