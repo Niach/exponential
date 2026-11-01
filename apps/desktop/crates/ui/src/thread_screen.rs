@@ -83,7 +83,7 @@ pub(crate) const NEW_CHILD_WINDOW: Duration = Duration::from_secs(10);
 pub(crate) const MISSING_GRACE: Duration = Duration::from_secs(5);
 
 /// The conversation's reading column.
-const CONVERSATION_W: f32 = 760.;
+pub(crate) const CONVERSATION_W: f32 = 760.;
 /// The header + strip's side inset.
 const HEADER_INSET: f32 = 44.;
 /// An issue chip title's ONE max width (then the ellipsis).
@@ -2742,7 +2742,7 @@ fn thread_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ThreadMo
 
 /// EXP-1346: how far beyond the viewport the Conversation renders and
 /// measures rows (the session feed's `FEED_OVERDRAW`).
-const CONVERSATION_OVERDRAW: gpui::Pixels = px(1024.);
+pub(crate) const CONVERSATION_OVERDRAW: gpui::Pixels = px(1024.);
 
 /// EXP-1346: the Conversation list's projection ([`ThreadScreenView::sync_list`]).
 #[derive(Default)]
