@@ -217,6 +217,11 @@ public enum MarkdownStyle {
         )
     }
 
+    /// The markdown text view's vertical inset (`MarkdownEditor`'s
+    /// `textContainerInset` top and bottom): where the FIRST line's box starts
+    /// below the view's top. EXP-1553: a clamp that counts lines adds it.
+    public static let textInsetY: CGFloat = 4
+
     /// The paragraph style a plain run gets. `lineSpacing` nil is the editors'
     /// 4pt leading; the transcript passes what its line-height token needs.
     public static func paragraphStyle(lineSpacing: CGFloat? = nil) -> NSParagraphStyle {

@@ -12,7 +12,9 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked"]
+    @Environment(AppDependencies.self) private var deps
+
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -86,6 +88,7 @@ struct ThreadCardsScreen: View {
                     case "call-controls": CallControlsSpecimens()
                     case "device-readiness": DeviceReadinessSpecimens()
                     case "work-screen": WorkScreenSpecimens()
+                    case "pr-row": PrRowSpecimens()
                     default: workCards
                     }
                 }
@@ -99,51 +102,29 @@ struct ThreadCardsScreen: View {
 
     // MARK: - Work card (D12)
 
+    // EXP-1553: the seeded demo feed's ONE Work card ×4 (apps/web/scripts/
+    // screenshot-desktop.ts `wf-launch-review`), finished, nothing else.
     private static let phases = [
-        WorkflowCaptionPhase(index: 1, title: "Contract"),
-        WorkflowCaptionPhase(index: 2, title: "Implement"),
-        WorkflowCaptionPhase(index: 3, title: "Conformance"),
-        WorkflowCaptionPhase(index: 4, title: "Review"),
-        WorkflowCaptionPhase(index: 5, title: "Verify"),
+        WorkflowCaptionPhase(index: 1, title: "Review"),
+        WorkflowCaptionPhase(index: 2, title: "Verify"),
     ]
 
     private static let agents = [
-        WorkCardWorkflowAgent(index: 1, label: "contract", phaseIndex: 1, model: "opus", state: "done", durationMs: 600_000),
-        WorkCardWorkflowAgent(index: 2, label: "impl:react", phaseIndex: 2, model: "opus", state: "done", durationMs: 1_200_000),
-        WorkCardWorkflowAgent(index: 3, label: "impl:gpui", phaseIndex: 2, model: "opus", state: "done", durationMs: 1_500_000),
-        WorkCardWorkflowAgent(index: 4, label: "conf:swift", phaseIndex: 3, model: "opus", state: "done", durationMs: 480_000),
-        WorkCardWorkflowAgent(index: 5, label: "conf:compose", phaseIndex: 3, model: "opus", state: "done", durationMs: 300_000),
-        WorkCardWorkflowAgent(index: 6, label: "review:catalog", phaseIndex: 4, model: "claude-opus-5-5", state: "done", durationMs: 509_000),
-        WorkCardWorkflowAgent(index: 7, label: "fix:react", phaseIndex: 4, model: "opus", state: "done", durationMs: 1_900_000),
-        WorkCardWorkflowAgent(index: 8, label: "recheck:core", phaseIndex: 4, model: "opus", state: "done", durationMs: 103_000),
-        WorkCardWorkflowAgent(index: 9, label: "recheck:react", phaseIndex: 4, model: "opus", state: "running"),
+        WorkCardWorkflowAgent(index: 1, label: "review:correctness", phaseIndex: 1, model: "opus", state: "done", durationMs: 41_000),
+        WorkCardWorkflowAgent(index: 2, label: "review:performance", phaseIndex: 1, model: "opus", state: "done", durationMs: 52_000),
+        WorkCardWorkflowAgent(index: 3, label: "verify:benchmarks", phaseIndex: 2, model: "sonnet", state: "done", durationMs: 64_000),
     ]
 
     @ViewBuilder
     private var workCards: some View {
         let workflow = WorkCards.card(.workflow(
-            name: "exponential-ui-renderer-hardening", status: "running",
-            phases: Self.phases, agents: Self.agents, elapsedMs: 4_320_000
+            name: "cold-start-review", status: "completed",
+            phases: Self.phases, agents: Self.agents, elapsedMs: 116_000
         ))
         WorkCardView(
             card: workflow,
             foldedPhases: WorkCards.foldedPhases(phases: Self.phases, agents: Self.agents, card: workflow),
             onOpenLane: { _, _ in }
-        )
-        WorkCardView(card: WorkCards.card(.tasks([
-            WorkCardTask(content: "Survey", status: "completed"),
-            WorkCardTask(content: "Draft", status: "completed"),
-            WorkCardTask(content: "Fixtures", status: "completed"),
-            WorkCardTask(content: "Wire the Review face", status: "in_progress"),
-            WorkCardTask(content: "Desktop", status: "pending"),
-            WorkCardTask(content: "iOS", status: "pending"),
-            WorkCardTask(content: "Android", status: "pending"),
-        ])))
-        WorkCardView(
-            card: WorkCards.card(.subagent(
-                title: "Survey UI code", state: "done", toolCalls: 127, elapsedMs: 600_000
-            )),
-            onOpenSubagent: {}
         )
     }
 
@@ -261,55 +242,118 @@ struct ThreadCardsScreen: View {
 
     // MARK: - Script card (D13)
 
+    /// EXP-1553: the seeded demo feed's code-mode call ×4 (13 calls, 2.1 s,
+    /// `issues_pr_files` on APP-9 failed), finished, nothing else.
+    private static let scriptIds = ["APP-5", "APP-9", "APP-10", "APP-14", "APP-16", "APP-17"]
+
+    private static let scriptSource = """
+    const ids = ["APP-5", "APP-9", "APP-10", "APP-14", "APP-16", "APP-17"]
+    const issues = await Promise.all(
+      ids.map((id) => tools.exponential.exponential_issues_get({ id }))
+    )
+    const threads = await Promise.all(
+      ids.map((issueId) => tools.exponential.exponential_comments_list({ issueId }))
+    )
+    const files = await tools.exponential.exponential_issues_pr_files({ issueId: "APP-9" })
+    return issues.map((issue, i) => `${issue.identifier} ${threads[i].length} comments`)
+    """
+
     @ViewBuilder
     private var scriptCards: some View {
         let calls: [ScriptCall] =
-            (0..<55).map { ScriptCall(tool: "exponential.exponential_issues_get", subject: "EXP-\(1253 + $0)", ok: true) }
-            + (0..<11).map { ScriptCall(tool: "exponential.exponential_issues_update", subject: "EXT-\(1 + $0)", ok: true) }
-            + (0..<13).map { ScriptCall(tool: "exponential.exponential_comments_create", subject: "MKT-\(6 + $0)", ok: true) }
-            + [
-                ScriptCall(tool: "exponential.exponential_issue_relations_add", subject: "EXT-15", ok: false),
-                ScriptCall(tool: "computer.screenshot", ok: true),
-            ]
+            Self.scriptIds.enumerated().map { index, id in
+                ScriptCall(tool: "exponential.exponential_issues_get", subject: id, ok: true, ms: 180 + index * 20)
+            }
+            + Self.scriptIds.enumerated().map { index, id in
+                ScriptCall(tool: "exponential.exponential_comments_list", subject: id, ok: true, ms: 140 + index * 15)
+            }
+            + [ScriptCall(tool: "exponential.exponential_issues_pr_files", subject: "APP-9", ok: false, ms: 95)]
         ScriptCardView(
-            card: ScriptCards.card(ScriptCardInput(running: false, count: calls.count, calls: calls, elapsedMs: 3_040)),
-            source: "const issues = await Promise.all(ids.map((id) => tools.exponential.issues_get({ id })))"
+            card: ScriptCards.card(ScriptCardInput(running: false, count: calls.count, calls: calls, elapsedMs: 2_140)),
+            source: Self.scriptSource
         )
-        ScriptCardView(card: ScriptCards.card(ScriptCardInput(running: true)), running: true)
     }
 
     // MARK: - Comment card (D14)
 
+    /// EXP-1553: the seeded `DEMO_AGENT_COMMENT_ID` comment ×4 (Alex Carter
+    /// on APP-10, via MCP, 20 minutes ago), finished, nothing else.
+    private static let commentBody = "From APP-5: the board snapshot cache now persists on `ON_STOP` "
+        + "(`BoardSnapshotCache.persistOnStop`), so the LRU can reuse its directory and eviction hook instead "
+        + "of opening a second one.\n\nCold start after the change: **740 ms** p50 on the Pixel 6a."
+
     @ViewBuilder
     private var commentCards: some View {
         CommentCallCardView(
-            author: "Danny",
-            caption: "via MCP · 21:02",
+            author: "Alex Carter",
+            caption: "via MCP · 20 minutes ago",
             running: false,
             hasBody: true,
             onOpen: {}
         ) {
             IssueChip(
-                identifier: "VAPP-84",
-                title: "Exponential UI: an open generative-UI SDK",
-                iconName: AppIcons.statusInProgress,
-                statusColor: DesignTokens.Semantic.yellow,
+                identifier: "APP-10",
+                title: "Migrate image cache to on-disk LRU",
+                iconName: IssueStatus.backlog.iconName,
+                statusColor: IssueStatus.backlog.color,
                 bodySize: DesignTokens.Transcript.bodySize
             )
         } mark: {
-            FeedbackMark(size: 14, color: .white.opacity(TextOpacity.secondary), animated: false)
-        } body: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Status 2026-10-08, evening").font(.subheadline.weight(.semibold))
-                Text(
-                    "#VAPP-98 (renderer hardening) is open as PR #1007; the host API session #VAPP-91 is not based on "
-                        + "the new contract yet, so I sent it a heads-up. The conformance lanes are green on all "
-                        + "four renderers and the review wave starts tonight."
-                )
-                .font(.subheadline)
+            if let image = AgentBrandMark.image("claude") {
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 14, height: 14)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
-            .foregroundStyle(.white)
+        } body: {
+            AgentMarkdownText(
+                text: Self.commentBody,
+                context: AgentMarkdownContext(baseURL: nil, accountId: "", httpClient: deps.httpClient)
+            )
         }
+    }
+}
+
+/// EXP-1553 `pr-row` (web `apps/styleguide` entry `pr-row` ×4): THE PrRow
+/// in its two shapes — a PR TREE nested with tree guides, a linear STACK on
+/// its rail down to the base branch (the current member washed, `stack` on
+/// the top row) — and an unlinked PR with the external-link glyph.
+private struct PrRowSpecimens: View {
+    private static let tree: [(identifier: String, title: String, depth: Int)] = [
+        ("EXP-1250", "opening tabs closes all at some point", 0),
+        ("EXP-1252", "tabs per team on desktop", 1),
+        ("EXP-1253", "inbox stepping reuses one tab", 1),
+    ]
+
+    private static let stack = [
+        StackRailMember(id: "100", identifier: "VAPP-100", title: "SwiftUI parity with the round-1/2 contract", current: true),
+        StackRailMember(id: "98", identifier: "VAPP-98", title: "Exponential UI renderer hardening round 1"),
+        StackRailMember(id: "93", identifier: "VAPP-93", title: "ui.exponential.at: the Exponential UI site"),
+        StackRailMember(id: "91", identifier: "VAPP-91", title: "Exponential UI host API ×4"),
+    ]
+
+    var body: some View {
+        let guides = TreeGuides.compute(depths: Self.tree.map(\.depth))
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                GlassSectionBand("Exponential")
+                ForEach(Array(Self.tree.enumerated()), id: \.offset) { index, row in
+                    PrRow(identifier: row.identifier, title: row.title, guide: guides[index])
+                }
+                StackRail(members: Self.stack, baseBranch: "master", word: "stack", onOpen: { _ in }, onMergeThrough: { _ in })
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                GlassSectionBand("Not linked to an issue")
+                PrRow(identifier: "#1013", title: "Dockerfiles: stub the exponential-ui workspace packages") {
+                    AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+        }
+        .padding(.horizontal, -16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("pr-row-specimen")
     }
 }
 

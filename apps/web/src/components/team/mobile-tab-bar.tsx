@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react"
-import { Link, useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
+import {
+  Link,
+  useMatchRoute,
+  useNavigate,
+  useParams,
+  useSearch,
+} from "@tanstack/react-router"
 import { CHATS_COPY, CHATS_TEST_IDS } from "@exp/domain-contract/chats"
 import {
   BoardGlyph,
@@ -85,9 +91,22 @@ export function useMobileChromeVisible(): boolean {
   // chats.json: the Inbox is PUSHED from the Chats header's inbox circle
   // (its own back header, no segments), so it hides the bar like a detail.
   const onInbox = matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true })
+  // #EXP-1553: a DEV-ONLY specimen page (`/t/$teamSlug/agent?dev=<id>`, the
+  // view catalog's captures) is a bare board like the natives' specimens,
+  // which have no tab bar: the bar and its capsule step aside. The route's
+  // `validateSearch` drops `dev` in a production build, so this never fires
+  // there.
+  const { dev } = useSearch({ strict: false }) as { dev?: unknown }
+  // `chat-list` keeps it: that specimen IS the phone Chats screen, which
+  // the natives capture with their tab bar.
+  const onDevSpecimen =
+    Boolean(matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true })) &&
+    typeof dev === `string` &&
+    dev !== `chat-list`
   // The Agent page (HOME) and the Chats list keep the standard chrome.
   return (
     !onInbox &&
+    !onDevSpecimen &&
     !onIssueDetail &&
     !onSessionDetail &&
     !onDraftPage &&

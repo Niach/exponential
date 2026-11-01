@@ -26,6 +26,7 @@ vi.mock(`@tanstack/react-router`, () => ({
     </a>
   ),
   useParams: () => ({}),
+  useSearch: () => ({}),
   useNavigate: () => navigate,
   useRouter: () => ({
     state: { location: { pathname: `/t/acme/devices`, search: {} } },

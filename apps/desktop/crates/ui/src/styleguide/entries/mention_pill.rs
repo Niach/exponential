@@ -30,7 +30,8 @@ pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     let line = |id: &'static str, body: &'static str| {
         MarkdownView::new(id, body).chat(true).resolver(demo_resolver())
     };
-    div().w(px(420.)).child(
+    // #EXP-1553: web entry `grid max-w-md gap-2` (the spec for every platform).
+    div().w(px(448.)).child(
         v_flex()
             .gap(px(8.))
             .child(line("sg-mention-pill-resolved", "Ready for review, @ada@example.com"))

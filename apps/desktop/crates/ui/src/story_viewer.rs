@@ -682,7 +682,7 @@ fn scrim_fill() -> Hsla {
     gpui::black().opacity(0.84)
 }
 
-/// THE kind badge leading the frame's title (one line, semibold), then the
+/// THE kind badge over the frame's title (semibold, wrapping), then the
 /// description (muted, up to 3 lines), each once; `ghost` = the same block,
 /// invisible (the room under the floating band).
 fn title_block(story: &Story, frame: &StoryFrame, ghost: bool, cx: &App) -> Div {
@@ -692,30 +692,25 @@ fn title_block(story: &Story, frame: &StoryFrame, ghost: bool, cx: &App) -> Div 
         .gap_1()
         .px(px(2.))
         .when(ghost, |block| block.opacity(0.))
-        .child(
-            h_flex()
-                .min_w_0()
-                .items_center()
-                .gap_2()
-                .child(crate::story_badge::kind_badge(
-                    SharedString::from(format!("story-badge-{}{}", story.id, if ghost { "-ghost" } else { "" })),
-                    story.kind,
-                    cx,
-                ))
-                .when_some(frame.title.clone(), |line, text| {
-                    line.child(
-                        div()
-                            .id(if ghost { "story-title-ghost" } else { "story-title" })
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_base()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.foreground)
-                            .child(SharedString::from(text)),
-                    )
-                }),
-        )
+        // #EXP-1553: the badge sits ABOVE the full title (iOS/Android), so
+        // a long prompt wraps instead of truncating beside the chip.
+        .child(h_flex().child(crate::story_badge::kind_badge(
+            SharedString::from(format!("story-badge-{}{}", story.id, if ghost { "-ghost" } else { "" })),
+            story.kind,
+            cx,
+        )))
+        .when_some(frame.title.clone(), |block, text| {
+            block.child(
+                div()
+                    .id(if ghost { "story-title-ghost" } else { "story-title" })
+                    .w_full()
+                    .min_w_0()
+                    .text_base()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.foreground)
+                    .child(SharedString::from(text)),
+            )
+        })
         .when_some(frame.description.clone(), |block, text| {
             block.child(
                 div()

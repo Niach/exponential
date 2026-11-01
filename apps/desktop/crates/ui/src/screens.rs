@@ -1016,13 +1016,15 @@ pub(crate) fn take_dev_session_account_menu() -> bool {
 /// EXP-1259 — `EXP_DEV_SCROLL_TO=script-card` parks a session's transcript
 /// on its first code-mode Script card instead of the tail, so the
 /// `script-card` capture has it in frame; EXP-1324 `work-card` parks it on
-/// the first workflow's Work card the same way.
+/// the first workflow's Work card the same way; #EXP-1553 `comment-call-card`
+/// parks it on the first settled `exponential_comments_create` card.
 /// Read once: the transcript asks every frame.
 pub(crate) fn dev_scroll_to() -> Option<&'static str> {
     static TARGET: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
     *TARGET.get_or_init(|| match std::env::var("EXP_DEV_SCROLL_TO").ok().as_deref() {
         Some("script-card") => Some("script-card"),
         Some("work-card") => Some("work-card"),
+        Some("comment-call-card") => Some("comment-call-card"),
         _ => None,
     })
 }

@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-chats-look-the-same",
+    date: "2026-11-01",
+    title: "Chats look the same everywhere",
+    summary: "Message times, replaced plans, selection and story titles now match on every platform.",
+    body: r#"- **Message times**: on iOS your message's time now sits inside the bubble, like everywhere else.
+- **Replaced plans**: a plan a newer one replaced shows as the closed Plan ready card on every platform.
+- **Selecting chats**: on a phone browser, selecting chats shows the full-width bar the apps use.
+- **Story titles**: a story's kind badge sits above its title, which wraps to two lines instead of cutting off."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_152: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-device-cards",
     date: "2026-11-01",
     title: "Devices as cards",

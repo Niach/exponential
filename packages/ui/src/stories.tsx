@@ -599,10 +599,12 @@ export function StoryViewerPanel({
             </Button>
           </div>
           <div className="flex min-w-0 flex-col gap-1 px-0.5">
-            <div className="flex min-w-0 items-center gap-2">
+            {/* #EXP-1553: the kind chip ABOVE the full title (iOS, Android),
+                never beside it truncating the prompt. */}
+            <div className="flex min-w-0 flex-col items-start gap-1.5">
               <StoryKindBadge kind={story.kind} />
               {frame.title && (
-                <div data-slot="story-title" className="min-w-0 truncate text-base font-semibold">
+                <div data-slot="story-title" className="line-clamp-2 min-w-0 text-base font-semibold">
                   {frame.title}
                 </div>
               )}

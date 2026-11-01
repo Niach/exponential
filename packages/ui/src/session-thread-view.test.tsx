@@ -142,6 +142,30 @@ describe(`ThreadConversation`, () => {
     return { ...view, onAnswer, onDecide, onOpenSession }
   }
 
+  it(`#EXP-1553: a person's bubble (chatMode bubbles) carries its time inside, no name; a transcript keeps the caption`, () => {
+    const user: ThreadRow = {
+      type: `message`,
+      id: `u1`,
+      author: `user`,
+      authorId: `u1`,
+      body: `Anything new overnight?`,
+      queued: false,
+      authorSessionId: null,
+      xref: null,
+    } as ThreadRow
+    const over = { messageCaption: () => `Dana Reyes · 09:02`, messageTime: () => `09:02` }
+    const bubbles = renderRows([user], { ...over, layout: `bubbles` })
+    const bubble = bubbles.getByTestId(`user-message-bubble`)
+    expect(bubble.querySelector(`[data-slot="user-message-time"]`)!.textContent).toBe(`09:02`)
+    expect(bubble.querySelector(`[data-slot="user-message-caption"]`)).toBeNull()
+    expect(bubble.textContent).not.toContain(`Dana Reyes`)
+    bubbles.unmount()
+    const transcript = renderRows([user], { ...over, layout: `transcript` })
+    const line = transcript.getByTestId(`user-message-bubble`)
+    expect(line.querySelector(`[data-slot="user-message-caption"]`)!.textContent).toBe(`Dana Reyes · 09:02`)
+    expect(line.querySelector(`[data-slot="user-message-time"]`)).toBeNull()
+  })
+
   it(`renders every row kind and answers in the card`, () => {
     const { onAnswer, onDecide, onOpenSession } = renderRows()
     expect(screen.getByText(`Do it`)).toBeTruthy()

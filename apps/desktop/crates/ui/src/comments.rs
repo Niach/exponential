@@ -865,6 +865,11 @@ use gpui::prelude::FluentBuilder as _;
 /// The thread's comment card clamps its body to this many lines (the body
 /// rung's 22px line), then offers Show more.
 pub(crate) const THREAD_COMMENT_LINES: usize = 3;
+/// #EXP-1553: the folded body's fade: opaque to this fraction of the clamp
+/// height, clear at 100 % (web `comment-call-card.tsx`, Android
+/// `CommentCallCard.CLAMP_FADE_FROM`, iOS). gpui has no mask, so the bottom
+/// 20 % is overlaid with the card's ground fading in.
+const CLAMP_FADE_FROM: f32 = 0.8;
 /// How long the focused comment's tint takes to fade out.
 const COMMENT_FOCUS_FADE: std::time::Duration = std::time::Duration::from_millis(2_400);
 /// A focus request nobody painted within this long is stale (the reader
@@ -897,25 +902,41 @@ pub(crate) struct ThreadCommentProps {
     pub images: Option<gpui::Entity<crate::markdown::ImageCache>>,
 }
 
-/// The meta line a synced comment wears in the thread card: the timeline's
-/// own (`relative time · edited · via MCP`).
+/// The meta line a synced comment wears in the thread card
+/// (`via MCP · relative time · edited`).
 pub(crate) fn thread_comment_meta(comment: &Comment, via_app_name: Option<&str>, now_epoch: i64) -> String {
-    let mut meta = relative_time(comment.created_at.as_deref().unwrap_or(""), now_epoch);
-    if comment.edited_at.is_some() {
-        meta.push_str(" · edited");
-    }
-    if let Some(caption) = comment_caption(comment, via_app_name) {
-        if !meta.is_empty() {
-            meta.push_str(" · ");
-        }
-        meta.push_str(&caption);
-    }
-    meta
+    // #EXP-1553: web `agent-comment-card.tsx` order ×4: "via MCP · 20
+    // minutes ago" (the caption first), then `edited`.
+    let time = relative_time(comment.created_at.as_deref().unwrap_or(""), now_epoch);
+    let edited = comment.edited_at.is_some().then(|| "edited".to_string());
+    [comment_caption(comment, via_app_name), Some(time), edited]
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 /// The author name a synced comment wears (the timeline's rule).
 pub(crate) fn thread_comment_author(comment: &Comment, author: Option<&User>) -> String {
     comment_author_name(comment, author, domain::reporter_reply::FORMER_MEMBER_NAME)
+}
+
+/// The folded body's height: [`THREAD_COMMENT_LINES`] lines at `line`,
+/// plus the chat markdown's paragraph gap (0.5 × `rem`) for EVERY paragraph
+/// break that falls inside those lines (web's `max-h-[4.5em]` holds them
+/// too). Walks the leading paragraphs, each counted as ONE line: the
+/// conservative lower bound (the view joins soft breaks, `SoftBreakMode::
+/// Space`, and wrapping is not measured here). A paragraph that really wraps
+/// may count a later gap the fold never reaches: the fold then errs taller
+/// and shows a little more, faded, never cutting line 3's glyphs.
+pub(crate) fn thread_comment_clamp_height(body: &str, line: f32, rem: f32) -> f32 {
+    let budget = THREAD_COMMENT_LINES;
+    let paragraphs = body.trim().split("\n\n").filter(|paragraph| !paragraph.trim().is_empty()).count();
+    // One line each: a break follows each of the first `budget - 1`
+    // paragraphs that has a successor.
+    let gaps = paragraphs.saturating_sub(1).min(budget - 1);
+    line * budget as f32 + gaps as f32 * 0.5 * rem
 }
 
 /// Whether a body runs past the card's [`THREAD_COMMENT_LINES`] clamp.
@@ -946,15 +967,42 @@ pub(crate) fn thread_comment_card(props: ThreadCommentProps, cx: &gpui::App) -> 
             });
     }
     let line = theme::tokens::transcript::BODY_LINE_HEIGHT;
+    let folded = clamps && !props.expanded;
+    // #EXP-1553: web's clamp is 3 body lines (`max-h-[4.5em]`) with the
+    // markdown's paragraph gap INSIDE it; here the chat markdown's gap
+    // (`MarkdownView` `.chat`: `gap_2` = 0.5 rem) sits between paragraphs,
+    // so a body with a paragraph break adds it: line 3's glyphs stay inside
+    // the clamp and only their lower part fades (the shot cut them).
+    let clamp_h = thread_comment_clamp_height(&props.body, line, f32::from(cx.theme().font_size));
     let body = div()
+        .relative()
         .w_full()
         .min_w_0()
         .text_size(px(theme::tokens::transcript::BODY_SIZE))
         .line_height(px(line))
-        .when(clamps && !props.expanded, |this| {
-            this.max_h(px(line * THREAD_COMMENT_LINES as f32)).overflow_hidden()
-        })
-        .child(view);
+        .when(folded, |this| this.max_h(px(clamp_h)).overflow_hidden())
+        .child(view)
+        // #EXP-1553: only while folded, paint-only (the click reaches the card).
+        .when(folded, |this| {
+            // The OPAQUE ground actually painted under the body: the card's
+            // FILL_ROW over its host, the Commented-on tool card's opaque
+            // `dock::card_fill()` (sampled on the capture: 37 under, 50 in
+            // the card = 37 + 15/255 of white; the panel ramp read ~41).
+            let ground = crate::picker::over(crate::dock::card_fill(), theme::tokens::glass::FILL_ROW.to_hsla());
+            this.child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(px(clamp_h * (1. - CLAMP_FADE_FROM)))
+                    .bg(gpui::linear_gradient(
+                        180.,
+                        gpui::linear_color_stop(ground.opacity(0.), 0.),
+                        gpui::linear_color_stop(ground, 1.),
+                    )),
+            )
+        });
     let header = h_flex()
         .w_full()
         .min_w_0()
@@ -1208,6 +1256,19 @@ mod tests {
 
         let mcp = comment("mcp", "team", Some("u-1"));
         assert_eq!(comment_caption(&mcp, None).as_deref(), Some("via MCP"));
+        // #EXP-1553: the fold holds 3 lines plus one paragraph gap.
+        assert_eq!(thread_comment_clamp_height("a\n\nb", 22., 14.), 73.);
+        assert_eq!(thread_comment_clamp_height("one paragraph", 22., 14.), 66.);
+        // Two breaks inside the first three lines: 3 lines + 2 gaps; a
+        // break past line 3 adds nothing.
+        assert_eq!(thread_comment_clamp_height("a\n\nb\n\nc\n\nd", 22., 14.), 80.);
+        assert_eq!(thread_comment_clamp_height("a\n\nb\n\nc\n\nd\n\ne", 22., 14.), 80.);
+        // Soft breaks join (one rendered line), so their paragraph's break
+        // still falls inside the fold.
+        assert_eq!(thread_comment_clamp_height("a\nb\nc\n\nd", 22., 14.), 73.);
+        // #EXP-1553: the thread card's byline leads with the caption (web).
+        let meta = thread_comment_meta(&mcp, None, 0);
+        assert!(meta.starts_with("via MCP"), "{meta}");
         let mcp_out = comment("mcp", "reporter", Some("u-1"));
         assert_eq!(comment_caption(&mcp_out, None).as_deref(), Some("to reporter · via MCP"));
         assert_eq!(comment_caption(&comment("user", "team", Some("u-1")), None), None);

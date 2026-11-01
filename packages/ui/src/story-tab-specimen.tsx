@@ -15,7 +15,9 @@ export function StoryTabSpecimen({ width = 640, size = `wide` }: { width?: numbe
   return (
     <div
       data-testid="story-tab-specimen"
-      className="rounded-3xl border border-glass-stroke-card bg-background p-5"
+      // #EXP-1553: phones draw the tab on the bare page like iOS/Android
+      // (no card frame), so the phone thumbnail row has the natives' room.
+      className="rounded-3xl border border-glass-stroke-card bg-background p-5 max-md:rounded-none max-md:border-0 max-md:p-0"
       style={{ width, maxWidth: `100%` }}
     >
       <StoryTab ring={STORY_TAB_SPECIMEN} size={size} attachmentSrc={placeholderSrc} onOpen={() => {}} />

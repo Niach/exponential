@@ -23,6 +23,8 @@ struct ChatListSpecimens: View {
         var unread = 0
         var needsYou = false
         var word: ThreadRowWord?
+        /// S-3: a DONE chat stays, dimmed (`listCases[0]` `dim`).
+        var dim = false
     }
 
     // chats.json `listCases[0].expected` (the model every platform's
@@ -36,7 +38,7 @@ struct ChatListSpecimens: View {
             previewKind: .agent, preview: "Waiting for review", time: "08:30",
             unread: 1, word: .readyToMerge),
         Row(id: "d", title: "Merged", group: "recent", lead: .merged,
-            previewKind: .you, preview: "You: ship it", time: Chats.Copy.Time.yesterday),
+            previewKind: .you, preview: "You: ship it", time: Chats.Copy.Time.yesterday, dim: true),
     ]
 
     private static let counts: [Chats.ChatFilter: Int] = [.needsYou: 1, .running: 1, .unread: 1]
@@ -166,8 +168,11 @@ struct ChatListSpecimens: View {
                         }
                         .padding(.horizontal, -16)
                         .padding(.bottom, 4)
+                        // EXP-1553: the Agents section STAYS while selecting
+                        // (agents are never selectable), as in `ChatsView`.
                         let agentRows = shownAgents
-                        if selection == nil, !agentRows.isEmpty {
+                        let archivedEntry = selection != nil && filter == .all
+                        if !agentRows.isEmpty {
                             ChatSectionHeader(Chats.Copy.Sections.agents)
                             ForEach(agentRows) { row in
                                 ChatRowView(
@@ -180,11 +185,11 @@ struct ChatListSpecimens: View {
                                     unreadCount: row.unreadCount
                                 ) { AgentChatLead(row: row) }
                             }
-                            if !shown.isEmpty {
+                            if !shown.isEmpty || archivedEntry {
                                 ChatSectionHeader(Chats.Copy.Sections.chats)
                             }
                         }
-                        if selection != nil, filter == .all {
+                        if archivedEntry {
                             ChatArchivedRow(count: Self.archived)
                         }
                         ForEach(shown) { row in
@@ -200,6 +205,7 @@ struct ChatListSpecimens: View {
                                 wordIcon: row.word == .stack ? AppIcons.prStack : nil,
                                 selected: selection?.contains(row.id) == true
                             ) { ChatLeadMark(lead: row.lead) }
+                            .opacity(row.dim ? Chats.Shell.dimOpacity : 1)
                             .chatSelectedTint(selection?.contains(row.id) == true)
                         }
                     }
@@ -388,13 +394,11 @@ private struct PageHeaderFrame: View {
 }
 
 /// `chat-transcript`: the web entry's phone column — the person's and the
-/// agent's bubbles, the superseded plan line, the agent's inline preview
-/// (THE surface card through the real renderer, its two `reply` presses),
-/// the divider pills; "Replay the enter" re-mounts the card as a LIVE
-/// arrival (`surfaceCard.enter`).
+/// agent's bubbles (each time inside, bottom-right), the superseded plan
+/// card, the agent's inline preview (THE surface card through the real
+/// renderer, its two `reply` presses), the divider pills.
 struct ChatTranscriptSpecimens: View {
     @Environment(AppDependencies.self) private var deps
-    @State private var replay = 0
     @State private var replied: String?
 
     /// The web entry's `LAUNCH_SURFACE` (the core catalog).
@@ -442,19 +446,16 @@ struct ChatTranscriptSpecimens: View {
             UserMessageBubble(
                 text: "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.",
                 context: context,
-                caption: "21:02"
+                caption: "21:02",
+                leadingGap: ChatBubbleMetrics.personLeadingGap,
+                inBubbleCaption: true
             )
-            HStack(spacing: 8) {
-                AppIcon(AppIcons.codingPlan, size: 13)
-                Text(Chats.Copy.superseded).font(.footnote)
-            }
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            SupersededPlanCard()
             agent("Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:", "21:14")
             if let surface = Self.launchSurface {
-                SurfaceCardRow(surface: surface, title: "Launch path", animate: replay > 0) { text in
+                SurfaceCardRow(surface: surface, title: "Launch path", animate: false) { text in
                     replied = text
                 }
-                .id(replay)
             }
             if let replied {
                 Text("reply → \(replied)")
@@ -463,26 +464,57 @@ struct ChatTranscriptSpecimens: View {
                     .accessibilityIdentifier("surface-reply-echo")
             }
             TranscriptDividerPill(icon: AppIcons.codingCompact, text: "\(Chats.Copy.Dividers.compact) · 18:20")
-            UserMessageBubble(text: "Anything new overnight?", context: context, caption: "09:02")
+            UserMessageBubble(
+                text: "Anything new overnight?", context: context, caption: "09:02",
+                leadingGap: ChatBubbleMetrics.personLeadingGap, inBubbleCaption: true
+            )
             agent("Three reports, all about the iPad sign-in. I linked them to #APP-19.", "09:03")
             TranscriptDividerPill(icon: AppIcons.uiClean, text: "\(Chats.Copy.Dividers.new) · 09:30")
-            GlassPill("Replay the enter", size: .md, mode: .action { replay += 1 })
-                .accessibilityIdentifier("surface-replay-enter")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat-transcript-specimen")
     }
 }
 
-/// `chat-menus`: a live chat's menu, an ended chat's, the agent menu.
+/// `chat-menus` (web `ChatMenusSpecimen`'s set + captions ×4): a live
+/// chat's menu, an ended chat's, the agent menu for the busy owner and for
+/// an idle member, then the delete confirm (THE `GlassAlert`).
 struct ChatMenuSpecimens: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            menu("Spike: offline queue", Chats.threadMenuEntries(rootStatus: "running", canSteer: true, canDelete: true).map { .thread($0) })
-            menu("#APP-16 Fix flaky scroll restore", Chats.threadMenuEntries(rootStatus: "ended", canSteer: true, canDelete: true).map { .thread($0) })
-            menu("Triage", Chats.agentMenuEntries(busy: true, isOwner: true).map { .agent($0) })
+        VStack(alignment: .leading, spacing: 12) {
+            captioned("A live chat") {
+                menu("Spike: offline queue", Chats.threadMenuEntries(rootStatus: "running", canSteer: true, canDelete: true).map { .thread($0) })
+            }
+            captioned("An ended chat") {
+                menu("#APP-16 Fix flaky scroll restore", Chats.threadMenuEntries(rootStatus: "ended", canSteer: true, canDelete: true).map { .thread($0) })
+            }
+            captioned("The agent menu (busy, owner)") {
+                menu("Triage", Chats.agentMenuEntries(busy: true, isOwner: true).map { .agent($0) })
+            }
+            captioned("The agent menu (idle, member)") {
+                menu("Triage", Chats.agentMenuEntries(busy: false, isOwner: false).map { .agent($0) })
+            }
+            captioned("The delete confirm") {
+                GlassAlert(
+                    title: Chats.chatDeleteTitle(1),
+                    message: Chats.Copy.ConfirmDelete.body,
+                    actions: [
+                        GlassAlertAction(PullRequestStack.cancelLabel, role: .outline, isCancel: true, id: "cancel") {},
+                        GlassAlertAction(Chats.Copy.Menu.delete, role: .destructive, id: "delete") {},
+                    ]
+                )
+            }
         }
         .accessibilityIdentifier("chat-menus-specimen")
+    }
+
+    private func captioned(_ text: String, @ViewBuilder _ content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            content()
+        }
     }
 
     private func menu(_ title: String, _ entries: [ChatMenuSheet.Entry]) -> some View {
@@ -532,8 +564,8 @@ struct SchedulePickerSpecimens: View {
 
 /// `mention-pill` (thread e4a04d22): a chat's `@email` renders as the
 /// comments' round name pill once it resolves to a team member; an address
-/// that is no member stays text. The REAL bubbles over the real markdown
-/// path (`AgentIssueRefContext.mentionMembers`).
+/// that is no member stays text. The real markdown path
+/// (`AgentIssueRefContext.mentionMembers`).
 struct MentionPillSpecimens: View {
     @Environment(AppDependencies.self) private var deps
 
@@ -548,21 +580,15 @@ struct MentionPillSpecimens: View {
         )
     }
 
+    /// EXP-1553: THE web styleguide entry ×4 — a member's pill in a chat
+    /// line, an unresolved address left as written; no bubbles, no card.
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            UserMessageBubble(
-                text: "Ask @ada@example.com to review the sign-in fix.",
-                context: context,
-                caption: "09:12"
-            )
-            AgentChatBubble(time: "09:13") {
-                AgentMarkdownText(
-                    text: "Pinged @ada@example.com on the PR. @x@y.com is not on the team, so it stays text.",
-                    context: context,
-                    options: [.hardLineBreaks]
-                )
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            AgentMarkdownText(text: "Ready for review, @ada@example.com", context: context, options: [.hardLineBreaks])
+            AgentMarkdownText(text: "cc @x@y.com", context: context, options: [.hardLineBreaks])
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("mention-pill-specimen")
     }
 }
 
@@ -762,12 +788,9 @@ struct StorySpecimensScreen: View {
                         .accessibilityIdentifier("story-tab-specimen")
                 }
             } else if kind == "plan-page" {
-                NavigationStack {
-                    PlanPageScreen(
-                        sessionId: "apps", messageId: "plan", specimen: Self.planPageCard,
-                        specimenChatName: PlanPage.Specimen.chatName
-                    )
-                }
+                // EXP-1553: PUSHED one page deep (the system back control,
+                // as in the app), never a root without one.
+                PlanPagePushedSpecimen(card: Self.planPageCard)
             } else if kind == "story-viewer-plan" || kind == "story-viewer-gallery" {
                 StoryViewer(
                     rings: Self.planRings, startKey: Self.planRings[0].key,
@@ -803,6 +826,26 @@ struct StorySpecimensScreen: View {
     }
 }
 
+/// The plan page one page deep in its own navigation stack (the back
+/// control the app's push draws).
+private struct PlanPagePushedSpecimen: View {
+    let card: TreeMessageCard?
+    @State private var path: [Int] = []
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            AppBackground()
+                .navigationDestination(for: Int.self) { _ in
+                    PlanPageScreen(
+                        sessionId: "apps", messageId: "plan", specimen: card,
+                        specimenChatName: PlanPage.Specimen.chatName
+                    )
+                }
+        }
+        .onAppear { if path.isEmpty { path = [1] } }
+    }
+}
+
 /// EXP-1459 `sealed-locked` (sealed-content.json `placeholder`): content this
 /// install can't open (yet), the web entry's composition: in the transcript
 /// THE divider pill with the lock (no time), never a bubble; in the chats
@@ -827,7 +870,9 @@ struct SealedLockedSpecimens: View {
                 UserMessageBubble(
                     text: "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.",
                     context: context,
-                    caption: "21:02"
+                    caption: "21:02",
+                    leadingGap: ChatBubbleMetrics.personLeadingGap,
+                    inBubbleCaption: true
                 )
                 pill(.noKey)
                 AgentChatBubble(time: "21:14") {

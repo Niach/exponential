@@ -1131,20 +1131,34 @@ pub(crate) fn chat_user_bubble(
                 .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
                 .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
                 .px_3()
-                .py_2()
+                .pt_2()
+                .pb_1()
                 .when(queued, |bubble| bubble.opacity(0.7))
-                .child(body),
+                .child(body)
+                // #EXP-1553: the time INSIDE, bottom-right (web
+                // `UserMessageBubble`, the phones, the agent bubble).
+                .when(!caption.is_empty(), |bubble| {
+                    bubble.child(
+                        h_flex()
+                            .w_full()
+                            .justify_end()
+                            .text_2xs()
+                            .text_color(muted)
+                            .child(SharedString::from(caption)),
+                    )
+                }),
         )
-        .child(
-            h_flex()
-                .gap_1()
-                .items_center()
-                .text_2xs()
-                .text_color(muted)
-                .when(!caption.is_empty(), |row| row.child(SharedString::from(caption)))
-                .when(queued, |row| row.child(SharedString::from(format!("· {QUEUED_WORD}"))))
-                .children(unqueue),
-        )
+        .when(queued || unqueue.is_some(), |column| {
+            column.child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .text_2xs()
+                    .text_color(muted)
+                    .when(queued, |row| row.child(SharedString::from(QUEUED_WORD)))
+                    .children(unqueue),
+            )
+        })
         .into_any_element()
 }
 

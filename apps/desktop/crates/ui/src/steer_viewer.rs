@@ -1574,6 +1574,13 @@ impl SteerSessionView {
                 match target {
                     // EXP-1324: the workflow's Work card rides its tool row.
                     "work-card" => self.workflow_of(item).is_some(),
+                    // #EXP-1553: the comment card = a settled comments_create
+                    // tool row (the gate `render_comment_call` draws on).
+                    "comment-call-card" => matches!(
+                        &item.kind,
+                        FeedKind::Tool { name, settled: true, failed: false, .. }
+                            if steer::exp_tool_row(name) == Some(COMMENTS_CREATE_ROW)
+                    ),
                     _ => matches!(
                         &item.kind,
                         FeedKind::Tool { name, .. } if steer::script_card::is_script_tool(name)
