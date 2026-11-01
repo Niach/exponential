@@ -62,6 +62,9 @@ class SteerEnetTest {
         @Volatile var device: FakeNode.(peer: String, envelope: SteerEnvelope) -> Unit = { _, _ -> }
         @Volatile var refuse: (String) -> Boolean = { false }
 
+        @Volatile var paths: Map<String, String> = emptyMap()
+        override fun pathKind(peer: String): String? = paths[peer]
+
         override fun allowedPeers(): Set<String> = emptySet()
         override fun allow(peer: String) = Unit
         override fun revoke(peer: String) = Unit
@@ -533,6 +536,67 @@ class SteerEnetTest {
             assertEquals(1, discoveries.get())
         } finally {
             connection.close()
+        }
+    }
+
+    /**
+     * EXP-1531 through EXP-1529's carrier switch: the joined device's
+     * `peerDisconnected` is an eNet DROP, so the relay opens at once (the
+     * stall timer and staleMs are far beyond the test).
+     */
+    @Test
+    fun aDisconnectOfTheJoinedPeerOpensTheRelayAtOnce() = runBlocking {
+        val node = FakeNode().apply { serve(live = "dev-a") }
+        val enet = EnetSteerTransport(
+            EnetSteerDialer(
+                node = { node },
+                discover = { listOf("dev-a") },
+                timings = fast.copy(staleMs = 60_000),
+                dispatcher = Dispatchers.Default,
+            ),
+        )
+        val relayDials = AtomicInteger()
+        val relay = object : SteerTunnelDialer {
+            override suspend fun open(sessionId: String): TunnelOpen {
+                relayDials.incrementAndGet()
+                return TunnelOpen.Unavailable("device_offline")
+            }
+        }
+        val timings = SteerFallbackTimings(stallMs = 60_000, enetRedialMs = listOf(60_000), carrierWaitMs = 1_000)
+        val socket = FallbackSteerTransport(enet, relay, timings, System::currentTimeMillis, Dispatchers.Default)
+            .open(SESSION)!!
+        try {
+            repeat(3) { socket.next() }
+            assertEquals(0, relayDials.get())
+            check(node.drops.tryEmit("dev-a"))
+            withTimeout(2_000) { while (relayDials.get() == 0) delay(5) }
+            assertEquals(1, relayDials.get())
+        } finally {
+            socket.cancel()
+        }
+    }
+
+    /** EXP-1531: the node's path kind to the joined device is connStats' `path`, through the carrier switch too. */
+    @Test
+    fun thePathKindOfTheJoinedDeviceIsTheFeedsPath() = runBlocking {
+        val node = FakeNode().apply { serve(live = "dev-a") }
+        val dialer = EnetSteerDialer(node = { node }, discover = { listOf("dev-a") }, timings = fast, dispatcher = Dispatchers.Default)
+        val direct = dialer.open(SESSION)!!
+        try {
+            assertEquals("direct", direct.path)
+            node.paths = mapOf("dev-a" to "iroh_relay")
+            assertEquals("iroh_relay", direct.path)
+        } finally {
+            direct.cancel()
+        }
+        val carried = FallbackSteerTransport(EnetSteerTransport(dialer), null, dispatcher = Dispatchers.Default).open(SESSION)!!
+        try {
+            repeat(3) { carried.next() }
+            assertEquals("iroh_relay", carried.path)
+            node.paths = emptyMap()
+            assertEquals("direct", carried.path)
+        } finally {
+            carried.cancel()
         }
     }
 

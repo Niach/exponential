@@ -172,6 +172,10 @@ internal class EnetSteerSocket(
 
     override val incoming: ReceiveChannel<String> get() = texts
 
+    /** EXP-1531: the node's path kind to the device (`direct` | `iroh_relay`), `direct` when it does not know. */
+    override val path: String
+        get() = if (node.pathKind(endpoint) == "iroh_relay") "iroh_relay" else "direct"
+
     /**
      * Sends `join` and holds the replay until `activity_synced`; on
      * [EnetJoin.Joined] the held frames are the first [incoming] delivers.

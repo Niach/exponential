@@ -132,7 +132,7 @@ internal class CarrierSteerSocket(
     override val incoming: ReceiveChannel<String> get() = texts
 
     override val path: String
-        get() = if (carrier == SteerActiveCarrier.Relay) "server_fallback" else "direct"
+        get() = if (carrier == SteerActiveCarrier.Relay) "server_fallback" else activeSocket.value?.path ?: "direct"
 
     override fun downSinceMs(): Long? = downSince
 
