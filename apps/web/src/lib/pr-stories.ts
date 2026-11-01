@@ -1,3 +1,4 @@
+import { githubFetch } from "@/lib/integrations/github-client"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { isStoryCard } from "@exp/domain-contract/stories"
 import type { MessageCard } from "@exp/db-schema/domain"
@@ -92,8 +93,7 @@ export async function compareCommitMessages(opts: {
   token: string
 }): Promise<string[]> {
   try {
-    const res = await fetch(
-      `https://api.github.com/repos/${opts.repo}/compare/${encodeURIComponent(opts.base)}...${encodeURIComponent(opts.head)}`,
+    const res = await githubFetch(`https://api.github.com/repos/${opts.repo}/compare/${encodeURIComponent(opts.base)}...${encodeURIComponent(opts.head)}`,
       { headers: githubApiHeaders(opts.token) }
     )
     if (!res.ok) return []

@@ -1,3 +1,4 @@
+import { githubFetch } from "@/lib/integrations/github-client"
 import { githubApiHeaders } from "@/lib/integrations/github-app"
 import { isNotRunTopic } from "@/lib/pr-body"
 
@@ -87,8 +88,7 @@ export async function compareChangedPaths(opts: {
   head: string
   token: string
 }): Promise<string[]> {
-  const res = await fetch(
-    `https://api.github.com/repos/${opts.repo}/compare/${encodeURIComponent(opts.base)}...${encodeURIComponent(opts.head)}`,
+  const res = await githubFetch(`https://api.github.com/repos/${opts.repo}/compare/${encodeURIComponent(opts.base)}...${encodeURIComponent(opts.head)}`,
     { headers: githubApiHeaders(opts.token) }
   )
   if (!res.ok) throw new Error(`GitHub returned ${res.status} comparing ${opts.base}...${opts.head}`)

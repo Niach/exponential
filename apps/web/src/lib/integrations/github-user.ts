@@ -1,3 +1,4 @@
+import { githubFetch } from "@/lib/integrations/github-client"
 import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { accounts } from "@/db/auth-schema"
@@ -164,10 +165,10 @@ export async function fetchGithubUserInfo(token: { accessToken?: string }) {
     authorization: `Bearer ${token.accessToken}`,
     "user-agent": `exponential`,
   }
-  const profileResponse = await fetch(`https://api.github.com/user`, { headers })
+  const profileResponse = await githubFetch(`https://api.github.com/user`, { headers })
   if (!profileResponse.ok) return null
   const profile = (await profileResponse.json()) as GithubProfile
-  const emailsResponse = await fetch(`https://api.github.com/user/emails`, {
+  const emailsResponse = await githubFetch(`https://api.github.com/user/emails`, {
     headers,
   }).catch(() => null)
   const emails =

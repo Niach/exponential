@@ -592,6 +592,26 @@ function ServerSection({
             </div>
           </div>
         </AdminCard>
+
+        <AdminCard
+          title="GitHub API budget"
+          description="REST calls left per installation, as GitHub last reported them. Below 10% the PR poller and the merge poll back off."
+        >
+          {runtime.githubBudgets.length === 0 ? (
+            <ListEmpty>No GitHub calls yet</ListEmpty>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {runtime.githubBudgets.map((budget) => (
+                <StatCard
+                  key={budget.key}
+                  label={budget.key}
+                  value={formatCount(budget.remaining)}
+                  hint={`of ${formatCount(budget.limit)} · resets ${new Date(budget.resetAt).toLocaleTimeString([], { hour: `2-digit`, minute: `2-digit` })}`}
+                />
+              ))}
+            </div>
+          )}
+        </AdminCard>
       </Details>
     </section>
   )
