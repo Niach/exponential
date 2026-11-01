@@ -150,7 +150,7 @@ public enum DomainContract {
     public static let diffUiMergePr: String = "Merge PR"
     public static let diffUiMergeStack: String = "Merge stack"
     public static let diffUiMergeThrough: String = "Merge through here"
-    public static let diffUiGuideFace: String = "Guide"
+    public static let diffUiGuideFace: String = "Stories"
     public static let diffUiGuideChangesRow: String = "Changes"
     public static let diffUiGuideOtherChanges: String = "Other changes"
     public static let diffUiGuideShowCompleteDiff: String = "Show complete diff"

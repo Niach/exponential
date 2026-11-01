@@ -993,7 +993,7 @@ impl Render for SettingsView {
         };
 
         // EXP-771: the web settings route's own chrome, on EVERY pane —
-        // "Settings" over "Manage {team} and your account", a hairline, then
+        // "Settings" (EXP-1550: no explanatory subtitle), a hairline, then
         // the pane, all in one centered `max-w-4xl` column.
         //
         // This replaces the EXP-277 "no screen header" rule (the center tab
@@ -1006,27 +1006,12 @@ impl Render for SettingsView {
         // viewport edge — only the content column is capped and centered, the
         // page-scaffold recipe every other full-page screen uses
         // (`scroll_pane::page_scaffold_with`).
-        let team_name = active_team(cx, &self.nav)
-            .map(|team| team.name)
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| "your team".to_string());
-        let header = v_flex()
+        let header = div()
             .w_full()
             .min_w_0()
-            .child(
-                div()
-                    .text_2xl()
-                    .font_weight(FontWeight::BOLD)
-                    .child("Settings"),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(format!(
-                        "Manage {team_name} and your account"
-                    ))),
-            );
+            .text_2xl()
+            .font_weight(FontWeight::BOLD)
+            .child("Settings");
         // `flex_shrink_0`: a 1px child in a flex column is the first thing
         // the layout eats.
         let separator = div()

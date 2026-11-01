@@ -421,7 +421,7 @@ impl Render for ImagePreview {
 pub(crate) const GUIDE_VIEWER_PANEL_W: f32 = 360.;
 
 /// The viewer dialog's window title (EXP-1348).
-const GUIDE_VIEWER_TITLE: &str = "Guide";
+const GUIDE_VIEWER_TITLE: &str = "Stories";
 
 /// The viewer's size floor: the panel and a picture both fit.
 const GUIDE_VIEWER_MIN_W: f32 = 720.;

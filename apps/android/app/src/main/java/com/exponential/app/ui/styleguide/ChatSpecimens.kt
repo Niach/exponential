@@ -427,10 +427,11 @@ private val TRANSCRIPT: List<SessionTree.ThreadRow> = listOf(
         "Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:",
     ),
     SessionTree.ThreadRow.Surface(id = "s1", sessionId = "r", title = "Launch path", surface = LAUNCH_SURFACE),
-    SessionTree.ThreadRow.Divider(id = "d1", kind = Chats.DIVIDER_KIND_COMPACT, at = "2026-10-23T18:20:00.000Z"),
+    // The seed clock reads in Europe/Berlin (ScreenshotFlow.DEMO_TIME_ZONE): 18:20 / 09:30 like web, desktop and iOS.
+    SessionTree.ThreadRow.Divider(id = "d1", kind = Chats.DIVIDER_KIND_COMPACT, at = "2026-10-23T16:20:00.000Z"),
     message("m3", "user", "Anything new overnight?"),
     message("m4", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19."),
-    SessionTree.ThreadRow.Divider(id = "d2", kind = Chats.DIVIDER_KIND_NEW, at = "2026-10-24T09:30:00.000Z"),
+    SessionTree.ThreadRow.Divider(id = "d2", kind = Chats.DIVIDER_KIND_NEW, at = "2026-10-24T07:30:00.000Z"),
 )
 
 private val TIMES = mapOf("m1" to "21:02", "m2" to "21:14", "m3" to "09:02", "m4" to "09:03")
