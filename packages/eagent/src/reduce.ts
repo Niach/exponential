@@ -613,11 +613,13 @@ function report(ctx: Ctx, data: ReportData): StepResult {
   const { handled = false, ...wall } = data.blocked ?? {}
   const blocked: Blocked | null | undefined =
     data.blocked === undefined ? undefined : data.blocked === null ? null : ({ since: ctx.now, ...wall } as Blocked)
-  const newlyBlocked = !!blocked && !row.blocked && !handled
+  // EXP-1536: a failed start is never said as a wall (its reply already reached the sender);
+  // the next report without `blocked` (the relaunch) clears it like `stuck` and the interruptions.
+  const newlyBlocked = !!blocked && !row.blocked && !handled && blocked.kind !== `start_failed`
   const nextBlocked =
     data.blocked !== undefined
       ? (blocked ?? null)
-      : row.blocked && (row.blocked.kind === `stuck` || INTERRUPTIONS.includes(row.blocked.kind))
+      : row.blocked && (row.blocked.kind === `stuck` || row.blocked.kind === `start_failed` || INTERRUPTIONS.includes(row.blocked.kind))
         ? null
         : row.blocked
   const turnEnded = (data.busy === false && row.busy) || status === `idle`

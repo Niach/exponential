@@ -866,10 +866,14 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
             wall.handled == Some(true),
         ),
     };
-    let newly_blocked = blocked.value().is_some() && row.blocked.is_none() && !handled;
+    // EXP-1536: a failed start is never said as a wall (its reply already reached the sender);
+    // the next report without `blocked` (the relaunch) clears it like `stuck` and the interruptions.
+    let newly_blocked = blocked.value().is_some_and(|b| b.kind != BlockedKind::StartFailed)
+        && row.blocked.is_none()
+        && !handled;
     let next_blocked = match &blocked {
         Field::Missing => match &row.blocked {
-            Some(b) if b.kind == BlockedKind::Stuck || b.kind.is_interruption() => None,
+            Some(b) if matches!(b.kind, BlockedKind::Stuck | BlockedKind::StartFailed) || b.kind.is_interruption() => None,
             other => other.clone(),
         },
         other => other.value().cloned(),

@@ -390,6 +390,8 @@ describe(`blockedBadgeLabel`, () => {
     expect(blockedBadgeLabel(blocked({ kind: `restarted` }), NOW)).toBeNull()
     expect(blockedBadgeLabel(blocked({ kind: `unclaimed` }), NOW)).toBe(`Not picked up`)
     expect(blockedBadgeLabel(blocked({ kind: `stuck` }), NOW)).toBe(`Stuck`)
+    // EXP-1536: a failed start reads as failed, no countdown.
+    expect(blockedBadgeLabel(blocked({ kind: `start_failed` }), NOW)).toBe(`Couldn't start`)
   })
 
   it(`is null when the run is not blocked`, () => {

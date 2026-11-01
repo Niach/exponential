@@ -394,6 +394,10 @@ export const codingSessionBlockedKindValues = [
   `stuck`,
   // EXP-1374: the busy run vanished from its live device's heartbeat.
   `restarted`,
+  // EXP-1536: a start that failed after the claim (device-written,
+  // handled): shown as failed under Needs you, never idle; the device's
+  // next report without `blocked` (the relaunch) clears it.
+  `start_failed`,
 ] as const
 export const codingSessionBlockedWindowValues = [
   `session`,

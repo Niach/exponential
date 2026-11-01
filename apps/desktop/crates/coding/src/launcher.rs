@@ -43,7 +43,7 @@ use crate::context_layout::{self, CarriedBase, ContextLayers};
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_credentials;
 use crate::git_worktree::{
-    branch_name, carried_branch, clone_path, create_worktree_with, ensure_clone, fetch_base,
+    branch_name, carried_branch, clone_path, create_worktree_noted, ensure_clone, fetch_base, CreatedWorktree,
     seed_empty_remote, shared_cargo_target_dir, GitError, Parked, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
@@ -215,6 +215,11 @@ fn with_start_note(prompt: String, pick: Option<&crate::account_rotation::StartP
         Some(pick) => format!("{}\n\n{prompt}", pick.run_note()),
         None => prompt,
     }
+}
+
+/// EXP-1536 A — the workspace notes, said before the brief.
+fn with_workspace_notes(prompt: String, notes: &[String]) -> String {
+    notes.iter().rev().fold(prompt, |prompt, note| format!("{note}\n\n{prompt}"))
 }
 
 /// The machine's hostname — §7.1's `device_label` (also the server-side
@@ -492,6 +497,24 @@ pub trait WorktreeProvider: Send + Sync {
         parked: Parked,
     ) -> Result<PathBuf, GitError>;
 
+    /// [`Self::prepare`] plus the question the run's first turn opens with
+    /// when an earlier run's folder was left untouched (EXP-1536 A,
+    /// [`crate::git_worktree::create_worktree_noted`]). The default has none.
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_noted(
+        &self,
+        repos_root: &Path,
+        full_name: &str,
+        default_branch: &str,
+        branch: &str,
+        url: &TokenUrl,
+        expires_at: Option<&str>,
+        parked: Parked,
+    ) -> Result<CreatedWorktree, GitError> {
+        self.prepare(repos_root, full_name, default_branch, branch, url, expires_at, parked)
+            .map(|path| CreatedWorktree { path, note: None })
+    }
+
     /// FEED-170: the first of `candidates` (most wanted first, never empty)
     /// a child can cut from. The default trusts the first.
     fn pick_base(
@@ -507,17 +530,22 @@ pub trait WorktreeProvider: Send + Sync {
 }
 
 /// FEED-170 — where a child may cut its worktree from, most wanted first:
-/// the parent's reported branch, the parent's own `exp/session-<id8>`, the
-/// repo default. Deduplicated; never empty.
+/// the parent's reported branch, the parent's own `exp/session-<id8>`,
+/// (#FEED-169) the parent's parked `exp/leftover-<id8>` (a moved session's
+/// device parks unpushed work there when it ends), the repo default.
+/// Deduplicated; never empty.
 pub fn child_base_candidates(row: &SessionRow, parent_branch: &str, default_branch: &str) -> Vec<String> {
-    let parent_own = row
+    let parent_id8 = row
         .parent_id
         .as_deref()
         .map(str::trim)
         .filter(|id| !id.is_empty())
-        .map(|id| format!("{SESSION_BRANCH_PREFIX}{}", crate::run_cleanup::session_id8(id)));
+        .map(crate::run_cleanup::session_id8);
+    let parent_own = parent_id8.as_ref().map(|id8| format!("{SESSION_BRANCH_PREFIX}{id8}"));
+    let parent_leftover =
+        parent_id8.as_ref().map(|id8| format!("{}{id8}", crate::run_cleanup::LEFTOVER_BRANCH_PREFIX));
     let mut candidates: Vec<String> = Vec::new();
-    for candidate in [Some(parent_branch.to_string()), parent_own, Some(default_branch.to_string())]
+    for candidate in [Some(parent_branch.to_string()), parent_own, parent_leftover, Some(default_branch.to_string())]
         .into_iter()
         .flatten()
     {
@@ -555,6 +583,20 @@ impl WorktreeProvider for GitWorktrees {
         expires_at: Option<&str>,
         parked: Parked,
     ) -> Result<PathBuf, GitError> {
+        self.prepare_noted(repos_root, full_name, default_branch, branch, url, expires_at, parked)
+            .map(|created| created.path)
+    }
+
+    fn prepare_noted(
+        &self,
+        repos_root: &Path,
+        full_name: &str,
+        default_branch: &str,
+        branch: &str,
+        url: &TokenUrl,
+        expires_at: Option<&str>,
+        parked: Parked,
+    ) -> Result<CreatedWorktree, GitError> {
         let clone = ensure_clone(repos_root, full_name, url)?;
         git_credentials::ensure(&clone, url, expires_at)?;
         // An EMPTY repository gets its first commit here, so the run has a
@@ -566,7 +608,7 @@ impl WorktreeProvider for GitWorktrees {
             let _ = fetch_base(&clone, default_branch, url);
         }
         let worktree =
-            create_worktree_with(&clone, branch, &format!("origin/{default_branch}"), url, parked)?;
+            create_worktree_noted(&clone, branch, &format!("origin/{default_branch}"), url, parked)?;
         // Best-effort exclude coverage for the launcher's local-only files
         // ([`LOCAL_EXCLUDES`]), via the shared, never-committed
         // `.git/info/exclude`.
@@ -1956,6 +1998,10 @@ fn prepare_session(
     let mut key_handle = None;
     let mut launch_hold: Option<crate::launch_gate::LaunchHold> = None;
     let mut workspace: Option<RepoWorkspace> = None;
+    // EXP-1536 A: what the device alone knows about the workspace it made
+    // (a leftover folder it left untouched, a base it fell back to), said
+    // first in the run's first turn.
+    let mut workspace_notes: Vec<String> = Vec::new();
     let cwd = match &repository_id {
         Some(repository_id) => {
             // Step 1a — the JIT installation token (≤1 h real TTL, never
@@ -2016,13 +2062,23 @@ fn prepare_session(
                         // never reached origin (a throwaway local checkout):
                         // the first base that exists on origin wins.
                         let candidates = child_base_candidates(row, parent, &minted.default_branch);
-                        deps.worktrees.pick_base(
+                        let picked = deps.worktrees.pick_base(
                             &repos_root,
                             url.full_name(),
                             &url,
                             minted.expires_at.as_deref(),
                             &candidates,
-                        )
+                        );
+                        // #FEED-169: a moved session's branch never reached
+                        // origin; the run says what it starts from.
+                        if picked != candidates[0] {
+                            log::info!(
+                                "session {session_id}: {} is not on origin, cutting from {picked}",
+                                candidates[0]
+                            );
+                            workspace_notes.push(crate::prompt::base_fallback_note(&candidates[0], &picked));
+                        }
+                        picked
                     }
                     None => minted.default_branch.clone(),
                 };
@@ -2030,7 +2086,7 @@ fn prepare_session(
                 // from there until the host registers the session, the
                 // auto-prune must not run on this clone (the clone path is the
                 // P9 token refresher's target too).
-                let worktree = deps.worktrees.prepare(
+                let created = deps.worktrees.prepare_noted(
                     &repos_root,
                     url.full_name(),
                     &base_branch,
@@ -2039,6 +2095,8 @@ fn prepare_session(
                     minted.expires_at.as_deref(),
                     Parked::Reclaim,
                 )?;
+                workspace_notes.extend(created.note);
+                let worktree = created.path;
                 workspace = Some(RepoWorkspace {
                     clone,
                     full_name: url.full_name().to_string(),
@@ -2200,7 +2258,8 @@ fn prepare_session(
     // hop said first), and the layered system append.
     let seed = Some(req.brief.brief.trim_end())
         .filter(|brief| !brief.trim().is_empty())
-        .map(|brief| with_start_note(brief.to_string(), account_pick.as_ref()));
+        .map(|brief| with_start_note(brief.to_string(), account_pick.as_ref()))
+        .map(|prompt| with_workspace_notes(prompt, &workspace_notes));
     let system_append = crate::skill::system_append_layers(
         req.brief.team_prompt.as_deref(),
         req.brief.agent_instructions.as_deref(),
@@ -4174,6 +4233,15 @@ mod tests {
         assert_eq!(record.base_branch.as_deref(), Some("exp/EXP-41"));
     }
 
+    /// EXP-1536 A: the workspace notes (a leftover question, a base
+    /// fallback) lead the first turn, in order, before the brief.
+    #[test]
+    fn workspace_notes_lead_the_first_turn() {
+        let notes = vec!["ask first".to_string(), "base fell back".to_string()];
+        assert_eq!(with_workspace_notes("brief".to_string(), &notes), "ask first\n\nbase fell back\n\nbrief");
+        assert_eq!(with_workspace_notes("brief".to_string(), &[]), "brief");
+    }
+
     /// FEED-170: a child's bases, most wanted first — the parent's reported
     /// branch, the parent's own session branch, the repo default — deduped.
     #[test]
@@ -4182,11 +4250,13 @@ mod tests {
         child.parent_id = Some("2fb083bf-0000-4000-8000-000000000000".to_string());
         assert_eq!(
             child_base_candidates(&child, "verify", "master"),
-            ["verify", "exp/session-2fb083bf", "master"]
+            ["verify", "exp/session-2fb083bf", "exp/leftover-2fb083bf", "master"]
         );
+        // #FEED-169: a moved root's continuation (a child of the ended root,
+        // on its branch) tries the work its old device parked first.
         assert_eq!(
             child_base_candidates(&child, "exp/session-2fb083bf", "master"),
-            ["exp/session-2fb083bf", "master"]
+            ["exp/session-2fb083bf", "exp/leftover-2fb083bf", "master"]
         );
     }
 

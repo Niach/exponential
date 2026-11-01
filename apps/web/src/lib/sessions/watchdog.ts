@@ -27,6 +27,8 @@ import { postMeetingStopNote } from "@/lib/sessions/meeting-access"
 // (`device_offline`, `restarted`) is never on a person: a mid-turn run
 // (`resume`) is continued by its device when back (its report clears it);
 // only one the device left alone `resumeMinutes` after it came back is.
+// EXP-1536: a failed start (`start_failed`) is device-written like a wall
+// but never said as one; the device's next report (the relaunch) clears it.
 
 export const WATCHDOG_INTERVAL_MS = 60 * 1000
 
@@ -79,6 +81,33 @@ export function interruption(
   resumeSince: Date | null
 ): CodingSessionBlocked {
   return { ...flag(kind, now), resume, resumeSince: resumeSince?.toISOString() ?? null }
+}
+
+/** The flags a device report without `blocked` clears: the watchdog's
+ *  `stuck` (activity = not stuck), the interruptions (EXP-1374: the device
+ *  is back on it) and a failed start (EXP-1536: the relaunch reports). */
+export const CLEARED_BY_REPORT = [`stuck`, ...INTERRUPTIONS, `start_failed`] as const
+
+/** `sessions.report`'s verdict on `blocked`: the row's next value (the
+ *  device's own replaces whatever it held; none clears a
+ *  `CLEARED_BY_REPORT` flag, keeps the rest) and whether it is a NEW wall
+ *  to say once (bus line + push): never one the device handles itself, and
+ *  never a failed start (EXP-1536: its "Could not start" reply already
+ *  reached the sender). `reported` = the input's `blocked` minus
+ *  `handled`; `undefined` = the report said nothing about it. */
+export function reportBlocked(
+  current: CodingSessionBlocked | null,
+  reported: CodingSessionBlocked | null | undefined,
+  handled: boolean
+): { next: CodingSessionBlocked | null; newly: boolean } {
+  const next =
+    reported !== undefined
+      ? reported
+      : (CLEARED_BY_REPORT as readonly string[]).includes(current?.kind ?? ``)
+        ? null
+        : current
+  const newly = !!reported && !current && !handled && reported.kind !== `start_failed`
+  return { next, newly }
 }
 
 /** The SQL test for "blocked by an interruption". */
