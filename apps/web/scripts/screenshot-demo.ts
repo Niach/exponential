@@ -327,6 +327,9 @@ export const DEMO_AGENT_ID = `6530c2d7-ed10-46b0-ac66-c78020fd73d9`
 export const DEMO_REPORT_SESSION_ID = `2b8e6f1c-4d7a-4e3b-9c5f-1a6d8e2f7b40`
 /** EXP-1341: the cold-start thread's UNNAMED child holding two assigned issues. */
 export const DEMO_GROUPED_SESSION_ID = `5c2d8a1e-7f3b-4c6d-8e9a-0b1c2d3e4f51`
+/** EXP-1536: APP-15's thread's child whose start FAILED on its device
+ *  (blocked start_failed): its session card reads `Couldn't start`. */
+export const DEMO_START_FAILED_SESSION_ID = `8d4b1f6e-2a7c-4e5d-9b3f-6c1a8e2d4f72`
 
 /**
  * The session the relay stub publishes its scripted feed for (the `steering`

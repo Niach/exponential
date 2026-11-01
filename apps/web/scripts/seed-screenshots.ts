@@ -139,6 +139,7 @@ import {
   DEMO_REPORT_SESSION_ID,
   DEMO_GROUPED_SESSION_ID,
   DEMO_SESSION_ID,
+  DEMO_START_FAILED_SESSION_ID,
   DEMO_THREAD_ID,
   DEMO_THREAD_IDS,
   DEMO_TIMEZONE,
@@ -1146,6 +1147,34 @@ async function seedSessionTree(ctx: {
     branch: `exp/APP-10`,
   })
 
+  // EXP-1536: APP-15's child whose device could not start it after the
+  // claim (a leftover worktree): blocked start_failed, so its session card
+  // reads `Couldn't start` under Needs you on every platform, never Idle.
+  await db.insert(sessions).values({
+    ...root(DEMO_START_FAILED_SESSION_ID, {
+      status: `idle`,
+      busy: false,
+      needsInput: true,
+      blocked: {
+        kind: `start_failed`,
+        agent: null,
+        window: null,
+        resetsAt: null,
+        since: minutesAgo(97).toISOString(),
+        resume: null,
+      },
+      startedAt: minutesAgo(97),
+      lastTurnAt: minutesAgo(97),
+      createdAt: minutesAgo(97),
+      updatedAt: minutesAgo(97),
+    }),
+    parentId: ids.batchLabels,
+    rootId: ids.batchLabels,
+    depth: 1,
+    title: `Cover the undo step with a test`,
+    branch: `exp/APP-15-undo-test`,
+  })
+
   // ── the roots' issues ──────────────────────────────────────────────────
   const link = (
     sessionId: string,
@@ -1398,6 +1427,15 @@ async function seedSessionTree(ctx: {
         author: `agent`,
         body: `Done: the selection bar has a Labels button now, and a 40-issue edit lands as one undo step. The PR is open and green.`,
         at: minutesAgo(98),
+      },
+      // EXP-1536: the child the agent started next, whose device could not
+      // start it: its session card reads `Couldn't start` (the
+      // `thread-replies` view).
+      {
+        sessionId: ids.batchLabels,
+        author: `agent`,
+        card: { kind: `session`, sessionId: DEMO_START_FAILED_SESSION_ID },
+        at: minutesAgo(97),
       },
       // EXP-1211: its quick replies above the composer (the `thread-replies`
       // view); never a Conversation row.
