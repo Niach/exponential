@@ -708,7 +708,11 @@ class SessionTreeTest {
             assertEquals(
                 case.str("name"),
                 case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
-                SessionTree.guideMenuEntries(state = input.str("state"), member = input.bool("member")).map { it.wire },
+                SessionTree.guideMenuEntries(
+                    state = input.str("state"),
+                    member = input.bool("member"),
+                    checks = input["checks"]?.jsonPrimitive?.int ?: 0,
+                ).map { it.wire },
             )
         }
     }

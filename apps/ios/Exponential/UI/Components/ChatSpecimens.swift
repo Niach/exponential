@@ -900,3 +900,86 @@ struct SealedLockedSpecimens: View {
         .accessibilityIdentifier("sealed-locked-specimen")
     }
 }
+
+/// #EXP-1611 (styleguide `pr-checks`, pr-checks.json): THE header Merge pill
+/// in its four check states (none, pending, success, failure), then the
+/// header `…`'s Checks entry and its pushed page as static menu panels over
+/// the fixture's `specimen` (checks + now).
+struct PrChecksSpecimens: View {
+    /// pr-checks.json `specimen.checks`.
+    static let checks: [PrChecks.Check] = [
+        PrChecks.Check(
+            name: "lint", status: "completed", conclusion: "success",
+            startedAt: "2026-11-01T12:00:00.000Z", completedAt: "2026-11-01T12:00:38.000Z",
+            detailsUrl: "https://github.com/o/r/actions/runs/1/job/5"
+        ),
+        PrChecks.Check(
+            name: "e2e", status: "in_progress", startedAt: "2026-11-01T12:07:57.000Z",
+            detailsUrl: "https://github.com/o/r/actions/runs/1/job/2"
+        ),
+        PrChecks.Check(name: "docs", status: "completed", conclusion: "skipped"),
+        PrChecks.Check(
+            name: "gate", status: "completed", conclusion: "failure",
+            startedAt: "2026-11-01T12:00:00.000Z", completedAt: "2026-11-01T12:04:12.000Z",
+            detailsUrl: "https://github.com/o/r/actions/runs/1/job/1"
+        ),
+        PrChecks.Check(
+            name: "android", status: "queued",
+            detailsUrl: "https://github.com/o/r/actions/runs/1/job/3"
+        ),
+    ]
+
+    /// pr-checks.json `specimen.now`.
+    static let now = WireTimestamps.parse("2026-11-01T12:10:00.000Z") ?? Date()
+
+    private static let states = [
+        DomainContract.prChecksStateNone, DomainContract.prChecksStatePending,
+        DomainContract.prChecksStateSuccess, DomainContract.prChecksStateFailure,
+    ]
+
+    private static func pullRequest(_ state: String) -> PullRequestEntity {
+        PullRequestEntity(
+            id: "pr-\(state)", teamId: "t", repositoryId: "r", number: 1611,
+            url: "https://github.com/o/r/pull/1611", head: "exp-1611", base: "master",
+            checksState: state, createdAt: "2026-11-01T12:00:00.000Z", updatedAt: "2026-11-01T12:00:00.000Z"
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            FlowLayout(spacing: 8, centersLines: true) {
+                ForEach(Self.states, id: \.self) { state in
+                    WorkMergePill(
+                        pullRequest: Self.pullRequest(state),
+                        issueCount: 0,
+                        checks: Self.checks,
+                        state: .constant(WorkMergeState()),
+                        identifier: "pr-checks-pill-\(state)",
+                        style: .toolbar
+                    )
+                }
+            }
+            if let summary = PrChecks.checksSummary(Self.checks) {
+                panel {
+                    PrChecksMenuEntryLabel(summary: summary)
+                }
+                panel {
+                    PrChecksMenuBackRow {}
+                    PrChecksMenuRows(rows: PrChecks.checksList(Self.checks, now: Self.now))
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("pr-checks-specimen")
+    }
+
+    /// THE Menu's sheet ground, as the chat-menus specimen draws it.
+    private func panel(@ViewBuilder _ content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content()
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
+        .background(GlassSheetTokens.background, in: RoundedRectangle(cornerRadius: GlassSheetTokens.cornerRadius))
+    }
+}

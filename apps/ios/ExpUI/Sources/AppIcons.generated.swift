@@ -433,6 +433,11 @@ public enum AppIcons {
         "call-speaker": "volume-2",
         "call-speaker-off": "ear",
         "call-unmute": "mic-off",
+        "ci-failed": "circle-x",
+        "ci-passed": "circle-check",
+        "ci-queued": "circle-dashed",
+        "ci-running": "loader-circle",
+        "ci-skipped": "circle-slash",
         "coding-assistant": "sparkles",
         "coding-command": "square-slash",
         "coding-compact": "fold-vertical",
@@ -750,6 +755,16 @@ public enum AppIcons {
     public static let callSpeakerOff: String = "ear"
     /// Concept `call-unmute`.
     public static let callUnmute: String = "mic-off"
+    /// Concept `ci-failed`.
+    public static let ciFailed: String = "circle-x"
+    /// Concept `ci-passed`.
+    public static let ciPassed: String = "circle-check"
+    /// Concept `ci-queued`.
+    public static let ciQueued: String = "circle-dashed"
+    /// Concept `ci-running`.
+    public static let ciRunning: String = "loader-circle"
+    /// Concept `ci-skipped`.
+    public static let ciSkipped: String = "circle-slash"
     /// Concept `coding-assistant`.
     public static let codingAssistant: String = "sparkles"
     /// Concept `coding-command`.

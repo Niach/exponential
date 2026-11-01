@@ -4493,6 +4493,36 @@
         "sha256": "82418a55fcd41c26d49663309dd21e65dcc65ba221966717d9c5fb5e5ced9768"
       }
     },
+    "pr-checks": {
+      "desktop": {
+        "file": "shots/pr-checks/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 33570,
+        "sha256": "376084c9ef1cb3dd9b2602c89490c37b8c285ae15918d0f524f731deeebbef0e"
+      },
+      "ios": {
+        "file": "shots/pr-checks/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 18516,
+        "sha256": "b0c267b6dfb9c34a146631d81733e50ec2ac607700d603ef0d3ed38d65a0b0be"
+      },
+      "web": {
+        "file": "shots/pr-checks/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 33078,
+        "sha256": "f23a11aa6cab42fed0b13de17650e9e6d0f91bc74df0e24c540b3b0e3b26a761"
+      },
+      "web-mobile": {
+        "file": "shots/pr-checks/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 17036,
+        "sha256": "92c561597998f198460e5301a4a6439b5def19254c95e49ad76bb6836f63b78e"
+      }
+    },
     "pr-row": {
       "android": {
         "file": "shots/pr-row/android.webp",

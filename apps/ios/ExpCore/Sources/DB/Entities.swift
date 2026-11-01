@@ -947,6 +947,9 @@ public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiabl
     public let basePullRequestId: String?
     public let state: String
     public let mergedAt: String?
+    /// #EXP-1611: the CI aggregate (contract prChecksState; pr-checks.json
+    /// `aggregate`), driving the header Merge pill.
+    public let checksState: String
     public let createdAt: String
     public let updatedAt: String
 
@@ -964,6 +967,7 @@ public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiabl
         basePullRequestId: String? = nil,
         state: String = DomainContract.prStateOpen,
         mergedAt: String? = nil,
+        checksState: String = DomainContract.prChecksStateNone,
         createdAt: String,
         updatedAt: String
     ) {
@@ -980,6 +984,7 @@ public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiabl
         self.basePullRequestId = basePullRequestId
         self.state = state
         self.mergedAt = mergedAt
+        self.checksState = checksState
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -994,6 +999,7 @@ public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiabl
         case repositoryId = "repository_id"
         case basePullRequestId = "base_pull_request_id"
         case mergedAt = "merged_at"
+        case checksState = "checks_state"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -1015,6 +1021,92 @@ extension PullRequestEntity: Codable {
         basePullRequestId = try c.decodeIfPresent(String.self, forKey: .basePullRequestId)
         state = try c.decodeIfPresent(String.self, forKey: .state) ?? DomainContract.prStateOpen
         mergedAt = try c.decodeIfPresent(String.self, forKey: .mergedAt)
+        checksState = try c.decodeIfPresent(String.self, forKey: .checksState) ?? DomainContract.prChecksStateNone
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
+// MARK: - PullRequestCheck (#EXP-1611)
+
+// One CI check per NAME at the PR's head commit (pr-checks.json ROWS),
+// team-scoped like `pull_requests` (shape `pull-request-checks`).
+public struct PullRequestCheckEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "pull_request_checks"
+
+    public let id: String
+    public let teamId: String
+    public let pullRequestId: String
+    public let headSha: String
+    public let name: String
+    /// contract prCheckStatus.
+    public let status: String
+    /// contract prCheckConclusion; nil while running.
+    public let conclusion: String?
+    public let required: Bool
+    public let startedAt: String?
+    public let completedAt: String?
+    public let detailsUrl: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        pullRequestId: String,
+        headSha: String = "",
+        name: String,
+        status: String,
+        conclusion: String? = nil,
+        required: Bool = false,
+        startedAt: String? = nil,
+        completedAt: String? = nil,
+        detailsUrl: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.pullRequestId = pullRequestId
+        self.headSha = headSha
+        self.name = name
+        self.status = status
+        self.conclusion = conclusion
+        self.required = required
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.detailsUrl = detailsUrl
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, conclusion, required
+        case teamId = "team_id"
+        case pullRequestId = "pull_request_id"
+        case headSha = "head_sha"
+        case startedAt = "started_at"
+        case completedAt = "completed_at"
+        case detailsUrl = "details_url"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension PullRequestCheckEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        pullRequestId = try c.decode(String.self, forKey: .pullRequestId)
+        headSha = try c.decodeIfPresent(String.self, forKey: .headSha) ?? ""
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? DomainContract.prCheckStatusQueued
+        conclusion = try c.decodeIfPresent(String.self, forKey: .conclusion)
+        required = c.decodeWireBool(forKey: .required, default: false)
+        startedAt = try c.decodeIfPresent(String.self, forKey: .startedAt)
+        completedAt = try c.decodeIfPresent(String.self, forKey: .completedAt)
+        detailsUrl = try c.decodeIfPresent(String.self, forKey: .detailsUrl)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

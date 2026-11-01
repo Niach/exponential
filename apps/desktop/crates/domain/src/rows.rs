@@ -1077,6 +1077,10 @@ pub struct PullRequestRow {
     pub state: Option<String>,
     #[serde(default)]
     pub merged_at: Option<String>,
+    /// #EXP-1610: the aggregate CI state (contract `prChecksState`; absent
+    /// = `none`), the Merge pill's input ([`crate::pr_checks::merge_pill`]).
+    #[serde(default)]
+    pub checks_state: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1095,6 +1099,39 @@ impl PullRequestRow {
     pub fn is_closed(&self) -> bool {
         self.state.as_deref() == Some(crate::contract::PR_STATE_CLOSED)
     }
+}
+
+/// #EXP-1610 `pull_request_checks` shape row: one CI check (by NAME) at the
+/// PR's head commit. `status` = contract `prCheckStatus`, `conclusion` =
+/// contract `prCheckConclusion` (null while running); both stay RAW wire
+/// strings so a newer server's value never drops the row.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PullRequestCheckRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub pull_request_id: String,
+    #[serde(default)]
+    pub head_sha: Option<String>,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub conclusion: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub required: bool,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub details_url: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 /// EXP-1294 `pull_request_issues` shape row — a PR ↔ issue link (a PR that

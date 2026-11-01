@@ -162,6 +162,8 @@ mod story_tab;
 mod pr_diff;
 mod pr_graph;
 mod pr_merge;
+// #EXP-1611: CI on the thread's PR (Checks submenu, failing-merge confirm).
+mod pr_checks;
 // EXP-1248: THE pull-request row + the stack rail (web pr-row.tsx).
 mod pr_rows;
 mod queries;

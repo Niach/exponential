@@ -99,6 +99,8 @@ class PromptsTest {
             Prompts.MergeIssuePr.prompt(null, 3),
             Prompts.MergeRunPr.prompt(7),
             Prompts.MergeRunPr.prompt(null),
+            Prompts.MergeFailingPr.prompt(7, "gate"),
+            Prompts.MergeFailingPr.prompt(7, "gate", stack = true),
             Prompts.StopRun.prompt(),
             Prompts.ResumeRun.prompt("Mac"),
             Prompts.ResumeRun.prompt(null),

@@ -193,6 +193,32 @@ pub(crate) fn spinner_colored(size: f32, color: Hsla, cx: &App) -> AnyElement {
     eui_gpui::controls::spinner(size, color, cx)
 }
 
+/// #EXP-1611 — the ARC spinner: the `ui-loading` concept (Lucide
+/// `loader-circle`, a thin open arc) turning exactly like [`spinner_colored`]
+/// (0.8 s ease-in-out, stepped). The CI glyphs draw it where web and the
+/// natives draw THE Spinner's arc (pr-checks.json: `ci-running` and the
+/// pending Merge pill). [`spinner_colored`] itself stays the chrome's
+/// `ui-refresh` glyph app-wide (`controls::ide_chrome`).
+pub(crate) fn arc_spinner_colored(size: f32, color: Hsla, _cx: &App) -> AnyElement {
+    use gpui::{percentage, Transformation};
+    div()
+        .flex_shrink_0()
+        .child(
+            Icon::new(crate::icons::registry::UI_LOADING)
+                .size(px(size))
+                .text_color(color)
+                .with_stepped_animation(
+                    "arc-spinner",
+                    Animation::new(Duration::from_millis(800))
+                        .repeat()
+                        .with_easing(gpui::ease_in_out),
+                    SMOOTH_STEP,
+                    |icon, delta| icon.transform(Transformation::rotate(percentage(delta))),
+                ),
+        )
+        .into_any_element()
+}
+
 /// [`spinner_colored`] in the muted foreground.
 pub(crate) fn spinner(size: f32, cx: &App) -> AnyElement {
     spinner_colored(size, cx.theme().muted_foreground, cx)

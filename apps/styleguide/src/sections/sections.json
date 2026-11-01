@@ -16,7 +16,7 @@
       "qr-code", "qr-scanner", "nav-rail", "voice-level", "sidebar-rows", "outline", "mosaic", "zoomable-image"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
-      "composer-dialog", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings", "work-screen",
+      "composer-dialog", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "pr-checks", "device-settings", "work-screen",
       "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
       "device-readiness", "device-attention", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-agent-row",
       "work-card", "thread-parts", "ask-dock", "dock-card", "plan-card", "plan-page", "script-card", "comment-call-card",
@@ -62,6 +62,7 @@
     "session-row": "EXP-1248",
     "pr-row": "EXP-1248",
     "pr-graph-badge": "EXP-1058",
+    "pr-checks": "EXP-1611",
     "device-settings": "EXP-1020",
     "work-screen": "NEW-59",
     "stack-merge-choice-dialog": "EXP-1145",

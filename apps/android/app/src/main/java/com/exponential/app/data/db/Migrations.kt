@@ -47,3 +47,32 @@ val MIGRATION_106_107: Migration = object : Migration(106, 107) {
         )
     }
 }
+
+/**
+ * v108 (#EXP-1611): `pull_requests.checks_state` (the CI aggregate) and the
+ * `pull_request_checks` table (one row per check at the PR's head). Only the
+ * pull_requests shape refetches; the checks shape has no offset yet.
+ */
+val MIGRATION_107_108: Migration = object : Migration(107, 108) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `pull_requests` ADD COLUMN `checks_state` TEXT NOT NULL DEFAULT 'none'")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pull_request_checks` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`pull_request_id` TEXT NOT NULL, `head_sha` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                "`status` TEXT NOT NULL, `conclusion` TEXT, `required` INTEGER NOT NULL DEFAULT 0, " +
+                "`started_at` TEXT, `completed_at` TEXT, `details_url` TEXT, `created_at` TEXT NOT NULL, " +
+                "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pull_request_checks_pull_request_id` " +
+                "ON `pull_request_checks` (`pull_request_id`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pull_request_checks_team_id` ON `pull_request_checks` (`team_id`)",
+        )
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'pull_requests'",
+        )
+    }
+}

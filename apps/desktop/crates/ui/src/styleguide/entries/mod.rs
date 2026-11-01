@@ -33,6 +33,8 @@ pub(crate) mod issue_context_menu;
 pub(crate) mod session_row;
 pub(crate) mod pr_row;
 pub(crate) mod pr_graph_badge;
+// #EXP-1611: CI on the thread's PR (the Merge pill, the Checks submenu).
+pub(crate) mod pr_checks;
 pub(crate) mod device_settings;
 // NEW-59: the Work screen picker.
 pub(crate) mod work_screen;
@@ -163,6 +165,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },
     Entry { id: pr_row::ID, owner: pr_row::OWNER, render: pr_row::render },
     Entry { id: pr_graph_badge::ID, owner: pr_graph_badge::OWNER, render: pr_graph_badge::render },
+    Entry { id: pr_checks::ID, owner: pr_checks::OWNER, render: pr_checks::render },
     Entry { id: device_settings::ID, owner: device_settings::OWNER, render: device_settings::render },
     Entry { id: work_screen::ID, owner: work_screen::OWNER, render: work_screen::render },
     Entry { id: stack_merge_choice_dialog::ID, owner: stack_merge_choice_dialog::OWNER, render: stack_merge_choice_dialog::render },

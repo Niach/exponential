@@ -446,6 +446,16 @@ pub const CALL_SPEAKER: ExpIcon = ExpIcon::Volume2;
 pub const CALL_SPEAKER_OFF: ExpIcon = ExpIcon::Ear;
 /// Registry concept `call-unmute` -> Lucide `mic-off`.
 pub const CALL_UNMUTE: ExpIcon = ExpIcon::MicOff;
+/// Registry concept `ci-failed` -> Lucide `circle-x`.
+pub const CI_FAILED: ExpIcon = ExpIcon::CircleX;
+/// Registry concept `ci-passed` -> Lucide `circle-check`.
+pub const CI_PASSED: ExpIcon = ExpIcon::CircleCheck;
+/// Registry concept `ci-queued` -> Lucide `circle-dashed`.
+pub const CI_QUEUED: ExpIcon = ExpIcon::CircleDashed;
+/// Registry concept `ci-running` -> Lucide `loader-circle`.
+pub const CI_RUNNING: ExpIcon = ExpIcon::LoaderCircle;
+/// Registry concept `ci-skipped` -> Lucide `circle-slash`.
+pub const CI_SKIPPED: ExpIcon = ExpIcon::CircleSlash;
 /// Registry concept `coding-assistant` -> Lucide `sparkles`.
 pub const CODING_ASSISTANT: ExpIcon = ExpIcon::Sparkles;
 /// Registry concept `coding-command` -> Lucide `square-slash`.
@@ -1030,6 +1040,11 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "call-speaker" => CALL_SPEAKER,
         "call-speaker-off" => CALL_SPEAKER_OFF,
         "call-unmute" => CALL_UNMUTE,
+        "ci-failed" => CI_FAILED,
+        "ci-passed" => CI_PASSED,
+        "ci-queued" => CI_QUEUED,
+        "ci-running" => CI_RUNNING,
+        "ci-skipped" => CI_SKIPPED,
         "coding-assistant" => CODING_ASSISTANT,
         "coding-command" => CODING_COMMAND,
         "coding-compact" => CODING_COMPACT,

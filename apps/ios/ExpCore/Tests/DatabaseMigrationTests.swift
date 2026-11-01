@@ -139,7 +139,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
-             "v88_comment_via_app", "v89_notification_device_id"]
+             "v88_comment_via_app", "v89_notification_device_id",
+             "v90_pull_request_checks"]
         )
     }
 
@@ -200,7 +201,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
-             "v88_comment_via_app", "v89_notification_device_id"]
+             "v88_comment_via_app", "v89_notification_device_id",
+             "v90_pull_request_checks"]
         )
     }
 
@@ -733,7 +735,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
-             "v88_comment_via_app", "v89_notification_device_id"]
+             "v88_comment_via_app", "v89_notification_device_id",
+             "v90_pull_request_checks"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -842,7 +845,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
-             "v88_comment_via_app", "v89_notification_device_id"]
+             "v88_comment_via_app", "v89_notification_device_id",
+             "v90_pull_request_checks"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1790,7 +1794,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "issue_statuses", "pins",
                       "issue_drafts", "sessions", "session_issues", "messages",
-                      "pull_requests", "pull_request_issues", "electric_offsets"] {
+                      "pull_requests", "pull_request_issues", "pull_request_checks", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -1925,7 +1929,12 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "pull_requests"),
             ["id", "team_id", "root_session_id", "session_id", "repository_id",
              "number", "url", "title", "head", "base", "base_pull_request_id",
-             "state", "merged_at", "created_at", "updated_at"]
+             "state", "merged_at", "created_at", "updated_at", "checks_state"]
+        )
+        XCTAssertEqual(
+            try columnNames(pool, "pull_request_checks"),
+            ["id", "team_id", "pull_request_id", "head_sha", "name", "status", "conclusion",
+             "required", "started_at", "completed_at", "details_url", "created_at", "updated_at"]
         )
         XCTAssertEqual(
             try columnNames(pool, "pull_request_issues"),
@@ -3736,6 +3745,51 @@ final class DatabaseMigrationTests: XCTestCase {
         let read = try pool.read { db in try NotificationEntity.fetchOne(db, key: "n-1") }
         XCTAssertEqual(read?.deviceId, "d-mint")
         XCTAssertNil(read?.teamId)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #EXP-1611: v90 adds `pull_request_checks` + `pull_requests.checks_state`
+    // (existing rows = none), resetting ONLY the pull-requests cursor.
+    func testPullRequestChecksAdded() throws {
+        let pool = try makePool("exp1611-pull-request-checks")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v89_notification_device_id")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "pull_requests" ("id", "team_id", "repository_id", "number", "url", "head", "base",
+                    "created_at", "updated_at")
+                VALUES ('pr1', 't', 'r', 7, 'u', 'h', 'master', 'x', 'x')
+                """)
+            for shape in ["pull-requests", "pull-request-issues"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try pool.read { db in try db.tableExists("pull_request_checks") })
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v90_pull_request_checks"))
+        try pool.read { db in
+            XCTAssertTrue(try db.tableExists("pull_request_checks"))
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["pull-requests"])
+            XCTAssertEqual(try PullRequestEntity.fetchOne(db, key: "pr1")?.checksState, "none")
+        }
+        let wire = Data("""
+            {"id":"c1","team_id":"t","pull_request_id":"pr1","head_sha":"abc","name":"gate",
+             "status":"in_progress","conclusion":null,"required":"f","started_at":null,
+             "completed_at":null,"details_url":null,"created_at":"x","updated_at":"x"}
+            """.utf8)
+        let row = try JSONDecoder().decode(PullRequestCheckEntity.self, from: wire)
+        try pool.write { db in try row.save(db) }
+        let read = try pool.read { db in try PullRequestCheckEntity.fetchOne(db, key: "c1") }
+        XCTAssertEqual(read, row)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

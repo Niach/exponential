@@ -232,6 +232,27 @@ public enum Prompts {
         }
     }
 
+    /// #EXP-1611 (pr-checks.json MERGE PILL): the Merge pill's confirm while
+    /// the PR's checks fail, INSTEAD OF merge-issue-pr / merge-run-pr / the
+    /// stack confirm; `titleStack` for an open-stack member. `names` =
+    /// `PrChecks.failingBody`.
+    public enum MergeFailingPr {
+        public static let entry = destructive(
+            "merge-failing-pr",
+            texts: [
+                "title": "Merge PR #{number} with failing checks?",
+                "titleStack": "Merge the stack with failing checks?",
+                "body": "Failing: {names}.",
+            ],
+            params: ["number", "names"], answer: "merge", label: "Merge"
+        )
+        /// `body` = the whole `Failing: ….` line (`PrChecks.failingBody`).
+        public static func copy(number: Int, stack: Bool, body: String) -> PromptCopy {
+            let filled = entry.copy(title: stack ? "titleStack" : "title", ["number": "\(number)"])
+            return PromptCopy(title: filled.title, body: body, actions: filled.actions, focus: filled.focus)
+        }
+    }
+
     public enum StopRun {
         public static let entry = destructive(
             "stop-run",
@@ -574,7 +595,7 @@ public enum Prompts {
     /// Every mirrored entry, locked against the fixture's `prompts` key set.
     public static let all: [PromptEntry] = [
         DeleteIssue.entry, DeleteIssues.entry, DeleteFile.entry, MoveIssue.entry,
-        MergeIssuePr.entry, MergeRunPr.entry, StopRun.entry, ResumeRun.entry,
+        MergeIssuePr.entry, MergeRunPr.entry, MergeFailingPr.entry, StopRun.entry, ResumeRun.entry,
         DeleteTrigger.entry, DeleteAction.entry, RemoveDevice.entry, RemoveDeviceShare.entry,
         DeleteTeam.entry, TrashBoard.entry,
         DeleteLabel.entry, RemoveMember.entry, LeaveTeam.entry, MakeOwner.entry,

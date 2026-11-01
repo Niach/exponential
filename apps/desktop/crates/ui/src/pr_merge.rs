@@ -319,21 +319,17 @@ fn team_snapshot_of(pull_request_id: &str, cx: &App) -> Option<crate::session_da
     Some(crate::session_data::team_pr_snapshot(&team_id, cx))
 }
 
-/// EXP-1248: the ONE merge control's label — `Merge stack` on a member of a
-/// linear open stack (contract `diffUi.mergeStack`), else `Merge PR`.
-pub(crate) fn merge_label_for(pull_request_id: &str, cx: &App) -> &'static str {
-    let stacked = team_snapshot_of(pull_request_id, cx).is_some_and(|snapshot| {
+/// EXP-1248: whether `pull_request_id` is a member of a linear open stack
+/// (the merge control reads `Merge stack`, `domain::pr_checks::merge_pill`,
+/// and asks the stack confirm).
+pub(crate) fn is_stacked(pull_request_id: &str, cx: &App) -> bool {
+    team_snapshot_of(pull_request_id, cx).is_some_and(|snapshot| {
         snapshot.pull(pull_request_id).is_some_and(|pull| {
             snapshot.with_set(|set| {
                 domain::pr_stack::open_pr_shape(pull, set) == domain::pr_stack::PrGraphShape::Stack
             })
         })
-    });
-    if stacked {
-        domain::pr_stack::MERGE_STACK_LABEL
-    } else {
-        domain::contract::DIFF_UI_MERGE_PR
-    }
+    })
 }
 
 /// The confirm window's size: the one-line title band, a body of one or two

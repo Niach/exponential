@@ -4955,6 +4955,44 @@
       }
     },
     {
+      "id": "pr-checks",
+      "group": "reviews",
+      "title": "PR checks",
+      "blurb": "CI on the thread's PR ×4 (#EXP-1611, pr-checks.json): THE header Merge pill in its four check states (none, running = the spinner, green = Merge PR, red = Checks failing, which asks through the shared alert card) and the `…` menu's Checks submenu: one row per check, its status glyph, name and duration, a tap opens the logs.",
+      "order": 7,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=pr-checks",
+        "anchor": {
+          "testId": "pr-checks-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_pr-checks",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_pr-checks",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:pr-checks"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=pr-checks` on the Agent route: the `pr-checks` specimen over pr-checks.json `specimen`.",
+        "web-mobile": "Inherits web.",
+        "ios": "The specimen in StyleguideScreenshots, shot sg_pr-checks.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:pr-checks`: the IDE styleguide entry drawn full-window."
+      }
+    },
+    {
       "id": "composer-menu",
       "group": "coding",
       "title": "Composer + menu",

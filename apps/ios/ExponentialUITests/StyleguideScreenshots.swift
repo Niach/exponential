@@ -974,7 +974,7 @@ final class StyleguideScreenshots: XCTestCase {
         // sg_chat-menus · sg_chat-selection (#EXP-1388) · sg_schedule-picker · sg_mention-pill (thread 58cb32df / e4a04d22, chats.json +
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) ·
-        // sg_device-readiness (EXP-1375) · sg_session-xref ·
+        // sg_device-readiness (EXP-1375) · sg_session-xref · sg_pr-checks (#EXP-1611) ·
         // sg_story-ring · sg_story-viewer · sg_story-tab (S-3, stories.json): the
         // styleguide entries' specimens.
         walkSpecimens(app)
@@ -1021,7 +1021,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
-        "story-tab", "sealed-locked", "plan-page", "pr-row",
+        "story-tab", "sealed-locked", "plan-page", "pr-row", "pr-checks",
     ]
 
     /// A scoped run that wants only specimens (`--views sealed-locked`)
@@ -1056,6 +1056,8 @@ final class StyleguideScreenshots: XCTestCase {
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
             case "pr-row": snapshot("sg_pr-row", settle: 2)
+            // #EXP-1611: the four Merge pills + the open Checks submenu.
+            case "pr-checks": snapshot("sg_pr-checks", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }

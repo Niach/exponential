@@ -279,9 +279,19 @@ fun ThreadScreen(
     } else {
         emptyList()
     }
+    // #EXP-1611: the Guide PR's CI checks (the `…`'s Checks submenu, the
+    // Merge pill's failing confirm); a 1s clock while one runs.
+    val guideCheckRows by viewModel.guideChecks.collectAsStateWithLifecycle()
+    val guideChecks = remember(guideCheckRows) { guideCheckRows.map(com.exponential.app.domain.PrChecks::of) }
+    val checksNow = com.exponential.app.ui.components.rememberTickingNow(
+        guideChecks.any { it.status == DomainContract.prCheckStatusInProgress },
+    )
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val guideMenuItems = guidePr?.let { pr ->
-        SessionTree.guideMenuEntries(state = pr.state, member = isMember).map { entry ->
+        SessionTree.guideMenuEntries(state = pr.state, member = isMember, checks = guideChecks.size).mapNotNull { entry ->
             when (entry) {
+                SessionTree.GuideMenuEntry.Checks ->
+                    prChecksMenuItem(guideChecks, checksNow) { url -> runCatching { uriHandler.openUri(url) } }
                 SessionTree.GuideMenuEntry.ClosePr -> com.exponential.app.ui.components.ChatMenuItem(
                     label = DomainContract.diffUiClosePr,
                     icon = ExpIcons.prClosed,
@@ -522,7 +532,7 @@ fun ThreadScreen(
                 onSurfaceReply = { text -> viewModel.send(text) },
                 // S-3: the Merge rides the header, left of `…` (phones too).
                 headerAction = if (agent == null) {
-                    { ThreadHeaderMerge(pullRequests = pullRequests, teamPullRequests = teamPullRequests) }
+                    { ThreadHeaderMerge(pullRequests = pullRequests, teamPullRequests = teamPullRequests, checks = guideChecks) }
                 } else {
                     null
                 },
@@ -1083,6 +1093,8 @@ private fun ThreadIssuePage(
 private fun ThreadHeaderMerge(
     pullRequests: List<PullRequestEntity>,
     teamPullRequests: List<PullRequestEntity>,
+    /** #EXP-1611: the Guide PR's CI checks (the failing confirm's names). */
+    checks: List<com.exponential.app.domain.PrChecks.Check> = emptyList(),
 ) {
     val newest = SessionTree.guidePullRequest(pullRequests) ?: return
     if (newest.state != DomainContract.prStateOpen) return
@@ -1114,6 +1126,14 @@ private fun ThreadHeaderMerge(
             onConfirm = { changesVm.mergePr() },
             stackConfirm = stack,
             onMergeStack = { changesVm.mergePr(stack = true) },
+            // #EXP-1611: the Guide PR's own checks (a stack lands through
+            // its top, but the pill reads the PR the thread shows).
+            checksState = newest.checksState,
+            failingPrompt = Prompts.MergeFailingPr.prompt(
+                newest.number,
+                com.exponential.app.domain.PrChecks.failingNames(checks),
+                stack = stack != null,
+            ),
         ),
         modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE),
         header = true,

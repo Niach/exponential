@@ -101,42 +101,86 @@ pub(crate) fn merge_pill(
     size: PillSize,
     cx: &mut App,
 ) -> AnyElement {
+    merge_pill_with_checks(id, pull_request_id, primary, size, None, cx)
+}
+
+/// #EXP-1611 — [`merge_pill`] over the PR's `checks_state` (pr-checks.json
+/// MERGE PILL, `domain::pr_checks::merge_pill`): none / success = the pill
+/// as ever; pending = THE spinner in place of the glyph, still enabled, the
+/// same confirms; failure = the PLAIN pill, the `ci-failed` glyph in the
+/// semantic red, `Checks failing`, whose click asks prompts.json
+/// `merge-failing-pr` INSTEAD of the plain / stack confirm. The thread
+/// header is the one surface that passes a state.
+pub(crate) fn merge_pill_with_checks(
+    id: impl Into<gpui::ElementId>,
+    pull_request_id: &str,
+    primary: bool,
+    size: PillSize,
+    checks_state: Option<&str>,
+    cx: &mut App,
+) -> AnyElement {
+    use domain::pr_checks::{MergeConfirm, MergePillGlyph};
     let (armed, merging) = {
         let state = crate::pr_merge::MergeState::global(cx);
         let state = state.read(cx);
         (state.armed(pull_request_id), state.merging(pull_request_id))
     };
-    let glyph = if armed {
+    // EXP-1248: ONE control, renamed on a member of an open stack.
+    let stacked = crate::pr_merge::is_stacked(pull_request_id, cx);
+    let view = domain::pr_checks::merge_pill(checks_state, stacked);
+    let failing = view.confirm == MergeConfirm::Failing;
+    let primary = primary && view.primary;
+    let glyph = if failing {
+        theme::tokens::RED.to_hsla()
+    } else if armed {
         cx.theme().danger
     } else if primary {
         cx.theme().primary_foreground
     } else {
         cx.theme().muted_foreground
     };
-    // EXP-1248: ONE control, renamed on a member of an open stack.
-    let settled = crate::pr_merge::merge_label_for(pull_request_id, cx);
     let pull_request_id = pull_request_id.to_string();
-    let mut button = if primary {
+    let button = if primary {
         glass_pill_button_primary(id, size)
     } else {
         glass_pill_button(id, size, cx)
-    }
-    .icon(
-        Icon::from(ExpIcon::GitMerge)
-            .with_size(px(size.glyph()))
-            .text_color(glyph),
-    )
+    };
     // EXP-916: the settled label is the CONTRACT's, so the pill reads the
     // same word on all four clients.
-    .label(if merging {
+    let label = if merging {
         "Merging…"
     } else if armed {
         "Confirm merge"
     } else {
-        settled
-    })
+        view.label
+    };
+    let mut button = match view.glyph {
+        // THE spinner leads the label (the crate's icon slot only takes an
+        // Icon, so both ride as children in the slot's order).
+        MergePillGlyph::Spinner if !merging && !armed => button
+            .child(crate::feedback::arc_spinner_colored(size.glyph(), glyph, cx))
+            .child(div().flex_none().line_height(gpui::relative(1.)).child(label)),
+        MergePillGlyph::CiFailed => button
+            .icon(
+                Icon::new(registry::CI_FAILED)
+                    .with_size(px(size.glyph()))
+                    .text_color(glyph),
+            )
+            .label(label),
+        _ => button
+            .icon(
+                Icon::from(ExpIcon::GitMerge)
+                    .with_size(px(size.glyph()))
+                    .text_color(glyph),
+            )
+            .label(label),
+    }
     .tooltip("Merge: completes every linked issue")
     .on_click(move |_, window, cx| {
+        if failing {
+            crate::pr_checks::ask_merge_failing(&pull_request_id, window, cx);
+            return;
+        }
         if crate::pr_merge::ask_stack_merge(&pull_request_id, window, cx) {
             return;
         }

@@ -16,6 +16,7 @@ import {
   makeMemberPrompt,
   makeOwnerPrompt,
   mergeIssuePrPrompt,
+  mergeFailingPrPrompt,
   mergeRunPrPrompt,
   moveIssuePrompt,
   PROMPT_FIXTURE,
@@ -64,6 +65,10 @@ const CASES: Record<string, Record<string, () => PromptCopy>> = {
   "merge-run-pr": {
     title: () => mergeRunPrPrompt(`{number}` as unknown as number),
     titleNoNumber: () => mergeRunPrPrompt(null),
+  },
+  "merge-failing-pr": {
+    title: () => mergeFailingPrPrompt({ number: `{number}` as unknown as number }),
+    titleStack: () => mergeFailingPrPrompt({ stack: true }),
   },
   "stop-run": { title: () => stopRunPrompt() },
   "resume-run": {
@@ -191,6 +196,10 @@ describe(`prompts (contract fixture)`, () => {
       body: `It is squash-merged. It covers 3 issues.`,
     })
     expect(deleteIssuesPrompt(4).title).toBe(`Delete 4 issues?`)
+    expect(mergeFailingPrPrompt({ number: 7, names: `gate, e2e` })).toMatchObject({
+      title: `Merge PR #7 with failing checks?`,
+      body: `Failing: gate, e2e.`,
+    })
   })
 
   it(`never focuses a destructive answer`, () => {

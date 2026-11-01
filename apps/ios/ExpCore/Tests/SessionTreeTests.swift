@@ -489,7 +489,8 @@ final class SessionTreeTests: XCTestCase {
             XCTAssertEqual(
                 SessionTree.guideMenuEntries(
                     state: string(input["state"]),
-                    member: try XCTUnwrap(input["member"] as? Bool)
+                    member: try XCTUnwrap(input["member"] as? Bool),
+                    checks: input["checks"] as? Int ?? 0
                 ).map(\.rawValue),
                 try XCTUnwrap(testCase["expected"] as? [String]),
                 name

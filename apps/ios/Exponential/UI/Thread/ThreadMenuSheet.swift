@@ -36,6 +36,10 @@ struct ThreadMenuSheet: View {
                         switch entry {
                         case .closePr:
                             row(.closePr, ClosePrCopy.menuItem, icon: AppIcons.prClosed, destructive: true)
+                        case .checks:
+                            // #EXP-1611: the header `…` (ChatMenuSheet) pushes
+                            // the Checks page; this sheet never lists it.
+                            EmptyView()
                         }
                     }
                 } else {

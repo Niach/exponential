@@ -1679,16 +1679,22 @@ object SessionTree {
         }
 
     /** EXP-1307: one entry of the thread header's `…` on the Guide. */
-    enum class GuideMenuEntry(val wire: String) { ClosePr("close-pr") }
+    enum class GuideMenuEntry(val wire: String) { Checks("checks"), ClosePr("close-pr") }
 
     /**
      * EXP-1307: the thread header's `…` on the Guide: Close PR while the
      * Guide's PR ([state] = its state, null = none) is open and the viewer is
      * a [member]; empty = no trigger (`guideMenuCases`). EXP-1338: no GitHub
-     * entry, only the agent opens PRs.
+     * entry, only the agent opens PRs. #EXP-1611: `checks` FIRST whenever the
+     * PR has synced check rows ([checks] = their count), any state, any viewer.
      */
-    fun guideMenuEntries(state: String?, member: Boolean): List<GuideMenuEntry> =
-        if (state == DomainContract.prStateOpen && member) listOf(GuideMenuEntry.ClosePr) else emptyList()
+    fun guideMenuEntries(state: String?, member: Boolean, checks: Int = 0): List<GuideMenuEntry> {
+        if (state == null) return emptyList()
+        return buildList {
+            if (checks > 0) add(GuideMenuEntry.Checks)
+            if (state == DomainContract.prStateOpen && member) add(GuideMenuEntry.ClosePr)
+        }
+    }
 
     // ── synced rows → the pure inputs ───────────────────────────────────────
 

@@ -1,41 +1,795 @@
 {
-  "$comment": "EXP-1610 (server half of #EXP-1608): CI on a pull request, provider-neutral. ROWS: `pull_request_checks` = one row per check NAME at the PR's head commit (`head_sha`, `name`, `status` contract prCheckStatus, `conclusion` contract prCheckConclusion or null while running, `required` = a required check of the base branch, `started_at`, `completed_at`, `details_url` = the logs link); a newer head replaces the older head's rows, a late delivery for an older head is dropped. `pull_requests.checks_state` = the aggregate (contract prChecksState, `aggregate` below: none = no rows, failure wins over pending). Both sync (shape `pull-request-checks`, team-scoped, member-only), so no client calls GitHub. WRITERS: GitHub's `check_run` webhook upserts a row; `check_suite`/`workflow_run` `completed` and the next `exponential_pr` read (throttled, one conditional GET of the head's check runs) repair a missed delivery; never a polling loop. Without the App's checks:read permission nothing is known: state none, never an error. eCode's own CI writes the same rows later. WAKE: when `checks_state` turns success or failure (from pending or none), ONE `pr_checks` event line wakes the PR's session (its opener while live, else the thread's root): `CI on #N: success.` / `CI on #N: failure (name (logs url), …).` (`wakeText`), once per PR, head and state. A check still queued `queuedFlagMinutes` (contract prChecks) after it was created is flagged ONCE the same way (`queuedText`). MCP: every `exponential_pr` op returns `checks` = {state, total, failing[{name, url, required}], pending[names]} (`brief`). `pr merge` reports them; with MERGE_CHECK_GATE=true (default off) it refuses while a gated check is red or running (`gate`: the required checks when the base names any, else every check; red first) with `gateText`, and `force: true` merges anyway. Agents never poll api.github.com: they end their turn and the bus wakes them. #EXP-1611 adds the UI x4 (checks list, Merge pill) on this fixture.",
+  "$comment": "EXP-1610 (server half of #EXP-1608): CI on a pull request, provider-neutral. ROWS: `pull_request_checks` = one row per check NAME at the PR's head commit (`head_sha`, `name`, `status` contract prCheckStatus, `conclusion` contract prCheckConclusion or null while running, `required` = a required check of the base branch, `started_at`, `completed_at`, `details_url` = the logs link); a newer head replaces the older head's rows, a late delivery for an older head is dropped. `pull_requests.checks_state` = the aggregate (contract prChecksState, `aggregate` below: none = no rows, failure wins over pending). Both sync (shape `pull-request-checks`, team-scoped, member-only), so no client calls GitHub. WRITERS: GitHub's `check_run` webhook upserts a row; `check_suite`/`workflow_run` `completed` and the next `exponential_pr` read (throttled, one conditional GET of the head's check runs) repair a missed delivery; never a polling loop. Without the App's checks:read permission nothing is known: state none, never an error. eCode's own CI writes the same rows later. WAKE: when `checks_state` turns success or failure (from pending or none), ONE `pr_checks` event line wakes the PR's session (its opener while live, else the thread's root): `CI on #N: success.` / `CI on #N: failure (name (logs url), …).` (`wakeText`), once per PR, head and state. A check still queued `queuedFlagMinutes` (contract prChecks) after it was created is flagged ONCE the same way (`queuedText`). MCP: every `exponential_pr` op returns `checks` = {state, total, failing[{name, url, required}], pending[names]} (`brief`). `pr merge` reports them; with MERGE_CHECK_GATE=true (default off) it refuses while a gated check is red or running (`gate`: the required checks when the base names any, else every check; red first) with `gateText`, and `force: true` merges anyway. Agents never poll api.github.com: they end their turn and the bus wakes them. #EXP-1611 adds the UI x4 (checks list, Merge pill) on this fixture. #EXP-1611 UI x4 (web, desktop, iOS, Android; every client syncs `pull-request-checks` + `pull_requests.checks_state` and replays the cases below; no client calls GitHub). THE PR SURFACE = the thread header (session-thread.json `guidePullRequest`: the Merge pill + the `…` menu, every tab, phones included); no other surface draws checks. MERGE PILL (`mergePill({state, stack})`, state = the PR row's `checks_state`): THE header Merge pill (Pill md, action mode) gains the check state: none and success = today's pill (primary, the pr-merged glyph, `Merge PR` | `Merge stack`, the plain or stack confirm); pending = the same primary pill with THE Spinner in place of the glyph, still enabled, the same confirms; failure = the PLAIN (non-primary) pill, the `ci-failed` glyph tinted red, label `copy.mergeFailing`; a tap opens THE shared alert card prompts.json `merge-failing-pr` (Cancel focused, Merge destructive; body = `failingBody(rows)`: the failing rows' names in list order, five then ` +N`), and Merge merges exactly as the pill would have (a stack member lands the stack through its top, `stack: true`; the failing confirm REPLACES the plain/stack confirm, never two cards). The merge in flight keeps its own spinner and disables the pill as before. The person's merge never sends `force` (MERGE_CHECK_GATE gates agents only). CHECKS LIST = the `…` menu's leading `checks` submenu (session-thread.json `guideMenuEntries({state, member, checks})`: `checks` first whenever the PR has at least one row, any PR state, any viewer; then `close-pr` as before), THE Menu x4 (md+/IDE a submenu flyout, phones a pushed sheet page): the entry = icon `checksSummary(rows).glyph` (tinted by its tone), label `copy.checks`, value `checksSummary(rows).value`; its rows = `checksList(rows, now)` in order, each THE menu item: icon `glyph` tinted `tone` (`ci-running` = THE Spinner), label = the check name, value = `duration` (none = no value), a pick opens `url` (details_url, the logs) in the browser; a row without a url is disabled. GLYPHS (icons.json concepts): queued ci-queued, in_progress ci-running, completed + a failing conclusion ci-failed (red), success ci-passed (green), any other conclusion (neutral, skipped, stale) ci-skipped (muted); tone muted otherwise. ORDER: failed, running, queued, passed, skipped; ties by name (code-point order). DURATION (`checkDuration`): completed = completedAt - startedAt, in_progress = now - startedAt, else null (queued, or a missing start); `formatDuration(ms)` = `42s`, `3m 5s`, `1h 2m` (floor, negative = 0s). SUMMARY: failure = ci-failed red `{count} failing` (count = failing rows), pending = ci-running `{count} running` (rows not completed), success = ci-passed green `{count} passed` (every row), none = null (no entry). EVENT LINE: `pr_checks` (session-thread.json copy.events, `CI on PR {pr}`) draws like every PR event line x4. STYLEGUIDE: entry `pr-checks` (the four pills + the open checks submenu as a static menu panel over `specimen`); view-catalog `pr-checks`.",
   "aggregate": [
-    { "name": "no checks", "checks": [], "expected": "none" },
-    { "name": "all green", "checks": [{ "name": "gate", "status": "completed", "conclusion": "success" }, { "name": "lint", "status": "completed", "conclusion": "skipped" }], "expected": "success" },
-    { "name": "one running", "checks": [{ "name": "gate", "status": "completed", "conclusion": "success" }, { "name": "e2e", "status": "in_progress", "conclusion": null }], "expected": "pending" },
-    { "name": "queued counts as running", "checks": [{ "name": "android", "status": "queued", "conclusion": null }], "expected": "pending" },
-    { "name": "red wins over running", "checks": [{ "name": "gate", "status": "completed", "conclusion": "failure" }, { "name": "e2e", "status": "in_progress", "conclusion": null }], "expected": "failure" },
-    { "name": "cancelled is red", "checks": [{ "name": "gate", "status": "completed", "conclusion": "cancelled" }], "expected": "failure" },
-    { "name": "neutral is not red", "checks": [{ "name": "info", "status": "completed", "conclusion": "neutral" }], "expected": "success" }
+    {
+      "name": "no checks",
+      "checks": [],
+      "expected": "none"
+    },
+    {
+      "name": "all green",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "skipped"
+        }
+      ],
+      "expected": "success"
+    },
+    {
+      "name": "one running",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e",
+          "status": "in_progress",
+          "conclusion": null
+        }
+      ],
+      "expected": "pending"
+    },
+    {
+      "name": "queued counts as running",
+      "checks": [
+        {
+          "name": "android",
+          "status": "queued",
+          "conclusion": null
+        }
+      ],
+      "expected": "pending"
+    },
+    {
+      "name": "red wins over running",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "e2e",
+          "status": "in_progress",
+          "conclusion": null
+        }
+      ],
+      "expected": "failure"
+    },
+    {
+      "name": "cancelled is red",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "cancelled"
+        }
+      ],
+      "expected": "failure"
+    },
+    {
+      "name": "neutral is not red",
+      "checks": [
+        {
+          "name": "info",
+          "status": "completed",
+          "conclusion": "neutral"
+        }
+      ],
+      "expected": "success"
+    }
   ],
   "githubStatus": [
-    { "github": "queued", "expected": "queued" },
-    { "github": "waiting", "expected": "queued" },
-    { "github": "requested", "expected": "queued" },
-    { "github": "pending", "expected": "queued" },
-    { "github": "in_progress", "expected": "in_progress" },
-    { "github": "completed", "expected": "completed" }
+    {
+      "github": "queued",
+      "expected": "queued"
+    },
+    {
+      "github": "waiting",
+      "expected": "queued"
+    },
+    {
+      "github": "requested",
+      "expected": "queued"
+    },
+    {
+      "github": "pending",
+      "expected": "queued"
+    },
+    {
+      "github": "in_progress",
+      "expected": "in_progress"
+    },
+    {
+      "github": "completed",
+      "expected": "completed"
+    }
   ],
   "gate": [
-    { "name": "nothing known", "checks": [], "expected": { "ok": true } },
-    { "name": "green", "checks": [{ "name": "gate", "status": "completed", "conclusion": "success", "required": true }], "expected": { "ok": true } },
-    { "name": "required running", "checks": [{ "name": "gate", "status": "in_progress", "conclusion": null, "required": true }, { "name": "docs", "status": "completed", "conclusion": "failure", "required": false }], "expected": { "ok": false, "reason": "pending", "names": ["gate"] } },
-    { "name": "required red first", "checks": [{ "name": "gate", "status": "completed", "conclusion": "failure", "required": true }, { "name": "e2e", "status": "queued", "conclusion": null, "required": true }], "expected": { "ok": false, "reason": "failing", "names": ["gate"] } },
-    { "name": "no required = every check", "checks": [{ "name": "lint", "status": "completed", "conclusion": "timed_out" }], "expected": { "ok": false, "reason": "failing", "names": ["lint"] } }
+    {
+      "name": "nothing known",
+      "checks": [],
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "name": "green",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "success",
+          "required": true
+        }
+      ],
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "name": "required running",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "in_progress",
+          "conclusion": null,
+          "required": true
+        },
+        {
+          "name": "docs",
+          "status": "completed",
+          "conclusion": "failure",
+          "required": false
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "reason": "pending",
+        "names": [
+          "gate"
+        ]
+      }
+    },
+    {
+      "name": "required red first",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "failure",
+          "required": true
+        },
+        {
+          "name": "e2e",
+          "status": "queued",
+          "conclusion": null,
+          "required": true
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "reason": "failing",
+        "names": [
+          "gate"
+        ]
+      }
+    },
+    {
+      "name": "no required = every check",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "timed_out"
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "reason": "failing",
+        "names": [
+          "lint"
+        ]
+      }
+    }
   ],
   "wakeText": [
-    { "number": 12, "state": "success", "failing": [], "expected": "CI on #12: success." },
-    { "number": 12, "state": "failure", "failing": [{ "name": "gate", "detailsUrl": "https://github.com/o/r/actions/runs/1" }, { "name": "lint" }], "expected": "CI on #12: failure (gate (https://github.com/o/r/actions/runs/1), lint)." }
+    {
+      "number": 12,
+      "state": "success",
+      "failing": [],
+      "expected": "CI on #12: success."
+    },
+    {
+      "number": 12,
+      "state": "failure",
+      "failing": [
+        {
+          "name": "gate",
+          "detailsUrl": "https://github.com/o/r/actions/runs/1"
+        },
+        {
+          "name": "lint"
+        }
+      ],
+      "expected": "CI on #12: failure (gate (https://github.com/o/r/actions/runs/1), lint)."
+    }
   ],
   "queuedText": [
-    { "number": 7, "names": ["android-emulator"], "expected": "CI on #7: android-emulator queued for 30+ minutes; no runner picked it up. Tell a person if it stays queued." }
+    {
+      "number": 7,
+      "names": [
+        "android-emulator"
+      ],
+      "expected": "CI on #7: android-emulator queued for 30+ minutes; no runner picked it up. Tell a person if it stays queued."
+    }
   ],
   "gateText": [
-    { "number": 3, "verdict": { "ok": false, "reason": "failing", "names": ["gate"] }, "expected": "PR #3 has failing checks: gate. Read them, fix and push; merge again when CI is green (force: true merges anyway, only when a person says so)." },
-    { "number": 3, "verdict": { "ok": false, "reason": "pending", "names": ["gate", "e2e"] }, "expected": "PR #3 still has checks running: gate, e2e. Do not poll: Exponential wakes this session when CI finishes. Merge then (force: true merges anyway, only when a person says so)." }
+    {
+      "number": 3,
+      "verdict": {
+        "ok": false,
+        "reason": "failing",
+        "names": [
+          "gate"
+        ]
+      },
+      "expected": "PR #3 has failing checks: gate. Read them, fix and push; merge again when CI is green (force: true merges anyway, only when a person says so)."
+    },
+    {
+      "number": 3,
+      "verdict": {
+        "ok": false,
+        "reason": "pending",
+        "names": [
+          "gate",
+          "e2e"
+        ]
+      },
+      "expected": "PR #3 still has checks running: gate, e2e. Do not poll: Exponential wakes this session when CI finishes. Merge then (force: true merges anyway, only when a person says so)."
+    }
   ],
   "brief": [
-    { "state": "failure", "checks": [{ "name": "gate", "status": "completed", "conclusion": "failure", "required": true, "detailsUrl": "https://x/1" }, { "name": "e2e", "status": "in_progress", "conclusion": null }], "expected": { "state": "failure", "total": 2, "failing": [{ "name": "gate", "url": "https://x/1", "required": true }], "pending": ["e2e"] } }
+    {
+      "state": "failure",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "failure",
+          "required": true,
+          "detailsUrl": "https://x/1"
+        },
+        {
+          "name": "e2e",
+          "status": "in_progress",
+          "conclusion": null
+        }
+      ],
+      "expected": {
+        "state": "failure",
+        "total": 2,
+        "failing": [
+          {
+            "name": "gate",
+            "url": "https://x/1",
+            "required": true
+          }
+        ],
+        "pending": [
+          "e2e"
+        ]
+      }
+    }
+  ],
+  "copy": {
+    "checks": "Checks",
+    "mergeFailing": "Checks failing",
+    "summary": {
+      "failing": "{count} failing",
+      "running": "{count} running",
+      "passed": "{count} passed"
+    }
+  },
+  "testIds": {
+    "checksMenu": "pr-checks-menu",
+    "checkRow": "pr-check-row"
+  },
+  "mergePill": [
+    {
+      "input": {
+        "state": "none",
+        "stack": false
+      },
+      "expected": {
+        "label": "Merge PR",
+        "glyph": "pr-merged",
+        "primary": true,
+        "confirm": "merge"
+      }
+    },
+    {
+      "input": {
+        "state": "success",
+        "stack": false
+      },
+      "expected": {
+        "label": "Merge PR",
+        "glyph": "pr-merged",
+        "primary": true,
+        "confirm": "merge"
+      }
+    },
+    {
+      "input": {
+        "state": "pending",
+        "stack": false
+      },
+      "expected": {
+        "label": "Merge PR",
+        "glyph": "spinner",
+        "primary": true,
+        "confirm": "merge"
+      }
+    },
+    {
+      "input": {
+        "state": "failure",
+        "stack": false
+      },
+      "expected": {
+        "label": "Checks failing",
+        "glyph": "ci-failed",
+        "primary": false,
+        "confirm": "failing"
+      }
+    },
+    {
+      "input": {
+        "state": "success",
+        "stack": true
+      },
+      "expected": {
+        "label": "Merge stack",
+        "glyph": "pr-merged",
+        "primary": true,
+        "confirm": "stack"
+      }
+    },
+    {
+      "input": {
+        "state": "pending",
+        "stack": true
+      },
+      "expected": {
+        "label": "Merge stack",
+        "glyph": "spinner",
+        "primary": true,
+        "confirm": "stack"
+      }
+    },
+    {
+      "input": {
+        "state": "failure",
+        "stack": true
+      },
+      "expected": {
+        "label": "Checks failing",
+        "glyph": "ci-failed",
+        "primary": false,
+        "confirm": "failing"
+      }
+    }
+  ],
+  "formatDuration": [
+    {
+      "ms": 0,
+      "expected": "0s"
+    },
+    {
+      "ms": -5000,
+      "expected": "0s"
+    },
+    {
+      "ms": 42999,
+      "expected": "42s"
+    },
+    {
+      "ms": 60000,
+      "expected": "1m 0s"
+    },
+    {
+      "ms": 185000,
+      "expected": "3m 5s"
+    },
+    {
+      "ms": 3599000,
+      "expected": "59m 59s"
+    },
+    {
+      "ms": 3720000,
+      "expected": "1h 2m"
+    }
+  ],
+  "specimen": {
+    "now": "2026-11-01T12:10:00.000Z",
+    "checks": [
+      {
+        "name": "lint",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-11-01T12:00:00.000Z",
+        "completedAt": "2026-11-01T12:00:38.000Z",
+        "detailsUrl": "https://github.com/o/r/actions/runs/1/job/5"
+      },
+      {
+        "name": "e2e",
+        "status": "in_progress",
+        "conclusion": null,
+        "startedAt": "2026-11-01T12:07:57.000Z",
+        "completedAt": null,
+        "detailsUrl": "https://github.com/o/r/actions/runs/1/job/2"
+      },
+      {
+        "name": "docs",
+        "status": "completed",
+        "conclusion": "skipped",
+        "startedAt": null,
+        "completedAt": null,
+        "detailsUrl": null
+      },
+      {
+        "name": "gate",
+        "status": "completed",
+        "conclusion": "failure",
+        "startedAt": "2026-11-01T12:00:00.000Z",
+        "completedAt": "2026-11-01T12:04:12.000Z",
+        "detailsUrl": "https://github.com/o/r/actions/runs/1/job/1"
+      },
+      {
+        "name": "android",
+        "status": "queued",
+        "conclusion": null,
+        "startedAt": null,
+        "completedAt": null,
+        "detailsUrl": "https://github.com/o/r/actions/runs/1/job/3"
+      }
+    ]
+  },
+  "checksList": [
+    {
+      "name": "the specimen",
+      "now": "2026-11-01T12:10:00.000Z",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-11-01T12:00:00.000Z",
+          "completedAt": "2026-11-01T12:00:38.000Z",
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/5"
+        },
+        {
+          "name": "e2e",
+          "status": "in_progress",
+          "conclusion": null,
+          "startedAt": "2026-11-01T12:07:57.000Z",
+          "completedAt": null,
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/2"
+        },
+        {
+          "name": "docs",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": null,
+          "completedAt": null,
+          "detailsUrl": null
+        },
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-11-01T12:00:00.000Z",
+          "completedAt": "2026-11-01T12:04:12.000Z",
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/1"
+        },
+        {
+          "name": "android",
+          "status": "queued",
+          "conclusion": null,
+          "startedAt": null,
+          "completedAt": null,
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/3"
+        }
+      ],
+      "expected": [
+        {
+          "name": "gate",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "duration": "4m 12s",
+          "url": "https://github.com/o/r/actions/runs/1/job/1"
+        },
+        {
+          "name": "e2e",
+          "glyph": "ci-running",
+          "tone": "muted",
+          "duration": "2m 3s",
+          "url": "https://github.com/o/r/actions/runs/1/job/2"
+        },
+        {
+          "name": "android",
+          "glyph": "ci-queued",
+          "tone": "muted",
+          "duration": null,
+          "url": "https://github.com/o/r/actions/runs/1/job/3"
+        },
+        {
+          "name": "lint",
+          "glyph": "ci-passed",
+          "tone": "green",
+          "duration": "38s",
+          "url": "https://github.com/o/r/actions/runs/1/job/5"
+        },
+        {
+          "name": "docs",
+          "glyph": "ci-skipped",
+          "tone": "muted",
+          "duration": null,
+          "url": null
+        }
+      ]
+    },
+    {
+      "name": "ties by name, cancelled is red, neutral is skipped",
+      "now": "2026-11-01T12:10:00.000Z",
+      "checks": [
+        {
+          "name": "b",
+          "status": "completed",
+          "conclusion": "neutral",
+          "startedAt": null,
+          "completedAt": null,
+          "detailsUrl": null
+        },
+        {
+          "name": "Z",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-11-01T12:00:00.000Z",
+          "completedAt": "2026-11-01T13:02:00.000Z",
+          "detailsUrl": null
+        },
+        {
+          "name": "a",
+          "status": "completed",
+          "conclusion": "timed_out",
+          "startedAt": "2026-11-01T12:00:00.000Z",
+          "completedAt": null,
+          "detailsUrl": null
+        }
+      ],
+      "expected": [
+        {
+          "name": "Z",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "duration": "1h 2m",
+          "url": null
+        },
+        {
+          "name": "a",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "duration": null,
+          "url": null
+        },
+        {
+          "name": "b",
+          "glyph": "ci-skipped",
+          "tone": "muted",
+          "duration": null,
+          "url": null
+        }
+      ]
+    }
+  ],
+  "checksSummary": [
+    {
+      "name": "no rows",
+      "checks": [],
+      "expected": null
+    },
+    {
+      "name": "the specimen",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-11-01T12:00:00.000Z",
+          "completedAt": "2026-11-01T12:00:38.000Z",
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/5"
+        },
+        {
+          "name": "e2e",
+          "status": "in_progress",
+          "conclusion": null,
+          "startedAt": "2026-11-01T12:07:57.000Z",
+          "completedAt": null,
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/2"
+        },
+        {
+          "name": "docs",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": null,
+          "completedAt": null,
+          "detailsUrl": null
+        },
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-11-01T12:00:00.000Z",
+          "completedAt": "2026-11-01T12:04:12.000Z",
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/1"
+        },
+        {
+          "name": "android",
+          "status": "queued",
+          "conclusion": null,
+          "startedAt": null,
+          "completedAt": null,
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/3"
+        }
+      ],
+      "expected": {
+        "glyph": "ci-failed",
+        "tone": "red",
+        "value": "1 failing"
+      }
+    },
+    {
+      "name": "running",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e",
+          "status": "in_progress",
+          "conclusion": null
+        },
+        {
+          "name": "ios",
+          "status": "queued",
+          "conclusion": null
+        }
+      ],
+      "expected": {
+        "glyph": "ci-running",
+        "tone": "muted",
+        "value": "2 running"
+      }
+    },
+    {
+      "name": "green",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "docs",
+          "status": "completed",
+          "conclusion": "skipped"
+        }
+      ],
+      "expected": {
+        "glyph": "ci-passed",
+        "tone": "green",
+        "value": "2 passed"
+      }
+    }
+  ],
+  "failingBody": [
+    {
+      "checks": [
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-11-01T12:00:00.000Z",
+          "completedAt": "2026-11-01T12:00:38.000Z",
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/5"
+        },
+        {
+          "name": "e2e",
+          "status": "in_progress",
+          "conclusion": null,
+          "startedAt": "2026-11-01T12:07:57.000Z",
+          "completedAt": null,
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/2"
+        },
+        {
+          "name": "docs",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": null,
+          "completedAt": null,
+          "detailsUrl": null
+        },
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-11-01T12:00:00.000Z",
+          "completedAt": "2026-11-01T12:04:12.000Z",
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/1"
+        },
+        {
+          "name": "android",
+          "status": "queued",
+          "conclusion": null,
+          "startedAt": null,
+          "completedAt": null,
+          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/3"
+        }
+      ],
+      "expected": "Failing: gate."
+    },
+    {
+      "checks": [
+        {
+          "name": "f",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "e",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "d",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "c",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "b",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "a",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "g",
+          "status": "completed",
+          "conclusion": "failure"
+        }
+      ],
+      "expected": "Failing: a, b, c, d, e +2."
+    }
   ]
 }

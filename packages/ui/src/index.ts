@@ -142,6 +142,8 @@ export * from "./page-header"
 // EXP-1248: THE session row, small | big.
 export * from "./session-row"
 export * from "./session-xref"
+// #EXP-1611: the PR's CI faces (Merge pill states, the Checks submenu).
+export * from "./pr-checks"
 export * from "./run-status-row"
 export * from "./sheet"
 export * from "./sidebar"

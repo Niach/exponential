@@ -1,4 +1,5 @@
 import contract from "../contract.json" with { type: "json" }
+import uiFixture from "../fixtures/pr-checks.json" with { type: "json" }
 
 // EXP-1610 (fixtures/pr-checks.json): CI on a pull request, provider-neutral.
 // The pure half every writer and reader shares: the aggregate state, the
@@ -126,4 +127,150 @@ export function checksBrief(state: PrChecksState, checks: readonly PrCheckLike[]
       .map((check) => ({ name: check.name, url: check.detailsUrl ?? null, required: Boolean(check.required) })),
     pending: checks.filter((check) => check.status !== `completed`).map((check) => check.name),
   }
+}
+
+// ── #EXP-1611: the UI ×4 (pr-checks.json MERGE PILL / CHECKS LIST) ────────
+
+export const PR_CHECKS_COPY = uiFixture.copy
+export const PR_CHECKS_TEST_IDS = uiFixture.testIds
+
+export type CheckGlyph = `ci-queued` | `ci-running` | `ci-passed` | `ci-failed` | `ci-skipped`
+export type CheckTone = `muted` | `green` | `red`
+
+export interface PrCheckRowLike extends PrCheckLike {
+  startedAt?: string | null
+  completedAt?: string | null
+}
+
+export interface PrCheckListRow {
+  name: string
+  glyph: CheckGlyph
+  tone: CheckTone
+  duration: string | null
+  url: string | null
+}
+
+/** `42s` · `3m 5s` · `1h 2m` (floored; negative = 0s). */
+export function formatCheckDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
+
+const msOf = (value: string | null | undefined): number | null => {
+  if (!value) return null
+  const ms = Date.parse(value)
+  return Number.isNaN(ms) ? null : ms
+}
+
+/** completed = completedAt - startedAt; in_progress = now - startedAt;
+ *  else null (queued, or no start). */
+export function checkDuration(check: PrCheckRowLike, now: Date | string): string | null {
+  const started = msOf(check.startedAt)
+  if (started === null) return null
+  if (check.status === `completed`) {
+    const completed = msOf(check.completedAt)
+    return completed === null ? null : formatCheckDuration(completed - started)
+  }
+  if (check.status === `in_progress`) {
+    const at = typeof now === `string` ? Date.parse(now) : now.getTime()
+    return formatCheckDuration(at - started)
+  }
+  return null
+}
+
+export function checkGlyph(check: Pick<PrCheckLike, `status` | `conclusion`>): {
+  glyph: CheckGlyph
+  tone: CheckTone
+} {
+  if (check.status === `queued`) return { glyph: `ci-queued`, tone: `muted` }
+  if (check.status !== `completed`) return { glyph: `ci-running`, tone: `muted` }
+  if (isFailingCheck(check)) return { glyph: `ci-failed`, tone: `red` }
+  if (check.conclusion === `success`) return { glyph: `ci-passed`, tone: `green` }
+  return { glyph: `ci-skipped`, tone: `muted` }
+}
+
+const GLYPH_ORDER: Record<CheckGlyph, number> = {
+  "ci-failed": 0,
+  "ci-running": 1,
+  "ci-queued": 2,
+  "ci-passed": 3,
+  "ci-skipped": 4,
+}
+
+const byCodePoint = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
+/** The `…` menu's Checks rows: failed, running, queued, passed, skipped;
+ *  ties by name (code-point order). */
+export function checksList(checks: readonly PrCheckRowLike[], now: Date | string): PrCheckListRow[] {
+  return checks
+    .map((check) => ({
+      name: check.name,
+      ...checkGlyph(check),
+      duration: checkDuration(check, now),
+      url: check.detailsUrl || null,
+    }))
+    .sort((a, b) => GLYPH_ORDER[a.glyph] - GLYPH_ORDER[b.glyph] || byCodePoint(a.name, b.name))
+}
+
+/** The Checks submenu entry's glyph + value; null = no rows (no entry). */
+export function checksSummary(
+  checks: readonly PrCheckLike[]
+): { glyph: CheckGlyph; tone: CheckTone; value: string } | null {
+  const state = aggregateChecksState(checks)
+  const fill = (template: string, count: number) => template.replace(`{count}`, String(count))
+  switch (state) {
+    case `none`:
+      return null
+    case `failure`:
+      return { glyph: `ci-failed`, tone: `red`, value: fill(PR_CHECKS_COPY.summary.failing, checks.filter(isFailingCheck).length) }
+    case `pending`:
+      return {
+        glyph: `ci-running`,
+        tone: `muted`,
+        value: fill(PR_CHECKS_COPY.summary.running, checks.filter((check) => check.status !== `completed`).length),
+      }
+    case `success`:
+      return { glyph: `ci-passed`, tone: `green`, value: fill(PR_CHECKS_COPY.summary.passed, checks.length) }
+  }
+}
+
+export interface MergePillView {
+  label: string
+  /** `spinner` = THE Spinner in place of a glyph. */
+  glyph: `pr-merged` | `spinner` | `ci-failed`
+  primary: boolean
+  /** Which card a tap opens: the plain merge confirm, the stack confirm, or
+   *  prompts.json `merge-failing-pr`. */
+  confirm: `merge` | `stack` | `failing`
+}
+
+/** THE header Merge pill over the PR's `checks_state`. */
+export function mergePill(input: { state: string | null | undefined; stack: boolean }): MergePillView {
+  if (input.state === `failure`) {
+    return { label: PR_CHECKS_COPY.mergeFailing, glyph: `ci-failed`, primary: false, confirm: `failing` }
+  }
+  return {
+    label: input.stack ? contract.diffUi.mergeStack : contract.diffUi.mergePr,
+    glyph: input.state === `pending` ? `spinner` : `pr-merged`,
+    primary: true,
+    confirm: input.stack ? `stack` : `merge`,
+  }
+}
+
+/** prompts.json `merge-failing-pr` body: the failing rows' names in list
+ *  order (five, then +N). */
+export function failingChecksBody(checks: readonly PrCheckRowLike[]): string {
+  return `Failing: ${failingChecksNames(checks)}.`
+}
+
+/** The `{names}` of prompts.json `merge-failing-pr`. */
+export function failingChecksNames(checks: readonly PrCheckRowLike[]): string {
+  return list(
+    checksList(checks, new Date(0))
+      .filter((row) => row.glyph === `ci-failed`)
+      .map((row) => row.name)
+  )
 }

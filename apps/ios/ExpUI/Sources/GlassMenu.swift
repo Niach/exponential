@@ -110,19 +110,36 @@ public struct GlassMenuItemLabel: View {
     var image: Image? = nil
     var destructive: Bool = false
     var enabled: Bool = true
+    /// #EXP-1611: the glyph's TONE (a check's red / green), over the muted
+    /// default; a disabled row stays muted.
+    var iconTint: Color? = nil
+    /// #EXP-1611: THE spinner in the glyph's slot (a running check).
+    var spinner: Bool = false
+    /// The value column (a submenu's summary, a check's duration).
+    var value: String? = nil
+    /// A submenu row: the chevron after the value.
+    var chevron: Bool = false
 
     public init(
         _ title: String,
         icon: String? = nil,
         image: Image? = nil,
         destructive: Bool = false,
-        enabled: Bool = true
+        enabled: Bool = true,
+        iconTint: Color? = nil,
+        spinner: Bool = false,
+        value: String? = nil,
+        chevron: Bool = false
     ) {
         self.title = title
         self.icon = icon
         self.image = image
         self.destructive = destructive
         self.enabled = enabled
+        self.iconTint = iconTint
+        self.spinner = spinner
+        self.value = value
+        self.chevron = chevron
     }
 
     private var titleColor: Color {
@@ -131,13 +148,18 @@ public struct GlassMenuItemLabel: View {
     }
 
     private var iconColor: Color {
+        // A disabled row keeps its tone, dimmed (a red check without logs).
+        if let iconTint { return enabled ? iconTint : iconTint.opacity(0.5) }
         guard enabled else { return .white.opacity(TextOpacity.quaternary) }
         return destructive ? DesignTokens.Palette.destructive : .white.opacity(TextOpacity.secondary)
     }
 
     public var body: some View {
         HStack(spacing: DesignTokens.Menu.Touch.itemGap) {
-            if let image {
+            if spinner {
+                InlineSpinner(size: 16)
+                    .frame(width: 16, height: 16)
+            } else if let image {
                 image
                     .resizable()
                     .scaledToFit()
@@ -154,6 +176,17 @@ public struct GlassMenuItemLabel: View {
                 .foregroundStyle(titleColor)
                 .lineLimit(1)
             Spacer(minLength: 0)
+            if let value, !value.isEmpty {
+                Text(value)
+                    .font(.system(size: DesignTokens.Typography.Size.sm))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(enabled ? TextOpacity.tertiary : TextOpacity.quaternary))
+                    .lineLimit(1)
+            }
+            if chevron {
+                AppIcon(AppIcons.uiChevronRight, size: 12)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
         }
         .padding(.horizontal, GlassMenuTokens.itemHPadding)
         .frame(maxWidth: .infinity, minHeight: GlassMenuTokens.itemMinHeight, alignment: .leading)
