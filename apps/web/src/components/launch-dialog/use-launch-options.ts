@@ -30,6 +30,7 @@ import {
   lastUsedAccountOption,
   type AccountOption,
 } from "@/lib/accounts/account-option"
+import { COMPUTER_USE_RUN_CAP } from "@/components/launch-dialog/composer-menu"
 import { agentLabel } from "@exp/ui"
 
 // EXP-615: the launch-options cluster every start-coding surface shares —
@@ -296,7 +297,9 @@ export function useLaunchOptions({
   // EXP-201: only agents the chosen device advertised are offerable; a
   // device change re-clamps a now-unavailable selection.
   const availableAgents = deviceAgentIds(device)
-  const computerUseAvailable = device !== undefined
+  // composer-menu.json `conditions.computerUse`: only a device advertising
+  // the per-run cap takes the toggle (older builds would ignore it).
+  const computerUseAvailable = device?.caps?.includes(COMPUTER_USE_RUN_CAP) ?? false
   const computerUse = computerUsePick ?? deviceComputerUseDefault(device)
   const availableAgentsKey = availableAgents.join(`,`)
 
