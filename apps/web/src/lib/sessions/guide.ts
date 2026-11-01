@@ -77,6 +77,17 @@ async function guideReach(tx: Db, session: Session): Promise<GuideReach> {
   return { mine, owns: ownedByAny(mine), reaches: ownedBySubtree(mine, tree) }
 }
 
+/** #EXP-1402: whether a topic's tag names a thread PR that is merged or
+ *  closed (an unknown URL is kept as written). */
+async function isDonePullRequestUrl(tx: Tx, rootId: string, url: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ state: pullRequests.state })
+    .from(pullRequests)
+    .where(and(eq(pullRequests.rootSessionId, rootId), eq(pullRequests.url, url)))
+    .limit(1)
+  return !!row && !(LIVE_PR_STATES as readonly string[]).includes(row.state)
+}
+
 /** EXP-1397/#EXP-1402: the live PR on the writer's CURRENT head (its
  *  branch, in its repository) its logical session opened: a stack's lower PR
  *  never claims the next one's topics, another repository's PR never claims
@@ -311,12 +322,26 @@ export async function writeGuide(args: {
             : existing
               ? undefined
               : ((await openPullRequestUrl(tx, lock.rootId, reach.mine, lock.session)) ?? undefined)
+        // #EXP-1402: a rewrite whose kept tag names a merged/closed PR
+        // drops it for the open-PR default, so it shows in the live body.
+        const kept = tag === undefined && existing?.prUrl ? existing.prUrl : null
+        const stale = kept ? await isDonePullRequestUrl(tx, lock.rootId, kept) : false
         const written = upsertGuideText(
           lock.guide,
           topic,
           text.trim(),
           args.files === null ? [] : (args.files ?? undefined),
-          { at: Date.now(), sessionId: session.id, ...(tag !== undefined ? { prUrl: tag } : {}) },
+          {
+            at: Date.now(),
+            sessionId: session.id,
+            ...(tag !== undefined ? { prUrl: tag } : {}),
+            ...(stale
+              ? {
+                  stalePrUrl: (url: string) => url === kept,
+                  fallbackPrUrl: await openPullRequestUrl(tx, lock.rootId, reach.mine, lock.session),
+                }
+              : {}),
+          },
           reach.owns
         )
         if (!written) throw guideCapError()

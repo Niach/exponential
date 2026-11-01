@@ -1101,6 +1101,19 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
     expect((await row(cont.sessionId)).continuedFromId).toBe(child.sessionId)
     await writeGuide({ userId: w.owner, sessionId: cont.sessionId, topic: `Before`, text: `Rewritten.` })
     expect(await entry(`Before`)).toMatchObject({ text: `Rewritten.`, sessionId: cont.sessionId, prUrl: url })
+    // #EXP-1402: once that PR merged, a rewrite drops its tag for the open
+    // PR on the head, so the new text shows in the live body.
+    const next = `https://github.com/o/r/pull/42`
+    await db.update(pullRequests).set({ state: `merged` }).where(eq(pullRequests.url, url))
+    await db.update(pullRequests).set({ head: `exp/session-child` }).where(eq(pullRequests.url, next))
+    await writeGuide({ userId: w.owner, sessionId: cont.sessionId, topic: `Before`, text: `After merge.` })
+    expect(await entry(`Before`)).toMatchObject({ text: `After merge.`, prUrl: next })
+    // A CLOSED tag with no open PR left: untagged, not sticky.
+    await db.update(pullRequests).set({ state: `closed` }).where(eq(pullRequests.url, next))
+    await writeGuide({ userId: w.owner, sessionId: cont.sessionId, topic: `Before`, text: `After close.` })
+    expect(await entry(`Before`)).toMatchObject({ text: `After close.` })
+    expect((await entry(`Before`))?.prUrl).toBeUndefined()
+    expect((await entry(`Before`))?.untagged).toBeUndefined()
     expect((await row(root.sessionId)).guide!.filter((e) => e.topic === `Before`)).toHaveLength(1)
     await writeGuide({ userId: w.owner, sessionId: cont.sessionId, topic: `After`, remove: true })
     expect((await row(root.sessionId)).guide!.filter((e) => e.topic === `After`).map((e) => e.sessionId)).toEqual([

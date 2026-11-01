@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { issues, messages, pullRequestIssues, pullRequests, sessionIssues, sessions } from "@/db/schema"
 import { extractIssueRefs } from "@/lib/issue-refs"
+import { type GuideTreeRow, logicalSessionIds } from "@/lib/sessions/guide-entries"
 import { inSession } from "@/lib/sessions/messages"
 import { isSealedBody } from "@/lib/sessions/sealed"
 
@@ -15,6 +16,10 @@ import { isSealedBody } from "@/lib/sessions/sealed"
 // EXP-1458: a SEALED start message is never parsed; its clear
 // `ref_issue_ids` (the writer's `refIssueIds`) names the issues instead, and
 // a plaintext one honours them beside its `#IDENT`s.
+// #EXP-1402: the share is the opener's LOGICAL session's (`logicalSessionIds`):
+// a continuation ("fix the lint") inherits what its ended predecessors held
+// and named in their briefs; a root in that lineage adds only its own rows,
+// never its subtree (the whole thread).
 
 type Reader = Pick<typeof db, `select`>
 
@@ -37,27 +42,45 @@ export function subtreeOf(
   return subtree
 }
 
+/** A start message as the share reads it. */
+export interface PrStart {
+  text: string | null
+  /** EXP-1458: the start message's `ref_issue_ids`. */
+  refIssueIds?: readonly string[] | null
+}
+
 /** Pure: the PR's share of the thread's rows (link order, each issue once). */
 export function pickPrIssues(opts: {
   rootId: string
   sessionId: string | null
   links: ReadonlyArray<{ issueId: string; identifier: string; sessionId: string }>
-  tree: ReadonlyArray<{ id: string; parentId: string | null }>
+  tree: ReadonlyArray<GuideTreeRow>
+  /** The opener's start message. */
   startText: string | null
   /** EXP-1458: the start message's `ref_issue_ids`. */
   startRefIssueIds?: readonly string[] | null
+  /** #EXP-1402: the start messages of the opener's lineage predecessors. */
+  lineageStarts?: readonly PrStart[]
 }): string[] {
   const unique = (ids: string[]) => [...new Set(ids)]
   if (!opts.sessionId || opts.sessionId === opts.rootId) {
     return unique(opts.links.map((link) => link.issueId))
   }
-  const subtree = subtreeOf(opts.tree, opts.sessionId)
-  const named = new Set(extractIssueRefs(opts.startText ?? ``))
-  const refs = new Set(opts.startRefIssueIds ?? [])
+  const held = new Set<string>()
+  for (const id of logicalSessionIds(opts.sessionId, opts.tree)) {
+    if (id === opts.rootId) held.add(id)
+    else for (const member of subtreeOf(opts.tree, id)) held.add(member)
+  }
+  const starts: PrStart[] = [
+    { text: opts.startText, refIssueIds: opts.startRefIssueIds },
+    ...(opts.lineageStarts ?? []),
+  ]
+  const named = new Set(starts.flatMap((start) => extractIssueRefs(start.text ?? ``)))
+  const refs = new Set(starts.flatMap((start) => [...(start.refIssueIds ?? [])]))
   return unique(
     opts.links
       .filter(
-        (link) => subtree.has(link.sessionId) || named.has(link.identifier.toUpperCase()) || refs.has(link.issueId)
+        (link) => held.has(link.sessionId) || named.has(link.identifier.toUpperCase()) || refs.has(link.issueId)
       )
       .map((link) => link.issueId)
   )
@@ -69,7 +92,12 @@ export async function prDefaultIssueIds(
   opts: { rootId: string; sessionId: string | null }
 ): Promise<string[]> {
   const tree = await database
-    .select({ id: sessions.id, parentId: sessions.parentId, status: sessions.status })
+    .select({
+      id: sessions.id,
+      parentId: sessions.parentId,
+      continuedFromId: sessions.continuedFromId,
+      status: sessions.status,
+    })
     .from(sessions)
     .where(eq(sessions.rootId, opts.rootId))
   const links = await database
@@ -84,27 +112,31 @@ export async function prDefaultIssueIds(
     .orderBy(asc(sessionIssues.sortOrder), asc(sessionIssues.createdAt))
   if (links.length === 0) return []
 
-  let startText: string | null = null
-  let startRefIssueIds: string[] | null = null
+  // The start message of each lineage member: its first plain (non-card)
+  // row. EXP-1458: a sealed body is never parsed (its refs are the column).
+  const starts: PrStart[] = []
   if (opts.sessionId && opts.sessionId !== opts.rootId) {
-    // The session's start message: the first plain (non-card) row on it.
-    const [start] = await database
-      .select({ body: messages.body, refIssueIds: messages.refIssueIds })
-      .from(messages)
-      .where(and(inSession(opts.sessionId), isNull(messages.card)))
-      .orderBy(asc(messages.createdAt))
-      .limit(1)
-    // EXP-1458: a sealed body is never parsed (its refs are the column).
-    startText = start && !isSealedBody(start.body) ? start.body : null
-    startRefIssueIds = start?.refIssueIds ?? null
+    for (const id of logicalSessionIds(opts.sessionId, tree)) {
+      const [start] = await database
+        .select({ body: messages.body, refIssueIds: messages.refIssueIds })
+        .from(messages)
+        .where(and(inSession(id), isNull(messages.card)))
+        .orderBy(asc(messages.createdAt))
+        .limit(1)
+      starts.push({
+        text: start && !isSealedBody(start.body) ? start.body : null,
+        refIssueIds: start?.refIssueIds ?? null,
+      })
+    }
   }
   const picked = pickPrIssues({
     rootId: opts.rootId,
     sessionId: opts.sessionId,
     links,
     tree,
-    startText,
-    startRefIssueIds,
+    startText: starts[0]?.text ?? null,
+    startRefIssueIds: starts[0]?.refIssueIds ?? null,
+    lineageStarts: starts.slice(1),
   })
   if (picked.length === 0) return []
 

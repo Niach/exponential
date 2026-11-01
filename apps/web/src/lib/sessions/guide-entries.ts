@@ -46,7 +46,7 @@ export interface GuideTreeRow {
 
 /** EXP-1397/#EXP-1402: the ids of `sessionId`'s logical session: itself,
  *  the ENDED rows it continues (its `continuedFromId` chain) and the rows
- *  continuing it, never a sibling continuation of a shared predecessor nor
+ *  continuing it (walked forward only from ended rows), never a sibling continuation of a shared predecessor nor
  *  a row that merely sits on the same branch (FEED-156). */
 export function logicalSessionIds(sessionId: string, tree: readonly GuideTreeRow[]): string[] {
   const byId = new Map(tree.map((row) => [row.id, row]))
@@ -59,14 +59,16 @@ export function logicalSessionIds(sessionId: string, tree: readonly GuideTreeRow
     seen.add(at)
     at = row.continuedFromId
   }
-  const later = new Set([sessionId])
+  // Forward only FROM an ended row: a revived row (live again) never owns
+  // the continuation that took over while it was ended.
+  const later = new Set(byId.get(sessionId)?.status === `ended` ? [sessionId] : [])
   for (let grew = true; grew; ) {
     grew = false
     for (const row of tree) {
       if (row.continuedFromId && later.has(row.continuedFromId) && !seen.has(row.id)) {
         ids.push(row.id)
         seen.add(row.id)
-        later.add(row.id)
+        if (row.status === `ended`) later.add(row.id)
         grew = true
       }
     }
@@ -161,7 +163,16 @@ export function upsertGuideText(
   topic: string,
   text: string,
   files: readonly string[] | undefined,
-  meta: { at: number; sessionId: string; prUrl?: string | null },
+  meta: {
+    at: number
+    sessionId: string
+    prUrl?: string | null
+    /** #EXP-1402: a kept tag naming a merged/closed PR is dropped for
+     *  `fallbackPrUrl` (the writer's open PR, or none), so the rewrite
+     *  shows in the live body. */
+    stalePrUrl?: (url: string) => boolean
+    fallbackPrUrl?: string | null
+  },
   /** Whose entries the write replaces and is capped by (EXP-1397: a
    *  logical session's); default = `meta.sessionId`'s. */
   owned: GuideEntryFilter = ownedBy(meta.sessionId)
@@ -177,11 +188,12 @@ export function upsertGuideText(
         ? []
         : cleanGuideFiles(results[index]!.files!)
       : cleanGuideFiles(files)
+  const keptPrUrl = index === -1 ? null : (results[index]?.prUrl ?? null)
   const prUrl =
     meta.prUrl === undefined
-      ? index === -1
-        ? null
-        : (results[index]?.prUrl ?? null)
+      ? keptPrUrl && meta.stalePrUrl?.(keptPrUrl)
+        ? meta.fallbackPrUrl?.trim() || null
+        : keptPrUrl
       : meta.prUrl?.trim() || null
   // #EXP-1402: an explicit `prUrl: null` is remembered, so no PR stamps it.
   const untagged = meta.prUrl === undefined ? index !== -1 && results[index]?.untagged === true : !prUrl

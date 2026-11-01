@@ -3806,6 +3806,9 @@ export const selectSyncedSessionSchema = selectSessionSchema.omit({
   wakeOn: true,
   // EXP-1374: the stuck rule's clock, server-only.
   lastActivityAt: true,
+  // EXP-1413 / #EXP-1402: server-only, outside the shape's columns.
+  stoppedAt: true,
+  continuedFromId: true,
 })
 
 // NEW-2: agents, events, prompts.

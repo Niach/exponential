@@ -66,6 +66,48 @@ describe(`pickPrIssues`, () => {
   })
 })
 
+describe(`#EXP-1402: a continuation's share is its lineage's`, () => {
+  // root holds EXP-5; a was started with "implement #EXP-5" and ended; its
+  // continuation c ("fix the lint") opens the PR.
+  const lineage = [
+    node(`root`, null),
+    { ...node(`a`, `root`, `ended`), continuedFromId: null },
+    { ...node(`c`, `root`, `running`), continuedFromId: `a` },
+    node(`b`, `root`),
+    node(`a-kid`, `a`, `ended`),
+  ]
+  const held = [
+    link(`i-5`, `EXP-5`, `root`),
+    link(`i-6`, `EXP-6`, `root`),
+    link(`i-7`, `EXP-7`, `b`),
+    link(`i-8`, `EXP-8`, `a-kid`),
+  ]
+
+  it(`takes what the predecessor named and its subtree held, never the whole thread`, () => {
+    expect(
+      pickPrIssues({
+        rootId: `root`,
+        sessionId: `c`,
+        links: held,
+        tree: lineage,
+        startText: `fix the lint`,
+        lineageStarts: [{ text: `implement #EXP-5` }],
+      })
+    ).toEqual([`i-5`, `i-8`])
+    // Without the lineage brief it still takes the predecessor's subtree rows.
+    expect(
+      pickPrIssues({ rootId: `root`, sessionId: `c`, links: held, tree: lineage, startText: `fix the lint` })
+    ).toEqual([`i-8`])
+  })
+
+  it(`a moved root in the lineage adds only its own rows`, () => {
+    const moved = [node(`root`, null, `ended`), { ...node(`c`, `root`), continuedFromId: `root` }, node(`b`, `root`)]
+    expect(
+      pickPrIssues({ rootId: `root`, sessionId: `c`, links: held, tree: moved, startText: `go` })
+    ).toEqual([`i-5`, `i-6`])
+  })
+})
+
 describe(`EXP-1458: the start message's ref_issue_ids`, () => {
   it(`names issues beside (or instead of) the parsed #IDENTs`, () => {
     expect(
@@ -109,6 +151,37 @@ describe(`EXP-1458: the start message's ref_issue_ids`, () => {
     )
     // i-4 was closed by a merged PR: done work is never re-linked.
     expect(ids).toEqual([`i-1`, `i-3`])
+  })
+})
+
+describe(`#EXP-1402: prDefaultIssueIds reads the lineage's start messages`, () => {
+  const reader = (answers: unknown[][]) => {
+    const queue = [...answers]
+    return {
+      select: () => {
+        const rows = queue.shift() ?? []
+        const chain: Record<string, unknown> = {
+          then: (ok: (value: unknown) => unknown, fail?: (err: unknown) => unknown) => Promise.resolve(rows).then(ok, fail),
+        }
+        for (const method of [`from`, `where`, `innerJoin`, `orderBy`, `limit`]) chain[method] = () => chain
+        return chain
+      },
+    } as never
+  }
+
+  it(`the continuation inherits its ended predecessor's brief`, async () => {
+    const lineage = [node(`root`, null), node(`a`, `root`, `ended`), { ...node(`c`, `root`), continuedFromId: `a` }]
+    const ids = await prDefaultIssueIds(
+      reader([
+        lineage,
+        [link(`i-5`, `EXP-5`, `root`), link(`i-6`, `EXP-6`, `root`)],
+        [{ body: `fix the lint`, refIssueIds: null }],
+        [{ body: `implement #EXP-5`, refIssueIds: null }],
+        [],
+      ]),
+      { rootId: `root`, sessionId: `c` }
+    )
+    expect(ids).toEqual([`i-5`])
   })
 })
 

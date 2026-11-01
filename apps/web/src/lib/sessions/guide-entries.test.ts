@@ -200,6 +200,23 @@ describe(`logicalSessionIds`, () => {
     expect(logicalSessionIds(`x`, [{ id: `x`, parentId: `root`, status: `queued` }])).toEqual([`x`])
   })
 
+  it(`walks forward only from ended rows: a revived root never owns its live continuation`, () => {
+    const revived = [
+      { id: `R`, parentId: null, status: `idle` },
+      { id: `C`, parentId: `R`, continuedFromId: `R`, status: `running` },
+    ]
+    expect(logicalSessionIds(`R`, revived)).toEqual([`R`])
+    // Nor does C reach back to the live R.
+    expect(logicalSessionIds(`C`, revived)).toEqual([`C`])
+    // A live middle link stops the walk past it.
+    const chain = [
+      { id: `a`, parentId: `root`, status: `ended` },
+      { id: `b`, parentId: `root`, continuedFromId: `a`, status: `running` },
+      { id: `c`, parentId: `root`, continuedFromId: `b`, status: `running` },
+    ]
+    expect(logicalSessionIds(`a`, chain)).toEqual([`a`, `b`])
+  })
+
   it(`never takes a sibling continuation of a shared predecessor`, () => {
     const forked = [...tree, { id: `c4`, parentId: `root`, continuedFromId: `c2`, status: `running` }]
     expect(logicalSessionIds(`c4`, forked)).toEqual([`c4`, `c2`, `c1`])
@@ -255,6 +272,23 @@ describe(`#EXP-1402: the explicit untag and the stamp guard`, () => {
     // Tagging clears the marker.
     const tagged = upsertGuideText(again, `T`, `c`, undefined, { at: 3, sessionId: `s`, prUrl: `https://github.com/o/r/pull/2` })!
     expect(tagged[0]!.untagged).toBeUndefined()
+  })
+
+  it(`a rewrite drops a kept tag whose PR is merged or closed for the open-PR default`, () => {
+    const old = `https://github.com/o/r/pull/1`
+    const live = `https://github.com/o/r/pull/2`
+    const first = upsertGuideText(null, `T`, `a`, undefined, { at: 1, sessionId: `s`, prUrl: old })!
+    const stale = (url: string) => url === old
+    const moved = upsertGuideText(first, `T`, `b`, undefined, { at: 2, sessionId: `s`, stalePrUrl: stale, fallbackPrUrl: live })!
+    expect(moved[0]).toMatchObject({ text: `b`, prUrl: live })
+    // No open PR: untagged, but NOT sticky, so the next PR open stamps it.
+    const bare = upsertGuideText(first, `T`, `b`, undefined, { at: 2, sessionId: `s`, stalePrUrl: stale, fallbackPrUrl: null })!
+    expect(bare[0]!.prUrl).toBeUndefined()
+    expect(bare[0]!.untagged).toBeUndefined()
+    expect(stampUntaggedGuideEntries(bare, live).changed).toBe(true)
+    // A live kept tag stays.
+    const kept = upsertGuideText(first, `T`, `b`, undefined, { at: 2, sessionId: `s`, stalePrUrl: () => false, fallbackPrUrl: live })!
+    expect(kept[0]!.prUrl).toBe(old)
   })
 
 })
