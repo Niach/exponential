@@ -3,3 +3,5 @@
 - Aplicație nouă deschide imediat editorul, iar agentul îi dă un nume
 - Linia de lucru arată ce instrument scrie agentul și de cât timp
 - Răspunsurile rapide de deasupra câmpului de text se citesc mai ușor
+- Aplicațiile au în editor filele Chat, Date, Versiuni și Setări
+- Setări › MCP este o singură pagină pentru serverele MCP, instrumentele aplicațiilor și activitate

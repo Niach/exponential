@@ -3,3 +3,5 @@
 - Nová aplikácia hneď otvorí editor a agent ju pomenuje
 - Pracovný riadok ukazuje, ktorý nástroj agent práve píše a ako dlho
 - Rýchle odpovede nad poľom na písanie sú lepšie čitateľné
+- Aplikácie majú v editore karty Chat, Dáta, Verzie a Nastavenia
+- Nastavenia › MCP je jedna stránka pre servery MCP, nástroje aplikácií a aktivitu

@@ -3,3 +3,5 @@
 - Nowa aplikacja od razu otwiera edytor, a agent nadaje jej nazwę
 - Wiersz pracy pokazuje, które narzędzie pisze agent i od jak dawna
 - Szybkie odpowiedzi nad polem tekstowym są czytelniejsze
+- Aplikacje mają w edytorze karty Czat, Dane, Wersje i Ustawienia
+- Ustawienia › MCP to jedna strona na serwery MCP, narzędzia aplikacji i aktywność

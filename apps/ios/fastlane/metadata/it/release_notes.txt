@@ -3,3 +3,5 @@
 - Nuova app apre subito l'editor e l'agente dà un nome alla tua app
 - La riga di lavoro mostra quale strumento sta scrivendo l'agente e da quanto
 - Le risposte rapide sopra il campo di testo sono più leggibili
+- Le app hanno le schede Chat, Dati, Versioni e Impostazioni nell'editor
+- Impostazioni › MCP è un'unica pagina per server MCP, strumenti delle app e attività

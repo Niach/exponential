@@ -3,3 +3,5 @@
 - Nova app abre logo o editor e o agente dá nome à sua app
 - A linha de trabalho mostra que ferramenta o agente está a escrever e há quanto tempo
 - As respostas rápidas acima do campo de texto leem-se melhor
+- As apps têm os separadores Chat, Dados, Versões e Definições no editor
+- Definições › MCP é uma página para os seus servidores MCP, ferramentas de apps e atividade

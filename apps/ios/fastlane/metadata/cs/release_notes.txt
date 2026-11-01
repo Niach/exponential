@@ -3,3 +3,5 @@
 - Nová aplikace hned otevře editor a agent ji pojmenuje
 - Pracovní řádek ukazuje, který nástroj agent právě píše a jak dlouho
 - Rychlé odpovědi nad polem pro psaní jsou lépe čitelné
+- Aplikace mají v editoru karty Chat, Data, Verze a Nastavení
+- Nastavení › MCP je jedna stránka pro servery MCP, nástroje aplikací a aktivitu

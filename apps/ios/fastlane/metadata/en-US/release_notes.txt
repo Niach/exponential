@@ -3,3 +3,5 @@
 - New app opens the editor right away, and the agent names your app
 - The working line shows which tool the agent is writing, and for how long
 - Quick replies above the composer are easier to read
+- Apps get Chat, Data, Versions and Settings tabs in the editor
+- Settings › MCP is one page for your MCP servers, app tools and activity
