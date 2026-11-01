@@ -3,3 +3,5 @@
 - Ny app öppnar redigeraren direkt, och agenten namnger din app
 - Arbetsraden visar vilket verktyg agenten skriver och hur länge
 - Snabbsvar ovanför textfältet är lättare att läsa
+- Appar får flikarna Chatt, Data, Versioner och Inställningar i redigeraren
+- Inställningar › MCP är en sida för dina MCP-servrar, appverktyg och aktivitet

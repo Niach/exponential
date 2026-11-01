@@ -3,3 +3,5 @@
 - Uusi sovellus avaa editorin heti, ja agentti nimeää sovelluksesi
 - Työrivi näyttää, mitä työkalua agentti kirjoittaa ja kuinka kauan
 - Kirjoituskentän yläpuolella olevat pikavastaukset ovat helpompia lukea
+- Sovelluksilla on editorissa välilehdet Keskustelu, Data, Versiot ja Asetukset
+- Asetukset › MCP on yksi sivu MCP-palvelimille, sovellusten työkaluille ja toiminnalle

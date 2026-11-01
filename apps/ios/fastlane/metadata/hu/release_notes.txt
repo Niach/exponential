@@ -3,3 +3,5 @@
 - Az Új alkalmazás azonnal megnyitja a szerkesztőt, és az ügynök elnevezi az alkalmazást
 - A munkasor mutatja, melyik eszközt írja az ügynök, és mióta
 - A beviteli mező feletti gyors válaszok könnyebben olvashatók
+- Az alkalmazások szerkesztője Csevegés, Adatok, Verziók és Beállítások lapokat kap
+- A Beállítások › MCP egy oldal az MCP-szervereknek, alkalmazáseszközöknek és tevékenységnek

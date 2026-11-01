@@ -3,3 +3,5 @@
 - Nueva app abre el editor al instante y el agente le pone nombre a tu app
 - La línea de trabajo muestra qué herramienta está escribiendo el agente y desde hace cuánto
 - Las respuestas rápidas sobre el campo de texto se leen mejor
+- Las apps tienen pestañas Chat, Datos, Versiones y Ajustes en el editor
+- Ajustes › MCP es una sola página para tus servidores MCP, herramientas de apps y actividad

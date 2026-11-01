@@ -3,3 +3,5 @@
 - Nieuwe app opent meteen de editor en de agent geeft je app een naam
 - De werkregel laat zien welke tool de agent schrijft en hoe lang al
 - Snelle antwoorden boven het invoerveld zijn beter leesbaar
+- Apps krijgen de tabbladen Chat, Data, Versies en Instellingen in de editor
+- Instellingen › MCP is één pagina voor je MCP-servers, app-tools en activiteit
