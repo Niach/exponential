@@ -63,7 +63,7 @@ import { parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import { escalateTarget } from "@/lib/sessions/escalate"
 import { sendTarget } from "@/lib/sessions/send-target"
 import { extractMentionEmails } from "@/lib/mention-refs"
-import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage, inSession, sessionConversation } from "@/lib/sessions/messages"
+import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage, postMovedMessage, inSession, sessionConversation } from "@/lib/sessions/messages"
 import { clearBlockedInTx, interruption, INTERRUPTIONS } from "@/lib/sessions/watchdog"
 import {
   dismissReplies,
@@ -85,6 +85,7 @@ import {
   fireAndForgetSessionMessageNotify,
   notifySessionAsk,
   notifySessionBlocked,
+  notifySessionLeftover,
 } from "@/lib/integrations/notifications"
 
 // EXP-1291/NEW-1: THE session router. A thread IS a root session that
@@ -102,6 +103,14 @@ import {
 const uuid = z.string().uuid()
 
 const suggestionRef = z.object({ messageId: uuid, itemId: z.string().min(1).max(64) })
+
+/** #EXP-1618: a leftover branch the device names (`exp/leftover-<id8>`,
+ *  maybe `-<n>`): nothing else reaches the line or the inbox. */
+const leftoverBranchSchema = z.string().regex(/^exp\/leftover-[a-z0-9]{1,8}(-[0-9])?$/)
+
+/** #EXP-1618: the conversation's line for a leftover branch (the device's
+ *  NEW-5 note, now the server's). */
+export const leftoverText = (branch: string) => `Unpushed work was kept on branch ${branch}.`
 
 /** The cards a DEVICE may post (the server owns event/session cards). */
 const DEVICE_CARD_KINDS = new Set([`question`, `plan`, `subagent`, `picture`])
@@ -872,6 +881,24 @@ export const sessionsRouter = router({
       if (endedHere) await relayKillSessionsBestEffort([session.id])
       // EXP-1413: a turn ending (or a child's process going) is a yolo edge.
       if (yoloTurnEnd) yoloEdge(session.rootId)
+      return { txid }
+    }),
+
+  /** #EXP-1618: the device parked a session's unpushed work on a leftover
+   *  branch (its own branch refused the push). The session's conversation
+   *  gets ONE server line naming it (`leftoverText`, never waking the
+   *  agent) and its starter an inbox row (`notifySessionLeftover`). */
+  leftover: authedProcedure
+    .input(z.object({ sessionId: uuid, branch: leftoverBranchSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadDeviceSession(ctx, input.sessionId)
+      if (!session) return noOpTx(ctx.db)
+      const txid = await ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        await postMovedMessage(tx, session, leftoverText(input.branch))
+        return txid
+      })
+      void notifySessionLeftover(session.id, input.branch)
       return { txid }
     }),
 

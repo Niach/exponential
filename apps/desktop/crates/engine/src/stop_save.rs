@@ -42,6 +42,16 @@ pub fn save_stopped_run_work(exit: &EngineExit, worktree: &Path) {
     }
 }
 
+/// #EXP-1618: on EVERY run exit (a stop, an interrupt, a move's kill, a
+/// suspend at quit, the agent's own end) push the worktree's branch and
+/// its uncommitted work ([`coding::auto_push::sync_worktree`]), so nothing
+/// of the run lives only on this machine. Call it after
+/// [`save_stopped_run_work`] (whose WIP commit it then pushes). Blocking
+/// git + network: the engine thread, never a UI thread.
+pub fn push_run_work(worktree: &Path) {
+    let _ = coding::auto_push::sync_worktree(worktree);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

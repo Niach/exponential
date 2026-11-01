@@ -308,7 +308,17 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) ->
             "could not count the unpushed commits".to_string(),
         ));
     };
+    // #EXP-1618: the session's OWN branch first (a plain push, never
+    // forced): the leftover branch is the last resort for a branch origin
+    // refuses (rewritten history, another device's push, a protected name).
+    let own = crate::auto_push::PushTarget {
+        worktree: cleanup.worktree.clone(),
+        branch: cleanup.branch.clone(),
+        base_branch: Some(cleanup.base_branch.clone()),
+    };
     let leftover = if unpushed == 0 || head_landed(cleanup) {
+        None
+    } else if crate::auto_push::push_branch(&own).on_origin() {
         None
     } else {
         match push_leftover(&cleanup.worktree, &leftover) {
@@ -316,6 +326,10 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) ->
             Err(detail) => return FinishOutcome::Skipped(SkipReason::GitFailed(detail)),
         }
     };
+    // Everything is on a branch now: the uncommitted-work snapshot is spent.
+    if let Err(detail) = crate::auto_push::drop_wip(&own) {
+        log::info!("run finish {}: the WIP snapshot stays on origin: {detail}", cleanup.branch);
+    }
     // Everything worth keeping is on `origin` now; untracked debris goes
     // with the worktree (git refuses it without --force).
     let path = cleanup.worktree.to_string_lossy().into_owned();
@@ -454,9 +468,16 @@ pub fn finish_session_worktree(
     outcome
 }
 
-/// NEW-5: post [`leftover_note`] into `session_id`'s conversation
-/// (`sessions.reply`) — best-effort, logged on failure.
+/// NEW-5: post [`leftover_note`] into `session_id`'s conversation —
+/// best-effort, logged on failure. #EXP-1618: through `sessions.leftover`
+/// (the server's line + an inbox row for the starter, so a leftover is
+/// never silently orphaned); a server without it gets the old
+/// `sessions.reply` line.
 pub fn post_leftover_note(trpc: &api::trpc::TrpcClient, session_id: &str, branch: &str) {
+    match api::session_device::leftover(trpc, session_id, branch) {
+        Ok(()) => return,
+        Err(err) => log::info!("run cleanup [{session_id}]: sessions.leftover failed ({err}); posting a reply"),
+    }
     if let Err(err) = api::session_device::reply(
         trpc,
         session_id,
@@ -752,9 +773,38 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// #EXP-1618: origin's copy of the session's own branch moved on
+    /// without this worktree (another device pushed, or the agent rewrote
+    /// it): the finish can no longer fast-forward it, the leftover branch
+    /// takes the work.
+    fn diverge_own_branch(cleanup: &RunCleanup) {
+        git(&cleanup.clone, &["checkout", "-q", "-b", "elsewhere", "origin/main"]);
+        commit_in(&cleanup.clone, "elsewhere.txt", "another device\n");
+        git(&cleanup.clone, &["push", "-q", "origin", &format!("elsewhere:refs/heads/{}", cleanup.branch)]);
+        git(&cleanup.clone, &["checkout", "-q", "main"]);
+    }
+
+    /// #EXP-1618: a finish pushes unpushed commits and the tracked WIP
+    /// commit to the session's OWN branch; no leftover branch, no line.
+    #[test]
+    fn finish_pushes_dirty_work_to_the_sessions_own_branch() {
+        let (root, cleanup) = fixture("finish-own");
+        commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
+        std::fs::write(cleanup.worktree.join("README.md"), "edited\n").unwrap();
+        assert_eq!(
+            finish_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: None }
+        );
+        assert!(!cleanup.worktree.exists());
+        assert_eq!(origin_log(&cleanup, &cleanup.branch), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
+        assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn finish_saves_dirty_work_as_a_pushed_leftover_branch() {
         let (root, cleanup) = fixture("finish-dirty");
+        diverge_own_branch(&cleanup);
         commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
         std::fs::write(cleanup.worktree.join("README.md"), "edited\n").unwrap();
         std::fs::write(cleanup.worktree.join("debris.log"), "noise").unwrap();
@@ -789,6 +839,7 @@ mod tests {
         commit_in(&cleanup.clone, "other.txt", "unrelated\n");
         git(&cleanup.clone, &["push", "-q", "origin", "other:refs/heads/exp/leftover-1a2b3c4d"]);
         git(&cleanup.clone, &["checkout", "-q", "main"]);
+        diverge_own_branch(&cleanup);
         commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
         assert_eq!(
             finish_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
@@ -881,10 +932,11 @@ mod tests {
         let session = "1A2B3C4D-1111-4111-8111-111111111111";
         assert_eq!(session_id8(session), "1a2b3c4d");
         let (root, cleanup) = fixture("finish-session-note");
+        diverge_own_branch(&cleanup);
         commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
         let (base, requests) = crate::test_support::canned_server_recording(vec![(
             200,
-            r#"{"result":{"data":{"messageId":"m-1"}}}"#.to_string(),
+            r#"{"result":{"data":{"txid":"1"}}}"#.to_string(),
         )]);
         let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
         assert_eq!(
@@ -893,12 +945,25 @@ mod tests {
         );
         let requests = requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 1, "{requests:?}");
-        assert!(requests[0].starts_with("POST /api/trpc/sessions.reply "), "{}", requests[0]);
-        assert!(
-            requests[0].contains("Unpushed work was kept on branch exp/leftover-1a2b3c4d."),
-            "{}",
-            requests[0]
-        );
+        // #EXP-1618: the server's leftover mutation (line + inbox row).
+        assert!(requests[0].starts_with("POST /api/trpc/sessions.leftover "), "{}", requests[0]);
+        assert!(requests[0].contains("exp/leftover-1a2b3c4d"), "{}", requests[0]);
+        let _ = std::fs::remove_dir_all(&root);
+
+        // A server without `sessions.leftover`: the old reply line.
+        let (root, cleanup) = fixture("finish-session-note-old");
+        diverge_own_branch(&cleanup);
+        commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
+        let (base, requests) = crate::test_support::canned_server_recording(vec![
+            (404, r#"{"error":{"message":"No procedure found"}}"#.to_string()),
+            (200, r#"{"result":{"data":{"messageId":"m-1"}}}"#.to_string()),
+        ]);
+        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        finish_session_worktree(&trpc, session, &cleanup, &LiveHolders::default());
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2, "{requests:?}");
+        assert!(requests[1].starts_with("POST /api/trpc/sessions.reply "), "{}", requests[1]);
+        assert!(requests[1].contains("Unpushed work was kept on branch exp/leftover-1a2b3c4d."), "{}", requests[1]);
         let _ = std::fs::remove_dir_all(&root);
 
         // Everything already on origin: no line.

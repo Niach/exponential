@@ -298,6 +298,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     std::fs::write(pidfile(&ctx.data_dir), std::process::id().to_string())
         .context("write the daemon pidfile")?;
     install_signal_handler();
+    // #EXP-1618: the device's background pusher: every session branch and
+    // its uncommitted work reach origin while the run goes on.
+    coding::auto_push::ensure_started(&ctx.data_dir);
 
     let device_id = ctx.device_id();
     let explicit_label = label_flag.filter(|label| !label.is_empty());
@@ -1167,6 +1170,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
         .iter()
         .map(|entry| Arc::clone(&entry.session))
         .collect();
+    // #EXP-1618: a stop (a reboot, a logout, an update) first pushes every
+    // run's branch and uncommitted work: the machine may not come back.
+    let pushed = coding::auto_push::sync_live_runs(&ctx.data_dir, Duration::from_secs(20));
+    log::info!("daemon stopping: pushed {pushed} session worktree(s)");
     // EXP-1292: a daemon stop (logout, reboot, `daemon stop`) is not a person
     // ending the work — every row idles, and the next message resumes it,
     // exactly as after a crash.

@@ -349,6 +349,21 @@ pub fn reply(
     Ok(output.message_id)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LeftoverInput<'a> {
+    session_id: &'a str,
+    branch: &'a str,
+}
+
+/// #EXP-1618: `sessions.leftover` — mutation: the session's unpushed work
+/// was parked on `branch` (`exp/leftover-<id8>`). The server posts the
+/// conversation's line and tells the starter in the inbox.
+pub fn leftover(trpc: &TrpcClient, session_id: &str, branch: &str) -> Result<(), ApiError> {
+    let _: serde::de::IgnoredAny = trpc.mutation("sessions.leftover", &LeftoverInput { session_id, branch })?;
+    Ok(())
+}
+
 /// EXP-1458: [`reply`] as the engine posts it: the card as JSON (a SEALED
 /// card, `{...clear, sealed}`, is no [`ReplyCard`]), `body` possibly a body
 /// envelope, and the sealed reply's [`ReplyExtras`]. Returns the row id and

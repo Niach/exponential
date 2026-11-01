@@ -402,6 +402,8 @@ impl engine::EngineHost for CliEngineHost {
         // FEED-63: a run a PERSON stopped keeps its uncommitted work as a
         // local WIP commit on its branch (never pushed).
         engine::save_stopped_run_work(&exit, &self.worktree);
+        // #EXP-1618: …and every exit pushes the branch + its uncommitted work.
+        engine::push_run_work(&self.worktree);
         if let Ok(mut hold) = self.refresher_hold.lock() {
             drop(hold.take());
         }
