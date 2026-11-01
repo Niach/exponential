@@ -12,6 +12,7 @@ import {
   TrendingUp,
   Users,
   Building2,
+  Radio,
 } from "lucide-react"
 import { Button, Separator, SEGMENTED_ITEM, SEGMENTED_LIST } from "@exp/ui"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -127,6 +128,9 @@ function AdminLayout() {
           </AdminNavLink>
           <AdminNavLink to="/admin/performance" icon={Activity}>
             Performance
+          </AdminNavLink>
+          <AdminNavLink to="/admin/connections" icon={Radio}>
+            Connections
           </AdminNavLink>
           {isCloud && (
             <AdminNavLink to="/admin/conversions" icon={TrendingUp}>
