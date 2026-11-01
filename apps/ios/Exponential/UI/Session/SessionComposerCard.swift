@@ -13,7 +13,8 @@ import UniformTypeIdentifiers
 // S-3 (composer-menu.json, surface session | agent): with `controls` the `+`
 // opens THE "+" sheet (`ThreadComposerPlusMenu`): Photo or file (THE Photo
 // | File sub-choice), Issue › (a pick inserts `#IDENT` at the caret),
-// Model › (`/model <alias>`). A bare box's `+` is Photo | File.
+// Account › (#EXP-1535: the usage wall's session account switch), Model ›
+// (`/model <alias>`). A bare box's `+` is Photo | File.
 
 /// The draft one composer edits: the session view's model (it outlives the
 /// screen, EXP-621) or a thread's own (`ThreadComposerDraft`).
@@ -351,6 +352,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
             agent: controls.agent,
             modelValue: controls.modelValue,
             onPickModel: controls.onPickModel,
+            account: controls.account,
             teamId: controls.teamId,
             onPickIssue: { issue in
                 if let identifier = issue.identifier {

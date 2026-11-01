@@ -7,7 +7,8 @@
 //! the options line under every composer) and the "+" menu drawn OPEN beside
 //! it (a real `PopupMenu` built row by row off
 //! `chat_screen::composer_menu_rows`: a start = the launch surface on
-//! Temporary session, a session = its surface, the model only). The
+//! Temporary session, a session = its surface: Account (#EXP-1535) and
+//! the model). The
 //! specimen ([`ComposerSpecimen`], [`plus_menu_open`]) is shared with the
 //! `session-thread` entry, like the web `composer-specimen.tsx`. The agent
 //! case keeps the home placeholder (the agent row above the card picks the
@@ -234,7 +235,8 @@ impl Render for OpenMenu {
 /// start.
 pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
     // S-3: a start = the launch surface on Temporary session (every runner
-    // and work row); a session = the session surface (the model only).
+    // and work row); a session = the session surface (#EXP-1535: Account
+    // on its online device, then the model).
     let (surface, temporary) = match phase {
         Phase::Start => (ComposerSurface::Launch, true),
         _ => (ComposerSurface::Session, false),
@@ -244,7 +246,7 @@ pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
         ComposerMenuConditions {
             temporary,
             device: temporary,
-            account: temporary,
+            account: true,
             model: true,
             repositories: true,
             subagent_model: true,
@@ -488,7 +490,7 @@ mod tests {
                 ComputerUse
             ]
         );
-        assert_eq!(plus_menu_rows(Phase::Running), vec![AddFile, ImplementIssue, Prompts, Separator, Model]);
+        assert_eq!(plus_menu_rows(Phase::Running), vec![AddFile, ImplementIssue, Prompts, Separator, Account, Model]);
         assert_eq!(plus_menu_rows(Phase::Idle), plus_menu_rows(Phase::Running));
     }
 

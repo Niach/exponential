@@ -30,6 +30,7 @@ import {
   type ComposerInlineToolsHandle,
 } from "@/components/composer-inline-tools"
 import { ComposerOptionsMenu } from "@/components/launch-dialog/composer-plus-menu"
+import { useSessionAccountSwitch } from "@/components/session-account-switch"
 import type { ComposerMenuSurface } from "@/components/launch-dialog/composer-menu"
 import {
   SlashCommandMenu,
@@ -88,9 +89,11 @@ import { cn } from "@/lib/utils"
 // under the card. S-3 (composer-menu.json surface `session` | `agent`): the
 // "+" = Photo or file · Issue › (a pick inserts `#IDENT`) · Model › (THE
 // model rows; a pick = `sessions.configure {model}`, shown at once until
-// the relay's `config_state` confirms) while the agent switches models; no
-// Device pin (a running session never moves device here), no model word in
-// the row. An agent chat with no conversation yet (`sessionId` null) sends
+// the relay's `config_state` confirms) while the agent switches models;
+// #EXP-1535 Account › (THE AccountPicker rows; a pick = the usage wall's
+// session account switch, `useSessionAccountSwitch`) while the session's
+// device is online and the viewer steers it; no Device pin (a running
+// session never moves device here), no model word in the row. An agent chat with no conversation yet (`sessionId` null) sends
 // `sessions.send({agentId})` through the same composer. The live
 // reads (model in force, usage, commands) are the session's relay state
 // (`acquireSteerSession`), the synced row the fallback.
@@ -247,6 +250,7 @@ export function SessionComposer({
   const toolsRef = useRef<ComposerInlineToolsHandle>(null)
 
   const { store, row, config, usage, contextLayout, fallback } = useComposerSession(sessionId)
+  const accountSwitch = useSessionAccountSwitch(row)
   // EXP-1211: the agent's quick replies, above the card.
   const quick = useComposerReplies(sessionId ?? ``)
   // EXP-1342: a Stop (here or the header's) hands the unread messages' text
@@ -505,17 +509,30 @@ export function SessionComposer({
             <ComposerOptionsMenu
               surface={surface}
               agent={agent}
-              runner={
-                row && MODEL_SWITCHING_AGENTS.has(agent)
+              runner={{
+                ...(row &&
+                !ended &&
+                accountSwitch.canSteer &&
+                accountSwitch.deviceOnline &&
+                accountSwitch.options.length > 0
+                  ? {
+                      account: {
+                        value: accountSwitch.value,
+                        options: accountSwitch.options,
+                        onChange: (key: string) => void accountSwitch.switchTo(key),
+                      },
+                    }
+                  : {}),
+                ...(row && MODEL_SWITCHING_AGENTS.has(agent)
                   ? {
                       model: {
                         value: model,
                         models: modelOptions,
-                        onChange: (value) => void pickModel(value),
+                        onChange: (value: string) => void pickModel(value),
                       },
                     }
-                  : undefined
-              }
+                  : {}),
+              }}
               issues={{
                 kind: `insert`,
                 onPick: (identifier) =>

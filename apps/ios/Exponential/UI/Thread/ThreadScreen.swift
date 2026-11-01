@@ -1526,6 +1526,10 @@ struct ThreadComposer: View {
                     guard let message else { return }
                     toaster.error(SessionDeviceMove.failureToast, description: message)
                 }
+                .onChange(of: steerModel?.switchError) { _, message in
+                    guard let message else { return }
+                    toaster.error(FeedbackStates.Errors.title(verb: "switch", thing: "the account"), description: message)
+                }
                 .onChange(of: draft.draftEditor.isEditing) { _, editing in
                     if editing { focusPending = false }
                     guard expanded, !editing, !focusPending else { return }
@@ -1633,7 +1637,10 @@ struct ThreadComposer: View {
                     editor.insertTextAtCaret(body)
                     focus()
                 }
-            }
+            },
+            // #EXP-1535: the "+" Account page = the usage wall's session
+            // account switch on the root (its live model's rules).
+            account: steerModel?.composerAccountMenu
         )
     }
 

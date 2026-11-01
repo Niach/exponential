@@ -150,22 +150,28 @@ public struct AccountPickerContent: View {
     let value: String?
     let onChange: (String) -> Void
     let mark: ((String) -> Image?)?
+    /// #EXP-1535: rows rendered but never pickable (by `key`), as
+    /// `AccountPicker.disabledKeys`: a session's "+" Account page lists a
+    /// refused login (or every login, on a run-level refusal) disabled.
+    let disabledKeys: Set<String>
 
     public init(
         options: [AccountOption],
         value: String?,
         onChange: @escaping (String) -> Void,
-        mark: ((String) -> Image?)? = nil
+        mark: ((String) -> Image?)? = nil,
+        disabledKeys: Set<String> = []
     ) {
         self.options = options
         self.value = value
         self.onChange = onChange
         self.mark = mark
+        self.disabledKeys = disabledKeys
     }
 
     public var body: some View {
         GlassPickerContent(
-            items: AccountPicker<EmptyView>.items(options),
+            items: AccountPicker<EmptyView>.items(options, disabledKeys: disabledKeys),
             mode: .single,
             value: value.map { [$0] } ?? [],
             onChange: { picked in picked.first.map(onChange) },

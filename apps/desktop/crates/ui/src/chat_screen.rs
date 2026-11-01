@@ -3050,6 +3050,7 @@ pub(crate) fn plus_menu(
                                 format!("chat-menu-account-{}", option.account_option_key()),
                                 move || crate::coding_selects::agent_mark(agent),
                                 label,
+                                option.health.badge_label(),
                                 checked,
                                 option.limits.clone(),
                                 move |window, cx| {

@@ -7703,6 +7703,33 @@ impl SteerSessionView {
         }
     }
 
+    /// #EXP-1535 — the "+" menu's Account › (composer-menu.json
+    /// `conditions.account`): the session is live, its device online (or
+    /// hosted here) and the viewer steers it; then THE switch decision the
+    /// usage wall's "Switch account" offers ([`Self::switch_account_control`]'s
+    /// context, [`crate::account_switch::SwitchContext::resolve`]: the host's
+    /// logins for the session's agent, each refusal on its row). `None` =
+    /// no row (no builtin agent, or the host reported no login).
+    fn composer_account_switch(
+        &self,
+        cx: &App,
+    ) -> Option<(crate::account_switch::SwitchContext, Vec<crate::account_switch::SwitchTarget>)> {
+        let row = self.row.as_ref()?;
+        let device_online = row.device_id.is_some() && (self.is_local() || !self.device(cx).offline);
+        if !crate::account_switch::composer_offers_account(self.run_open(), device_online, self.may_message) {
+            return None;
+        }
+        let context = crate::account_switch::SwitchContext {
+            session_id: self.session_id.to_string(),
+            device_id: row.device_id.clone(),
+            local: self.is_local(),
+            agent: self.builtin_agent()?,
+            working: self.working_now(),
+        };
+        let targets = context.resolve(cx)?;
+        Some((context, targets))
+    }
+
     /// EXP-1334: whether this viewer may change the run's options mid-session
     /// (`sessions.configure`): a live run it may message.
     fn configurable(&self) -> bool {
@@ -7858,9 +7885,11 @@ impl SteerSessionView {
     /// EXP-1334 / S-3 — the composer's "+": THE composer menu
     /// (composer-menu.json) on the `session` surface (`agent` for an agent
     /// conversation): Photo or file, Issue › (THE issue search list; a pick
-    /// inserts `#IDENT` at the caret), then Model › while the run may switch
-    /// models (claude and codex: `sessions.configure({model})`). A running
-    /// session never moves device or login here; the work rows belong to a
+    /// inserts `#IDENT` at the caret), then #EXP-1535 Account › while the
+    /// device is online and the viewer steers the session (THE usage wall's
+    /// switch: [`Self::composer_account_switch`]), then Model › while the run
+    /// may switch models (claude and codex: `sessions.configure({model})`).
+    /// A running session never moves device here; the work rows belong to a
     /// start.
     fn render_plus_menu(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         use crate::chat_screen::{composer_menu_rows, titled_row, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
@@ -7884,9 +7913,11 @@ impl SteerSessionView {
                     .collect()
             })
             .unwrap_or_default();
+        let account_switch = self.composer_account_switch(cx);
         let rows = composer_menu_rows(
             surface,
             ComposerMenuConditions {
+                account: account_switch.is_some(),
                 model: self.configurable(),
                 prompts: !prompts.is_empty(),
                 ..ComposerMenuConditions::default()
@@ -7904,6 +7935,15 @@ impl SteerSessionView {
             };
             (choices, value)
         };
+        // #EXP-1535 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=session-account`):
+        // open the menu once with Account › selected (its submenu open).
+        let account_step = rows
+            .iter()
+            .filter(|row| **row != Row::Separator)
+            .position(|row| *row == Row::Account);
+        let dev_open = account_step.is_some()
+            && crate::navigation::shapes_ready(cx)
+            && crate::screens::take_dev_session_account_menu();
         let input = self.input.clone();
         let trigger = crate::composer::composer_tool(
             SharedString::from(format!("{}-plus", self.composer_ids.attach)),
@@ -7977,6 +8017,46 @@ impl SteerSessionView {
                             )
                         })
                     }
+                    // #EXP-1535: THE account rows (agent mark, login, health
+                    // hint, the usage preview on hover), the run's login
+                    // checked; a pick IS the usage wall's "Switch account"
+                    // (`account_switch::switch_to`: `sessions.send {sessionId,
+                    // account}`, no text). A refusal disables its row.
+                    Row::Account => {
+                        let Some((context, targets)) = account_switch.clone() else {
+                            continue;
+                        };
+                        let value = crate::account_switch::current_caption(&targets);
+                        menu.submenu_with_icon(row.icon().map(Icon::new), titled_row(row, value), window, cx, move |mut sub, _, _| {
+                            let agent = context.agent;
+                            for target in &targets {
+                                let session_id = context.session_id.clone();
+                                let local = context.local;
+                                let profile_id = target.profile_id.clone();
+                                sub = sub.item(
+                                    crate::controls::pointer_account_item(
+                                        format!("steer-menu-account-{}", target.profile_id),
+                                        move || crate::coding_selects::agent_mark(agent),
+                                        target.caption.clone(),
+                                        target.health.badge_label(),
+                                        target.current,
+                                        target.usage.as_ref().and_then(coding::account_option::account_limits),
+                                        move |window, cx| {
+                                            crate::account_switch::switch_to(
+                                                session_id.clone(),
+                                                local,
+                                                profile_id.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        },
+                                    )
+                                    .disabled(!target.pickable()),
+                                );
+                            }
+                            sub
+                        })
+                    }
                     Row::Model => {
                         let value = models
                             .iter()
@@ -8013,6 +8093,8 @@ impl SteerSessionView {
             menu
         })
         .anchor(gpui::Anchor::BottomLeft)
+        .dev_open(dev_open)
+        .dev_steps(account_step.map_or(1, |at| at + 1))
         .into_any_element()
     }
 

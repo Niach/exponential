@@ -719,12 +719,8 @@ private fun RunFaceContent(
     // the switch gates on but the turn slot (which is right here in `activity`).
     val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
     val switchingAccount by viewModel.switchingAccount.collectAsStateWithLifecycle()
-    // EXP-849: a refused switch = `Couldn't switch the account`.
-    val switchError by viewModel.switchError.collectAsStateWithLifecycle()
-    com.exponential.app.ui.components.FailedActionToast(
-        switchError?.let { com.exponential.app.ui.components.FailedAction("switch", "the account", it.ifBlank { null }) },
-        onShown = viewModel::clearSwitchError,
-    )
+    // EXP-849: a refused switch = `Couldn't switch the account`, raised by
+    // THE SessionComposer (#EXP-1535: its Account › is the same switch).
     // EXP-746: the agent's live configuration (the composer footer + the run's
     // own `/` commands) and its context/spend meter. Both null on a PTY run,
     // which publishes neither.
@@ -4628,6 +4624,44 @@ internal fun SessionComposer(
     // #EXP-1434: the + menu's prompt lands at the composer's caret (its
     // selection, kept current below where the field value lives).
     val promptCaret = remember { intArrayOf(-1, -1) }
+    // #EXP-1535: Account › = THE session account switch (the usage wall's),
+    // while the session's device is online and the viewer steers it. A
+    // run-level refusal (not claude, offline, busy) or a login's own disables
+    // the row; the submenu stays.
+    val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
+    val viewerId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    val switchError by viewModel.switchError.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(
+        switchError?.let { com.exponential.app.ui.components.FailedAction("switch", "the account", it.ifBlank { null }) },
+        onShown = viewModel::clearSwitchError,
+    )
+    val composerAccount = session?.let { row ->
+        val canSteer = SessionDeviceMove.canSteer(row.shared, row.userId, viewerId)
+        // No login reported for the session's agent = no row (web, desktop).
+        if (row.isEnded || !accountSwitch.deviceOnline || !canSteer || accountSwitch.options.isEmpty()) return@let null
+        // The row only shows to a viewer who steers the session: the
+        // starter-only refusal reads `canSteerSession` here (web parity).
+        val gate = accountSwitch.copy(mine = true)
+        val options = accountSwitch.options
+        SessionComposerAccount(
+            options = options.map { option ->
+                com.exponential.app.ui.components.picker.AccountPickerOption(
+                    key = option.profileId,
+                    agent = accountSwitch.agent?.takeIf { it.isNotBlank() } ?: composerAgent,
+                    email = option.caption,
+                    healthNote = AgentHealthRules.badgeLabel(option.health),
+                    limits = com.exponential.app.domain.AccountOptions.limitsOf(option.usage),
+                    disabled = gate.refusal(option, activity.turnState) != null,
+                )
+            },
+            value = options.firstOrNull { it.current }?.profileId,
+            onPick = { key ->
+                options.firstOrNull { it.profileId == key }
+                    ?.takeIf { gate.refusal(it, activity.turnState) == null }
+                    ?.let(viewModel::switchAccount)
+            },
+        )
+    }
     val plusMenu = SessionComposerMenu(
         agent = composerAgent,
         effort = picks.effort ?: session?.effort.orEmpty(),
@@ -4659,6 +4693,7 @@ internal fun SessionComposer(
         surface = surface,
         prompts = promptRows,
         onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id, at = promptCaret[0] to promptCaret[1]) },
+        account = composerAccount,
     )
 
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
@@ -5228,6 +5263,24 @@ internal data class SessionComposerMenu(
     val prompts: List<com.exponential.app.domain.SlashPrompt> = emptyList(),
     /** ... and its pick = the `/` menu's pick (the body into the draft). */
     val onPickPrompt: (com.exponential.app.domain.SlashPrompt) -> Unit = {},
+    /** #EXP-1535: Account ›, while the session's device is online and the
+     *  viewer steers it; null = no row. */
+    val account: SessionComposerAccount? = null,
+)
+
+/**
+ * #EXP-1535: the session composer's Account › = THE AccountPicker rows over
+ * the session's agent's logins (the current one checked, a refused one
+ * disabled), and a pick = THE usage wall's switch
+ * ([AgentSessionViewModel.switchAccount]: `sessions.send {sessionId,
+ * account}`, no text).
+ */
+@Immutable
+internal data class SessionComposerAccount(
+    val options: List<com.exponential.app.ui.components.picker.AccountPickerOption>,
+    /** The current login's key, null when the run's login is unknowable. */
+    val value: String?,
+    val onPick: (String) -> Unit,
 )
 
 @Composable
@@ -5396,6 +5449,8 @@ private fun ExpandedSteerComposer(
                 // S-3: a session / an agent chat changes its model only (on a
                 // model-switching agent); never its device or login here.
                 ComposerMenuConditions(
+                    // #EXP-1535: the login its NEXT turn runs on.
+                    account = menu.account != null,
                     model = model != null && (modelPickable || modelSwitches),
                     prompts = menu.prompts.isNotEmpty(),
                 ),
@@ -5431,7 +5486,12 @@ private fun ExpandedSteerComposer(
                     },
                 )
             },
-            values = mapOf(ComposerMenuRowId.Model to model?.let(::modelLabel)),
+            values = mapOf(
+                ComposerMenuRowId.Account to menu.account?.let { account ->
+                    account.options.firstOrNull { it.key == account.value }?.email
+                },
+                ComposerMenuRowId.Model to model?.let(::modelLabel),
+            ),
             pages = mapOf(
                 // #EXP-1434: the `/` menu's pick, from the "+".
                 ComposerMenuRowId.Prompts to { close ->
@@ -5441,6 +5501,18 @@ private fun ExpandedSteerComposer(
                             menu.onPickPrompt(prompt)
                             close()
                         },
+                    )
+                },
+                // #EXP-1535: THE account picker's rows (the launch
+                // composer's); a pick = the session account switch.
+                ComposerMenuRowId.Account to { close ->
+                    val account = menu.account
+                    com.exponential.app.ui.components.picker.AccountPicker(
+                        options = account?.options.orEmpty(),
+                        value = account?.value,
+                        onChange = { key -> if (key != account?.value) account?.onPick?.invoke(key) },
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
                     )
                 },
                 ComposerMenuRowId.Model to { close ->

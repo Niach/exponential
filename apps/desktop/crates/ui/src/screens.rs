@@ -992,6 +992,16 @@ pub(crate) fn take_dev_composer_menu(dialog: bool) -> bool {
         && !TAKEN.swap(true, Ordering::SeqCst)
 }
 
+/// #EXP-1535 — `EXP_DEV_COMPOSER_MENU=session-account` opens a session
+/// composer's "+" menu with its Account submenu open, once (the first
+/// session view whose menu has the Account row).
+pub(crate) fn take_dev_session_account_menu() -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static TAKEN: AtomicBool = AtomicBool::new(false);
+    std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref() == Some("session-account")
+        && !TAKEN.swap(true, Ordering::SeqCst)
+}
+
 /// EXP-1259 — `EXP_DEV_SCROLL_TO=script-card` parks a session's transcript
 /// on its first code-mode Script card instead of the tail, so the
 /// `script-card` capture has it in frame; EXP-1324 `work-card` parks it on

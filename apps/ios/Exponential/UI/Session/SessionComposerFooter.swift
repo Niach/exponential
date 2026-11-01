@@ -6,8 +6,9 @@ import SwiftUI
 /// row: the `+` — the composer's ONLY tool — then the context ring beside
 /// Send ⇄ Stop. No options line, no inline device / model pins, no
 /// image/file/#/emoji/mention buttons: the model is the "+" Model row
-/// (surface session | agent), a running session never moves device or
-/// login here. With `controls` the `+` opens THE "+" sheet
+/// (surface session | agent), and #EXP-1535 the login is the "+" Account
+/// row (THE usage wall's session account switch); a running session never
+/// moves device here. With `controls` the `+` opens THE "+" sheet
 /// (`ThreadComposerPlusMenu`, presented by `SessionComposerCard`); a bare
 /// box (no controls) opens the Photo | File sub-choice directly. The ring
 /// hides until context data lands and opens the Usage sheet (EXP-1150).
@@ -40,6 +41,9 @@ struct SessionComposerFooter: View {
         /// inserted at the caret).
         var prompts: [SlashPrompt] = []
         var onPickPrompt: (SlashPrompt) -> Void = { _ in }
+        /// #EXP-1535: the "+" Account page
+        /// (`AgentSessionModel.composerAccountMenu`); nil = no Account row.
+        var account: AccountMenu?
 
         /// composer-menu.json `model`: a session or an agent chat whose
         /// agent switches models (always for claude and codex), never ended.
@@ -47,8 +51,23 @@ struct SessionComposerFooter: View {
 
         /// The "+" conditions of this composer.
         var menuConditions: ComposerMenu.Conditions {
-            ComposerMenu.Conditions(model: canPickModel, prompts: !prompts.isEmpty)
+            ComposerMenu.Conditions(
+                account: !ended && account != nil, model: canPickModel, prompts: !prompts.isEmpty
+            )
         }
+    }
+
+    /// #EXP-1535: what the "+" Account page reads — THE AccountPicker rows
+    /// over the session's agent's logins (`SessionAccountSwitch.options`),
+    /// the current one checked, the refused ones disabled; a pick = the
+    /// usage wall's switch (`sessions.send {sessionId, account}`, no text).
+    struct AccountMenu {
+        let options: [AccountOption]
+        /// The login the session is on (`sessions.account`), if listed.
+        let current: AccountOption?
+        let disabledKeys: Set<String>
+        /// The picked row's `AccountOption.key`.
+        let onPick: (String) -> Void
     }
 
     /// nil = the bare box (the `+` = Photo | File).
