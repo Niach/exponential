@@ -1,0 +1,46 @@
+name: ios-core
+
+# #EXP-1543: the iOS ExpCore suite (every contract fixture's Swift replay) as
+# a plain SwiftPM package on the macOS host (apps/ios/ExpCore/Package.swift):
+# no tuist, no Firebase, no simulator. ~2 min cold on the MacBook; the full
+# iOS compile + suites stay in test-ios.yml. 2026-11-01: test.yml calls it on
+# PRs as an INFORMATIONAL check (outside `gate`: the single Mac runner never
+# blocks a merge); release-suite.yml calls it as a release blocker, so a red
+# ExpCore replay stops every ios-v* tag.
+
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
+  ios-core:
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27
+        run: bash .github/scripts/select-xcode.sh
+      # The package pins GRDB exactly; the app's pin is Tuist/Package.resolved.
+      - name: GRDB pin matches the app's
+        run: |
+          app="$(jq -r '.pins[] | select(.identity == "grdb.swift") | .state.version' apps/ios/Tuist/Package.resolved)"
+          grep -qF "exact: \"$app\"" apps/ios/ExpCore/Package.swift \
+            || { echo "::error::apps/ios/ExpCore/Package.swift must pin GRDB $app (Tuist/Package.resolved)"; exit 1; }
+      - uses: actions/cache@v4
+        if: runner.environment == 'github-hosted'
+        with:
+          path: apps/ios/ExpCore/.build
+          key: ${{ runner.os }}-expcore-${{ hashFiles('apps/ios/ExpCore/Package.swift') }}
+      - name: swift test
+        run: swift test --package-path apps/ios/ExpCore
+      - name: Free the MacBook's disk
+        if: always() && runner.environment == 'self-hosted'
+        run: rm -rf apps/ios/ExpCore/.build

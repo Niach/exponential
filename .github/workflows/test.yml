@@ -4,9 +4,10 @@ name: test
 # Only the cheap checks that catch real breakage run here: the typecheck, the
 # web unit tests (four shards), the migration chain against a real Postgres
 # (order, drift, custom triggers), the styleguide suite, and `cargo check` of the desktop workspace
-# when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, the iOS
-# ExpCore fixture replay (`ios-core`) when it touches ExpCore or a fixture it reads, plus the eUI conformance pass (`eui`, below) when
-# it touches eUI. Everything heavy (the rest of the eUI suite: unit suites,
+# when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, plus the
+# eUI conformance pass (`eui`, below; every renderer but SwiftUI) when it touches eUI. The Mac-runner
+# legs (`ios-core`, the ExpCore fixture replay, and `eui-swift`, the SwiftUI conformance pass) run on
+# PRs too but are informational: `gate` does not wait for them. Everything heavy (the rest of the eUI suite: unit suites,
 # parity, guides, benches, Simulator + emulator; iOS, Android, the full desktop cargo test, marketing,
 # shots:check, the package suites, the real-DB suites, image smoke builds)
 # runs in release-suite.yml: on release tags and on workflow_dispatch.
@@ -57,7 +58,7 @@ jobs:
           ede='^(apps/ede/|apps/desktop/crates/ecore/|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
-          ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/test\.yml$)'
+          ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
           echo "ios=$(grep -qE "$ios" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
@@ -143,36 +144,15 @@ jobs:
         working-directory: apps/desktop
         run: cargo test --locked -p ecore
 
-  # #EXP-1543: the iOS ExpCore suite (every contract fixture's Swift replay)
-  # as a plain SwiftPM package on the macOS host (apps/ios/ExpCore/Package.swift):
-  # no tuist, no Firebase, no simulator. Before it, the fixtures drifted on iOS
-  # until a release ran test-ios.yml (VAPP-179's preview ids). ~2 min cold on
-  # the MacBook; the full iOS compile + suites stay in test-ios.yml.
+  # #EXP-1543: the iOS ExpCore suite (ios-core.yml) when the PR touches
+  # ExpCore or a fixture it reads. INFORMATIONAL (2026-11-01): not in `gate`,
+  # so a busy single Mac runner never blocks a merge; release-suite.yml runs
+  # it as a release blocker before every ios-v* build.
   ios-core:
     needs: [pick, changes]
     if: needs.changes.outputs.ios == 'true'
-    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - name: Select Xcode 27
-        run: bash .github/scripts/select-xcode.sh
-      # The package pins GRDB exactly; the app's pin is Tuist/Package.resolved.
-      - name: GRDB pin matches the app's
-        run: |
-          app="$(jq -r '.pins[] | select(.identity == "grdb.swift") | .state.version' apps/ios/Tuist/Package.resolved)"
-          grep -qF "exact: \"$app\"" apps/ios/ExpCore/Package.swift \
-            || { echo "::error::apps/ios/ExpCore/Package.swift must pin GRDB $app (Tuist/Package.resolved)"; exit 1; }
-      - uses: actions/cache@v4
-        if: runner.environment == 'github-hosted'
-        with:
-          path: apps/ios/ExpCore/.build
-          key: ${{ runner.os }}-expcore-${{ hashFiles('apps/ios/ExpCore/Package.swift') }}
-      - name: swift test
-        run: swift test --package-path apps/ios/ExpCore
-      - name: Free the MacBook's disk
-        if: always() && runner.environment == 'self-hosted'
-        run: rm -rf apps/ios/ExpCore/.build
+    uses: ./.github/workflows/ios-core.yml
+    secrets: inherit
 
   # eDE (#NEW-101): the compositor's own workspace. Its tests are headless
   # (pixman renders into memory, real Wayland clients over a socketpair), so
@@ -210,6 +190,19 @@ jobs:
     uses: ./.github/workflows/exponential-ui.yml
     with:
       conformance_only: true
+      skip_swift: true
+    secrets: inherit
+
+  # The SwiftUI renderer's conformance pass, INFORMATIONAL (2026-11-01): the
+  # same leg on the single Mac runner, outside `gate` (the full Swift suite
+  # stays a release blocker in release-suite.yml).
+  eui-swift:
+    needs: [pick, changes]
+    if: needs.changes.outputs.eui == 'true'
+    uses: ./.github/workflows/exponential-ui.yml
+    with:
+      conformance_only: true
+      swift_only: true
     secrets: inherit
 
   # EXP-1429: the gpui revision policy (zed + gpui-component revs, the
@@ -255,7 +248,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, migrations, desktop, ede, ios-core, eui, gpui-revs, styleguide, rewrite-gaps]
+    needs: [pick, changes, web, migrations, desktop, ede, eui, gpui-revs, styleguide, rewrite-gaps]
     if: always()
     runs-on: ubuntu-latest
     steps:
