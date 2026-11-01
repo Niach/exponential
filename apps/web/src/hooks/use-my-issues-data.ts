@@ -97,7 +97,12 @@ export function useMyIssuesData({
       // snapshot, so treat it as ready-empty instead of loading forever —
       // but only once the boards snapshot itself landed, or the empty
       // state flashes while boards are still syncing (REV2-59 class).
-      issuesReady: issuesReady || (boardsReady && boardMap.size === 0),
+      // EXP-1550: a SKIPPED query reports `isReady: true`, so it only counts
+      // once the query actually runs.
+      issuesReady:
+        assignee && boardMap.size > 0
+          ? issuesReady
+          : boardsReady && boardMap.size === 0,
       labelList,
       boardMap,
       totalIssueCount: issueList.length,
@@ -118,6 +123,7 @@ export function useMyIssuesData({
     issueList,
     issuesReady,
     labelList,
+    assignee,
     boardMap,
     boardsReady,
     statusOptions,

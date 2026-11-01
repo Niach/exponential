@@ -78,6 +78,7 @@ function IssueNavPane({
   labels,
   users,
   listKey,
+  isLoading,
 }: {
   groups: IssueGroup[]
   teamSlug: string
@@ -92,6 +93,7 @@ function IssueNavPane({
   /** WHICH list this is. The selection is per list: a new occupant starts
    *  empty (the IDE clears it on every origin change). */
   listKey: string
+  isLoading?: boolean
 }) {
   const permissions = useTeamPermissions(team)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -118,6 +120,7 @@ function IssueNavPane({
         canModerate={permissions.isModerator}
         selectedIds={selectedIds}
         onSelectedIdsChange={setSelectedIds}
+        isLoading={isLoading}
       />
       {team && selectedIssues.length > 0 && (
         // EXP-289's no-jump rule: the bar FLOATS over the bottom of the rows,
@@ -209,8 +212,15 @@ function InboxNavRows() {
 
 function MyIssuesNavRows({ teamSlug }: { teamSlug: string }) {
   const { data: session } = useSession()
-  const { visibleGroups, boardMap, team, issueLabelMap, labelList, users } =
-    useMyIssuesData({ userId: session?.user?.id, teamSlug })
+  const {
+    visibleGroups,
+    boardMap,
+    team,
+    issueLabelMap,
+    labelList,
+    users,
+    issuesReady,
+  } = useMyIssuesData({ userId: session?.user?.id, teamSlug })
   const { issueIdentifier } = useActiveDetail()
   const boardSlugById = useMemo(
     () =>
@@ -243,6 +253,7 @@ function MyIssuesNavRows({ teamSlug }: { teamSlug: string }) {
       labels={labelList}
       users={users}
       listKey={`inbox:my-issues`}
+      isLoading={!issuesReady}
     />
   )
 }
