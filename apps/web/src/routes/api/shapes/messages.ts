@@ -22,6 +22,8 @@ export const MESSAGE_COLUMNS = [
   `card`,
   // EXP-1458: the attachments a (possibly sealed) message carries.
   `attachment_ids`,
+  // #EXP-1584: the forwarded issues' section the device hands the agent.
+  `issue_brief`,
   `answered_at`,
   `consumed_at`,
   `created_at`,

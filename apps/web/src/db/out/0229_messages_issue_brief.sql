@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ADD COLUMN "issue_brief" text;

@@ -495,6 +495,8 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "card",
             // FEED-180: the clear attachments of a (possibly sealed) message.
             "attachment_ids",
+            // #EXP-1584: the forwarded issues' section the agent reads.
+            "issue_brief",
             "answered_at",
             "consumed_at",
             "created_at",
