@@ -4692,13 +4692,13 @@ internal fun SessionComposer(
                     email = option.caption,
                     healthNote = AgentHealthRules.badgeLabel(option.health),
                     limits = com.exponential.app.domain.AccountOptions.limitsOf(option.usage),
-                    disabled = gate.refusal(option, activity.turnState) != null,
+                    disabled = gate.refusal(option, composerActivity.turnState) != null,
                 )
             },
             value = options.firstOrNull { it.current }?.profileId,
             onPick = { key ->
                 options.firstOrNull { it.profileId == key }
-                    ?.takeIf { gate.refusal(it, activity.turnState) == null }
+                    ?.takeIf { gate.refusal(it, composerActivity.turnState) == null }
                     ?.let(viewModel::switchAccount)
             },
         )
