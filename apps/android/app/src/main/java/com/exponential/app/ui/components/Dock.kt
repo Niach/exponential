@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -244,6 +245,12 @@ fun DockPile(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // #EXP-1585: a card takes its own height, never the
+                    // pile's animated one. The pile starts at 0 (no height
+                    // measured yet), so a card measured inside it read 0,
+                    // the pile stayed 0 and a LONE card never showed (two
+                    // or more grew out of it through the peek offsets).
+                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
                     .offset(y = offset)
                     .graphicsLayer {
                         scaleX = scale
