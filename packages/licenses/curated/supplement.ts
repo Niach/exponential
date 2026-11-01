@@ -242,6 +242,23 @@ export const VENDORED: CuratedEntry[] = [
       },
     ],
   },
+  // EXP-1603: eUI Motion's engine (apps/desktop/crates/eui-motion) ports
+  // lottie-web's shape modifiers, text layout and primitive builders; the
+  // CLI (`exponential motion`) links it. EXP-1604 adds the clients its
+  // painters reach.
+  {
+    title: `lottie-web (ported, eUI Motion)`,
+    clients: [`desktop`],
+    body: [
+      `eUI Motion's engine (apps/desktop/crates/eui-motion) contains Rust ports of parts of lottie-web (https://github.com/airbnb/lottie-web, commit bede03d25d232826e0c9dca1733d542d8a7754fb, MIT, Copyright (c) 2015 Bodymovin): the shape primitive builders, the trim, round-corners, pucker/bloat, zig-zag and offset-path modifiers, the repeater steps, text layout with animators and range selectors, and effect parameter semantics. The crate's NOTICE lists the files and the changes; the MIT notice is reproduced below.`,
+    ],
+    reproduce: [
+      {
+        label: `MIT License — lottie-web (Bodymovin)`,
+        path: `apps/desktop/crates/eui-motion/LICENSE-lottie-web.txt`,
+      },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

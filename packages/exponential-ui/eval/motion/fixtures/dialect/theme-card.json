@@ -1,0 +1,13 @@
+{
+  "id": "theme-card",
+  "variant": "dialect",
+  "prompt": "A card that slides up and fades in, with a title bar and two text lines appearing after it, using the theme colours, 200×140.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:04:07.697Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 867
+  },
+  "text": "```json\n{\n  \"size\": [200, 140],\n  \"duration\": 1800,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"line2\",\n      \"transform\": {\n        \"position\": [0, 0],\n        \"opacity\": {\"keys\": [\n          {\"t\": 0, \"v\": 0},\n          {\"t\": 800, \"v\": 0, \"ease\": \"ease-out\"},\n          {\"t\": 1100, \"v\": 100}\n        ]}\n      },\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [76, 100], \"size\": [100, 8], \"radius\": 4},\n        {\"type\": \"fill\", \"color\": \"$color.muted\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"line1\",\n      \"transform\": {\n        \"position\": [0, 0],\n        \"opacity\": {\"keys\": [\n          {\"t\": 0, \"v\": 0},\n          {\"t\": 650, \"v\": 0, \"ease\": \"ease-out\"},\n          {\"t\": 950, \"v\": 100}\n        ]}\n      },\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [100, 82], \"size\": [148, 8], \"radius\": 4},\n        {\"type\": \"fill\", \"color\": \"$color.muted\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"titlebar\",\n      \"transform\": {\n        \"position\": [0, 0],\n        \"opacity\": {\"keys\": [\n          {\"t\": 0, \"v\": 0},\n          {\"t\": 450, \"v\": 0, \"ease\": \"ease-out\"},\n          {\"t\": 750, \"v\": 100}\n        ]}\n      },\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [100, 48], \"size\": [148, 20], \"radius\": 6},\n        {\"type\": \"fill\", \"color\": \"$color.primary\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"card\",\n      \"transform\": {\n        \"position\": {\"keys\": [\n          {\"t\": 0, \"v\": [0, 30], \"ease\": \"ease-out\"},\n          {\"t\": 500, \"v\": [0, 0]}\n        ]},\n        \"opacity\": {\"keys\": [\n          {\"t\": 0, \"v\": 0, \"ease\": \"ease-out\"},\n          {\"t\": 500, \"v\": 100}\n        ]}\n      },\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [100, 70], \"size\": [176, 116], \"radius\": 12},\n        {\"type\": \"stroke\", \"color\": \"$color.muted\", \"width\": 1},\n        {\"type\": \"fill\", \"color\": \"$color.foreground\"}\n      ]\n    }\n  ]\n}\n```"
+}

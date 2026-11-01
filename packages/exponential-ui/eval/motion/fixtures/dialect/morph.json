@@ -1,0 +1,13 @@
+{
+  "id": "morph",
+  "variant": "dialect",
+  "prompt": "A square that morphs into a circle and back while changing colour, 120×120.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:37.083Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 969
+  },
+  "text": "```json\n{\n  \"size\": [120, 120],\n  \"duration\": 1800,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"morph\",\n      \"transform\": {\n        \"anchor\": [60, 60],\n        \"position\": [60, 60],\n        \"rotation\": {\n          \"keys\": [\n            {\"t\": 0, \"v\": 0, \"ease\": \"ease-in-out\"},\n            {\"t\": 900, \"v\": 90, \"ease\": \"ease-in-out\"},\n            {\"t\": 1800, \"v\": 180}\n          ]\n        }\n      },\n      \"shapes\": [\n        {\n          \"type\": \"rect\",\n          \"position\": [60, 60],\n          \"size\": [64, 64],\n          \"radius\": {\n            \"keys\": [\n              {\"t\": 0, \"v\": 0, \"ease\": \"ease-in-out\"},\n              {\"t\": 900, \"v\": 32, \"ease\": \"ease-in-out\"},\n              {\"t\": 1800, \"v\": 0}\n            ]\n          }\n        },\n        {\n          \"type\": \"fill\",\n          \"color\": {\n            \"keys\": [\n              {\"t\": 0, \"v\": \"#3b82f6\", \"ease\": \"ease-in-out\"},\n              {\"t\": 900, \"v\": \"#ec4899\", \"ease\": \"ease-in-out\"},\n              {\"t\": 1800, \"v\": \"#3b82f6\"}\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}\n```"
+}

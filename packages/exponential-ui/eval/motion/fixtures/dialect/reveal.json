@@ -1,0 +1,13 @@
+{
+  "id": "reveal",
+  "variant": "dialect",
+  "prompt": "A logo reveal: the word shape is uncovered by a circle that grows from the centre (use a mask or matte), 240×120.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:04:04.614Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 765
+  },
+  "text": "```json\n{\n  \"size\": [240, 120],\n  \"duration\": 1600,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"text\",\n      \"id\": \"word\",\n      \"transform\": { \"position\": [120, 72] },\n      \"text\": {\n        \"text\": \"MOTION\",\n        \"font\": \"Helvetica-Bold\",\n        \"size\": 44,\n        \"color\": \"$color.foreground\",\n        \"align\": \"center\"\n      },\n      \"matte\": { \"source\": \"iris\", \"mode\": \"alpha\" }\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"iris\",\n      \"transform\": {\n        \"position\": [120, 60],\n        \"scale\": {\n          \"keys\": [\n            { \"t\": 200, \"v\": [0, 0], \"ease\": [0.65, 0, 0.35, 1] },\n            { \"t\": 1300, \"v\": [700, 700] }\n          ]\n        }\n      },\n      \"shapes\": [\n        { \"type\": \"ellipse\", \"position\": [0, 0], \"size\": [40, 40] },\n        { \"type\": \"fill\", \"color\": \"#ffffff\" }\n      ]\n    }\n  ]\n}\n```"
+}

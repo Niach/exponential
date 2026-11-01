@@ -1,0 +1,25 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_motionplayer_free: (a: number, b: number) => void;
+export const compile: (a: number, b: number) => [number, number];
+export const motionplayer_addFont: (a: number, b: number, c: number, d: number, e: number) => void;
+export const motionplayer_frameRate: (a: number) => number;
+export const motionplayer_height: (a: number) => number;
+export const motionplayer_images: (a: number) => [number, number];
+export const motionplayer_inPoint: (a: number) => number;
+export const motionplayer_markers: (a: number) => [number, number];
+export const motionplayer_needsFonts: (a: number) => number;
+export const motionplayer_new: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const motionplayer_outPoint: (a: number) => number;
+export const motionplayer_sample: (a: number, b: number) => any;
+export const motionplayer_warnings: (a: number) => [number, number];
+export const motionplayer_width: (a: number) => number;
+export const validate: (a: number, b: number) => [number, number];
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __externref_drop_slice: (a: number, b: number) => void;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_start: () => void;

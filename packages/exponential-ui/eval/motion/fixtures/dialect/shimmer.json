@@ -1,0 +1,13 @@
+{
+  "id": "shimmer",
+  "variant": "dialect",
+  "prompt": "A skeleton placeholder: three grey bars with a light shimmer passing across, 240×80.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:43.834Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 1429
+  },
+  "text": "```json\n{\n  \"size\": [240, 80],\n  \"duration\": 1500,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"shimmer\",\n      \"matte\": { \"source\": \"barsMatte\", \"mode\": \"alpha\" },\n      \"shapes\": [\n        {\n          \"type\": \"group\",\n          \"transform\": {\n            \"position\": {\n              \"keys\": [\n                { \"t\": 0, \"v\": [-60, 40], \"ease\": \"ease-in-out\" },\n                { \"t\": 1500, \"v\": [300, 40] }\n              ]\n            },\n            \"rotation\": 20\n          },\n          \"shapes\": [\n            { \"type\": \"rect\", \"position\": [0, 0], \"size\": [60, 160], \"radius\": 0 },\n            {\n              \"type\": \"gradient-fill\",\n              \"kind\": \"linear\",\n              \"start\": [-30, 0],\n              \"end\": [30, 0],\n              \"stops\": [\n                [0, \"#ffffff00\"],\n                [0.5, \"#ffffffb3\"],\n                [1, \"#ffffff00\"]\n              ]\n            }\n          ]\n        }\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"barsMatte\",\n      \"shapes\": [\n        { \"type\": \"rect\", \"position\": [120, 16], \"size\": [216, 12], \"radius\": 6 },\n        { \"type\": \"rect\", \"position\": [96, 40], \"size\": [168, 12], \"radius\": 6 },\n        { \"type\": \"rect\", \"position\": [72, 64], \"size\": [120, 12], \"radius\": 6 },\n        { \"type\": \"fill\", \"color\": \"#000000\" }\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"bars\",\n      \"shapes\": [\n        { \"type\": \"rect\", \"position\": [120, 16], \"size\": [216, 12], \"radius\": 6 },\n        { \"type\": \"rect\", \"position\": [96, 40], \"size\": [168, 12], \"radius\": 6 },\n        { \"type\": \"rect\", \"position\": [72, 64], \"size\": [120, 12], \"radius\": 6 },\n        { \"type\": \"fill\", \"color\": \"$color.muted\" }\n      ]\n    }\n  ]\n}\n```"
+}

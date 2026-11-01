@@ -5,6 +5,7 @@ pub mod devices;
 pub mod doctor;
 pub mod login;
 pub mod mcp;
+pub mod motion;
 pub mod remote;
 pub mod run;
 pub mod sessions;

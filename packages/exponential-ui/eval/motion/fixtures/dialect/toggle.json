@@ -1,0 +1,13 @@
+{
+  "id": "toggle",
+  "variant": "dialect",
+  "prompt": "A toggle switch knob sliding from off to on while the track changes colour, 64×36.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:25.983Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 925
+  },
+  "text": "```json\n{\n  \"size\": [64, 36],\n  \"duration\": 1600,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"knob\",\n      \"transform\": {\n        \"position\": {\n          \"keys\": [\n            {\"t\": 0, \"v\": [18, 18], \"ease\": \"hold\"},\n            {\"t\": 300, \"v\": [18, 18], \"ease\": [0.4, 0, 0.2, 1]},\n            {\"t\": 700, \"v\": [46, 18], \"ease\": \"hold\"},\n            {\"t\": 1000, \"v\": [46, 18], \"ease\": [0.4, 0, 0.2, 1]},\n            {\"t\": 1400, \"v\": [18, 18]}\n          ]\n        },\n        \"scale\": {\n          \"keys\": [\n            {\"t\": 300, \"v\": [100, 100], \"ease\": \"ease-in-out\"},\n            {\"t\": 450, \"v\": [112, 100], \"ease\": \"ease-in-out\"},\n            {\"t\": 700, \"v\": [100, 100], \"ease\": \"hold\"},\n            {\"t\": 1000, \"v\": [100, 100], \"ease\": \"ease-in-out\"},\n            {\"t\": 1150, \"v\": [112, 100], \"ease\": \"ease-in-out\"},\n            {\"t\": 1400, \"v\": [100, 100]}\n          ]\n        }\n      },\n      \"shapes\": [\n        {\"type\": \"ellipse\", \"position\": [0, 1], \"size\": [28, 28]},\n        {\"type\": \"fill\", \"color\": \"#00000033\"},\n        {\"type\": \"group\", \"shapes\": [\n          {\"type\": \"ellipse\", \"position\": [0, 0], \"size\": [28, 28]},\n          {\"type\": \"fill\", \"color\": \"#ffffff\"}\n        ]}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"track-on\",\n      \"transform\": {\n        \"opacity\": {\n          \"keys\": [\n            {\"t\": 0, \"v\": 0, \"ease\": \"hold\"},\n            {\"t\": 300, \"v\": 0, \"ease\": \"ease-in-out\"},\n            {\"t\": 700, \"v\": 100, \"ease\": \"hold\"},\n            {\"t\": 1000, \"v\": 100, \"ease\": \"ease-in-out\"},\n            {\"t\": 1400, \"v\": 0}\n          ]\n        }\n      },\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [32, 18], \"size\": [64, 36], \"radius\": 18},\n        {\"type\": \"fill\", \"color\": \"$color.success\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"track-off\",\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [32, 18], \"size\": [64, 36], \"radius\": 18},\n        {\"type\": \"fill\", \"color\": \"$color.muted\"}\n      ]\n    }\n  ]\n}\n```"
+}

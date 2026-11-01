@@ -1,0 +1,13 @@
+{
+  "id": "progress-ring",
+  "variant": "dialect",
+  "prompt": "A progress ring that fills from 0 to 75% over one second, 80×80.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:14.803Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 759
+  },
+  "text": "```json\n{\n  \"size\": [80, 80],\n  \"duration\": 1000,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"progress\",\n      \"shapes\": [\n        {\"type\": \"path\", \"d\": \"M40 10 C56.57 10 70 23.43 70 40 C70 56.57 56.57 70 40 70 C23.43 70 10 56.57 10 40 C10 23.43 23.43 10 40 10 Z\"},\n        {\n          \"type\": \"trim\",\n          \"start\": 0,\n          \"end\": {\"keys\": [\n            {\"t\": 0, \"v\": 0, \"ease\": \"ease-in-out\"},\n            {\"t\": 1000, \"v\": 75}\n          ]},\n          \"offset\": 0\n        },\n        {\"type\": \"stroke\", \"color\": \"$color.primary\", \"width\": 8, \"cap\": \"round\", \"join\": \"round\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"track\",\n      \"shapes\": [\n        {\"type\": \"ellipse\", \"position\": [40, 40], \"size\": [60, 60]},\n        {\"type\": \"stroke\", \"color\": \"$color.muted\", \"width\": 8}\n      ]\n    }\n  ]\n}\n```"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "battery",
+  "variant": "dialect",
+  "prompt": "A battery icon charging: the level fills in three steps, looping, 80×40.",
+  "model": "claude-sonnet-5-5",
+  "recordedAt": "2026-11-01T17:03:47.617Z",
+  "recordedBy": "claude-cli",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 803
+  },
+  "text": "```json\n{\n  \"size\": [80, 40],\n  \"duration\": 1800,\n  \"fps\": 60,\n  \"layers\": [\n    {\n      \"type\": \"shape\",\n      \"id\": \"bar3\",\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [48, 20], \"size\": [14, 20], \"radius\": 2},\n        {\"type\": \"fill\", \"color\": \"$color.success\"}\n      ],\n      \"transform\": {\n        \"opacity\": {\"keys\": [\n          {\"t\": 0, \"v\": 0, \"ease\": \"hold\"},\n          {\"t\": 1200, \"v\": 100, \"ease\": \"hold\"},\n          {\"t\": 1700, \"v\": 0}\n        ]}\n      }\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"bar2\",\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [32, 20], \"size\": [14, 20], \"radius\": 2},\n        {\"type\": \"fill\", \"color\": \"$color.success\"}\n      ],\n      \"transform\": {\n        \"opacity\": {\"keys\": [\n          {\"t\": 0, \"v\": 0, \"ease\": \"hold\"},\n          {\"t\": 700, \"v\": 100, \"ease\": \"hold\"},\n          {\"t\": 1700, \"v\": 0}\n        ]}\n      }\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"bar1\",\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [16, 20], \"size\": [14, 20], \"radius\": 2},\n        {\"type\": \"fill\", \"color\": \"$color.success\"}\n      ],\n      \"transform\": {\n        \"opacity\": {\"keys\": [\n          {\"t\": 0, \"v\": 0, \"ease\": \"hold\"},\n          {\"t\": 300, \"v\": 100, \"ease\": \"hold\"},\n          {\"t\": 1700, \"v\": 0}\n        ]}\n      }\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"terminal\",\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [71, 20], \"size\": [5, 14], \"radius\": 2},\n        {\"type\": \"fill\", \"color\": \"$color.foreground\"}\n      ]\n    },\n    {\n      \"type\": \"shape\",\n      \"id\": \"body\",\n      \"shapes\": [\n        {\"type\": \"rect\", \"position\": [34, 20], \"size\": [66, 32], \"radius\": 6},\n        {\"type\": \"stroke\", \"color\": \"$color.foreground\", \"width\": 3, \"join\": \"round\"}\n      ]\n    }\n  ]\n}\n```"
+}
