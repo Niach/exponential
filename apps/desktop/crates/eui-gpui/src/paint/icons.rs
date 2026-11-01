@@ -63,7 +63,6 @@ impl Glyph {
             Glyph::Attach | Glyph::Plus => IconName::Plus,
             Glyph::Minus => IconName::Minus,
             Glyph::Spinner => IconName::LoaderCircle,
-            Glyph::Play => IconName::Play,
             Glyph::Image => IconName::GalleryVerticalEnd,
             Glyph::Copy => IconName::Copy,
             Glyph::Upload => IconName::ArrowUp,
@@ -75,7 +74,7 @@ impl Glyph {
             Glyph::Back => IconName::ArrowLeft,
             Glyph::Star => IconName::Star,
             Glyph::Fullscreen => IconName::Maximize,
-            Glyph::Stop | Glyph::Clock | Glyph::Placeholder => return None,
+            Glyph::Play | Glyph::Stop | Glyph::Clock | Glyph::Placeholder => return None,
         })
     }
 
@@ -130,6 +129,7 @@ pub fn glyph(g: Glyph, size: f32, color: Hsla) -> AnyElement {
         Some(name) => Icon::new(name).size(px(size)).text_color(color).into_any_element(),
         None if g == Glyph::Stop => div().size(px(size)).flex().items_center().justify_center().child(div().size(px(size * 0.6)).rounded(px(2.0)).bg(color)).into_any_element(),
         None if g == Glyph::Clock => clock(size, color),
+        None if g == Glyph::Play => play(size, color),
         None => placeholder(size, color),
     }
 }
@@ -146,6 +146,30 @@ fn clock(size: f32, color: Hsla) -> AnyElement {
         .child(div().absolute().left(px(c - stroke / 2.0)).top(px(c - ring * 0.3)).w(px(stroke)).h(px(ring * 0.3)).bg(color))
         .child(div().absolute().left(px(c - stroke / 2.0)).top(px(c - stroke / 2.0)).w(px(ring * 0.25)).h(px(stroke)).bg(color))
         .into_any_element()
+}
+
+/// The FILLED play triangle (iOS `play.fill`, Android's Material
+/// `PlayArrow`: `M8 5v14l11-7z` in a 24 px box), never Lucide's outline.
+fn play(size: f32, color: Hsla) -> AnyElement {
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let u = f32::from(bounds.size.width.min(bounds.size.height)) / 24.0;
+            let (x0, y0) = (bounds.origin.x, bounds.origin.y);
+            let at = |x: f32, y: f32| gpui::point(x0 + px(x * u), y0 + px(y * u));
+            let mut b = gpui::PathBuilder::fill();
+            b.move_to(at(8.0, 5.0));
+            b.line_to(at(8.0, 19.0));
+            b.line_to(at(19.0, 12.0));
+            b.close();
+            if let Ok(path) = b.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .size(px(size))
+    .flex_none()
+    .into_any_element()
 }
 
 /// The placeholder circle (an unknown icon name).

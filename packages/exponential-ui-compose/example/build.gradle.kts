@@ -20,6 +20,11 @@ val copyFixtureAssets by tasks.registering(Copy::class) {
     from(fixtures) {
         include("kitchen-sink.json", "specimens.json", "theme-extends.json")
     }
+    // The kitchen sink's data model (the one the React harness renders it
+    // against: the team name, the posts, every bound input).
+    from(File(repoRoot, "packages/exponential-ui-react/fixtures")) {
+        include("kitchen-sink.data.json")
+    }
     // VAPP-127: the recorded eval surfaces, painted by `--es shot exponential-ui-eval-<id>`.
     from(File(repoRoot, "packages/exponential-ui/eval")) {
         include("eval-specimens.json")
@@ -83,8 +88,6 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)
     implementation(libs.compose.material3)
-    // The example host's icon map only (the SDK ships no icon set).
-    implementation("androidx.compose.material:material-icons-core")
 
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.rules)

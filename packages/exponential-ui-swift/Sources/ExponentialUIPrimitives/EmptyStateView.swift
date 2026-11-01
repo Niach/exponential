@@ -238,8 +238,7 @@ public struct DisclosureHeader: View {
                     Text("\(count)").font(.system(size: 12)).foregroundStyle(tokens.mutedForeground)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
+                LucideGlyph(paths: ["M 6 9 L 12 15 L 18 9"], size: 14)
                     .foregroundStyle(tokens.mutedForeground)
                     .rotationEffect(.degrees(isExpanded ? 180 : 0))
             }

@@ -106,6 +106,24 @@ impl SurfaceView {
         self.motion.style(index, &target, self.now())
     }
 
+    /// EXP-1555: an Image placeholder's surroundings: does an ancestor
+    /// already paint a background (no second muted fill), and does a later
+    /// sibling lay the Mosaic's "+N" over it (no glyph under the count)?
+    fn image_surround(&self, n: &PlacedNode) -> natives::ImageSurround {
+        let mut backdrop = false;
+        let mut at = n.parent;
+        while let Some(p) = at {
+            if self.styles.get(p as usize).is_some_and(|s| s.bg.is_some_and(|c| c.a > 0.0) || s.gradient.is_some()) {
+                backdrop = true;
+                break;
+            }
+            at = self.cache.node(p).and_then(|x| x.parent);
+        }
+        // The Mosaic macro names the scrim `<tile id>.more` beside `<tile id>.image`.
+        let covered = n.id.rsplit_once('.').and_then(|(tile, _)| self.cache.index_of(&format!("{tile}.more"))).and_then(|m| self.cache.node(m)).is_some_and(|m| !m.hidden);
+        natives::ImageSurround { backdrop, covered }
+    }
+
     fn owner_props(&self, index: u32) -> serde_json::Map<String, Value> {
         let o = self.cache.owner_of(index);
         self.cache.node(o).map(|n| n.props.clone()).unwrap_or_default()
@@ -489,6 +507,22 @@ impl SurfaceView {
         }
         let id = n.id.clone();
         el = el.on_scroll_wheel(cx.listener(move |this, ev: &gpui::ScrollWheelEvent, _window, cx| this.wheel(index, &id, ev, cx)));
+        // EXP-1555: no scrollbars at rest (the web hides them): a
+        // non-blocking overlay tracks the pointer over the container; the
+        // bars show while it hovers, scrolls or drags a thumb.
+        let hid = n.id.clone();
+        el = el.child(
+            div()
+                .id(SharedString::from(format!("{}.scroll-hover", n.id)))
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .on_hover(cx.listener(move |this, h: &bool, _, cx| this.scroll_hovered(&hid, *h, cx))),
+        );
+        if !self.scrollbars_shown(&n.id) {
+            return el;
+        }
         let color = ink.opacity(0.28);
         if let Some((at, len)) = overflows_y.then(|| thumb_geometry(h, s.content_height, s.offset_y, h - 4.0)).flatten() {
             let (sid, ratio) = (n.id.clone(), (s.content_height - h) / (h - 4.0 - len).max(1.0));
@@ -815,7 +849,7 @@ impl SurfaceView {
             ("Link", _) => natives::link(&lcx),
             ("Icon", _) => natives::icon(&lcx),
             ("Avatar", _) => natives::avatar(&lcx),
-            ("Image", _) => natives::image(&lcx, window, cx),
+            ("Image", _) => natives::image(&lcx, self.image_surround(n), window, cx),
             // An exiting layer paints nothing live (the view is the open tree's).
             ("ZoomableImage", _) if self.ghosting.get() => return None,
             ("ZoomableImage", _) => self.zoom_element(&n.id, w, h, cx)?,

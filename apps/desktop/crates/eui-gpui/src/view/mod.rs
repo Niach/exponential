@@ -345,6 +345,11 @@ pub struct SurfaceView {
     motion: Motion,
     toast_timers: HashMap<String, ToastTimer>,
     toast_hover: HashSet<String>,
+    /// EXP-1555: scroll containers under the pointer, and those scrolled in
+    /// the last [`SCROLLBAR_LINGER`] (the hide timer): their overlay
+    /// scrollbars show; at rest there are none (the web's hidden bars).
+    pub(crate) scroll_hover: HashSet<String>,
+    pub(crate) scroll_recent: HashMap<String, Task<()>>,
     announcement: Option<(SharedString, String)>,
     copy_resets: HashMap<String, Task<()>>,
     /// Segmented roving item (`group id` → item index).
@@ -540,6 +545,8 @@ impl SurfaceView {
             motion: Motion::default(),
             toast_timers: HashMap::new(),
             toast_hover: HashSet::new(),
+            scroll_hover: HashSet::new(),
+            scroll_recent: HashMap::new(),
             announcement: None,
             copy_resets: HashMap::new(),
             group_focus: HashMap::new(),

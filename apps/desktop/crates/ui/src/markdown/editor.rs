@@ -2567,6 +2567,8 @@ pub(crate) fn byte_offset_to_position(text: &str, offset: usize) -> Position {
 // ---------------------------------------------------------------------------
 
 type SourceEditCallback = Rc<dyn Fn(String, &mut Window, &mut App)>;
+/// #EXP-1546: one rendered child of a [`MarkdownView`], built on demand.
+type ChildBuild = Box<dyn FnOnce(&mut Window, &mut App) -> gpui::AnyElement>;
 
 /// Read-only rendered GFM with live decoration pills. Construct per render
 /// (it is an element, not a view); pass a shared [`ImageCache`] so image
@@ -2913,63 +2915,66 @@ impl gpui::RenderOnce for MarkdownView {
             &self.source,
             crate::queries::instance_origin(cx).as_deref(),
         );
-        let mut children: Vec<gpui::AnyElement> = Vec::new();
         let known_width = view_widths()
             .lock()
             .ok()
             .and_then(|widths| widths.get(&key).copied());
+        let chat = self.chat;
+        let view = Rc::new(self);
+        // #EXP-1546: every child is a BUILDER, so a long body can defer the
+        // ones off-screen ([`super::lazy_block`]); a short one builds them
+        // all right here.
+        let mut builders: Vec<ChildBuild> = Vec::new();
 
         for (block_index, block) in blocks.iter().enumerate() {
             match block {
                 ContentBlock::Image { url, alt, .. } => {
-                    children.push(render_image_slot(
-                        ElementId::from(SharedString::from(format!(
-                            "{}-image-{block_index}",
-                            self.id
-                        ))),
-                        self.images.as_ref(),
-                        url,
-                        alt,
-                        None,
-                        self.chat,
-                        self.on_open_image.clone(),
-                        cx,
-                    ));
+                    let (view, url, alt) = (view.clone(), url.clone(), alt.clone());
+                    builders.push(Box::new(move |_, cx| {
+                        render_image_slot(
+                            ElementId::from(SharedString::from(format!("{}-image-{block_index}", view.id))),
+                            view.images.as_ref(),
+                            &url,
+                            &alt,
+                            None,
+                            view.chat,
+                            view.on_open_image.clone(),
+                            cx,
+                        )
+                    }));
                 }
                 // EXP-824: a standalone attachment link — a media tile when
                 // the synced row is video/audio, an ordinary link otherwise.
                 ContentBlock::AttachmentLink { url, label, .. } => {
-                    children.push(render_media_slot(
-                        &self,
-                        &blocks,
-                        block_index,
-                        url,
-                        label,
-                        cx,
-                    ));
+                    let (view, blocks, url, label) = (view.clone(), blocks.clone(), url.clone(), label.clone());
+                    builders.push(Box::new(move |_, cx| render_media_slot(&view, &blocks, block_index, &url, &label, cx)));
                 }
-                ContentBlock::Table {
-                    header,
-                    rows,
-                    alignments,
-                    ..
-                } => {
-                    children.push(render_view_table(
-                        &self,
-                        block_index,
-                        header,
-                        rows,
-                        alignments,
-                        known_width,
-                        window,
-                        cx,
-                    ));
+                ContentBlock::Table { .. } => {
+                    let (view, blocks) = (view.clone(), blocks.clone());
+                    builders.push(Box::new(move |window, cx| {
+                        let ContentBlock::Table { header, rows, alignments, .. } = &blocks[block_index] else {
+                            return div().into_any_element();
+                        };
+                        render_view_table(&view, block_index, header, rows, alignments, known_width, window, cx)
+                    }));
                 }
                 ContentBlock::Text { content, .. } => {
                     if content.is_empty() {
                         continue;
                     }
                     let lines = content.lines();
+                    // #EXP-1546: each line's byte start, once per block (the
+                    // per-line rescan from the top was quadratic).
+                    let starts: Rc<Vec<usize>> = Rc::new(
+                        lines
+                            .iter()
+                            .scan(0usize, |at, line| {
+                                let start = *at;
+                                *at += line.len() + 1;
+                                Some(start)
+                            })
+                            .collect(),
+                    );
                     let mut line_index = 0usize;
                     while line_index < lines.len() {
                         let attrs = content
@@ -2993,14 +2998,14 @@ impl gpui::RenderOnce for MarkdownView {
                             let lang = attrs.code_lang.clone().unwrap_or_default();
                             let code = lines[start..line_index].join("\n");
                             let fenced = format!("```{lang}\n{code}\n```");
-                            children.push(
+                            let id = view.id.clone();
+                            builders.push(Box::new(move |_, _| {
                                 div()
                                     .w_full()
                                     .child(
                                         TextView::markdown(
                                             ElementId::from(SharedString::from(format!(
-                                                "{}-code-{block_index}-{start}",
-                                                self.id
+                                                "{id}-code-{block_index}-{start}"
                                             ))),
                                             fenced,
                                         )
@@ -3009,38 +3014,66 @@ impl gpui::RenderOnce for MarkdownView {
                                         // around them (plain copy = the code).
                                         .selectable(true),
                                     )
-                                    .into_any_element(),
-                            );
+                                    .into_any_element()
+                            }));
                             continue;
                         }
                         if attrs.kind == BlockKind::ThematicBreak {
-                            children.push(
+                            builders.push(Box::new(|_, cx| {
                                 div()
                                     .w_full()
                                     .h_px()
                                     .my_2()
                                     .bg(cx.theme().border)
-                                    .into_any_element(),
-                            );
+                                    .into_any_element()
+                            }));
                             line_index += 1;
                             continue;
                         }
-                        let element = render_view_line(
-                            &self,
-                            &blocks,
-                            block_index,
-                            line_index,
-                            lines[line_index],
-                            &attrs,
-                            line_marks(content, &lines, line_index),
-                            cx,
-                        );
-                        children.push(element);
+                        let (view, blocks, starts) = (view.clone(), blocks.clone(), starts.clone());
+                        let at = line_index;
+                        builders.push(Box::new(move |_, cx| {
+                            let ContentBlock::Text { content, .. } = &blocks[block_index] else {
+                                return div().into_any_element();
+                            };
+                            let start = starts[at];
+                            let end = starts.get(at + 1).map_or(content.text.len(), |next| next - 1);
+                            let line = &content.text[start..end];
+                            render_view_line(
+                                &view,
+                                &blocks,
+                                block_index,
+                                at,
+                                line,
+                                &attrs,
+                                line_marks_at(content, start, end),
+                                cx,
+                            )
+                        }));
                         line_index += 1;
                     }
                 }
             }
         }
+
+        // #EXP-1546: a long body (a plan card) lays out only what shows,
+        // once its children were measured at this width.
+        let children: Vec<gpui::AnyElement> = match known_width {
+            Some(width) if builders.len() >= super::lazy_block::LAZY_MIN_CHILDREN && !super::lazy_block::forced_eager() => {
+                use std::hash::{Hash as _, Hasher as _};
+                let mut hasher = std::hash::DefaultHasher::new();
+                view.source.hash(&mut hasher);
+                width.to_bits().hash(&mut hasher);
+                f32::from(window.rem_size()).to_bits().hash(&mut hasher);
+                let table = super::lazy_block::HeightTable::new(key.clone(), hasher.finish(), builders.len());
+                builders
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, build)| super::lazy_block::LazyBlock::new(&table, index, build).into_any_element())
+                    .collect()
+            }
+            _ => builders.into_iter().map(|build| build(window, cx)).collect(),
+        };
 
         // EXP-233: lay the blocks out at an explicitly KNOWN pixel width
         // instead of leaving the wrap width to flex/fit-content resolution.
@@ -3073,12 +3106,12 @@ impl gpui::RenderOnce for MarkdownView {
         // which is not what web, iOS and Android render.
         let content = v_flex()
             .w_full()
-            .when(self.chat, |this| {
+            .when(chat, |this| {
                 this.gap_2()
                     .text_size(px(theme::tokens::transcript::BODY_SIZE))
                     .line_height(px(theme::tokens::transcript::BODY_LINE_HEIGHT))
             })
-            .when(!self.chat, |this| this.gap_1p5())
+            .when(!chat, |this| this.gap_1p5())
             .children(children);
         let sized = match known_width {
             Some(width) => div().w(px(width)).max_w_full().child(content),
@@ -3106,13 +3139,9 @@ impl gpui::RenderOnce for MarkdownView {
     }
 }
 
-/// Line-local marks (byte offsets into the line) for line `index`.
-fn line_marks(content: &super::blocks::RichText, lines: &[&str], index: usize) -> Vec<InlineMark> {
-    let mut start = 0usize;
-    for line in lines.iter().take(index) {
-        start += line.len() + 1;
-    }
-    let end = start + lines[index].len();
+/// Line-local marks (byte offsets into the line) for the line over
+/// `start..end` of `content`'s text.
+fn line_marks_at(content: &super::blocks::RichText, start: usize, end: usize) -> Vec<InlineMark> {
     content
         .marks
         .iter()

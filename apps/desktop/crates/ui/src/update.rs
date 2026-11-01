@@ -415,6 +415,11 @@ pub fn check_for_updates(cx: &mut App) {
     if !CHANNEL_CHECKS_UPDATES {
         return;
     }
+    // EXP-1555: a shots capture (`EXP_DEV_READY_FILE`, packages/shots) never
+    // photographs the update banner (a race against the release feed).
+    if std::env::var_os("EXP_DEV_READY_FILE").is_some() {
+        return;
+    }
 
     cx.background_executor()
         .spawn(async move { updater::cleanup_staging() })
