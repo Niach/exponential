@@ -1042,12 +1042,15 @@ impl Render for SettingsView {
             .child(crate::scroll_pane::v_scroll_pane(
                 SharedString::from(format!("settings-detail-{effective:?}")),
                 &self.scroll,
-                div().w_full().min_w_0().child(
+                // EXP-1557: the column lays out at the web's 16px rem, so the
+                // panes' type, rows and controls match web's settings page
+                // size for size (the IDE's 14px rem drew them ~12% small).
+                div().w_full().min_w_0().child(crate::controls::web_rem(
                     detail_column()
                         .child(header)
                         .child(separator)
                         .child(pane),
-                ),
+                )),
             ))
     }
 }

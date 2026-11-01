@@ -2366,6 +2366,14 @@ impl Render for ChatScreenView {
             if let Some(seed) = seed {
                 self.apply_seed(seed, window, cx);
             }
+            // EXP-1557 (DEV-ONLY, `EXP_DEV_COMPOSER_TEXT`): the page types
+            // the capture's text once its mention source (the team) is set.
+            if matches!(self.presentation, Presentation::Page) {
+                if let Some(text) = crate::screens::take_dev_composer_text() {
+                    self.input.read(cx).focus_handle(cx).focus(window, cx);
+                    self.mention.update(cx, |mention, cx| mention.dev_type(&text, window, cx));
+                }
+            }
         }
         match self.presentation {
             Presentation::Page => self.render_page(window, cx),
@@ -2657,11 +2665,11 @@ impl ChatScreenView {
         if content <= px(0.) || body <= px(0.) || fit.fitted == Some(content) {
             return;
         }
-        if window.is_maximized() || window.is_fullscreen() {
-            return;
-        }
         fit.fitted = Some(content);
-        let current = window.viewport_size();
+        // EXP-1557: the in-window dialog's content box, not the window.
+        let Some(current) = crate::native_dialog::dialog_size(window, cx) else {
+            return;
+        };
         let chrome = (current.height - body).max(px(0.));
         let target = content.min(fit.max_height) + chrome;
         if (target - current.height).abs() <= px(1.) {

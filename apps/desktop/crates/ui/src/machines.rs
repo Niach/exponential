@@ -85,9 +85,11 @@ const LIVENESS_TICK: std::time::Duration = std::time::Duration::from_secs(10);
 /// settings gear only renders under the pointer (`drafts_view`'s idiom).
 const MACHINE_ROW_GROUP: &str = "machine-row";
 
-/// A-16: the widest the chip cluster grows before it wraps onto a second
-/// line, so a machine with many logins never squeezes its NAME out.
-const CHIPS_MAX_W: f32 = 600.;
+/// EXP-1557 (web `w-60`): the name column's width, so the login chips start
+/// right after it in one column down the list instead of hugging the far
+/// edge. The `This device` tag (desktop-only) may widen it up to the max.
+const NAME_COL_W: f32 = 240.;
+const NAME_COL_MAX_W: f32 = 320.;
 
 /// A-16: the attention card's width (web `w-80`, minus its padding).
 const ATTENTION_CARD_W: f32 = 300.;
@@ -1041,10 +1043,11 @@ pub(crate) fn device_row(props: DeviceRowProps, cx: &App) -> gpui::AnyElement {
 
     // EXP-642: the web `GlassRow` two-line name block — name · version ·
     // default star · tags over the status line, `min_w_0` so only the NAME
-    // gives way.
+    // gives way. EXP-1557: a fixed column (web `w-60 shrink-0`), not `flex_1`.
     let name_block = gpui_component::v_flex()
-        .flex_1()
-        .min_w_0()
+        .flex_shrink_0()
+        .min_w(px(NAME_COL_W))
+        .max_w(px(NAME_COL_MAX_W))
         .gap_0p5()
         .child(
             gpui_component::h_flex()
@@ -1133,11 +1136,11 @@ pub(crate) fn device_row(props: DeviceRowProps, cx: &App) -> gpui::AnyElement {
     // A-16: the logins as CHIPS, `sortDeviceLogins` order (the derivation's);
     // "No account" / "Checking…" muted in their slot; own online rows end
     // with the ghost `+` (Add account).
+    // EXP-1557: the chips fill the rest (web `min-w-0 flex-1`), start-aligned.
     let mut chips = gpui_component::h_flex()
-        .flex_shrink_0()
-        .max_w(px(CHIPS_MAX_W))
+        .flex_1()
+        .min_w_0()
         .flex_wrap()
-        .justify_end()
         .items_center()
         .gap_1p5();
     if device.logins.is_empty() {
@@ -1497,12 +1500,15 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
     // dialog's first frame, dropped with the window.
     let server_card: Rc<RefCell<Option<Entity<crate::device_setup::ServerCard>>>> =
         Rc::new(RefCell::new(None));
-    // P33: no subtitle (the cards say it). An alert window cannot follow
-    // its content, so the height is the two cards' own (the server card's
-    // code field included) plus the footer, not a 600px slab.
+    // P33: no subtitle (the cards say it). EXP-1557: the web dialog's
+    // shape: no footer (the ✕, Escape and the scrim close it), web's
+    // `max-w-lg`, and the two cards' own height (the body scrolls when the
+    // server card's code field grows it).
     let spec = AlertSpec::new("Add device", "", "Done")
         .without_cancel()
-        .height(px(500.))
+        .without_footer()
+        .width(px(512.))
+        .height(px(400.))
         .content(move |window, cx| {
         let card = server_card
             .borrow_mut()

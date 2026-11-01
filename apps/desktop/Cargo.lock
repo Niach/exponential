@@ -3190,6 +3190,7 @@ dependencies = [
  "flume 0.11.1",
  "futures-util",
  "gpui",
+ "gpui-base",
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",

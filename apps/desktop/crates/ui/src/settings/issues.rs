@@ -122,6 +122,10 @@ impl IssuesPane {
                             div()
                                 .flex_1()
                                 .min_w_0()
+                                // EXP-1557: the web select's `text-sm` (a
+                                // medium control reads `text_base` at the
+                                // settings column's 16px rem).
+                                .text_sm()
                                 .whitespace_nowrap()
                                 .overflow_hidden()
                                 .text_ellipsis()
@@ -166,18 +170,16 @@ impl IssuesPane {
 
         let card = section(cx)
             .child(crate::surface::glass_section_header("Estimates", None, cx))
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        v_flex()
-                            .min_w_0()
-                            .child(div().text_sm().child("Estimate scale")),
-                    )
-                    .child(control),
-            );
+            // EXP-1557: the row sits in a glass group (web `GlassGroup`,
+            // 16/12 row padding), not flat under the band.
+            .child(crate::surface::glass_group_rows(vec![crate::surface::glass_row_shell()
+                .justify_between()
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .child(div().text_sm().child("Estimate scale")),
+                )
+                .child(control)]));
         Some(card)
     }
 
@@ -223,8 +225,11 @@ impl IssuesPane {
         let rows: Vec<IssueStatusRow> =
             statuses.iter().map(|(row, _)| row.clone()).collect();
 
-        let mut card = section(cx)
+        let card = section(cx)
             .child(crate::surface::glass_section_header("PR automation", None, cx));
+        // EXP-1557: the rows fill ONE glass group (web `GlassGroup`: 16/12
+        // row padding, hairlines between), not flat lines under the band.
+        let mut group_rows: Vec<gpui::Div> = Vec::new();
         let pane = cx.entity().downgrade();
 
         let events: [(
@@ -284,6 +289,10 @@ impl IssuesPane {
                             div()
                                 .flex_1()
                                 .min_w_0()
+                                // EXP-1557: the web select's `text-sm` (a
+                                // medium control reads `text_base` at the
+                                // settings column's 16px rem).
+                                .text_sm()
                                 .whitespace_nowrap()
                                 .overflow_hidden()
                                 .text_ellipsis()
@@ -361,12 +370,10 @@ impl IssuesPane {
                 .render(window, cx)
             });
 
-            card = card.child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
+            group_rows.push(
+                crate::surface::glass_row_shell()
                     .justify_between()
-                    .child(div().text_sm().child(label))
+                    .child(div().min_w_0().text_sm().child(label))
                     .child(control),
             );
         }
@@ -377,10 +384,8 @@ impl IssuesPane {
         let ends_sessions = team.ends_sessions_on_merge();
         let team_id = team.id.clone();
         let switch_pane = pane.clone();
-        card = card.child(
-            h_flex()
-                .gap_2()
-                .items_center()
+        group_rows.push(
+            crate::surface::glass_row_shell()
                 .justify_between()
                 .child(
                     // Label + state only — no explanatory sub-hint.
@@ -417,8 +422,7 @@ impl IssuesPane {
                 ),
         );
 
-
-        Some(card)
+        Some(card.child(crate::surface::glass_group_rows(group_rows)))
     }
 }
 

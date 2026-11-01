@@ -557,6 +557,8 @@ impl Render for UndockedScreenWindow {
         // preview) would silently never paint in this window.
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
+        // EXP-1557: the in-window dialogs, above the content.
+        let native_dialog_layer = crate::native_dialog::render_layer(window, cx);
         let toast_layer = crate::toast::render_layer(window, cx);
         // EXP-1275: the BLOCKING wait (team/account switch, sign-out)
         // paints over everything, the toasts included.
@@ -623,6 +625,7 @@ impl Render for UndockedScreenWindow {
                 // the mouse-up that would have ended a selection drag).
                 .child(crate::text_selection_guard::selection_guard())
                 .children(sheet_layer)
+                .children(native_dialog_layer)
                 .children(dialog_layer)
                 .child(toast_layer)
                 .children(blocking_layer),

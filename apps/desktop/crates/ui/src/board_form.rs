@@ -223,9 +223,14 @@ pub(crate) fn color_picker(
         .outline()
         .cursor_pointer()
         .size(px(crate::controls::CTL_MD_H))
+        // EXP-1557: no box padding — the Button's own side padding left the
+        // dot ~8px of width in the 32px square and the flex row squeezed it
+        // into an oval.
+        .px_0()
+        .py_0()
         // The trigger IS a swatch: the grid's own 16px dot, centered in the
-        // same rounded square the icon trigger wears.
-        .child(div().size(px(16.)).rounded_full().bg(fill));
+        // same rounded square the icon trigger wears, never shrunk.
+        .child(div().size(px(16.)).flex_shrink_0().rounded_full().bg(fill));
     Popover::new(SharedString::from(format!("{id_prefix}-color-popover")))
         .trigger(trigger)
         .content(move |_, _, cx| {
