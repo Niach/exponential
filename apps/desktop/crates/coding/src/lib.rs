@@ -46,6 +46,8 @@ pub mod agent_update;
 pub mod agent_usage;
 pub use eagent::atomic_config;
 pub mod argv;
+// #EXP-1618: the device pushes a session's branch and uncommitted work on its own.
+pub mod auto_push;
 pub mod cargo_target_gc;
 pub mod claude_oauth;
 // EXP-1533: a profile's long-lived `claude setup-token` login.

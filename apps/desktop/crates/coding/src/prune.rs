@@ -1411,7 +1411,7 @@ mod tests {
 
     /// The age rule: only worktrees idle past `max_age` (by the `.git` link
     /// AND the newest record) are finished; the stale one's unpushed work
-    /// lands on a leftover branch, named after its session's record.
+    /// lands on its own branch (#EXP-1618).
     #[test]
     fn the_sweep_finishes_only_stale_worktrees() {
         let dir = temp_dir("sweep-age");
@@ -1468,13 +1468,13 @@ mod tests {
         let mut branches: Vec<&str> = report.finished.iter().map(|swept| swept.branch.as_str()).collect();
         branches.sort();
         assert_eq!(branches, vec!["exp/EXP-61", "exp/session-aaaa1111"], "{report:?}");
-        assert_eq!(
-            report.leftovers(),
-            vec![(Some("aaaa1111-0000-0000-0000-000000000000"), "exp/leftover-aaaa1111")]
-        );
+        // #EXP-1618: the stale work went to the session's OWN branch, no
+        // leftover branch needed.
+        assert!(report.leftovers().is_empty(), "{report:?}");
         assert!(!stale.exists() && !orphan.exists());
         assert!(recent.exists() && young.exists() && foreign.exists());
-        assert!(origin_branch_exists(&origin, "exp/leftover-aaaa1111"));
+        assert!(origin_branch_exists(&origin, "exp/session-aaaa1111"));
+        assert!(!origin_branch_exists(&origin, "exp/leftover-aaaa1111"));
         assert!(!origin_branch_exists(&origin, "exp/leftover-exp-EXP-62"));
         assert!(!branch_exists(&clone, "exp/session-aaaa1111"));
 

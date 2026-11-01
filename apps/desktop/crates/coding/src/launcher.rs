@@ -571,6 +571,13 @@ impl WorktreeProvider for GitWorktrees {
         // ([`LOCAL_EXCLUDES`]), via the shared, never-committed
         // `.git/info/exclude`.
         let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
+        // #EXP-1618: a session continued here (a move, a resume on a
+        // re-created worktree) gets back the uncommitted work its last
+        // device snapshotted to `refs/exp-wip/<branch>`.
+        match crate::auto_push::restore_wip(&clone, &worktree, branch, Some(url)) {
+            crate::auto_push::WipRestore::None => {}
+            restored => log::info!("auto-push: {branch} prepared in {}: {restored:?}", worktree.display()),
+        }
         Ok(worktree)
     }
 

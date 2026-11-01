@@ -1269,6 +1269,47 @@ export async function notifySessionMessage(messageId: string): Promise<void> {
   })
 }
 
+/** #EXP-1618: the inbox title of a session's leftover branch. */
+export const leftoverNotifyTitle = (thread: string, branch: string) =>
+  `Unpushed work from ${thread} was saved on ${branch}`
+
+/**
+ * #EXP-1618: a session's device could not push its work to the session's
+ * own branch at the end, so it parked it on an `exp/leftover-<id8>` branch
+ * (`sessions.leftover`). The session's STARTER hears it in the inbox (one
+ * session-routed `agent_message` row), so a leftover is never orphaned.
+ * Best effort, never throws.
+ */
+export async function notifySessionLeftover(sessionId: string, branch: string): Promise<void> {
+  try {
+    const [session] = await db
+      .select({
+        id: sessions.id,
+        rootId: sessions.rootId,
+        title: sessions.title,
+        userId: sessions.userId,
+        teamId: sessions.teamId,
+        teamSlug: teams.slug,
+      })
+      .from(sessions)
+      .innerJoin(teams, eq(teams.id, sessions.teamId))
+      .where(eq(sessions.id, sessionId))
+      .limit(1)
+    if (!session) return
+    await deliverToTeam({
+      teamId: session.teamId,
+      recipientIds: [session.userId],
+      type: `agent_message`,
+      title: leftoverNotifyTitle(await deriveSessionTitle(session), branch),
+      body: null,
+      pushData: { sessionId: session.id, teamId: session.teamId, teamSlug: session.teamSlug },
+      sessionId: session.id,
+    })
+  } catch (err) {
+    console.error(`[notify] session leftover failed:`, err)
+  }
+}
+
 /**
  * SLOP-4: the widget reporter of an issue answered through their magic-link
  * page (a comment with source `reporter`, audience `reporter`). ISSUE-scoped

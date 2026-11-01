@@ -550,6 +550,11 @@ fn holds_branch(session_branch: &str, branch: &str) -> bool {
 /// watchdog's offline flag and the next start's re-claim are the backstop).
 const QUIT_END_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// #EXP-1618: how long a quit waits for the session worktrees' pushes
+/// ([`coding::auto_push::sync_live_runs`]); the periodic pusher keeps what is
+/// left to push small.
+const QUIT_PUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+
 /// EXP-758: the floor under one engine's share of the quit budget. Mirrors
 /// the CLI daemon's shutdown sweep (`daemon.rs`): even a budget that is
 /// already spent still gives each ACP child the moment it needs to die, or
@@ -596,6 +601,13 @@ pub fn install_quit_hook(cx: &mut App) {
         let engines: Vec<engine::EngineSession> = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).acp_hosts())
             .unwrap_or_default();
+        // #EXP-1618: every run this app drives pushes its branch and its
+        // uncommitted work before the app goes (each run's exit pushes
+        // again, a no-op by then).
+        let pushed = coding::auto_push::sync_live_runs(&coding_data_dir(cx), QUIT_PUSH_TIMEOUT);
+        if pushed > 0 {
+            log::info!("[ui] quit: pushed {pushed} session worktree(s)");
+        }
         for session in &engines {
             session.kill(engine::SUSPEND_OUTCOME);
         }
@@ -880,6 +892,8 @@ pub fn build_coding_deps(cx: &mut App) -> Option<CodingDeps> {
     let account = queries::active_account(cx)?;
     let trpc = Arc::new(queries::trpc_client(cx)?);
     let data_dir = coding_data_dir(cx);
+    // #EXP-1618: the device's background pusher (once per process).
+    coding::auto_push::ensure_started(&data_dir);
     let hub = CodingHub::global(cx);
     let settings = hub.read(cx).settings.clone();
     Some(CodingDeps {
@@ -911,6 +925,8 @@ impl engine::EngineHost for DesktopEngineHost {
         // foreground (the engine thread), and BEFORE the exit edge reaches
         // the drain, whose run cleanup must see the saved commit.
         engine::save_stopped_run_work(&exit, &self.worktree);
+        // #EXP-1618: …and every exit pushes the branch + its uncommitted work.
+        engine::push_run_work(&self.worktree);
         let _ = self.exits.send(exit);
     }
 }

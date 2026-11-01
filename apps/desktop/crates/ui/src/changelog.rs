@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-work-never-lost",
+    date: "2026-11-01",
+    title: "Work never stays on one machine",
+    summary: "Your device pushes a session's commits and its unsaved changes as it works, so a session moved or continued on another device picks up exactly where it left off.",
+    body: r#"- **Commits**: a session's branch is pushed within seconds of every commit, never force-pushed over the agent's own history.
+- **Unsaved changes**: every few minutes, and whenever a session stops, moves or its device shuts down, the uncommitted work is saved to a hidden snapshot (secret files like .env and keys stay on the machine).
+- **Continue anywhere**: a session that moves to, or resumes on, another device gets its branch and its unsaved changes back.
+- **Leftover branches**: rare now; when one is needed, the session says so and you get an Inbox notification."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_160: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-zoom-pictures",
     date: "2026-11-01",
     title: "Zoom into pictures",
