@@ -108,6 +108,29 @@ export function deviceMoveTargetReason(
   return null
 }
 
+/**
+ * #FEED-177 (#EXP-1536 B3): a session keeps its tree's visibility on a move,
+ * except a QUEUED ROOT with no sub-sessions (nothing ran, its only content
+ * is its starter's) moving to one of its STARTER's own machines: it takes
+ * that machine's sharing, exactly as a fresh start there would. Never onto a
+ * teammate's box with a private session (the tree is private to the
+ * starter), and only its starter may make a shared session private. The
+ * server's rule (`resolveMoveTarget`); the pickers ×4 still read the
+ * strict one (#EXP-1536 follow-up).
+ */
+export function visibilityMove(input: {
+  sessionShared: boolean
+  targetShared: boolean
+  queuedRoot: boolean
+  targetIsStarters: boolean
+  moverIsStarter: boolean
+}): boolean | null {
+  if (input.targetShared === input.sessionShared) return input.sessionShared
+  if (!input.queuedRoot || !input.targetIsStarters) return null
+  if (input.sessionShared && !input.moverIsStarter) return null
+  return input.targetShared
+}
+
 export interface SessionDeviceMoveRow {
   id: string
   name: string

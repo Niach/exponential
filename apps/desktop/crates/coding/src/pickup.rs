@@ -2514,6 +2514,13 @@ fn deliver(
         deps.live.note_refused(session_id, &pending);
         reason
     };
+    // #FEED-183: a resume the launcher failed (git, the worktree, the
+    // engine) is said and shown as failed, never left plain idle.
+    let failed = |reason: String| {
+        fail_wake(session_id, &reason, deps);
+        deps.live.note_refused(session_id, &pending);
+        reason
+    };
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
         Ok(Prepared::Ready(prepared)) => {
             let engine =
@@ -2548,7 +2555,7 @@ fn deliver(
             deps.live.note_refused(session_id, &pending);
             Err(WakeError::Other(start_failure(&err.to_string())))
         }
-        Err(err) => Err(refused(format!("Couldn't resume this session: {err}")).into()),
+        Err(err) => Err(failed(format!("Couldn't resume this session: {err}")).into()),
     }
 }
 
@@ -2849,7 +2856,7 @@ fn spawn_continuation(
         }
         Err(err) => {
             let reason = format!("Couldn't resume this session: {err}");
-            refuse(persistent, session_id, &reason, true, deps);
+            fail_wake(session_id, &reason, deps);
             Err(reason)
         }
     }
@@ -3431,9 +3438,13 @@ pub fn switch_session(
             refused(&reason);
             Ok(Switched::Refused(reason))
         }
+        // #FEED-183 (review): a resume the launcher failed is a failed wake
+        // like any other (replied once, `start_failed`); the callers only
+        // log the error (never a second reply).
         Err(err) => {
             let reason = format!("Couldn't resume this session: {err}");
-            refused(&reason);
+            fail_wake(session_id, &reason, deps);
+            deps.live.note_refused(session_id, &pending);
             Err(failed(reason))
         }
     }
@@ -3649,7 +3660,11 @@ fn spawn(
         }
         Err(err) => {
             let reason = format!("Couldn't start this session: {err}");
-            refuse(persistent, session_id, &reason, waking, deps);
+            if waking {
+                fail_wake(session_id, &reason, deps);
+            } else {
+                refuse(persistent, session_id, &reason, waking, deps);
+            }
             Err(reason)
         }
     }
@@ -3673,6 +3688,43 @@ fn refuse(persistent: bool, session_id: &str, reason: &str, waking: bool, deps: 
         log::warn!("pickup: refused session {session_id} not reported: {err}");
     }
 }
+
+/// #FEED-183: a WAKE (a resume, a continuation, a relaunch of a woken row)
+/// the launcher failed — git, the worktree, the engine — as opposed to a
+/// policy refusal ([`refuse`]): the reason is posted as the session's reply
+/// and the row reported idle AND failed ([`start_failed_report`], the shape
+/// #EXP-1536 A gives a failed start), so it reads `Couldn't start` under
+/// Needs you, never plain Idle. The next message wakes it again; that run's
+/// first report clears the flag. A server that does not know the
+/// `start_failed` kind yet REJECTS the report (a 400 validation error):
+/// the row is idled plainly then, never left as it was. Any other failure
+/// (a timeout, the network, a 5xx) may have landed the flag already, and a
+/// plain idle after it would clear it: nothing more is sent.
+fn fail_wake(session_id: &str, reason: &str, deps: &PickupDeps) {
+    log::warn!("pickup: session {session_id} failed to wake: {reason}");
+    if let Err(err) = device_reply(&deps.coding.trpc, session_id, reason) {
+        log::warn!("pickup: failed wake of session {session_id} not replied: {err}");
+    }
+    let report = start_failed_report(Some(&deps.device_id), &crate::agent_accounts::now_iso());
+    match session_device::report(&deps.coding.trpc, session_id, &report) {
+        Ok(()) => {}
+        Err(err) if start_failed_rejected(&err) => {
+            log::warn!("pickup: failed wake of session {session_id} not flagged ({err}); idling it");
+            if let Err(err) = crate::idle_session_on(&deps.coding.trpc, session_id, Some(&deps.device_id)) {
+                log::warn!("pickup: failed wake of session {session_id} not reported: {err}");
+            }
+        }
+        Err(err) => log::warn!("pickup: failed wake of session {session_id} not flagged: {err}"),
+    }
+}
+
+/// #FEED-183 (review): the server REFUSED the `start_failed` report's shape
+/// (an older server's validation: HTTP 400 BAD_REQUEST), as opposed to a
+/// report that may have landed (a timeout, the network, a 5xx).
+fn start_failed_rejected(err: &ApiError) -> bool {
+    matches!(err, ApiError::Http { status: 400, .. })
+}
+
 
 /// A session row rebuilt from its run record, for a wake with no row at
 /// hand: the recorded agent/model/effort/account/workspace (computer use is
@@ -5316,6 +5368,116 @@ mod tests {
         assert!(requests[1].contains(r#""kind":"start_failed""#), "{}", requests[1]);
         assert!(requests[1].contains(r#""handled":true"#), "{}", requests[1]);
         assert!(requests[1].contains(&format!(r#""deviceId":"{DEV}""#)), "{}", requests[1]);
+    }
+
+    /// #FEED-183: a resume the launcher failed ("install git credentials:
+    /// create: File exists") is replied and reported idle AND failed
+    /// (`start_failed`, handled), never plain idle.
+    #[test]
+    fn a_failed_resume_replies_and_reports_start_failed() {
+        let _serial = crate::sealing::test_support::serial();
+        let dir = temp_dir("pickup-failed-wake");
+        let (base, requests) =
+            canned_server_recording(vec![(200, REPLY_OK.to_string()), (200, REPORT_OK.to_string())]);
+        let host = host(&base, &dir.0, |_| {});
+        fail_wake(
+            "sess-1",
+            "Couldn't resume this session: git: install git credentials: create: File exists (os error 17)",
+            &host.deps,
+        );
+        assert_eq!(procedures(&requests), vec!["sessions.reply", "sessions.report"]);
+        let requests = requests.lock().unwrap();
+        assert!(requests[0].contains("Couldn't resume this session: git: install git credentials"), "{}", requests[0]);
+        assert!(requests[1].contains(r#""status":"idle""#), "{}", requests[1]);
+        assert!(requests[1].contains(r#""kind":"start_failed""#), "{}", requests[1]);
+        assert!(requests[1].contains(r#""handled":true"#), "{}", requests[1]);
+        assert!(!requests[1].contains("ended"), "{}", requests[1]);
+    }
+
+    /// #FEED-183: a server that rejects the `start_failed` kind (before
+    /// #EXP-1536 A lands) still gets the row idled, never left running.
+    #[test]
+    fn a_failed_resume_falls_back_to_plain_idle_when_the_flag_is_rejected() {
+        let _serial = crate::sealing::test_support::serial();
+        let dir = temp_dir("pickup-failed-wake-fallback");
+        let (base, requests) = canned_server_recording(vec![
+            (200, REPLY_OK.to_string()),
+            (
+                400,
+                r#"{"error":{"message":"invalid kind","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400}}}"#
+                    .to_string(),
+            ),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        fail_wake("sess-1", "Couldn't resume this session: boom", &host.deps);
+        assert_eq!(procedures(&requests), vec!["sessions.reply", "sessions.report", "sessions.report"]);
+        let requests = requests.lock().unwrap();
+        assert!(requests[2].contains(r#""status":"idle""#), "{}", requests[2]);
+        assert!(!requests[2].contains("start_failed"), "{}", requests[2]);
+    }
+
+    /// #FEED-183 (review): a switch whose resume fails to spawn is replied
+    /// ONCE and flagged `start_failed` (`spawn` → [`fail_wake`]); the error
+    /// it returns is only logged by its callers ([`execute`] here), never
+    /// replied again, and the same messages are not explained twice.
+    #[test]
+    fn a_failed_switch_resume_replies_once() {
+        let _serial = crate::sealing::test_support::serial();
+        let dir = temp_dir("pickup-switch-fails");
+        let (base, requests) = canned_server_recording(vec![
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+            (200, REPLY_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let mut host = host(&base, &dir.0, |_| {});
+        host.deps.launch = Arc::new(|_prepared: crate::PreparedLaunch| Err("engine refused to start".to_string()));
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let launched = SessionRow { effort: Some("low".to_string()), ..session("sess-1", "idle", DEV, "t") };
+        let old = Arc::new(FakeEngine::default());
+        host.deps.live.insert_for("sess-1", old.clone(), None, Some(String::new()));
+        host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&launched, Some(Vec::new()))));
+        let row = SessionRow { effort: Some("high".to_string()), ..launched.clone() };
+        let pending = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+        let action = PickupAction::Switch { session: row, account: String::new(), messages: pending.clone() };
+        let err = execute(&action, &host.deps).unwrap_err();
+        assert!(err.contains("engine refused to start"), "{err}");
+        assert_eq!(
+            procedures(&requests),
+            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.reply", "sessions.report"]
+        );
+        let requests = requests.lock().unwrap();
+        assert!(requests[3].contains(r#""kind":"start_failed""#), "{}", requests[3]);
+        let pending: Vec<&MessageRow> = pending.iter().collect();
+        assert!(host.deps.live.refused_before("sess-1", &pending), "explained once");
+    }
+
+    /// #FEED-183 (review): a report that may have LANDED (a 5xx, the
+    /// network gone, a timeout) is never followed by a plain idle, which
+    /// would clear the `start_failed` flag it set; only a 400 rejection of
+    /// the kind falls back.
+    #[test]
+    fn a_failed_resume_never_idles_over_a_report_that_may_have_landed() {
+        let _serial = crate::sealing::test_support::serial();
+        let dir = temp_dir("pickup-failed-wake-landed");
+        // A 5xx.
+        let (base, requests) = canned_server_recording(vec![
+            (200, REPLY_OK.to_string()),
+            (502, "bad gateway".to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let first = host(&base, &dir.0, |_| {});
+        fail_wake("sess-1", "Couldn't resume this session: boom", &first.deps);
+        assert_eq!(procedures(&requests), vec!["sessions.reply", "sessions.report"]);
+        // The network gone after the reply (nothing listens any more).
+        let (base, requests) = canned_server_recording(vec![(200, REPLY_OK.to_string())]);
+        let gone = host(&base, &dir.0, |_| {});
+        fail_wake("sess-1", "Couldn't resume this session: boom", &gone.deps);
+        assert_eq!(procedures(&requests), vec!["sessions.reply"]);
+        assert!(!start_failed_rejected(&ApiError::Transport { message: "timed out".to_string(), offline: false }));
+        assert!(!start_failed_rejected(&ApiError::Http { status: 500, message: String::new() }));
+        assert!(start_failed_rejected(&ApiError::Http { status: 400, message: String::new() }));
     }
 
     #[test]

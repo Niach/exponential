@@ -782,6 +782,11 @@ pub struct SessionRow {
     pub seal_public_key: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub seal_epoch: Option<i64>,
+    /// #FEED-177: the epoch a rotation must supersede (the tree turned
+    /// private and teammates lost their wraps); the starter's or the
+    /// executing device's key holder rotates it (`steer::seal_keys`).
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub seal_rotate_epoch: Option<i64>,
     /// EXP-1458: the title sealed to the tree (body envelope); `title` then
     /// stays a neutral fallback. Open it through `coding::sealing`.
     #[serde(default)]

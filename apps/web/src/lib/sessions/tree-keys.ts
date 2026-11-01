@@ -3,7 +3,7 @@
 // in its own transaction). Router-free: lib/sessions never imports a router
 // (suites mock @/lib/trpc whole).
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm"
 import { devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
 import { resolveSessionHost } from "@/lib/sessions/host"
 import type { Tx } from "@/lib/sessions/tx"
@@ -168,7 +168,41 @@ export async function createTreeKeyInTx(
   }
   await tx
     .update(sessions)
-    .set({ sealPublicKey: input.publicKey, sealEpoch: input.epoch })
+    // A rotation supersedes the epoch a private turn flagged (#FEED-177).
+    .set({ sealPublicKey: input.publicKey, sealEpoch: input.epoch, sealRotateEpoch: null })
     .where(eq(sessions.id, root.id))
   return { rootId: root.id, epoch: input.epoch, wraps: input.wraps.length }
+}
+
+/**
+ * #FEED-177: a tree that turns PRIVATE (its root re-stamped `shared: false`
+ * in `tx`, before this runs) keeps only its new readers' wraps: every
+ * teammate install's `session_keys` row goes, so `mine` never hands them
+ * the key again and `pending` (readers only) never re-wraps it for them.
+ * The server cannot rotate (it never sees a secret; a rotation is
+ * `create {epoch + 1}` by the starter or the executing device), so what an
+ * install already unwrapped stays readable to it until a device rotates:
+ * when any wrap went, the root's `seal_rotate_epoch` names its current
+ * epoch and the holders (`steer::seal_keys`) rotate; `create` clears it.
+ */
+export async function dropNonReaderKeysInTx(tx: Tx, rootIds: string[]): Promise<void> {
+  for (const rootId of rootIds) {
+    // Serializes with the tree's key writes (`createTreeKeyInTx`).
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`session_keys:${rootId}`}))`)
+    const [root] = await tx.select().from(sessions).where(eq(sessions.id, rootId)).limit(1)
+    if (!root || root.parentId !== null || root.sealEpoch === null) continue
+    const readers = [...(await treeReaders(tx, root)).keys()]
+    const dropped = await tx
+      .delete(sessionKeys)
+      .where(
+        and(
+          eq(sessionKeys.rootId, root.id),
+          ...(readers.length > 0 ? [notInArray(sessionKeys.installId, readers)] : [])
+        )
+      )
+      .returning({ installId: sessionKeys.installId })
+    if (dropped.length > 0 && root.sealRotateEpoch === null) {
+      await tx.update(sessions).set({ sealRotateEpoch: root.sealEpoch }).where(eq(sessions.id, root.id))
+    }
+  }
 }
