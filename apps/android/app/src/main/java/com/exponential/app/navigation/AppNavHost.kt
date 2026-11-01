@@ -214,6 +214,12 @@ fun AppNavHost() {
                     navController.navigateDeepLink(route)
                 }
             }
+            // #EXP-1534: an agent_signed_out push tap or inbox row = the
+            // Devices page with that device's settings open
+            // (fixtures/inbox-route.json `device`). Team-less: no switch.
+            is DeepLinkBus.Target.Device -> guarded {
+                navController.navigateDeepLink(Routes.deviceSettings(target.deviceId))
+            }
             // EXP-1291: a thread link opens the thread (a root session).
             is DeepLinkBus.Target.Thread -> {
                 val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
@@ -751,6 +757,8 @@ private fun AuthenticatedNav(
                 // EXP-980 / #EXP-1456: a row naming a session (a wall, an
                 // agent's decision, an @mention) opens it by the push's rule.
                 onOpenSession = { sessionId -> inboxDeepLinks.openSession(sessionId) },
+                // #EXP-1534: an agent_signed_out row opens its device's settings.
+                onOpenDevice = { deviceId -> inboxDeepLinks.openDevice(deviceId) },
                 // EXP-1291: an agent message's issue row opens the issue.
                 onOpenIssueGuide = { id -> navController.navigate("issue/$id") },
             )
@@ -875,7 +883,15 @@ private fun AuthenticatedNav(
             // page, its label the title; the TeamSettingsViewModel reads
             // `section` off the SavedStateHandle and observes only its data.
             Routes.TEAM_SETTINGS_PATTERN,
-            arguments = listOf(navArgument("section") { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument("section") { type = NavType.StringType },
+                // #EXP-1534: Devices only, the device whose settings open.
+                navArgument("device") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
         ) { entry ->
             val back: () -> Unit = { navController.popBackStack() }
             Box(Modifier.fillMaxSize().testTag(SettingsNav.PAGE_TEST_ID)) {
@@ -891,7 +907,12 @@ private fun AuthenticatedNav(
                     onNewPrompt = { navController.navigate(Routes.PROMPT_NEW) },
                 )
                 // The devices page, moved here from the tab bar (chats.json `shell`).
-                SettingsNav.DEVICES -> AgentsScreen(onBack = back)
+                // #EXP-1534: `?device=` (an agent_signed_out row / push) opens
+                // that device's settings sheet on top.
+                SettingsNav.DEVICES -> AgentsScreen(
+                    onBack = back,
+                    openDeviceRowId = entry.arguments?.getString("device"),
+                )
                 // #VAPP-185: Settings › MCP (settings-mcp.json); Activity is its own page.
                 SettingsNav.MCP -> McpSettingsScreen(
                     onBack = back,

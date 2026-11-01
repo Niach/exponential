@@ -22,7 +22,7 @@ object DomainContract {
     val commentKindValues: List<String> = listOf("regular")
     val commentSourceValues: List<String> = listOf("user", "mcp", "reporter")
     val commentAudienceValues: List<String> = listOf("team", "reporter")
-    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "reporter_reply", "agent_message", "session_blocked")
+    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "reporter_reply", "agent_message", "session_blocked", "agent_signed_out")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val sessionKindValues: List<String> = listOf("thread", "agent")
     val sessionStatusValues: List<String> = listOf("queued", "running", "idle", "ended")
@@ -199,6 +199,7 @@ object DomainContract {
     const val notificationTypeReporterReply: String = "reporter_reply"
     const val notificationTypeAgentMessage: String = "agent_message"
     const val notificationTypeSessionBlocked: String = "session_blocked"
+    const val notificationTypeAgentSignedOut: String = "agent_signed_out"
     const val prStateOpen: String = "open"
     const val prStateClosed: String = "closed"
     const val prStateMerged: String = "merged"

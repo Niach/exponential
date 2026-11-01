@@ -35,8 +35,13 @@ object Routes {
     /** #EXP-1381 (settings-nav.json): ONE team settings category's own page,
      *  `section` = a `SettingsNav` row id (General, Members, Labels, Boards,
      *  Agents, Repositories, Prompts, Devices). */
-    const val TEAM_SETTINGS_PATTERN = "team-settings/{section}"
+    const val TEAM_SETTINGS_PATTERN = "team-settings/{section}?device={device}"
     fun teamSettings(section: String): String = "team-settings/$section"
+
+    /** #EXP-1534: the Devices page with one device's settings sheet open
+     *  (`deviceRowId` = the `devices` row id an `agent_signed_out` row names). */
+    fun deviceSettings(deviceRowId: String): String =
+        "team-settings/${com.exponential.app.domain.SettingsNav.DEVICES}?device=$deviceRowId"
 
     /** #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`). */
     const val MCP_ACTIVITY = "settings/mcp/activity"

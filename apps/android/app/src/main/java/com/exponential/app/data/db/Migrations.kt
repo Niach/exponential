@@ -33,3 +33,17 @@ val MIGRATION_105_106: Migration = object : Migration(105, 106) {
         )
     }
 }
+
+/**
+ * v107 (#EXP-1534): `notifications.device_id`, the device an
+ * `agent_signed_out` row is about. Only the notifications shape refetches.
+ */
+val MIGRATION_106_107: Migration = object : Migration(106, 107) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `notifications` ADD COLUMN `device_id` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'notifications'",
+        )
+    }
+}

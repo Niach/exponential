@@ -26,6 +26,7 @@ final class InboxRouteTests: XCTestCase {
                 resultsFace: (object["face"] as? String) == "results"
             )
         case "session": return .session(id: try XCTUnwrap(object["sessionId"] as? String))
+        case "device": return .device(id: try XCTUnwrap(object["deviceId"] as? String))
         case "none": return .none
         case let other: throw NSError(domain: "unknown kind \(other)", code: 1)
         }
@@ -55,7 +56,8 @@ final class InboxRouteTests: XCTestCase {
                 InboxRoute.inboxRowTarget(
                     type: try XCTUnwrap(row["type"] as? String),
                     issueId: row["issueId"] as? String,
-                    sessionId: row["sessionId"] as? String
+                    sessionId: row["sessionId"] as? String,
+                    deviceId: row["deviceId"] as? String
                 ),
                 try rowTarget(testCase["expected"]),
                 name

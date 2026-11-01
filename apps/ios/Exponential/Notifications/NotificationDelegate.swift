@@ -61,6 +61,9 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
             deepLinkBus.navigateToInbox(userId: userId, teamId: teamId)
         case let .issue(issueId):
             deepLinkBus.navigateToIssue(issueId, userId: userId)
+        case let .device(deviceRowId):
+            // #EXP-1534: a signed-out login opens that device's settings.
+            deepLinkBus.navigateToDevice(deviceRowId, userId: userId)
         case .none:
             break
         }

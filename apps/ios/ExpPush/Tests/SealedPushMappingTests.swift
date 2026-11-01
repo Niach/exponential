@@ -41,6 +41,14 @@ final class SealedPushMappingTests: XCTestCase {
         XCTAssertEqual(opened.userInfo["sessionId"] as? String, "s1")
     }
 
+    // #EXP-1534: a team-less signed-out push keeps its `deviceId` top-level.
+    func testAgentSignedOutCarriesTheDeviceId() throws {
+        let opened = try XCTUnwrap(SealedPush.map(plaintext: Data(#"{"title":"Claude Code account a@b.dev is signed out on mint","data":{"userId":"u1","notificationId":"n1","type":"agent_signed_out","deviceId":"d1"}}"#.utf8), userInfo: [:]))
+        XCTAssertEqual(opened.userInfo["type"] as? String, "agent_signed_out")
+        XCTAssertEqual(opened.userInfo["deviceId"] as? String, "d1")
+        XCTAssertNil(opened.userInfo["teamId"])
+    }
+
     func testNonContractPlaintextIsRefused() {
         XCTAssertNil(SealedPush.map(plaintext: Data("from rust".utf8), userInfo: [:]))
         XCTAssertNil(SealedPush.map(plaintext: Data(#"{"body":"no title"}"#.utf8), userInfo: [:]))

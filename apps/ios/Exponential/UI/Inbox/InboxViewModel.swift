@@ -29,7 +29,10 @@ final class InboxViewModel {
     /// One blocked run (EXP-980): an issue-less `session_blocked` row is its
     /// own entry, like an agent message. Tapping marks it read AND opens the
     /// run (`target`); a row whose `sessionId` is NULL (the run has been pruned) still
-    /// renders and only marks read.
+    /// renders and only marks read. #EXP-1534: a team-less `agent_signed_out`
+    /// row (one of the viewer's devices lost a login) is the SAME row, its tap
+    /// opening that device's settings (`target` = `.device`); a removed device
+    /// only marks read.
     struct BlockedRunEntry: Identifiable {
         let notification: NotificationEntity
         /// Resolved team name (nil when unresolved); shown only with >1 team.
@@ -41,7 +44,9 @@ final class InboxViewModel {
 
     /// #EXP-1456: where a row opens (fixtures/inbox-route.json).
     nonisolated static func target(_ n: NotificationEntity) -> InboxRoute.RowTarget {
-        InboxRoute.inboxRowTarget(type: n.type, issueId: n.issueId, sessionId: n.sessionId)
+        InboxRoute.inboxRowTarget(
+            type: n.type, issueId: n.issueId, sessionId: n.sessionId, deviceId: n.deviceId
+        )
     }
 
     /// One merged stream (web parity): issue groups, agent messages and
@@ -193,6 +198,8 @@ final class InboxViewModel {
         guard let issueId = notification.issueId else {
             return notification.type == DomainContract.notificationTypeAgentMessage
                 || notification.type == DomainContract.notificationTypeSessionBlocked
+                // #EXP-1534: renderable with or without its device.
+                || notification.type == DomainContract.notificationTypeAgentSignedOut
         }
         return issueIds.contains(issueId)
     }
@@ -210,14 +217,16 @@ final class InboxViewModel {
         var blockedRunsById: [String: NotificationEntity] = [:]
         for n in sorted {
             guard Self.isRenderable(n, issueIds: issueIds) else { continue }
-            if let teamId {
+            // #EXP-1534: a signed-out login belongs to the viewer, not a team:
+            // it lists in every team's inbox.
+            if let teamId, n.type != DomainContract.notificationTypeAgentSignedOut {
                 let rowTeam = n.teamId ?? n.issueId.flatMap { issuesById[$0] }.flatMap { boardTeams[$0.boardId] }
                 if let rowTeam, rowTeam != teamId { continue }
             }
             guard let iid = n.issueId else {
                 // Issue-less rows: an agent message (EXP-801) and a blocked
-                // run (EXP-980) are one entry per row (`isRenderable` admits
-                // nothing else).
+                // run (EXP-980) or signed-out login (#EXP-1534, the same row)
+                // are one entry per row (`isRenderable` admits nothing else).
                 if n.type == DomainContract.notificationTypeAgentMessage {
                     order.append("message:\(n.id)")
                     messagesById[n.id] = n

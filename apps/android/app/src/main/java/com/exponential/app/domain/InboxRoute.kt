@@ -2,7 +2,8 @@ package com.exponential.app.domain
 
 // #EXP-1456: where an inbox row (and its push) opens ×4. An issue row opens
 // its issue; an issue-less row naming a session opens that session (an
-// agent's question or plan, a mention, a wall); [InboxRoute.sessionTarget] is
+// agent's question or plan, a mention, a wall); #EXP-1534: an
+// `agent_signed_out` row opens its device's settings; [InboxRoute.sessionTarget] is
 // the S-3 inter-session rule. Hand-ported from
 // `packages/domain-contract/src/inbox-route.ts`, locked to
 // `fixtures/inbox-route.json` by InboxRouteTest.
@@ -12,6 +13,9 @@ object InboxRoute {
         /** [results] = open the issue's Results face (an agent's message about it, EXP-933). */
         data class Issue(val issueId: String, val results: Boolean) : RowTarget
         data class Session(val sessionId: String) : RowTarget
+
+        /** #EXP-1534: the Devices page with this device's (devices row id) settings open. */
+        data class Device(val deviceId: String) : RowTarget
         data object None : RowTarget
     }
 
@@ -21,10 +25,17 @@ object InboxRoute {
         DomainContract.notificationTypeSessionBlocked,
     )
 
-    fun inboxRowTarget(type: String?, issueId: String?, sessionId: String?): RowTarget = when {
+    fun inboxRowTarget(
+        type: String?,
+        issueId: String?,
+        sessionId: String?,
+        deviceId: String? = null,
+    ): RowTarget = when {
         !issueId.isNullOrEmpty() ->
             RowTarget.Issue(issueId, results = type == DomainContract.notificationTypeAgentMessage)
         type in SESSION_ROW_TYPES && !sessionId.isNullOrEmpty() -> RowTarget.Session(sessionId)
+        type == DomainContract.notificationTypeAgentSignedOut && !deviceId.isNullOrEmpty() ->
+            RowTarget.Device(deviceId)
         else -> RowTarget.None
     }
 

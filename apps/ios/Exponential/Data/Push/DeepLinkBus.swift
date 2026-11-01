@@ -46,6 +46,18 @@ final class DeepLinkBus: @unchecked Sendable {
     // under the signed-in account whose host matched the URL.
     var pendingAgentTeamSlug: String?
     var pendingAgentAccountId: String?
+    // #EXP-1534 (inbox-route.json): an `agent_signed_out` inbox row or push
+    // tap — the devices ROW id whose settings open (the Devices page with
+    // that device's settings sheet), under the account it belongs to: the
+    // inbox row knows it (`pendingDeviceAccountId`), a push only the
+    // recipient's server user id.
+    var pendingDeviceRowId: String?
+    var pendingDeviceUserId: String?
+    var pendingDeviceAccountId: String?
+    // #EXP-1534: the device row the Devices page (`AgentsView`) opens the
+    // settings sheet for once its list holds it; set by the navigator as it
+    // lands there, cleared by the page.
+    var pendingDeviceSettingsRowId: String?
     // A web URL the app was opened with but cannot render (unknown host, issue
     // not synced/visible). MainNavigator presents it in an in-app Safari sheet —
     // NEVER hand it back to UIApplication.open: the app is entitled for the
@@ -81,6 +93,20 @@ final class DeepLinkBus: @unchecked Sendable {
     func navigateToSession(_ sessionId: String, userId: String? = nil) {
         pendingSessionUserId = userId
         pendingSessionId = sessionId
+    }
+
+    func navigateToDevice(_ deviceRowId: String, userId: String? = nil, accountId: String? = nil) {
+        pendingDeviceUserId = userId
+        pendingDeviceAccountId = accountId
+        pendingDeviceRowId = deviceRowId
+    }
+
+    func consumeDevice() -> String? {
+        let id = pendingDeviceRowId
+        pendingDeviceRowId = nil
+        pendingDeviceUserId = nil
+        pendingDeviceAccountId = nil
+        return id
     }
 
     func navigateToThread(_ threadId: String, accountId: String, page: ThreadPage? = nil) {
