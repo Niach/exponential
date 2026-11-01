@@ -239,7 +239,7 @@ describe(`media limits`, () => {
         : new Response(new Uint8Array(8), { status: 200, headers: { "content-type": `video/mp4` } })
     )
     const host: HostPlugin = { mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }) }
-    const c = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/clip.mp4`, poster: `https://exponential.at/poster.png` } }, host)
+    const c = paint({ id: `v`, component: `Video`, props: { autoplay: true, src: `https://exponential.at/clip.mp4`, poster: `https://exponential.at/poster.png` } }, host)
     await vi.waitFor(() => expect(c.querySelector(`video`)!.getAttribute(`src`)).toMatch(/^blob:media-/))
     await new Promise((r) => setTimeout(r, 20))
     expect(c.querySelector(`video`)!.getAttribute(`poster`)).toBeNull()
@@ -249,7 +249,7 @@ describe(`media limits`, () => {
     cleanup()
     // Over the byte cap, as a whole film is: the whole-fetch fallback fails like a 404 (the host wants mediaStreamUrl).
     vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(new Uint8Array(8), { status: 200, headers: { "content-length": String(MEDIA_LIMITS.maxBytes + 1) } }))
-    const big = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/film.mp4` } }, host)
+    const big = paint({ id: `v`, component: `Video`, props: { autoplay: true, src: `https://exponential.at/film.mp4` } }, host)
     await new Promise((r) => setTimeout(r, 20))
     expect(big.querySelector(`video`)!.getAttribute(`src`)).toBeNull()
   })
@@ -260,12 +260,12 @@ describe(`media limits`, () => {
       mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }),
       mediaStreamUrl: async (req) => (streamed.push(req.url), req.url.endsWith(`evil.mp4`) ? `javascript:alert(1)` : `${req.url}?sig=abc`),
     }
-    const c = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/clip.mp4` } }, host)
+    const c = paint({ id: `v`, component: `Video`, props: { autoplay: true, src: `https://exponential.at/clip.mp4` } }, host)
     await vi.waitFor(() => expect(c.querySelector(`video`)!.getAttribute(`src`)).toBe(`https://exponential.at/clip.mp4?sig=abc`))
     expect(streamed).toEqual([`https://exponential.at/clip.mp4`])
     expect(fetchSpy).not.toHaveBeenCalled()
     cleanup()
-    const d = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/evil.mp4` } }, host)
+    const d = paint({ id: `v`, component: `Video`, props: { autoplay: true, src: `https://exponential.at/evil.mp4` } }, host)
     await new Promise((r) => setTimeout(r, 10))
     expect(d.querySelector(`video`)!.getAttribute(`src`)).toBeNull()
   })

@@ -219,8 +219,9 @@ export function ChartNative(props: NativeProps): JSX.Element {
               <g data-series={l.si}>
                 {l.area !== null ? <path d={l.area} fill={l.color} opacity={0.18} /> : null}
                 <path d={l.line} fill="none" stroke={l.color} stroke-width={sparkline() ? 1.5 : 2} stroke-linejoin="round" stroke-linecap="round" />
-                {l.dots.map((p) => (
-                  <circle cx={p.cx} cy={p.cy} r={active() === p.i ? 4 : 2.5} fill={l.color} />
+                {/* EXP-1556: the bare line ×4; only the active point gets a marker. */}
+                {l.dots.filter((p) => active() === p.i).map((p) => (
+                  <circle cx={p.cx} cy={p.cy} r={4} fill={l.color} />
                 ))}
               </g>
             ) : null
@@ -301,7 +302,10 @@ export function ChartNative(props: NativeProps): JSX.Element {
           {body()}
           <Show when={showAxes()}>
             <g {...part(`axis`)} fill="currentColor" font-size={AXIS_FONT}>
-              <line x1={geo().mx(geo().pad.l)} x2={geo().mx(geo().width - geo().pad.r)} y1={geo().zero} y2={geo().zero} stroke="currentColor" stroke-width={1} opacity={0.6} shape-rendering="crispEdges" />
+              {/* EXP-1556: the baseline in the gridlines' colour, as the natives draw it. */}
+              <g {...part(`grid`)}>
+                <line x1={geo().mx(geo().pad.l)} x2={geo().mx(geo().width - geo().pad.r)} y1={geo().zero} y2={geo().zero} stroke="currentColor" stroke-width={1} shape-rendering="crispEdges" />
+              </g>
               <Index each={geo().ticks.ticks}>
                 {(t, i) => (
                   <text x={geo().mx(geo().pad.l - 6)} y={geo().y(t())} text-anchor={geo().rtl ? `start` : `end`} dominant-baseline="middle">

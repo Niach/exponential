@@ -404,8 +404,8 @@ export function TimePickerNative(props: NativeProps): JSX.Element {
     for (let m = lo(); m <= hi(); m += step()) out.push(m)
     return out
   })
-  const clock = createMemo(() => new Intl.DateTimeFormat(ctx.locale, { hour: `numeric`, minute: `2-digit` }))
-  const show = (m: number) => clock().format(new Date(2000, 0, 1, Math.floor(m / 60), m % 60))
+  // EXP-1556: `HH:mm` (the spec's), as desktop, iOS and Android show it.
+  const show = formatHHmm
   const current = () => parseTime(value())
   const pick = (i: number) => {
     const next = formatHHmm(times()[i]!)

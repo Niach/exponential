@@ -1,5 +1,5 @@
 // VAPP-87 + round 1: Button, Link, Toggle. A Button is OPTIMISTIC: it goes
-// disabled (and `aria-busy`) the moment it is pressed and stays so until the
+// inert (`aria-busy`, presses refused) the moment it is pressed and stays so until the
 // host's `onAction` promise settles. A `submit` Button submits the enclosing
 // Form (and shows loading while the Form is `busy`).
 //
@@ -49,7 +49,10 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
   const label = str(props.label)
   const icon = str(props.icon)
   const loading = bool(props.loading) || pending || (submit && form.busy)
-  const disabled = bool(props.disabled) || loading
+  // EXP-1556: loading refuses presses but keeps the idle look (the spinner
+  // shows it); only `disabled` dims, as on desktop, iOS and Android.
+  const disabled = bool(props.disabled)
+  const inert = disabled || loading
   const iconOnly = props.size === `icon`
   const Spinner = CHROME.spinner
   const hasChild = node.children.length > 0
@@ -68,7 +71,7 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
   const rootStyle = (rootProps as { style?: Record<string, unknown> }).style
   // VAPP-162 (round-5 contract §9): `hold` = holdStart/holdEnd/holdCancel, never `press`.
   const hold = bool(props.hold)
-  const { held, handlers } = useHold(hold, disabled, emit)
+  const { held, handlers } = useHold(hold, inert, emit)
   const holdingLabel = str(props.holdingLabel)
   const paintedLabel = held && holdingLabel ? holdingLabel : shownLabel
   const states = [...(ctx.states ?? []), disabled ? `disabled` : ``, pending ? `pending` : ``, held ? `pressed` : ``].filter(Boolean).join(` `)
@@ -89,7 +92,7 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
       {...(hold ? handlers : {})}
       onClick={(e: MouseEvent) => {
         e.stopPropagation()
-        if (hold) return
+        if (hold || inert) return
         track(emit(`press`))
         if (submit) form.submit()
       }}

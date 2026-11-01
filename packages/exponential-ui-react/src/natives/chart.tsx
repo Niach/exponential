@@ -135,7 +135,8 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
         <g key={si} data-series={si}>
           {kind === `area` ? <path d={`${line} L${pts[pts.length - 1][0]},${zero} L${pts[0][0]},${zero} Z`} fill={color} opacity={0.18} /> : null}
           <path d={line} fill="none" stroke={color} strokeWidth={sparkline ? 1.5 : 2} strokeLinejoin="round" strokeLinecap="round" />
-          {!sparkline ? s.values.map((v, i) => (Number.isFinite(v) ? <circle key={i} cx={px(i)} cy={y(v)} r={active === i ? 4 : 2.5} fill={color} /> : null)) : null}
+          {/* EXP-1556: the bare line ×4; only the active point gets a marker. */}
+          {!sparkline && active !== null && Number.isFinite(s.values[active]) ? <circle cx={px(active)} cy={y(s.values[active])} r={4} fill={color} /> : null}
         </g>
       )
     })
@@ -256,7 +257,10 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
           {values}
           {showAxes ? (
             <g {...(part(`axis`) as Record<string, string>)} fill="currentColor" fontSize={AXIS_FONT}>
-              <line x1={mx(pad.l)} x2={mx(width - pad.r)} y1={zero} y2={zero} stroke="currentColor" strokeWidth={1} opacity={0.6} shapeRendering="crispEdges" />
+              {/* EXP-1556: the baseline in the gridlines' colour, as the natives draw it. */}
+              <g {...(part(`grid`) as Record<string, string>)}>
+                <line x1={mx(pad.l)} x2={mx(width - pad.r)} y1={zero} y2={zero} stroke="currentColor" strokeWidth={1} shapeRendering="crispEdges" />
+              </g>
               {ticks.ticks.map((t, i) => (
                 <text key={t} x={mx(pad.l - 6)} y={y(t)} textAnchor={rtl ? `start` : `end`} dominantBaseline="middle">
                   {tickText[i]}

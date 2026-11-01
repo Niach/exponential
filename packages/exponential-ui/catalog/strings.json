@@ -46,6 +46,8 @@
     "pageCounter": "{page} / {total}",
     "pageOf": "Page {page} of {total}",
     "pagination": "Pagination",
+    "pause": "Pause",
+    "play": "Play",
     "previous": "Previous",
     "previousMonth": "Previous month",
     "ratingStar": "{value} of {max}",
