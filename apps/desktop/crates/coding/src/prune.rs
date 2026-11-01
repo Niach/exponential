@@ -513,12 +513,16 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
         {
             continue;
         }
+        // EXP-1536 A: the HEAD the landed check vouches for, taken BEFORE
+        // it; the removal refuses once it moved.
+        let head = crate::leftover::Verified::head_of(&entry.path);
         match landed_verdict(branch) {
             None => continue,
             Some(Err(reason)) => report.skipped.push((branch.clone(), reason)),
             Some(Ok(())) => {
                 // Untracked-only debris goes with the worktree.
-                if worktree_dirty_state(&entry.path) == DirtyState::TrackedChanges {
+                let dirty = worktree_dirty_state(&entry.path);
+                if dirty == DirtyState::TrackedChanges {
                     report.skipped.push((branch.clone(), SkipReason::TrackedChanges));
                     continue;
                 }
@@ -532,12 +536,25 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
                         .push((branch.clone(), SkipReason::RecentlyCreated));
                     continue;
                 }
-                // EXP-1536 A (#FEED-171): build output first, `.git` last,
+                let Some(head) = head else {
+                    report
+                        .skipped
+                        .push((branch.clone(), SkipReason::RemoveFailed("HEAD unreadable".to_string())));
+                    continue;
+                };
+                // EXP-1536 A (#FEED-171): refused when it is locked or changed
+                // since the checks above (a clean tree that grew untracked
+                // files included); then build output first, `.git` last,
                 // long-path safe; a failure leaves a valid worktree.
+                let verified = crate::leftover::Verified {
+                    head,
+                    allow_untracked: dirty == DirtyState::UntrackedOnly,
+                };
                 match crate::leftover::remove_worktree(
                     clone,
                     &entry.path,
                     &format!("git worktree remove ({branch})"),
+                    &verified,
                 ) {
                     Ok(_) => {
                         report.removed_worktrees.push(branch.clone());

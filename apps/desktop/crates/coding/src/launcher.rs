@@ -217,6 +217,12 @@ fn with_start_note(prompt: String, pick: Option<&crate::account_rotation::StartP
     }
 }
 
+/// `a` and `b` name the same directory (resolved when possible).
+fn same_dir(a: &Path, b: &Path) -> bool {
+    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    a == b || canonical(a) == canonical(b)
+}
+
 /// EXP-1536 A — the workspace notes, said before the brief.
 fn with_workspace_notes(prompt: String, notes: &[String]) -> String {
     notes.iter().rev().fold(prompt, |prompt, note| format!("{note}\n\n{prompt}"))
@@ -2566,6 +2572,8 @@ fn prepare_resume(
     // a fresh launch takes; it heals a worktree git pruned under us).
     let mut launch_hold: Option<crate::launch_gate::LaunchHold> = None;
     let mut key_handle = None;
+    // EXP-1536 A: the provider's question about a folder it left untouched.
+    let mut workspace_note: Option<String> = None;
     // The base the reclaimed note compares against (`origin/<base>..HEAD`).
     let mut default_branch = record.base_branch.clone().unwrap_or_default();
     if let (Some(clone), Some(repository_id)) = (&record.clone, &record.repository_id) {
@@ -2616,7 +2624,10 @@ fn prepare_resume(
                 // (`Parked::Keep`) — a checkout back to the recorded branch
                 // refused every resume of a run that had moved to another
                 // branch and edited files, and its messages sat unconsumed.
-                let worktree = deps.worktrees.prepare(
+                // EXP-1536 A: an earlier run's folder the device may not
+                // touch (a broken gitlink, unverified files) moves the run to
+                // a sibling path; its question opens the first turn.
+                let created = deps.worktrees.prepare_noted(
                     &deps.settings.repos_root_path(),
                     url.full_name(),
                     &default_branch,
@@ -2625,18 +2636,21 @@ fn prepare_resume(
                     minted.expires_at.as_deref(),
                     Parked::Keep,
                 )?;
-                // A re-created worktree is the cwd wherever git put it (the
-                // layout path, normally — the same one the record names, so
-                // the agent's cwd-keyed transcript still resolves).
-                if workspace_reclaimed {
-                    if worktree != cwd {
-                        log::info!(
-                            "resume {}: worktree re-created at {} (recorded {})",
-                            record.session_id,
-                            worktree.display(),
-                            cwd.display()
-                        );
-                    }
+                workspace_note = created.note;
+                let worktree = created.path;
+                // The worktree is the cwd wherever git put it (the layout
+                // path, normally — the same one the record names, so the
+                // agent's cwd-keyed transcript still resolves).
+                let moved = !same_dir(&worktree, &cwd);
+                if moved {
+                    log::info!(
+                        "resume {}: worktree at {} (recorded {})",
+                        record.session_id,
+                        worktree.display(),
+                        cwd.display()
+                    );
+                    cwd = worktree;
+                } else if workspace_reclaimed {
                     cwd = worktree;
                 } else if let Some(carried) = carried_branch(&cwd, reported_branch(row, branch)) {
                     // The run stands on another branch than the ROW says: the
@@ -2764,6 +2778,12 @@ fn prepare_resume(
     };
     let rendered = match (&reclaimed_note, body) {
         (Some(note), Some(body)) => Some(format!("{note}\n\n{body}")),
+        (Some(note), None) => Some(note.clone()),
+        (None, body) => body,
+    };
+    // EXP-1536 A: the leftover question leads, like a fresh launch's.
+    let rendered = match (&workspace_note, rendered) {
+        (Some(note), Some(body)) => Some(with_workspace_notes(body, std::slice::from_ref(note))),
         (Some(note), None) => Some(note.clone()),
         (None, body) => body,
     };
@@ -5770,6 +5790,67 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         );
         assert_eq!(prepared.repository_id.as_deref(), Some("repo-resume-reclaimed"));
         assert!(captured.lock().unwrap()[0].contains("repositories.installationToken"));
+    }
+
+    /// EXP-1536 A (#1560 review): a resume whose recorded folder the device
+    /// may not touch (here a broken gitlink, so the record still reads as
+    /// standing) runs in the sibling worktree the provider made, and the
+    /// provider's question opens its first turn.
+    #[test]
+    fn a_resume_beside_a_leftover_runs_there_and_asks_first() {
+        struct Beside(PathBuf);
+        impl WorktreeProvider for Beside {
+            fn prepare(
+                &self,
+                _repos_root: &Path,
+                _full_name: &str,
+                _default_branch: &str,
+                _branch: &str,
+                _url: &TokenUrl,
+                _expires_at: Option<&str>,
+                _parked: Parked,
+            ) -> Result<PathBuf, GitError> {
+                panic!("the resume asks prepare_noted, so the note is never dropped");
+            }
+            fn prepare_noted(
+                &self,
+                _repos_root: &Path,
+                _full_name: &str,
+                _default_branch: &str,
+                _branch: &str,
+                _url: &TokenUrl,
+                _expires_at: Option<&str>,
+                parked: Parked,
+            ) -> Result<CreatedWorktree, GitError> {
+                assert_eq!(parked, Parked::Keep);
+                fs::create_dir_all(&self.0).unwrap();
+                Ok(CreatedWorktree { path: self.0.clone(), note: Some("ASK ABOUT THE LEFTOVER".to_string()) })
+            }
+        }
+        let dir = temp_dir("resume-beside");
+        let base = canned_server(vec![(200, TOKEN_OK.to_string()), (200, RESOLVE_NONE.to_string())]);
+        let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("session-1a2b3c4d");
+        fs::create_dir_all(&layout).unwrap();
+        fs::write(layout.join(".git"), "gitdir: /nowhere/at/all\n").unwrap();
+        let beside = layout.with_file_name("session-1a2b3c4d-2");
+        let mut deps = make_deps(&base, &dir.0, Arc::new(Beside(beside.clone())));
+        let mut record = resume_record(&dir.0, "sess-beside");
+        record.cwd = layout.clone();
+        record.clone = Some(dir.0.join("repos").join("acme").join("web"));
+        record.repo = Some("acme/web".to_string());
+        record.repository_id = Some("repo-resume-beside".to_string());
+        record.branch = Some("exp/session-1a2b3c4d".to_string());
+        record.base_branch = Some("main".to_string());
+        assert!(!record.workspace_reclaimed(), "the broken gitlink reads as a standing worktree");
+        seed_transcript(&dir.0, &mut deps, "claude-1");
+
+        let prepared = ready(launch(resume_request(record), &deps));
+        assert_eq!(prepared.spawn.cwd.as_deref(), Some(beside.as_path()));
+        assert_eq!(prepared.worktree, beside);
+        let prompt = seed_prompt(&prepared);
+        assert!(prompt.starts_with("ASK ABOUT THE LEFTOVER"), "{prompt}");
+        assert!(prompt.ends_with(MESSAGE), "{prompt}");
+        assert!(layout.join(".git").exists(), "the leftover is untouched");
     }
 
     /// EXP-1292: a repo-less session's purged scratch dir is re-made where

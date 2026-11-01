@@ -2384,7 +2384,13 @@ fatal: couldn't find remote ref nope\n";
     /// made in its place.
     #[test]
     fn a_husk_that_matches_origin_is_cleared_and_the_start_goes_on() {
-        let (_dir, clone, url) = leftover_clone("husk-clear");
+        let (dir, clone, url) = leftover_clone("husk-clear");
+        // `node_modules` is disposable only beside origin's package.json.
+        let origin = dir.0.join("origin-src");
+        fs::write(origin.join("package.json"), "{}\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "package"]);
+        git(&clone, &["fetch", "--quiet", "origin"]);
         let first = create_worktree(&clone, "exp/MA-1430", "origin/main", &url).unwrap();
         fs::create_dir_all(first.join("node_modules/a/b/c")).unwrap();
         fs::write(first.join("node_modules/a/b/c/index.js"), "x").unwrap();
@@ -2397,6 +2403,24 @@ fatal: couldn't find remote ref nope\n";
         assert_eq!(created.note, None);
         assert_eq!(worktree_head(&first).as_deref(), Some("exp/MA-1430"));
         assert!(!first.join("node_modules").exists());
+    }
+
+    /// #1560 review: an untracked file in a folder merely NAMED like build
+    /// output (`src/build/`) is work: the husk is kept and the run starts
+    /// beside it.
+    #[test]
+    fn a_husk_with_work_in_a_build_named_folder_is_kept() {
+        let (_dir, clone, url) = leftover_clone("husk-build-name");
+        let first = create_worktree(&clone, "exp/MA-1431", "origin/main", &url).unwrap();
+        fs::create_dir_all(first.join("src/build")).unwrap();
+        fs::write(first.join("src/build/helpers.ts"), "export const mine = 1;\n").unwrap();
+        fs::remove_file(first.join(".git")).unwrap();
+        git(&clone, &["worktree", "prune"]);
+
+        let created = create_worktree_noted(&clone, "exp/MA-1431", "origin/main", &url, Parked::Reclaim).unwrap();
+        assert_eq!(created.path, first.with_file_name("exp-MA-1431-2"));
+        assert!(created.note.unwrap().contains("`src/build/helpers.ts`"));
+        assert_eq!(fs::read_to_string(first.join("src/build/helpers.ts")).unwrap(), "export const mine = 1;\n");
     }
 
     /// #FEED-168: a husk holding work origin does not have is never
