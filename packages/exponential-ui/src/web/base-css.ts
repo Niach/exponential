@@ -400,6 +400,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-table-body{display:flex;flex-direction:column;position:relative}
 .xui-table-check{display:flex;align-items:center;justify-content:center;min-width:0}
 .xui-Table-headerCell,.xui-Table-cell{display:flex;flex-direction:row;align-items:center;min-width:0;overflow:clip;text-overflow:ellipsis;white-space:nowrap;gap:var(--xui-spacing-xs)}
+.xui-Table-cell{white-space:normal;overflow-wrap:anywhere}
+.xui-Table-cell[data-truncate="true"]{white-space:nowrap}
+.xui-table-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xui-Table-headerCell[data-r-align="end"],.xui-Table-cell[data-r-align="end"]{justify-content:flex-end;text-align:end}
 .xui-Table-headerCell[data-r-align="center"],.xui-Table-cell[data-r-align="center"]{justify-content:center;text-align:center}
 .xui-Table-cell[data-type="number"]{font-variant-numeric:tabular-nums}

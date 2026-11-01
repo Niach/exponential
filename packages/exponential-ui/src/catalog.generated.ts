@@ -172,7 +172,7 @@ export interface Shapes {
   series: { name: string; values: number[]; tone?: ToneValue }
   pageItem: { title?: string }
   step: { label: string; description?: string }
-  column: { key: string; label: string; type?: CellTypeValue; slot?: string; width?: number; align?: "start" | "center" | "end"; sortable?: boolean; currency?: string; decimals?: number }
+  column: { key: string; label: string; type?: CellTypeValue; slot?: string; width?: number; align?: "start" | "center" | "end"; sortable?: boolean; currency?: string; decimals?: number; truncate?: boolean }
   sort: { key: string; direction: SortDirectionValue }
   panel: { min?: number; max?: number; collapsible?: boolean }
   file: { name: string; size?: number; type?: string; url?: string }

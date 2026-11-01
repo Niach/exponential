@@ -294,6 +294,9 @@ pub struct BuildContext<'a> {
     /// VAPP-162: `$control.tabBar`, the item height of a vertical `bar`
     /// Segmented (the navigation rail).
     pub tab_bar: f32,
+    /// EXP-1548: `$control.checkbox`, the width of a Table's selection
+    /// column (part of the table's minimum width).
+    pub checkbox: f32,
     /// The theme's default gap for `List` items per `gap` enum, in px.
     pub gap_px: &'a dyn Fn(&str) -> f32,
     /// Expand form controls into label/field/description parts (a themed

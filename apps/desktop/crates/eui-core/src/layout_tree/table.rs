@@ -4,6 +4,10 @@
 //! striped rows, slot cells with the ROW as their data scope, windowing past
 //! `layout.json` `windowThreshold` (50) rows. Columns share the width (a fixed
 //! `width` keeps its px), so header and rows line up as flex rows.
+//! EXP-1548: a column without a `width` never gets narrower than
+//! `tableColumnMin`; header and body are at least the columns' sum wide and
+//! the table scrolls horizontally past its box. Cells wrap (headers keep one
+//! line); a `truncate` column's cells keep one line with an ellipsis.
 
 use std::cmp::Ordering;
 
@@ -223,12 +227,25 @@ impl Builder<'_, '_> {
     fn column_style(col: &Value) -> Value {
         match col.get("width").and_then(Value::as_f64) {
             Some(w) => json!({"flexGrow": 0, "flexShrink": 0, "flexBasis": w, "width": w, "minWidth": 0}),
-            None => json!({"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0}),
+            None => json!({"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": crate::layout::TABLE_COLUMN_MIN}),
         }
     }
 
+    /// EXP-1548: the narrowest the columns fit in (each fixed `width`, else
+    /// `tableColumnMin`, plus the selection column): header and body are at
+    /// least this wide, so a narrower box scrolls instead of squeezing.
+    fn table_min_width(columns: &[Value], multiple: bool, checkbox: f32) -> f64 {
+        let cols: f64 = columns.iter().map(|c| c.get("width").and_then(Value::as_f64).unwrap_or(crate::layout::TABLE_COLUMN_MIN as f64)).sum();
+        cols + if multiple { checkbox as f64 } else { 0.0 }
+    }
+
+    /// A text cell clamps to one line only in a `truncate` column, else wraps.
+    fn truncates(col: &Value) -> bool {
+        col.get("truncate").and_then(Value::as_bool) == Some(true)
+    }
+
     pub(crate) fn table(&mut self, index: u32, node: &UiNode, scope: &str) {
-        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column"))]);
+        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("overflowX", json!("auto"))]);
         // Round 2: the table's name — its caption, else `$string.table`.
         let label = str_prop(&self.nodes[index as usize].props, "caption").map(str::to_string).unwrap_or_else(|| self.string("table"));
         self.default_a11y(index, "label", json!(label));
@@ -259,7 +276,8 @@ impl Builder<'_, '_> {
         let multiple = selectable == "multiple";
         let striped = bool_prop(&owner.props, "striped");
 
-        let header = self.part(&owner, "header", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0}), json!({}));
+        let min_width = Self::table_min_width(&columns, multiple, self.ctx.checkbox);
+        let header = self.part(&owner, "header", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "minWidth": min_width}), json!({}));
         if multiple {
             let all = !rows.is_empty() && order.iter().all(|&i| selected.contains(&key_of(i)));
             let label = self.string("selectAll");
@@ -292,7 +310,7 @@ impl Builder<'_, '_> {
             }
         }
 
-        let body = self.part(&owner, "body", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0}), json!({}));
+        let body = self.part(&owner, "body", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "minWidth": min_width}), json!({}));
         self.nodes[body as usize].part_query = None;
         let keys: std::sync::Arc<Vec<String>> = std::sync::Arc::new(order.iter().map(|&i| key_of(i)).collect());
         let windowed = rows.len() > TABLE_WINDOW_THRESHOLD;
@@ -372,7 +390,11 @@ impl Builder<'_, '_> {
         style["textAlign"] = json!(align);
         let value = data.get(&col_key);
         let text = cell_text(&kind, value, col, self.ctx.formatter, self.ctx.now);
-        let cell = self.part_in(row, owner, "cell", "Text", NodeKind::Leaf, style, json!({"text": text, "cellType": kind, "align": align, "value": value.cloned().unwrap_or(Value::Null), "lines": 1}), &suffix);
+        let mut props = json!({"text": text, "cellType": kind, "align": align, "value": value.cloned().unwrap_or(Value::Null)});
+        if Self::truncates(col) {
+            props["lines"] = json!(1);
+        }
+        let cell = self.part_in(row, owner, "cell", "Text", NodeKind::Leaf, style, props, &suffix);
         self.query_prop(cell, "align", json!(align));
     }
 }

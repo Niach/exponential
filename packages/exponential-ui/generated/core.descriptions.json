@@ -1489,10 +1489,10 @@
           "description": "Row height class."
         },
         "stickyHeader": {
-          "description": "Keeps the header visible while the rows scroll."
+          "description": "Pins the header while rows scroll."
         }
       },
-      "description": "A data table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "example": {
         "columns": [
           {
@@ -2693,7 +2693,7 @@
           "description": "For `type: slot`: the Table slot whose component renders each cell with the row as its data scope."
         },
         "width": {
-          "description": "A fixed width in px; otherwise columns share the width."
+          "description": "A fixed width in px; otherwise columns share the width, never under 120 (a wider table scrolls)."
         },
         "align": {
           "description": "Cell alignment (numbers read best at `end`)."
@@ -2706,6 +2706,9 @@
         },
         "decimals": {
           "description": "Fixed fraction digits of a number, currency or percent column."
+        },
+        "truncate": {
+          "description": "One line with an ellipsis; cells wrap otherwise."
         }
       },
       "description": "One table column."
