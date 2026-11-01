@@ -6,7 +6,7 @@ import {
   FloatingComposer,
   SessionXref,
   useIsMobile,
-  WORK_COLUMN_CLASS,
+  CHAT_COLUMN_CLASS,
   WORK_GUTTER_CLASS,
 } from "@exp/ui"
 import type { IconConcept } from "@exp/icons"
@@ -57,7 +57,7 @@ export function SessionOrigin({
   const xrefAgent = useXrefAgent()
   if (!origin) return null
   return (
-    <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS, `flex shrink-0 pt-3 pb-1`, className)}>
+    <div className={cn(CHAT_COLUMN_CLASS, WORK_GUTTER_CLASS, `flex shrink-0 pt-3 pb-1`, className)}>
       <SessionXref
         xref={origin}
         agent={origin.agentId ? xrefAgent(origin.agentId) : null}
@@ -198,7 +198,7 @@ export function SessionScreen({
 
   const header = (
     <div
-      className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS, `shrink-0 pt-4 pb-2`)}
+      className={cn(CHAT_COLUMN_CLASS, WORK_GUTTER_CLASS, `shrink-0 pt-4 pb-2`)}
       data-testid="session-header"
     >
       <div className="flex min-w-0 items-center gap-1">

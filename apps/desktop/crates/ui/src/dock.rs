@@ -319,7 +319,7 @@ pub(crate) fn band(state: &Entity<DockState>, band: Band, window: &mut Window, c
                         .relative()
                         .w_full()
                         .min_w_0()
-                        .max_w(px(crate::work_header::WORK_COLUMN_W))
+                        .max_w(px(crate::work_header::CHAT_COLUMN_W))
                         .px(px(crate::work_header::WORK_GUTTER))
                         .gap(px(DOCK.stack.gap))
                         .children(pile)

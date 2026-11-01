@@ -33,6 +33,7 @@ import { DialogPresentationContext } from "@exponential_app/eui-react/primitives
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet"
 import { useMediaQuery } from "./use-media-query"
 import { useIsMobile } from "./use-mobile"
+import { CHAT_COLUMN_CLASS } from "./work-header"
 
 // N-12: THE Dock ×web (fixtures/dock.json ×4; desktop `dock.rs`, iOS
 // `Dock.swift`, Android `Dock.kt`): the floating band over the transcript's
@@ -72,8 +73,9 @@ function markDockVisible() {
   performance.measure(DOCK_TIMING.measure, DOCK_TIMING.open, DOCK_TIMING.visible)
 }
 
-/** The band's column: the work column's measure, the phone's gutter. */
-export const DOCK_COLUMN_CLASS = `mx-auto w-full max-w-4xl px-3 md:px-5`
+/** The band's column: THE chat column (#EXP-1547, the transcript's own
+ *  edges), the phone's gutter. */
+export const DOCK_COLUMN_CLASS = `${CHAT_COLUMN_CLASS} px-3 md:px-5`
 
 /** The phone's floating work bar sits under the band: the band clears it
  *  (`MOBILE_WORK_BAR_CLEARANCE`, restated so the barrel stays a line). */
@@ -394,7 +396,7 @@ export function DockSheet({
           // N-12: ONE gray: the sheet wears the card's fill, not the phone
           // sheet's darker ground.
           `gap-0 bg-glass-card-opaque p-0`,
-          `md:inset-x-auto md:left-1/2 md:w-full md:max-w-4xl md:-translate-x-1/2 md:border-x`
+          `md:inset-x-auto md:left-1/2 md:w-full md:max-w-(--chat-column-width) md:-translate-x-1/2 md:border-x`
         )}
         style={{
           maxHeight: `${DOCK_SHEET.maxHeightFraction * 100}dvh`,

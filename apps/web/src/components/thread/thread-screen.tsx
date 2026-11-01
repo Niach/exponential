@@ -7,6 +7,7 @@ import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import {
   CardHighlightContext,
+  CHAT_COLUMN_CLASS,
   conceptIcon,
   FloatingComposer,
   JumpToBottomButton,
@@ -807,7 +808,7 @@ function ConversationBody({
       >
         <div
           ref={follow.contentRef}
-          className="mx-auto w-full max-w-4xl px-3 pt-8 md:px-5"
+          className={cn(CHAT_COLUMN_CLASS, `px-3 pt-8 md:px-5`)}
           style={{ paddingBottom: dockHeight + 16 }}
         >
           {transcript.canLoadEarlier ? <LoadEarlierButton onClick={transcript.loadEarlier} /> : null}

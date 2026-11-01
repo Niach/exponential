@@ -82,8 +82,8 @@ pub(crate) const NEW_CHILD_WINDOW: Duration = Duration::from_secs(10);
 /// thread the composer just created.
 pub(crate) const MISSING_GRACE: Duration = Duration::from_secs(5);
 
-/// The conversation's reading column.
-pub(crate) const CONVERSATION_W: f32 = 760.;
+/// The conversation's reading column: THE chat column (#EXP-1547), the Dock's.
+pub(crate) const CONVERSATION_W: f32 = crate::work_header::CHAT_COLUMN_W;
 /// The header + strip's side inset.
 const HEADER_INSET: f32 = 44.;
 /// An issue chip title's ONE max width (then the ellipsis).

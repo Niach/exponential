@@ -120,7 +120,8 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let rows: Vec<AnyElement> = rows().iter().map(|(row, time)| paint(row, time, &images, window, cx)).collect();
     let third = crate::surface_card::enter_frame(Duration::from_millis(120), false);
     v_flex()
-        .w(px(720.))
+        // #EXP-1547: THE chat column's content box (the token inside the gutter).
+        .w(px(crate::work_header::CHAT_COLUMN_W - 2. * crate::work_header::WORK_GUTTER))
         .gap_5()
         .children(rows)
         .child(div().text_xs().text_color(muted).child("ENTER (a live arrival only): the frame a third of the way in"))
