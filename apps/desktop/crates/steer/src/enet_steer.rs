@@ -18,6 +18,11 @@
 //! viewers stay joined (keepalive, `history_page` off the file) until the
 //! run's publisher comes back here, which takes them over as fresh joins.
 //!
+//! P2P FALLBACK (`fallback`): a sealed relay TUNNEL (`tunnel.rs`) is served
+//! exactly like an eNet viewer endpoint: a [`FeedPeer::Tunnel`] in the same
+//! feeds, the same access rule (its user = the ticket's), the same stored
+//! replay; only its envelopes travel sealed over the control socket.
+//!
 //! Viewer half: a viewer subscribes to `(sessionId, device endpoint)`
 //! ([`subscribe`]) and gets the device's frames as JSON text, exactly what a
 //! relay socket would have delivered; [`send_envelope`] carries its frames.
@@ -256,6 +261,68 @@ impl PartialEq for EnetPeer {
     }
 }
 
+/// Who a feed serves: an eNet endpoint, or a relay tunnel (by its id).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PeerId {
+    Enet(EndpointId),
+    Tunnel(String),
+}
+
+/// One viewer of a device feed and how its envelopes reach it.
+#[derive(Clone, Debug)]
+pub enum FeedPeer {
+    Enet(EnetPeer),
+    Tunnel(crate::tunnel::TunnelPeer),
+}
+
+impl PartialEq for FeedPeer {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl FeedPeer {
+    pub fn id(&self) -> PeerId {
+        match self {
+            FeedPeer::Enet(peer) => PeerId::Enet(peer.id),
+            FeedPeer::Tunnel(peer) => PeerId::Tunnel(peer.tunnel_id.clone()),
+        }
+    }
+
+    /// The largest serialized envelope this carrier takes.
+    fn envelope_max(&self) -> usize {
+        match self {
+            FeedPeer::Enet(_) => CHAT_MAX_BYTES,
+            FeedPeer::Tunnel(_) => crate::tunnel::TUNNEL_ENVELOPE_MAX_BYTES,
+        }
+    }
+
+    /// One envelope of `frames`: eNet waits for the ack (at most
+    /// [`SEND_TIMEOUT`]); a tunnel queues it sealed on the control socket.
+    async fn send(&self, session_id: &str, frames: &[String]) -> Result<(), String> {
+        match self {
+            FeedPeer::Enet(peer) => send_envelope(&peer.node, peer.id, session_id, frames).await,
+            FeedPeer::Tunnel(peer) => peer.send(&envelope_bytes(session_id, frames)),
+        }
+    }
+
+    /// `connStats` path: the eNet link's (direct or through an iroh relay),
+    /// or the sealed relay fallback.
+    fn path(&self) -> &'static str {
+        match self {
+            FeedPeer::Enet(peer) => crate::conn_stats::enet_path(peer.node.chat_path(&peer.id)),
+            FeedPeer::Tunnel(_) => crate::conn_stats::PATH_SERVER_FALLBACK,
+        }
+    }
+
+    fn label(&self) -> String {
+        match self {
+            FeedPeer::Enet(peer) => crate::enet::endpoint_hex(&peer.id),
+            FeedPeer::Tunnel(peer) => format!("tunnel {}", peer.tunnel_id),
+        }
+    }
+}
+
 struct Room {
     generation: u64,
     audience: SteerAudience,
@@ -304,7 +371,7 @@ pub(crate) fn register_room(
     let stored = lock(stored_viewers()).remove(session_id);
     if let (Some(viewers), Some(tx)) = (stored, live) {
         for (_, (peer, _feed)) in viewers {
-            let _ = tx.send(PublisherCmd::EnetJoin(peer));
+            let _ = tx.send(PublisherCmd::Join(peer));
         }
     }
     RoomGuard { session_id: session_id.to_string(), generation }
@@ -331,6 +398,54 @@ pub fn receive(
         deliver_to_viewer(from, envelope);
         return true;
     }
+    let peer = FeedPeer::Enet(EnetPeer { id: from, node: Arc::clone(node) });
+    serve_envelope(peer, envelope, &|team_id| user_in_team(team_id, &from), stored);
+    true
+}
+
+/// P2P FALLBACK: one opened envelope off a relay tunnel, served like an eNet
+/// viewer's (`user_id` = the tunnel's, from its server-minted ticket).
+pub fn receive_tunnel(peer: &crate::tunnel::TunnelPeer, user_id: &str, envelope: Envelope) {
+    if envelope.from_device() {
+        return;
+    }
+    let stored = lock(tunnel_stored()).clone();
+    serve_envelope(FeedPeer::Tunnel(peer.clone()), envelope, &|_| Some(user_id.to_string()), stored.as_ref());
+}
+
+/// The relay closed a tunnel (or its control socket went): its viewer
+/// leaves the session's feed.
+pub fn close_tunnel(session_id: &str, tunnel_id: &str) {
+    let id = PeerId::Tunnel(tunnel_id.to_string());
+    let cmd_tx = lock(rooms()).get(session_id).and_then(|room| room.cmd_tx.upgrade());
+    if let Some(cmd_tx) = cmd_tx {
+        let _ = cmd_tx.send(PublisherCmd::Leave(id.clone()));
+    }
+    if let Some(viewers) = lock(stored_viewers()).get_mut(session_id) {
+        viewers.remove(&id);
+    }
+}
+
+/// The host's stored journals for tunnel viewers (the eNet node's own, set
+/// beside it: `InstallNode::serve_stored`).
+fn tunnel_stored() -> &'static Mutex<Option<StoredJournals>> {
+    static STORED: OnceLock<Mutex<Option<StoredJournals>>> = OnceLock::new();
+    STORED.get_or_init(Default::default)
+}
+
+pub(crate) fn set_tunnel_stored(stored: StoredJournals) {
+    *lock(tunnel_stored()) = Some(stored);
+}
+
+/// One viewer envelope from `peer`, whatever carried it: the access rule
+/// (`user_of(team)` = the sender's user in that team), then the live room's
+/// loop or STORED REPLAY.
+fn serve_envelope(
+    peer: FeedPeer,
+    envelope: Envelope,
+    user_of: &dyn Fn(&str) -> Option<String>,
+    stored: Option<&StoredJournals>,
+) {
     let session_id = envelope.session_id.clone();
     let room = lock(rooms())
         .get(&session_id)
@@ -338,64 +453,63 @@ pub fn receive(
     let Some((audience, cmd_tx)) = room else {
         match stored.and_then(|stored| Some((stored, stored.lookup(&session_id)?))) {
             Some((stored, session)) => {
-                if allowed(node, from, &session_id, &session.audience, user_in_team) {
-                    serve_stored(node, from, envelope, stored, session.ended);
+                if allowed(&peer, &session_id, &session.audience, user_of) {
+                    serve_stored(peer, envelope, stored, session.ended);
                 }
             }
-            None => reply(node, from, &session_id, ERROR_NO_SUCH_SESSION),
+            None => reply(&peer, &session_id, ERROR_NO_SUCH_SESSION),
         }
-        return true;
+        return;
     };
-    if !allowed(node, from, &session_id, &audience, user_in_team) {
-        return true;
+    if !allowed(&peer, &session_id, &audience, user_of) {
+        return;
     }
+    let from = peer.id();
     for mut frame in envelope.frames {
         let cmd = match frame_tag(&frame) {
-            Some("join") => PublisherCmd::EnetJoin(EnetPeer { id: from, node: Arc::clone(node) }),
-            Some("leave") => PublisherCmd::EnetLeave(from),
+            Some("join") => PublisherCmd::Join(peer.clone()),
+            Some("leave") => PublisherCmd::Leave(from.clone()),
             Some(tag) if VIEWER_FRAMES.contains(&tag) => {
                 // The relay names the room on what it forwards; here the
                 // envelope does.
                 if let Value::Object(object) = &mut frame {
                     object.entry("sessionId").or_insert_with(|| Value::String(session_id.clone()));
                 }
-                PublisherCmd::EnetFrame { from, frame: frame.to_string() }
+                PublisherCmd::Frame { from: from.clone(), frame: frame.to_string() }
             }
             // A frame this build does not know: skipped, the rest applies.
             _ => continue,
         };
         if cmd_tx.send(cmd).is_err() {
-            reply(node, from, &session_id, ERROR_NO_SUCH_SESSION);
-            return true;
+            reply(&peer, &session_id, ERROR_NO_SUCH_SESSION);
+            return;
         }
     }
-    true
 }
 
 /// The access rule for one envelope; a refusal is answered `unauthorized`.
 fn allowed(
-    node: &Arc<Node>,
-    from: EndpointId,
+    peer: &FeedPeer,
     session_id: &str,
     audience: &SteerAudience,
-    user_in_team: &dyn Fn(&str, &EndpointId) -> Option<String>,
+    user_of: &dyn Fn(&str) -> Option<String>,
 ) -> bool {
-    let user = user_in_team(&audience.team_id, &from);
+    let user = user_of(&audience.team_id);
     if viewer_allowed(user.as_deref(), &audience.starter_user_id, audience.shared) {
         return true;
     }
-    log::info!("enet steer: {} refused for session {session_id}", crate::enet::endpoint_hex(&from));
-    reply(node, from, session_id, ERROR_UNAUTHORIZED);
+    log::info!("enet steer: {} refused for session {session_id}", peer.label());
+    reply(peer, session_id, ERROR_UNAUTHORIZED);
     false
 }
 
-fn reply(node: &Arc<Node>, peer: EndpointId, session_id: &str, code: &str) {
-    let node = Arc::clone(node);
+fn reply(peer: &FeedPeer, session_id: &str, code: &str) {
+    let peer = peer.clone();
     let session_id = session_id.to_string();
     let frame = error_frame(code);
     tokio::spawn(async move {
-        if let Err(err) = send_envelope(&node, peer, &session_id, &[frame]).await {
-            log::debug!("enet steer: error reply to {} failed: {err}", crate::enet::endpoint_hex(&peer));
+        if let Err(err) = peer.send(&session_id, &[frame]).await {
+            log::debug!("enet steer: error reply to {} failed: {err}", peer.label());
         }
     });
 }
@@ -407,7 +521,7 @@ fn reply(node: &Arc<Node>, peer: EndpointId, session_id: &str, code: &str) {
 /// The joined viewers of one live publisher.
 pub(crate) struct Feeds {
     session_id: String,
-    viewers: HashMap<EndpointId, flume::Sender<String>>,
+    viewers: HashMap<PeerId, flume::Sender<String>>,
     /// The `bye` outcome once the run said how it ended.
     outcome: Option<String>,
     _room: Option<RoomGuard>,
@@ -421,8 +535,9 @@ impl Feeds {
     /// `join` (or a re-join): `activity_reset`, the journal replay, then
     /// `activity_synced`. A re-join reuses the viewer's queue, so nothing
     /// queued before it can land after the reset.
-    pub(crate) fn join(&mut self, peer: EnetPeer, journal: &ActivityJournal) {
-        let id = peer.id;
+    pub(crate) fn join(&mut self, peer: FeedPeer, journal: &ActivityJournal) {
+        let id = peer.id();
+        let label = peer.label();
         let tx = match self.viewers.get(&id) {
             Some(tx) if !tx.is_disconnected() => tx.clone(),
             _ => {
@@ -432,24 +547,19 @@ impl Feeds {
             }
         };
         replay_to(&tx, journal);
-        log::info!(
-            "enet steer: {} joined {} ({} viewers)",
-            crate::enet::endpoint_hex(&id),
-            self.session_id,
-            self.viewers.len()
-        );
+        log::info!("enet steer: {label} joined {} ({} viewers)", self.session_id, self.viewers.len());
     }
 
     /// Tests only: a raw viewer queue (no node, no feed task), joined.
     #[cfg(test)]
-    pub(crate) fn tap(&mut self, id: EndpointId, tx: flume::Sender<String>, journal: &ActivityJournal) {
+    pub(crate) fn tap(&mut self, id: PeerId, tx: flume::Sender<String>, journal: &ActivityJournal) {
         replay_to(&tx, journal);
         self.viewers.insert(id, tx);
     }
 
-    pub(crate) fn leave(&mut self, id: &EndpointId) {
+    pub(crate) fn leave(&mut self, id: &PeerId) {
         if self.viewers.remove(id).is_some() {
-            log::info!("enet steer: {} left {}", crate::enet::endpoint_hex(id), self.session_id);
+            log::info!("enet steer: {id:?} left {}", self.session_id);
         }
     }
 
@@ -463,7 +573,7 @@ impl Feeds {
     }
 
     /// A frame for one viewer only (`history_chunk`, an `error`).
-    pub(crate) fn send_to(&mut self, id: &EndpointId, frame: String) {
+    pub(crate) fn send_to(&mut self, id: &PeerId, frame: String) {
         if let Some(tx) = self.viewers.get(id) {
             if tx.send(frame).is_err() {
                 self.viewers.remove(id);
@@ -510,7 +620,7 @@ fn synced_frame(first: u64, last: u64, truncated: bool) -> String {
 }
 
 /// A new viewer feed task; its queue's sender.
-fn spawn_feed(peer: EnetPeer, session_id: &str) -> flume::Sender<String> {
+fn spawn_feed(peer: FeedPeer, session_id: &str) -> flume::Sender<String> {
     let (tx, rx) = flume::unbounded();
     tokio::spawn(run_feed(peer, session_id.to_string(), rx));
     tx
@@ -562,6 +672,8 @@ impl StoredJournals {
 /// every subscription to that device closes, which the viewer reads as a
 /// dropped feed (silent redial, the relay fallback). Skipped when a
 /// connection to the peer is already back (a fast re-join raced the event).
+/// #EXP-1526: keyed by `PeerId::Enet`, so a relay TUNNEL viewer of the same
+/// user is never dropped by an eNet disconnect.
 /// Returns how many subscriptions it closed.
 pub fn peer_disconnected(node: &Node, peer: EndpointId) -> usize {
     if node.is_connected(&peer) {
@@ -569,17 +681,17 @@ pub fn peer_disconnected(node: &Node, peer: EndpointId) -> usize {
     }
     let live: Vec<_> = lock(rooms()).values().filter_map(|room| room.cmd_tx.upgrade()).collect();
     for tx in live {
-        let _ = tx.send(PublisherCmd::EnetLeave(peer));
+        let _ = tx.send(PublisherCmd::Leave(PeerId::Enet(peer)));
     }
     for viewers in lock(stored_viewers()).values_mut() {
-        viewers.remove(&peer);
+        viewers.remove(&PeerId::Enet(peer));
     }
     let mut viewers = lock(viewers());
     let keys: Vec<ViewerKey> = viewers.keys().filter(|(_, device)| *device == peer).cloned().collect();
     keys.iter().filter_map(|key| viewers.remove(key)).map(|subs| subs.len()).sum()
 }
 
-type StoredViewers = HashMap<String, HashMap<EndpointId, (EnetPeer, flume::Sender<String>)>>;
+type StoredViewers = HashMap<String, HashMap<PeerId, (FeedPeer, flume::Sender<String>)>>;
 
 /// The viewers joined to an idle session's journal, until its run comes back
 /// ([`register_room`] hands them over).
@@ -590,19 +702,18 @@ fn stored_viewers() -> &'static Mutex<StoredViewers> {
 
 /// Is `endpoint` joined to `session_id`'s stored journal here?
 pub fn has_stored_viewer(session_id: &str, endpoint: &EndpointId) -> bool {
-    lock(stored_viewers()).get(session_id).is_some_and(|viewers| viewers.contains_key(endpoint))
+    let id = PeerId::Enet(*endpoint);
+    lock(stored_viewers()).get(session_id).is_some_and(|viewers| viewers.contains_key(&id))
 }
 
 /// One allowed envelope for a session served from its journal: `join`,
 /// `leave` and `history_page` apply; a stored run cannot be steered.
-fn serve_stored(node: &Arc<Node>, from: EndpointId, envelope: Envelope, stored: &StoredJournals, ended: bool) {
+fn serve_stored(peer: FeedPeer, envelope: Envelope, stored: &StoredJournals, ended: bool) {
     let session_id = envelope.session_id;
+    let from = peer.id();
     for frame in envelope.frames {
         match frame_tag(&frame) {
-            Some("join") => {
-                let peer = EnetPeer { id: from, node: Arc::clone(node) };
-                stored_join(peer, &session_id, stored.data_dir.clone(), ended);
-            }
+            Some("join") => stored_join(peer.clone(), &session_id, stored.data_dir.clone(), ended),
             Some("leave") => {
                 if let Some(viewers) = lock(stored_viewers()).get_mut(&session_id) {
                     viewers.remove(&from);
@@ -614,7 +725,7 @@ fn serve_stored(node: &Arc<Node>, from: EndpointId, envelope: Envelope, stored: 
                 if let (Some(request_id), Some(before_seq), Some(limit)) =
                     (request_id, page("beforeSeq"), page("limit"))
                 {
-                    stored_page(&session_id, from, stored.data_dir.clone(), request_id.to_string(), before_seq, limit);
+                    stored_page(&session_id, &from, stored.data_dir.clone(), request_id.to_string(), before_seq, limit);
                 }
             }
             _ => {}
@@ -625,17 +736,17 @@ fn serve_stored(node: &Arc<Node>, from: EndpointId, envelope: Envelope, stored: 
 /// `join` (or a re-join) on a stored journal: reset, the file's replay,
 /// synced, then `bye history` for an ended row (the viewer is dropped) or a
 /// place in the stored-viewer registry for an idle one.
-fn stored_join(peer: EnetPeer, session_id: &str, data_dir: PathBuf, ended: bool) {
+fn stored_join(peer: FeedPeer, session_id: &str, data_dir: PathBuf, ended: bool) {
     let tx = if ended {
         spawn_feed(peer, session_id)
     } else {
         let mut stored = lock(stored_viewers());
         let viewers = stored.entry(session_id.to_string()).or_default();
-        match viewers.get(&peer.id) {
+        match viewers.get(&peer.id()) {
             Some((_, tx)) if !tx.is_disconnected() => tx.clone(),
             _ => {
                 let tx = spawn_feed(peer.clone(), session_id);
-                viewers.insert(peer.id, (peer, tx.clone()));
+                viewers.insert(peer.id(), (peer, tx.clone()));
                 tx
             }
         }
@@ -672,8 +783,8 @@ pub fn stored_replay(events: &[(u64, ActivityEvent)], ended: bool) -> Vec<String
 }
 
 /// A stored viewer's `history_page`, answered off the file.
-fn stored_page(session_id: &str, from: EndpointId, data_dir: PathBuf, request_id: String, before_seq: u64, limit: u64) {
-    let Some(tx) = lock(stored_viewers()).get(session_id).and_then(|viewers| viewers.get(&from)).map(|(_, tx)| tx.clone())
+fn stored_page(session_id: &str, from: &PeerId, data_dir: PathBuf, request_id: String, before_seq: u64, limit: u64) {
+    let Some(tx) = lock(stored_viewers()).get(session_id).and_then(|viewers| viewers.get(from)).map(|(_, tx)| tx.clone())
     else {
         return;
     };
@@ -691,13 +802,37 @@ fn stored_page(session_id: &str, from: EndpointId, data_dir: PathBuf, request_id
 
 /// One viewer's feed: drains its queue into envelopes, beats a keepalive
 /// when idle, and ends on a failed send (the viewer is dropped: its queue's
-/// sender sees the disconnect) or once the queue closes.
-async fn run_feed(peer: EnetPeer, session_id: String, rx: flume::Receiver<String>) {
-    let overhead = envelope_overhead(&session_id);
+/// sender sees the disconnect) or once the queue closes. Its end is one
+/// `steer.serve` (`connStats`): the carrier it served on, for how long.
+async fn run_feed(peer: FeedPeer, session_id: String, rx: flume::Receiver<String>) {
+    let started = std::time::Instant::now();
+    let mut path = None;
+    let failure = feed_loop(&peer, &session_id, &rx, &mut path).await;
+    let data = crate::conn_stats::ConnData {
+        phase: "ended",
+        outcome: if path.is_some() { "ok" } else { "failed" },
+        path,
+        error_class: failure.filter(|_| path.is_none()),
+        duration_ms: Some(started.elapsed().as_millis() as u64),
+        ..Default::default()
+    };
+    crate::conn_stats::record(crate::conn_stats::KIND_SERVE, crate::conn_stats::SOURCE_DEVICE, data);
+}
+
+/// [`run_feed`]'s loop: `path` = the carrier, once an envelope went out;
+/// the error class when a send failed.
+async fn feed_loop(
+    peer: &FeedPeer,
+    session_id: &str,
+    rx: &flume::Receiver<String>,
+    path: &mut Option<&'static str>,
+) -> Option<&'static str> {
+    let overhead = envelope_overhead(session_id);
+    let envelope_max = peer.envelope_max();
     loop {
         let first = match tokio::time::timeout(KEEPALIVE, rx.recv_async()).await {
             Ok(Ok(frame)) => frame,
-            Ok(Err(_)) => return,
+            Ok(Err(_)) => return None,
             Err(_) => KEEPALIVE_FRAME.to_string(),
         };
         let mut frames = vec![first];
@@ -705,18 +840,18 @@ async fn run_feed(peer: EnetPeer, session_id: String, rx: flume::Receiver<String
             frames.push(frame);
         }
         let sizes: Vec<usize> = frames.iter().map(String::len).collect();
-        let (groups, dropped) = batches(&sizes, overhead, BATCH_MAX_BYTES, CHAT_MAX_BYTES);
+        let (groups, dropped) = batches(&sizes, overhead, BATCH_MAX_BYTES, envelope_max);
         for index in dropped {
             log::warn!("enet steer: dropping an oversize frame ({} bytes)", sizes[index]);
         }
         for group in groups {
             let batch: Vec<String> = group.into_iter().map(|index| std::mem::take(&mut frames[index])).collect();
-            if let Err(err) = send_envelope(&peer.node, peer.id, &session_id, &batch).await {
-                log::info!(
-                    "enet steer: viewer {} of {session_id} dropped: {err}",
-                    crate::enet::endpoint_hex(&peer.id)
-                );
-                return;
+            if let Err(err) = peer.send(session_id, &batch).await {
+                log::info!("enet steer: viewer {} of {session_id} dropped: {err}", peer.label());
+                return Some("send_failed");
+            }
+            if path.is_none() {
+                *path = Some(peer.path());
             }
         }
     }

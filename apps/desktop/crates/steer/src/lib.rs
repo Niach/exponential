@@ -64,6 +64,7 @@ pub use eagent::login_screen as agent_login_driver;
 pub use eagent::wire::answer_tap;
 pub use eagent::codex_login_picker;
 pub mod commands;
+pub mod conn_stats;
 pub mod control_channel;
 pub mod enet;
 pub mod enet_steer;
@@ -89,6 +90,7 @@ pub mod tool_diff;
 pub mod tool_output;
 pub mod tool_group_summary;
 pub mod trace;
+pub mod tunnel;
 pub mod viewer;
 /// VAPP-167: the daemon proxies a CLI's viewer over its local socket.
 #[cfg(unix)]

@@ -487,6 +487,7 @@ impl InstallNode {
     /// VAPP-43: serve STORED REPLAY joins off `stored` (the host's data dir
     /// and its synced `sessions` rows).
     pub fn serve_stored(&self, stored: crate::enet_steer::StoredJournals) {
+        crate::enet_steer::set_tunnel_stored(stored.clone());
         *lock(&self.inner.stored) = Some(stored);
     }
 

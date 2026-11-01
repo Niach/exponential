@@ -122,6 +122,24 @@ impl ChatState {
     }
 }
 
+/// The carrier under a peer's chat link (P2P analytics, `steer-enet.json`
+/// `connStats.paths`): a direct IP path or one through an iroh relay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatPath {
+    Direct,
+    Relay,
+}
+
+impl ChatState {
+    /// The selected path of our cached link to `peer`; `None` = no live link.
+    pub(crate) fn path(&self, peer: &EndpointId) -> Option<ChatPath> {
+        let conn = self.dialed.lock().expect("chat lock").get(peer)?.upgrade()?;
+        let paths = conn.paths();
+        let selected = paths.iter().find(|path| path.is_selected())?;
+        Some(if selected.is_relay() { ChatPath::Relay } else { ChatPath::Direct })
+    }
+}
+
 pub(crate) async fn send(shared: &Shared, peer: EndpointId, body: Vec<u8>) -> Result<ChatMessage> {
     if body.len() > MAX_CHAT_MESSAGE {
         return Err(NetError::Invalid(format!("chat message over {MAX_CHAT_MESSAGE} bytes; use a blob")));
