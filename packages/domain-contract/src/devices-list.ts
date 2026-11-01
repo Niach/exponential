@@ -12,6 +12,19 @@ import fixture from "../fixtures/devices-list.json" with { type: "json" }
 export const DEVICES_LIST_COPY = fixture.copy
 /** EXP-1560: the card grid's geometry (`fixture.card`), ×4. */
 export const DEVICE_CARD = fixture.card
+/** EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`). */
+export const KEEP_SIGNED_IN = fixture.keepSignedIn
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** EXP-1600: a long-lived claude login that is due for renewal at `now`:
+ *  its token ends within `renewWithinDays` days, or already ended. */
+export function keepSignedInDue(tokenExpiresAt: string, now: string | Date): boolean {
+  const expires = Date.parse(tokenExpiresAt)
+  const at = typeof now === `string` ? Date.parse(now) : now.getTime()
+  if (Number.isNaN(expires) || Number.isNaN(at)) return true
+  return expires - at <= KEEP_SIGNED_IN.renewWithinDays * DAY_MS
+}
 
 /** EXP-1560: grid columns for a section `width` px wide. */
 export function deviceCardColumns(width: number): number {
@@ -38,6 +51,9 @@ export interface DeviceListLogin {
   health: DeviceLoginHealth
   /** EXP-1560: a fresh usage window at ≥ 100%. */
   limitHit?: boolean
+  /** EXP-1600: when the profile's long-lived claude login ends (ISO); absent
+   *  = it holds none. */
+  tokenExpiresAt?: string | null
 }
 
 export interface DeviceListInput {
@@ -56,6 +72,8 @@ export interface DeviceListInput {
   accountsReported: boolean
   /** Every login PROFILE it reported; an agent with none adds nothing. */
   logins: readonly DeviceListLogin[]
+  /** EXP-1600: the clock the renewal reminder reads (ISO). */
+  now: string
 }
 
 export type DeviceAttentionItem =
@@ -64,9 +82,9 @@ export type DeviceAttentionItem =
       agent: string
       profileId: string
       text: string
-      action: `sign_in` | null
+      action: `sign_in` | `keep_signed_in` | null
       /** EXP-1560: the preview's status line (`copy.status`). */
-      status: `needs_relogin` | `signed_out` | `limit`
+      status: `needs_relogin` | `signed_out` | `limit` | `renew` | `switch`
     }
   | { kind: `update`; text: string; action: `update` | null }
   | { kind: `update_queued`; text: string; action: null }
@@ -96,8 +114,10 @@ export function deviceListRow(input: DeviceListInput): DeviceListRow {
       })
     }
   }
+  const dead = (login: DeviceListLogin) =>
+    login.health === `needs_relogin` || login.health === `signed_out`
   for (const login of input.logins) {
-    if (!login.limitHit || login.health === `needs_relogin` || login.health === `signed_out`) continue
+    if (!login.limitHit || dead(login)) continue
     attention.push({
       kind: `login`,
       agent: login.agent,
@@ -106,6 +126,33 @@ export function deviceListRow(input: DeviceListInput): DeviceListRow {
       action: null,
       status: `limit`,
     })
+  }
+  // EXP-1600: the yearly renewal reminder, then the switch prompt for a
+  // claude login made before Keep signed in became the default.
+  if (input.mine) {
+    const quiet = (login: DeviceListLogin) =>
+      login.agent !== `claude` || dead(login) || login.limitHit === true
+    for (const [status, template] of [
+      [`renew`, DEVICES_LIST_COPY.renewSoon],
+      [`switch`, DEVICES_LIST_COPY.switchPrompt],
+    ] as const) {
+      for (const login of input.logins) {
+        if (quiet(login)) continue
+        const due =
+          status === `renew`
+            ? Boolean(login.tokenExpiresAt) && keepSignedInDue(login.tokenExpiresAt!, input.now)
+            : !login.tokenExpiresAt
+        if (!due) continue
+        attention.push({
+          kind: `login`,
+          agent: login.agent,
+          profileId: login.profileId,
+          text: template.replace(`{label}`, login.label),
+          action: canSignIn ? `keep_signed_in` : null,
+          status,
+        })
+      }
+    }
   }
   if (input.mine) {
     if (input.updateQueued) {

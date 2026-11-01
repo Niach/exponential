@@ -32,12 +32,26 @@ object DevicesList {
         const val SETTINGS = "Device settings"
         const val REMOVE_FROM_TEAM = "Remove from this team"
         const val MORE_ACCOUNTS = "More accounts"
+        /** EXP-1600: Keep signed in (the long-lived claude login) is the default. */
+        const val RENEW_SOON = "{label} · Keep signed in ends soon"
+        const val SWITCH_PROMPT = "{label} · Switch to Keep signed in"
+        const val SWITCH_TO_KEEP_SIGNED_IN = "Switch to Keep signed in"
+        const val RENEW_KEEP_SIGNED_IN = "Renew Keep signed in"
+        const val KEEP_SIGNED_IN_NOTE =
+            "Keep signed in: lasts 1 year, no usage windows (Anthropic grants inference only). We remind you to renew."
+        const val BROWSER_LOGIN_NOTE =
+            "Browser login: shows usage windows, but can sign out when its refresh rotates."
+        const val USE_BROWSER_LOGIN = "Use browser login (Advanced)"
+        const val USE_KEEP_SIGNED_IN = "Use Keep signed in"
+        const val LONG_LIVED_REFUSED = "A long-lived login needs a Claude account on this machine."
 
         /** `copy.status`: the account preview's warning-tone status line. */
         val STATUS: Map<Status, String> = mapOf(
             Status.NeedsRelogin to "Needs re-login",
             Status.SignedOut to "Signed out",
             Status.Limit to "Limit reached",
+            Status.Renew to "Keep signed in ends soon",
+            Status.Switch to "Not kept signed in",
         )
 
         /** Fixture key → constant, for the replay test. */
@@ -59,6 +73,15 @@ object DevicesList {
             "settings" to SETTINGS,
             "removeFromTeam" to REMOVE_FROM_TEAM,
             "moreAccounts" to MORE_ACCOUNTS,
+            "renewSoon" to RENEW_SOON,
+            "switchPrompt" to SWITCH_PROMPT,
+            "switchToKeepSignedIn" to SWITCH_TO_KEEP_SIGNED_IN,
+            "renewKeepSignedIn" to RENEW_KEEP_SIGNED_IN,
+            "keepSignedInNote" to KEEP_SIGNED_IN_NOTE,
+            "browserLoginNote" to BROWSER_LOGIN_NOTE,
+            "useBrowserLogin" to USE_BROWSER_LOGIN,
+            "useKeepSignedIn" to USE_KEEP_SIGNED_IN,
+            "longLivedRefused" to LONG_LIVED_REFUSED,
         )
     }
 
@@ -66,13 +89,39 @@ object DevicesList {
 
     enum class Kind(val wire: String) { Login("login"), Update("update"), UpdateQueued("update_queued") }
 
-    enum class Action(val wire: String) { SignIn("sign_in"), Update("update") }
+    enum class Action(val wire: String) { SignIn("sign_in"), KeepSignedIn("keep_signed_in"), Update("update") }
 
     /** EXP-1560: a login item's preview status (`copy.status` key). */
     enum class Status(val wire: String) {
         NeedsRelogin("needs_relogin"),
         SignedOut("signed_out"),
         Limit("limit"),
+        /** EXP-1600: the long-lived login ends within [KeepSignedIn.RENEW_WITHIN_DAYS]. */
+        Renew("renew"),
+        /** EXP-1600: a claude login made before Keep signed in became the default. */
+        Switch("switch"),
+    }
+
+    /** EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`). */
+    object KeepSignedIn {
+        const val RENEW_WITHIN_DAYS = 30
+    }
+
+    /** The agent whose logins are kept signed in (`claude setup-token`). */
+    const val KEEP_SIGNED_IN_AGENT = "claude"
+
+    private const val DAY_MS = 24L * 60 * 60 * 1000
+
+    private fun isoMs(iso: String): Long? =
+        runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull()
+
+    /** EXP-1600: a long-lived claude login due for renewal at [now] (ISO): its
+     *  token ends within [KeepSignedIn.RENEW_WITHIN_DAYS] days, or already ended.
+     *  An unparseable stamp counts as due. */
+    fun keepSignedInDue(tokenExpiresAt: String, now: String): Boolean {
+        val expires = isoMs(tokenExpiresAt) ?: return true
+        val at = isoMs(now) ?: return true
+        return expires - at <= KeepSignedIn.RENEW_WITHIN_DAYS * DAY_MS
     }
 
     /** EXP-1560: the card grid's geometry (`fixture.card`), ×4. */
@@ -117,6 +166,8 @@ object DevicesList {
         val health: AgentHealth,
         /** EXP-1560: a fresh usage window at ≥ 100% ([limitHit]). */
         val limitHit: Boolean = false,
+        /** EXP-1600: when the profile's long-lived claude login ends (ISO); null = none. */
+        val tokenExpiresAt: String? = null,
     )
 
     data class Input(
@@ -135,6 +186,8 @@ object DevicesList {
         val accountsReported: Boolean,
         /** Every login PROFILE it reported; an agent with none adds nothing. */
         val logins: List<DeviceListLogin>,
+        /** EXP-1600: the clock the renewal reminder reads (ISO). */
+        val now: String,
     )
 
     data class AttentionItem(
@@ -173,8 +226,10 @@ object DevicesList {
                 )
             }
         }
+        fun dead(login: DeviceListLogin) =
+            login.health == AgentHealth.NeedsRelogin || login.health == AgentHealth.SignedOut
         for (login in input.logins) {
-            if (!login.limitHit || login.health == AgentHealth.NeedsRelogin || login.health == AgentHealth.SignedOut) continue
+            if (!login.limitHit || dead(login)) continue
             attention += AttentionItem(
                 kind = Kind.Login,
                 text = Copy.LIMIT_REACHED.replace("{label}", login.label),
@@ -183,6 +238,35 @@ object DevicesList {
                 profileId = login.profileId,
                 status = Status.Limit,
             )
+        }
+        // EXP-1600: the yearly renewal reminder, then the switch prompt for a
+        // claude login made before Keep signed in became the default.
+        if (input.mine) {
+            fun quiet(login: DeviceListLogin) =
+                login.agent != KEEP_SIGNED_IN_AGENT || dead(login) || login.limitHit
+            for ((status, template) in listOf(
+                Status.Renew to Copy.RENEW_SOON,
+                Status.Switch to Copy.SWITCH_PROMPT,
+            )) {
+                for (login in input.logins) {
+                    if (quiet(login)) continue
+                    val token = login.tokenExpiresAt?.takeIf { it.isNotEmpty() }
+                    val due = if (status == Status.Renew) {
+                        token != null && keepSignedInDue(token, input.now)
+                    } else {
+                        token == null
+                    }
+                    if (!due) continue
+                    attention += AttentionItem(
+                        kind = Kind.Login,
+                        text = template.replace("{label}", login.label),
+                        action = if (canSignIn) Action.KeepSignedIn else null,
+                        agent = login.agent,
+                        profileId = login.profileId,
+                        status = status,
+                    )
+                }
+            }
         }
         if (input.mine) {
             if (input.updateQueued) {
@@ -203,8 +287,11 @@ object DevicesList {
     }
 
     /** The pill label an item's action wears. */
-    fun actionLabel(action: Action): String = when (action) {
+    fun actionLabel(item: AttentionItem): String? = when (item.action) {
+        null -> null
         Action.SignIn -> Copy.SIGN_IN
+        Action.KeepSignedIn ->
+            if (item.status == Status.Renew) Copy.RENEW_KEEP_SIGNED_IN else Copy.SWITCH_TO_KEEP_SIGNED_IN
         Action.Update -> Copy.UPDATE
     }
 

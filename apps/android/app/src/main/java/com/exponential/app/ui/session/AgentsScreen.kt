@@ -278,7 +278,8 @@ fun AgentsScreen(
                                             profileId = profileId,
                                         )
                                     },
-                                    // EXP-1533: the same sheet, queuing a long-lived login.
+                                    // EXP-1533/EXP-1600: the same sheet, queuing a
+                                    // long-lived login (Switch to / Renew Keep signed in).
                                     onKeepSignedIn = { row ->
                                         loginTarget = AgentLoginTarget(
                                             device = device,
@@ -613,7 +614,7 @@ private fun DeviceCard(
     onSignOutAccount: (AgentProfileUsageRow) -> Unit,
     /** Run the agent's own sign-in here (agent, profile) — the login sheet owns the flow. */
     onSignIn: (String, String?) -> Unit,
-    /** EXP-1533: a claude login's "Keep signed in" / "Renew long-lived login". */
+    /** EXP-1600: a claude login's "Switch to Keep signed in" / "Renew Keep signed in". */
     onKeepSignedIn: (AgentProfileUsageRow) -> Unit = {},
     onAddAccount: () -> Unit,
     /** The ⋯ menu's Update: the existing update-now request. */
@@ -646,8 +647,10 @@ private fun DeviceCard(
                     label = AgentAccountsRows.loginLabel(login),
                     health = login.health,
                     limitHit = DevicesList.limitHit(login.usage, nowMs),
+                    tokenExpiresAt = login.tokenExpiresAt,
                 )
             },
+            now = java.time.Instant.ofEpochMilli(nowMs).toString(),
         ),
     )
     // A repair only runs on one of MY machines that is listening — an offline
@@ -1065,8 +1068,8 @@ private fun AccountChipMenuItems(
                 enabled = !busy,
                 onClick = onSignIn,
             )
-            AgentAccountsRows.ACTION_KEEP_SIGNED_IN,
-            AgentAccountsRows.ACTION_RENEW_LONG_LIVED,
+            AgentAccountsRows.ACTION_SWITCH_TO_KEEP_SIGNED_IN,
+            AgentAccountsRows.ACTION_RENEW_KEEP_SIGNED_IN,
             -> GlassMenuItem(
                 text = { Text(action) },
                 leadingIcon = { Icon(ExpIcons.uiClock, contentDescription = null) },

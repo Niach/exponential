@@ -10,8 +10,8 @@ import SwiftUI
 /// `maxAccountIcons - 1` show, then a ghost `⋯` (More accounts) reveals the
 /// rest in place.
 ///
-/// Touch: tapping an icon opens THE account menu (Sign in / Keep signed in
-/// (claude, EXP-1533) / Sign out / Remove account — the existing chip rules,
+/// Touch: tapping an icon opens THE account menu (Sign in / Switch to or
+/// Renew Keep signed in (claude, EXP-1600) / Sign out / Remove account — the existing chip rules,
 /// EXP-862/EXP-1137) headed by the login: the email (else the label), the plan
 /// muted, the attention item's status line in warning tone, then the usage
 /// windows. A team device's icon opens the header alone (a preview, never an
@@ -31,8 +31,9 @@ struct DeviceLogins: View {
     /// Sign this login in — the host opens `AgentLoginSheet` on it (the
     /// PROFILE rides along, so a re-login repairs the login that was tapped).
     let onSignIn: (AgentProfileUsageRow) -> Void
-    /// EXP-1533: "Keep signed in" / "Renew long-lived login" on a claude
-    /// login — the host opens the same `AgentLoginSheet`, long-lived.
+    /// EXP-1600: "Switch to Keep signed in" / "Renew Keep signed in" on a
+    /// claude login (and a `keep_signed_in` item's action) — the host opens
+    /// the same `AgentLoginSheet`, long-lived for that profile.
     let onKeepSignedIn: (AgentProfileUsageRow) -> Void
     /// EXP-862: ask to remove this login from the machine (the host confirms).
     let onRemove: (AgentProfileUsageRow) -> Void
