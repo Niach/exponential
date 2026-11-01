@@ -96,7 +96,7 @@ export function motionFit(value: unknown): MotionFit {
 }
 
 /** Contract §6: role img named by `label`; hidden (decorative) without one. */
-export function motionA11y(label: unknown): { role?: string; "aria-label"?: string; "aria-hidden"?: string } {
+export function motionA11y(label: unknown): { role?: `img`; "aria-label"?: string; "aria-hidden"?: `true` } {
   return typeof label === `string` && label ? { role: `img`, "aria-label": label } : { "aria-hidden": `true` }
 }
 

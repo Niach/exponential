@@ -17,6 +17,7 @@
     "@exp/mcp-apps": "workspace:*",
     "@exp/ui": "workspace:*",
     "@exp/view-catalog": "workspace:*",
+    "@exponential_app/eui": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

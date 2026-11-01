@@ -6,6 +6,7 @@ import promptBudget from "@exponential_app/eui/fixtures/prompt-budget.json"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection } from "@exp/site-shell"
 import { DocsTable, IcArrow } from "../components/Content"
 import { GuideFile } from "../components/GuideFile"
+import { MOTION_SECTIONS } from "./guide-motion"
 import { LIMITS, MEDIA_LIMITS } from "@exponential_app/eui"
 import { CORE_CATALOG as CATALOG_ID, FUNCTION_COUNT } from "../lib/catalog-facts"
 import { CHECK_DIR, GUIDE_CHECK, GUIDES_NAV } from "../lib/content"
@@ -1034,6 +1035,7 @@ host.receive(surface.messages) // or: transport.send(surface.jsonl)`}</DocsCode>
   },
 ]
 GUIDE_SECTIONS.define = DEFINE_SECTIONS
+GUIDE_SECTIONS.motion = MOTION_SECTIONS
 
 function CiSection({ slug }: { slug: string }) {
   const check = GUIDE_CHECK[slug]
