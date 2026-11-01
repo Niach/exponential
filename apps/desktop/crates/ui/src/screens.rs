@@ -984,12 +984,30 @@ pub struct ScreensPanel {
 /// `dialog-implement-issue` is the same for the composer DIALOG's "+"
 /// (`dialog` = the caller is the dialog presentation), whose menu opens in
 /// a menu window over the dialog (`composer-dialog-menu`).
+///
+/// EXP-1551: `temporary` is Home's "+" at its ROOT, no row lit, with the
+/// agent row on Temporary session ([`dev_composer_menu_temporary`]): the
+/// state every client photographs for `composer-menu`.
 pub(crate) fn take_dev_composer_menu(dialog: bool) -> bool {
     use std::sync::atomic::{AtomicBool, Ordering};
     static TAKEN: AtomicBool = AtomicBool::new(false);
-    let wanted = if dialog { "dialog-implement-issue" } else { "implement-issue" };
-    std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref() == Some(wanted)
-        && !TAKEN.swap(true, Ordering::SeqCst)
+    let value = std::env::var("EXP_DEV_COMPOSER_MENU").ok();
+    let wanted = match value.as_deref() {
+        Some("dialog-implement-issue") => dialog,
+        Some("implement-issue" | "temporary") => !dialog,
+        _ => false,
+    };
+    wanted && !TAKEN.swap(true, Ordering::SeqCst)
+}
+
+/// EXP-1551 — `EXP_DEV_COMPOSER_MENU=temporary`: the Home page starts its
+/// agent row on Temporary session and its dev-opened "+" menu selects no
+/// row. Read once.
+pub(crate) fn dev_composer_menu_temporary() -> bool {
+    static TEMPORARY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TEMPORARY.get_or_init(|| {
+        std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref() == Some("temporary")
+    })
 }
 
 /// EXP-1557 — `EXP_DEV_COMPOSER_TEXT=<text>` types `<text>` into Home's

@@ -990,12 +990,12 @@
       },
       "notes": {
         "web": "`issues` is a one-shot search param, a csv of issue uuids. `$issueA`/`$issueB` resolve to APP-3 and APP-6 (apps/web/scripts/lib/demo-ids.ts): two codeable issues on the repo-backed board that no seeded session runs on, the first being the issue the phone store slide starts coding from — hence the anchor on its chip. Needs `bun run screenshots:desktop`: without an online machine the device picker is empty.",
-        "desktop": "The same query string on the dev screen, `EXP_DEV_SCREEN=chat?issues=<a>,<b>` (EXP-825), paired with `EXP_DEV_TOOL=agent` by the lane."
+        "desktop": "EXP-1551: the IDE chips issues in the composer DIALOG (EXP-1037: every play button opens it), so the drive is `EXP_DEV_DIALOG=run:<a>,<b>` on the same two issues; `chat?issues=` died with EXP-1294 and photographed an empty Home."
       },
       "desktop": {
         "drive": {
-          "kind": "screen",
-          "value": "chat?issues=$issueA,$issueB"
+          "kind": "dialog",
+          "value": "run:$issueA,$issueB"
         }
       }
     },
@@ -4951,13 +4951,13 @@
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_COMPOSER_MENU": "implement-issue"
+          "EXP_DEV_COMPOSER_MENU": "temporary"
         }
       },
       "notes": {
         "web": "`openComposerMenuTemporary` picks Temporary session in the agent row and opens the Agent composer's \"+\" dropdown at its root, no submenu open (EXP-1551: the phones' state, so all four photograph one menu).",
         "web-mobile": "No app capture: on phones the menu is a bottom sheet; the open sheet is the natives' `sg_composer-menu`.",
-        "desktop": "The Agent page (`EXP_DEV_SCREEN=chat`) with `EXP_DEV_COMPOSER_MENU=implement-issue`: the \"+\" menu opens once the launch cluster and the shapes are in, with its first row selected, so the Implement issue submenu (THE search list) is open beside it."
+        "desktop": "The Agent page (`EXP_DEV_SCREEN=chat`) with `EXP_DEV_COMPOSER_MENU=temporary`: the agent row starts on Temporary session and the \"+\" menu opens at its root, no row lit, once the launch cluster and the shapes are in (EXP-1551: the state all four photograph)."
       }
     },
     {

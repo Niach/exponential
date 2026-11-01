@@ -727,7 +727,11 @@ impl ChatScreenView {
         }
         self.team_id = team_id.clone();
         self.subject = Subject::None;
-        self.agent_pick = None;
+        // EXP-1551 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=temporary`): the page
+        // photographs its "+" menu for a Temporary session.
+        self.agent_pick = (matches!(self.presentation, Presentation::Page)
+            && crate::screens::dev_composer_menu_temporary())
+        .then(|| "temporary".to_string());
         // S-3: the viewer's Assistant is created on first use (once per team
         // per app run).
         if let Some(team_id) = team_id.as_deref() {
@@ -2237,7 +2241,8 @@ impl ChatScreenView {
         let options = self.launch.as_ref().map(|launch| launch.composer_menu(cx));
         let temporary = !self.to_agent(cx);
         let runner = self.runner_menu(cx);
-        // EXP-1259 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=implement-issue`): the
+        // EXP-1259 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=implement-issue`, EXP-1551
+        // `temporary`): the
         // home page opens its "+" menu once, on the first render that has
         // the full menu (the launch cluster), synced issues, a measured +
         // and (NEW-39) the team's MCP servers loaded: the menu is built when
@@ -2261,7 +2266,9 @@ impl ChatScreenView {
         })
         .anchor(menu_fit.0)
         .wanted_height(PLUS_MENU_WANTED_HEIGHT)
-        .dev_open(dev_open);
+        .dev_open(dev_open)
+        // EXP-1551: `temporary` opens at the root, no row lit.
+        .dev_steps(usize::from(!crate::screens::dev_composer_menu_temporary()));
 
         // The picker's anchor: as tall as the + (the fit measures the room
         // above from it), no width, nothing to hit. N-6: the dialog mounts

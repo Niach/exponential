@@ -23,7 +23,7 @@ public enum IssueChipTokens {
     public static let removeHitSize: CGFloat = 28
     /// A 60-character title (`IssueRefs.chipTitle`) is wider than a phone, so
     /// the title truncates at this measure even where nothing else bounds it
-    /// (the composer's horizontal scroller).
+    /// (a chip box that hands its chips their ideal width).
     public static let titleMaxWidth: CGFloat = 220
 }
 
