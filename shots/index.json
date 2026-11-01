@@ -117,15 +117,15 @@
         "file": "shots/agents/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 32950,
-        "sha256": "35b5b7895aef0ed8370cf3d48d1b3423c24520a3e149f4d967d55a5a81a5c83b"
+        "bytes": 34428,
+        "sha256": "8af4d7f4bad1d394afbdaa53f7f02dccd7377b0b39bd82d711c2989c1caa8ace"
       },
       "web-mobile": {
         "file": "shots/agents/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 24198,
-        "sha256": "362ca49aa9e49b514ac03a72edee9c2733648f4f536aef1b27617a10fd957289"
+        "bytes": 24254,
+        "sha256": "6ba78f974bc632e68be61a3445a3219a51466a98665470fd5b7c5b0cb9d78203"
       }
     },
     "app": {
