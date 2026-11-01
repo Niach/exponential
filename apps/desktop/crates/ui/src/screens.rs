@@ -992,12 +992,17 @@ pub(crate) fn take_dev_composer_menu(dialog: bool) -> bool {
     use std::sync::atomic::{AtomicBool, Ordering};
     static TAKEN: AtomicBool = AtomicBool::new(false);
     let value = std::env::var("EXP_DEV_COMPOSER_MENU").ok();
-    let wanted = match value.as_deref() {
+    dev_composer_menu_wanted(value.as_deref(), dialog) && !TAKEN.swap(true, Ordering::SeqCst)
+}
+
+/// Whether `EXP_DEV_COMPOSER_MENU=value` opens the "+" of a page
+/// (`dialog` false) or a dialog composer.
+fn dev_composer_menu_wanted(value: Option<&str>, dialog: bool) -> bool {
+    match value {
         Some("dialog-implement-issue") => dialog,
         Some("implement-issue" | "temporary") => !dialog,
         _ => false,
-    };
-    wanted && !TAKEN.swap(true, Ordering::SeqCst)
+    }
 }
 
 /// EXP-1551 — `EXP_DEV_COMPOSER_MENU=temporary`: the Home page starts its
@@ -3490,9 +3495,24 @@ fn pinned_panel_root(
 #[cfg(test)]
 mod tests {
     use super::{
-        lead_reserve_px, main_width_beside, neighbor_in_strip, parse_dev_dialog, partition_tabs,
-        resolve_tab_origin, side_panel, side_slot_width, ChipLead, DevDialog, DEV_DIALOG_SPECS,
+        dev_composer_menu_wanted, lead_reserve_px, main_width_beside, neighbor_in_strip,
+        parse_dev_dialog, partition_tabs, resolve_tab_origin, side_panel, side_slot_width,
+        ChipLead, DevDialog, DEV_DIALOG_SPECS,
     };
+
+    /// EXP-1551: `temporary` and `implement-issue` open the PAGE's "+",
+    /// `dialog-implement-issue` the dialog's; anything else opens none.
+    #[test]
+    fn dev_composer_menu_opens_the_named_composer() {
+        assert!(dev_composer_menu_wanted(Some("temporary"), false));
+        assert!(!dev_composer_menu_wanted(Some("temporary"), true));
+        assert!(dev_composer_menu_wanted(Some("implement-issue"), false));
+        assert!(!dev_composer_menu_wanted(Some("implement-issue"), true));
+        assert!(dev_composer_menu_wanted(Some("dialog-implement-issue"), true));
+        assert!(!dev_composer_menu_wanted(Some("dialog-implement-issue"), false));
+        assert!(!dev_composer_menu_wanted(Some("session-account"), false));
+        assert!(!dev_composer_menu_wanted(None, false));
+    }
 
     /// EXP-1192: the Inbox sidebar keeps the `list` column's remembered
     /// width.
