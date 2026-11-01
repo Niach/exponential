@@ -22,7 +22,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -319,6 +319,12 @@ pub trait SealService: Send + Sync {
 static SERVICE: RwLock<Option<Arc<dyn SealService>>> = RwLock::new(None);
 static FALLBACK: std::sync::OnceLock<Keyring> = std::sync::OnceLock::new();
 
+/// #FEED-184: this process WILL have a seal service (its eNet node is
+/// starting, the key holder comes once the install registers). Until it
+/// does, writers wait for it ([`sealer`]) instead of sending in clear, and
+/// launches still route their agents through the MCP gateway.
+static EXPECTED: AtomicBool = AtomicBool::new(false);
+
 /// Installs the process's seal service (the key holder, once registered).
 pub fn install(service: Arc<dyn SealService>) {
     *write(&SERVICE) = Some(service);
@@ -331,6 +337,55 @@ pub fn uninstall() {
 
 pub fn service() -> Option<Arc<dyn SealService>> {
     read(&SERVICE).clone()
+}
+
+/// #FEED-184: marks (or clears) a key holder as coming: set when the
+/// install's eNet node starts, cleared when it stops or can never register.
+pub fn expect_service(expected: bool) {
+    EXPECTED.store(expected, Ordering::SeqCst);
+}
+
+/// A seal service is installed, or one is coming ([`expect_service`]).
+pub fn service_expected() -> bool {
+    EXPECTED.load(Ordering::SeqCst) || service().is_some()
+}
+
+/// #FEED-184: how long a writer waits for an expected key holder (a boot
+/// that launched sessions before the install registered).
+pub const SERVICE_WAIT: Duration = Duration::from_secs(60);
+const SERVICE_POLL: Duration = Duration::from_millis(250);
+static SERVICE_WAIT_MS: AtomicU64 = AtomicU64::new(SERVICE_WAIT.as_millis() as u64);
+
+#[doc(hidden)]
+pub fn set_service_wait(wait: Duration) {
+    SERVICE_WAIT_MS.store(wait.as_millis() as u64, Ordering::SeqCst);
+}
+
+/// The service to seal with: the installed one; while one is EXPECTED,
+/// waited for up to [`SERVICE_WAIT`] (then [`SealError::NotReady`], never
+/// plaintext); [`SealError::NoService`] only when none ever comes.
+/// BLOCKING while waiting.
+pub fn sealer() -> Result<Arc<dyn SealService>, SealError> {
+    if let Some(service) = service() {
+        return Ok(service);
+    }
+    if !EXPECTED.load(Ordering::SeqCst) {
+        return Err(SealError::NoService);
+    }
+    let deadline = Instant::now() + Duration::from_millis(SERVICE_WAIT_MS.load(Ordering::SeqCst));
+    loop {
+        if let Some(service) = service() {
+            return Ok(service);
+        }
+        if !EXPECTED.load(Ordering::SeqCst) {
+            return Err(SealError::NoService);
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(SealError::NotReady);
+        }
+        std::thread::sleep(left.min(SERVICE_POLL));
+    }
 }
 
 /// EXP-1472: the server's `check_in` nudge (a new install may wait for its
@@ -386,7 +441,7 @@ pub fn root_of(session_id: &str) -> Option<String> {
     if let Some(root) = with_keyring(|k| k.root_of(session_id)) {
         return Some(root);
     }
-    let service = service()?;
+    let service = sealer().ok()?;
     let root = service.resolve_root(session_id)?;
     service.keyring().note_root(session_id, &root);
     Some(root)
@@ -399,6 +454,9 @@ pub fn root_of(session_id: &str) -> Option<String> {
 pub enum SealError {
     /// No key holder in this process (eNet off, signed out).
     NoService,
+    /// #FEED-184: a key holder is coming but is not running yet (the
+    /// install is still registering).
+    NotReady,
     /// The session's root is unknown here.
     UnknownRoot,
     /// The tree has no key and none could be created / fetched.
@@ -410,6 +468,7 @@ impl std::fmt::Display for SealError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SealError::NoService => write!(f, "no key holder"),
+            SealError::NotReady => write!(f, "this device's key holder is not running yet (its install is still registering)"),
             SealError::UnknownRoot => write!(f, "unknown session root"),
             SealError::NoKey(why) => write!(f, "no tree key: {why}"),
             SealError::Invalid(why) => write!(f, "{why}"),
@@ -420,7 +479,7 @@ impl std::fmt::Display for SealError {
 impl std::error::Error for SealError {}
 
 fn key_for_writing(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
-    let service = service().ok_or(SealError::NoService)?;
+    let service = sealer()?;
     service.ensure_key(root_id).map_err(SealError::NoKey)
 }
 
@@ -437,7 +496,7 @@ pub fn set_send_key_wait(wait: Duration) {
 }
 
 fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
-    let service = service().ok_or(SealError::NoService)?;
+    let service = sealer()?;
     if let Some(current) = service.keyring().current(root_id) {
         return Ok(current);
     }
@@ -460,6 +519,11 @@ fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
 /// content sent into the tree from elsewhere finds a key to seal with.
 /// BLOCKING; a no-op without a key holder or when the root is keyed.
 pub fn ensure_tree_key(root_id: &str) {
+    // Never waits for a coming key holder: the claim goes on, the first
+    // sealed write keys the root instead.
+    if service().is_none() {
+        return;
+    }
     match key_for_writing(root_id) {
         Ok(_) | Err(SealError::NoService) => {}
         Err(err) => log::warn!("sealing: the tree key of {root_id} was not created at its claim: {err}"),

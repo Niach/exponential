@@ -43,7 +43,7 @@ const ready = await probeRealDb(`
 `)
 if (!ready.ok) console.info(`[sealed-send-bus.real-db] skipped: ${ready.reason}`)
 
-const { sendSession, SEALED_NO_KEY_MESSAGE, PLAIN_IN_SEALED_TREE_MESSAGE } = await import(`@/lib/sessions/send`)
+const { sendSession, SEALED_NO_KEY_MESSAGE, PLAIN_IN_SEALED_TREE_MESSAGE, SEALING_WRITER_MIN_VERSION } = await import(`@/lib/sessions/send`)
 const { endSession } = await import(`@/lib/sessions/lifecycle`)
 const { busAsk, REPORT_FALLBACK } = await import(`@/lib/sessions/bus`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
@@ -278,6 +278,14 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
       PLAIN_IN_SEALED_TREE_MESSAGE
     )
     await expect(w.host.reply({ sessionId: childId, body: `a plaintext reply` })).rejects.toThrow(PLAIN_IN_SEALED_TREE_MESSAGE)
+    // #FEED-184: the refusal names the writer's device and what sealing needs.
+    await db.update(devices).set({ version: `0.14.94` }).where(eq(devices.deviceId, w.deviceId))
+    await expect(w.host.reply({ sessionId: childId, body: `a plaintext reply` })).rejects.toThrow(
+      `device "box" (CLI 0.14.94) sent it in clear. Sealing needs the desktop app or CLI ${SEALING_WRITER_MIN_VERSION} or newer`
+    )
+    await expect(
+      sendSession({ userId: w.owner, callerSessionId: childId, viaMcp: true, input: { sessionId: rootId, text: `from an agent` } })
+    ).rejects.toThrow(`device "box" (CLI 0.14.94) sent it in clear`)
     await expect(
       w.host.reply({ sessionId: childId, body: ``, card: { kind: `question`, question: `In clear?`, options: [`Yes`] } as never })
     ).rejects.toThrow(PLAIN_IN_SEALED_TREE_MESSAGE)
