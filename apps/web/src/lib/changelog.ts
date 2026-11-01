@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-zoom-pictures`,
+    date: `2026-11-01`,
+    title: `Zoom into pictures`,
+    summary: `Every picture viewer zooms and pans, with a small zoom pill.`,
+    body: `- **Zoom**: pinch, ⌘/ctrl + scroll or double-click a picture to zoom in where you point; double-click again to fit.
+- **Pan**: drag a zoomed picture, or scroll it; tall screenshots open at full width from the top.
+- **Zoom pill**: − / + / fit and a menu of zoom levels float under the picture and hide while you look.
+- **Everywhere**: chat pictures, stories, the plan page and attachments, on the web, desktop, iOS and Android; iOS Results no longer open in Quick Look.`,
+  },
+  {
     id: `2026-11-01-comments-keep-typed-text`,
     date: `2026-11-01`,
     title: `Comments keep what you type while they send`,
