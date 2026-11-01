@@ -8,3 +8,6 @@
 - Live-sessies blijven streamen, end-to-end versleuteld, als de directe verbinding met het apparaat wegvalt
 - Tekst die je typt terwijl een opmerking wordt verzonden, blijft in het invoerveld
 - Een thread toont de taken van zijn lopende subsessie
+- Agents krijgen het issue dat je ze geeft: id, titel en beschrijving
+- De threadkop toont de status van de sessie en een Merge-knop
+- Verhaalbijschriften worden nooit groter dan de viewer

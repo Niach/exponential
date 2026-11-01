@@ -8,3 +8,6 @@
 - Živé relácie pokračujú v streamovaní, šifrované end-to-end, keď priame spojenie so zariadením vypadne
 - Text napísaný počas odosielania komentára zostane v poli na písanie
 - Vlákno zobrazuje úlohy svojej bežiacej podriadenej relácie
+- Agenti dostanú úlohu, ktorú im odovzdáte: identifikátor, názov a popis
+- Hlavička vlákna ukazuje stav relácie a tlačidlo Merge
+- Popisy príbehov nikdy neprerastú prehliadač

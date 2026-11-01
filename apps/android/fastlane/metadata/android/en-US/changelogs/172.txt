@@ -1,0 +1,6 @@
+- Live sessions come back faster after the app restarts
+- The session page shows THE Queue card again
+- Agents get the issue you hand them: identifier, title and description
+- The thread header shows the session's status and a Merge button
+- App previews open on the default template
+- Story captions never outgrow the viewer

@@ -8,3 +8,6 @@
 - Az élő munkamenetek végponttól végpontig titkosítva tovább streamelnek, ha megszakad a közvetlen kapcsolat az eszközzel
 - A megjegyzés küldése közben beírt szöveg a szerkesztőben marad
 - Egy szál megmutatja a futó gyermek-munkamenete feladatait
+- Az ügynökök megkapják az átadott feladatot: azonosítót, címet és leírást
+- A szál fejléce mutatja a munkamenet állapotát és egy Merge gombot
+- A történetek feliratai sosem nőnek túl a megjelenítőn
