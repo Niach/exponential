@@ -14,6 +14,8 @@ import { ThreadConversation } from "./session-thread-view"
 // render it; the natives' specimens draw the same rows.
 
 const RICH_CASE = `EXP-1280: a rich plan card`
+/** #EXP-1561: session-thread.json's dismissed question + plan. */
+const DISMISSED_CASE = `#EXP-1561: a dismissed question`
 
 /** Stand-in pictures = THE palette ×4 (iOS/Android/desktop specimens draw the
  *  same): one gradient per attachment id, a 35% white bar, a 12% white panel. */
@@ -92,6 +94,10 @@ export function PlanCardSpecimen() {
     return found ? buildSessionThread(found.input as never).rows : []
   }, [])
   const row = (id: string) => rows.filter((r) => r.id === id)
+  const dismissed = useMemo(() => {
+    const found = fixture.cases.find((c) => c.name.startsWith(DISMISSED_CASE))
+    return found ? buildSessionThread(found.input as never).rows : []
+  }, [])
   return (
     <div data-testid="plan-card-specimen" className="flex max-w-2xl flex-col gap-6 text-sm">
       <Case label={PLAN_CARD_COPY.specimen.pending}>
@@ -101,6 +107,7 @@ export function PlanCardSpecimen() {
           attachmentSrc={planCardStandIn}
           onAnswer={noop}
           onDecide={noop}
+          onDismiss={noop}
         />
       </Case>
       <Case label={PLAN_CARD_COPY.specimen.answered}>
@@ -108,6 +115,10 @@ export function PlanCardSpecimen() {
       </Case>
       <Case label={PLAN_CARD_COPY.specimen.approved}>
         <ThreadConversation rows={row(`n3`)} renderText={text} attachmentSrc={planCardStandIn} />
+      </Case>
+      {/* #EXP-1561 (waiting-cards.json): a dismissed question and plan. */}
+      <Case label={PLAN_CARD_COPY.specimen.dismissed}>
+        <ThreadConversation rows={dismissed} renderText={text} attachmentSrc={planCardStandIn} />
       </Case>
     </div>
   )

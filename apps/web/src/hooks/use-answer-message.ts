@@ -23,6 +23,8 @@ import { trpc } from "@/lib/trpc-client"
  *  labels, or a plan's decision + note + EXP-1280 answers by question id;
  *  both carry the inline surface's data model. */
 export type CardAnswer = {
+  /** #EXP-1561 (waiting-cards.json): dismissed instead of answered (alone). */
+  dismissed?: true
   answer?: string
   /** A plan: question id → labels; a question: its labels. */
   answers?: Record<string, string[]> | string[]

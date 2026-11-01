@@ -1,10 +1,12 @@
 import { threadPendingAsks, threadSessionNames } from "@exp/domain-contract/ask-dock"
+import { WAITING_CARDS_CONSTANTS } from "@exp/domain-contract/waiting-cards"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import type { ChatLead } from "@exp/domain-contract/chats"
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import {
+  CardHighlightContext,
   conceptIcon,
   FloatingComposer,
   JumpToBottomButton,
@@ -355,6 +357,44 @@ export function ThreadScreen({
     go(threadPageSearch(next))
   }
   const swipe = useFaceSwipe(pages, page, showPage)
+
+  // #EXP-1562 (waiting-cards.json CHIPS): the WAITING cards' chips; a pick
+  // shows the Conversation, scrolls the card to the centre and rings it.
+  const waitingCards = useMemo(
+    () => threadPendingAsks(view.rows, () => null).map(({ id, kind, text }) => ({ id, kind, text })),
+    [view.rows]
+  )
+  const [scrollTo, setScrollTo] = useState<{ id: string; at: number } | null>(null)
+  const [highlight, setHighlight] = useState<string | null>(null)
+  const onConversation =
+    tab.kind === `conversation` || (mainSession !== null && tab.kind === `session` && tab.sessionId === mainSession.id)
+  const selectWaiting = (id: string) => {
+    if (!onConversation) {
+      if (mainSession) go({})
+      else showPage(`conversation`)
+    }
+    setScrollTo({ id, at: Date.now() })
+  }
+  useEffect(() => {
+    if (!scrollTo) return
+    // The Conversation may still be mounting: look for the card a few frames.
+    let frames = 0
+    let raf = 0
+    const find = () => {
+      const card = document.querySelector(`[data-card-id="${CSS.escape(scrollTo.id)}"]`)
+      if (card) {
+        card.scrollIntoView({ block: `center`, behavior: `smooth` })
+        setHighlight(scrollTo.id)
+      } else if (frames++ < 60) raf = requestAnimationFrame(find)
+    }
+    raf = requestAnimationFrame(find)
+    return () => cancelAnimationFrame(raf)
+  }, [scrollTo])
+  useEffect(() => {
+    if (!highlight) return
+    const timer = setTimeout(() => setHighlight(null), WAITING_CARDS_CONSTANTS.highlightMs)
+    return () => clearTimeout(timer)
+  }, [highlight, scrollTo])
   /** A pick swaps the tab in place (a page on phones). */
   const pickSession = (sessionId: string) => showPage(`session:${sessionId}`)
   const pickIssue = (issueId: string) => showPage(`issue:${issueId}`)
@@ -388,6 +428,7 @@ export function ThreadScreen({
       open={stripOpen}
       onOpenIssue={pickIssue}
       onOpenSession={pickSession}
+      waiting={{ cards: waitingCards, onSelect: selectWaiting }}
       stories={{
         label: STORY_TAB.copy.label,
         active: tab.kind === `stories`,
@@ -615,7 +656,7 @@ export function ThreadScreen({
             className={cn(`flex min-h-0 flex-1 flex-col`, TAB_BODY_TOUCH_CLASS)}
           >
             {agent?.overlay}
-            {body}
+            <CardHighlightContext.Provider value={highlight}>{body}</CardHighlightContext.Provider>
           </div>
         </div>
       </MenuGestureHost>
@@ -638,7 +679,7 @@ export function ThreadScreen({
           <div className="mt-4">{tabs}</div>
         </div>
         {agent?.overlay}
-        {body}
+        <CardHighlightContext.Provider value={highlight}>{body}</CardHighlightContext.Provider>
       </div>
     </MenuGestureHost>
     {chatActions.dialog}
@@ -790,6 +831,7 @@ function ConversationBody({
             origin={view.origin}
             onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
             onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
+            onDismiss={canReply ? (id) => void answer(id, { dismissed: true }) : undefined}
             onOpenPlan={(plan) => openPlan(plan.sessionId, plan.id)}
             pending={pending}
             docked={dockedIds}

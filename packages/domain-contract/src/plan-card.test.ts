@@ -38,8 +38,8 @@ describe(`plan-card.json`, () => {
     expect(Object.keys(fixture.copy.answerIssues).sort()).toEqual([`decision`, `missing`, `multi`, `unknown`])
   })
 
-  test(`the copy names the specimen's three cards and the card's states`, () => {
-    expect(Object.keys(fixture.copy.specimen).sort()).toEqual([`answered`, `approved`, `pending`])
+  test(`the copy names the specimen's four cards and the card's states`, () => {
+    expect(Object.keys(fixture.copy.specimen).sort()).toEqual([`answered`, `approved`, `dismissed`, `pending`])
     expect(fixture.copy.feedbackLine).toContain(`{feedback}`)
     expect(fixture.copy.answered).not.toBe(fixture.copy.answering)
   })

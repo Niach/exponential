@@ -1046,3 +1046,110 @@ describe(`ThreadConversation S-3 xrefs`, () => {
     expect(onOpenSession).not.toHaveBeenCalled()
   })
 })
+
+// #EXP-1561 / #EXP-1562 (fixtures/waiting-cards.json): THE card's ×, the
+// dismissed line, and the strip's waiting chips.
+describe(`waiting cards`, () => {
+  const question: ThreadRow = {
+    type: `question`,
+    id: `q1`,
+    sessionId: `s1`,
+    question: `Which layout should the header chips use on phones?`,
+    options: [{ label: `A`, description: null, attachmentId: null }],
+    custom: true,
+    multi: false,
+    surface: null,
+    answer: null,
+    answers: null,
+    surfaceData: null,
+    answered: false,
+  }
+  const plan: ThreadRow = {
+    type: `plan`,
+    id: `p1`,
+    sessionId: `s1`,
+    plan: `## Plan\n\n1. One`,
+    questions: [],
+    surface: null,
+    decision: null,
+    fresh: false,
+    answers: null,
+    feedback: null,
+    surfaceData: null,
+  }
+  const renderCards = (rows: ThreadRow[], onDismiss?: (id: string) => void) =>
+    render(
+      <TooltipProvider>
+        <ThreadConversation
+          rows={rows}
+          renderText={(text) => <p>{text}</p>}
+          attachmentSrc={(id) => id}
+          onAnswer={() => {}}
+          onDecide={() => {}}
+          onDismiss={onDismiss}
+        />
+      </TooltipProvider>
+    )
+
+  it(`a waiting card carries THE × and dismisses at once`, () => {
+    const onDismiss = vi.fn()
+    renderCards([question, plan], onDismiss)
+    const buttons = screen.getAllByTestId(`card-dismiss`)
+    expect(buttons).toHaveLength(2)
+    fireEvent.click(buttons[1]!)
+    expect(onDismiss).toHaveBeenCalledWith(`p1`)
+  })
+
+  it(`no × without the dismiss path, nor on a settled card`, () => {
+    renderCards([question])
+    expect(screen.queryByTestId(`card-dismiss`)).toBeNull()
+    renderCards([{ ...question, id: `q2`, answered: true, answer: `A` }], vi.fn())
+    expect(screen.queryByTestId(`card-dismiss`)).toBeNull()
+  })
+
+  it(`a dismissed card is ONE quiet line: Dismissed + the title`, () => {
+    renderCards([{ ...question, answered: true, dismissed: true }, { ...plan, decision: `dismissed` }], vi.fn())
+    const lines = screen.getAllByTestId(`card-dismissed`)
+    expect(lines.map((line) => line.textContent)).toEqual([
+      `DismissedWhich layout should the header chips use on phones?`,
+      `DismissedPlan`,
+    ])
+    expect(screen.queryByTestId(`card-dismiss`)).toBeNull()
+    expect(screen.queryByText(`A`)).toBeNull()
+  })
+
+  const cards = [
+    { id: `p1`, kind: `plan` as const, text: `## Plan` },
+    { id: `q1`, kind: `question` as const, text: `Which layout should the header chips use on phones?` },
+  ]
+
+  it(`md+: one chip per waiting card after Conversation; a click selects it`, () => {
+    const onSelect = vi.fn()
+    render(
+      <TooltipProvider>
+        <ThreadTabs conversation={CONVERSATION} issues={[]} waiting={{ cards, onSelect }} />
+      </TooltipProvider>
+    )
+    const chips = screen.getAllByTestId(`waiting-chip`)
+    expect(chips.map((chip) => chip.textContent)).toEqual([`Plan`, `Which layout should the…`])
+    fireEvent.click(chips[1]!)
+    expect(onSelect).toHaveBeenCalledWith(`q1`)
+    expect(screen.queryByTestId(`waiting-button`)).toBeNull()
+  })
+
+  it(`phones: ONE button with the count; nothing waiting = nothing`, () => {
+    const { rerender } = render(
+      <TooltipProvider>
+        <ThreadTabs variant="pager" conversation={CONVERSATION} issues={[]} waiting={{ cards, onSelect: () => {} }} />
+      </TooltipProvider>
+    )
+    expect(screen.getByTestId(`waiting-button`).getAttribute(`aria-label`)).toBe(`2 waiting`)
+    expect(screen.queryByTestId(`waiting-chip`)).toBeNull()
+    rerender(
+      <TooltipProvider>
+        <ThreadTabs variant="pager" conversation={CONVERSATION} issues={[]} waiting={{ cards: [], onSelect: () => {} }} />
+      </TooltipProvider>
+    )
+    expect(screen.queryByTestId(`waiting-button`)).toBeNull()
+  })
+})

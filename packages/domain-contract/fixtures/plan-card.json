@@ -14,7 +14,8 @@
     "specimen": {
       "pending": "A plan waiting on you: pictures, a surface, two questions",
       "answered": "A question answered with several picks",
-      "approved": "An approved plan"
+      "approved": "An approved plan",
+      "dismissed": "A question and a plan dismissed"
     },
     "answerIssues": {
       "decision": "Pick a decision",
