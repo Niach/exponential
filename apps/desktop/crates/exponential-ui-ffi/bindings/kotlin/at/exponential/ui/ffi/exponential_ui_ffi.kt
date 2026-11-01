@@ -885,6 +885,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_voice_wave_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_week_start(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_zoom_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_number(
@@ -1506,6 +1508,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_json(`inputJson`: Rust
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_week_start(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+external fun uniffi_exponential_ui_ffi_fn_func_zoom_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun ffi_exponential_ui_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun ffi_exponential_ui_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -10293,6 +10297,23 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_week_start(
     
         FfiConverterString.lower(`locale`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * EXP-1586: the ZoomableImage maths. `request_json` = `{op, frame:
+         * {natural, viewport, initial?, maxScale?}, from?: view | "rest", …}`, the
+         * op named like the fixtures/zoom.json group it answers (see
+         * `eui_core::zoom::zoom_request`); the result is that group's `expected`
+         * shape (a view `{scale, x, y}` for the gestures). `{"error": …}` on bad input.
+         */ fun `zoomJson`(`requestJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_zoom_json(
+    
+        FfiConverterString.lower(`requestJson`),_status)
 }
     )
     }
