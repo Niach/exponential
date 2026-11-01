@@ -7,7 +7,8 @@
   "main": "./src/index.ts",
   "scripts": {
     "test": "bun test ./src",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test:wasm": "bun test ./scripts/wasm-replay.test.ts"
   },
   "dependencies": {
     "@exp/ecore": "workspace:*"

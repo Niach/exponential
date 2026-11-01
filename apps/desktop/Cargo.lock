@@ -2677,6 +2677,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "eagent-hub-core"
+version = "0.1.0"
+dependencies = [
+ "ecore",
+ "serde",
+ "serde_json",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "eagent-hub-core-wasm"
+version = "0.1.0"
+dependencies = [
+ "eagent-hub-core",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "ecore"
 version = "0.1.0"
 dependencies = [
