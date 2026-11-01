@@ -238,7 +238,7 @@ object Stories {
     /** #EXP-1493: newest first (createdAt desc, then id desc). */
     private val byNewest = compareByDescending<Story> { it.createdAt }.thenByDescending { it.id }
 
-    private enum class Resolution { Approved, Changed, Answered, Superseded }
+    private enum class Resolution { Approved, Changed, Answered, Superseded, Dismissed }
 
     private data class Built(val story: Story, val root: SessionInput, val resolution: Resolution?)
 
@@ -273,6 +273,9 @@ object Stories {
         }
         val resolution = when {
             kind == Kind.Result || waiting -> null
+            // #EXP-1561: a dismissed card names that outcome first.
+            WaitingCards.isDismissed(card) ->
+                Resolution.Dismissed
             kind == Kind.Question -> Resolution.Answered
             card.str("decision") == "approved" -> Resolution.Approved
             card.str("decision") == "superseded" -> Resolution.Superseded
@@ -291,6 +294,7 @@ object Stories {
             Resolution.Approved -> Tab.Copy.APPROVED
             Resolution.Changed -> Tab.Copy.CHANGED
             Resolution.Answered -> Tab.Copy.ANSWERED
+            Resolution.Dismissed -> Tab.Copy.DISMISSED
             Resolution.Superseded, null -> null
         }
         val story = Story(
@@ -432,6 +436,8 @@ object Stories {
             const val SUPERSEDED = "Replaced"
             const val CHANGES = "Changes"
             const val STACK = "Stack"
+            /** #EXP-1561 (waiting-cards.json). */
+            const val DISMISSED = "Dismissed"
         }
 
         object TestIds {

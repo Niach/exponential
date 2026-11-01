@@ -223,6 +223,7 @@ class StoriesTest {
                 "approved" to Stories.Tab.Copy.APPROVED, "changed" to Stories.Tab.Copy.CHANGED,
                 "answered" to Stories.Tab.Copy.ANSWERED, "superseded" to Stories.Tab.Copy.SUPERSEDED,
                 "changes" to Stories.Tab.Copy.CHANGES, "stack" to Stories.Tab.Copy.STACK,
+                "dismissed" to Stories.Tab.Copy.DISMISSED,
             ),
             copy.mapValues { it.value.jsonPrimitive.content },
         )

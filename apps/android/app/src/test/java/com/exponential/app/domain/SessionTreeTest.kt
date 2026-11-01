@@ -266,6 +266,7 @@ class SessionTreeTest {
             put("answers", row.answers?.let { list -> JsonArray(list.map(::JsonPrimitive)) } ?: JsonNull)
             put("surfaceData", row.surfaceData ?: JsonNull)
             put("answered", row.answered)
+            row.dismissed?.let { put("dismissed", it) }
         }
         is SessionTree.ThreadRow.Plan -> buildJsonObject {
             put("type", "plan")

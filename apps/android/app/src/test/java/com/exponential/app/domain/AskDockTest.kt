@@ -57,7 +57,8 @@ class AskDockTest {
         assertEquals(copy.str("feedbackPlaceholder"), AskDock.Copy.FEEDBACK_PLACEHOLDER)
         assertEquals(copy.str("cancel"), AskDock.Copy.CANCEL)
         assertEquals(copy.str("superseded"), AskDock.Copy.SUPERSEDED)
-        assertEquals(setOf("planReady", "question", "back", "feedbackPlaceholder", "cancel", "superseded"), copy.keys)
+        assertEquals(copy.str("dismissed"), AskDock.Copy.DISMISSED)
+        assertEquals(setOf("planReady", "question", "back", "feedbackPlaceholder", "cancel", "superseded", "dismissed"), copy.keys)
         val icons = fixture.getValue("icons").jsonObject
         assertEquals(mapOf("plan" to AskDock.Icons.PLAN, "question" to AskDock.Icons.QUESTION), icons.mapValues { it.value.jsonPrimitive.content })
         val options = array("planOptions").map {

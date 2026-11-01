@@ -4415,8 +4415,8 @@
         "file": "shots/plan-card/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 22306,
-        "sha256": "a8602232978f5809fd81843b642dadb88046a48ed678bbb5fd5e3d7f31b84f79"
+        "bytes": 23882,
+        "sha256": "1133a1b6389fc20a22dca3e412b8da354c108d2a0b6e163862faf85c17dee166"
       },
       "desktop": {
         "file": "shots/plan-card/desktop.webp",
@@ -4436,15 +4436,15 @@
         "file": "shots/plan-card/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 34464,
-        "sha256": "b794615986875fca081e6bfaa6a43c1de49d780fc97c3e24f495ac301396bc90"
+        "bytes": 34680,
+        "sha256": "1022fa99ff8b1f3ca16dc4012adf644ba3ef564ab9e0526a0a981317afa6e9ca"
       },
       "web-mobile": {
         "file": "shots/plan-card/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 27798,
-        "sha256": "3b495dedf5b11cc8e04c6808fff47ba1b9b253950ac9bcf4b67fc6bf0663b87d"
+        "bytes": 28558,
+        "sha256": "d568905c0435d214625fa19fa0da91ed1d61b1cd8c0e34b5f3f7b9ef532a8e12"
       }
     },
     "plan-page": {
@@ -5626,8 +5626,8 @@
         "file": "shots/thread/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 65086,
-        "sha256": "29e70302f396c532490db48727b9e03585c49619823475d70f01396dc476847e"
+        "bytes": 68154,
+        "sha256": "1eede25fdf82a2bee0de80ca64182442f6f765f9e6d8b81759a66f20d6cad103"
       },
       "desktop": {
         "file": "shots/thread/desktop.webp",
@@ -5647,15 +5647,15 @@
         "file": "shots/thread/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 64266,
-        "sha256": "0ba70862981a257bccec5cfa67ca6bffc55e7bbc393bd978ff3d12cf185ba6b8"
+        "bytes": 66666,
+        "sha256": "292bd20fbf7c277eebcbff80e55767b6ab27b43d92a44bc6d565887a143f90e5"
       },
       "web-mobile": {
         "file": "shots/thread/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 64726,
-        "sha256": "05aa6b363ce07d480c94295f40a944cd02166db8f0715af87a8ae1fee325b679"
+        "bytes": 62494,
+        "sha256": "6bec79ad81af8b7194cbdf0913b95a98a31ed70df6e08c2ec38eee9f0e686c78"
       }
     },
     "thread-replies": {

@@ -972,7 +972,15 @@ class StyleguideScreenshotsTest {
         flow.settle()
         tapClearOfBar(coldStartRow)
         flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
-        flow.waitFor(hasText(COLD_START_REPLY_FRAGMENT, substring = true), SYNC_TIMEOUT)
+        // #EXP-1561: the reply sits above the waiting question + plan cards
+        // (taller now that each carries its ×): swipe it in to prove the sync.
+        flow.waitForInList(
+            hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION),
+            hasText(COLD_START_REPLY_FRAGMENT, substring = true),
+            SYNC_TIMEOUT,
+        )
+        // ...and back to its end (the waiting cards) for the shot.
+        flow.scrollListToEnd(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION))
         // S-3: the seeded question stays inline (the Dock takes no asks and
         // the Guide tab is gone; stories carry them).
         flow.waitFor(hasTestTag("plan-card"), SYNC_TIMEOUT)
