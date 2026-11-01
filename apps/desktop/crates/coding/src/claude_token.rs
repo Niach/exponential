@@ -9,19 +9,28 @@
 //! profile that holds one stays signed in until the token's year is up.
 //!
 //! The trade-off, by Anthropic's design: the token only carries
-//! `user:inference`, so it cannot read the usage endpoint or name its
-//! account. A profile keeps its browser login (when it has one) for exactly
-//! that — the email it shows and the usage windows — while runs spend the
-//! token. A token-only profile shows the email it last signed in as
-//! (`agent_profiles::known_email`) and the live windows its runs report.
+//! `user:inference` (the CLI asks for exactly that scope and nothing can
+//! widen it), so it cannot read the usage endpoint (`user:profile`) or name
+//! its account. A profile keeps its browser login (when it has one) for
+//! exactly that — the email it shows and every usage window — while runs
+//! spend the token. A token-only profile shows the email it last signed in
+//! as (`agent_profiles::known_email`), and its 5h + weekly windows come from
+//! the `anthropic-ratelimit-unified-*` headers every model response carries,
+//! as the CLI reports them in its `rate_limit_event`: live from its runs, and
+//! between runs from [`probe_usage`] (EXP-1607). The per-model weekly is the
+//! endpoint's alone, so a token-only profile never shows it.
 //!
 //! The token is a secret: it is written 0600 ([`eagent::atomic_file`]),
 //! never logged, never `Debug`ged, and never leaves the machine — the
 //! device command that minted it reports only the expiry.
 
 use std::path::Path;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::agent_usage::{parse_claude_rate_limit_windows, ClaudeLimitingWindow, UsageWindow};
 
 /// The file inside the profile's config dir. Dot-named like the CLI's own
 /// `.credentials.json`, and ours alone: the CLI never reads it.
@@ -110,6 +119,96 @@ pub fn env(profile_dir: &Path) -> Option<(String, String)> {
     valid(profile_dir).map(|token| (TOKEN_ENV.to_string(), token.token))
 }
 
+/// EXP-1607 — the arguments of the usage probe: ONE model request through
+/// the unmodified CLI (Anthropic permits subscription credentials in Claude
+/// Code only, so we never send a request of our own with the token), as
+/// small as the CLI allows: the cheapest model, a one-character prompt and
+/// system prompt, no tools, no MCP servers, no settings, no transcript.
+/// Measured on 2.1.316: ~360 input + ~120 output tokens, ~2 s.
+pub const PROBE_ARGS: &[&str] = &[
+    "-p",
+    ".",
+    "--model",
+    "haiku",
+    "--max-turns",
+    "1",
+    "--tools",
+    "",
+    "--system-prompt",
+    ".",
+    "--strict-mcp-config",
+    "--setting-sources",
+    "",
+    "--no-session-persistence",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+];
+
+/// How long the probe may take before it is killed (a cold CLI start plus
+/// one short request; the doctor's probes are far quicker).
+pub const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// The env a probe must not inherit: each OUTRANKS `CLAUDE_CODE_OAUTH_TOKEN`
+/// in the CLI's credential order, so a stray one would answer for an API
+/// key or a cloud account instead of this login.
+const OUTRANKING_ENV: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+];
+
+/// EXP-1607 — the windows a probe's stream-json reported: the LAST
+/// `rate_limit_event` that carried any (the CLI prints one per response).
+/// `None` when no frame carried windows (an API-key answer, an auth error,
+/// a CLI too old to print the frame).
+pub fn parse_probe_output(stdout: &str) -> Option<Vec<UsageWindow>> {
+    stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+        .filter(|frame| frame.get("type").and_then(Value::as_str) == Some("rate_limit_event"))
+        .filter_map(|frame| {
+            let info = frame.get("rate_limit_info")?;
+            let kind = info.get("rateLimitType").and_then(Value::as_str);
+            let utilization = info.get("utilization").and_then(Value::as_f64);
+            let limiting = kind.zip(utilization).map(|(kind, utilization)| ClaudeLimitingWindow {
+                kind,
+                utilization,
+                resets_at_secs: info.get("resetsAt").and_then(Value::as_i64),
+            });
+            let windows = parse_claude_rate_limit_windows(info.get("unifiedWindows"), limiting);
+            (!windows.is_empty()).then_some(windows)
+        })
+        .last()
+}
+
+/// EXP-1607 — read a token-only login's 5h + weekly windows: run
+/// [`PROBE_ARGS`] with the token in `scratch_dir` (its own config home, so
+/// the probe never touches the profile's stored login or transcripts).
+/// Blocking. The caller rations it: it is a model request, and it counts
+/// (a few hundred tokens) against the very windows it reads.
+pub fn probe_usage(
+    program: &str,
+    path_env: &str,
+    token: &SetupToken,
+    scratch_dir: &Path,
+) -> Option<Vec<UsageWindow>> {
+    std::fs::create_dir_all(scratch_dir).ok()?;
+    let mut cmd = eagent::process::background_command(program);
+    for key in OUTRANKING_ENV {
+        cmd.env_remove(key);
+    }
+    cmd.env("PATH", path_env)
+        .env("CLAUDE_CONFIG_DIR", scratch_dir)
+        .env(TOKEN_ENV, &token.token)
+        .current_dir(scratch_dir)
+        .args(PROBE_ARGS);
+    let output = crate::doctor::output_with_timeout(cmd, PROBE_TIMEOUT).ok()?;
+    parse_probe_output(&String::from_utf8_lossy(&output.stdout))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +248,42 @@ mod tests {
         remove(&dir).unwrap();
         assert_eq!(read(&dir), None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The measured 2.1.316 probe output (an inference-only login): the
+    /// windows come off the LAST frame that carries any, the other lines are
+    /// noise, and output with no frame is no answer.
+    #[test]
+    fn a_probe_reads_the_windows_off_the_rate_limit_event() {
+        let stdout = [
+            r#"{"type":"system","subtype":"init"}"#,
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1793905200,"rateLimitType":"seven_day","unifiedWindows":{"seven_day":{"utilization":0.2,"resetsAt":1793905200}}}}"#,
+            "not json",
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1793905200,"rateLimitType":"seven_day","overageStatus":"rejected","unifiedWindows":{"five_hour":{"utilization":0.07,"resetsAt":1793577600},"seven_day":{"utilization":0.31,"resetsAt":1793905200,"status":"allowed"}}}}"#,
+            r#"{"type":"result","subtype":"success"}"#,
+        ]
+        .join("\n");
+        let windows = parse_probe_output(&stdout).expect("windows");
+        assert_eq!(
+            windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
+            vec![("session", 7), ("weekly", 31)]
+        );
+        assert_eq!(windows[1].resets_at.as_deref(), Some("2026-11-05T19:00:00.000Z"));
+        // A frame without the map still answers for its limiting window.
+        let triple = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1793905200,"rateLimitType":"five_hour","utilization":1.0}}"#;
+        assert_eq!(parse_probe_output(triple).unwrap()[0].percent, 100);
+        assert_eq!(parse_probe_output(r#"{"type":"result"}"#), None);
+        assert_eq!(parse_probe_output(""), None);
+    }
+
+    /// The probe is one tiny model request through the CLI itself and never
+    /// keeps a transcript.
+    #[test]
+    fn the_probe_is_one_minimal_print_mode_turn() {
+        let args = PROBE_ARGS.join(" ");
+        for flag in ["-p", "--model haiku", "--max-turns 1", "--no-session-persistence", "--output-format stream-json", "--strict-mcp-config"] {
+            assert!(args.contains(flag), "{flag}");
+        }
     }
 
     #[test]

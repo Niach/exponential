@@ -684,8 +684,10 @@ fn collect_inner(
         // floors), longer than any sane margin. So it runs here, every beat,
         // before the live/poll match; on success the probe below rides the
         // NEW token and skips a second store read.
-        let claude_refresh =
-            agent == CodingAgent::Claude && usage_cache::claude_refresh_due(&entry, now);
+        // EXP-1607: a token-only login has no browser login to keep warm.
+        let claude_refresh = agent == CodingAgent::Claude
+            && !target.token_usage
+            && usage_cache::claude_refresh_due(&entry, now);
         // ONE refresh actor per login, MACHINE-WIDE: the shared poll floors
         // keep the two processes from spending two requests, but a refresh
         // also ROTATES the credential — the IDE and the daemon both
@@ -728,6 +730,7 @@ fn collect_inner(
         // otherwise the model-scoped weekly froze at its pre-run number for
         // as long as the run kept turning.
         let endpoint_owed = live.is_some()
+            && !target.token_usage
             && live_source(agent) == Some(LiveSource::Partial)
             && target.may_poll
             && usage_cache::live_endpoint_due(&entry, now);
@@ -794,7 +797,22 @@ fn collect_inner(
                 }
             }
             // No live session (or its numbers went stale): today's path.
-            None if target.may_poll && (endpoint_owed || usage_cache::poll_due(&entry, now)) => {
+            None if target.may_poll
+                && if target.token_usage {
+                    // EXP-1607: the probe is a model request, so a PARKED
+                    // login (never run here) is read once and on demand,
+                    // never on the cadence.
+                    usage_cache::token_probe_due(&entry, now, target.forced)
+                        && (target.active
+                            || target.forced
+                            || entry.fetched_at_secs == 0
+                            || used_logins
+                                .get_or_insert_with(|| logins_used_on_this_machine(data_dir))
+                                .contains(&cache_id))
+                } else {
+                    endpoint_owed || usage_cache::poll_due(&entry, now)
+                } =>
+            {
                 polled = true;
                 changed = true;
                 // Claim the slot BEFORE the (slow) fetch and persist it, so the
@@ -804,16 +822,20 @@ fn collect_inner(
                 entry.endpoint_due_at_secs = Some(now + usage_cache::LIVE_ENDPOINT_POLL_SECS);
                 cache.insert(cache_id.clone(), entry.clone());
                 usage_cache::save(data_dir, &cache);
-                let probe = probe_agent(
-                    agent,
-                    settings,
-                    check.version.as_deref(),
-                    target.dir.as_deref(),
-                    &mut entry,
-                    now,
-                    keep_alive,
-                    fresh_token.as_deref(),
-                );
+                let probe = if target.token_usage {
+                    token_probe(data_dir, settings, target.dir.as_deref())
+                } else {
+                    probe_agent(
+                        agent,
+                        settings,
+                        check.version.as_deref(),
+                        target.dir.as_deref(),
+                        &mut entry,
+                        now,
+                        keep_alive,
+                        fresh_token.as_deref(),
+                    )
+                };
                 if let Some(account) = probe.account {
                     // Persist the identity: the not-due beats in between re-use it
                     // instead of dropping back to the doctor's presence-only row.
@@ -1092,6 +1114,13 @@ struct UsageTarget {
     /// [`PROFILE_STAGGER_SECS`] rotation's answer. A target that may not
     /// poll still REPORTS what the cache holds.
     may_poll: bool,
+    /// EXP-1607: a claude login whose only usable sign-in is its long-lived
+    /// token ([`crate::claude_token`]): the usage endpoint is out of its
+    /// scope, so its windows come from its runs' live frames and, between
+    /// runs, from the rationed CLI probe ([`token_probe`]).
+    token_usage: bool,
+    /// A person (or a popover) asked for THIS login's numbers this pass.
+    forced: bool,
 }
 
 /// The logins this pass may look at, in agent order with each agent's ACTIVE
@@ -1163,11 +1192,17 @@ fn usage_targets(
         for profile in profiles {
             let is_active = Some(&profile.id) == active.as_ref();
             let key = usage_cache::entry_key(agent.id(), &profile.id);
-            // A login the profile probe never judged is never read.
-            if !eligible.get(&key).copied().unwrap_or(false) {
+            let dir = crate::agent_profiles::profile_dir(data_dir, agent, &profile.id);
+            // A login the profile probe never judged is never read — unless
+            // it holds a valid long-lived token (EXP-1607): the probe judges
+            // the browser login only, and the token answers on its own.
+            let browser = eligible.get(&key).copied().unwrap_or(false);
+            let token_usage = !browser
+                && agent == CodingAgent::Claude
+                && dir.as_deref().and_then(crate::claude_token::valid).is_some();
+            if !browser && !token_usage {
                 continue;
             }
-            let dir = crate::agent_profiles::profile_dir(data_dir, agent, &profile.id);
             // EXP-862: never read here = read now. Everything else waits its
             // turn below.
             let entry = cache.get(&key);
@@ -1178,6 +1213,8 @@ fn usage_targets(
                 dir,
                 active: is_active,
                 may_poll: is_active || first_read,
+                token_usage,
+                forced: false,
             });
             if let (false, Some(entry)) = (is_active, entry) {
                 let clock = endpoint_clock(entry);
@@ -1208,6 +1245,7 @@ fn usage_targets(
             for target in targets.iter_mut() {
                 if target.agent == agent && target.profile == profile {
                     target.may_poll = true;
+                    target.forced = true;
                 }
             }
         }
@@ -1215,6 +1253,7 @@ fn usage_targets(
             for target in targets.iter_mut() {
                 if target.agent == agent {
                     target.may_poll = true;
+                    target.forced = true;
                 }
             }
         }
@@ -1806,6 +1845,33 @@ fn probe_agent(
         }
     }
 }
+
+/// EXP-1607 — a token-only claude login's windows, read by ONE minimal run
+/// of the CLI itself ([`crate::claude_token::probe_usage`]) in a config home
+/// of its own under the data dir. A failure (no token, a spawn error, no
+/// frame) dims the old numbers like any failed read; it never touches
+/// health, which a valid token pins to ok ([`apply_health`]).
+fn token_probe(data_dir: &Path, settings: &Settings, config_dir: Option<&Path>) -> AgentProbe {
+    let windows = config_dir
+        .and_then(crate::claude_token::valid)
+        .and_then(|token| {
+            crate::claude_token::probe_usage(
+                &settings.resolved_path_for(CodingAgent::Claude),
+                &terminal::pty::login_path(),
+                &token,
+                &data_dir.join(TOKEN_PROBE_DIR),
+            )
+        });
+    AgentProbe {
+        outcome: if windows.is_some() { PollOutcome::Changed } else { PollOutcome::Failed },
+        windows,
+        account: None,
+    }
+}
+
+/// The token probe's own config home (`CLAUDE_CONFIG_DIR`), inside the
+/// data dir: never a profile's, so the probe cannot touch a stored login.
+pub const TOKEN_PROBE_DIR: &str = "claude-usage-probe";
 
 fn fetch_and_parse(access_token: &str, user_agent: &str) -> AgentProbe {
     match fetch_oauth_usage(access_token, user_agent) {
@@ -2574,6 +2640,92 @@ mod tests {
             codex: missing(Tool::Codex),
             git: missing(Tool::Git),
         }
+    }
+
+    /// EXP-1607 — a token-only login (the Keep signed in default: no browser
+    /// login, so the doctor calls it usage-INeligible) is still a target. Its
+    /// first pass reads the windows through ONE CLI probe that carries the
+    /// token in its own config home; the next beats inside the half-hour
+    /// floor spawn nothing; a run's live frame lands for free; and with the
+    /// token gone the login is no target at all.
+    #[cfg(unix)]
+    #[test]
+    fn a_token_only_login_reads_its_windows_through_the_rationed_cli_probe() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("token-only");
+        let calls = dir.join("calls");
+        let cli = dir.join("fake-claude");
+        let home = crate::agent_profiles::profile_dir(&dir, CodingAgent::Claude, MAIN).unwrap();
+        std::fs::write(
+            &cli,
+            format!(
+                "#!/bin/sh\necho \"$CLAUDE_CODE_OAUTH_TOKEN $CLAUDE_CONFIG_DIR\" >> '{}'\n\
+                 echo '{{\"type\":\"system\",\"subtype\":\"init\"}}'\n\
+                 echo '{{\"type\":\"rate_limit_event\",\"rate_limit_info\":{{\"status\":\"allowed\",\"unifiedWindows\":{{\"five_hour\":{{\"utilization\":0.07,\"resetsAt\":4092066000}},\"seven_day\":{{\"utilization\":0.31,\"resetsAt\":4092066000}}}}}}}}'\n",
+                calls.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = Settings {
+            claude_path: cli.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let mut report = claude_ready_report();
+        report.claude.usage_eligible = false;
+        report.claude.profiles = vec![crate::doctor::ProfileProbe {
+            usage_eligible: false,
+            ..probe(MAIN)
+        }];
+        // The pass clock runs BEHIND the wall clock, so the live frame
+        // published below is newer than the probe's read (as a real run's is).
+        let now = crate::run_registry::now_secs() - 2000;
+
+        // No token: an ineligible login is not read.
+        let payload = collect_if_due(&dir, &settings, &report, now);
+        assert!(payload.usage.get("claude").is_none());
+        assert!(!calls.exists(), "nothing spawned");
+
+        let token = crate::claude_token::SetupToken::minted(
+            "sk-ant-oat01-probe".into(),
+            chrono::Utc::now(),
+            crate::claude_token::TOKEN_LIFETIME_SECS,
+        );
+        crate::claude_token::write(&home, &token).unwrap();
+        let payload = collect_if_due(&dir, &settings, &report, now);
+        let usage = payload.usage.get("claude").expect("the probe's windows");
+        assert_eq!(
+            usage.windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
+            vec![("session", 7), ("weekly", 31)]
+        );
+        let logged = std::fs::read_to_string(&calls).unwrap();
+        assert_eq!(
+            logged.trim(),
+            format!("sk-ant-oat01-probe {}", dir.join(TOKEN_PROBE_DIR).display()),
+            "the token, in the probe's own config home, never the profile's"
+        );
+
+        // Ten minutes on: the endpoint cadence would poll, the token's does not.
+        collect_if_due(&dir, &settings, &report, now + 600);
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 1);
+
+        // A run on the login moves the numbers without a probe.
+        let session = live::attach(CodingAgent::Claude, MAIN);
+        live::publish(CodingAgent::Claude, MAIN, vec![session_window(12)]);
+        let payload = collect_if_due(&dir, &settings, &report, now + 620);
+        let usage = payload.usage.get("claude").expect("the live windows");
+        assert_eq!(usage.windows[0].percent, 12);
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 1);
+        drop(session);
+        live::reset();
+
+        // Past the floor it reads again.
+        collect_if_due(&dir, &settings, &report, now + 620 + usage_cache::TOKEN_PROBE_SECS);
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// EXP-819 — a live claude session moves the session and weekly windows

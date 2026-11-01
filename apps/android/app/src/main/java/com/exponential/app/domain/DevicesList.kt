@@ -38,9 +38,9 @@ object DevicesList {
         const val SWITCH_TO_KEEP_SIGNED_IN = "Switch to Keep signed in"
         const val RENEW_KEEP_SIGNED_IN = "Renew Keep signed in"
         const val KEEP_SIGNED_IN_NOTE =
-            "Keep signed in: lasts 1 year, no usage windows (Anthropic grants inference only). We remind you to renew."
+            "Keep signed in: lasts 1 year, shows the 5h and weekly windows (not per model). We remind you to renew."
         const val BROWSER_LOGIN_NOTE =
-            "Browser login: shows usage windows, but can sign out when its refresh rotates."
+            "Browser login: shows every usage window, but can sign out when its refresh rotates."
         const val USE_BROWSER_LOGIN = "Use browser login (Advanced)"
         const val USE_KEEP_SIGNED_IN = "Use Keep signed in"
         const val LONG_LIVED_REFUSED = "A long-lived login needs a Claude account on this machine."
