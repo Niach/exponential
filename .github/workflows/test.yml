@@ -147,11 +147,12 @@ jobs:
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
-      - name: Linux system deps (smithay)
+      - name: Linux system deps (smithay; ede-portal: PipeWire + a dbus-daemon for its tests)
         run: |
           sudo apt-get update && sudo apt-get install -y \
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
-            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev xwayland libegl1
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev xwayland libegl1 \
+            libpipewire-0.3-dev libclang-dev pipewire dbus
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'

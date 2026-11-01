@@ -8,6 +8,7 @@ libraries, never the other way round.
 |---|---|
 | `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on eCore's `Capability`/`Grant`/`Failure`/`Envelope`. ePilot, eos-agent and the shell link it. |
+| `ede-portal` | `xdg-desktop-portal-ede`: ScreenCast (PipeWire), Screenshot, RemoteDesktop, GlobalShortcuts and Settings over ede-protocol (#NEW-105). |
 | `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## Run it nested (Cinnamon/X11)
@@ -98,11 +99,11 @@ first; each op needs the eCore capability it names:
 
 | Op | Capability |
 |---|---|
-| `list_windows`, `list_outputs`, `subscribe` (events: `window.opened/closed/focused`, `session.locked/unlocked`, `config.reloaded`) | any grant |
+| `list_windows`, `list_outputs`, `subscribe` (events: `window.opened/closed/focused`, `session.locked/unlocked`, `config.reloaded`, `shortcut.activated/deactivated`) | any grant |
 | `focus_window`, `close_window`, `move_window` | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
-| `input` (key, pointer motion, button; refused on protected surfaces and the lock) | `input:person` |
-| `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
+| `input` (key, pointer motion absolute/relative, button, scroll; refused on protected surfaces and the lock) | `input:person` |
+| `reload_config`, `lock`, `mint_grant`, `revoke_grant`, `bind_shortcuts`, `unbind_shortcuts` | `system` |
 
 The compositor writes the root token (every capability) to
 `$XDG_RUNTIME_DIR/ede/<wayland-N>.token` (0600) for the shell; `mint_grant`
@@ -116,6 +117,62 @@ lending come with their own issues; captures are drawn in software for now.
 let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
 for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
 ```
+
+## Portal (screen sharing, screenshots, remote desktop, shortcuts)
+
+`xdg-desktop-portal-ede` (crate `ede-portal`, #NEW-105) is the
+xdg-desktop-portal backend; `ede-portals.conf` routes ScreenCast,
+Screenshot, RemoteDesktop, GlobalShortcuts and Settings to it and the rest
+(file chooser, …) to the GTK backend. It speaks ede-protocol with the
+shell's root token:
+
+- **ScreenCast**: outputs and windows (never protected ones) as PipeWire
+  BGRx nodes, captured at up to `[screencast] framerate` (30) only while
+  someone watches; persist mode and restore tokens (epilot-screen keeps its
+  token). Captures are software copies for now.
+- **Screenshot**: every output composed into one PNG in
+  `$XDG_PICTURES_DIR/Screenshots`. Interactive area picks and PickColor wait
+  for the shell (#NEW-108).
+- **RemoteDesktop**: keyboard (evdev keycodes) and pointer through `input`,
+  refused on protected surfaces and the lock. **Never granted silently:** it
+  needs a chooser that answers `allow`, or the app id on
+  `[remote_desktop] allow`.
+- **GlobalShortcuts**: bound in the compositor (XDG triggers like
+  `CTRL+ALT+r`). A plain character key, a compositor binding or another
+  app's trigger stays unbound. Shortcuts fire only from the person's keyboard,
+  never while locked or while a protected prompt has focus, and the key never
+  reaches the app.
+- **Settings**: `org.freedesktop.appearance` (`color-scheme` dark by
+  default, `accent-color`, `contrast`), re-read on `config.reloaded`.
+
+What to share: until the shell's chooser exists, the output with the focused
+window (or the focused window) plus a notification. Or a command of your own:
+
+```toml
+# ~/.config/ede/portal.toml
+[screencast]
+framerate = 30
+chooser = ["my-chooser"]   # stdin: {"app_id","types","multiple","remote_control","outputs","windows"}
+                           # stdout: output:NAME / window:ID lines, `allow` for remote control; empty = cancel
+[remote_desktop]
+allow = ["org.gnome.Connections"]
+[appearance]
+color_scheme = "dark"      # dark | light | default
+accent = "#7c5cff"
+```
+
+Check on the real machine after installing the .deb (in the eDE session):
+
+1. `busctl --user status org.freedesktop.impl.portal.desktop.ede`: running,
+   activated by xdg-desktop-portal.
+2. Firefox → a WebRTC test page (e.g. a Jitsi call) → share screen: the
+   notification appears, the far end sees the screen. OBS → "Screen Capture
+   (PipeWire)" shows it too.
+3. `gdbus call --session -d org.freedesktop.portal.Desktop -o /org/freedesktop/portal/desktop -m org.freedesktop.portal.Screenshot.Screenshot "" '{}'`
+   writes a PNG into `~/Pictures/Screenshots`.
+4. A password prompt (`pkexec true`) shows black in the shared screen.
+5. `epilot-screen` with the portal capturer starts without asking twice
+   (restore token).
 
 ## Config
 
@@ -188,4 +245,5 @@ Build deps: `libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config`
 (`xwayland` + `libegl1` at runtime and for the Xwayland test; Ubuntu's xwayland
 package does not pull in libEGL, and Xwayland aborts without it);
 the `udev` feature adds `libudev-dev libinput-dev libgbm-dev libseat-dev
-libdrm-dev`.
+libdrm-dev`; `ede-portal` needs `libpipewire-0.3-dev libclang-dev`, and its
+tests run a private `pipewire` and `dbus-daemon`.

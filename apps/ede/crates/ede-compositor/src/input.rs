@@ -36,6 +36,8 @@ pub enum Action {
     Restore,
     /// Super+L: start the lock client.
     Lock,
+    /// A global shortcut's key (by keycode) went down / up (#NEW-105).
+    Shortcut(u32, bool),
 }
 
 impl Ede {
@@ -137,7 +139,11 @@ impl Ede {
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.seat.get_keyboard().unwrap();
         let locked = self.is_locked();
-        let action = keyboard.input::<Action, _>(self, keycode, state, serial, time, |_, mods, handle| {
+        let action = keyboard.input::<Action, _>(self, keycode, state, serial, time, |ede, mods, handle| {
+            let code = handle.raw_code().raw();
+            if state == KeyState::Released && ede.ipc.shortcuts.active.iter().any(|(k, ..)| *k == code) {
+                return FilterResult::Intercept(Action::Shortcut(code, false));
+            }
             if state != KeyState::Pressed || !bindings {
                 return FilterResult::Forward;
             }
@@ -145,9 +151,20 @@ impl Ede {
                 Some(action @ Action::SwitchVt(_)) => FilterResult::Intercept(action),
                 Some(_) if locked => FilterResult::Forward,
                 Some(action) => FilterResult::Intercept(action),
-                None => FilterResult::Forward,
+                None if locked || ede.keyboard_focus_protected() => FilterResult::Forward,
+                None => match ede.ipc.shortcuts.lookup(mods, handle.modified_sym()).map(|b| (b.owner.clone(), b.id.clone())) {
+                    Some((owner, id)) => {
+                        ede.ipc.shortcuts.active.push((code, owner, id));
+                        FilterResult::Intercept(Action::Shortcut(code, true))
+                    }
+                    None => FilterResult::Forward,
+                },
             }
         });
+        if let Some(Action::Shortcut(code, pressed)) = action {
+            self.shortcut_event(code, pressed, time);
+            return;
+        }
         if let Some(action) = action {
             self.run(action);
         }
@@ -162,6 +179,7 @@ impl Ede {
                 }
             }
             Action::Lock => self.request_lock(),
+            Action::Shortcut(..) => {}
             Action::Close => self.close_focused(),
             Action::Tile(tile) => {
                 if let Some(w) = self.focused_window() {
@@ -176,6 +194,14 @@ impl Ede {
                 }
             }
         }
+    }
+
+    fn shortcut_event(&mut self, code: u32, pressed: bool, time: u32) {
+        let active = &mut self.ipc.shortcuts.active;
+        let Some(i) = active.iter().rposition(|(k, ..)| *k == code) else { return };
+        let (_, owner, id) = if pressed { active[i].clone() } else { active.remove(i) };
+        let kind = if pressed { ede_protocol::events::SHORTCUT_ACTIVATED } else { ede_protocol::events::SHORTCUT_DEACTIVATED };
+        self.emit(kind, serde_json::to_value(ede_protocol::ShortcutEvent { owner, id, time }).unwrap());
     }
 
     fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
@@ -199,7 +225,7 @@ impl Ede {
     }
 }
 
-fn binding(mods: &ModifiersState, sym: u32) -> Option<Action> {
+pub(crate) fn binding(mods: &ModifiersState, sym: u32) -> Option<Action> {
     if (keysyms::KEY_XF86Switch_VT_1..=keysyms::KEY_XF86Switch_VT_12).contains(&sym) {
         return Some(Action::SwitchVt((sym - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
     }

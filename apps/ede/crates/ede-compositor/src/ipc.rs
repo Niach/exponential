@@ -35,6 +35,7 @@ pub struct Ipc {
     next_event: u64,
     /// The socket and token file, removed on exit.
     pub paths: Vec<PathBuf>,
+    pub shortcuts: crate::shortcuts::Shortcuts,
 }
 
 #[derive(Debug)]
@@ -138,6 +139,7 @@ impl Ede {
             };
             if n == 0 || !state.ipc_received(id, &buf[..n]) {
                 state.ipc.clients.retain(|c| c.id != id);
+                state.ipc.shortcuts.drop_client(id);
                 return Ok(PostAction::Remove);
             }
             Ok(PostAction::Continue)
@@ -294,6 +296,14 @@ impl Ede {
                     InputEvent::PointerButton { button, pressed } => {
                         self.drive_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32)
                     }
+                    InputEvent::PointerMotionRelative { dx, dy } => {
+                        let pos = self.seat.get_pointer().unwrap().current_location() + smithay::utils::Point::<f64, smithay::utils::Logical>::from((dx, dy));
+                        self.drive_pointer_motion(pos, now as u32)
+                    }
+                    InputEvent::PointerAxis { dx, dy } => self.drive_pointer_axis((dx, dy), None, now as u32),
+                    InputEvent::PointerAxisDiscrete { dx, dy } => {
+                        self.drive_pointer_axis((dx as f64 * 15.0, dy as f64 * 15.0), Some((dx * 120, dy * 120)), now as u32)
+                    }
                 };
                 refused.map_err(|r| fail(ErrorCode::Forbidden, if r == crate::protected::Refused::Locked { "the session is locked" } else { "a protected surface is never driven" }))?;
                 json(serde_json::Value::Null)
@@ -321,6 +331,15 @@ impl Ede {
                 let minted = Grant { token: new_token(), session_id, run_id, capabilities, expires_at };
                 self.ipc.grants.push(minted.clone());
                 json(serde_json::to_value(minted).unwrap())
+            }
+            Request::BindShortcuts { owner, shortcuts } => {
+                let taken = |t: &crate::shortcuts::Trigger| t.syms().iter().any(|&sym| crate::input::binding(&t.mods(), sym).is_some());
+                let bound = self.ipc.shortcuts.bind(id, &owner, shortcuts, taken);
+                json(serde_json::to_value(bound).unwrap())
+            }
+            Request::UnbindShortcuts { owner } => {
+                self.ipc.shortcuts.unbind(&owner);
+                json(serde_json::Value::Null)
             }
             Request::RevokeGrant { token } => {
                 let g = self.ipc.grant(&token).ok_or_else(|| fail(ErrorCode::NotFound, "no such grant"))?;

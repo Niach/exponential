@@ -25,16 +25,21 @@ stage="$(mktemp -d)"
 chmod 755 "$stage"
 trap 'rm -rf "$stage"' EXIT
 
-cargo build --release --locked -p ede-compositor -p ede-session --features ede-compositor/udev
+cargo build --release --locked -p ede-compositor -p ede-session -p ede-portal --features ede-compositor/udev
 
 install -Dm755 "$target/release/ede-compositor" "$stage/usr/bin/ede-compositor"
 install -Dm755 "$target/release/ede-session" "$stage/usr/bin/ede-session"
+install -Dm755 "$target/release/xdg-desktop-portal-ede" "$stage/usr/libexec/xdg-desktop-portal-ede"
+install -Dm644 "$here/portal/ede.portal" "$stage/usr/share/xdg-desktop-portal/portals/ede.portal"
+install -Dm644 "$here/portal/ede-portals.conf" "$stage/usr/share/xdg-desktop-portal/ede-portals.conf"
+install -Dm644 "$here/portal/org.freedesktop.impl.portal.desktop.ede.service" "$stage/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ede.service"
+install -Dm644 "$here/portal/xdg-desktop-portal-ede.service" "$stage/usr/lib/systemd/user/xdg-desktop-portal-ede.service"
 install -Dm755 "$here/ede-polkit-agent" "$stage/usr/lib/ede/ede-polkit-agent"
 for f in "$here"/wayland-sessions/*.desktop; do install -Dm644 "$f" "$stage/usr/share/wayland-sessions/$(basename "$f")"; done
 for f in "$here"/systemd/*; do install -Dm644 "$f" "$stage/usr/lib/systemd/user/$(basename "$f")"; done
 install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/doc/ede/copyright"
 
-depends="libc6, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2"
+depends="libc6, libpipewire-0.3-0, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2"
 if [ "$bundle_xwayland" = 1 ]; then
   xwl="${EDE_XWAYLAND:-$target/ede-xwayland}"
   if [ -z "${EDE_XWAYLAND:-}" ]; then
@@ -59,7 +64,7 @@ Maintainer: Exponential <hello@exponential.at>
 Section: x11
 Priority: optional
 Homepage: https://exponential.at
-Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin
+Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin, xdg-desktop-portal (>= 1.18), xdg-desktop-portal-gtk, pipewire
 Recommends: policykit-1-gnome | mate-polkit, gnome-keyring, swaylock
 Description: eDE, the Exponential desktop
  A Wayland desktop session: the ede-compositor (floating windows with edge

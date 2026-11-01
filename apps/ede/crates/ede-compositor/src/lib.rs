@@ -20,6 +20,7 @@ pub mod layout;
 pub mod lock;
 pub mod logind;
 pub mod protected;
+pub mod shortcuts;
 pub mod state;
 
 pub use config::Config;

@@ -202,3 +202,74 @@ fn the_socket_lives_in_a_private_directory() {
     let mut client = Client::connect(&socket, token).unwrap();
     assert_eq!(client.outputs().unwrap().len(), 1);
 }
+
+#[test]
+fn global_shortcuts_fire_from_the_person_and_keep_the_key() {
+    use ede_protocol::ShortcutSpec;
+    use smithay::backend::input::KeyState;
+    const CTRL: u32 = 29 + 8;
+    const ALT: u32 = 56 + 8;
+    const R: u32 = 19 + 8;
+    let key = |h: &Harness, code: u32, state: KeyState| h.with(move |ede| ede.keyboard_key(code.into(), state, 7));
+    let chord = |h: &Harness| {
+        key(h, CTRL, KeyState::Pressed);
+        key(h, ALT, KeyState::Pressed);
+        key(h, R, KeyState::Pressed);
+        key(h, R, KeyState::Released);
+        key(h, ALT, KeyState::Released);
+        key(h, CTRL, KeyState::Released);
+    };
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("notes");
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+
+    let mut portal = h.ipc();
+    let spec = |id: &str, trigger: &str| ShortcutSpec { id: id.into(), trigger: trigger.into() };
+    let bound = portal.bind_shortcuts("/s/1", vec![spec("rec", "ctrl+alt+r"), spec("typing", "a"), spec("quit", "LOGO+SHIFT+e")]).unwrap();
+    let triggers: Vec<_> = bound.iter().map(|b| b.trigger.as_deref()).collect();
+    assert_eq!(triggers, [Some("CTRL+ALT+r"), None, None], "plain keys and compositor bindings stay unbound");
+
+    portal.subscribe().unwrap();
+    portal.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    chord(&h);
+    let down = portal.next_event().unwrap();
+    let up = portal.next_event().unwrap();
+    assert_eq!((down.kind.as_str(), up.kind.as_str()), (events::SHORTCUT_ACTIVATED, events::SHORTCUT_DEACTIVATED));
+    assert_eq!(down.data["id"], "rec");
+    assert_eq!(down.data["owner"], "/s/1");
+    app.roundtrip();
+    assert!(!app.state.keys.contains(&(R - 8)), "the shortcut's key reached the client");
+
+    // Synthetic input never fires a shortcut; a protected prompt blocks it.
+    portal.input(InputEvent::Key { key: R - 8, pressed: true }).ok();
+    let secret = app.toplevel("prompt");
+    secret.toplevel.set_app_id("gcr-prompter".into());
+    app.draw(&secret, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&secret.surface));
+    chord(&h);
+    portal.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+    while let Ok(e) = portal.next_event() {
+        assert!(!e.kind.starts_with("shortcut."), "a shortcut fired over a protected prompt");
+    }
+
+    // The owner's connection goes, its shortcuts go.
+    drop(portal);
+    let mut other = h.ipc();
+    let again = other.bind_shortcuts("/s/2", vec![spec("rec", "CTRL+ALT+r")]).unwrap();
+    assert_eq!(again[0].trigger.as_deref(), Some("CTRL+ALT+r"));
+}
+
+#[test]
+fn relative_motion_and_scrolling() {
+    let h = harness();
+    let mut ipc = h.ipc();
+    ipc.input(InputEvent::PointerMotion { x: 100.0, y: 100.0 }).unwrap();
+    ipc.input(InputEvent::PointerMotionRelative { dx: 25.0, dy: -10.0 }).unwrap();
+    let at = h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    assert_eq!((at.x, at.y), (125.0, 90.0));
+    ipc.input(InputEvent::PointerAxis { dx: 0.0, dy: 30.0 }).unwrap();
+    ipc.input(InputEvent::PointerAxisDiscrete { dx: 0, dy: -2 }).unwrap();
+}

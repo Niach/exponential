@@ -37,6 +37,9 @@ pub mod events {
     pub const SESSION_LOCKED: &str = "session.locked";
     pub const SESSION_UNLOCKED: &str = "session.unlocked";
     pub const CONFIG_RELOADED: &str = "config.reloaded";
+    /// A bound global shortcut went down / up (data: [`super::ShortcutEvent`]).
+    pub const SHORTCUT_ACTIVATED: &str = "shortcut.activated";
+    pub const SHORTCUT_DEACTIVATED: &str = "shortcut.deactivated";
 }
 
 /// The socket and token file of the compositor serving `wayland_display`.
@@ -87,6 +90,15 @@ pub enum Request {
         expires_at: Option<i64>,
     },
     RevokeGrant { token: Token },
+    /// Global shortcuts for `owner` (the portal's session), replacing what
+    /// it held. Triggers follow the XDG shortcuts spec (`CTRL+SHIFT+a`,
+    /// `LOGO+F5`); one that does not parse, takes a plain key (no CTRL, ALT
+    /// or LOGO on a character key) or clashes with a compositor binding or
+    /// another owner's shortcut comes back unbound. They never fire while
+    /// the session is locked or a protected surface has the keyboard, and
+    /// they go when the connection does.
+    BindShortcuts { owner: String, shortcuts: Vec<ShortcutSpec> },
+    UnbindShortcuts { owner: String },
 }
 
 impl Request {
@@ -97,7 +109,12 @@ impl Request {
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } => Some(Capability::Ui),
             Request::Capture { .. } => Some(Capability::Capture),
             Request::Input { .. } => Some(Capability::InputPerson),
-            Request::ReloadConfig | Request::Lock | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
+            Request::ReloadConfig
+            | Request::Lock
+            | Request::MintGrant { .. }
+            | Request::RevokeGrant { .. }
+            | Request::BindShortcuts { .. }
+            | Request::UnbindShortcuts { .. } => Some(Capability::System),
         }
     }
 }
@@ -116,6 +133,35 @@ pub enum InputEvent {
     Key { key: u32, pressed: bool },
     PointerMotion { x: f64, y: f64 },
     PointerButton { button: u32, pressed: bool },
+    /// By `dx`/`dy` from where the pointer is.
+    PointerMotionRelative { dx: f64, dy: f64 },
+    /// Smooth scrolling, in logical pixels.
+    PointerAxis { dx: f64, dy: f64 },
+    /// Wheel clicks.
+    PointerAxisDiscrete { dx: i32, dy: i32 },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShortcutSpec {
+    pub id: String,
+    pub trigger: String,
+}
+
+/// A [`Request::BindShortcuts`] reply entry: `trigger` is the normalized
+/// trigger, `None` = not bound.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BoundShortcut {
+    pub id: String,
+    pub trigger: Option<String>,
+}
+
+/// `data` of the shortcut events.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShortcutEvent {
+    pub owner: String,
+    pub id: String,
+    /// Milliseconds (the input event's clock).
+    pub time: u32,
 }
 
 /// What the compositor sends.
@@ -330,6 +376,10 @@ impl Client {
 
     pub fn input(&mut self, event: InputEvent) -> Result<(), Error> {
         self.call(Request::Input { event }).map(|_| ())
+    }
+
+    pub fn bind_shortcuts(&mut self, owner: &str, shortcuts: Vec<ShortcutSpec>) -> Result<Vec<BoundShortcut>, Error> {
+        self.call_as(Request::BindShortcuts { owner: owner.into(), shortcuts })
     }
 
     pub fn mint(&mut self, session_id: SessionId, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<Grant, Error> {
