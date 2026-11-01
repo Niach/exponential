@@ -435,7 +435,7 @@ jobs:
           workspaces: apps/desktop
       - name: Cargo tests (worktree removal, Windows long paths)
         working-directory: apps/desktop
-        run: cargo test --locked -p coding --lib leftover::
+        run: 'cargo test --locked -p coding --lib leftover::'
 
   desktop-fuzz:
     needs: dedupe
