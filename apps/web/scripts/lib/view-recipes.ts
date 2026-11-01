@@ -515,9 +515,8 @@ async function recipeTypeIssueRef(page: Page): Promise<void> {
 }
 
 /**
- * EXP-1249: the composer's ONE "+" menu with Implement issue › open beside it
- * (composer-menu.json test ids). The submenu opens on hover from md up, so the
- * recipe hovers the row and waits for the search list's rows inside it.
+ * EXP-1249: the composer's ONE "+" menu open at its root (composer-menu.json
+ * test ids), Temporary session picked so every row shows.
  */
 async function recipeOpenComposerMenuTemporary(page: Page): Promise<void> {
   // EXP-1551: the four clients photograph ONE state, the phones' sheet: the
