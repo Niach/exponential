@@ -998,6 +998,9 @@ final class AgentSessionModel {
     /// EXP-724: the backstop behind an open compaction strip — armed on
     /// `started`, cancelled by `ended` and by every clear.
     private var compactionTimeoutTask: Task<Void, Never>?
+    /// #EXP-1538: when the open compaction started (epoch ms) — carried into
+    /// the last-known Dock slots so a seeded strip keeps its backstop.
+    @ObservationIgnored private var compactingSince: Double?
     /// EXP-582: inbound steer frames waiting for the next flush. A receive
     /// callback that hops to the main actor ONCE PER FRAME, and with every
     /// frame mutating `feed` directly each one bought a full SwiftUI render
@@ -2107,6 +2110,40 @@ final class AgentSessionModel {
         sessionRateLimit = nil
     }
 
+    // MARK: - Last-known Dock slots (#EXP-1538)
+
+    /// LOCAL FIRST (dock.json): the stream's latest-wins slots THE Dock draws
+    /// from, as this model last knew them. `SteerSessionStore` keeps them when
+    /// it retires a detached model, so the next open draws them in its first
+    /// frame instead of after the join replay.
+    var dockSlots: SteerDockSlots {
+        SteerDockSlots(
+            taskList: taskList,
+            backgroundTasks: backgroundTasks,
+            backgroundFirstSeen: backgroundFirstSeen,
+            queued: queued,
+            compacting: compacting,
+            compactingSince: compacting == nil ? nil : compactingSince,
+            rateLimit: sessionRateLimit
+        )
+    }
+
+    /// Seed a FRESH model with the last-known slots before it dials. The join
+    /// replay restates (or clears) every one of them in its one commit
+    /// (`commitStaging` → `resetFeed`); an ended session takes none.
+    func seedDockSlots(_ slots: SteerDockSlots) {
+        guard !isOver, feed.isEmpty else { return }
+        backgroundFirstSeen = slots.backgroundFirstSeen
+        taskList = slots.taskList
+        backgroundTasks = slots.backgroundTasks
+        queued = slots.queued
+        sessionRateLimit = slots.rateLimit
+        if let compaction = slots.compacting {
+            compacting = compaction
+            armCompactionTimeout(startedAt: slots.compactingSince)
+        }
+    }
+
     // MARK: - Compaction strip (EXP-724)
 
     /// EXP-848: everything that says "work is in flight" — the compaction
@@ -2146,6 +2183,7 @@ final class AgentSessionModel {
     /// (web/desktop parity).
     private func armCompactionTimeout(startedAt: Double?) {
         compactionTimeoutTask?.cancel()
+        compactingSince = startedAt ?? Date().timeIntervalSince1970 * 1000
         let age = startedAt.map { max(0, Date().timeIntervalSince1970 - $0 / 1000) } ?? 0
         let delay = max(0, AgentFeed.compactionTimeoutSeconds - age)
         compactionTimeoutTask = Task { [weak self] in

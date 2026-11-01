@@ -149,6 +149,8 @@ public struct DockPile: View {
     var renderAction: (Dock.Row) -> AnyView? = { _ in nil }
 
     @State private var heights: [String: CGFloat] = [:]
+    /// #EXP-1538: the cards that ran their `motion.enter`.
+    @State private var entered: Set<String> = []
     @Environment(\.motion) private var motion
 
     public init(
@@ -187,11 +189,28 @@ public struct DockPile: View {
                     }
                 )
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                    heights[row.id] = height
+                    // #EXP-1538 (dock.json `motion`): a card's FIRST height
+                    // is its entry (`enter`, a card present when the view
+                    // opens included); a later change re-piles (`pile`).
+                    let entering = heights[row.id] == nil
+                    withAnimation(entering ? motion.standard : motion.slow) {
+                        heights[row.id] = height
+                    }
                 }
                 .scaleEffect(x: item.scale, y: 1, anchor: .top)
                 .offset(y: CGFloat(item.offset))
                 .opacity(item.visible ? 1 : 0)
+                // #EXP-1538 (dock.json `motion.enter`): every card, the ones
+                // there when the view opens included, fades in rising
+                // `stack.gap` into its place, decelerating; reduce motion =
+                // the fade only.
+                .opacity(entered.contains(row.id) ? 1 : 0)
+                .offset(y: entered.contains(row.id) || motion.reduceMotion ? 0 : CGFloat(Dock.stack.gap))
+                .onAppear {
+                    withAnimation(DesignTokens.Motion.Ease.decelerate.animation(duration: DesignTokens.Motion.Duration.standard)) {
+                        _ = entered.insert(row.id)
+                    }
+                }
                 .allowsHitTesting(item.visible)
                 .zIndex(Double(index))
                 .transition(.opacity)
@@ -200,10 +219,10 @@ public struct DockPile: View {
         .frame(height: CGFloat(layout.height), alignment: .top)
         .frame(maxWidth: .infinity)
         .animation(motion.slow, value: fanned)
-        .animation(motion.slow, value: heights)
         .onChange(of: rows.map(\.id)) { _, ids in
             let live = Set(ids)
             heights = heights.filter { live.contains($0.key) }
+            entered = entered.intersection(live)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Dock.TestIds.pile)

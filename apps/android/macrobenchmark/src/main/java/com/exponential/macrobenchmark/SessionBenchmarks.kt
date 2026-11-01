@@ -128,6 +128,47 @@ class SessionBenchmarks {
         openSessionCard()
     }
 
+    /**
+     * #EXP-1538: open a session the app already followed (back out, then
+     * reopen its card): `Dock.openToVisible` = the Dock's first composition
+     * until it holds a card (dock.json LOCAL FIRST: the first frame, not
+     * after the eNet join replay).
+     */
+    @OptIn(ExperimentalMetricApi::class)
+    @Test
+    fun reopenSessionDock() = rule.measureRepeated(
+        packageName = PACKAGE,
+        metrics = listOf(TraceSectionMetric(DOCK_TRACE, TraceSectionMetric.Mode.Max)),
+        compilationMode = CompilationMode.Full(),
+        startupMode = StartupMode.WARM,
+        iterations = ITERATIONS,
+        setupBlock = {
+            openSession()
+            device.pressBack()
+            device.wait(Until.gone(By.res(FEED_TAG)), WAIT_MS)
+            device.waitForIdle()
+        },
+    ) {
+        openSessionCard()
+        check(device.wait(Until.hasObject(By.res(DOCK_PILE_TAG)), WAIT_MS) == true) { "no Dock card" }
+    }
+
+    /** #EXP-1538: the same on a cold process (nothing known yet: the join replay). */
+    @OptIn(ExperimentalMetricApi::class)
+    @Test
+    fun coldOpenSessionDock() = rule.measureRepeated(
+        packageName = PACKAGE,
+        metrics = listOf(TraceSectionMetric(DOCK_TRACE, TraceSectionMetric.Mode.Max)),
+        compilationMode = CompilationMode.Full(),
+        startupMode = StartupMode.COLD,
+        iterations = ITERATIONS,
+        setupBlock = { pressHome() },
+    ) {
+        openThread()
+        openSessionCard()
+        check(device.wait(Until.hasObject(By.res(DOCK_PILE_TAG)), WAIT_MS) == true) { "no Dock card" }
+    }
+
     @OptIn(ExperimentalMetricApi::class)
     @Test
     fun sendThenBack() = rule.measureRepeated(
@@ -218,6 +259,8 @@ class SessionBenchmarks {
         const val SESSION_CARD_TAG = "session-card"
         const val FEED_TAG = "agent-feed"
         const val BUBBLE_TAG = "session-agent-bubble"
+        const val DOCK_PILE_TAG = "dock-pile"
+        const val DOCK_TRACE = "Dock.openToVisible"
         const val CAPSULE_TAG = "steer-composer-capsule"
         const val EDIT_TEXT = "android.widget.EditText"
         const val SUBMIT_DESC = "Send"

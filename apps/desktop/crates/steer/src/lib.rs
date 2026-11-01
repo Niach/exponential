@@ -127,7 +127,7 @@ pub use feed::{
     group_feed_row_specs_from, group_feed_row_specs_into, group_feed_rows, summarize_subagent_row, transcript_gap, AnswerState, AnswerStatus,
     FeedItem, FeedItemId, FeedKind, FeedRow,
     FeedRowSpec, Gap, QuestionCard, RowClass,
-    SessionConfig, SessionRateLimit, SessionUsage, SteerFeed, SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP,
+    SessionConfig, SessionRateLimit, SessionUsage, SteerFeed, StreamSlots, SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP,
     FEED_BYTE_CAP, FEED_ITEM_CAP, REPLAY_MAX, REPLAY_QUIET,
 };
 pub use frames::{

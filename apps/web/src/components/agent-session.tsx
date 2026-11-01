@@ -38,6 +38,7 @@ import { Check, X } from "lucide-react"
 import {
   AskCard,
   DockSheetBody,
+  markDockOpen,
   AskPrompt,
   ThreadDock,
   ThreadConversation,
@@ -169,6 +170,7 @@ import {
   acquireSteerSession,
   type FeedItem,
   type QuestionItem,
+  type SteerDockSlots,
   type ToolItem,
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -991,6 +993,7 @@ export function AgentSessionView({
 const attachmentUrl = (attachmentId: string) => `/api/attachments/${attachmentId}`
 const noSessionName = () => null
 const NO_ROWS: ThreadRow[] = []
+const NO_DOCK_SLOTS: SteerDockSlots = { taskList: [], backgroundTasks: [], queue: [], compacting: null, rateLimit: null }
 
 /** EXP-1280: this session's TOOL-posted cards (ask-dock.json
  *  `sessionCards`) in THE thread row form, oldest first. */
@@ -1907,13 +1910,16 @@ export function useSessionDock(session: SessionRow): {
   renderAction: (row: DockRow) => ReactNode
 } {
   const store = useMemo(() => acquireSteerSession(session.id), [session.id])
-  const { phase, feed, compacting, rateLimit, taskList, backgroundTasks, queue } = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot
-  )
+  // #EXP-1538: the open-chat → Dock-visible benchmark starts here.
+  useLayoutEffect(() => markDockOpen(), [session.id])
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const sessionEnded = session.status === `ended`
+  // #EXP-1538 (dock.json LOCAL FIRST): the stream's slots are the store's
+  // (last-known while it connects); a session that is over shows none.
+  const { phase, feed } = snapshot
+  const { compacting, rateLimit, taskList, backgroundTasks, queue } = sessionEnded ? NO_DOCK_SLOTS : snapshot
   const device = useSessionDevice({ deviceId: session.deviceId, userId: session.userId })
   const now = useNow(30_000)
-  const sessionEnded = session.status === `ended`
   // S-3: an offline host looks like any idle session: no Paused banner, and
   // its dropped stream / pending start draw nothing either.
   const hostOffline = device.online === false && !sessionEnded

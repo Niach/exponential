@@ -64,6 +64,8 @@ pub(crate) struct DockState {
     pile_width: Rc<Cell<f32>>,
     sheet_height: Rc<Cell<f32>>,
     seen: HashSet<String>,
+    /// #EXP-1538: when each card on the band first drew (its `motion.enter`).
+    entered: HashMap<String, Instant>,
     /// When the host's state first read as loaded (auto-open's memory
     /// settles over [`SETTLE`] from then on).
     primed: Option<Instant>,
@@ -84,6 +86,7 @@ impl Default for DockState {
             pile_width: Rc::new(Cell::new(0.)),
             sheet_height: Rc::new(Cell::new(0.)),
             seen: HashSet::new(),
+            entered: HashMap::new(),
             primed: None,
             focus_pending: false,
             focus: None,
@@ -131,6 +134,24 @@ impl DockState {
         self.open = None;
         self.opened_at = None;
         true
+    }
+
+    /// #EXP-1538 (dock.json `motion.enter`): each row's enter progress at
+    /// `now`, 0 → 1 eased (decelerate) over the `enter` token. A row the band
+    /// has not drawn before starts its enter now, the cards already there
+    /// when the view opens included; a row that left forgets it (coming back
+    /// enters again).
+    pub(crate) fn enter_progress(&mut self, rows: &[DockRow], now: Instant) -> Vec<f32> {
+        self.entered.retain(|id, _| rows.iter().any(|row| row.id == *id));
+        let duration = motion_token(&DOCK.motion.enter);
+        let ease = theme::motion::decelerate();
+        rows.iter()
+            .map(|row| {
+                let since = *self.entered.entry(row.id.clone()).or_insert(now);
+                let linear = now.saturating_duration_since(since).as_secs_f32() / duration.as_secs_f32();
+                if linear >= 1. { 1. } else { ease(linear) }
+            })
+            .collect()
     }
 
     /// The band's measured height (px): the transcript's bottom padding.
@@ -216,6 +237,15 @@ pub(crate) fn dock_card(row: &DockRow, hidden: f32, action: Option<AnyElement>, 
         },
         cx,
     )
+}
+
+/// A dock.json `motion` token's duration.
+fn motion_token(name: &str) -> std::time::Duration {
+    match name {
+        "fast" => theme::motion::FAST,
+        "slow" => theme::motion::SLOW,
+        _ => theme::motion::STANDARD,
+    }
 }
 
 fn slow() -> Transition {
@@ -325,8 +355,13 @@ pub(crate) fn pile(
     let width = pile_width.get();
     let front = rows.last().map(|row| row.id.clone());
     let box_height = transition(ElementId::Name(format!("{id}-pile-height").into()), px(height), slow(), window, cx);
+    // #EXP-1538: every card enters (fade + a `stack.gap` rise), never pops.
+    let enter = state.update(cx, |state, _| state.enter_progress(rows, Instant::now()));
+    if enter.iter().any(|progress| *progress < 1.) {
+        window.request_animation_frame();
+    }
     let mut cards: Vec<AnyElement> = Vec::with_capacity(rows.len());
-    for (row, item) in rows.iter().zip(&items) {
+    for ((row, item), enter) in rows.iter().zip(&items).zip(enter) {
         let key = format!("{id}-pile-{}", row.id);
         let is_front = Some(&row.id) == front.as_ref();
         let top = transition(ElementId::Name(format!("{key}-top").into()), px(item.offset), slow(), window, cx);
@@ -351,6 +386,7 @@ pub(crate) fn pile(
             window,
             cx,
         );
+        let (top, shown) = (top + px(theme::motion::travel(DOCK.stack.gap) * (1. - enter)), shown * enter);
         let action = actions.iter().position(|(row_id, _)| *row_id == row.id).map(|ix| actions.remove(ix).1);
         let (row_id, expandable) = (row.id.clone(), row.expandable);
         let opener = state.clone();
@@ -800,6 +836,48 @@ mod tests {
                 assert_eq!((got.offset, got.scale, got.visible), (want.offset, want.scale, want.visible));
             }
         }
+    }
+
+    /// #EXP-1538 (dock.json `motion.enter`): a card present on the band's
+    /// FIRST frame starts its enter there (0, never drawn settled), eases to
+    /// 1 over the token; a card arriving later enters on its own clock, and
+    /// one that left enters again when it comes back.
+    #[test]
+    fn every_card_enters_including_the_first_frames() {
+        use std::time::Duration;
+        let tasks = DockSource::Tasks {
+            queue: Some(domain::dock::DockQueue {
+                todo: domain::dock::DockQueueTodo {
+                    title: "1 to do".into(),
+                    items: vec![domain::dock::DockQueueItem {
+                        label: "Read the issue".into(),
+                        description: None,
+                        state: "pending".into(),
+                    }],
+                },
+                completed: None,
+            }),
+        };
+        let banner = DockSource::Banner {
+            id: "closed".into(),
+            icon: "ui-refresh".into(),
+            label: "Connection lost".into(),
+            text: "Connection lost.".into(),
+            tone: DockTint::Muted,
+            action: None,
+        };
+        let token = motion_token(&DOCK.motion.enter);
+        let mut state = DockState::default();
+        let t0 = Instant::now();
+        let one = dock_rows(std::slice::from_ref(&tasks));
+        assert_eq!(state.enter_progress(&one, t0), vec![0.]);
+        let mid = state.enter_progress(&one, t0 + token / 2)[0];
+        assert!(mid > 0.5 && mid < 1., "decelerate: past half at half time, got {mid}");
+        assert_eq!(state.enter_progress(&one, t0 + token), vec![1.]);
+        let two = dock_rows(&[tasks.clone(), banner]);
+        assert_eq!(state.enter_progress(&two, t0 + token), vec![1., 0.]);
+        assert_eq!(state.enter_progress(&[], t0 + token * 2), Vec::<f32>::new());
+        assert_eq!(state.enter_progress(&one, t0 + token * 3 + Duration::from_millis(1)), vec![0.]);
     }
 
     /// A state whose memory has settled on nothing.
