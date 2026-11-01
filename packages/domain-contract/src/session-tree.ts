@@ -521,6 +521,8 @@ export type ThreadRow =
       /** EXP-1280: the surface's data model as the person answered it (null = unanswered / none). */
       surfaceData: Record<string, unknown> | null
       answered: boolean
+      /** #EXP-1561 (waiting-cards.json): a person dismissed it; present only when true. */
+      dismissed?: true
     }
   | {
       type: `plan`
@@ -585,6 +587,7 @@ function askRow(
       answers: stringList(card.answers),
       surfaceData: dataRecord(card.surfaceData),
       answered: message.answeredAt !== null,
+      ...(card.dismissed === true ? { dismissed: true as const } : {}),
     }
   }
   return {
