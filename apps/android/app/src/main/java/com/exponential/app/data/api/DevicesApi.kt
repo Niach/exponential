@@ -347,8 +347,9 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
  * one); [profileId] only names the login the sign-in was FOR, so the device can
  * tell a duplicate apart. Absent = "Add account".
  *
- * EXP-1533: [longLived] (claude, with a [profileId]) mints a one-year
- * `claude setup-token` login through the same link + code flow.
+ * EXP-1533: [longLived] (claude) mints a one-year `claude setup-token` login
+ * through the same link + code flow. EXP-1612: the DEFAULT claude sign-in,
+ * an Add (no [profileId]) included.
  */
 fun agentLoginCommand(
     deviceId: String,

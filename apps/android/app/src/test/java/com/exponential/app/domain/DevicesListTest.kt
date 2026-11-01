@@ -8,6 +8,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** A-16 / EXP-1560: [DevicesList] replays `devices-list.json` (copy, card,
@@ -47,6 +49,11 @@ class DevicesListTest {
         assertEquals(int("iconSize"), DevicesList.Card.ICON_SIZE)
         assertEquals(int("markSize"), DevicesList.Card.MARK_SIZE)
         assertEquals(int("maxAccountIcons"), DevicesList.Card.MAX_ACCOUNT_ICONS)
+        // EXP-1612: the Keep signed in reminder window.
+        assertEquals(
+            fixture.getValue("keepSignedIn").jsonObject.getValue("renewWithinDays").jsonPrimitive.content.toInt(),
+            DevicesList.KeepSignedIn.RENEW_WITHIN_DAYS,
+        )
         // A 390dp phone (minus the page's 16 + 16) = 1 column; a wide one = 4.
         assertEquals(1, DevicesList.columns(358))
         assertEquals(4, DevicesList.columns(1100))
@@ -98,8 +105,10 @@ class DevicesListTest {
                             label = login.str("label")!!,
                             health = AgentHealthRules.parse(login.str("health")),
                             limitHit = login["limitHit"]?.jsonPrimitive?.boolean ?: false,
+                            tokenExpiresAt = login.str("tokenExpiresAt"),
                         )
                     },
+                    now = input.str("now")!!,
                 ),
             )
             assertEquals(name, expect.str("group"), row.group.wire)
@@ -115,5 +124,16 @@ class DevicesListTest {
                 assertEquals(name, w.str("status"), got.status?.wire)
             }
         }
+    }
+
+    // EXP-1612: the reminder's boundary — exactly 30 days out is due, 31 is not,
+    // past is due, and an unreadable stamp counts as due.
+    @Test
+    fun keepSignedInDueBoundary() {
+        val now = "2026-11-01T12:00:00.000Z"
+        assertTrue(DevicesList.keepSignedInDue("2026-12-01T12:00:00.000Z", now))
+        assertFalse(DevicesList.keepSignedInDue("2026-12-02T12:00:00.000Z", now))
+        assertTrue(DevicesList.keepSignedInDue("2026-10-01T00:00:00.000Z", now))
+        assertTrue(DevicesList.keepSignedInDue("garbage", now))
     }
 }

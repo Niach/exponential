@@ -241,23 +241,25 @@ object AgentAccountsRows {
     const val ACTION_REMOVE = "Remove account"
 
     /**
-     * EXP-1533: a claude login's long-lived sign-in (`claude setup-token`, one
-     * year) — "Keep signed in" until the row carries `tokenExpiresAt`, then
-     * "Renew long-lived login". The same remote sign-in sheet as
-     * [ACTION_SIGN_IN], queuing `agent_login` with `longLived`.
+     * EXP-1533/EXP-1612: a claude login's long-lived sign-in (`claude
+     * setup-token`, one year; the DEFAULT claude sign-in since EXP-1612) —
+     * "Switch to Keep signed in" until the row carries `tokenExpiresAt`, then
+     * "Renew Keep signed in" (`devices-list.json` copy). The same remote
+     * sign-in sheet as [ACTION_SIGN_IN], queuing `agent_login` with `longLived`.
      */
-    const val ACTION_KEEP_SIGNED_IN = "Keep signed in"
-    const val ACTION_RENEW_LONG_LIVED = "Renew long-lived login"
+    const val ACTION_SWITCH_TO_KEEP_SIGNED_IN = DevicesList.Copy.SWITCH_TO_KEEP_SIGNED_IN
+    const val ACTION_RENEW_KEEP_SIGNED_IN = DevicesList.Copy.RENEW_KEEP_SIGNED_IN
 
     /** The agent whose logins offer the long-lived sign-in (EXP-1533). */
-    private const val LONG_LIVED_AGENT = "claude"
+    private const val LONG_LIVED_AGENT = DevicesList.KEEP_SIGNED_IN_AGENT
 
     /**
      * EXP-862: what a login's chip menu offers, on a machine row or on an
      * account row — the SAME rule on every client, in this fixed order:
      *  - signed out, or a credential that expired here: a sign-in first;
-     *  - EXP-1533, a claude login: keep it signed in (or renew the long-lived
-     *    login it already holds);
+     *  - EXP-1612, a claude login that does NOT sign in: switch it to Keep
+     *    signed in (or renew the long-lived login it already holds) — a
+     *    claude Sign in already IS Keep signed in;
      *  - EXP-1137, signed in: sign it out (the row stays);
      *  - remove: any login.
      *
@@ -277,8 +279,12 @@ object AgentAccountsRows {
         val signsIn = !signedIn || health == AgentHealth.NeedsRelogin
         val out = mutableListOf<String>()
         if (signsIn) out += ACTION_SIGN_IN
-        if (agent == LONG_LIVED_AGENT) {
-            out += if (nonEmpty(tokenExpiresAt) != null) ACTION_RENEW_LONG_LIVED else ACTION_KEEP_SIGNED_IN
+        if (agent == LONG_LIVED_AGENT && !signsIn) {
+            out += if (nonEmpty(tokenExpiresAt) != null) {
+                ACTION_RENEW_KEEP_SIGNED_IN
+            } else {
+                ACTION_SWITCH_TO_KEEP_SIGNED_IN
+            }
         }
         if (signedIn) out += ACTION_SIGN_OUT
         out += ACTION_REMOVE

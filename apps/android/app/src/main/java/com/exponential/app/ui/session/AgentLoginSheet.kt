@@ -9,15 +9,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import com.exponential.app.domain.AgentAccountsRows
+import com.exponential.app.domain.DevicesList
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -57,8 +62,13 @@ internal data class AgentLoginTarget(
     val device: SteerDevice,
     val agent: String,
     val profileId: String? = null,
-    /** EXP-1533: the claude login's long-lived sign-in (`agent_login` with `longLived`). */
-    val longLived: Boolean = false,
+    /**
+     * EXP-1533/EXP-1612: the claude login's long-lived sign-in (`agent_login`
+     * with `longLived`, `claude setup-token`) — the DEFAULT for every claude
+     * sign-in (Add account included); the sheet's ghost button flips it to the
+     * refresh-grant browser login. Codex has no setup-token: always false.
+     */
+    val longLived: Boolean = agent == DevicesList.KEEP_SIGNED_IN_AGENT,
 )
 
 /**
@@ -117,10 +127,18 @@ internal fun AgentLoginSheet(
         onDismiss()
     }
 
+    // EXP-1612: the mode this sheet queues — Keep signed in by default for
+    // claude; the ghost button re-queues the SAME target in the other mode.
+    var longLived by remember(target) { mutableStateOf(target.longLived) }
+    // An older device refuses a long-lived Add: fall back to the browser
+    // login ONCE.
+    var fellBack by remember(target) { mutableStateOf(false) }
+    val keepsSignedIn = target.agent == DevicesList.KEEP_SIGNED_IN_AGENT
+
     // The sheet IS the request: it queues the login once, on the machine the
     // caller named, and then follows it. A second open re-runs it, which is
     // what a stale or abandoned link needs anyway.
-    LaunchedEffect(target) {
+    LaunchedEffect(target, longLived) {
         device.rowId?.let { viewModel.bind(it) }
         viewModel.agentLogin(
             deviceId = device.deviceId,
@@ -128,11 +146,18 @@ internal fun AgentLoginSheet(
             switchAccount = false,
             deviceOnline = device.online,
             profileId = target.profileId,
-            longLived = target.longLived,
+            longLived = longLived,
         )
     }
 
     val state = commandStates[agentLoginCommandKey(device.deviceId, target.agent, target.profileId)]
+    LaunchedEffect(state) {
+        val failed = state as? DeviceCommandUiState.Failed ?: return@LaunchedEffect
+        if (longLived && !fellBack && target.profileId == null && isLongLivedRefused(failed.message)) {
+            fellBack = true
+            longLived = false
+        }
+    }
     val codeState = commandStates[agentLoginCodeCommandKey(device.deviceId, target.agent, target.profileId)]
     GlassSheet(
         title = "Sign in",
@@ -164,10 +189,38 @@ internal fun AgentLoginSheet(
                 },
             )
             CommandCaption(codeState)
+            // EXP-1612: claude says the trade-off in ONE muted line and offers
+            // the other mode as a ghost text button; codex has neither.
+            if (keepsSignedIn) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (longLived) DevicesList.Copy.KEEP_SIGNED_IN_NOTE else DevicesList.Copy.BROWSER_LOGIN_NOTE,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.testTag("agent-login-mode-note"),
+                )
+                TextButton(
+                    onClick = { longLived = !longLived },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    ),
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                    modifier = Modifier.heightIn(min = 28.dp).testTag("agent-login-mode-toggle"),
+                ) {
+                    Text(
+                        if (longLived) DevicesList.Copy.USE_BROWSER_LOGIN else DevicesList.Copy.USE_KEEP_SIGNED_IN,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
             Spacer(Modifier.height(16.dp))
         }
     }
 }
+
+/** EXP-1612: an older device's refusal of a long-lived Add (`copy.longLivedRefused`). */
+internal fun isLongLivedRefused(message: String?): Boolean =
+    message?.trim() == DevicesList.Copy.LONG_LIVED_REFUSED
 
 /**
  * What a queued `agent_login` command is doing (EXP-484). A completed one
