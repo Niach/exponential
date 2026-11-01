@@ -17,7 +17,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -69,6 +72,22 @@ class SteerConnectionStore @Inject constructor(
                 Log.i(TAG, "sync-kick -> ${live.size} connection(s)")
                 live.forEach { it.kick("sync-kick") }
             }
+        }
+        // EXP-1524: a session opened before the account's eNet node was up
+        // (a notification cold start) dials the moment it is, instead of
+        // waiting out its Starting backoff.
+        scope.launch {
+            combine(auth.activeAccountId, enetNodes.ready) { id, ready -> id != null && id in ready }
+                .distinctUntilChanged()
+                .filter { it }
+                .collect {
+                    val live = synchronized(lock) {
+                        if (foreground) connections.values.toList() else emptyList()
+                    }
+                    if (live.isEmpty()) return@collect
+                    Log.i(TAG, "enet-ready -> ${live.size} connection(s)")
+                    live.forEach { it.kick("enet-ready") }
+                }
         }
     }
 

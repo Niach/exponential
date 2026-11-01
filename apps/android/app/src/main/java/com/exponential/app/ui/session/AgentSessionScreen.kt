@@ -771,7 +771,11 @@ private fun RunFaceContent(
     )
     // N-11: no status row over the feed; before the first turn the empty
     // column reads "Starting on <device>" over its placeholder rows.
+    // EXP-1524: only a QUEUED row (web parity): an idle session waiting on a
+    // question read "Starting on <device>" while its feed was connecting.
     val startingRun = session != null && session?.userId == currentUserId &&
+        session?.status == com.exponential.app.domain.DomainContract.sessionStatusQueued &&
+        !awaitingInput && !agentWorking &&
         !sessionEnded && feed.isEmpty() &&
         activity.turnState != TURN_STATE_STARTED && history == null &&
         phase !is AgentPhase.Closed && phase !is AgentPhase.Ended
