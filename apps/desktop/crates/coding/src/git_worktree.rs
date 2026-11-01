@@ -390,6 +390,34 @@ pub fn fetch_base(clone: &Path, default_branch: &str, url: &TokenUrl) -> Result<
     Ok(())
 }
 
+/// EXP-1542 (#FEED-169) — [`crate::launcher::WorktreeProvider::continue_branch`]:
+/// a local `branch` is kept as it is (never reset); otherwise `origin` is
+/// fetched every `poll` until `wait` runs out, and once it has the branch
+/// a local branch is made of it (`git branch <branch> origin/<branch>`),
+/// so the worktree checks it out instead of cutting a fresh one. `true` =
+/// the branch is local now.
+pub fn continue_branch(clone: &Path, branch: &str, url: &TokenUrl, wait: std::time::Duration, poll: std::time::Duration) -> bool {
+    if validate_branch_arg(branch, "continued branch").is_err() {
+        return false;
+    }
+    if branch_exists(clone, branch, url) {
+        return true;
+    }
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if fetch_base(clone, branch, url).is_ok() {
+            let tracking = format!("refs/remotes/origin/{branch}");
+            return run_git(Some(clone), &["branch", branch, &tracking], Some(url), &format!("git branch {branch}"))
+                .is_ok()
+                || branch_exists(clone, branch, url);
+        }
+        if std::time::Instant::now() + poll > deadline {
+            return false;
+        }
+        std::thread::sleep(poll);
+    }
+}
+
 /// FEED-170 — the first of `candidates` (never empty) that origin has: a
 /// fetch that succeeds proves the ref exists there. A row's branch can name
 /// a throwaway local checkout that was never pushed (`origin/verify`:
@@ -1026,7 +1054,7 @@ pub fn carried_branch(worktree: &Path, recorded: &str) -> Option<String> {
     worktree_head(worktree).filter(|head| head != recorded)
 }
 
-fn worktree_head(worktree: &Path) -> Option<String> {
+pub(crate) fn worktree_head(worktree: &Path) -> Option<String> {
     let head = run_git(
         Some(worktree),
         &["rev-parse", "--abbrev-ref", "HEAD"],

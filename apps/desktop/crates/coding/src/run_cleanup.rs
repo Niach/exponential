@@ -262,8 +262,28 @@ impl From<CleanupOutcome> for FinishOutcome {
 /// Same shields as [`remove_if_clean`]: the clone's launch gate, live
 /// holders, a missing worktree, malformed branch names.
 pub fn finish_worktree(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> FinishOutcome {
-    let outcome =
-        match crate::launch_gate::try_exclusive(&cleanup.clone, || finish_locked(cleanup, live, session_id8)) {
+    finish_worktree_with(cleanup, live, session_id8, false)
+}
+
+/// EXP-1542 (#FEED-169): [`finish_worktree`] for a session that MOVED to
+/// another device: its continuation there cuts from `origin/<branch>`, so
+/// the work (the WIP commit included) is pushed to the session's OWN
+/// branch first, a plain push (never forced). Only when that push fails
+/// (a diverged origin branch, auth, network) does it fall back to
+/// `exp/leftover-<id8>`, which the new device tries next.
+pub fn finish_moved_worktree(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> FinishOutcome {
+    finish_worktree_with(cleanup, live, session_id8, true)
+}
+
+fn finish_worktree_with(
+    cleanup: &RunCleanup,
+    live: &LiveHolders,
+    session_id8: &str,
+    push_own: bool,
+) -> FinishOutcome {
+    let outcome = match crate::launch_gate::try_exclusive(&cleanup.clone, || {
+        finish_locked(cleanup, live, session_id8, push_own)
+    }) {
             Some(outcome) => outcome,
             None => FinishOutcome::Skipped(SkipReason::GateHeld),
         };
@@ -272,7 +292,7 @@ pub fn finish_worktree(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &s
     outcome
 }
 
-fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> FinishOutcome {
+fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str, push_own: bool) -> FinishOutcome {
     if !cleanup.worktree.is_dir() {
         return FinishOutcome::Skipped(SkipReason::Missing);
     }
@@ -324,7 +344,11 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) ->
         branch: cleanup.branch.clone(),
         base_branch: Some(cleanup.base_branch.clone()),
     };
-    let leftover = if unpushed == 0 || head_landed(cleanup) {
+    // EXP-1542: a moved session's own branch carries the work on (even an
+    // untouched or landed one: the continuation cuts from it), pushed even
+    // with nothing ahead, which `auto_push::push_branch` would skip.
+    let handed_off = push_own && push_session_branch(&cleanup.worktree, &cleanup.branch).is_ok();
+    let leftover = if handed_off || unpushed == 0 || head_landed(cleanup) {
         None
     } else if crate::auto_push::push_branch(&own).on_origin() {
         None
@@ -431,6 +455,94 @@ fn push_leftover(worktree: &Path, name: &str) -> Result<String, String> {
     Err(format!("every leftover branch name is taken: {last}"))
 }
 
+/// EXP-1542 (#FEED-169): push `HEAD` to `origin/<branch>`, the session's
+/// own branch: a plain push (never forced), so a diverged origin branch is
+/// refused, never overwritten. The failure detail is logged and returned.
+fn push_session_branch(worktree: &Path, branch: &str) -> Result<(), String> {
+    validate_branch_arg(branch, "moved session branch").map_err(|err| err.detail)?;
+    let refspec = format!("HEAD:refs/heads/{branch}");
+    run_git(Some(worktree), &["push", "--no-verify", "origin", &refspec], None, &format!("git push origin {branch}"))
+        .map(|_| ())
+        .map_err(|err| {
+            log::warn!("moved session: {branch} not pushed, parking on a leftover branch: {}", err.detail);
+            err.detail
+        })
+}
+
+/// What [`hand_off_moved_branch`] did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HandOff {
+    /// The work is on `origin/<branch>` (pushed now, or already there).
+    Pushed,
+    /// The own-branch push failed; the work was parked on this branch.
+    Parked(String),
+    /// Nothing pushed; the worktree stays as it was (plus a WIP commit).
+    Skipped(String),
+}
+
+/// EXP-1542 (#FEED-169): the hand-off of a session that moved to another
+/// device while NO engine ran it here (an idle session whose process was
+/// released): its tracked changes become one WIP commit and `HEAD` is
+/// pushed to the session's own branch ([`push_session_branch`]), else
+/// parked on `exp/leftover-<id8>`. The worktree is never removed here: the
+/// nightly sweep ([`crate::prune::sweep_stale_worktrees`]) finishes it.
+/// Shielded like [`finish_worktree`]: the clone's launch gate, live
+/// holders, a worktree no longer on `branch`.
+pub fn hand_off_moved_branch(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> HandOff {
+    let skipped = |why: &str| HandOff::Skipped(why.to_string());
+    let run = || {
+        if !cleanup.worktree.is_dir() {
+            return skipped("no worktree");
+        }
+        if let Some(why) = live.holder_of(cleanup) {
+            return HandOff::Skipped(why);
+        }
+        let leftover = format!("{LEFTOVER_BRANCH_PREFIX}{session_id8}");
+        if session_id8.is_empty()
+            || !session_id8.chars().all(|c| c.is_ascii_alphanumeric())
+            || validate_branch_arg(&cleanup.branch, "hand-off").is_err()
+        {
+            return skipped("invalid branch");
+        }
+        if crate::git_worktree::worktree_head(&cleanup.worktree).as_deref() != Some(cleanup.branch.as_str()) {
+            return skipped("the worktree is on another branch");
+        }
+        if let WipSave::Failed(detail) = save_tracked_wip_commit(&cleanup.worktree) {
+            return HandOff::Skipped(detail);
+        }
+        if push_session_branch(&cleanup.worktree, &cleanup.branch).is_ok() {
+            return HandOff::Pushed;
+        }
+        match push_leftover(&cleanup.worktree, &leftover) {
+            Ok(parked) => HandOff::Parked(parked),
+            Err(detail) => HandOff::Skipped(detail),
+        }
+    };
+    crate::launch_gate::try_exclusive(&cleanup.clone, run).unwrap_or_else(|| skipped("launch gate held"))
+}
+
+/// EXP-1542: the sessions this process saw MOVE to another device while
+/// their engine ran here ([`mark_moved`]); their run's finish
+/// ([`finish_session_worktree`]) pushes the session's own branch.
+static MOVED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// EXP-1542: `session_id` moved away (`coding::pickup` saw its
+/// continuation on another device): its run's finish hands the branch on.
+pub fn mark_moved(session_id: &str) {
+    let mut moved = MOVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !moved.iter().any(|id| id == session_id) {
+        moved.push(session_id.to_string());
+    }
+}
+
+/// Whether `session_id` was [`mark_moved`], forgetting it.
+fn take_moved(session_id: &str) -> bool {
+    let mut moved = MOVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let before = moved.len();
+    moved.retain(|id| id != session_id);
+    moved.len() != before
+}
+
 /// A push the remote REFUSED for the ref's existing history (as opposed to
 /// auth, network, or a missing remote).
 fn is_rejected_push(detail: &str) -> bool {
@@ -470,7 +582,12 @@ pub fn finish_session_worktree(
     cleanup: &RunCleanup,
     live: &LiveHolders,
 ) -> FinishOutcome {
-    let outcome = finish_worktree(cleanup, live, &session_id8(session_id));
+    // EXP-1542: a moved session's branch goes to origin first.
+    let outcome = if take_moved(session_id) {
+        finish_moved_worktree(cleanup, live, &session_id8(session_id))
+    } else {
+        finish_worktree(cleanup, live, &session_id8(session_id))
+    };
     if let FinishOutcome::Removed { leftover: Some(branch) } = &outcome {
         post_leftover_note(trpc, session_id, branch);
     }
@@ -807,6 +924,84 @@ mod tests {
         assert!(!cleanup.worktree.exists());
         assert_eq!(origin_log(&cleanup, &cleanup.branch), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
         assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// EXP-1542 (#FEED-169): a MOVED session's finish pushes its work (the
+    /// WIP commit included) to its OWN branch, so the continuation on the
+    /// new device cuts from `origin/<branch>`; no leftover branch.
+    #[test]
+    fn a_moved_finish_pushes_the_session_branch_itself() {
+        let (root, cleanup) = fixture("finish-moved");
+        commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
+        std::fs::write(cleanup.worktree.join("README.md"), "edited\n").unwrap();
+        assert_eq!(
+            finish_moved_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: None }
+        );
+        assert!(!cleanup.worktree.exists());
+        assert!(origin_has(&cleanup, "exp/chat-1a2b3c4d"));
+        assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
+        let files = run_git(
+            Some(&origin_of(&cleanup)),
+            &["ls-tree", "-r", "--name-only", "exp/chat-1a2b3c4d"],
+            None,
+            "ls-tree",
+        )
+        .unwrap();
+        assert!(files.contains("local.txt"), "{files}");
+        // An untouched moved session still lands its branch on origin.
+        let (root2, untouched) = fixture("finish-moved-untouched");
+        assert_eq!(
+            finish_moved_worktree(&untouched, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: None }
+        );
+        assert!(origin_has(&untouched, "exp/chat-1a2b3c4d"));
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&root2);
+    }
+
+    /// EXP-1542: a refused own-branch push (origin's branch diverged) is
+    /// never forced: the work is parked on `exp/leftover-<id8>` instead and
+    /// origin's branch keeps its history.
+    #[test]
+    fn a_moved_finish_whose_branch_push_is_refused_parks_a_leftover() {
+        let (root, cleanup) = fixture("finish-moved-refused");
+        git(&cleanup.clone, &["branch", "other", "main"]);
+        let other = root.join("other");
+        git(&cleanup.clone, &["worktree", "add", other.to_str().unwrap(), "other"]);
+        commit_in(&other, "theirs.txt", "theirs\n");
+        git(&other, &["push", "-q", "origin", "other:refs/heads/exp/chat-1a2b3c4d"]);
+        commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
+        assert_eq!(
+            finish_moved_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: Some("exp/leftover-1a2b3c4d".to_string()) }
+        );
+        assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), "add theirs.txt");
+        assert_eq!(origin_log(&cleanup, "exp/leftover-1a2b3c4d"), "add local.txt");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// EXP-1542: a moved session with no engine here: its worktree's work
+    /// is pushed to its own branch and the worktree KEPT (the sweep
+    /// finishes it); the moved mark routes a run's finish the same way.
+    #[test]
+    fn a_hand_off_pushes_the_branch_and_keeps_the_worktree() {
+        let (root, cleanup) = fixture("hand-off");
+        commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
+        std::fs::write(cleanup.worktree.join("README.md"), "edited\n").unwrap();
+        assert_eq!(hand_off_moved_branch(&cleanup, &LiveHolders::default(), "1a2b3c4d"), HandOff::Pushed);
+        assert!(cleanup.worktree.join("local.txt").exists());
+        assert!(branch_exists(&cleanup.clone, &cleanup.branch));
+        assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
+        // A live holder shields it.
+        let held = LiveHolders { branches: vec![cleanup.branch.clone()], ..LiveHolders::default() };
+        assert!(matches!(hand_off_moved_branch(&cleanup, &held, "1a2b3c4d"), HandOff::Skipped(_)));
+        // The mark is taken once.
+        mark_moved("sess-moved-1");
+        assert!(take_moved("sess-moved-1"));
+        assert!(!take_moved("sess-moved-1"));
         let _ = std::fs::remove_dir_all(&root);
     }
 

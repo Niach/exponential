@@ -390,6 +390,32 @@ pub enum PickupAction {
     /// writes nothing to the row (one writer). NEW-1: a session's Move to
     /// device ENDS it here (a Kill) and continues it there server-side.
     Release { session_id: String },
+    /// EXP-1542 (#FEED-169): an ENDED row here that MOVED to another
+    /// device ([`moved_away`]): its branch goes to origin so the
+    /// continuation there carries the work on ([`hand_off`]). `live` = its
+    /// engine runs here (killed in the same pass): the run's finish pushes
+    /// ([`crate::run_cleanup::mark_moved`]); else the worktree its run
+    /// record names is pushed now, and kept.
+    HandOff { session_id: String, live: bool },
+}
+
+/// EXP-1542: the start of the server's line in a session's conversation
+/// when it moved to another device (`movedText`, `lib/sessions/move.ts`:
+/// "Moved from <device> to <device>").
+pub const MOVED_LINE_PREFIX: &str = "Moved from ";
+
+/// EXP-1542 (#FEED-169): whether `row` ended because it MOVED to another
+/// device: ended, on a branch, and its conversation holds the server's
+/// moved line (a system message, [`MOVED_LINE_PREFIX`]). A relocated row
+/// keeps naming the device it left, so its old device still sees it.
+pub fn moved_away(row: &SessionRow, messages: &[&MessageRow]) -> bool {
+    row.status_is(SESSION_STATUS_ENDED)
+        && row.branch.as_deref().is_some_and(|branch| !branch.trim().is_empty())
+        && messages.iter().any(|m| {
+            m.session_id == row.id
+                && m.author_kind.as_deref() == Some("system")
+                && m.body.as_deref().is_some_and(|body| body.starts_with(MOVED_LINE_PREFIX))
+        })
 }
 
 /// EXP-1252: [`crate::pickup::PickupAction::Release`]'s outcome
@@ -411,7 +437,8 @@ impl PickupAction {
             | Self::Answer { session_id, .. }
             | Self::DeliverAnswer { session_id, .. }
             | Self::Kill { session_id }
-            | Self::Release { session_id } => session_id,
+            | Self::Release { session_id }
+            | Self::HandOff { session_id, .. } => session_id,
         }
     }
 }
@@ -532,6 +559,20 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         if gone {
             killed.insert(session_id);
             actions.push(PickupAction::Kill { session_id: session_id.to_string() });
+            if rows.get(session_id).is_some_and(|row| moved_away(row, &all_messages)) {
+                actions.push(PickupAction::HandOff { session_id: session_id.to_string(), live: true });
+            }
+        }
+    }
+    // EXP-1542: a moved row with no engine here hands its worktree's
+    // branch on all the same.
+    for row in input.sessions {
+        if row.on_device(input.device_id)
+            && !input.live.contains_key(&row.id)
+            && !input.in_flight.contains(&row.id)
+            && moved_away(row, &all_messages)
+        {
+            actions.push(PickupAction::HandOff { session_id: row.id.clone(), live: false });
         }
     }
 
@@ -2070,7 +2111,7 @@ fn fail_start(session_id: &str, error: &str, tried: &[String], deps: &PickupDeps
             consume_off_thread(deps, session_id, tried, || {});
         }
     }
-    let report = start_failed_report(&deps.device_id, &crate::agent_accounts::now_iso());
+    let report = start_failed_report(Some(&deps.device_id), &crate::agent_accounts::now_iso());
     if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &report) {
         log::warn!("pickup: failed start of session {session_id} not reported: {err}");
     }
@@ -2081,7 +2122,8 @@ fn fail_start(session_id: &str, error: &str, tried: &[String], deps: &PickupDeps
 /// `Couldn't start` under Needs you, never Idle. `handled`: the server says
 /// no wall and sends no push (the "Could not start" reply already reached
 /// the sender). Stamped with `device_id`: a stale host flags nothing.
-pub fn start_failed_report(device_id: &str, now: &str) -> session_device::SessionReport {
+/// EXP-1542: [`settle_unstarted_on`] reports the same flag.
+pub fn start_failed_report(device_id: Option<&str>, now: &str) -> session_device::SessionReport {
     session_device::SessionReport {
         blocked: Some(Some(session_device::BlockedInput {
             kind: "start_failed".to_string(),
@@ -2091,7 +2133,7 @@ pub fn start_failed_report(device_id: &str, now: &str) -> session_device::Sessio
             since: now.to_string(),
             handled: Some(true),
         })),
-        ..crate::launcher::idle_report_on(Some(device_id))
+        ..crate::launcher::idle_report_on(device_id)
     }
 }
 
@@ -2553,7 +2595,9 @@ pub fn reclaim_step(row: &SessionRow, pending: bool, recorded: bool) -> ReclaimS
 pub const UNSTARTED_REPLY: &str = "Could not start: the runner restarted before it began. Send it a message to start it again.";
 
 /// [`ReclaimStep::Unstarted`]: replied ([`UNSTARTED_REPLY`], waking its
-/// listeners like any refusal), then idle. Prefer [`settle_unstarted_on`]:
+/// listeners like any refusal), then reported idle AND failed
+/// ([`start_failed_report`], EXP-1542): `Couldn't start` under Needs you
+/// like every other failed start, never plain Idle. Prefer [`settle_unstarted_on`]:
 /// without the device id the idle skips the server's stale-host guard.
 pub fn settle_unstarted(trpc: &api::trpc::TrpcClient, session_id: &str) {
     settle_unstarted_on(trpc, session_id, None);
@@ -2566,7 +2610,8 @@ pub fn settle_unstarted_on(trpc: &api::trpc::TrpcClient, session_id: &str, devic
     if let Err(err) = device_reply(trpc, session_id, UNSTARTED_REPLY) {
         log::warn!("pickup: unstarted session {session_id} not replied: {err}");
     }
-    if let Err(err) = crate::idle_session_on(trpc, session_id, device_id) {
+    let report = start_failed_report(device_id, &crate::agent_accounts::now_iso());
+    if let Err(err) = session_device::report(trpc, session_id, &report) {
         log::warn!("pickup: unstarted session {session_id} not reported: {err}");
     }
 }
@@ -2781,6 +2826,61 @@ pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
             release(session_id, deps);
             Ok(())
         }
+        PickupAction::HandOff { session_id, live } => {
+            hand_off(session_id, *live, deps);
+            Ok(())
+        }
+    }
+}
+
+/// EXP-1542: the sessions this process already handed off (each once: the
+/// moved row stays in the shape).
+static HANDED_OFF: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// EXP-1542 (#FEED-169): [`PickupAction::HandOff`]. Once per session and
+/// process. A live run is marked for its finish
+/// ([`crate::run_cleanup::finish_session_worktree`] pushes the session's
+/// own branch first); otherwise the worktree its run record names is
+/// handed off now, off-thread ([`crate::run_cleanup::hand_off_moved_branch`]:
+/// WIP commit, own-branch push, else `exp/leftover-<id8>`; never removed).
+/// A run another live host process holds is that host's to hand off.
+pub fn hand_off(session_id: &str, live: bool, deps: &PickupDeps) {
+    {
+        let mut handed = locked(&HANDED_OFF);
+        if handed.iter().any(|id| id == session_id) {
+            return;
+        }
+        handed.push(session_id.to_string());
+    }
+    if live {
+        log::info!("pickup: session {session_id} moved away: its run's finish pushes its branch");
+        crate::run_cleanup::mark_moved(session_id);
+        return;
+    }
+    let data_dir = deps.coding.data_dir.clone();
+    let Some(record) = crate::run_registry::get(&data_dir, session_id) else {
+        return;
+    };
+    if record.host_pid.is_some_and(|pid| pid != std::process::id() && crate::process::is_alive(pid)) {
+        return;
+    }
+    let (Some(clone), Some(branch), Some(base_branch)) = (record.clone, record.branch, record.base_branch) else {
+        return;
+    };
+    let cleanup = crate::run_cleanup::RunCleanup { clone, worktree: record.cwd, branch, base_branch };
+    let trpc = std::sync::Arc::clone(&deps.coding.trpc);
+    let session_id = session_id.to_string();
+    let spawned = std::thread::Builder::new().name("exp-pickup-hand-off".to_string()).spawn(move || {
+        let live = crate::run_cleanup::LiveHolders::default().with_registry(&data_dir, &session_id);
+        let id8 = crate::run_cleanup::session_id8(&session_id);
+        let outcome = crate::run_cleanup::hand_off_moved_branch(&cleanup, &live, &id8);
+        log::info!("pickup: moved session {session_id} handed off {}: {outcome:?}", cleanup.branch);
+        if let crate::run_cleanup::HandOff::Parked(parked) = &outcome {
+            crate::run_cleanup::post_leftover_note(&trpc, &session_id, parked);
+        }
+    });
+    if let Err(err) = spawned {
+        log::warn!("pickup: hand-off thread not started: {err}");
     }
 }
 
@@ -4255,6 +4355,42 @@ mod tests {
         );
     }
 
+    /// EXP-1542 (#FEED-169): an ended row here whose conversation holds the
+    /// server's moved line hands its branch off: with its engine live (the
+    /// kill comes first), and without one; a plain end does not.
+    #[test]
+    fn a_moved_row_hands_its_branch_off_a_plain_end_does_not() {
+        let on_branch = |id: &str| SessionRow {
+            branch: Some(format!("exp/session-{id}")),
+            ..session(id, "ended", DEV, "2026-10-01T00:00:00Z")
+        };
+        let moved = |id: &str, session: &str| MessageRow {
+            author_kind: Some("system".to_string()),
+            body: Some("Moved from Laptop to DESKTOP-2K0CVDE".to_string()),
+            consumed_at: Some("2026-10-02T00:00:00Z".to_string()),
+            ..message(id, session, "2026-10-02T00:00:00Z")
+        };
+        let pass = Pass::new(
+            vec![on_branch("s1"), on_branch("s2"), on_branch("s3")],
+            vec![moved("m1", "s1"), moved("m2", "s2")],
+        )
+        .live("s1", LiveView::default());
+        assert_eq!(
+            pass.run(),
+            vec![
+                PickupAction::Kill { session_id: "s1".to_string() },
+                PickupAction::HandOff { session_id: "s1".to_string(), live: true },
+                PickupAction::HandOff { session_id: "s2".to_string(), live: false },
+            ]
+        );
+        // A person's text that reads the same is no moved line.
+        let person = MessageRow { body: Some("Moved from here".to_string()), ..message("m3", "s3", "t") };
+        assert!(!moved_away(&on_branch("s3"), &[&person]));
+        // A branchless (repo-less) row has nothing to hand off.
+        let scratch = session("s4", "ended", DEV, "t");
+        assert!(!moved_away(&scratch, &[&moved("m4", "s4")]));
+    }
+
     #[test]
     fn a_live_session_gets_its_unhanded_person_messages_oldest_first() {
         let pass = Pass::new(
@@ -4904,7 +5040,7 @@ mod tests {
     /// push), so the row reads `Couldn't start` under Needs you.
     #[test]
     fn a_failed_start_reports_start_failed_never_plain_idle() {
-        let report = start_failed_report(DEV, "2026-11-01T10:00:00.000Z");
+        let report = start_failed_report(Some(DEV), "2026-11-01T10:00:00.000Z");
         assert_eq!(
             serde_json::to_value(&report).unwrap(),
             serde_json::json!({
@@ -4921,6 +5057,26 @@ mod tests {
                 },
             })
         );
+    }
+
+    /// EXP-1542: a start the runner restarted before it began
+    /// ([`settle_unstarted_on`]) replies [`UNSTARTED_REPLY`] and reports
+    /// `start_failed` stamped with this device, never plain idle.
+    #[test]
+    fn an_unstarted_session_reports_start_failed_never_plain_idle() {
+        let _serial = crate::sealing::test_support::serial();
+        let (base, requests) =
+            canned_server_recording(vec![(200, REPLY_OK.to_string()), (200, REPORT_OK.to_string())]);
+        let dir = temp_dir("pickup-unstarted");
+        let host = host(&base, &dir.0, |_| {});
+        settle_unstarted_on(&host.deps.coding.trpc, "sess-1", Some(DEV));
+        assert_eq!(procedures(&requests), vec!["sessions.reply", "sessions.report"]);
+        let requests = requests.lock().unwrap();
+        assert!(requests[0].contains("the runner restarted before it began"), "{}", requests[0]);
+        assert!(requests[1].contains(r#""status":"idle""#), "{}", requests[1]);
+        assert!(requests[1].contains(r#""kind":"start_failed""#), "{}", requests[1]);
+        assert!(requests[1].contains(r#""handled":true"#), "{}", requests[1]);
+        assert!(requests[1].contains(&format!(r#""deviceId":"{DEV}""#)), "{}", requests[1]);
     }
 
     #[test]

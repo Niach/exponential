@@ -521,6 +521,25 @@ pub trait WorktreeProvider: Send + Sync {
             .map(|path| CreatedWorktree { path, note: None })
     }
 
+    /// EXP-1542 (#FEED-169): a CONTINUATION's branch (the row names it
+    /// before it ever ran here: a moved session's) that is not local waits
+    /// up to `wait` for `origin/<branch>` (the old device pushes it as the
+    /// session moves) and becomes a local branch of it, so the run carries
+    /// the work on. `false` = it never arrived (the base fallback applies).
+    /// The default trusts it is there.
+    #[allow(clippy::too_many_arguments)]
+    fn continue_branch(
+        &self,
+        _repos_root: &Path,
+        _full_name: &str,
+        _url: &TokenUrl,
+        _expires_at: Option<&str>,
+        _branch: &str,
+        _wait: std::time::Duration,
+    ) -> bool {
+        true
+    }
+
     /// FEED-170: the first of `candidates` (most wanted first, never empty)
     /// a child can cut from. The default trusts the first.
     fn pick_base(
@@ -534,6 +553,12 @@ pub trait WorktreeProvider: Send + Sync {
         candidates[0].clone()
     }
 }
+
+/// EXP-1542 (#FEED-169): how long a continuation waits for its branch to
+/// reach origin from the device it moved from ([`WorktreeProvider::continue_branch`]),
+/// and how often it looks.
+pub const CONTINUE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+const CONTINUE_POLL: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// FEED-170 — where a child may cut its worktree from, most wanted first:
 /// the parent's reported branch, the parent's own `exp/session-<id8>`,
@@ -627,6 +652,23 @@ impl WorktreeProvider for GitWorktrees {
             restored => log::info!("auto-push: {branch} prepared in {}: {restored:?}", worktree.path.display()),
         }
         Ok(worktree)
+    }
+
+    fn continue_branch(
+        &self,
+        repos_root: &Path,
+        full_name: &str,
+        url: &TokenUrl,
+        expires_at: Option<&str>,
+        branch: &str,
+        wait: std::time::Duration,
+    ) -> bool {
+        let ready = ensure_clone(repos_root, full_name, url)
+            .and_then(|clone| git_credentials::ensure(&clone, url, expires_at).map(|_| clone));
+        match ready {
+            Ok(clone) => crate::git_worktree::continue_branch(&clone, branch, url, wait, CONTINUE_POLL),
+            Err(_) => false,
+        }
     }
 
     fn pick_base(
@@ -2056,6 +2098,20 @@ fn prepare_session(
                     branch = session_own_branch(row);
                 }
                 crate::git_worktree::validate_branch_arg(&branch, "session")?;
+                // EXP-1542 (#FEED-169): a continuation (a moved session's
+                // row names its branch) carries on from origin's copy.
+                if row.branch.as_deref().map(str::trim) == Some(branch.as_str())
+                    && !deps.worktrees.continue_branch(
+                        &repos_root,
+                        url.full_name(),
+                        &url,
+                        minted.expires_at.as_deref(),
+                        &branch,
+                        CONTINUE_WAIT,
+                    )
+                {
+                    log::info!("session {session_id}: {branch} did not reach origin, falling back");
+                }
                 // EXP-1292: a child works ON its parent's branch line — its
                 // worktree is cut from `origin/<parent branch>` (and its PR then
                 // stacks on the parent's); a root (no parent branch) cuts
