@@ -2508,6 +2508,22 @@
         "sha256": "e1d14e7c22fb0abce34617740982248b2d2b32a74141adb033c3516558869220"
       }
     },
+    "exponential-ui-motion": {
+      "android": {
+        "file": "shots/exponential-ui-motion/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 14396,
+        "sha256": "f2c1dd808b2fcb24dc58da7de32184c026b12fae58b4ee8d5e640815a174df33"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-motion/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 14930,
+        "sha256": "20f9c83345b7277dc7b98f76bee4f56dcea507756f8637d1c1d6fe75de7ddd90"
+      }
+    },
     "exponential-ui-number-field": {
       "android": {
         "file": "shots/exponential-ui-number-field/android.webp",
