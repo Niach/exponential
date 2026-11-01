@@ -161,6 +161,12 @@ pub mod sidebar {
     pub const TRAILING_DOT: f32 = 8.0;
 }
 
+// The chat column (#EXP-1547), in px: the ONE box a chat's transcript and
+// its Dock band (the composer) centre in.
+pub mod chat {
+    pub const COLUMN_WIDTH: f32 = 996.0;
+}
+
 // The shared spacing scale (SLOP-18), in px — padding, gaps and insets.
 pub mod spacing {
     pub const XXS: f32 = 2.0;

@@ -1427,14 +1427,18 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-size`,
     title: `Control heights`,
     kind: `Shape & size`,
-    blurb: `Three control heights plus the field and the list row. A control that is none of these is a control nobody agreed to.`,
+    blurb: `Three control heights plus the field and the list row. A control that is none of these is a control nobody agreed to. Plus THE chat column (#EXP-1547, web at md+ and the IDE; phones fill their width): ${designTokens.chat.columnWidth} wide, the one box a thread's conversation, an agent's channel, a session's transcript AND the Dock band with the composer centre in, its content inset by the work gutter (20), so the transcript and the composer share the same left and right edges.`,
     status: {
       web: ok(
         `buttonVariants size-9 / Pill size md|sm`,
         `packages/ui/src/button.tsx`,
-        `32 and 24 are the pill's md and sm, in packages/ui/src/pill.tsx`
+        `pill md|sm = 32/24 (pill.tsx); the chat column = CHAT_COLUMN_CLASS (work-header.tsx)`
       ),
-      desktop: ok(`theme::size::*`, `apps/desktop/crates/theme/src/tokens.generated.rs`),
+      desktop: ok(
+        `theme::size::* / theme::chat`,
+        `apps/desktop/crates/theme/src/tokens.generated.rs`,
+        `the chat column is work_header::CHAT_COLUMN_W`
+      ),
       ios: ok(`GlassTokens`, `apps/ios/ExpUI/Sources/GlassTokens.swift`),
       android: ok(`GlassTokens`, ANDROID_GLASS, `aliases of DesignTokens.generated.kt`),
     },
@@ -1453,6 +1457,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           ([name, value, cls]) =>
             `<div class="line"><span class="label">${name}</span><span class="bar ${cls}"></span><span class="value">${value}</span></div>`
         ),
+        `<div class="line"><span class="label">chat.columnWidth</span><span class="bar size-col"></span><span class="value">${designTokens.chat.columnWidth} (md+ / IDE: transcript + composer)</span></div>`,
         `</div>`,
       ].join(``),
   },

@@ -653,6 +653,7 @@ export const componentStyles = `
 .cmp-size .bar.size-ctl-sm { height: var(--ctl-sm); }
 .cmp-size .bar.size-input { height: var(--input-h); }
 .cmp-size .bar.size-row { height: var(--row-h); }
+.cmp-size .bar.size-col { height: 2px; }
 
 .cmp-motion { display: grid; gap: 6px; }
 .cmp-motion .line { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--muted-fg); }

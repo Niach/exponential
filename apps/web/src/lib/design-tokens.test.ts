@@ -28,6 +28,7 @@ const tokens = JSON.parse(
     shimmer: Record<string, number>
   }
   transcript: Record<string, number | string>
+  chat: Record<string, number | string>
   menu: { pointer: Record<string, number>; touch: Record<string, number> }
   spacing: Record<string, number>
   type: {
@@ -303,6 +304,12 @@ describe(`design-tokens parity with web styles.css`, () => {
         `tokens.transcript.${key} should equal --${cssVar} in styles.css`
       ).toBe(`${value}px`)
     }
+  })
+
+  // #EXP-1547: the chat column, in rem of the 16px design unit (the md+ root
+  // scales it exactly like every other web dimension).
+  it(`the chat column token matches its :root CSS variable`, () => {
+    expect(rootVars[`chat-column-width`]).toBe(`${Number(tokens.chat.columnWidth) / 16}rem`)
   })
 
   // SLOP-18: the spacing and type scales, flat :root vars like the

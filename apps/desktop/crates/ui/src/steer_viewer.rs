@@ -5330,13 +5330,13 @@ impl SteerSessionView {
         }
         // EXP-877: the transcript column is the work column, narrowed by a
         // pane too small to hold it (`transcript_row` lays the row out at
-        // `flex_basis(WORK_COLUMN_W)` with `flex_shrink(1)`). The unmeasured
+        // `flex_basis(CHAT_COLUMN_W)` with `flex_shrink(1)`). The unmeasured
         // first frame takes the full column.
         let view = f32::from(self.view_width.get());
         let column = if view > 0. {
-            view.min(crate::work_header::WORK_COLUMN_W)
+            view.min(crate::work_header::CHAT_COLUMN_W)
         } else {
-            crate::work_header::WORK_COLUMN_W
+            crate::work_header::CHAT_COLUMN_W
         } - 2. * crate::work_header::WORK_GUTTER;
         let cap = px((column * USER_BUBBLE_MAX_FRACTION).max(USER_BUBBLE_MIN_W));
         // px_3 both sides + the 1px stroke each side.
@@ -5555,9 +5555,9 @@ impl SteerSessionView {
         // `pl_5` indent. The unmeasured first frame takes the full column.
         let view = f32::from(self.view_width.get());
         let column = if view > 0. {
-            view.min(crate::work_header::WORK_COLUMN_W)
+            view.min(crate::work_header::CHAT_COLUMN_W)
         } else {
-            crate::work_header::WORK_COLUMN_W
+            crate::work_header::CHAT_COLUMN_W
         } - 2. * crate::work_header::WORK_GUTTER;
         let height = results::session_result_tile_height_fitting_from(
             std::slice::from_ref(entry),
@@ -8529,8 +8529,8 @@ fn body_text<E: Styled>(element: E) -> E {
 }
 
 /// EXP-787/EXP-927/EXP-1191 — the reading column every part of the
-/// conversation takes: the work column ([`crate::work_header::WORK_COLUMN_W`],
-/// the same measure as the run header, the issue body and the diff page)
+/// conversation takes: THE chat column ([`crate::work_header::CHAT_COLUMN_W`],
+/// #EXP-1547: the Dock band's measure, so the composer shares its edges)
 /// centred on the PANE exactly like [`crate::issue_detail::centered_column`],
 /// its content inset by [`crate::work_header::WORK_GUTTER`]. So transcript
 /// text, the user bubbles' right edge, tool / subagent cards, the working
@@ -8562,12 +8562,12 @@ pub(crate) fn narration_row(view: crate::markdown::MarkdownView, cx: &App) -> An
         .into_any_element()
 }
 
-/// One row in the centred work column (`WORK_COLUMN_W` inside the
+/// One row in the centred chat column (`CHAT_COLUMN_W` inside the
 /// `WORK_GUTTER`) — the transcript's rows and the session header.
 pub(crate) fn work_column_row(element: AnyElement) -> gpui::Div {
     h_flex().w_full().justify_center().child(
         div()
-            .flex_basis(px(crate::work_header::WORK_COLUMN_W))
+            .flex_basis(px(crate::work_header::CHAT_COLUMN_W))
             .flex_shrink(1.)
             .min_w_0()
             .px(px(crate::work_header::WORK_GUTTER))

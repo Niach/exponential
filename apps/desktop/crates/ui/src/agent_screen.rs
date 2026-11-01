@@ -43,8 +43,8 @@ use crate::icons::registry;
 use crate::markdown::ImageCache;
 use crate::transcript_rows::{plan_list_sync, ListOp, RowKey, WORKING_ROW_ID};
 
-/// The channel's reading column.
-const CHANNEL_W: f32 = 1040.;
+/// The channel's reading column: THE chat column (#EXP-1547), the Dock's.
+const CHANNEL_W: f32 = crate::work_header::CHAT_COLUMN_W;
 /// The header's side inset.
 const HEADER_INSET: f32 = 44.;
 /// The header icon.

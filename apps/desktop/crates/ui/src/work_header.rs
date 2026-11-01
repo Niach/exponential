@@ -27,6 +27,13 @@ use crate::surface::{glass_pill_button, glass_pill_button_primary, PillSize};
 /// body, transcript and the full-page diff all cap to it.
 pub(crate) const WORK_COLUMN_W: f32 = 896.;
 
+/// #EXP-1547 — THE chat column (`tokens.json` `chat.columnWidth`, web
+/// `CHAT_COLUMN_CLASS`): a thread's conversation, an agent's channel, a
+/// session's transcript and the Dock band with THE composer all centre in it
+/// (content inset by [`WORK_GUTTER`]), so the transcript and the composer
+/// share one pair of edges at every pane width.
+pub(crate) const CHAT_COLUMN_W: f32 = theme::tokens::chat::COLUMN_WIDTH;
+
 /// EXP-1191 — the work column's ONE content box: [`WORK_COLUMN_W`] inset by
 /// this much on both sides (web `md:px-5`, 1.25rem). Every face (issue,
 /// draft, run, changes, results) puts its VISIBLE edges on it: text starts,
