@@ -1,0 +1,2 @@
+- Sending a message and going straight back no longer freezes the app
+- Typing in the composer no longer drops or swaps letters
