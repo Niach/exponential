@@ -45,6 +45,7 @@ final class PlanCardTests: XCTestCase {
             "pending": PlanCard.Copy.Specimen.pending,
             "answered": PlanCard.Copy.Specimen.answered,
             "approved": PlanCard.Copy.Specimen.approved,
+            "dismissed": PlanCard.Copy.Specimen.dismissed,
         ])
         let issues = try XCTUnwrap(copy["answerIssues"] as? [String: String])
         XCTAssertEqual(Set(issues.keys), Set(PlanCard.AnswerIssue.allCases.map(\.rawValue)))

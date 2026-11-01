@@ -165,6 +165,7 @@ final class StoriesTests: XCTestCase {
             "approved": Stories.Tab.Copy.approved, "changed": Stories.Tab.Copy.changed,
             "answered": Stories.Tab.Copy.answered, "superseded": Stories.Tab.Copy.superseded,
             "changes": Stories.Tab.Copy.changes, "stack": Stories.Tab.Copy.stack,
+            "dismissed": Stories.Tab.Copy.dismissed,
         ])
         XCTAssertEqual(tab["testIds"] as? [String: String], [
             "tab": Stories.Tab.TestIds.tab, "list": Stories.Tab.TestIds.list, "tile": Stories.Tab.TestIds.tile,

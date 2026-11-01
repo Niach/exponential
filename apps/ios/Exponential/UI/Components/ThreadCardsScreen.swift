@@ -340,6 +340,12 @@ private struct ThreadStripSpecimens: View {
         .session(sessionId: "s6", name: "Review", markState: .done, nested: []),
     ]
 
+    /// #EXP-1562: waiting-cards.json chipCases[3] (a phone).
+    private static let waiting = WaitingCards.chips([
+        AskDock.Pending(id: "q1", kind: .question, text: "Ship it?", sessionName: nil, createdAt: 0),
+        AskDock.Pending(id: "p1", kind: .plan, text: "", sessionName: nil, createdAt: 1),
+    ], phone: true)
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             caption("One issue, no session: its chip stays")
@@ -348,6 +354,11 @@ private struct ThreadStripSpecimens: View {
             strip(Self.single, selection: .session("root"))
             caption("More: ONE group tab, the count muted")
             strip(Self.folded, selection: .conversation)
+            caption("Cards waiting: ONE button after the Conversation tab")
+            strip(Self.folded, selection: .conversation, waiting: Self.waiting)
+            caption("Its Menu: one row per waiting card")
+            ThreadWaitingSheet(chips: Self.waiting.chips) { _ in }
+                .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
             caption("A session open from the group: the tab is active and names it")
             strip(Self.folded, selection: .session("s2"))
             caption("An issue open from the group")
@@ -428,7 +439,9 @@ private struct ThreadStripSpecimens: View {
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 
-    private func strip(_ tabs: [ThreadTab], selection: ThreadPage) -> some View {
+    private func strip(
+        _ tabs: [ThreadTab], selection: ThreadPage, waiting: WaitingCards.Chips? = nil
+    ) -> some View {
         // The demo statuses (the web's and desktop's): in progress, backlog,
         // by the chip's index among the issue chips.
         let issueIds = tabs.compactMap { tab -> String? in
@@ -443,7 +456,8 @@ private struct ThreadStripSpecimens: View {
                 return IssueStatusResolver.builtinFallbackTeam.first { $0.builtinKey == key }
             },
             onSelect: { _ in },
-            onAdd: {}
+            onAdd: {},
+            waiting: waiting
         )
             .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
     }
@@ -688,6 +702,16 @@ private struct PlanCardSpecimens: View {
      "surface":{"nope":true}}
     """#
 
+    /// #EXP-1561: session-thread.json case "#EXP-1561: a dismissed
+    /// question…" — a question and a plan a person dismissed.
+    private static let dismissedQuestion = #"""
+    {"kind":"question","question":"Which first?","options":["Lazy-load","Skip"],"dismissed":true}
+    """#
+
+    private static let dismissedPlan = #"""
+    {"kind":"plan","plan":"1. One","decision":"dismissed","fresh":false,"dismissed":true}
+    """#
+
     private static func row(
         _ id: String, _ card: String, createdAt: String, answeredAt: String?, consumedAt: String?
     ) -> ThreadRow? {
@@ -729,6 +753,26 @@ private struct PlanCardSpecimens: View {
                     answeredAt: "2026-10-13T10:04:00.000Z", consumedAt: "2026-10-13T10:04:00.000Z"
                 )
             )
+            // #EXP-1561 (waiting-cards.json): THE dismissed card lines.
+            VStack(alignment: .leading, spacing: 8) {
+                Text(PlanCard.Copy.Specimen.dismissed)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach([
+                        Self.row(
+                            "o2", Self.dismissedQuestion, createdAt: "2026-10-13T10:02:00.000Z",
+                            answeredAt: "2026-10-13T10:05:00.000Z", consumedAt: "2026-10-13T10:00:01.000Z"
+                        ),
+                        Self.row(
+                            "o3", Self.dismissedPlan, createdAt: "2026-10-13T10:03:00.000Z",
+                            answeredAt: "2026-10-13T10:06:00.000Z", consumedAt: "2026-10-13T10:00:02.000Z"
+                        ),
+                    ].compactMap { $0 }, id: \.id) { row in
+                        ThreadAskCard(row: row)
+                    }
+                }
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(PlanCard.TestIds.card)

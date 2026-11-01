@@ -318,6 +318,8 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let pictures: [PlanCardPicture]
     /// #EXP-1432 stories.json: the story's one line under its title.
     public let description: String?
+    /// #EXP-1561 plan | question: a person dismissed it (`dismissed: true`).
+    public let dismissed: Bool
 
     public init(
         kind: String?,
@@ -352,9 +354,11 @@ public struct TreeMessageCard: Equatable, Sendable {
         messageId: String? = nil,
         story: Bool? = nil,
         pictures: [PlanCardPicture] = [],
-        description: String? = nil
+        description: String? = nil,
+        dismissed: Bool = false
     ) {
         self.kind = kind
+        self.dismissed = dismissed
         self.story = story
         self.pictures = pictures
         self.description = description
@@ -495,7 +499,9 @@ public struct TreeMessageCard: Equatable, Sendable {
                 CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil
             },
             pictures: pictures,
-            description: text("description")
+            description: text("description"),
+            // `card.dismissed === true` in the reference.
+            dismissed: CardJSON.isTrue(object["dismissed"])
         )
     }
 
@@ -865,7 +871,8 @@ public enum ThreadRow: Equatable, Sendable {
                 answer: card.answer,
                 answers: card.labels,
                 surfaceData: card.surfaceData,
-                answered: message.answeredAt != nil
+                answered: message.answeredAt != nil,
+                dismissed: card.dismissed ? true : nil
             ))
         case "plan":
             return .plan(ThreadPlanRow(
@@ -924,6 +931,8 @@ public struct ThreadQuestionRow: Equatable, Sendable, Identifiable {
     /// EXP-1280: the surface's data model as the person answered it.
     public let surfaceData: CardJSON?
     public let answered: Bool
+    /// #EXP-1561 (waiting-cards.json): a person dismissed it; nil unless true.
+    public let dismissed: Bool?
 
     public init(
         id: String,
@@ -936,8 +945,10 @@ public struct ThreadQuestionRow: Equatable, Sendable, Identifiable {
         answer: String? = nil,
         answers: [String]? = nil,
         surfaceData: CardJSON? = nil,
-        answered: Bool
+        answered: Bool,
+        dismissed: Bool? = nil
     ) {
+        self.dismissed = dismissed
         self.id = id
         self.sessionId = sessionId
         self.question = question

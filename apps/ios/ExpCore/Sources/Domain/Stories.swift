@@ -121,6 +121,8 @@ public enum Stories {
             public static let changed = "Changes asked"
             public static let answered = "Answered"
             public static let superseded = "Replaced"
+            /// #EXP-1561: a person dismissed it (waiting-cards.json).
+            public static let dismissed = "Dismissed"
             public static let changes = "Changes"
             public static let stack = "Stack"
         }
@@ -357,7 +359,7 @@ public enum Stories {
 
     /// How a plan/question was settled (nil while waiting, and for results).
     enum Resolution: Equatable {
-        case approved, changed, answered, superseded
+        case approved, changed, answered, superseded, dismissed
     }
 
     /// One message as a story (nil = not a story of a known root).
@@ -375,6 +377,8 @@ public enum Stories {
         }
         let resolution: Resolution? = kind == .result || waiting
             ? nil
+            // #EXP-1561: a dismissed card names that outcome first.
+            : card.dismissed || card.decision == "dismissed" ? .dismissed
             : kind == .question ? .answered
             : card.decision == "approved" ? .approved
             : card.decision == "superseded" ? .superseded
@@ -391,6 +395,7 @@ public enum Stories {
         case .approved: "\(Copy.kind(kind)) · \(Tab.Copy.approved) · \(ageText)"
         case .changed: "\(Copy.kind(kind)) · \(Tab.Copy.changed) · \(ageText)"
         case .answered: "\(Copy.kind(kind)) · \(Tab.Copy.answered) · \(ageText)"
+        case .dismissed: "\(Copy.kind(kind)) · \(Tab.Copy.dismissed) · \(ageText)"
         case .superseded, nil: "\(Copy.kind(kind)) · \(ageText)"
         }
         let footer: Footer = kind == .plan

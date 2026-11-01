@@ -179,6 +179,9 @@ struct AgentSessionView: View {
     /// EXP-1398: this session's cards (`AskDock.sessionCards`: the tool-posted
     /// plan / question cards above plus its `surface` cards), oldest first.
     @State private var sessionCards: [AskDock.SessionCard] = []
+    /// #EXP-1562: the thread header's waiting pick and the card it lit.
+    @Environment(\.waitingFocus) private var waitingFocus
+    @State private var highlightId: String?
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: ThreadRow] = [:]
     /// S-3: the view's `origin` link (session-thread.json), its mark and
@@ -786,6 +789,11 @@ struct AgentSessionView: View {
                     slack: AgentSessionLayout.followSlack,
                     repin: { proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom) }
                 ))
+                // #EXP-1562: the thread header's waiting pick (an embedded
+                // session page) scrolls here and lights the card.
+                .modifier(WaitingFocusScroll(
+                    focus: waitingFocus, proxy: proxy, highlight: $highlightId, onScroll: { atBottom = false }
+                ))
                 .onAppear {
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                     // Lazy rows can still be sizing on the first pass, landing
@@ -1111,6 +1119,8 @@ struct AgentSessionView: View {
                     markdownContext: markdownContext,
                     onSubmit: submitToolAnswer
                 )
+                .waitingHighlight(highlightId == id)
+                .id(id)
                 .padding(.top, DesignTokens.Transcript.gapBlock)
                 .accessibilityIdentifier("session-tool-card")
             }
@@ -1198,15 +1208,21 @@ struct AgentSessionView: View {
         let accountId = accountId
         Task {
             do {
-                try await api.answer(
-                    accountId: accountId, messageId: card.messageId, answer: card.answer, decision: card.decision,
-                    fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
-                )
+                if card.dismissed {
+                    try await api.dismissCard(accountId: accountId, messageId: card.messageId)
+                } else {
+                    try await api.answer(
+                        accountId: accountId, messageId: card.messageId, answer: card.answer, decision: card.decision,
+                        fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
+                    )
+                }
             } catch {
                 toaster.error(
-                    FeedbackStates.Errors.title(
-                        verb: "answer", thing: card.decision == nil ? "the question" : "the plan"
-                    ),
+                    card.dismissed
+                        ? FeedbackStates.Errors.title(verb: "dismiss", thing: "the card")
+                        : FeedbackStates.Errors.title(
+                            verb: "answer", thing: card.decision == nil ? "the question" : "the plan"
+                        ),
                     description: error.userFacingMessage
                 )
             }
