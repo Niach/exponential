@@ -156,6 +156,13 @@ pub(crate) fn visibility_move(
     Some(target_shared)
 }
 
+/// #EXP-1541: a candidate's owner off its `devices` row: the row's
+/// `user_id`, else the viewer (`me`; the launch list's own machine may have
+/// no synced row yet). Fixture `targetCases` (`deviceOwner: null`).
+pub(crate) fn candidate_owner(row_owner: Option<String>, me: &str) -> Option<String> {
+    row_owner.or_else(|| (!me.is_empty()).then(|| me.to_string()))
+}
+
 /// One picker row.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct MoveRow {
@@ -295,8 +302,7 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
                 online: true,
                 shared_with_team: row.as_ref().is_some_and(|row| row.is_shared_with(&team_id)),
                 has_login: device.agents.contains(&agent),
-                // The launch list's own machine may have no synced row yet.
-                owner_id: owner_id.or_else(|| (!me.is_empty()).then(|| me.clone())),
+                owner_id: candidate_owner(owner_id, &me),
             }
         })
         .collect();
@@ -617,7 +623,11 @@ mod tests {
                 online: device["online"].as_bool().unwrap(),
                 shared_with_team: device["targetShared"].as_bool().unwrap(),
                 has_login: device["signedIn"].as_bool().unwrap(),
-                owner_id: device["deviceOwner"].as_str().map(str::to_string),
+                // `deviceOwner: null` = a row without an owner (the viewer's own).
+                owner_id: candidate_owner(
+                    device["deviceOwner"].as_str().map(str::to_string),
+                    case["mover"].as_str().unwrap_or_default(),
+                ),
             };
             let move_session = MoveSession {
                 shared: session["shared"].as_bool().unwrap(),

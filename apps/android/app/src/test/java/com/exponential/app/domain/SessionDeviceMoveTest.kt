@@ -201,14 +201,15 @@ class SessionDeviceMoveTest {
             val target = case.getValue("device").jsonObject
             val session = case.getValue("session").jsonObject
             val mover = case.text("mover")!!
-            val ownerId = target.text("deviceOwner")!!
+            // `deviceOwner: null` / the mover's own row = a row without `owner`.
+            val ownerId = target.text("deviceOwner")
             val reason = SessionDeviceMove.targetReason(
                 device(
                     "target",
                     online = target.flag("online"),
                     shared = target.flag("targetShared"),
                     agents = if (target.flag("signedIn")) listOf("claude") else listOf("codex"),
-                    owner = if (ownerId == mover) null else DeviceOwner(id = ownerId, name = "Mate"),
+                    owner = if (ownerId == null || ownerId == mover) null else DeviceOwner(id = ownerId, name = "Mate"),
                 ),
                 teamId = team,
                 shared = session.flag("shared"),
