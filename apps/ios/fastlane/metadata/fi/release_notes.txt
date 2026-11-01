@@ -11,3 +11,6 @@
 - Agentit saavat niille antamasi tehtävän: tunnisteen, otsikon ja kuvauksen
 - Ketjun otsikkorivi näyttää istunnon tilan ja Merge-painikkeen
 - Tarinoiden kuvatekstit eivät koskaan kasva katselinta suuremmiksi
+- Hylkää kysymys tai suunnitelma, johon et halua vastata; ketjun otsikkorivi näyttää, mikä vielä odottaa
+- Laitteet-sivu näyttää jokaisen laitteen korttina
+- Keskustelut, uuden keskustelun näkymä ja Asetukset näyttävät samalta kuin muissa sovelluksissa

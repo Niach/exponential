@@ -11,3 +11,6 @@
 - Agenti dobivaju zadatak koji im predate: oznaku, naslov i opis
 - Zaglavlje niti prikazuje stanje sesije i gumb Merge
 - Opisi priča nikad ne prerastu preglednik
+- Odbacite pitanje ili plan na koji ne želite odgovoriti; zaglavlje niti prikazuje što još čeka
+- Stranica Uređaji prikazuje svaki uređaj kao karticu
+- Razgovori, zaslon novog razgovora i Postavke izgledaju kao u ostalim aplikacijama

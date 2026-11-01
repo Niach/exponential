@@ -11,3 +11,6 @@
 - Agenten bekommen das Issue, das du ihnen gibst: Kennung, Titel und Beschreibung
 - Die Thread-Kopfzeile zeigt den Status der Sitzung und eine Merge-Schaltfläche
 - Story-Beschriftungen werden nie größer als der Viewer
+- Schließe eine Frage oder einen Plan, den du nicht beantworten willst; die Thread-Kopfzeile zeigt, was noch wartet
+- Die Geräteseite zeigt jedes Gerät als Karte
+- Chats, der Bildschirm für neue Chats und die Einstellungen sehen aus wie in den anderen Apps

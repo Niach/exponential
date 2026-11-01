@@ -11,3 +11,6 @@
 - Agents get the issue you hand them: identifier, title and description
 - The thread header shows the session's status and a Merge button
 - Story captions never outgrow the viewer
+- Dismiss a question or plan you don't want to answer; the thread header shows what's still waiting
+- The Devices page shows each device as a card
+- Chats, the new-chat screen and Settings look the same as on the other apps

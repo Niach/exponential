@@ -11,3 +11,6 @@
 - Agenci dostają zgłoszenie, które im przekazujesz: identyfikator, tytuł i opis
 - Nagłówek wątku pokazuje stan sesji i przycisk Merge
 - Podpisy historii nigdy nie wychodzą poza przeglądarkę
+- Odrzuć pytanie lub plan, na które nie chcesz odpowiadać; nagłówek wątku pokazuje, co jeszcze czeka
+- Strona Urządzenia pokazuje każde urządzenie jako kartę
+- Czaty, ekran nowego czatu i Ustawienia wyglądają tak samo jak w innych aplikacjach

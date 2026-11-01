@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-dismiss-cards",
+    date: "2026-11-01",
+    title: "Dismiss a question or plan",
+    summary: "Close a question or plan card you don't want to answer; the thread header shows what's still waiting.",
+    body: r#"- **Dismiss**: every question and plan card has an ✕; the agent hears that you dismissed it and carries on.
+- **Waiting**: the thread header shows each question or plan still waiting; tap one to jump to it."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_157: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-wide-tables-scroll",
     date: "2026-11-01",
     title: "Wide tables scroll",

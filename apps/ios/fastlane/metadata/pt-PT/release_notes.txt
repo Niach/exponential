@@ -11,3 +11,6 @@
 - Os agentes recebem o problema que lhes entrega: identificador, título e descrição
 - O cabeçalho do fio mostra o estado da sessão e um botão Merge
 - As legendas das histórias nunca excedem o visualizador
+- Dispense uma pergunta ou um plano a que não quer responder; o cabeçalho do fio mostra o que ainda aguarda
+- A página Dispositivos mostra cada dispositivo como um cartão
+- As conversas, o ecrã de nova conversa e as Definições têm o mesmo aspeto das outras apps

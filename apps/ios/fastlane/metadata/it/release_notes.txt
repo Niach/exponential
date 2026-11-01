@@ -11,3 +11,6 @@
 - Gli agenti ricevono la issue che gli affidi: identificativo, titolo e descrizione
 - L'intestazione del thread mostra lo stato della sessione e un pulsante Merge
 - Le didascalie delle storie non superano mai il visualizzatore
+- Chiudi una domanda o un piano a cui non vuoi rispondere; l'intestazione del thread mostra cosa è ancora in attesa
+- La pagina Dispositivi mostra ogni dispositivo come una scheda
+- Le chat, la schermata di nuova chat e le Impostazioni hanno lo stesso aspetto delle altre app

@@ -11,3 +11,6 @@
 - Agenter får det issue, du giver dem: id, titel og beskrivelse
 - Trådens overskrift viser sessionens status og en Merge-knap
 - Historietekster bliver aldrig større end fremviseren
+- Luk et spørgsmål eller en plan, du ikke vil besvare; trådens overskrift viser, hvad der stadig venter
+- Siden Enheder viser hver enhed som et kort
+- Chats, skærmen til ny chat og Indstillinger ser ud som i de andre apps

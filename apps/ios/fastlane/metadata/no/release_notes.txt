@@ -11,3 +11,6 @@
 - Agenter får saken du gir dem: ID, tittel og beskrivelse
 - Trådens topptekst viser øktens status og en Merge-knapp
 - Historietekster blir aldri større enn visningen
+- Avvis et spørsmål eller en plan du ikke vil svare på; trådens topptekst viser hva som fortsatt venter
+- Enheter-siden viser hver enhet som et kort
+- Chatter, skjermen for ny chat og Innstillinger ser ut som i de andre appene
