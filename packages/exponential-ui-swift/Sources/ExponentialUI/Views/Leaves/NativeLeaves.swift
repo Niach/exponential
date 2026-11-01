@@ -256,12 +256,18 @@ struct CodeLineLeaf: View {
     private func attributed(wraps: Bool) -> NSAttributedString {
         let out = NSMutableAttributedString()
         let language = cx.ownerProps.str("language")
+        // EXP-1555: the block's `variant` reaches the token recipe, so a
+        // destructive block (a failed call's output) paints EVERY token in
+        // its own colour, like web's `text-current` tokens.
+        var base: Props = ["language": .string(language)]
+        if let variant = cx.ownerProps["variant"] { base["variant"] = variant }
+        if let size = cx.ownerProps["size"] { base["size"] = size }
         var looks: [String: PartStyle] = [:]
         for token in cx.props.list("tokens") {
             let text = token["text"]?.string ?? ""
             if text.isEmpty { continue }
             let kind = token["kind"]?.string ?? "plain"
-            let look = looks[kind] ?? cx.model.part("CodeBlock", "token", props: ["kind": .string(kind), "language": .string(language)])
+            let look = looks[kind] ?? cx.model.part("CodeBlock", "token", props: base.merging(["kind": .string(kind)]) { $1 })
             looks[kind] = look
             var ts = SurfaceMeasurer.codeStyle(cx.textStyle)
             if let w = look.props.num("fontWeight") { ts.fontWeight = Int(w) }

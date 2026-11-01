@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -36,6 +37,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -70,6 +72,7 @@ import at.exponential.ui.model.fieldCommitted
 import at.exponential.ui.model.fieldEdited
 import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.fieldSubmitted
+import at.exponential.ui.model.fire
 import at.exponential.ui.model.searchKey
 import at.exponential.ui.theme.ResolvedTextStyle
 
@@ -310,6 +313,10 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
     val placeholder = cx.part(cx.node.recipeComponent, "placeholder")
     // A `search` part leads with its glyph (the measurer's 16 + 8).
     val glyph = cx.node.part == "search" && cx.props["icon"] != null
+    val disabled = cx.model.isDisabled(cx.index)
+    // A disabled field dims its value with the frame (web: the whole
+    // `<Component>/field` at the disabled opacity, the value included).
+    val dim = if (disabled) cx.part(cx.node.recipeComponent, "field", listOf("disabled")).style.opacity ?: 0.5f else 1f
     InnerBox(cx, contentAlignment = Alignment.CenterStart) {
         if (glyph) GlyphView(Glyph.Search, 16f, placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
         OwnedTextField(
@@ -317,9 +324,9 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
             model = cx.model,
             multiline = false,
             placeholder = cx.props.str("placeholder").ifEmpty { owner.str("placeholder") },
-            textStyle = cx.composeTextStyle(),
+            textStyle = cx.composeTextStyle(color = cx.ink.copy(alpha = cx.ink.alpha * dim)),
             placeholderColor = placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.5f),
-            disabled = cx.model.isDisabled(cx.index),
+            disabled = disabled,
             submitsOnReturn = false,
             accessibilityLabel = owner.str("label").ifEmpty { owner.str("placeholder") },
             modifier = if (glyph) Modifier.fillMaxSize().padding(start = 24.dp) else Modifier.fillMaxSize(),
@@ -384,15 +391,39 @@ internal fun ComposerLeaf(cx: LeafContext) {
                     }
                 }
                 Spacer(Modifier.weight(1f))
+                // `attachments: true` = the attach control (catalog: "Shows the
+                // attach control"; web's `Composer/attachment` button beside
+                // send), firing `attach`: the files are the host's business.
+                if (cx.props.flag("attachments")) {
+                    val browse = cx.string("browse")
+                    val attH = minOf(sendSize, chip.height ?: 28f)
+                    Box(
+                        Modifier
+                            .height(attH.dp)
+                            .background(chip.style.background ?: Color.Transparent, RoundedCornerShape(chip.style.radius.dp))
+                            .clickable(role = Role.Button, onClickLabel = browse) { model.fire(index, "attach") }
+                            .semantics { contentDescription = browse }
+                            .padding(horizontal = chip.style.paddingHorizontal.takeIf { it > 0f }?.dp ?: 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        IconOrGlyph("ui-attach", Glyph.Attach, 16f, cx, chipInk)
+                    }
+                }
+                // Web: an empty draft disables send (half opacity); `busy`
+                // dims the stop through the recipe's own opacity.
+                val empty = !busy && (model.field(index)?.text ?: "").isBlank()
+                val sendAlpha = (send.style.opacity ?: 1f) * (if (empty) 0.5f else 1f)
                 Box(
                     Modifier
+                        .graphicsLayer { alpha = sendAlpha }
                         .size((send.width ?: sendSize).dp, sendSize.dp)
-                        .background(send.style.background ?: cx.themeColor("primary") ?: cx.ink, CircleShape)
+                        .background(send.style.background ?: cx.themeColor("primary") ?: cx.ink, if (send.style.radius > 0f) RoundedCornerShape(send.style.radius.dp) else CircleShape)
                         .clickable(role = Role.Button, onClickLabel = sendLabel) { model.composerSubmit(index) }
                         .semantics { contentDescription = sendLabel },
                     contentAlignment = Alignment.Center,
                 ) {
-                    GlyphView(if (busy) Glyph.Stop else Glyph.Send, 18f, send.color ?: cx.themeColor("primaryForeground") ?: Color.White, weight = GlyphWeight.Semibold)
+                    val sendInk = send.color ?: cx.themeColor("primaryForeground") ?: Color.White
+                    if (busy) IconOrGlyph("ui-stop", Glyph.Stop, 16f, cx, sendInk) else IconOrGlyph("ui-send", Glyph.Send, 16f, cx, sendInk)
                 }
             }
         }

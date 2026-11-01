@@ -189,13 +189,11 @@ internal fun sliderRange(min: Double, max: Double, step: Double): SliderRange {
 internal const val MAX_SLIDER_STOPS = 1000L
 
 /**
- * A Slider `track`. Drawn (`Slider/track` `native: false`; geometry mode):
- * the track bar, the `Slider/range` fill and the `Slider/thumb` at the
+ * A Slider `track`, drawn from the web recipe (×4): the thin `Slider/track`
+ * bar, the `Slider/range` fill and the hollow `Slider/thumb` ring at the
  * value, with a drag that snaps to `step` (`sliderDrag`, `sliderRelease`
- * on lift). Native: the Material 3 `Slider` laid over the track frame
- * (its 48 dp touch height overflows the frame).
+ * on lift). TalkBack adjusts it through `sliderSemantics`.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SliderTrack(cx: LeafContext) {
     @Suppress("UNUSED_VARIABLE") val gen = cx.model.mirrorGeneration
@@ -207,90 +205,50 @@ internal fun SliderTrack(cx: LeafContext) {
     val value = model.sliderValue(index)
     val track = cx.part("Slider", "track")
     val disabled = model.isDisabled(index)
-    if (track.native == false || model.theme == null) {
-        val range = cx.part("Slider", "range")
-        val thumb = cx.part("Slider", "thumb", cx.states.filter { it == "focus" || it == "hover" })
-        val w = cx.size.width
-        val barH = min(track.height ?: 6f, max(cx.size.height, 1f))
-        val t = thumb.width ?: 16f
-        val f = if (hi > lo) ((value - lo) / (hi - lo)).coerceIn(0.0, 1.0).toFloat() else 0f
-        val trackColor = track.style.background ?: cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.15f)
-        val rangeColor = range.style.background ?: cx.themeColor("primary") ?: cx.ink
-        LeafFrame {
+    val range = cx.part("Slider", "range")
+    val thumb = cx.part("Slider", "thumb", cx.states.filter { it == "focus" || it == "hover" })
+    val w = cx.size.width
+    val barH = min(track.height ?: 6f, max(cx.size.height, 1f))
+    val t = thumb.width ?: 16f
+    val f = if (hi > lo) ((value - lo) / (hi - lo)).coerceIn(0.0, 1.0).toFloat() else 0f
+    val trackColor = track.style.background ?: cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.15f)
+    val rangeColor = range.style.background ?: cx.themeColor("primary") ?: cx.ink
+    LeafFrame {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(index, lo, hi, step, disabled) {
+                    if (disabled) return@pointerInput
+                    fun at(x: Float) {
+                        val frac = if (size.width > 0) (x / size.width).coerceIn(0f, 1f) else 0f
+                        model.sliderDrag(index, SurfaceModel.snap(lo + frac * (hi - lo), lo, hi, step))
+                    }
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        at(down.position.x)
+                        down.consume()
+                        drag(down.id) { change ->
+                            at(change.position.x)
+                            change.consume()
+                        }
+                        model.sliderRelease(index)
+                    }
+                },
+        ) {
+            Box(Modifier.align(Alignment.CenterStart).width(w.dp).height(barH.dp).background(trackColor, CircleShape))
+            Box(Modifier.align(Alignment.CenterStart).width((w * f).dp).height(barH.dp).background(rangeColor, CircleShape))
+            val border = thumb.style.borderColor
             Box(
                 Modifier
-                    .fillMaxSize()
-                    .pointerInput(index, lo, hi, step, disabled) {
-                        if (disabled) return@pointerInput
-                        fun at(x: Float) {
-                            val frac = if (size.width > 0) (x / size.width).coerceIn(0f, 1f) else 0f
-                            model.sliderDrag(index, SurfaceModel.snap(lo + frac * (hi - lo), lo, hi, step))
-                        }
-                        awaitEachGesture {
-                            val down = awaitFirstDown()
-                            at(down.position.x)
-                            down.consume()
-                            drag(down.id) { change ->
-                                at(change.position.x)
-                                change.consume()
-                            }
-                            model.sliderRelease(index)
-                        }
-                    },
-            ) {
-                Box(Modifier.align(Alignment.CenterStart).width(w.dp).height(barH.dp).background(trackColor, CircleShape))
-                Box(Modifier.align(Alignment.CenterStart).width((w * f).dp).height(barH.dp).background(rangeColor, CircleShape))
-                val border = thumb.style.borderColor
-                Box(
-                    Modifier
-                        .align(Alignment.CenterStart)
-                        .absoluteOffset(x = ((w - t) * f).dp)
-                        .size(t.dp)
-                        .then(if (thumb.style.shadows.isNotEmpty()) Modifier.shadow(2.dp, CircleShape) else Modifier)
-                        .background(thumb.style.background ?: Color.White, CircleShape)
-                        .then(if (border != null && thumb.style.borderWidth > 0f) Modifier.border(thumb.style.borderWidth.dp, border, CircleShape) else Modifier),
-                )
-            }
-        }
-    } else {
-        val primary = cx.themeColor("primary")
-        // The unfilled bar: the track recipe's background, else the theme's muted colour.
-        val inactive = cx.style.background ?: cx.themeColor("muted")
-        val geometry = sliderRange(lo, hi, step)
-        val colors = SliderDefaults.colors(
-            thumbColor = primary ?: Color.Unspecified,
-            activeTrackColor = primary ?: Color.Unspecified,
-            inactiveTrackColor = inactive ?: Color.Unspecified,
-            // The steps snap; they draw no tick dots (web / iOS draw none).
-            activeTickColor = Color.Transparent,
-            inactiveTickColor = Color.Transparent,
-            disabledActiveTickColor = Color.Transparent,
-            disabledInactiveTickColor = Color.Transparent,
-        )
-        val interactions = remember(cx.node.id) { MutableInteractionSource() }
-        LeafFrame {
-            Slider(
-                value = value.toFloat().coerceIn(geometry.range),
-                onValueChange = { model.sliderDrag(index, SurfaceModel.snap(it.toDouble(), lo, hi, step)) },
-                onValueChangeFinished = { model.sliderRelease(index) },
-                valueRange = geometry.range,
-                steps = geometry.steps,
-                enabled = !disabled,
-                colors = colors,
-                interactionSource = interactions,
-                // M3's default 44 dp bar thumb would cover the next row: a
-                // 16 dp one stays inside the slider's own row, like web/iOS.
-                thumb = {
-                    SliderDefaults.Thumb(
-                        interactionSource = interactions,
-                        colors = colors,
-                        enabled = !disabled,
-                        thumbSize = DpSize(4.dp, 16.dp),
-                    )
-                },
-                // The track frame is the 6 dp bar: the slider keeps its width
-                // and overflows vertically (48 dp touch height).
-                modifier = Modifier.align(Alignment.Center).requiredWidth(cx.size.width.dp).requiredHeight(48.dp),
+                    .align(Alignment.CenterStart)
+                    // The thumb is centred on the value (web), overflowing
+                    // the thin track frame vertically.
+                    .absoluteOffset(x = (w * f - t / 2f).dp)
+                    .wrapContentSize(unbounded = true)
+                    .requiredSize(t.dp)
+                    .then(if (thumb.style.shadows.isNotEmpty()) Modifier.shadow(2.dp, CircleShape) else Modifier)
+                    .background(thumb.style.background ?: Color.White, CircleShape)
+                    .then(if (border != null && thumb.style.borderWidth > 0f) Modifier.border(thumb.style.borderWidth.dp, border, CircleShape) else Modifier),
             )
         }
     }

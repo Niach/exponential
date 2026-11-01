@@ -143,6 +143,19 @@ fn env_trimmed(key: &str) -> Option<String> {
     std::env::var(key).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }
 
+/// EXP-1555: the page a specimen sits on: the eUI theme's `background`
+/// (web, iOS and Android paint the surface on it), never the IDE pane's
+/// raised grey.
+fn page_background(theme_id: &str, mode: Mode) -> Option<gpui::Hsla> {
+    eui_gpui::paint::parts::theme_color(eui_core::themes::builtin_theme(theme_id).as_deref(), mode, "background")
+}
+
+/// EXP-1555: a shots capture (`EXP_DEV_READY_FILE`, packages/shots) photographs
+/// the surface alone: no dev harness strip (theme pills, pass timings).
+fn under_shots() -> bool {
+    std::env::var_os("EXP_DEV_READY_FILE").is_some()
+}
+
 fn parse_mode(spec: Option<&str>) -> Mode {
     match spec {
         Some("light") => Mode::Light,
@@ -366,10 +379,12 @@ impl Render for ExponentialUiKitchenSink {
             (false, false) => format!("{actions} · host: {echo}"),
         });
         let _ = Screen::ExponentialUiKitchenSink;
+        let harness = !under_shots();
         gpui_component::v_flex()
             .id("exponential-ui-kitchen-sink")
             .size_full()
-            .child(
+            .when_some(page_background(self.theme_id, self.mode), |d, bg| d.bg(bg))
+            .when(harness, |col| col.child(
                 gpui_component::h_flex()
                     .flex_shrink_0()
                     .items_center()
@@ -388,8 +403,8 @@ impl Render for ExponentialUiKitchenSink {
                             .child(self.mode_pill(cx)),
                     )
                     .child(div().truncate().child(caption)),
-            )
-            .when(!host_line.is_empty(), |col| {
+            ))
+            .when(harness && !host_line.is_empty(), |col| {
                 col.child(
                     div()
                         .flex_shrink_0()
@@ -570,6 +585,7 @@ pub struct ExponentialUiSpecimen {
     id: String,
     view: Entity<SurfaceView>,
     scroll: ScrollHandle,
+    page: Option<gpui::Hsla>,
 }
 
 impl ExponentialUiSpecimen {
@@ -617,7 +633,7 @@ impl ExponentialUiSpecimen {
             })
             .detach();
         }
-        Self { id: id.to_string(), view, scroll: ScrollHandle::new() }
+        Self { id: id.to_string(), view, scroll: ScrollHandle::new(), page: page_background(theme_id, mode) }
     }
 
     fn write_frames(&self, path: &str, cx: &mut Context<Self>) {
@@ -654,6 +670,7 @@ impl Render for ExponentialUiSpecimen {
             .id("exponential-ui-specimen")
             .relative()
             .size_full()
+            .when_some(self.page, |d, bg| d.bg(bg))
             .flex()
             .flex_col()
             .child(crate::scroll_pane::v_scroll_pane(

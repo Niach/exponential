@@ -42,24 +42,49 @@ struct AvatarLeaf: View {
     }
 }
 
-/// The tinted placeholder an `Image` paints without a loadable source (or
-/// while loading / after an error): its `fallback` glyph (default
-/// `builtinIcons["Image.fallback"]`) over the alt text.
+/// The placeholder an `Image` paints without a loadable source (or while
+/// loading / after an error), the ×4 decision (EXP-1555): the `fallback`
+/// part's muted fill with ONE static glyph centred, its `fallback` icon
+/// (default `builtinIcons["Image.fallback"]`, Lucide `circle-dashed`) at
+/// `$control.iconLg` in the part's muted foreground. No alt caption (the
+/// alt is the accessibility label); carousel thumbnails and mosaic tiles
+/// draw the same. The fill only where nothing behind the Image paints one
+/// (web: a Mosaic tile's `muted`, a tinted cover box show through), and no
+/// glyph under a Mosaic tile's `+N` scrim (Android's `ImagePlaceholder`).
 struct ImagePlaceholder: View {
+    let fill: Color
     let ink: Color
-    let label: String
+    let size: CGFloat
     var icon: String = BuiltinIcons.name("Image.fallback")
+    var covered: Bool = false
     let model: SurfaceModel
 
     var body: some View {
-        VStack(spacing: 4) {
-            ConceptIcon(name: icon, size: 20, color: ink.opacity(0.6), model: model)
-            if !label.isEmpty {
-                Text(label).font(.system(size: 12)).foregroundStyle(ink.opacity(0.6)).lineLimit(1)
-            }
+        ZStack {
+            fill
+            if !covered { ConceptIcon(name: icon, size: size, color: ink, model: model) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ink.opacity(0.08))
+    }
+
+    /// Does an ancestor of the Image paint a background?
+    static func backdropPainted(_ cx: LeafContext) -> Bool {
+        var i = cx.node.parent
+        while let k = i {
+            if cx.model.style(k).background != nil { return true }
+            i = cx.model.node(k)?.parent
+        }
+        return false
+    }
+
+    /// Is the Image under a sibling overlay (a Mosaic tile's `more` scrim)?
+    /// A macro's expanded nodes carry no `part` over the FFI, only their
+    /// path id (`<tile>.more`), so the scrim is found by that.
+    static func covered(_ cx: LeafContext) -> Bool {
+        guard let p = cx.node.parent, let parent = cx.model.node(p) else { return false }
+        return parent.children.contains { c in
+            c != cx.index && cx.model.node(c).map { ($0.part == "more" || $0.id == "\(parent.id).more") && !$0.hidden } == true
+        }
     }
 }
 
@@ -73,8 +98,11 @@ struct ImageLeaf: View {
 
     var body: some View {
         let src = cx.props.str("src")
-        let alt = cx.props.str("alt")
-        let muted = cx.themeColor("mutedForeground") ?? cx.ink
+        let part = cx.part("Image", "fallback")
+        let ink = part.color ?? cx.themeColor("mutedForeground") ?? cx.ink
+        let fill = ImagePlaceholder.backdropPainted(cx) ? Color.clear : (part.style.background ?? cx.themeColor("muted") ?? cx.ink.opacity(0.08))
+        let glyph = cx.control("iconLg", 24)
+        let covered = ImagePlaceholder.covered(cx)
         let fallback = cx.props.str("fallback").isEmpty ? BuiltinIcons.name("Image.fallback") : cx.props.str("fallback")
         let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
         let fit = cx.props.str("fit")
@@ -89,10 +117,10 @@ struct ImageLeaf: View {
                         .alignmentGuide(VerticalAlignment.top) { d in fy * (d.height - h) }
                         .frame(width: w, height: h, alignment: .topLeading)
                 } placeholder: {
-                    ImagePlaceholder(ink: muted, label: alt, icon: fallback, model: cx.model)
+                    ImagePlaceholder(fill: fill, ink: ink, size: glyph, icon: fallback, covered: covered, model: cx.model)
                 }
             } else {
-                ImagePlaceholder(ink: muted, label: alt, icon: fallback, model: cx.model)
+                ImagePlaceholder(fill: fill, ink: ink, size: glyph, icon: fallback, covered: covered, model: cx.model)
             }
         }
         .frame(width: w, height: h)

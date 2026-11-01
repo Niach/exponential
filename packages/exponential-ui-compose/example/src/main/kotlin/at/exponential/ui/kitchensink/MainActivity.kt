@@ -98,7 +98,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** The screen: the chrome row (unless `shot`), then the scrolling surface and the host line. */
+/** The screen: the chrome row (unless `shot`), then the scrolling surface and the host line (under `shot` only once it echoed). */
 @Composable
 fun SinkScreen(state: SinkState, rootView: View) {
     val options = state.options
@@ -161,7 +161,9 @@ fun SinkScreen(state: SinkState, rootView: View) {
                 Box((dump?.modifier ?: Modifier).background(background)) {
                     ExponentialSurface(model, options.width?.let { Modifier.width(it.dp) } ?: Modifier)
                 }
-                Text(
+                // A shot paints the surface alone: the host line appears there
+                // only once the host has echoed something (TypingTest reads it).
+                if (options.shot == null || state.echo.isNotEmpty()) Text(
                     "host: ${state.echo}",
                     style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = muted),
                     modifier = Modifier

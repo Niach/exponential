@@ -1,6 +1,7 @@
 import SwiftUI
 import ExponentialUI
 import ExponentialUICore
+import ExponentialUIPrimitives
 
 struct LaunchOptions {
     var theme = "exponential"
@@ -35,47 +36,6 @@ struct LaunchOptions {
             i += 1
         }
         return o
-    }
-}
-
-/// The catalog icon concepts the kitchen sink names, as SF Symbols. A real
-/// host hands the renderer its own icon registry (the Exponential app's
-/// Lucide set); the example keeps the SDK free of one.
-let symbolIcons: [String: String] = [
-    "nav-boards": "square.grid.2x2", "nav-inbox": "tray", "pr-open": "checkmark.rectangle", "nav-search": "magnifyingglass",
-    "ui-folder": "folder", "ui-archive": "archivebox", "ui-send": "paperplane", "ui-issue": "circle.dashed", "ui-pin": "pin",
-    "ui-success": "checkmark.circle", "ui-assignee": "person", "ui-device": "laptopcomputer", "settings-statuses": "circle.lefthalf.filled",
-    "editor-bold": "bold", "editor-italic": "italic", "ui-warning": "exclamationmark.triangle", "ui-info": "info.circle",
-    "ui-error": "xmark.octagon", "ui-close": "xmark", "ui-plus": "plus", "ui-more": "ellipsis", "ui-settings": "gearshape",
-    "ui-chevron-right": "chevron.right", "ui-chevron-left": "chevron.left", "ui-chevron-down": "chevron.down", "ui-chevron-up": "chevron.up",
-    "ui-selector": "chevron.up.chevron.down", "ui-check": "checkmark", "ui-search": "magnifyingglass", "ui-calendar": "calendar",
-    "ui-image": "photo", "ui-link": "link", "ui-external": "arrow.up.right", "ui-copy": "doc.on.doc", "ui-trash": "trash",
-    "nav-issues": "list.bullet", "nav-settings": "gearshape", "ui-edit": "pencil", "ui-properties": "slider.horizontal.3",
-    // The specimens' bare Lucide names (Segmented `variant · bar · icons`, VAPP-163).
-    "message-circle": "message", "users": "person.2", "settings": "gearshape",
-    // VAPP-162: the call, pairing and push-to-talk pieces (concepts + their Lucide names).
-    "call-mute": "mic", "mic": "mic", "call-unmute": "mic.slash", "mic-off": "mic.slash",
-    "call-speaker": "speaker.wave.2", "volume-2": "speaker.wave.2", "call-speaker-off": "ear", "ear": "ear",
-    "call-incoming": "phone.arrow.down.left", "phone-incoming": "phone.arrow.down.left",
-    "ui-qr-code": "qrcode", "qr-code": "qrcode", "ui-scan": "qrcode.viewfinder", "scan-line": "qrcode.viewfinder",
-    "ui-hold": "hand.raised", "hand": "hand.raised", "voice-level": "waveform", "audio-lines": "waveform",
-    "ui-clock": "clock", "ui-stop": "stop.circle", "circle-stop": "stop.circle", "ui-back": "chevron.left",
-    "layers": "square.3.layers.3d", "mail": "envelope", "globe": "globe", "pencil": "pencil", "calendar": "calendar",
-    "ui-file": "doc", "trace-terminal": "terminal", "trace-read": "doc.text", "trace-search": "magnifyingglass",
-    "trace-subagent": "person.crop.square", "trace-background": "repeat",
-]
-
-/// Lucide's `check-check` (`ui-read`, a read receipt): two ticks, the
-/// second offset right (SF Symbols has no double tick).
-struct DoubleCheckMark: View {
-    let size: CGFloat
-    var body: some View {
-        ZStack {
-            Image(systemName: "checkmark").offset(x: -size * 0.14)
-            Image(systemName: "checkmark").offset(x: size * 0.14)
-        }
-        .font(.system(size: size * 0.62, weight: .semibold))
-        .frame(width: size, height: size)
     }
 }
 
@@ -145,23 +105,6 @@ struct SVGMark: Shape {
     }
 }
 
-/// Lucide's `progress-2-4`: the 2-unit ring (r 10) around a filled half wedge (r 6).
-struct ProgressMark: View {
-    let size: CGFloat
-    var body: some View {
-        let s = size / 24
-        ZStack {
-            Circle().stroke(lineWidth: 2 * s).frame(width: 20 * s, height: 20 * s)
-            Path { p in
-                p.move(to: CGPoint(x: 12 * s, y: 12 * s))
-                p.addArc(center: CGPoint(x: 12 * s, y: 12 * s), radius: 6 * s, startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
-                p.closeSubpath()
-            }
-        }
-        .frame(width: size, height: size)
-    }
-}
-
 @MainActor
 final class SinkState: ObservableObject {
     @Published var echo = ""
@@ -193,15 +136,11 @@ final class SinkState: ObservableObject {
                     let inner = size * 0.8
                     return AnyView(SVGMark(d: d).frame(width: inner, height: inner).frame(width: size, height: size))
                 }
-                if name == "ui-read" || name == "check-check" {
-                    return AnyView(DoubleCheckMark(size: size))
-                }
-                // `call-end` / `phone-off`: no entry, the painter's own slashed receiver draws.
-                if name == "progress-2-4" {
-                    return AnyView(ProgressMark(size: size * 0.8).frame(width: size, height: size))
-                }
-                guard let symbol = symbolIcons[name] else { return nil }
-                return AnyView(Image(systemName: symbol).font(.system(size: size * 0.8, weight: .medium)).frame(width: size, height: size))
+                // Every icons.json concept, catalog icon and specimen icon as
+                // Lucide (EXP-1555, `LucideIcons.swift`): what the app's
+                // registry and web draw.
+                guard let paths = LucideIcons.paths(name) else { return nil }
+                return AnyView(LucideGlyph(paths: paths, size: size))
             },
             actions: { e in print("[exponential-ui] action \(e.name) \(e.componentId) \(e.context) \(e.payload.map { "\($0)" } ?? "")") },
             inputs: { [weak self] e in

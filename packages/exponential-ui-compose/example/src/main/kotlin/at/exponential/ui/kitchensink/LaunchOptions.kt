@@ -6,7 +6,7 @@ import android.content.Intent
  * The launch-extra contract of the kitchen sink (what the shots pipeline,
  * the instrumented tests and the device checks start it with):
  *
- * - `--es shot <view>`: hide the chrome (theme row, host echo stays); `bench` renders [bench] nodes;
+ * - `--es shot <view>`: hide the chrome (theme row; the host echo line only shows once it echoed); `bench` renders [bench] nodes;
  *   an `exponential-ui-<component>` id (or `exponential-ui-demo`) renders that `fixtures/specimens.json`
  *   entry instead of the kitchen sink (VAPP-93, the ui.exponential.at shots); an `exponential-ui-eval-<id>`
  *   id the recorded eval surface of `eval/eval-specimens.json`, its data model included (VAPP-127).
