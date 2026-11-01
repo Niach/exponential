@@ -37,6 +37,7 @@ import com.exponential.app.domain.AppActions
 import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.Apps
 import com.exponential.app.ui.components.ColorPicker
+import com.exponential.app.ui.components.DestructiveButton
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSwitch
 import com.exponential.app.ui.components.GlassTextField
@@ -237,13 +238,11 @@ internal fun AppSettingsBody(
                     modifier = Modifier.testTag("app-export"),
                 )
             }
-            Spacer(Modifier.weight(1f))
+            // EXP-1554: THE destructive button, beside Export, left-aligned (web).
             if (canManage) {
-                GlassPill(
+                DestructiveButton(
                     Apps.Copy.MENU_DELETE,
-                    icon = ExpIcons.uiDelete,
                     onClick = onDelete,
-                    contentColor = DesignTokens.Semantic.Red,
                     modifier = Modifier.testTag("app-delete"),
                 )
             }

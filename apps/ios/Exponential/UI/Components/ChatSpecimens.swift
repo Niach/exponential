@@ -303,9 +303,19 @@ struct PhoneBoardMenuSpecimens: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 10) {
-                Text(PhoneShellSpecimen.activeBoard.name)
-                    .font(.largeTitle.weight(.bold))
-                    .foregroundStyle(.white)
+                // The page header behind the menu, its search + inbox
+                // circles included (dimmed with the page).
+                HStack(spacing: 8) {
+                    Text(PhoneShellSpecimen.activeBoard.name)
+                        .font(.largeTitle.weight(.bold))
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 8)
+                    ForEach([AppIcons.navSearch, AppIcons.navInbox], id: \.self) { icon in
+                        PageHeaderGlyph(icon: icon, dot: false)
+                            .frame(width: 44, height: 44)
+                            .background(GlassTokens.fillCard, in: Circle())
+                    }
+                }
                 ForEach(0..<3, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: 12)
                         .fill(GlassTokens.fillCard)
@@ -325,9 +335,7 @@ struct PhoneBoardMenuSpecimens: View {
                 specimen: .menuOpen
             )
         }
-        .frame(height: 340)
-        .background(DesignTokens.Palette.background, in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, -16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("phone-board-menu-specimen")
     }
 }
@@ -343,7 +351,7 @@ struct PhonePageHeaderSpecimens: View {
             PhoneShellSpecimen.caption("All read")
             header(PhoneShellSpecimen.activeBoard.name, unread: false)
             PhoneShellSpecimen.caption("Pushed (Devices, the back control)")
-            header(Chats.Copy.Headers.devices, unread: true, pushed: true)
+            header(Chats.Copy.Headers.devices, unread: false, pushed: true)
         }
         .padding(.horizontal, -16)
         .accessibilityIdentifier("phone-page-header-specimen")
@@ -366,7 +374,7 @@ private struct PageHeaderFrame: View {
     var body: some View {
         NavigationStack(path: $path) {
             page(pushed ? "Team" : title, pushed: false)
-                .navigationDestination(for: Int.self) { _ in page(title, pushed: true) }
+                .navigationDestination(for: Int.self) { _ in page(title, pushed: true).bareBackButton() }
         }
         .onAppear { if pushed { path = [1] } }
     }

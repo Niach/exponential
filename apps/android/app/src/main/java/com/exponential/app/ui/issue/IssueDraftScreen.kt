@@ -54,7 +54,8 @@ import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
-import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.PillMode
+import androidx.compose.ui.draw.alpha
 import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.components.issuePriorityPickerOptions
 import com.exponential.app.ui.components.pickedPriority
@@ -324,14 +325,21 @@ fun IssueDraftScreen(
                         verbEnabled = false,
                         onVerb = {},
                         action = {
+                            // EXP-1554: web-mobile's / iOS's filled Create pill
+                            // at the control rung; with no title yet it stays the
+                            // SAME primary capsule at half opacity (web
+                            // `disabled:opacity-50`), never the dimmed glass,
+                            // which read as stray text in the bar.
                             GlassPill(
                                 IssueDraftPage.CREATE,
-                                onClick = ::create,
-                                size = PillSize.Sm,
+                                onClick = if (canCreate) ::create else null,
+                                mode = PillMode.Action,
                                 primary = true,
-                                enabled = canCreate,
                                 loading = state.creating,
-                                modifier = Modifier.padding(end = 4.dp).testTag("create-issue-submit"),
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .alpha(if (canCreate || state.creating) 1f else 0.5f)
+                                    .testTag("create-issue-submit"),
                             )
                         },
                         // EXP-1247: Back + Create only; discarding is the leave prompt's answer.

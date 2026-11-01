@@ -45,6 +45,16 @@ struct ThreadCardsScreen: View {
                 .preferredColorScheme(.dark)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("thread-cards-screen")
+        } else if kind == "phone-board-menu" {
+            // EXP-1554: a whole phone screen, so the panel grows from the
+            // bottom strip where the live one does (Android's shot).
+            ZStack {
+                AppBackground()
+                PhoneBoardMenuSpecimens()
+            }
+            .preferredColorScheme(.dark)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("thread-cards-screen")
         } else {
             cards
         }
@@ -65,7 +75,6 @@ struct ThreadCardsScreen: View {
                     case "dock-card": DockCardSpecimens()
                     case "plan-card": PlanCardSpecimens()
                     case "phone-tab-bar": PhoneTabBarSpecimens()
-                    case "phone-board-menu": PhoneBoardMenuSpecimens()
                     case "phone-page-header": PhonePageHeaderSpecimens()
                     case "chat-transcript": ChatTranscriptSpecimens()
                     case "chat-menus": ChatMenuSpecimens()

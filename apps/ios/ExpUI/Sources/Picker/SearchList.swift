@@ -194,6 +194,7 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
                         EmptyState(title: emptyText, size: .list)
                     }
                 } else {
+                    let top = visible.first(where: { !$0.disabled })?.value
                     ForEach(visible) { item in
                         GlassPickerSheetRow(
                             item: item,
@@ -204,7 +205,14 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
                         ) {
                             onPick(item.value)
                         }
+                        // EXP-1554 (search-list.json): the top row is
+                        // preselected, the row Return picks.
+                        .background(
+                            item.value == top ? GlassTokens.fillActive : Color.clear,
+                            in: RoundedRectangle(cornerRadius: GlassPickerTokens.rowRadius)
+                        )
                         .accessibilityIdentifier(SearchList.TestId.row)
+                        .accessibilityAddTraits(item.value == top ? .isSelected : [])
                     }
                 }
                 if let footer { footer() }

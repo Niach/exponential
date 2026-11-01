@@ -18,6 +18,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.DeviceSetup
 import com.exponential.app.ui.components.DeviceSetupViewModel
+import com.exponential.app.ui.icons.ExpIcons
 
 /**
  * "Set up your devices" (EXP-725): the [OnboardingCopy] header, the shared
@@ -47,6 +48,9 @@ fun OnboardingDevicesStep(
             .testTag("onboarding-devices-step"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // EXP-1554: web's step header — the icon disc over the title.
+        StepIconDisc(ExpIcons.navDevices)
+        Spacer(Modifier.height(6.dp))
         Text(
             OnboardingCopy.DEVICES_TITLE,
             style = MaterialTheme.typography.headlineSmall,

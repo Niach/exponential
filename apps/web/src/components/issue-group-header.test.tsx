@@ -74,9 +74,8 @@ describe(`IssueGroupHeader`, () => {
     const { container, rerender } = render(
       <IssueGroupHeader status={builtin} count={1} open onToggle={vi.fn()} />
     )
-    const band = () =>
-      container.querySelector(`[data-slot="issue-group-header"]`)!
-    expect(band().className).toContain(`bg-zinc-500/10`)
+    const wash = () => container.querySelector(`[data-part="wash"]`)
+    expect(wash()!.className).toContain(`bg-zinc-500/10`)
     rerender(
       <IssueGroupHeader
         status={builtin}
@@ -86,7 +85,7 @@ describe(`IssueGroupHeader`, () => {
         tinted={false}
       />
     )
-    expect(band().className).not.toContain(`bg-zinc-500/10`)
+    expect(wash()).toBeNull()
   })
 
   it(`hangs the group's own action outside the fold button`, () => {

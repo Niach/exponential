@@ -10,10 +10,11 @@ import { BARE_FIELD_CLASS, Textarea, cn } from "@exp/ui"
 
 /** The Textarea's own classes. EXP-1162: on md+ the title row shares its
  * first line with the floating work bar's cluster (`WorkHeader`, 48px), so
- * the 32px line sits 8px down there. */
+ * the 32px line sits 8px down there. EXP-1554: phones take the natives'
+ * 20pt title (iOS/Android), so a typical title stays on one line. */
 export const ISSUE_TITLE_FIELD_CLASS = cn(
   BARE_FIELD_CLASS,
-  `min-h-0 resize-none dark:bg-transparent !text-2xl font-semibold px-5 pt-4 md:pt-2 pb-1 placeholder:text-muted-foreground/50`
+  `min-h-0 resize-none dark:bg-transparent max-md:!text-xl md:!text-2xl font-semibold px-5 pt-4 md:pt-2 pb-1 placeholder:text-muted-foreground/50`
 )
 
 export function IssueTitleField({

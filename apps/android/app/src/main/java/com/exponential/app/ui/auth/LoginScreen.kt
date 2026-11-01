@@ -492,7 +492,7 @@ fun LoginScreen(
 
 // CredentialManager needs the hosting Activity (it shows a system sheet), and
 // LocalContext hands back a wrapper inside a ComponentActivity.
-private fun Context.findActivity(): Activity? {
+internal fun Context.findActivity(): Activity? {
     var ctx: Context = this
     while (ctx is ContextWrapper) {
         if (ctx is Activity) return ctx

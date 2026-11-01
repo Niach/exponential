@@ -2,6 +2,7 @@ package com.exponential.app.data.api
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -41,6 +42,14 @@ object AuthWire {
      */
     fun passkeyVerifyBody(json: Json, responseJson: String): JsonObject = buildJsonObject {
         put("response", json.parseToJsonElement(responseJson) as JsonObject)
+    }
+
+    /** `{"response": <RegistrationResponseJSON>, "name": …}` — the
+     *  verify-registration body; [responseJson] embedded as an object, as in
+     *  [passkeyVerifyBody]. */
+    fun passkeyRegisterBody(json: Json, responseJson: String, name: String): JsonObject = buildJsonObject {
+        put("response", json.parseToJsonElement(responseJson) as JsonObject)
+        put("name", JsonPrimitive(name))
     }
 
     /**

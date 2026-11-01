@@ -74,14 +74,19 @@ struct DeviceSetup: View {
                 GlassSectionHeader(OnboardingCopy.devicesYours)
 
                 if myDevices.isEmpty {
-                    Text(OnboardingCopy.devicesNone)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
-                        .glassRow()
+                    // EXP-1554: web's empty state: the monitor-off glyph over
+                    // the muted line, centred, on no card.
+                    VStack(spacing: 8) {
+                        AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        Text(OnboardingCopy.devicesNone)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
                 } else {
                     ForEach(myDevices) { device in
                         deviceRow(device)
@@ -134,6 +139,7 @@ struct DeviceSetup: View {
             title: GettingStartedCopy.desktopTitle,
             description: GettingStartedCopy.desktopDescription,
             actionLabel: GettingStartedCopy.desktopAction,
+            actionIcon: AppIcons.uiDownload,
             secondary: (DeviceSetupCopy.allPlatforms, { openURL(AppConstants.desktopReleasesUrl) })
         ) {
             openURL(AppConstants.desktopReleasesUrl)
@@ -263,6 +269,7 @@ struct DeviceSetup: View {
         title: String,
         description: String,
         actionLabel: String,
+        actionIcon: String? = nil,
         secondary: (label: String, action: () -> Void)? = nil,
         action: @escaping () -> Void
     ) -> some View {
@@ -287,9 +294,17 @@ struct DeviceSetup: View {
             // "All platforms" link to every release asset (web's
             // `DESKTOP_RELEASES_URL` button).
             HStack(spacing: 8) {
-                GlassPill(actionLabel, size: .sm, mode: .action(action))
+                // EXP-1554: the download is web's PRIMARY button with its
+                // glyph.
+                if let actionIcon {
+                    GlassPill(actionLabel, icon: actionIcon, size: .sm, mode: .action(action), primary: true)
+                        .fixedSize()
+                } else {
+                    GlassPill(actionLabel, size: .sm, mode: .action(action))
+                }
                 if let secondary {
                     GlassPill(secondary.label, size: .sm, mode: .action(secondary.action))
+                        .fixedSize()
                 }
             }
         }

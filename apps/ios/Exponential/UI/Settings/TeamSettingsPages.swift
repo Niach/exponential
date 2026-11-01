@@ -162,37 +162,23 @@ private struct TeamGeneralPage: View {
     }
 
     /// ×4: the Danger zone heading is a filled band with its label in the
-    /// danger red.
+    /// danger red; its ONE row = the muted consequence + THE destructive
+    /// button trailing (EXP-1554, web's row).
     private var dangerZone: some View {
         VStack(alignment: .leading, spacing: 8) {
             GlassSectionBand("Danger zone", danger: true)
 
-            Button {
-                showDeleteTeam = true
-            } label: {
-                HStack {
-                    AppIcon(AppIcons.uiDelete, size: AppIcon.Size.medium)
-                    Text("Delete team")
-                }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                // Full-capsule hit target — .plain hit-tests only opaque pixels.
-                .contentShape(Rectangle())
+            HStack(spacing: 12) {
+                Text("Permanently delete this team and all its data.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                DestructiveButton("Delete team") { showDeleteTeam = true }
+                    .accessibilityIdentifier("team-delete")
             }
-            // NOT a GlassPill (EXP-698): a full-width destructive action in
-            // the app's one red. EXP-1176: the row-radius rectangle.
-            .background(
-                GlassTokens.fillCard,
-                in: RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
-                    .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
-            )
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("team-delete")
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .glassSection()
         }
     }
 
@@ -406,9 +392,11 @@ private struct TeamAgentsPage: View {
         }
         .navigationDestination(item: $agentTarget) { target in
             AgentSettingsPage(teamId: teamId, agentId: target.agentId, isOwner: data.isOwner)
+                .bareBackButton()
         }
         .navigationDestination(isPresented: $showAssistant) {
             AssistantSettingsPage(teamId: teamId, agentId: data.assistantId)
+                .bareBackButton()
         }
         // S-3: the Agents group mounting creates the viewer's Assistant on
         // first use (once per team per app run).

@@ -19,6 +19,7 @@ import {
   Button,
   conceptIcon,
   EmptyState,
+  GlassGroup,
   JumpToBottomButton,
   ListRow,
   Menu,
@@ -123,6 +124,7 @@ function VersionRows({
   restoring,
   onPreview,
   onRestore,
+  grouped = false,
 }: {
   versions: readonly SyncedAppVersion[]
   head: number
@@ -131,55 +133,56 @@ function VersionRows({
   restoring: number | null
   onPreview: (number: number) => void
   onRestore: (number: number) => void
+  /** EXP-1554: the phone sheet's face, as the natives draw it: the rows in
+   *  ONE grouped card with small pill actions. */
+  grouped?: boolean
 }) {
   const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
   if (versions.length === 0) {
     return <EmptyState icon={UiHistoryIcon} title={APPS_COPY.versionsEmpty} size="list" />
   }
-  return (
-    <div className={SETTINGS_LIST_CLASS}>
-      {versions.map((version) => {
-        const author = version.createdBy ? usersById.get(version.createdBy) : undefined
-        const note = version.note?.trim()
-        return (
-          <ListRow
-            key={version.id}
-            className={cn(`gap-3 px-3 py-2 text-sm`, viewing === version.number && `bg-accent/40`)}
-            data-testid={`${APPS_TEST_IDS.versionRow}-${version.number}`}
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <Pill size="sm" className="shrink-0 tabular-nums">{versionLabel(version.number)}</Pill>
-                <span className={cn(`min-w-0 truncate`, note ? `font-medium` : `text-muted-foreground`)}>{note || APPS_COPY.noNote}</span>
-              </div>
-              <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                {author?.name ?? APPS_COPY.byAgent} · {relativeTime(version.createdAt)}
-              </div>
-            </div>
-            {version.number === head ? (
-              <Pill size="sm" className="shrink-0">{APPS_COPY.head}</Pill>
-            ) : (
-              <div className="flex shrink-0 items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => onPreview(version.number)} data-testid={APPS_TEST_IDS.versionPreview}>
-                  {APPS_COPY.preview}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onRestore(version.number)}
-                  pending={restoring === version.number}
-                  disabled={restoring !== null}
-                  data-testid={APPS_TEST_IDS.versionRestore}
-                >
-                  {APPS_COPY.restore}
-                </Button>
-              </div>
-            )}
-          </ListRow>
-        )
-      })}
-    </div>
-  )
+  const rows = versions.map((version) => {
+    const author = version.createdBy ? usersById.get(version.createdBy) : undefined
+    const note = version.note?.trim()
+    return (
+      <ListRow
+        key={version.id}
+        className={cn(`gap-3 px-3 py-2 text-sm`, grouped && `rounded-none`, viewing === version.number && `bg-accent/40`)}
+        data-testid={`${APPS_TEST_IDS.versionRow}-${version.number}`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <Pill size="sm" className="shrink-0 tabular-nums">{versionLabel(version.number)}</Pill>
+            <span className={cn(`min-w-0 truncate`, note ? `font-medium` : `text-muted-foreground`)}>{note || APPS_COPY.noNote}</span>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {author?.name ?? APPS_COPY.byAgent} · {relativeTime(version.createdAt)}
+          </div>
+        </div>
+        {version.number === head ? (
+          <Pill size="sm" className="shrink-0">{APPS_COPY.head}</Pill>
+        ) : (
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button variant="ghost" size={grouped ? `xs` : `sm`} onClick={() => onPreview(version.number)} data-testid={APPS_TEST_IDS.versionPreview}>
+              {APPS_COPY.preview}
+            </Button>
+            <Button
+              variant={grouped ? `secondary` : `outline`}
+              size={grouped ? `xs` : `sm`}
+              className={grouped ? `rounded-full` : undefined}
+              onClick={() => onRestore(version.number)}
+              pending={restoring === version.number}
+              disabled={restoring !== null}
+              data-testid={APPS_TEST_IDS.versionRestore}
+            >
+              {APPS_COPY.restore}
+            </Button>
+          </div>
+        )}
+      </ListRow>
+    )
+  })
+  return grouped ? <GlassGroup>{rows}</GlassGroup> : <div className={SETTINGS_LIST_CLASS}>{rows}</div>
 }
 
 export function AppEditor({
@@ -516,6 +519,7 @@ export function AppEditor({
         restoring={restoring}
         onPreview={previewVersion}
         onRestore={(number) => void restore(number)}
+        grouped={isMobile}
       />
     </div>
   )
@@ -608,7 +612,9 @@ export function AppEditor({
       <div className="flex h-dvh min-h-0 flex-col" data-testid={APPS_TEST_IDS.editor}>
         <MobileDetailHeader
           title={
-            <span className="flex min-w-0 items-center gap-2">
+            // Centred like every phone header (iOS/Android): the flex row
+            // would otherwise sit left in the header's centred title slot.
+            <span className="flex min-w-0 items-center justify-center gap-2">
               {glyph}
               <span className="truncate">{app.name}</span>
               {versionPill}

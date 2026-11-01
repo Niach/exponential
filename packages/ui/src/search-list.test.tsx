@@ -113,6 +113,21 @@ describe(`SearchList`, () => {
     expect(screen.getByTestId(spec.testIds.count).textContent).toBe(`12`)
   })
 
+  it(`trails the phone input row with the same count (EXP-1554)`, () => {
+    render(
+      <SearchList
+        mode="single"
+        value={null}
+        onChange={vi.fn()}
+        items={ISSUES}
+        query="sid"
+        shouldFilter={false}
+        density="phone"
+      />
+    )
+    expect(screen.getByTestId(spec.testIds.count).textContent).toBe(`12`)
+  })
+
   it(`reports Backspace in the EMPTY input only`, () => {
     const onBackspaceEmpty = vi.fn()
     const { rerender } = render(

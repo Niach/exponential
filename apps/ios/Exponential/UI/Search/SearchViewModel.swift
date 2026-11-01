@@ -41,6 +41,11 @@ final class SearchViewModel {
         !query.isEmpty && teamId != nil && (index == nil || localQuery != query)
     }
 
+    /// The active team's statuses in render order (EXP-1554: a row's glyph
+    /// is its TEAM status's, e.g. the quarter clock of In Progress among
+    /// three started statuses, as web draws it).
+    private(set) var teamStatuses: [ResolvedIssueStatus] = []
+
     private var teamId: String?
     private var query = ""
     /// The active team's issues, prepared once per snapshot.
@@ -57,6 +62,7 @@ final class SearchViewModel {
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
     private var issueTask: Task<Void, Never>?
+    private var statusTask: Task<Void, Never>?
     private var rankTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
 
@@ -78,8 +84,21 @@ final class SearchViewModel {
             serverHits = []
             serverHitsQuery = ""
             results = []
+            teamStatuses = []
         }
         guard let teamId, let pool = try? db.pool(forAccountId: accountId) else { return }
+
+        let statusObservation = ValueObservation.tracking { db in
+            try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        }
+        .removeDuplicates()
+        statusTask = Task { [weak self] in
+            do {
+                for try await rows in statusObservation.values(in: pool) {
+                    self?.teamStatuses = IssueStatusResolver.teamStatuses(rows)
+                }
+            } catch {}
+        }
 
         // The index is built in `map`, which GRDB runs off the main actor;
         // the box hands each build the previous one so unchanged rows keep
@@ -112,6 +131,8 @@ final class SearchViewModel {
     func stopObserving() {
         issueTask?.cancel()
         issueTask = nil
+        statusTask?.cancel()
+        statusTask = nil
         rankTask?.cancel()
         rankTask = nil
         searchTask?.cancel()

@@ -607,7 +607,14 @@ class IssueDetailViewModel @AssistedInject constructor(
     }
 
     /** One thread this issue sits in (the issue page's `Threads` row). */
-    data class IssueThread(val rootId: String, val title: String, val live: Boolean, val busy: Boolean)
+    data class IssueThread(
+        val rootId: String,
+        val title: String,
+        val live: Boolean,
+        val busy: Boolean,
+        /** EXP-1554: the root's agent CLI, for the chip's session mark. */
+        val cli: String? = null,
+    )
 
     // EXP-1291: the THREADS (root sessions) linking this issue, newest
     // activity first, titled by `SessionTree.threadTitle`.
@@ -645,6 +652,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                         ),
                         live = tree.any { !it.isEnded },
                         busy = tree.any { !it.isEnded && it.busy },
+                        cli = root.cli,
                     )
                 }
             }

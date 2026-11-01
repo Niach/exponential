@@ -16,9 +16,8 @@ struct DevicesStepView: View {
     @State private var hasOwnDevice = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            OnboardingStepHeader(title: OnboardingCopy.devicesTitle)
-
+        // EXP-1554: web's step card (the monitor disc over the title).
+        OnboardingStepCard(icon: AppIcons.navDevices, title: OnboardingCopy.devicesTitle) {
             DeviceSetup(
                 accountId: accountId,
                 onDevicesChanged: { hasOwnDevice = $0 }

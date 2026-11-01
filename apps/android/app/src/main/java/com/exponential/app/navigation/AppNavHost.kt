@@ -1080,7 +1080,6 @@ private fun AuthenticatedNav(
         composable(Routes.AGENT_SETTINGS_PATTERN) {
             AgentSettingsScreen(
                 onBack = { navController.popBackStack() },
-                onOpenChannel = { id -> navController.navigate(Routes.thread(id)) },
                 onCreated = {},
                 onDeleted = { navController.popBackStack() },
             )
@@ -1088,7 +1087,6 @@ private fun AuthenticatedNav(
         composable(Routes.AGENT_NEW) {
             AgentSettingsScreen(
                 onBack = { navController.popBackStack() },
-                onOpenChannel = { id -> navController.navigate(Routes.thread(id)) },
                 // A created agent replaces the `new` page with its own.
                 onCreated = { id ->
                     val newId = navController.currentBackStackEntry?.destination?.id

@@ -246,10 +246,13 @@ pub fn exponential_dark() -> ThemeColor {
     c.danger_foreground = fg;
     c.danger_hover = bg.blend(danger.opacity(hover_opacity));
     c.danger_active = danger.darken(active_darken);
-    c.button_danger = danger.mix_oklab(transparent, 0.2);
-    c.button_danger_foreground = danger;
-    c.button_danger_hover = danger.mix_oklab(transparent, 0.3);
-    c.button_danger_active = danger.mix_oklab(transparent, 0.4);
+    // EXP-1554: THE destructive button = the eUI `destructive` recipe
+    // (`bg-destructive text-white dark:bg-destructive/60`), FILLED — never the
+    // tinted chip (destructive at 20% under red text) it used to be.
+    c.button_danger = danger.mix_oklab(transparent, 0.6);
+    c.button_danger_foreground = gpui::white();
+    c.button_danger_hover = danger.mix_oklab(transparent, 0.7);
+    c.button_danger_active = danger.mix_oklab(transparent, 0.8);
 
     // ---- Success / info / warning (no web tokens; semantic accents + the
     //      component's own derivation formulas). info uses BLUE — tokens carry

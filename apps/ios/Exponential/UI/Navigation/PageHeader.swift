@@ -9,9 +9,10 @@ import SwiftUI
 /// iOS 26 Liquid Glass circles, never hand-drawn ones): SEARCH (the search
 /// screen) then the INBOX (the inbox page; a sky dot while any notification
 /// of the active team is unread — MainNavigator publishes `\.inboxUnread`).
-/// A pushed page (Devices, `pushed: true`) gets the system back control
-/// before its title: the system centres an inline title on a pushed page, so
-/// there the large title rides a leading item right after the back control.
+/// A pushed page (Devices, `pushed: true`) gets the bare back arrow before
+/// its title (EXP-1554, `bareBackButton`): the system centres an inline
+/// title on a pushed page, so there the large title rides the back arrow's
+/// leading item.
 extension View {
     func pageHeader(_ title: String, pushed: Bool = false) -> some View {
         modifier(PageHeaderModifier(title: title, pushed: pushed))
@@ -100,8 +101,8 @@ struct PageHeaderGlyph: View {
     }
 }
 
-/// A pushed page's large title as the leading item after the back control
-/// (the principal inline title stands down).
+/// A pushed page's large title, handed up to the bare back item
+/// (`PushedLargeTitleKey`; the principal inline title stands down).
 private struct PushedTitle: ViewModifier {
     let title: String
     let enabled: Bool
@@ -114,14 +115,7 @@ private struct PushedTitle: ViewModifier {
                         Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
                     }
                 }
-                .ownChromeToolbarItem(placement: .topBarLeading) {
-                    Text(title)
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .accessibilityAddTraits(.isHeader)
-                }
+                .preference(key: PushedLargeTitleKey.self, value: title)
         } else {
             content
         }

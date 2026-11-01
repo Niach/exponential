@@ -141,7 +141,7 @@ struct GlassPillToggleStyle: ToggleStyle {
                     .fill(
                         isOn
                             ? DesignTokens.Palette.primaryForeground
-                            : DesignTokens.Palette.mutedForeground
+                            : DesignTokens.Palette.foreground
                     )
                     .frame(width: GlassToggleRowTokens.pillThumb, height: GlassToggleRowTokens.pillThumb)
                     .padding(2)

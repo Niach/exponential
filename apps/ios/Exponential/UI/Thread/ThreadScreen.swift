@@ -357,6 +357,7 @@ struct ThreadScreen: View {
             if let rows, let agentId = rows.root.agentId {
                 AgentSettingsPage(teamId: rows.root.teamId, agentId: agentId, isOwner: isOwner)
                     .environment(\.accountId, accountId)
+                    .bareBackButton()
             }
         }
         .task(id: rows?.root.teamId) { await resolveOwner() }

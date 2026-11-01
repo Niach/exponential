@@ -63,11 +63,12 @@ function PropertyValueRow({
   value: ReactNode
 }) {
   return (
+    // EXP-1554: 40px, the natives' property row (iOS/Android).
     <ListRow asChild interactive data-variant="value">
       <Button
         type="button"
         variant="text"
-        className={`h-11! w-full justify-between rounded-none! px-4! py-0! font-normal ${className ?? ``}`}
+        className={`h-10! w-full justify-between rounded-none! px-4! py-0! font-normal ${className ?? ``}`}
         {...props}
       >
         <span className="text-sm text-muted-foreground">{label}</span>

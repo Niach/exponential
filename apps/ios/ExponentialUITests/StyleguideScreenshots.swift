@@ -917,7 +917,7 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_feedback-states: the six feedback kinds (EXP-1275) ────────────
         // A capture-only screen over a signed-out relaunch: every kind drawn
-        // by its real primitive, the error toast raised on appear.
+        // by its real primitive in web's six numbered cards (EXP-1554).
         launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", "feedback-states"])
         expect(
             anyElement(app, identified: "feedback-states-screen"),

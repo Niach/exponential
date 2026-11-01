@@ -40,7 +40,7 @@ export function DevicesStep({
       icon={DevicesIcon}
       title={ONBOARDING_COPY.devices.title}
     >
-      <div className="space-y-4 p-6">
+      <div className="space-y-4 p-6 max-md:p-4">
         <DeviceSetup origin={origin} />
         <OwnDevicesList devices={devices} />
 

@@ -112,6 +112,7 @@ fun MyIssuesListContent(
                                 canMutate = true,
                                 blocks = entry.blocks,
                                 onBlocksClick = { graphIssueId = entry.issue.id },
+                                resolvedStatus = group.status,
                                 onMarkDone = {
                                     viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
                                 },

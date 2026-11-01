@@ -37,6 +37,9 @@ public struct GlassSubmitLabel<Icon: View>: View {
     /// progressive word (`pendingWord`, else the label); geometry unchanged.
     var loading: Bool = false
     var pendingWord: String?
+    /// EXP-1554: the form's own submit under its last field (web `Button`
+    /// size default, `justify-end`): hugs its label, never full width.
+    var compact: Bool = false
     let icon: Icon
 
     public init(
@@ -44,12 +47,14 @@ public struct GlassSubmitLabel<Icon: View>: View {
         enabled: Bool = true,
         loading: Bool = false,
         pendingWord: String? = nil,
+        compact: Bool = false,
         @ViewBuilder icon: () -> Icon
     ) {
         self.label = label
         self.enabled = enabled
         self.loading = loading
         self.pendingWord = pendingWord
+        self.compact = compact
         self.icon = icon()
     }
 
@@ -62,14 +67,15 @@ public struct GlassSubmitLabel<Icon: View>: View {
         ) {
             icon
         }
-        .font(.body.weight(.medium))
+        .font(compact ? .subheadline.weight(.medium) : .body.weight(.medium))
         .foregroundStyle(
             enabled
                 ? DesignTokens.Palette.primaryForeground
                 : Color.white.opacity(TextOpacity.tertiary)
         )
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
+        .frame(maxWidth: compact ? nil : .infinity)
+        .padding(.horizontal, compact ? 14 : 0)
+        .padding(.vertical, compact ? 8 : 14)
         .background(enabled ? DesignTokens.Palette.primary : GlassTokens.fillCard)
         .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
         // A filled button needs no hairline — only the disabled glass does.
@@ -84,8 +90,10 @@ public struct GlassSubmitLabel<Icon: View>: View {
 }
 
 extension GlassSubmitLabel where Icon == EmptyView {
-    public init(_ label: String, enabled: Bool = true, loading: Bool = false, pendingWord: String? = nil) {
-        self.init(label, enabled: enabled, loading: loading, pendingWord: pendingWord) { EmptyView() }
+    public init(
+        _ label: String, enabled: Bool = true, loading: Bool = false, pendingWord: String? = nil, compact: Bool = false
+    ) {
+        self.init(label, enabled: enabled, loading: loading, pendingWord: pendingWord, compact: compact) { EmptyView() }
     }
 }
 
@@ -96,6 +104,7 @@ public struct GlassSubmitButton: View {
     /// The progressive word while `loading` ("Starting", "Saving" —
     /// `FeedbackStates.Pending`); nil keeps the label.
     var pendingWord: String?
+    var compact: Bool = false
     let action: () -> Void
 
     public init(
@@ -103,23 +112,97 @@ public struct GlassSubmitButton: View {
         enabled: Bool = true,
         loading: Bool = false,
         pendingWord: String? = nil,
+        compact: Bool = false,
         action: @escaping () -> Void
     ) {
         self.label = label
         self.enabled = enabled
         self.loading = loading
         self.pendingWord = pendingWord
+        self.compact = compact
         self.action = action
     }
 
     public var body: some View {
         Button(action: action) {
-            GlassSubmitLabel(label, enabled: enabled, loading: loading, pendingWord: pendingWord)
+            GlassSubmitLabel(label, enabled: enabled, loading: loading, pendingWord: pendingWord, compact: compact)
                 .contentShape(Rectangle())
         }
         // EXP-1243: the face presses to 0.97.
         .buttonStyle(.pressScale)
         .disabled(!enabled || loading)
+    }
+}
+
+// MARK: - Destructive
+
+/// The pinned geometry of THE destructive button (web `Button
+/// variant="destructive" size="xs"`: h-6, px-1.5 beside a glyph, gap-1,
+/// text-xs, a 12px glyph, rounded-md).
+public enum DestructiveButtonTokens {
+    public static let height: CGFloat = 24
+    public static let horizontalPadding: CGFloat = 6
+    public static let spacing: CGFloat = 4
+    public static let glyph: CGFloat = 12
+    public static let radius: CGFloat = 6
+    /// `dark:bg-destructive/60`.
+    public static let fillOpacity: Double = 0.6
+}
+
+/// EXP-1554: THE destructive action (Delete agent / app / team / account),
+/// one recipe ×4: the filled `destructive` fill at 60 %, white label, a
+/// leading `ui-delete` glyph, small, hugging its label. Never full-width,
+/// never a red text row, never a tinted chip. The host places it (under the
+/// form left-aligned, or trailing in a Danger zone row).
+public struct DestructiveButton: View {
+    let label: String
+    var icon: String = AppIcons.uiDelete
+    var enabled: Bool = true
+    var loading: Bool = false
+    let action: () -> Void
+
+    public init(
+        _ label: String,
+        icon: String = AppIcons.uiDelete,
+        enabled: Bool = true,
+        loading: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.label = label
+        self.icon = icon
+        self.enabled = enabled
+        self.loading = loading
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            HStack(spacing: DestructiveButtonTokens.spacing) {
+                if loading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                        .frame(width: DestructiveButtonTokens.glyph, height: DestructiveButtonTokens.glyph)
+                } else {
+                    AppIcon(icon, size: DestructiveButtonTokens.glyph)
+                }
+                Text(label)
+                    .lineLimit(1)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, DestructiveButtonTokens.horizontalPadding)
+            .frame(height: DestructiveButtonTokens.height)
+            .background(
+                DesignTokens.Palette.destructive.opacity(DestructiveButtonTokens.fillOpacity),
+                in: RoundedRectangle(cornerRadius: DestructiveButtonTokens.radius)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: DestructiveButtonTokens.radius))
+            .opacity(enabled ? 1 : 0.5)
+        }
+        .buttonStyle(.pressScale)
+        .disabled(!enabled || loading)
+        .fixedSize()
     }
 }
 
@@ -166,7 +249,7 @@ public struct GlassOAuthButton<Icon: View>: View {
 /// — an on switch is a `primaryForeground` (near-black) thumb on a `primary`
 /// (near-white) track. The system `.switch` style can only tint the TRACK and
 /// always paints a white thumb, so tinting it `primary` gave white-on-white
-/// with no contrast. Off is the glass fill + hairline with a muted thumb.
+/// with no contrast. Off is the glass fill + hairline with a white thumb (EXP-1554, web parity).
 /// Geometry matches UISwitch (51×31, 27pt thumb). Applied app-wide from the
 /// root (`.toggleStyle(.glass)`), so `Toggle` call sites stay stock; a hidden
 /// label host adds `.fixedSize()` to keep the toggle from claiming row width.
@@ -212,7 +295,7 @@ public struct GlassToggleStyle: ToggleStyle {
             thumbSize: 27,
             trackOn: DesignTokens.Palette.primary,
             trackOff: GlassTokens.fillCard,
-            thumb: DesignTokens.Palette.mutedForeground,
+            thumb: DesignTokens.Palette.foreground,
             thumbOn: DesignTokens.Palette.primaryForeground,
             trackStroke: GlassTokens.strokeCard,
             trackStrokeOn: nil,

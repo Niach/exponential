@@ -833,7 +833,7 @@ export function AgentSettingsPage({
             <div className="flex flex-wrap gap-2 pt-2">
               <Button
                 variant="destructive"
-                size="sm"
+                size="xs"
                 onClick={() => setDeleteOpen(true)}
                 data-testid="agent-delete"
               >
