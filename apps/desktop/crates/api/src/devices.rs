@@ -676,7 +676,7 @@ pub fn create_agent_login_command(
 /// EXP-1533 — `devices.createCommand` for a LONG-LIVED claude login on one
 /// of the caller's own machines: the same `agent_login` (link + code
 /// hand-off), flagged `longLived`, so the machine runs `claude setup-token`
-/// and keeps the one-year token it prints. EXP-1612: `profile_id` = that
+/// and keeps the one-year token it prints. EXP-1600: `profile_id` = that
 /// profile's login; `None` = a long-lived "Add account" (claude's default
 /// sign-in), which the machine adopts as a new profile.
 pub fn create_long_lived_login_command(
@@ -1350,7 +1350,7 @@ mod tests {
         assert!(request.ends_with(
             r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","profileId":"0a1b2c3d","longLived":true}"#
         ));
-        // EXP-1612: a long-lived Add names no profile.
+        // EXP-1600: a long-lived Add names no profile.
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-add"}}}"#);
         let created = create_long_lived_login_command(&client(&base), "dev-1", None).unwrap();
         assert_eq!(created.id, "cmd-add");

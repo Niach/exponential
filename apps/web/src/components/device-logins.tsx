@@ -155,7 +155,7 @@ export function DeviceAccountIcons({
 }
 
 /** The hover card pill a login item's action reads (devices-list.json):
- *  `sign_in`, or EXP-1612's switch / renew of the long-lived claude login.
+ *  `sign_in`, or EXP-1600's switch / renew of the long-lived claude login.
  *  Every one opens the same sign-in: claude's is long-lived by default. */
 export function loginActionLabel(item: LoginAttention): string {
   if (item.action !== `keep_signed_in`) return DEVICES_LIST_COPY.signIn

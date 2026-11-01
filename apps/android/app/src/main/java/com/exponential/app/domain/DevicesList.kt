@@ -32,7 +32,7 @@ object DevicesList {
         const val SETTINGS = "Device settings"
         const val REMOVE_FROM_TEAM = "Remove from this team"
         const val MORE_ACCOUNTS = "More accounts"
-        /** EXP-1612: Keep signed in (the long-lived claude login) is the default. */
+        /** EXP-1600: Keep signed in (the long-lived claude login) is the default. */
         const val RENEW_SOON = "{label} · Keep signed in ends soon"
         const val SWITCH_PROMPT = "{label} · Switch to Keep signed in"
         const val SWITCH_TO_KEEP_SIGNED_IN = "Switch to Keep signed in"
@@ -96,13 +96,13 @@ object DevicesList {
         NeedsRelogin("needs_relogin"),
         SignedOut("signed_out"),
         Limit("limit"),
-        /** EXP-1612: the long-lived login ends within [KeepSignedIn.RENEW_WITHIN_DAYS]. */
+        /** EXP-1600: the long-lived login ends within [KeepSignedIn.RENEW_WITHIN_DAYS]. */
         Renew("renew"),
-        /** EXP-1612: a claude login made before Keep signed in became the default. */
+        /** EXP-1600: a claude login made before Keep signed in became the default. */
         Switch("switch"),
     }
 
-    /** EXP-1612: the Keep signed in reminder window (`fixture.keepSignedIn`). */
+    /** EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`). */
     object KeepSignedIn {
         const val RENEW_WITHIN_DAYS = 30
     }
@@ -115,7 +115,7 @@ object DevicesList {
     private fun isoMs(iso: String): Long? =
         runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull()
 
-    /** EXP-1612: a long-lived claude login due for renewal at [now] (ISO): its
+    /** EXP-1600: a long-lived claude login due for renewal at [now] (ISO): its
      *  token ends within [KeepSignedIn.RENEW_WITHIN_DAYS] days, or already ended.
      *  An unparseable stamp counts as due. */
     fun keepSignedInDue(tokenExpiresAt: String, now: String): Boolean {
@@ -166,7 +166,7 @@ object DevicesList {
         val health: AgentHealth,
         /** EXP-1560: a fresh usage window at ≥ 100% ([limitHit]). */
         val limitHit: Boolean = false,
-        /** EXP-1612: when the profile's long-lived claude login ends (ISO); null = none. */
+        /** EXP-1600: when the profile's long-lived claude login ends (ISO); null = none. */
         val tokenExpiresAt: String? = null,
     )
 
@@ -186,7 +186,7 @@ object DevicesList {
         val accountsReported: Boolean,
         /** Every login PROFILE it reported; an agent with none adds nothing. */
         val logins: List<DeviceListLogin>,
-        /** EXP-1612: the clock the renewal reminder reads (ISO). */
+        /** EXP-1600: the clock the renewal reminder reads (ISO). */
         val now: String,
     )
 
@@ -239,7 +239,7 @@ object DevicesList {
                 status = Status.Limit,
             )
         }
-        // EXP-1612: the yearly renewal reminder, then the switch prompt for a
+        // EXP-1600: the yearly renewal reminder, then the switch prompt for a
         // claude login made before Keep signed in became the default.
         if (input.mine) {
             fun quiet(login: DeviceListLogin) =

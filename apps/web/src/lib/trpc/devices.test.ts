@@ -2517,7 +2517,7 @@ describe(`devices.createCommand — agent_login`, () => {
     })
   })
 
-  // EXP-1612: Keep signed in is the default claude sign-in, an Add too.
+  // EXP-1600: Keep signed in is the default claude sign-in, an Add too.
   it(`carries longLived for a claude Add account (no profile)`, async () => {
     h.state.selectQueue = [...capableProbe(), []]
     h.state.insertReturning = [[{ id: `cmd-ll-add` }]]

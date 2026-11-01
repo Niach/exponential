@@ -37,7 +37,7 @@
 //! one-year token it prints is scraped off the grid and stored in the
 //! profile, and the tab closes on a clean exit. Nothing commits by email.
 //!
-//! EXP-1612: Keep signed in is claude's DEFAULT sign-in. Every claude
+//! EXP-1600: Keep signed in is claude's DEFAULT sign-in. Every claude
 //! sign-in started here (Add account, Sign in, the menu; a tab on this
 //! machine or the dialog for another of mine) is long-lived; an Add runs
 //! `claude setup-token` in a fresh staging dir whose token makes it a NEW
@@ -161,7 +161,7 @@ struct RemoteLogin {
 /// Open a login tab for `agent` on this machine. `intended` = the profile
 /// the person clicked "Sign in" on (`None` = "Add account"); for a browser
 /// login it only decides whether a login that lands on ANOTHER known email
-/// warns. EXP-1612: claude signs in long-lived by default.
+/// warns. EXP-1600: claude signs in long-lived by default.
 pub(crate) fn open_login_tab(agent: CodingAgent, intended: Option<String>, cx: &mut App) {
     open_login_tab_as(agent, intended, agent == CodingAgent::Claude, cx);
 }
@@ -304,7 +304,7 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
 /// EXP-1533 — the long-lived claude login of `profile` on THIS machine:
 /// `claude setup-token` in the profile's dir, in a login tab like any
 /// sign-in (`remote` = answer that `agent_login` command with the link).
-/// EXP-1612: `profile: None` = a long-lived Add, run in a fresh staging dir
+/// EXP-1600: `profile: None` = a long-lived Add, run in a fresh staging dir
 /// that becomes a new profile once the token is in.
 fn start_long_lived(profile: Option<String>, remote: Option<RemoteLogin>, cx: &mut App) {
     let agent = CodingAgent::Claude;
@@ -358,7 +358,7 @@ struct LoginRun {
     settings: coding::Settings,
     /// The fresh dir the CLI signs in inside; committed (or dropped) on
     /// finish. `None` for a long-lived run of a profile (it runs in the
-    /// profile's dir); a long-lived Add has one (EXP-1612).
+    /// profile's dir); a long-lived Add has one (EXP-1600).
     staging: Option<PathBuf>,
     /// The profile the person clicked "Sign in" on (`None` = Add account);
     /// a long-lived run's profile.
@@ -450,7 +450,7 @@ impl LoginRun {
 
     /// EXP-1533: store the token the run printed in its profile (whatever
     /// the exit said: a printed token is a minted one) and re-probe.
-    /// EXP-1612: a long-lived Add's token makes its staging dir a new
+    /// EXP-1600: a long-lived Add's token makes its staging dir a new
     /// profile; no token drops the staging dir.
     fn finish_long_lived(&self, cx: &mut App) {
         let agent = self.agent;
@@ -613,7 +613,7 @@ fn spawn_login_tab(plan: coding::LoginPlan, run: LoginRun, cx: &mut App) {
                 }
             })
             .detach();
-            // EXP-1612: a local claude sign-in says its trade-off and
+            // EXP-1600: a local claude sign-in says its trade-off and
             // offers the other mode for the SAME target (the dialog's note
             // and ghost button; a tab has no dialog, so its toast does).
             if run.remote.is_none() && agent == CodingAgent::Claude {
@@ -792,7 +792,7 @@ fn complete(command_id: &str, ok: bool, message: String, cx: &mut App) {
         .detach();
 }
 
-/// EXP-1612 — a claude sign-in's trade-off line and the label of the
+/// EXP-1600 — a claude sign-in's trade-off line and the label of the
 /// button that switches to the other mode (devices-list.json `copy`).
 fn login_mode_copy(long_lived: bool) -> (&'static str, &'static str) {
     if long_lived {
@@ -802,7 +802,7 @@ fn login_mode_copy(long_lived: bool) -> (&'static str, &'static str) {
     }
 }
 
-/// EXP-1612 — the dialog re-queues a refused long-lived Add ONCE as the
+/// EXP-1600 — the dialog re-queues a refused long-lived Add ONCE as the
 /// browser login: the device is an older build that knows long-lived
 /// logins only on an existing profile.
 fn falls_back_to_browser(
@@ -922,7 +922,7 @@ pub(crate) fn sign_in_on_device(
         open_login_tab(agent, intended, cx);
         return;
     }
-    // EXP-1612: claude signs in long-lived by default.
+    // EXP-1600: claude signs in long-lived by default.
     let long_lived = agent == CodingAgent::Claude;
     open_login_dialog(device_id, device_label, agent, intended, long_lived, window, cx);
 }
@@ -1062,7 +1062,7 @@ pub(crate) fn open_login_dialog(
     } else {
         format!("Sign in to {}", agent.label())
     };
-    // EXP-1612: claude's dialog carries its mode line + button too.
+    // EXP-1600: claude's dialog carries its mode line + button too.
     let height = if agent == CodingAgent::Claude { 240. } else { 180. };
     let spec = native_dialog::DialogSpec::new(title, size(px(460.), px(height)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
@@ -1084,7 +1084,7 @@ struct LoginDialogView {
     /// `intended` (an Add when `None`). Claude's default; the ghost button
     /// flips it and re-queues.
     long_lived: bool,
-    /// EXP-1612: this dialog already re-queued a refused long-lived Add as
+    /// EXP-1600: this dialog already re-queued a refused long-lived Add as
     /// the browser login (it does so once).
     fell_back: bool,
     state: LoginDialogState,
@@ -1272,7 +1272,7 @@ impl LoginDialogView {
                 }
                 let state = login_dialog_result(&row);
                 let _ = this.update_in(cx, |this, window, cx| {
-                    // EXP-1612: an older device refused the long-lived Add:
+                    // EXP-1600: an older device refused the long-lived Add:
                     // re-queue it ONCE as the browser login, quietly.
                     if let LoginDialogState::Failed(message) = &state {
                         if this.attempt == attempt
@@ -1615,7 +1615,7 @@ impl Render for LoginDialogView {
         // pending line, the link, an error line and a caption that all said
         // the same thing in turn; what a reader needs is the one fact that is
         // true right now.
-        // EXP-1612: claude's dialog adds its mode's trade-off as ONE muted
+        // EXP-1600: claude's dialog adds its mode's trade-off as ONE muted
         // line, and the other mode as a ghost text button that re-queues
         // the SAME target. Codex has neither.
         let mode = (self.agent == CodingAgent::Claude && self.state != LoginDialogState::SignedIn)
@@ -1877,7 +1877,7 @@ mod tests {
         }
     }
 
-    /// EXP-1612: the mode line + button copy is the fixture's, and only a
+    /// EXP-1600: the mode line + button copy is the fixture's, and only a
     /// long-lived ADD refused with `copy.longLivedRefused` falls back, once.
     #[test]
     fn a_refused_long_lived_add_falls_back_to_the_browser_login_once() {

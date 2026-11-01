@@ -49,7 +49,7 @@ class DevicesListTest {
         assertEquals(int("iconSize"), DevicesList.Card.ICON_SIZE)
         assertEquals(int("markSize"), DevicesList.Card.MARK_SIZE)
         assertEquals(int("maxAccountIcons"), DevicesList.Card.MAX_ACCOUNT_ICONS)
-        // EXP-1612: the Keep signed in reminder window.
+        // EXP-1600: the Keep signed in reminder window.
         assertEquals(
             fixture.getValue("keepSignedIn").jsonObject.getValue("renewWithinDays").jsonPrimitive.content.toInt(),
             DevicesList.KeepSignedIn.RENEW_WITHIN_DAYS,
@@ -126,7 +126,7 @@ class DevicesListTest {
         }
     }
 
-    // EXP-1612: the reminder's boundary — exactly 30 days out is due, 31 is not,
+    // EXP-1600: the reminder's boundary — exactly 30 days out is due, 31 is not,
     // past is due, and an unreadable stamp counts as due.
     @Test
     fun keepSignedInDueBoundary() {

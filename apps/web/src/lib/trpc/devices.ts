@@ -106,7 +106,7 @@ export const AGENT_IMPORT_REMOVED = `Import was removed: sign this account in on
 /** EXP-1533: a long-lived login names no claude profile (byte-identical to
  *  the device's `agent_login::LONG_LIVED_NEEDS_PROFILE`). */
 export const AGENT_LONG_LIVED_NEEDS_PROFILE = `A long-lived login needs a Claude account on this machine.`
-/** EXP-1612: a long-lived login for any agent but claude (byte-identical to
+/** EXP-1600: a long-lived login for any agent but claude (byte-identical to
  *  the device's `agent_login::LONG_LIVED_CLAUDE_ONLY`). */
 export const AGENT_LONG_LIVED_CLAUDE_ONLY = `A long-lived login is Claude only.`
 const deviceIdInput = z.string().min(1).max(128)
@@ -1426,7 +1426,7 @@ export const devicesRouter = router({
         // instead of silently turning into an Add account sign-in.
         import: z.boolean().optional(),
         // EXP-1533 `agent_login`: mint a one-year `claude setup-token` login
-        // instead of a browser login (claude only). EXP-1612: with no
+        // instead of a browser login (claude only). EXP-1600: with no
         // `profileId` too (an Add account): the default claude sign-in.
         longLived: z.boolean().optional(),
       })

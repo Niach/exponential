@@ -241,8 +241,8 @@ object AgentAccountsRows {
     const val ACTION_REMOVE = "Remove account"
 
     /**
-     * EXP-1533/EXP-1612: a claude login's long-lived sign-in (`claude
-     * setup-token`, one year; the DEFAULT claude sign-in since EXP-1612) —
+     * EXP-1533/EXP-1600: a claude login's long-lived sign-in (`claude
+     * setup-token`, one year; the DEFAULT claude sign-in since EXP-1600) —
      * "Switch to Keep signed in" until the row carries `tokenExpiresAt`, then
      * "Renew Keep signed in" (`devices-list.json` copy). The same remote
      * sign-in sheet as [ACTION_SIGN_IN], queuing `agent_login` with `longLived`.
@@ -257,7 +257,7 @@ object AgentAccountsRows {
      * EXP-862: what a login's chip menu offers, on a machine row or on an
      * account row — the SAME rule on every client, in this fixed order:
      *  - signed out, or a credential that expired here: a sign-in first;
-     *  - EXP-1612, a claude login that does NOT sign in: switch it to Keep
+     *  - EXP-1600, a claude login that does NOT sign in: switch it to Keep
      *    signed in (or renew the long-lived login it already holds) — a
      *    claude Sign in already IS Keep signed in;
      *  - EXP-1137, signed in: sign it out (the row stays);

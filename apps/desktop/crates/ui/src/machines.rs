@@ -248,7 +248,7 @@ const COPY_STATUS_RENEW: &str = "Keep signed in ends soon";
 const COPY_STATUS_SWITCH: &str = "Not kept signed in";
 const COPY_RENEW_SOON: &str = "{label} · Keep signed in ends soon";
 const COPY_SWITCH_PROMPT: &str = "{label} · Switch to Keep signed in";
-/// EXP-1612: Keep signed in, claude's default sign-in (the fixture's copy).
+/// EXP-1600: Keep signed in, claude's default sign-in (the fixture's copy).
 pub(crate) const COPY_SWITCH_TO_KEEP_SIGNED_IN: &str = "Switch to Keep signed in";
 pub(crate) const COPY_RENEW_KEEP_SIGNED_IN: &str = "Renew Keep signed in";
 pub(crate) const COPY_KEEP_SIGNED_IN_NOTE: &str =
@@ -260,7 +260,7 @@ pub(crate) const COPY_USE_KEEP_SIGNED_IN: &str = "Use Keep signed in";
 /// An older device's refusal of a long-lived Add (its
 /// `LONG_LIVED_NEEDS_PROFILE`): the dialog falls back to the browser login.
 pub(crate) const COPY_LONG_LIVED_REFUSED: &str = "A long-lived login needs a Claude account on this machine.";
-/// EXP-1612: `fixture.keepSignedIn.renewWithinDays`.
+/// EXP-1600: `fixture.keepSignedIn.renewWithinDays`.
 pub(crate) const KEEP_SIGNED_IN_RENEW_WITHIN_DAYS: i64 = 30;
 pub(crate) const COPY_DEVICE_ACTIONS: &str = "Device actions";
 pub(crate) const COPY_SETTINGS: &str = DEVICE_SETTINGS;
@@ -277,7 +277,7 @@ pub(crate) struct DeviceListLogin {
     pub(crate) health: coding::agent_accounts::Health,
     /// EXP-1560: a fresh usage window at ≥ 100 % ([`limit_hit`]).
     pub(crate) limit_hit: bool,
-    /// EXP-1612: when the profile's long-lived claude login ends (ISO);
+    /// EXP-1600: when the profile's long-lived claude login ends (ISO);
     /// `None` = it holds none.
     pub(crate) token_expires_at: Option<String>,
 }
@@ -299,7 +299,7 @@ pub(crate) struct DeviceListInput {
     pub(crate) accounts_reported: bool,
     /// Every login PROFILE it reported; an agent with none adds nothing.
     pub(crate) logins: Vec<DeviceListLogin>,
-    /// EXP-1612: the clock the renewal reminder reads.
+    /// EXP-1600: the clock the renewal reminder reads.
     pub(crate) now: chrono::DateTime<chrono::Utc>,
 }
 
@@ -310,9 +310,9 @@ pub(crate) enum LoginStatus {
     NeedsRelogin,
     SignedOut,
     Limit,
-    /// EXP-1612: the long-lived login ends within the renewal window.
+    /// EXP-1600: the long-lived login ends within the renewal window.
     Renew,
-    /// EXP-1612: a claude login made before Keep signed in was the default.
+    /// EXP-1600: a claude login made before Keep signed in was the default.
     Switch,
 }
 
@@ -357,7 +357,7 @@ pub(crate) enum AttentionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AttentionAction {
     SignIn,
-    /// EXP-1612: the long-lived sign-in of that claude profile (renew, or
+    /// EXP-1600: the long-lived sign-in of that claude profile (renew, or
     /// switch a browser login over).
     KeepSignedIn,
     Update,
@@ -378,7 +378,7 @@ impl AttentionAction {
     }
 }
 
-/// EXP-1612 (web `keepSignedInDue`): a long-lived claude login due for
+/// EXP-1600 (web `keepSignedInDue`): a long-lived claude login due for
 /// renewal at `now` — its token ends within the renewal window, or already
 /// ended. An unreadable expiry is due.
 pub(crate) fn keep_signed_in_due(token_expires_at: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
@@ -412,7 +412,7 @@ pub(crate) struct DeviceListRow {
 /// iOS / Android `DevicesList`) and replayed against every case of
 /// `devices-list.json`. Items in order: every `needs_relogin` login, every
 /// `signed_out` login, every OTHER login at its limit (never an action),
-/// then (own devices, EXP-1612) every OTHER claude login whose long-lived
+/// then (own devices, EXP-1600) every OTHER claude login whose long-lived
 /// login is due for renewal, then every OTHER claude login holding none
 /// (both `keep_signed_in`, actionable on my online device), then the update
 /// line (the caller's own device only). A login yields at
@@ -451,7 +451,7 @@ pub(crate) fn device_attention(input: &DeviceListInput) -> DeviceListRow {
             action: None,
         });
     }
-    // EXP-1612: the yearly renewal reminder, then the switch prompt for a
+    // EXP-1600: the yearly renewal reminder, then the switch prompt for a
     // claude login made before Keep signed in became the default.
     if input.mine {
         let quiet = |login: &DeviceListLogin| {
@@ -1026,7 +1026,7 @@ impl MachinesSection {
                         continue;
                     };
                     // `sign_in` = THE sign-in (claude: Keep signed in);
-                    // EXP-1612 `keep_signed_in` = switch / renew that
+                    // EXP-1600 `keep_signed_in` = switch / renew that
                     // profile's long-lived login.
                     let sign_in = item.action.map(|action| {
                         let agent = coding::CodingAgent::parse(agent);

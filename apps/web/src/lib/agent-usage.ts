@@ -819,7 +819,7 @@ export function refreshAllowedAt(
   return next > now.getTime() ? new Date(next) : null
 }
 
-/** EXP-1612: Keep signed in (`claude setup-token`, one year, no refresh grant
+/** EXP-1600: Keep signed in (`claude setup-token`, one year, no refresh grant
  *  to lose) is the DEFAULT claude sign-in on every client and the MCP;
  *  `longLived: false` asks for the refresh-grant browser login (Advanced).
  *  Every other agent has no setup-token. Hand-mirrored ×4. */

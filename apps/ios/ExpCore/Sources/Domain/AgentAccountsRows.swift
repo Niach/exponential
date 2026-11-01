@@ -328,7 +328,7 @@ public enum AgentAccountsRows {
         row.signedIn
     }
 
-    /// EXP-1533/EXP-1612: the chip menu's long-lived entry, right after
+    /// EXP-1533/EXP-1600: the chip menu's long-lived entry, right after
     /// "Sign in" — a claude login only (the one agent with a `setup-token`),
     /// and only when the menu does NOT sign it in (that Sign in already is
     /// Keep signed in): "Switch to Keep signed in" without a token, "Renew

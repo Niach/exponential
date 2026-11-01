@@ -30,12 +30,12 @@ struct AgentLoginTarget: Identifiable {
     /// The login whose Sign in was tapped (the INTENDED profile); nil = "Add
     /// account". It only decides whether the landing is a duplicate.
     var profileId: String? = nil
-    /// EXP-1612: the refresh-grant browser login instead of the default — the
+    /// EXP-1600: the refresh-grant browser login instead of the default — the
     /// sheet's "Use browser login (Advanced)" (or the one fallback when an
     /// older device refuses a long-lived Add).
     var browserLogin = false
 
-    /// EXP-1533/EXP-1612: a claude sign-in is the long-lived `claude
+    /// EXP-1533/EXP-1600: a claude sign-in is the long-lived `claude
     /// setup-token` login BY DEFAULT (Add account, Sign in, Switch, Renew):
     /// the queued `agent_login` mints a one-year login. Codex has no
     /// setup-token.
@@ -75,10 +75,10 @@ struct AgentLoginSheet: View {
     /// Every profile's `lastLoginAt` when the command was queued — what a
     /// landing is measured against (`AgentAccountsRows.loginLanding`).
     @State private var baseline: [String: String]?
-    /// EXP-1612: the mode the sheet switched to (the ghost button, or the
+    /// EXP-1600: the mode the sheet switched to (the ghost button, or the
     /// one browser fallback); nil = the target's own.
     @State private var browserOverride: Bool?
-    /// EXP-1612: an Add the device refused long-lived re-queues ONCE.
+    /// EXP-1600: an Add the device refused long-lived re-queues ONCE.
     @State private var fellBack = false
 
     /// The target as currently queued, in its current mode.
@@ -148,7 +148,7 @@ struct AgentLoginSheet: View {
         return "\(agent) on \(target.deviceLabel)"
     }
 
-    /// EXP-1612: claude only — ONE muted line saying the trade-off of the
+    /// EXP-1600: claude only — ONE muted line saying the trade-off of the
     /// current mode, and a ghost text button re-queuing the SAME target in
     /// the other mode. Codex: neither.
     @ViewBuilder
@@ -291,7 +291,7 @@ struct AgentLoginSheet: View {
             pendingLogin = false
             switch outcome {
             case let .done(result): loginResult = result
-            // EXP-1612: an older device refuses a long-lived Add: re-queue
+            // EXP-1600: an older device refuses a long-lived Add: re-queue
             // ONCE as the browser login.
             case let .failed(message)
                 where queued.longLived && queued.profileId == nil && !fellBack

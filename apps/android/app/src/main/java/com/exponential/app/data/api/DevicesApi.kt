@@ -348,7 +348,7 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
  * tell a duplicate apart. Absent = "Add account".
  *
  * EXP-1533: [longLived] (claude) mints a one-year `claude setup-token` login
- * through the same link + code flow. EXP-1612: the DEFAULT claude sign-in,
+ * through the same link + code flow. EXP-1600: the DEFAULT claude sign-in,
  * an Add (no [profileId]) included.
  */
 fun agentLoginCommand(

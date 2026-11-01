@@ -173,7 +173,7 @@ pub struct LoginRequest {
     pub target: LoginTarget,
     /// EXP-1533: `longLived: "true"` — mint a `claude setup-token` instead
     /// of a browser login (claude only: [`parse_login_payload`] refuses
-    /// anything else). EXP-1612: on a profile it lands there; on an Add it
+    /// anything else). EXP-1600: on a profile it lands there; on an Add it
     /// becomes a NEW profile ([`long_lived_add_plan`]).
     pub long_lived: bool,
 }
@@ -187,10 +187,10 @@ pub const MALFORMED_PAYLOAD: &str = "Malformed command payload.";
 /// the ambient login rotated, so the profile's copy died; it is gone.
 pub const IMPORT_REMOVED: &str = "Import was removed: sign this account in on this device instead.";
 /// EXP-1533: a `longLived` login names no claude profile of this machine.
-/// Unchanged text (EXP-1612): an older device refuses a long-lived Add with
+/// Unchanged text (EXP-1600): an older device refuses a long-lived Add with
 /// it, and clients fall back to the browser login on exactly this sentence.
 pub const LONG_LIVED_NEEDS_PROFILE: &str = "A long-lived login needs a Claude account on this machine.";
-/// EXP-1612: a `longLived` login for an agent other than claude.
+/// EXP-1600: a `longLived` login for an agent other than claude.
 pub const LONG_LIVED_CLAUDE_ONLY: &str = "A long-lived login is Claude only.";
 
 /// Parse an `agent_login` payload: `{agent, switch?: "true"|"false",
@@ -257,7 +257,7 @@ pub fn long_lived_plan(
     Ok(LoginPlan { spawn, title: command.title })
 }
 
-/// EXP-1612 — a long-lived "Add account": `claude setup-token` in a fresh
+/// EXP-1600 — a long-lived "Add account": `claude setup-token` in a fresh
 /// STAGING dir ([`begin_login`]); the caller keeps the dir and hands it to
 /// [`commit_setup_token_add`] with the scraped token, or to
 /// [`abandon_login`] when the run printed none. `Err` is the refusal sentence.
@@ -275,7 +275,7 @@ pub fn long_lived_add_plan(
     Ok((staging, LoginPlan { spawn, title: command.title }))
 }
 
-/// EXP-1612 — commit a long-lived Add: the scraped token goes into the
+/// EXP-1600 — commit a long-lived Add: the scraped token goes into the
 /// `staging` dir (0600), the dir BECOMES a new claude profile
 /// ([`agent_profiles::adopt_dir`]), its `lastLoginAt` is stamped with no
 /// email (a setup token names nobody) and its usage cache forgotten. Any
@@ -789,7 +789,7 @@ mod tests {
         .unwrap();
         assert!(parsed.long_lived);
         assert_eq!(parsed.target, LoginTarget::Profile("0badf00d".into()));
-        // EXP-1612: a long-lived Add is valid; codex never long-lives.
+        // EXP-1600: a long-lived Add is valid; codex never long-lives.
         let add = parse_login_payload(&serde_json::json!({"agent": "claude", "longLived": "true"}))
             .unwrap();
         assert_eq!(
@@ -849,7 +849,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-1612: a long-lived Add runs `claude setup-token` in a fresh
+    /// EXP-1600: a long-lived Add runs `claude setup-token` in a fresh
     /// staging dir; its token makes that dir a NEW profile (stamped, no
     /// email), and the staging dir is gone either way.
     #[test]

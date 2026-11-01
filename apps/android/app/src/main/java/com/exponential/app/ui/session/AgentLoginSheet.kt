@@ -63,7 +63,7 @@ internal data class AgentLoginTarget(
     val agent: String,
     val profileId: String? = null,
     /**
-     * EXP-1533/EXP-1612: the claude login's long-lived sign-in (`agent_login`
+     * EXP-1533/EXP-1600: the claude login's long-lived sign-in (`agent_login`
      * with `longLived`, `claude setup-token`) — the DEFAULT for every claude
      * sign-in (Add account included); the sheet's ghost button flips it to the
      * refresh-grant browser login. Codex has no setup-token: always false.
@@ -127,7 +127,7 @@ internal fun AgentLoginSheet(
         onDismiss()
     }
 
-    // EXP-1612: the mode this sheet queues — Keep signed in by default for
+    // EXP-1600: the mode this sheet queues — Keep signed in by default for
     // claude; the ghost button re-queues the SAME target in the other mode.
     var longLived by remember(target) { mutableStateOf(target.longLived) }
     // An older device refuses a long-lived Add: fall back to the browser
@@ -189,7 +189,7 @@ internal fun AgentLoginSheet(
                 },
             )
             CommandCaption(codeState)
-            // EXP-1612: claude says the trade-off in ONE muted line and offers
+            // EXP-1600: claude says the trade-off in ONE muted line and offers
             // the other mode as a ghost text button; codex has neither.
             if (keepsSignedIn) {
                 Spacer(Modifier.height(8.dp))
@@ -218,7 +218,7 @@ internal fun AgentLoginSheet(
     }
 }
 
-/** EXP-1612: an older device's refusal of a long-lived Add (`copy.longLivedRefused`). */
+/** EXP-1600: an older device's refusal of a long-lived Add (`copy.longLivedRefused`). */
 internal fun isLongLivedRefused(message: String?): Boolean =
     message?.trim() == DevicesList.Copy.LONG_LIVED_REFUSED
 

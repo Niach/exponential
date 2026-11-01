@@ -542,7 +542,7 @@ struct AgentsView: View {
 
     /// The sign-in sheet on ONE login (its icon's account menu): Sign in,
     /// Switch to / Renew Keep signed in alike — a claude sign-in is the
-    /// long-lived login by default (EXP-1612).
+    /// long-lived login by default (EXP-1600).
     private func signIn(_ device: SteerDevice, agent: String, profileId: String?) {
         loginTarget = AgentLoginTarget(
             deviceId: device.deviceId,

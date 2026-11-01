@@ -278,7 +278,7 @@ fun AgentsScreen(
                                             profileId = profileId,
                                         )
                                     },
-                                    // EXP-1533/EXP-1612: the same sheet, queuing a
+                                    // EXP-1533/EXP-1600: the same sheet, queuing a
                                     // long-lived login (Switch to / Renew Keep signed in).
                                     onKeepSignedIn = { row ->
                                         loginTarget = AgentLoginTarget(
@@ -614,7 +614,7 @@ private fun DeviceCard(
     onSignOutAccount: (AgentProfileUsageRow) -> Unit,
     /** Run the agent's own sign-in here (agent, profile) — the login sheet owns the flow. */
     onSignIn: (String, String?) -> Unit,
-    /** EXP-1612: a claude login's "Switch to Keep signed in" / "Renew Keep signed in". */
+    /** EXP-1600: a claude login's "Switch to Keep signed in" / "Renew Keep signed in". */
     onKeepSignedIn: (AgentProfileUsageRow) -> Unit = {},
     onAddAccount: () -> Unit,
     /** The ⋯ menu's Update: the existing update-now request. */

@@ -12,12 +12,12 @@ import fixture from "../fixtures/devices-list.json" with { type: "json" }
 export const DEVICES_LIST_COPY = fixture.copy
 /** EXP-1560: the card grid's geometry (`fixture.card`), ×4. */
 export const DEVICE_CARD = fixture.card
-/** EXP-1612: the Keep signed in reminder window (`fixture.keepSignedIn`). */
+/** EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`). */
 export const KEEP_SIGNED_IN = fixture.keepSignedIn
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-/** EXP-1612: a long-lived claude login that is due for renewal at `now`:
+/** EXP-1600: a long-lived claude login that is due for renewal at `now`:
  *  its token ends within `renewWithinDays` days, or already ended. */
 export function keepSignedInDue(tokenExpiresAt: string, now: string | Date): boolean {
   const expires = Date.parse(tokenExpiresAt)
@@ -51,7 +51,7 @@ export interface DeviceListLogin {
   health: DeviceLoginHealth
   /** EXP-1560: a fresh usage window at ≥ 100%. */
   limitHit?: boolean
-  /** EXP-1612: when the profile's long-lived claude login ends (ISO); absent
+  /** EXP-1600: when the profile's long-lived claude login ends (ISO); absent
    *  = it holds none. */
   tokenExpiresAt?: string | null
 }
@@ -72,7 +72,7 @@ export interface DeviceListInput {
   accountsReported: boolean
   /** Every login PROFILE it reported; an agent with none adds nothing. */
   logins: readonly DeviceListLogin[]
-  /** EXP-1612: the clock the renewal reminder reads (ISO). */
+  /** EXP-1600: the clock the renewal reminder reads (ISO). */
   now: string
 }
 
@@ -127,7 +127,7 @@ export function deviceListRow(input: DeviceListInput): DeviceListRow {
       status: `limit`,
     })
   }
-  // EXP-1612: the yearly renewal reminder, then the switch prompt for a
+  // EXP-1600: the yearly renewal reminder, then the switch prompt for a
   // claude login made before Keep signed in became the default.
   if (input.mine) {
     const quiet = (login: DeviceListLogin) =>

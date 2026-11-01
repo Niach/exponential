@@ -54,7 +54,7 @@
 //! hand-off, then the one-year token it prints is scraped off the grid and
 //! stored in the profile ([`agent_login::store_setup_token`]). Nothing is
 //! committed by email, and the command's result never carries the token.
-//! EXP-1612: `longLived` with NO `profileId` is a long-lived Add (claude's
+//! EXP-1600: `longLived` with NO `profileId` is a long-lived Add (claude's
 //! default sign-in): `claude setup-token` in a fresh staging dir, whose
 //! token then makes that dir a NEW profile
 //! ([`agent_login::commit_setup_token_add`]); no token = abandoned.
@@ -289,7 +289,7 @@ fn sign_in_long_lived(
     }
 }
 
-/// EXP-1612 — one remote long-lived "Add account": `claude setup-token` in
+/// EXP-1600 — one remote long-lived "Add account": `claude setup-token` in
 /// a fresh staging dir, driven like any sign-in; the token it printed makes
 /// that dir a new profile, no token abandons it. Returns the completion
 /// still owed, `None` when the command already completed with the link.
@@ -575,7 +575,7 @@ mod tests {
             parse_login_payload(&serde_json::json!({"agent": "claude", "import": "true"})),
             Err("Import was removed: sign this account in on this device instead.".to_string())
         );
-        // EXP-1612: a long-lived Add is a claude sign-in the host runs;
+        // EXP-1600: a long-lived Add is a claude sign-in the host runs;
         // codex refuses it.
         let add = parse_login_payload(&serde_json::json!({"agent": "claude", "longLived": "true"}))
             .unwrap();

@@ -1060,7 +1060,7 @@ impl ChipAction {
 /// in this fixed order:
 ///
 /// * a sign-in: signed out, or a credential that expired here;
-/// * EXP-1612, switch to / renew Keep signed in: claude only and only when
+/// * EXP-1600, switch to / renew Keep signed in: claude only and only when
 ///   it does NOT sign in (claude's sign-in already IS Keep signed in) —
 ///   `long_lived` is `Some(holds a token)` for a claude login, else `None`;
 /// * EXP-1137, sign out: signed in — the row stays;
@@ -1989,7 +1989,7 @@ mod tests {
             chip_actions(true, Health::NeedsRelogin, None),
             vec![ChipAction::SignIn, ChipAction::SignOut, ChipAction::Remove]
         );
-        // EXP-1612: a claude login that signs in signs in (claude's sign-in
+        // EXP-1600: a claude login that signs in signs in (claude's sign-in
         // IS Keep signed in); one that does not offers the switch, or the
         // renewal once it holds a long-lived login.
         assert_eq!(

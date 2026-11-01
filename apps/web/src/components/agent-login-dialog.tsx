@@ -17,7 +17,7 @@
 // whether or not the sign-in ever landed; a wait that never lands is now a
 // short error with a "Try again" that re-queues the login.
 //
-// EXP-1612: a claude sign-in is Keep signed in (`claude setup-token`, one
+// EXP-1600: a claude sign-in is Keep signed in (`claude setup-token`, one
 // year, no refresh grant) by default; one muted line says the trade-off and a
 // ghost text button switches to the browser login (Advanced) and back
 // (devices-list.json copy, ×4).
@@ -76,7 +76,7 @@ export interface AgentLoginTarget {
    *  account. Only the duplicate check reads it: the login lands on the
    *  profile whose email it signed in as. */
   profileId?: string
-  /** EXP-1533 / EXP-1612: a long-lived `claude setup-token` login. Absent =
+  /** EXP-1533 / EXP-1600: a long-lived `claude setup-token` login. Absent =
    *  claude's DEFAULT (long-lived); false = the browser login. Same dialog,
    *  same link + code. */
   longLived?: boolean
@@ -101,7 +101,7 @@ export function AgentLoginDialog({
     active: open,
   })
   const state = login.stateFor(agent)
-  // EXP-1612: the mode this open signs in with — claude starts long-lived,
+  // EXP-1600: the mode this open signs in with — claude starts long-lived,
   // the ghost button flips it (and re-queues), an older device's refusal of
   // a long-lived Add falls back to the browser login once.
   const [longLived, setLongLived] = useState(() =>
@@ -210,7 +210,7 @@ export function AgentLoginDialog({
     login.queueLogin(agent, false, { profileId: target?.profileId, longLived })
   }
 
-  // EXP-1612: flip between Keep signed in and the browser login; the queue
+  // EXP-1600: flip between Keep signed in and the browser login; the queue
   // effect re-queues on the new mode.
   const switchMode = () => {
     setTimedOut(false)

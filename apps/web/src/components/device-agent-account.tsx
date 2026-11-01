@@ -13,7 +13,7 @@
 //
 //   - "Sign in": signed out, or a credential that expired here.
 //   - "Switch to Keep signed in" / "Renew Keep signed in" (EXP-1533,
-//     EXP-1612): claude rows that do NOT need a sign-in — the machine runs
+//     EXP-1600): claude rows that do NOT need a sign-in — the machine runs
 //     `claude setup-token` in that profile and keeps a one-year login;
 //     "Renew" while the profile already holds one (`tokenExpiresAt`). A
 //     claude "Sign in" is that same long-lived login by default.
@@ -81,7 +81,7 @@ const LongLivedIcon = conceptIcon(`ui-clock`)
 /** The chip menu's entries, byte-identical ×4 (Android
  * `AgentAccountsRows.ACTION_*`). */
 export const ACTION_SIGN_IN = `Sign in`
-/** EXP-1533 / EXP-1612: a claude login's long-lived (`claude setup-token`)
+/** EXP-1533 / EXP-1600: a claude login's long-lived (`claude setup-token`)
  *  sign-in — "Switch" while it holds none, "Renew" while it does
  *  (devices-list.json copy, ×4). */
 export const ACTION_KEEP_SIGNED_IN = DEVICES_LIST_COPY.switchToKeepSignedIn
@@ -125,7 +125,7 @@ export interface AccountChipRow {
 }
 
 /** EXP-1533: the long-lived entry this row offers, or null (claude only).
- *  EXP-1612: a row that signs in has none — its "Sign in" IS the long-lived
+ *  EXP-1600: a row that signs in has none — its "Sign in" IS the long-lived
  *  login. */
 export function longLivedAction(row: AccountChipRow): string | null {
   if (row.agent !== `claude` || chipSignsIn(row)) return null
@@ -251,7 +251,7 @@ export function AccountChipMenu({
   /** Open the sign-in for THIS login (`AgentLoginDialogHost` lives at the
    *  route level; the caller owns the request so this module stays off the
    *  dialog's import graph). A claude sign-in is the long-lived `claude
-   *  setup-token` login by default (EXP-1612). */
+   *  setup-token` login by default (EXP-1600). */
   onSignIn: () => void
   /** A-16: the login's limits, drawn above the entries. */
   header?: ReactNode

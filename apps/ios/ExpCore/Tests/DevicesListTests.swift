@@ -73,7 +73,7 @@ final class DevicesListTests: XCTestCase {
         XCTAssertEqual(DevicesList.columns(width: 0), 1)
     }
 
-    /// EXP-1612: the renewal window matches the fixture.
+    /// EXP-1600: the renewal window matches the fixture.
     func testKeepSignedInMatchesTheFixture() throws {
         let keep = try XCTUnwrap(try fixture()["keepSignedIn"] as? [String: Any])
         XCTAssertEqual(keep["renewWithinDays"] as? Int, DevicesList.KeepSignedIn.renewWithinDays)

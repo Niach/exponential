@@ -84,7 +84,7 @@ class DevicesWireFormatTest {
             """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false,"profileId":"p-1","longLived":true}""",
             agentLoginCommand("dev-1", "claude", false, profileId = "p-1", longLived = true).toString(),
         )
-        // EXP-1612: Keep signed in is the default claude sign-in, an Add (no
+        // EXP-1600: Keep signed in is the default claude sign-in, an Add (no
         // profile) included.
         assertEquals(
             """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false,"longLived":true}""",

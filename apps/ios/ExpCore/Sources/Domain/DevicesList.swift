@@ -60,12 +60,12 @@ public enum DevicesList {
         public static let maxAccountIcons = 5
     }
 
-    /// EXP-1612: the Keep signed in reminder window (`fixture.keepSignedIn`).
+    /// EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`).
     public enum KeepSignedIn {
         public static let renewWithinDays = 30
     }
 
-    /// EXP-1612 `keepSignedInDue`: a long-lived claude login due for renewal
+    /// EXP-1600 `keepSignedInDue`: a long-lived claude login due for renewal
     /// at `now` — its token ends within `renewWithinDays` days, or already
     /// ended. An unreadable stamp is due.
     public static func keepSignedInDue(_ tokenExpiresAt: String, now: Date) -> Bool {
@@ -118,7 +118,7 @@ public enum DevicesList {
         public let health: AgentAccountHealth
         /// EXP-1560: a fresh usage window at ≥ 100% (`limitHit(_:now:)`).
         public let limitHit: Bool
-        /// EXP-1612: when the profile's long-lived claude login ends (ISO);
+        /// EXP-1600: when the profile's long-lived claude login ends (ISO);
         /// nil = it holds none.
         public let tokenExpiresAt: String?
 
@@ -166,7 +166,7 @@ public enum DevicesList {
         /// The machine sent its accounts at least once.
         public let accountsReported: Bool
         public let logins: [Login]
-        /// EXP-1612: the clock the renewal reminder reads.
+        /// EXP-1600: the clock the renewal reminder reads.
         public let now: Date
 
         public init(
@@ -210,15 +210,15 @@ public enum DevicesList {
         case needsRelogin = "needs_relogin"
         case signedOut = "signed_out"
         case limit
-        /// EXP-1612: the yearly renewal reminder.
+        /// EXP-1600: the yearly renewal reminder.
         case renew
-        /// EXP-1612: a claude login made before Keep signed in was the default.
+        /// EXP-1600: a claude login made before Keep signed in was the default.
         case switchPrompt = "switch"
     }
 
     public enum ItemAction: String, Equatable, Sendable {
         case signIn = "sign_in"
-        /// EXP-1612: the long-lived sign-in on that profile.
+        /// EXP-1600: the long-lived sign-in on that profile.
         case keepSignedIn = "keep_signed_in"
         case update
     }
@@ -264,7 +264,7 @@ public enum DevicesList {
 
     /// `deviceListRow`: dead credentials first, then signed-out logins, then
     /// every other login at its limit (never an action), then (own devices,
-    /// EXP-1612) every other claude login due for renewal, then every other
+    /// EXP-1600) every other claude login due for renewal, then every other
     /// claude login without a token, then the update line (own devices only).
     public static func row(_ input: Input) -> Row {
         var attention: [AttentionItem] = []
@@ -296,7 +296,7 @@ public enum DevicesList {
                 status: .limit
             ))
         }
-        // EXP-1612: the yearly renewal reminder, then the switch prompt for a
+        // EXP-1600: the yearly renewal reminder, then the switch prompt for a
         // claude login made before Keep signed in became the default.
         if input.mine {
             func quiet(_ login: Login) -> Bool {

@@ -1,4 +1,4 @@
-// EXP-1612: Keep signed in is the default claude sign-in — the mode rule
+// EXP-1600: Keep signed in is the default claude sign-in — the mode rule
 // and the hover card pill a login item's action reads.
 import { describe, expect, it } from "vitest"
 import { loginIsLongLived } from "@/lib/agent-usage"

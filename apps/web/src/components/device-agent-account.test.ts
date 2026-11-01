@@ -79,7 +79,7 @@ describe(`accountChipActions`, () => {
     ])
   })
 
-  // EXP-1612: a claude "Sign in" IS Keep signed in, so a row that signs in
+  // EXP-1600: a claude "Sign in" IS Keep signed in, so a row that signs in
   // has no second entry; a signed-in row offers the switch, or the renewal
   // while it holds a token.
   it(`offers claude's switch or renewal only when it does not sign in`, () => {

@@ -20,7 +20,7 @@ export interface DeviceAccountLoginInput {
   agent: string
   /** The login this sign-in is FOR (a re-login); absent = add an account. */
   profileId?: string
-  /** EXP-1533: a one-year `claude setup-token` login. EXP-1612: the claude
+  /** EXP-1533: a one-year `claude setup-token` login. EXP-1600: the claude
    *  DEFAULT (absent = true for claude); false = the browser login. */
   longLived?: boolean
   code?: string

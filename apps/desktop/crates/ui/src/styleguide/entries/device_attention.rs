@@ -70,7 +70,7 @@ fn login(
         checked_at: None,
         health,
         unmonitored: false,
-        // EXP-1612: every claude login keeps signed in (a far expiry), so
+        // EXP-1600: every claude login keeps signed in (a far expiry), so
         // only the specimen's dead login badges: no switch prompt.
         token_expires_at: (agent == "claude").then(|| "2099-01-01T00:00:00Z".to_string()),
     }

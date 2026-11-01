@@ -383,7 +383,7 @@ class AgentAccountsRowsTest {
         )
     }
 
-    // EXP-1612: a claude login that does not sign in offers the switch to
+    // EXP-1600: a claude login that does not sign in offers the switch to
     // Keep signed in (before "Sign out"), "Renew Keep signed in" once the row
     // carries an expiry; a claude Sign in already IS Keep signed in, so a
     // login that signs in offers no second entry. Codex never does.

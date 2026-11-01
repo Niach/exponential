@@ -315,7 +315,7 @@ class DeviceSettingsViewModel @Inject constructor(
             thing = "the sign-in",
             // The toast's Retry re-queues the SAME login (long-lived included).
             retry = { agentLogin(deviceId, agent, switchAccount, deviceOnline, profileId, longLived) },
-            // EXP-1612: an older device refusing a long-lived Add is no failure
+            // EXP-1600: an older device refusing a long-lived Add is no failure
             // to toast: the sign-in sheet re-queues it as the browser login.
             quiet = { longLived && profileId == null && isLongLivedRefused(it) },
         )

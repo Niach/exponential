@@ -405,7 +405,7 @@ final class AgentAccountsRowsTests: XCTestCase {
         )
     }
 
-    // EXP-1533/EXP-1612: a claude login the menu does not sign in offers the
+    // EXP-1533/EXP-1600: a claude login the menu does not sign in offers the
     // long-lived entry right after Sign in — "Switch to Keep signed in" until
     // its row carries `tokenExpiresAt`, then "Renew Keep signed in"
     // (byte-identical ×4). A login that signs in (its Sign in already is Keep

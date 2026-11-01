@@ -77,7 +77,7 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
     })
   })
 
-  // EXP-1612: Keep signed in is claude's default; false = the browser login;
+  // EXP-1600: Keep signed in is claude's default; false = the browser login;
   // codex never carries the flag.
   it(`defaults claude to the long-lived login, never codex`, async () => {
     const add = deps([{ status: `done`, result: URL_RESULT }])
