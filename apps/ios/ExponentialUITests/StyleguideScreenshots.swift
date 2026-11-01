@@ -490,26 +490,28 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.network,
             "No \(Self.demoDeviceName) row — is `bun run screenshots:desktop` running?"
         )
-        // A-16 (`devices-list.json`): nothing folds any more — a device is
-        // ONE line with its logins as chips, so the demo login is in frame
-        // straight away.
+        // EXP-1560 (`devices-list.json`): a device is ONE card in a grid,
+        // its logins as brand-mark icons (the email rides the icon's
+        // accessibility label), so the demo login is in frame straight away.
         expect(
             anyElement(app, containing: Self.demoAccountEmail),
             within: Wait.network,
-            "No \(Self.demoAccountEmail) login chip — is the stub device reporting agent accounts?"
+            "No \(Self.demoAccountEmail) login icon — is the stub device reporting agent accounts?"
         )
-        // A-16: the outdated demo desktop (the server's
-        // CLIENT_LATEST_VERSION_DESKTOP above its version) wears the attention
-        // icon; soft — an instance that advertises no latest build has none.
-        _ = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'device-attention-'"))
+        // EXP-1560 (the "Device card" entry): a login with an attention item
+        // wears the amber run-mark badge; soft — the demo logins may all be
+        // healthy. The outdated demo desktop's update line lives in its `⋯`.
+        _ = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'device-login-badge-'"))
             .firstMatch.waitForExistence(timeout: Wait.sync)
         // FEED-149: the demo user OWNS Acme, so the teammate's shared build
-        // server carries the owner's Remove in the gear's slot.
-        expect(
-            app.buttons["device-drop-share"].firstMatch,
-            within: Wait.sync,
-            "No Remove on the shared team device — is the demo user Acme's owner?"
+        // server's card carries a `⋯` (the owner's Remove from this team) —
+        // beside the demo user's own card's `⋯`.
+        let deviceActions = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'device-actions-'")
         )
+        expect(deviceActions.element(boundBy: 1), within: Wait.sync,
+               "No ⋯ on the shared team device — is the demo user Acme's owner?")
         snapshot("sg_agents", settle: 2)
 
         // ── sg_chat / sg_chat-issues: the home composer ─────────────────────
@@ -613,15 +615,20 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
 
         // ── sg_machine-settings: the device settings sheet ───────────────────
-        // EXP-909: a device row carries ONE control, the settings gear, and
-        // only on own registered machines — which is why the relay stub is a
-        // prerequisite. One tap, no menu hop.
-        let machineSettings = app.buttons["machine-settings"].firstMatch
+        // EXP-1560: Device settings is the own card's `⋯` item, and only on
+        // own registered machines — which is why the relay stub is a
+        // prerequisite. The first card is the demo user's own device.
+        let ownActions = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'device-actions-'")
+        ).firstMatch
         expect(
-            machineSettings,
+            ownActions,
             within: Wait.sync,
-            "No device settings gear — the stub device must be the demo user's OWN, registered machine"
+            "No ⋯ on the device card — the stub device must be the demo user's OWN, registered machine"
         )
+        ownActions.tap()
+        let machineSettings = app.buttons["machine-settings"].firstMatch
+        expect(machineSettings, within: Wait.nav, "No Device settings in the card's ⋯ menu")
         machineSettings.tap()
         let deviceSheet = anyElement(app, identified: "device-settings-sheet")
         expect(deviceSheet, within: Wait.nav, "Device settings sheet did not open")

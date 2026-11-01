@@ -847,7 +847,7 @@
       "id": "agents",
       "group": "coding",
       "title": "Devices",
-      "blurb": "The machines that can run a coding session (devices-list.json): one line per desktop or headless server, its agent logins as chips beside the name (limits on hover), one attention icon for whatever needs a fix (a dead login, an update) and the settings gear; offline machines sink under an Offline label. On a teammate's shared server, a team owner gets Remove instead of the gear.",
+      "blurb": "The machines that can run a coding session (devices-list.json, EXP-1560): a grid of device cards, one per desktop or headless server: name, version and status on top, a ⋯ overflow (the update, Device settings), and its agent logins as brand-mark icons along the bottom, the amber badge on a login that needs a fix (limits and Sign in on hover or tap); offline machines sink under an Offline label. On a teammate's shared server, a team owner gets Remove in the ⋯.",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/devices",

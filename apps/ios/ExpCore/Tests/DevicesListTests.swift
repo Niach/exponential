@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// A-16: the Devices page row, replayed ×4 against `devices-list.json`.
+// A-16 / EXP-1560: the Devices page card, replayed ×4 against `devices-list.json`.
 final class DevicesListTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -18,7 +18,13 @@ final class DevicesListTests: XCTestCase {
     }
 
     func testCopyMatchesTheFixture() throws {
-        let copy = try XCTUnwrap(try fixture()["copy"] as? [String: String])
+        var copy = try XCTUnwrap(try fixture()["copy"] as? [String: Any])
+        let status = try XCTUnwrap(copy.removeValue(forKey: "status") as? [String: String])
+        XCTAssertEqual(status, [
+            "needs_relogin": DevicesList.Copy.status(.needsRelogin),
+            "signed_out": DevicesList.Copy.status(.signedOut),
+            "limit": DevicesList.Copy.status(.limit),
+        ])
         let declared: [String: String] = [
             "mine": DevicesList.Copy.mine,
             "team": DevicesList.Copy.team,
@@ -26,15 +32,66 @@ final class DevicesListTests: XCTestCase {
             "noAccount": DevicesList.Copy.noAccount,
             "checking": DevicesList.Copy.checking,
             "addAccount": DevicesList.Copy.addAccount,
-            "attention": DevicesList.Copy.attention,
             "updateAvailable": DevicesList.Copy.updateAvailable,
             "updateQueued": DevicesList.Copy.updateQueued,
             "needsRelogin": DevicesList.Copy.needsRelogin,
             "signedOut": DevicesList.Copy.signedOut,
             "update": DevicesList.Copy.update,
             "signIn": DevicesList.Copy.signIn,
+            "limitReached": DevicesList.Copy.limitReached,
+            "deviceActions": DevicesList.Copy.deviceActions,
+            "settings": DevicesList.Copy.settings,
+            "removeFromTeam": DevicesList.Copy.removeFromTeam,
+            "moreAccounts": DevicesList.Copy.moreAccounts,
         ]
-        XCTAssertEqual(declared, copy)
+        XCTAssertEqual(declared, try XCTUnwrap(copy as? [String: String]))
+    }
+
+    /// EXP-1560: the card grid's geometry, and the column formula.
+    func testCardMatchesTheFixture() throws {
+        let card = try XCTUnwrap(try fixture()["card"] as? [String: Any])
+        XCTAssertEqual((card["minWidth"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.minWidth))
+        XCTAssertEqual((card["gap"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.gap))
+        XCTAssertEqual((card["padding"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.padding))
+        XCTAssertEqual((card["iconSize"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.iconSize))
+        XCTAssertEqual((card["markSize"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.markSize))
+        XCTAssertEqual(card["maxAccountIcons"] as? Int, DevicesList.Card.maxAccountIcons)
+        // A 390pt phone's section (16pt page padding each side) = 1 column.
+        XCTAssertEqual(DevicesList.columns(width: 358), 1)
+        XCTAssertEqual(DevicesList.columns(width: 1100), 4)
+        XCTAssertEqual(DevicesList.columns(width: 0), 1)
+    }
+
+    /// EXP-1560: `accountIcons` — five fit, a sixth folds behind `⋯`.
+    func testAccountIconsReplay() throws {
+        let cases = try XCTUnwrap(try fixture()["accountIcons"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any], name)
+            let expect = try XCTUnwrap(testCase["expect"] as? [String: Any], name)
+            let got = DevicesList.accountIcons(
+                count: try XCTUnwrap(input["count"] as? Int, name),
+                expanded: input["expanded"] as? Bool ?? false
+            )
+            XCTAssertEqual(got.visible, expect["visible"] as? Int, name)
+            XCTAssertEqual(got.more, expect["more"] as? Bool, name)
+        }
+    }
+
+    /// EXP-1560: `limitHit` reads FRESH windows only.
+    func testLimitHitNeedsAFreshFullWindow() {
+        let now = Date()
+        let iso = ISO8601DateFormatter()
+        let fresh = iso.string(from: now.addingTimeInterval(-60))
+        let old = iso.string(from: now.addingTimeInterval(-3600))
+        let full = [AgentUsageWindow(key: "session", label: "5h", percent: 100, resetsAt: nil)]
+        let half = [AgentUsageWindow(key: "session", label: "5h", percent: 50, resetsAt: nil)]
+        XCTAssertTrue(DevicesList.limitHit(AgentUsage(fetchedAt: fresh, windows: full), now: now))
+        XCTAssertFalse(DevicesList.limitHit(AgentUsage(fetchedAt: fresh, windows: half), now: now))
+        XCTAssertFalse(DevicesList.limitHit(AgentUsage(fetchedAt: old, windows: full), now: now))
+        XCTAssertFalse(DevicesList.limitHit(AgentUsage(fetchedAt: fresh, stale: true, windows: full), now: now))
+        XCTAssertFalse(DevicesList.limitHit(nil, now: now))
     }
 
     func testEveryCaseReplays() throws {
@@ -49,7 +106,8 @@ final class DevicesListTests: XCTestCase {
                     agent: login["agent"] as? String ?? "",
                     profileId: login["profileId"] as? String ?? "",
                     label: login["label"] as? String ?? "",
-                    health: AgentAccountHealth.parse(login["health"] as? String)
+                    health: AgentAccountHealth.parse(login["health"] as? String),
+                    limitHit: login["limitHit"] as? Bool ?? false
                 )
             }
             let row = DevicesList.row(DevicesList.Input(
@@ -73,6 +131,7 @@ final class DevicesListTests: XCTestCase {
                 XCTAssertEqual(got.action?.rawValue, want["action"] as? String, name)
                 XCTAssertEqual(got.agent, want["agent"] as? String, name)
                 XCTAssertEqual(got.profileId, want["profileId"] as? String, name)
+                XCTAssertEqual(got.status?.rawValue, want["status"] as? String, name)
             }
         }
     }

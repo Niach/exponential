@@ -344,7 +344,7 @@ pub struct DeviceEntry {
     #[serde(default)]
     pub owner: Option<DeviceOwner>,
     /// EXP-849: the machine's `agentAccounts` map, verbatim — the Devices row
-    /// lists its logins' health (A-16: `ui::machines::device_attention`, login
+    /// lists its logins' health (EXP-1560: `ui::machines::device_attention`, login
     /// PROFILES only), which is the one thing `agents`/`unauthed_agents` cannot express: a CLI
     /// that still names an account the provider has revoked is in neither
     /// list. Absent from `devices.list` (which never sent it); the desktop

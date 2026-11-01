@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-device-cards`,
+    date: `2026-11-01`,
+    title: `Devices as cards`,
+    summary: `The Devices page is a grid of cards, with each account as an icon you can hover or tap.`,
+    body: `- **Cards**: every device is a card with its name, version and status, and a ⋯ menu for its update and settings.
+- **Accounts**: logins show as Claude or Codex icons; an amber dot marks one that is signed out or at its limit, and hovering or tapping it shows the email, plan, usage limits and Sign in.`,
+  },
+  {
     id: `2026-11-01-thread-dock-child-tasks`,
     date: `2026-11-01`,
     title: `A child's tasks in the thread`,

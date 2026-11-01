@@ -646,31 +646,22 @@ async function recipePreviewDeviceLimits(page: Page): Promise<void> {
 }
 
 /**
- * Open a device's Device settings dialog from the Devices page. The gear only
- * renders for a REGISTERED device of the caller's own (my-machines.tsx), so
- * with no relay stub running there is no row and nothing to click.
- *
- * The gear's accessible name carries the device label, hence the prefix
- * match — it keeps the recipe working when the seed renames the device.
- * EXP-909 follow-up: the row's one control IS this gear (it was a ⋯ menu with
- * a "Device settings" entry), and from `md` up it is `opacity-0` until its row
- * is hovered — so hover the row first; below `md` it is force-visible.
+ * Open a device's Device settings dialog from the Devices page. The entry
+ * only exists for a REGISTERED device of the caller's own (my-machines.tsx),
+ * so with no relay stub running there is no card and nothing to click.
  */
 async function recipeOpenMachineSettings(page: Page): Promise<void> {
-  const gear = page.getByRole(`button`, { name: /^Device settings for/ })
-  if (!(await appears(gear, 30_000))) {
+  // EXP-1560: the card's ⋯ overflow carries "Device settings".
+  const more = page.locator(`[data-testid^="device-menu-"]`)
+  if (!(await appears(more, 30_000))) {
     throw new Error(
-      `no device settings gear under "My devices" — the row needs a ` +
+      `no device card ⋯ under "My devices" — the card needs a ` +
         `REGISTERED device of your own: run bun run screenshots:desktop (and ` +
         `set STEER_RELAY_URL)`
     )
   }
-  await page
-    .locator(`[data-slot="list-row"]`)
-    .filter({ has: gear })
-    .first()
-    .hover()
-  await gear.first().click()
+  await more.first().click()
+  await page.getByRole(`menuitem`, { name: `Device settings` }).first().click()
   await page.getByRole(`heading`, { name: `Device settings` }).waitFor({ timeout: 15_000 })
 }
 

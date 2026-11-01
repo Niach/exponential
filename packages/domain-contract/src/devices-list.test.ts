@@ -21,7 +21,7 @@ describe(`deviceCardAccountIcons`, () => {
   }
 })
 
-test(`deviceCardColumns: a 390pt phone gets 2, a narrow one 1`, () => {
-  expect(deviceCardColumns(358)).toBe(2)
-  expect(deviceCardColumns(300)).toBe(1)
+test(`deviceCardColumns: a portrait phone gets 1, landscape 2+`, () => {
+  expect(deviceCardColumns(358)).toBe(1)
+  expect(deviceCardColumns(1100)).toBe(4)
 })

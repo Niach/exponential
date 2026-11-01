@@ -2,27 +2,31 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// A-16 (`devices-list.json`): a machine's logins as ONE wrapping row of
-/// chips on its Devices row — brand mark + `loginLabel` (+ ` · plan` when the
-/// label is the email), in `sortDeviceLogins` order. Nothing folds and no
-/// warning is written on a chip: a login's trouble is the row's attention
-/// icon's business.
+/// EXP-1560 (`devices-list.json`): a device CARD's bottom row — its logins as
+/// ICONS ONLY, in `sortDeviceLogins` order: each a ghost icon button
+/// (`Card.iconSize`) holding the agent's brand mark (`Card.markSize`), the
+/// run-mark's amber `needs_input` badge on every login with a `login`
+/// attention item. Past `Card.maxAccountIcons` logins the first
+/// `maxAccountIcons - 1` show, then a ghost `⋯` (More accounts) reveals the
+/// rest in place.
 ///
-/// Touch: tapping a chip opens the account menu (Sign in / Keep signed in
-/// (claude, EXP-1533) / Sign out / Remove account — the existing chip rules, EXP-862/EXP-1137) with that login's
-/// limit bars at its top (the account picker's inline bars, EXP-992). A team
-/// device's chip previews (the bars alone) and never offers an action. Own,
-/// online rows with an agent to add end with a ghost `+` (Add account). A
-/// machine that reported accounts but holds no login says `No account`; one
-/// that never reported says `Checking…`.
+/// Touch: tapping an icon opens THE account menu (Sign in / Keep signed in
+/// (claude, EXP-1533) / Sign out / Remove account — the existing chip rules,
+/// EXP-862/EXP-1137) headed by the login: the email (else the label), the plan
+/// muted, the attention item's status line in warning tone, then the usage
+/// windows. A team device's icon opens the header alone (a preview, never an
+/// action). Own, online cards with an agent to add end with a ghost `+` (Add
+/// account). A machine that reported accounts but holds no login says
+/// `No account`; one that never reported says `Checking…`.
 struct DeviceLogins: View {
     let viewModel: AgentsViewModel
     let device: SteerDevice
-    /// The row's own derivation (`DevicesList.row`) — `noAccount` decides the
-    /// empty slot's wording.
+    /// The card's own derivation (`DevicesList.row`) — `noAccount` decides the
+    /// empty slot's wording, `attention` which icons wear the badge.
     let noAccount: Bool
-    /// A team device: the chips are a statement, never a control — no menus
-    /// and no "Add account".
+    let attention: [DevicesList.AttentionItem]
+    /// A team device: the icons preview, never act — no account actions and
+    /// no "Add account".
     var readOnly = false
     /// Sign this login in — the host opens `AgentLoginSheet` on it (the
     /// PROFILE rides along, so a re-login repairs the login that was tapped).
@@ -37,22 +41,37 @@ struct DeviceLogins: View {
 
     /// EXP-862: the device-bound "Add account" sheet (agent, then the login).
     @State private var addingAccount = false
+    /// EXP-1560: the `⋯` More accounts reveal (in place, per card).
+    @State private var expanded = false
 
     private var rows: [AgentProfileUsageRow] {
         viewModel.deviceLoginRows(device.deviceId)
     }
 
     var body: some View {
-        FlowLayout(spacing: 6) {
+        let rows = rows
+        let icons = DevicesList.accountIcons(count: rows.count, expanded: expanded)
+        FlowLayout(spacing: 4) {
             if rows.isEmpty {
                 emptyLine
             } else {
-                ForEach(rows) { row in
-                    chip(row)
+                ForEach(rows.prefix(icons.visible)) { row in
+                    loginIcon(row)
+                }
+                if icons.more {
+                    GhostIconButton(
+                        AppIcons.uiMore,
+                        accessibilityLabel: DevicesList.Copy.moreAccounts,
+                        size: DevicesList.Card.iconSize,
+                        glyphSize: AppIcon.Size.small
+                    ) {
+                        expanded = true
+                    }
+                    .accessibilityIdentifier("device-more-accounts-\(device.deviceId)")
                 }
             }
             if showsAddAccount {
-                addAccountChip
+                addAccountButton
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -66,92 +85,103 @@ struct DeviceLogins: View {
         Text(noAccount ? DevicesList.Copy.noAccount : DevicesList.Copy.checking)
             .font(.caption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .frame(height: 28)
+            .frame(height: DevicesList.Card.iconSize)
             .accessibilityIdentifier("device-logins-empty-\(device.deviceId)")
     }
 
     // MARK: - One login
 
-    @ViewBuilder
-    private func chip(_ row: AgentProfileUsageRow) -> some View {
-        let limits = AccountOptions.limits(row)
-        if isActionable(row) || limits != nil {
-            GlassMenu {
-                menuHeader(row, limits: limits)
-                if isActionable(row) {
-                    menuItems(row)
-                }
-            } label: {
-                chipLabel(row)
-            }
-            .accessibilityLabel(chipAccessibilityLabel(row))
-            .accessibilityIdentifier("device-login-chip-\(row.key)")
-        } else {
-            // Nothing to preview and nothing to do: the chip is a statement.
-            chipLabel(row)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(chipAccessibilityLabel(row))
-                .accessibilityIdentifier("device-login-chip-\(row.key)")
+    /// The login's attention item (at most one per login), if any.
+    private func item(_ row: AgentProfileUsageRow) -> DevicesList.AttentionItem? {
+        attention.first {
+            $0.kind == .login && $0.agent == row.agent && $0.profileId == row.profileId
         }
     }
 
-    /// The account picker trigger's capsule (`AccountPickerTriggerLabel`'s
-    /// chrome): brand mark, label, the muted plan tail when the label is the
-    /// email, and a spinner while a menu command is in flight.
-    private func chipLabel(_ row: AgentProfileUsageRow) -> some View {
-        HStack(spacing: 5) {
-            // EXP-849: resolved through the brand-mark helper — an agent id
-            // with no asset draws the neutral glyph, never a blank.
-            if let mark = AgentBrandMark.image(row.agent) {
-                mark
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 14, height: 14)
+    private func loginIcon(_ row: AgentProfileUsageRow) -> some View {
+        let item = item(row)
+        return GlassMenu {
+            menuHeader(row, item: item)
+            if isActionable(row) {
+                menuItems(row)
             }
-            Text(AgentAccountsRows.loginLabel(row))
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if row.email != nil, let plan = row.plan {
-                Text("· \(plan)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-            }
+        } label: {
+            iconLabel(row, badged: item != nil)
+        }
+        .accessibilityLabel(iconAccessibilityLabel(row, item: item))
+        .accessibilityIdentifier("device-login-\(row.key)")
+    }
+
+    /// The ghost icon button's face: the brand mark (EXP-849: resolved
+    /// through the brand-mark helper, never a blank), the run-mark's amber
+    /// `needs_input` badge top-right ringed in the card's ground, a spinner
+    /// while a menu command is in flight.
+    private func iconLabel(_ row: AgentProfileUsageRow, badged: Bool) -> some View {
+        ZStack {
             if viewModel.isAccountActionPending(row) {
                 ProgressView()
                     .controlSize(.mini)
                     .tint(.white)
-                    .accessibilityLabel("Working…")
+            } else {
+                BeatingAgentMark(agent: row.agent, beating: false)
+                    .frame(width: DevicesList.Card.markSize, height: DevicesList.Card.markSize)
+                    .overlay(alignment: .topTrailing) {
+                        if badged {
+                            Circle()
+                                .fill(DesignTokens.Semantic.yellow)
+                                .frame(width: 6, height: 6)
+                                .overlay(
+                                    Circle().stroke(GlassTokens.opaqueCardFill, lineWidth: 2)
+                                )
+                                .offset(x: 2, y: -2)
+                                .accessibilityIdentifier("device-login-badge-\(row.key)")
+                        }
+                    }
             }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 28)
-        .background(GlassTokens.fillRow, in: Capsule())
-        .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
-        .contentShape(Capsule())
+        .frame(width: DevicesList.Card.iconSize, height: DevicesList.Card.iconSize)
+        .contentShape(Rectangle())
     }
 
-    private func chipAccessibilityLabel(_ row: AgentProfileUsageRow) -> String {
+    private func iconAccessibilityLabel(
+        _ row: AgentProfileUsageRow,
+        item: DevicesList.AttentionItem?
+    ) -> String {
         var label = AgentAccountsRows.loginLabel(row)
         if row.email != nil, let plan = row.plan { label += ", \(plan)" }
-        if let badge = AgentAccountsRows.healthBadge(row) { label += ", \(badge)" }
+        if let status = item?.status { label += ", \(DevicesList.Copy.status(status))" }
         return label
     }
 
-    /// The top of the chip's menu: who the login is and its limit bars — the
-    /// account picker's touch preview (EXP-992), not a second bar style.
+    /// The account preview's header ×4: the email (else the label), the plan
+    /// muted, the attention item's status line in warning tone, then the
+    /// usage windows with their resets.
     @ViewBuilder
-    private func menuHeader(_ row: AgentProfileUsageRow, limits: AccountLimits?) -> some View {
+    private func menuHeader(_ row: AgentProfileUsageRow, item: DevicesList.AttentionItem?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(AgentAccountsRows.loginLabel(row))
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if let limits {
-                AccountLimitBars(limits: limits)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.email ?? AgentAccountsRows.loginLabel(row))
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let plan = row.plan, row.email != nil {
+                    Text(plan)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                }
+                if let status = item?.status {
+                    Text(DevicesList.Copy.status(status))
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Semantic.yellow)
+                        .lineLimit(1)
+                        .accessibilityIdentifier("device-login-status")
+                }
+            }
+            if let usage = row.usage, !(usage.windows ?? []).isEmpty {
+                UsageWindows(usage: usage)
+                    .padding(.top, 4)
             }
         }
         .padding(.horizontal, GlassMenuTokens.itemHPadding)
@@ -211,12 +241,12 @@ struct DeviceLogins: View {
         return DomainContract.codingAgentValues.filter { set.contains($0) }
     }
 
-    /// The ghost `+` closing the chip row.
-    private var addAccountChip: some View {
+    /// The ghost `+` closing the icon row.
+    private var addAccountButton: some View {
         GhostIconButton(
             AppIcons.uiAdd,
             accessibilityLabel: DevicesList.Copy.addAccount,
-            size: 28,
+            size: DevicesList.Card.iconSize,
             glyphSize: AppIcon.Size.small
         ) {
             addingAccount = true
@@ -228,60 +258,73 @@ struct DeviceLogins: View {
     }
 }
 
-/// A-16: the row's attention card — one line per `DevicesList` item, its
-/// text left and its one action pill right (none on a teammate's machine, an
-/// offline one, or a queued update). Floats from the warning icon.
-struct DeviceAttentionMenu: View {
+/// EXP-1560: a device card's `⋯` (Device actions), THE Menu. Items in order:
+/// the update line (an `update` / `update_queued` item's text, a disabled
+/// muted row), `Update` (only when that item's action is `update`; busy while
+/// requested), `Device settings` (own registered devices). A team device's
+/// menu holds only a team owner's `Remove from this team`. The host draws no
+/// `⋯` when there is no item (`DeviceCardMenu.hasItems`).
+struct DeviceCardMenu: View {
     let deviceId: String
-    let items: [DevicesList.AttentionItem]
-    let onSignIn: (DevicesList.AttentionItem) -> Void
+    /// The card's update item (`update` / `update_queued`), if any.
+    let updateItem: DevicesList.AttentionItem?
+    /// A requested update is in flight: `Update` stays, disabled.
+    let updating: Bool
     let onUpdate: () -> Void
+    /// Own registered devices: open the Device settings sheet.
+    let onSettings: (() -> Void)?
+    /// A team owner on a teammate's device shared into the current team.
+    let onRemoveFromTeam: (() -> Void)?
+
+    static func hasItems(
+        updateItem: DevicesList.AttentionItem?,
+        settings: Bool,
+        removeFromTeam: Bool
+    ) -> Bool {
+        updateItem != nil || settings || removeFromTeam
+    }
 
     var body: some View {
         GlassMenu {
-            ForEach(items) { item in
-                DeviceAttentionLine(item: item, onSignIn: onSignIn, onUpdate: onUpdate)
+            if let updateItem {
+                Text(updateItem.text)
+                    .font(.system(size: DesignTokens.Typography.Size.sm))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, GlassMenuTokens.itemHPadding)
+                    .frame(maxWidth: .infinity, minHeight: GlassMenuTokens.itemMinHeight, alignment: .leading)
+                    .accessibilityIdentifier("device-update-line")
+                if updateItem.action == .update {
+                    GlassMenuItem(
+                        DevicesList.Copy.update,
+                        icon: AppIcons.uiUpdate,
+                        enabled: !updating,
+                        action: onUpdate
+                    )
+                    .accessibilityIdentifier("device-update")
+                }
+            }
+            if let onSettings {
+                GlassMenuItem(DevicesList.Copy.settings, icon: AppIcons.navSettings, action: onSettings)
+                    .accessibilityIdentifier("machine-settings")
+            }
+            if let onRemoveFromTeam {
+                GlassMenuItem(
+                    DevicesList.Copy.removeFromTeam,
+                    icon: AppIcons.uiDelete,
+                    destructive: true,
+                    action: onRemoveFromTeam
+                )
+                .accessibilityIdentifier("device-drop-share")
             }
         } label: {
-            GhostIconLabel(AppIcons.uiWarning, tint: DesignTokens.Semantic.yellow)
+            GhostIconLabel(
+                AppIcons.uiMore,
+                size: DevicesList.Card.iconSize,
+                glyphSize: AppIcon.Size.small
+            )
         }
-        .accessibilityLabel(DevicesList.Copy.attention)
-        .accessibilityIdentifier("device-attention-\(deviceId)")
-    }
-}
-
-private struct DeviceAttentionLine: View {
-    let item: DevicesList.AttentionItem
-    let onSignIn: (DevicesList.AttentionItem) -> Void
-    let onUpdate: () -> Void
-
-    @Environment(\.glassMenuDismiss) private var dismissMenu
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(item.text)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            switch item.action {
-            case .signIn:
-                GlassPill(DevicesList.Copy.signIn, icon: AppIcons.uiSignIn, mode: .action {
-                    dismissMenu()
-                    onSignIn(item)
-                })
-            case .update:
-                GlassPill(DevicesList.Copy.update, icon: AppIcons.uiUpdate, mode: .action {
-                    dismissMenu()
-                    onUpdate()
-                })
-            case nil:
-                EmptyView()
-            }
-        }
-        .padding(.horizontal, GlassMenuTokens.itemHPadding)
-        .frame(minHeight: GlassMenuTokens.itemMinHeight)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("device-attention-item-\(item.id)")
+        .accessibilityLabel(DevicesList.Copy.deviceActions)
+        .accessibilityIdentifier("device-actions-\(deviceId)")
     }
 }
