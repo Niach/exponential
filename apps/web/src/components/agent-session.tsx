@@ -6,7 +6,7 @@ import {
   agentInstructionsChanged,
   commandDivider,
 } from "@exp/domain-contract/chats"
-import type { DockRow, DockSource } from "@exp/domain-contract/dock"
+import { threadDockQueue, type DockRow, type DockSource } from "@exp/domain-contract/dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { ReactNode } from "react"
 import {
@@ -171,6 +171,7 @@ import {
   type FeedItem,
   type QuestionItem,
   type SteerDockSlots,
+  type SteerSessionSnapshot,
   type ToolItem,
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -1904,7 +1905,55 @@ export function useAgentHintDock(session: SessionRow | null): {
  *  window, the starting line), as `DockSource`s with their sheets and
  *  actions (dock.json `banner`: the host's words). The session view and
  *  the thread's Conversation share it (one relay store per session). */
-export function useSessionDock(session: SessionRow): {
+/** #EXP-1545: a thread's children (each with the name its tabs show). */
+export interface DockChild {
+  session: SessionRow
+  name: string
+}
+
+const NO_CHILDREN: readonly DockChild[] = []
+
+/** #EXP-1545 (dock.json THREAD QUEUE): every Live child's relay snapshot
+ *  (LOCAL FIRST: the per-session store's last-known slots while it dials);
+ *  an ended child is not read at all. */
+function useChildSnapshots(children: readonly DockChild[]): { child: DockChild; snapshot: SteerSessionSnapshot }[] {
+  const live = useMemo(() => children.filter((child) => child.session.status !== `ended`), [children])
+  const key = live.map((child) => child.session.id).join(`,`)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stores = useMemo(() => live.map((child) => acquireSteerSession(child.session.id)), [key])
+  useEffect(() => {
+    for (const store of stores) store.connect()
+  }, [stores])
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const offs = stores.map((store) => store.subscribe(listener))
+      return () => offs.forEach((off) => off())
+    },
+    [stores]
+  )
+  const cache = useRef<SteerSessionSnapshot[]>([])
+  const getSnapshot = useCallback(() => {
+    const next = stores.map((store) => store.getSnapshot())
+    const prev = cache.current
+    if (next.length !== prev.length || next.some((snap, i) => snap !== prev[i])) cache.current = next
+    return cache.current
+  }, [stores])
+  const snapshots = useSyncExternalStore(subscribe, getSnapshot)
+  return useMemo(
+    () => live.flatMap((child, i) => (snapshots[i] ? [{ child, snapshot: snapshots[i]! }] : [])),
+    [live, snapshots]
+  )
+}
+
+function activeAt(session: SessionRow): number | null {
+  const at = session.lastTurnAt ?? session.startedAt
+  return at ? new Date(at).getTime() : null
+}
+
+export function useSessionDock(
+  session: SessionRow,
+  children: readonly DockChild[] = NO_CHILDREN
+): {
   sources: DockSource[]
   renderSheet: (row: DockRow, close: () => void) => ReactNode
   renderAction: (row: DockRow) => ReactNode
@@ -1927,12 +1976,45 @@ export function useSessionDock(session: SessionRow): {
   // says so (S-3: an interruption draws nothing).
   const stateBanner = useMemo(() => sessionBanner(toTreeSession(session)), [session])
   const blockedLabel = blockedBadgeLabel(session.blocked, now)
-  const ticking = backgroundTasks.some((task) => task.kind !== `agent`)
+  const childSnapshots = useChildSnapshots(children)
+  const ticking = [backgroundTasks, ...childSnapshots.map((entry) => entry.snapshot.backgroundTasks)].some((tasks) =>
+    tasks.some((task) => task.kind !== `agent`)
+  )
   const tick = useNow(ticking ? 1_000 : 60_000)
-  const queueModel = useMemo(
+  const rootQueueModel = useMemo(
     () => sessionTaskQueue({ taskList, backgroundTasks, feed, now: tick.getTime() }),
     [taskList, backgroundTasks, feed, tick]
   )
+  // #EXP-1545 (dock.json THREAD QUEUE): ONE tasks card, the root's while it
+  // is open, else the most recently active Live child's, named.
+  const queueOwner = useMemo(() => {
+    const models = new Map(
+      childSnapshots.map(({ child, snapshot: snap }) => [
+        child.session.id,
+        { child, snap, model: sessionTaskQueue({ taskList: snap.taskList, backgroundTasks: snap.backgroundTasks, feed: snap.feed, now: tick.getTime() }) },
+      ])
+    )
+    const chosen = threadDockQueue([
+      { sessionId: session.id, name: ``, root: true, ended: sessionEnded, activeAt: null, open: Boolean(rootQueueModel?.todo.items.length) },
+      ...[...models.values()].map(({ child, model }) => ({
+        sessionId: child.session.id,
+        name: child.name,
+        root: false,
+        ended: child.session.status === `ended`,
+        activeAt: activeAt(child.session),
+        open: Boolean(model?.todo.items.length),
+      })),
+    ])
+    const entry = chosen ? models.get(chosen.sessionId) : undefined
+    if (!chosen || !entry) return { sessionName: null, model: rootQueueModel, taskList, backgroundTasks, feed }
+    return {
+      sessionName: chosen.sessionName,
+      model: entry.model,
+      taskList: entry.snap.taskList,
+      backgroundTasks: entry.snap.backgroundTasks,
+      feed: entry.snap.feed,
+    }
+  }, [childSnapshots, session.id, sessionEnded, rootQueueModel, taskList, backgroundTasks, feed, tick])
   const [todoOpen, setTodoOpen] = useState(true)
   const [completedOpen, setCompletedOpen] = useState(false)
   const limit = rateLimit ? rateLimitBanner(rateLimit, now) : null
@@ -1941,7 +2023,7 @@ export function useSessionDock(session: SessionRow): {
   const sources = useMemo<DockSource[]>(() => {
     const out: DockSource[] = [
       { kind: `queued`, messages: queue.map((entry) => ({ id: entry.id, text: entry.text })) },
-      { kind: `tasks`, queue: queueModel },
+      { kind: `tasks`, sessionName: queueOwner.sessionName, queue: queueOwner.model },
     ]
     if (stateBanner) out.push({ kind: `banner`, ...stateBanner })
     if (phase.kind === `closed` && !hostOffline) {
@@ -2008,15 +2090,15 @@ export function useSessionDock(session: SessionRow): {
     }
     if (hintSource) out.push(hintSource)
     return out
-  }, [queue, queueModel, stateBanner, hostOffline, feed.length, phase, blockedLabel, sessionEnded, session.blocked, session.busy, compacting, limit, hintSource])
+  }, [queue, queueOwner, stateBanner, hostOffline, feed.length, phase, blockedLabel, sessionEnded, session.blocked, session.busy, compacting, limit, hintSource])
   const renderSheet = (row: DockRow): ReactNode => {
     if (row.kind === `tasks`) {
       return (
         <DockSheetBody>
           <TaskQueueStrip
-            taskList={taskList}
-            backgroundTasks={backgroundTasks}
-            feed={feed}
+            taskList={queueOwner.taskList}
+            backgroundTasks={queueOwner.backgroundTasks}
+            feed={queueOwner.feed}
             todoOpen={todoOpen}
             onTodoOpenChange={setTodoOpen}
             completedOpen={completedOpen}
