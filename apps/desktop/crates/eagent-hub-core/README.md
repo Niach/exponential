@@ -22,8 +22,10 @@ no I/O, no clock, no async.
 report (4000) clips count UTF-16 code units like JS `.slice`; `.trim()` uses
 JavaScript's whitespace set; an event trigger's payload renders like
 `JSON.stringify(payload, null, 2)` in source key order (`preserve_order`);
-`resetsAt` parses like `Date.parse` of an RFC 3339 stamp (unparseable = the
-wall never expires); orderings tie-break on createdAt, then id.
+`resetsAt` parses like the spec's `stampMs` (an ISO date or an RFC 3339 stamp
+with its offset; unparseable or timezone-less = the wall never expires); a
+clip that cuts a surrogate pair ends in U+FFFD; a reply's card other than a
+question or plan is refused (`copy.replyCard`); orderings tie-break on createdAt, then id.
 
 **Tests**: `cargo test -p eagent-hub-core` replays every case of
 `packages/eagent/fixtures/*.json` (`tests/fixtures.rs`, the semantics of

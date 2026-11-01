@@ -17,6 +17,8 @@ import {
   rules,
   scheduleText,
   silentMinutes,
+  sliceUnits,
+  stampMs,
   stuckText,
   unclaimedText,
   unresumedText,
@@ -285,7 +287,7 @@ function reportSummary(ctx: Ctx, child: HubSession, summary: string | null, summ
       .at(-1)
     text = last && !last.sealed ? last.body.trim() : ``
   }
-  return (text || rules.report.fallback).slice(0, rules.report.max)
+  return sliceUnits(text || rules.report.fallback, rules.report.max)
 }
 
 function busReport(ctx: Ctx, child: HubSession, summary: string | null, summarySealed: boolean) {
@@ -651,6 +653,7 @@ function reply(ctx: Ctx, data: ReplyData): StepResult {
   const body = data.body ?? ``
   const card = data.card ?? null
   if (!card && !body.trim()) refuse(`invalid`, copy.replyEmpty)
+  if (card && card.kind !== `question` && card.kind !== `plan`) refuse(`invalid`, copy.replyCard)
   const messageId = post(ctx, row.id, {
     authorKind: `agent`,
     authorSessionId: null,
@@ -795,7 +798,7 @@ function tick(ctx: Ctx): StepResult {
   // A usage wall whose reset passed: cleared, silently.
   for (const row of ordered(ctx.state)) {
     if (!isWorking(row) || row.blocked?.kind !== `rate_limit` || !row.blocked.resetsAt) continue
-    const at = Date.parse(row.blocked.resetsAt)
+    const at = stampMs(row.blocked.resetsAt)
     if (Number.isFinite(at) && at <= now) clearBlocked(ctx, row, `rate_limit`)
   }
   return {}

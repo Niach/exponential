@@ -17,7 +17,7 @@ export interface Blocked {
   kind: BlockedKind
   since: number
   window?: string | null
-  /** The device's own stamp (RFC 3339), kept verbatim; unparseable = never expires. */
+  /** The device's own stamp (RFC 3339), kept verbatim; unparseable or timezone-less = never expires (`stampMs`). */
   resetsAt?: string | null
   resume?: boolean
   resumeSince?: number | null

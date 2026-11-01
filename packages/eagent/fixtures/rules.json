@@ -86,6 +86,7 @@
     "otherDevice": "This session runs on another device",
     "claimEnded": "This session has ended",
     "replyEmpty": "A reply needs a body or a card",
+    "replyCard": "A reply's card is a question or a plan",
     "notFound": "Session not found"
   },
   "defaults": {
