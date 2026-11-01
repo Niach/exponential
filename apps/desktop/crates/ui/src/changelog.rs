@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-device-cards",
+    date: "2026-11-01",
+    title: "Devices as cards",
+    summary: "The Devices page is a grid of cards, with each account as an icon you can hover or tap.",
+    body: r#"- **Cards**: every device is a card with its name, version and status, and a ⋯ menu for its update and settings.
+- **Accounts**: logins show as Claude or Codex icons; an amber dot marks one that is signed out or at its limit, and hovering or tapping it shows the email, plan, usage limits and Sign in."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_151: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-look-audit-fixes",
     date: "2026-11-01",
     title: "Settings and lists tidied up on every platform",

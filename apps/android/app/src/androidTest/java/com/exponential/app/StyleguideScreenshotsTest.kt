@@ -31,6 +31,7 @@ import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import com.exponential.app.domain.DevicesList
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.AppRecords
@@ -661,11 +662,12 @@ class StyleguideScreenshotsTest {
         // accounts shot too.
         openDevices()
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
-        // A-16: nothing folds — every device's logins ride its line as chips.
-        flow.waitFor(hasTestTag("device-login-chip"), NETWORK_TIMEOUT)
+        // EXP-1560: every device is a card, its logins brand-mark icons.
+        flow.waitFor(hasTestTag("device-login-icon"), NETWORK_TIMEOUT)
         // FEED-149: the demo user OWNS the demo team, so the seeded teammate's
-        // shared server ("Acme build server") carries the owner's Remove.
-        flow.waitFor(hasTestTag("device-remove-share-button"), NETWORK_TIMEOUT)
+        // shared server ("Acme build server") is listed (its ⋯ holds the
+        // owner's Remove).
+        flow.waitFor(hasText(DevicesList.Copy.TEAM), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agents")
 
@@ -764,12 +766,12 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- Machine settings: own, registered machines only — the gear is
+        // --- Machine settings: own, registered machines only — the entry is
         // absent otherwise, which is why the relay stub is a prerequisite.
-        // EXP-909 follow-up: the gear IS the row's only control (the ⋯ menu
-        // and its "Device settings" entry are gone ×4), and Update and Remove
-        // are sections inside the sheet it opens.
-        composeRule.onAllNodes(hasTestTag("device-settings-button")).onFirst().performClick()
+        // EXP-1560: the card's ⋯ menu carries "Device settings".
+        composeRule.onAllNodes(hasTestTag("device-actions")).onFirst().performClick()
+        flow.waitFor(hasTestTag("device-settings-button"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("device-settings-button")).performClick()
         flow.waitFor(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_machine-settings")
