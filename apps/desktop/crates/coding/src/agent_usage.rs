@@ -1270,6 +1270,16 @@ fn apply_health(
         if !signed_in {
             return crate::agent_accounts::Health::SignedOut;
         }
+        // EXP-1533: runs spend a valid long-lived token, which no refresh
+        // can rotate away: the browser login's 401 (or dead grant) does not
+        // make this login need a re-login.
+        if agent == CodingAgent::Claude.id()
+            && crate::agent_profiles::profile_dir(data_dir, CodingAgent::Claude, profile)
+                .and_then(|dir| crate::claude_token::valid(&dir))
+                .is_some()
+        {
+            return crate::agent_accounts::Health::Ok;
+        }
         cache
             .get(&usage_cache::entry_key(agent, profile))
             .and_then(|entry| entry.health.as_deref())
@@ -3366,6 +3376,25 @@ mod tests {
             "{unmonitored:?}"
         );
         assert!(!unmonitored.contains(&MAIN.to_string()));
+
+        // EXP-1533: a valid long-lived token outranks the browser login's
+        // `needs_relogin`; an expired one does not.
+        let home = crate::agent_profiles::profile_dir(&dir, CodingAgent::Claude, &ids[0]).unwrap();
+        let now = chrono::Utc::now();
+        let token = |minted| crate::claude_token::SetupToken::minted(
+            "sk-ant-oat01-test-token".into(),
+            minted,
+            crate::claude_token::TOKEN_LIFETIME_SECS,
+        );
+        crate::claude_token::write(&home, &token(now)).unwrap();
+        apply_health(&mut accounts, &cache, &dir);
+        let health = |accounts: &AgentAccounts| {
+            accounts["claude"].profiles.iter().find(|row| row.id == ids[0]).unwrap().health()
+        };
+        assert_eq!(health(&accounts), Health::Ok);
+        crate::claude_token::write(&home, &token(now - chrono::Duration::days(400))).unwrap();
+        apply_health(&mut accounts, &cache, &dir);
+        assert_eq!(health(&accounts), Health::NeedsRelogin);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

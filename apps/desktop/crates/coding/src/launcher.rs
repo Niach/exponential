@@ -1418,10 +1418,26 @@ pub fn apply_account_env(
     data_dir: &Path,
     account: Option<&str>,
 ) -> SpawnSpec {
-    match crate::agent_profiles::config_env(data_dir, agent, account) {
+    let spawn = match crate::agent_profiles::config_env(data_dir, agent, account) {
+        Some((key, value)) => spawn.env(key, value),
+        None => return spawn,
+    };
+    // EXP-1533: a profile holding a long-lived setup token runs on it — no
+    // refresh grant to lose, so the run cannot be signed out under it.
+    match long_lived_env(data_dir, agent, account) {
         Some((key, value)) => spawn.env(key, value),
         None => spawn,
     }
+}
+
+/// EXP-1533 — the `CLAUDE_CODE_OAUTH_TOKEN` pair of a claude profile that
+/// holds a valid setup token ([`crate::claude_token`]).
+pub fn long_lived_env(data_dir: &Path, agent: CodingAgent, account: Option<&str>) -> Option<(String, String)> {
+    if agent != CodingAgent::Claude {
+        return None;
+    }
+    let dir = crate::agent_profiles::account_dir(data_dir, Some(agent), account)?;
+    crate::claude_token::env(&dir)
 }
 
 /// EXP-981: the env var that pins the model claude's SUBAGENTS run on. Claude
@@ -1808,12 +1824,19 @@ fn transient_api_error(err: &ApiError) -> bool {
 }
 
 /// The launch's redactor secrets: the team servers' values plus a team
-/// agent key (the device key is the host's own, masked already).
-fn launch_secrets(team_mcp: &ResolvedMcp, scope: &SessionKeyScope, key: &str) -> McpSecrets {
+/// agent key (the device key is the host's own, masked already), plus
+/// (EXP-1533) the profile's long-lived claude token the run is handed.
+fn launch_secrets(
+    team_mcp: &ResolvedMcp,
+    scope: &SessionKeyScope,
+    key: &str,
+    long_lived: Option<(String, String)>,
+) -> McpSecrets {
     let mut values = team_mcp.secret_values();
     if matches!(scope, SessionKeyScope::AgentTeam(_)) {
         values.push(key.to_string());
     }
+    values.extend(long_lived.map(|(_, token)| token));
     McpSecrets::new(values)
 }
 
@@ -2232,7 +2255,12 @@ fn prepare_session(
             system_append,
             context_layers,
             servers: team_mcp.servers.clone(),
-            mcp_secrets: launch_secrets(&team_mcp, &key_scope, &personal_key),
+            mcp_secrets: launch_secrets(
+                &team_mcp,
+                &key_scope,
+                &personal_key,
+                long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
+            ),
             confine_to,
         },
         seed_message_id: None,
@@ -2863,7 +2891,12 @@ fn prepare_resume(
             system_append,
             context_layers,
             servers: team_mcp.servers.clone(),
-            mcp_secrets: launch_secrets(&team_mcp, &key_scope, &personal_key),
+            mcp_secrets: launch_secrets(
+                &team_mcp,
+                &key_scope,
+                &personal_key,
+                long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
+            ),
             confine_to,
         },
         seed_message_id: resume.message_id.clone(),

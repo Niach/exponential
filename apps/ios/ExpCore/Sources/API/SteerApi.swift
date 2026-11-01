@@ -202,6 +202,10 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
     /// string, device-stamped) — what a sign-in sheet watches to see its
     /// login land (`AgentAccountsRows.loginLanding`).
     public let lastLoginAt: String?
+    /// EXP-1533: when the profile's long-lived (`claude setup-token`) login
+    /// expires (ISO), present only while the profile holds one — the chip
+    /// menu then offers "Renew long-lived login" instead of "Keep signed in".
+    public let tokenExpiresAt: String?
 
     public init(
         id: String,
@@ -212,7 +216,8 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         checkedAt: String? = nil,
         usage: AgentUsage? = nil,
         health: String? = nil,
-        lastLoginAt: String? = nil
+        lastLoginAt: String? = nil,
+        tokenExpiresAt: String? = nil
     ) {
         self.id = id
         self.active = active
@@ -223,10 +228,12 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         self.usage = usage
         self.health = health
         self.lastLoginAt = lastLoginAt
+        self.tokenExpiresAt = tokenExpiresAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, active, signedIn, email, plan, checkedAt, usage, health, lastLoginAt
+        case tokenExpiresAt
     }
 
     /// Only the id is load-bearing; every other field degrades on its own so
@@ -242,6 +249,7 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         usage = try? c.decodeIfPresent(AgentUsage.self, forKey: .usage)
         health = try? c.decodeIfPresent(String.self, forKey: .health)
         lastLoginAt = try? c.decodeIfPresent(String.self, forKey: .lastLoginAt)
+        tokenExpiresAt = try? c.decodeIfPresent(String.self, forKey: .tokenExpiresAt)
     }
 }
 

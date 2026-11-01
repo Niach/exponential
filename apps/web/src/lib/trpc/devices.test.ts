@@ -182,6 +182,7 @@ vi.mock(`@/lib/client-version`, () => ({
 
 import {
   AGENT_IMPORT_REMOVED,
+  AGENT_LONG_LIVED_NEEDS_PROFILE,
   clampAgentAccounts,
   clampAgentUsage,
   clearDeviceKey,
@@ -2449,6 +2450,46 @@ describe(`devices.createCommand — agent_login`, () => {
     }
     expect(h.state.inserted).toHaveLength(0)
   })
+
+  // EXP-1533: "Keep signed in" — a long-lived claude login for one profile.
+  it(`carries longLived for a claude profile`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-ll` }]]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `claude`,
+      profileId: `p-work`,
+      longLived: true,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      kind: `agent_login`,
+      payload: {
+        agent: `claude`,
+        switch: `false`,
+        profileId: `p-work`,
+        longLived: `true`,
+      },
+    })
+  })
+
+  it(`refuses a long-lived login without a claude profile`, async () => {
+    for (const extra of [{ agent: `claude` }, { agent: `codex`, profileId: `p-work` }]) {
+      h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind: `agent_login`,
+          longLived: true,
+          ...extra,
+        } as never)
+      ).rejects.toMatchObject({
+        code: `BAD_REQUEST`,
+        message: AGENT_LONG_LIVED_NEEDS_PROFILE,
+      })
+    }
+    expect(h.state.inserted).toHaveLength(0)
+  })
 })
 
 // EXP-765: handing claude's authorization code back to the waiting login.
@@ -3026,6 +3067,26 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     expect(out.claude!.profiles!.map((p) => p.unmonitored)).toEqual([
       undefined,
       true,
+      undefined,
+    ])
+  })
+
+  // EXP-1533: the long-lived claude login's expiry survives as ISO; junk is
+  // dropped rather than failing the heartbeat.
+  it(`keeps a profile's tokenExpiresAt`, () => {
+    const out = clampAgentAccounts({
+      claude: {
+        signedIn: true,
+        profiles: [
+          { id: `home`, signedIn: true, tokenExpiresAt: `2027-11-01T00:00:00Z` },
+          { id: `work`, signedIn: true, tokenExpiresAt: `someday` },
+          { id: `spare`, signedIn: true },
+        ],
+      },
+    })
+    expect(out.claude!.profiles!.map((p) => p.tokenExpiresAt)).toEqual([
+      `2027-11-01T00:00:00.000Z`,
+      undefined,
       undefined,
     ])
   })

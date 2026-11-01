@@ -61,6 +61,7 @@ fn login(
         checked_at: None,
         health,
         unmonitored: false,
+        token_expires_at: None,
     }
 }
 

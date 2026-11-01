@@ -12,6 +12,10 @@
 // its entries in this fixed order:
 //
 //   - "Sign in": signed out, or a credential that expired here.
+//   - "Keep signed in" / "Renew long-lived login" (EXP-1533): claude rows
+//     only, always — the same sign-in, but the machine runs `claude
+//     setup-token` in that profile and keeps a one-year login; "Renew" while
+//     the profile already holds one (`tokenExpiresAt`).
 //   - "Sign out" (EXP-1137): signed in (`agent_profile_sign_out`: claude's own `auth logout` inside that
 //     profile's config dir, codex's credential file deleted — never `codex
 //     logout`, which revokes the account server-wide). The row stays.
@@ -70,10 +74,15 @@ const SignOutIcon = conceptIcon(`ui-sign-out`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const ExternalLinkIcon = conceptIcon(`ui-external-link`)
+const LongLivedIcon = conceptIcon(`ui-clock`)
 
-/** The chip menu's three entries, byte-identical ×4 (Android
+/** The chip menu's entries, byte-identical ×4 (Android
  * `AgentAccountsRows.ACTION_*`). */
 export const ACTION_SIGN_IN = `Sign in`
+/** EXP-1533: a claude login's long-lived (`claude setup-token`) sign-in —
+ *  "Keep" while it holds none, "Renew" while it does. */
+export const ACTION_KEEP_SIGNED_IN = `Keep signed in`
+export const ACTION_RENEW_LONG_LIVED = `Renew long-lived login`
 export const ACTION_SIGN_OUT = `Sign out`
 export const ACTION_REMOVE = `Remove account`
 
@@ -107,6 +116,15 @@ export interface AccountChipRow {
   /** The machine's LAST USED login for that agent (`profiles[].active`). */
   active: boolean
   health: DeviceAgentHealth
+  /** EXP-1533: when the profile's long-lived claude login expires (ISO);
+   *  present while it holds one. */
+  tokenExpiresAt?: string | null
+}
+
+/** EXP-1533: the long-lived entry this row offers, or null (claude only). */
+export function longLivedAction(row: AccountChipRow): string | null {
+  if (row.agent !== `claude`) return null
+  return row.tokenExpiresAt ? ACTION_RENEW_LONG_LIVED : ACTION_KEEP_SIGNED_IN
 }
 
 /** The chip's one repair is a sign-in: it has no working credential here. */
@@ -118,10 +136,13 @@ export function chipSignsIn(row: AccountChipRow): boolean {
  * keeps "Sign in" as its first (and only repairing) entry, but it no longer
  * ENDS there — a dead named profile can be removed too, and codex logins,
  * which are signed out far more often than claude's, were left with a menu of
- * one. EXP-1137: a signed-in login offers "Sign out". */
+ * one. EXP-1137: a signed-in login offers "Sign out". EXP-1533: a claude
+ * login offers its long-lived sign-in right after "Sign in". */
 export function accountChipActions(row: AccountChipRow): string[] {
   const out: string[] = []
   if (chipSignsIn(row)) out.push(ACTION_SIGN_IN)
+  const longLived = longLivedAction(row)
+  if (longLived) out.push(longLived)
   if (canSignOutAccountOn(row)) out.push(ACTION_SIGN_OUT)
   out.push(ACTION_REMOVE)
   return out
@@ -224,8 +245,9 @@ export function AccountChipMenu({
   accountLabel?: string
   /** Open the sign-in for THIS login (`AgentLoginDialogHost` lives at the
    *  route level; the caller owns the request so this module stays off the
-   *  dialog's import graph). */
-  onSignIn: () => void
+   *  dialog's import graph). `longLived` (EXP-1533) = the same sign-in, but
+   *  the machine mints a one-year `claude setup-token` login. */
+  onSignIn: (opts?: { longLived?: boolean }) => void
   /** A-16: the login's limits, drawn above the entries. */
   header?: ReactNode
   trigger: ReactNode
@@ -271,7 +293,10 @@ export function AccountChipMenu({
 
   // The login dialog is hosted elsewhere in the tree — hand off a tick after
   // the menu closes, or the close's focus return swallows it.
-  const signIn = () => setTimeout(onSignIn, 0)
+  const signIn = () => setTimeout(() => onSignIn(), 0)
+  const signInLongLived = () =>
+    setTimeout(() => onSignIn({ longLived: true }), 0)
+  const longLived = longLivedAction(row)
 
   return (
     <>
@@ -288,6 +313,12 @@ export function AccountChipMenu({
             <DropdownMenuItem onSelect={signIn}>
               <SignInIcon />
               {ACTION_SIGN_IN}
+            </DropdownMenuItem>
+          )}
+          {longLived && actions.includes(longLived) && (
+            <DropdownMenuItem onSelect={signInLongLived}>
+              <LongLivedIcon />
+              {longLived}
             </DropdownMenuItem>
           )}
           {actions.includes(ACTION_SIGN_OUT) && (

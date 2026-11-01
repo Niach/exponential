@@ -48,6 +48,8 @@ data class AgentProfileUsageRow(
     val usage: AgentUsage?,
     /** The "as of …" fallback when the usage is stale or absent. */
     val checkedAt: String?,
+    /** EXP-1533: the long-lived (claude `setup-token`) login's expiry, null = none. */
+    val tokenExpiresAt: String? = null,
 )
 
 object AgentAccountsRows {
@@ -180,6 +182,7 @@ object AgentAccountsRows {
                     usage = usage,
                     checkedAt = nonEmpty(profile.checkedAt) ?: nonEmpty(account.checkedAt)
                         ?: nonEmpty(usageAt),
+                    tokenExpiresAt = nonEmpty(profile.tokenExpiresAt),
                 )
             }
         }
@@ -232,15 +235,29 @@ object AgentAccountsRows {
     fun healthBadge(row: AgentProfileUsageRow): String? =
         AgentHealthRules.badgeLabel(row.health)
 
-    /** The chip menu's three entries, byte-identical ×4. */
+    /** The chip menu's entries, byte-identical ×4. */
     const val ACTION_SIGN_IN = "Sign in"
     const val ACTION_SIGN_OUT = "Sign out"
     const val ACTION_REMOVE = "Remove account"
 
     /**
+     * EXP-1533: a claude login's long-lived sign-in (`claude setup-token`, one
+     * year) — "Keep signed in" until the row carries `tokenExpiresAt`, then
+     * "Renew long-lived login". The same remote sign-in sheet as
+     * [ACTION_SIGN_IN], queuing `agent_login` with `longLived`.
+     */
+    const val ACTION_KEEP_SIGNED_IN = "Keep signed in"
+    const val ACTION_RENEW_LONG_LIVED = "Renew long-lived login"
+
+    /** The agent whose logins offer the long-lived sign-in (EXP-1533). */
+    private const val LONG_LIVED_AGENT = "claude"
+
+    /**
      * EXP-862: what a login's chip menu offers, on a machine row or on an
      * account row — the SAME rule on every client, in this fixed order:
      *  - signed out, or a credential that expired here: a sign-in first;
+     *  - EXP-1533, a claude login: keep it signed in (or renew the long-lived
+     *    login it already holds);
      *  - EXP-1137, signed in: sign it out (the row stays);
      *  - remove: any login.
      *
@@ -254,10 +271,15 @@ object AgentAccountsRows {
     fun chipActions(
         signedIn: Boolean,
         health: AgentHealth,
+        agent: String? = null,
+        tokenExpiresAt: String? = null,
     ): List<String> {
         val signsIn = !signedIn || health == AgentHealth.NeedsRelogin
         val out = mutableListOf<String>()
         if (signsIn) out += ACTION_SIGN_IN
+        if (agent == LONG_LIVED_AGENT) {
+            out += if (nonEmpty(tokenExpiresAt) != null) ACTION_RENEW_LONG_LIVED else ACTION_KEEP_SIGNED_IN
+        }
         if (signedIn) out += ACTION_SIGN_OUT
         out += ACTION_REMOVE
         return out
@@ -265,7 +287,12 @@ object AgentAccountsRows {
 
     /** [chipActions] for an account row's machine chip. */
     fun chipActions(row: AgentProfileUsageRow): List<String> =
-        chipActions(signedIn = row.signedIn, health = row.health)
+        chipActions(
+            signedIn = row.signedIn,
+            health = row.health,
+            agent = row.agent,
+            tokenExpiresAt = row.tokenExpiresAt,
+        )
 
     /**
      * The confirm "Remove account" asks, pinned ×4 (web

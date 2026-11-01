@@ -203,9 +203,13 @@ private struct CreateCommandInput: Encodable {
     /// profile matching its EMAIL regardless, and uses this only to tell a
     /// duplicate apart.
     let profileId: String?
+    /// EXP-1533 `agent_login`: mint a one-year `claude setup-token` login for
+    /// `profileId` instead of a browser login (claude only; the server
+    /// refuses it without a profile). Nil is omitted.
+    let longLived: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case deviceId, kind, agent, code, profileId
+        case deviceId, kind, agent, code, profileId, longLived
         case switchAccount = "switch"
     }
 }
@@ -368,6 +372,8 @@ public final class DevicesApi: Sendable {
     /// with the URL/code as its `result`.
     /// EXP-765: `agent_login_code` needs `agent` + `code` — the way BACK from
     /// that link, typed into the sign-in still waiting on the machine.
+    /// EXP-1533: `agent_login` + `longLived` (claude + `profileId`) = the
+    /// same sign-in flow minting a one-year login on that profile.
     public func createCommand(
         accountId: String,
         deviceId: String,
@@ -375,14 +381,15 @@ public final class DevicesApi: Sendable {
         agent: String? = nil,
         switchAccount: Bool? = nil,
         code: String? = nil,
-        profileId: String? = nil
+        profileId: String? = nil,
+        longLived: Bool? = nil
     ) async throws -> CreatedDeviceCommand {
         try await trpc.mutation(
             accountId: accountId,
             path: "devices.createCommand",
             input: CreateCommandInput(
                 deviceId: deviceId, kind: kind, agent: agent, switchAccount: switchAccount,
-                code: code, profileId: profileId
+                code: code, profileId: profileId, longLived: longLived == true ? true : nil
             )
         )
     }

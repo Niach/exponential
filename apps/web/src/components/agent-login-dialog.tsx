@@ -69,6 +69,9 @@ export interface AgentLoginTarget {
    *  account. Only the duplicate check reads it: the login lands on the
    *  profile whose email it signed in as. */
   profileId?: string
+  /** EXP-1533: the row's "Keep signed in": a long-lived claude login for
+   *  `profileId`. Same dialog, same link + code. */
+  longLived?: boolean
 }
 
 export function AgentLoginDialog({
@@ -120,13 +123,16 @@ export function AgentLoginDialog({
       baselineRef.current = null
       return
     }
-    const key = `${device.deviceId}:${agent}:${target?.profileId ?? ``}`
+    const key = `${device.deviceId}:${agent}:${target?.profileId ?? ``}:${target?.longLived === true}`
     if (queuedRef.current === key) return
     queuedRef.current = key
     baselineRef.current = row ? agentLoginBaseline(account) : null
-    login.queueLogin(agent, false, { profileId: target?.profileId })
+    login.queueLogin(agent, false, {
+      profileId: target?.profileId,
+      longLived: target?.longLived === true,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, device?.deviceId, agent, target?.profileId])
+  }, [open, device?.deviceId, agent, target?.profileId, target?.longLived])
   if (open && queuedRef.current !== null && baselineRef.current === null && row) {
     baselineRef.current = agentLoginBaseline(account)
   }
@@ -180,7 +186,10 @@ export function AgentLoginDialog({
     setSigning(false)
     setSignedIn(false)
     baselineRef.current = row ? agentLoginBaseline(account) : null
-    login.queueLogin(agent, false, { profileId: target?.profileId })
+    login.queueLogin(agent, false, {
+      profileId: target?.profileId,
+      longLived: target?.longLived === true,
+    })
   }
 
   const failure = timedOut

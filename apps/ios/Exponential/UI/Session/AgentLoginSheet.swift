@@ -30,9 +30,13 @@ struct AgentLoginTarget: Identifiable {
     /// The login whose Sign in was tapped (the INTENDED profile); nil = "Add
     /// account". It only decides whether the landing is a duplicate.
     var profileId: String? = nil
+    /// EXP-1533: the chip's "Keep signed in" / "Renew long-lived login" — the
+    /// same flow, but the queued `agent_login` mints a one-year login on
+    /// `profileId` (claude only). Every (re-)queue of this sheet carries it.
+    var longLived = false
 
     var id: String {
-        "\(deviceId):\(agent):\(profileId ?? "new")"
+        "\(deviceId):\(agent):\(profileId ?? "new")\(longLived ? ":long" : "")"
     }
 }
 
@@ -229,7 +233,11 @@ struct AgentLoginSheet: View {
         pendingLogin = true
         baseline = AgentAccountsRows.loginBaseline(liveAccount)
         Task {
-            let outcome = await run(kind: "agent_login", profileId: target.profileId)
+            let outcome = await run(
+                kind: "agent_login",
+                profileId: target.profileId,
+                longLived: target.longLived
+            )
             pendingLogin = false
             switch outcome {
             case let .done(result): loginResult = result
@@ -281,7 +289,8 @@ struct AgentLoginSheet: View {
     private func run(
         kind: String,
         code: String? = nil,
-        profileId: String? = nil
+        profileId: String? = nil,
+        longLived: Bool = false
     ) async -> CommandOutcome {
         do {
             let created = try await deps.devicesApi.createCommand(
@@ -290,7 +299,8 @@ struct AgentLoginSheet: View {
                 kind: kind,
                 agent: target.agent,
                 code: code,
-                profileId: profileId
+                profileId: profileId,
+                longLived: longLived ? true : nil
             )
             for _ in 0..<60 {
                 try? await Task.sleep(for: .seconds(2))

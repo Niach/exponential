@@ -102,6 +102,9 @@ const AGENT_LOGIN_CODE_MAX = 512
 /** EXP-1532: the refusal of a retired `agent_login` import (byte-identical
  *  to the device's `agent_login::IMPORT_REMOVED`). */
 export const AGENT_IMPORT_REMOVED = `Import was removed: sign this account in on this device instead.`
+/** EXP-1533: a long-lived login names no claude profile (byte-identical to
+ *  the device's `agent_login::LONG_LIVED_NEEDS_PROFILE`). */
+export const AGENT_LONG_LIVED_NEEDS_PROFILE = `A long-lived login needs a Claude account on this machine.`
 const deviceIdInput = z.string().min(1).max(128)
 const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 
@@ -320,6 +323,9 @@ export function clampAgentAccounts(
       // its own probe cap). Kept so the clients can caption the row instead
       // of rendering its absent bars as zero; false is simply absent.
       if (profile.unmonitored === true) item.unmonitored = true
+      // EXP-1533: the long-lived claude login's expiry (ISO or dropped).
+      const tokenExpiresAt = isoStampOrNull(profile.tokenExpiresAt)
+      if (tokenExpiresAt) item.tokenExpiresAt = tokenExpiresAt
       if (profile.usage) {
         item.usage = clampUsageEntry(profile.usage, new Date())
       }
@@ -1367,6 +1373,9 @@ export const devicesRouter = router({
         // stripped) so an old client's import is refused with a sentence
         // instead of silently turning into an Add account sign-in.
         import: z.boolean().optional(),
+        // EXP-1533 `agent_login`: mint a one-year `claude setup-token` login
+        // for `profileId` instead of a browser login (claude only).
+        longLived: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1403,10 +1412,20 @@ export const devicesRouter = router({
             message: AGENT_IMPORT_REMOVED,
           })
         }
+        if (
+          input.longLived === true &&
+          (input.agent !== `claude` || !input.profileId)
+        ) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: AGENT_LONG_LIVED_NEEDS_PROFILE,
+          })
+        }
         payload = {
           agent: input.agent,
           switch: input.switch === true ? `true` : `false`,
           ...(input.profileId ? { profileId: input.profileId } : {}),
+          ...(input.longLived === true ? { longLived: `true` } : {}),
         }
       }
 

@@ -303,13 +303,17 @@ class DeviceSettingsViewModel @Inject constructor(
          * abandoned sign-in's late result never lands in another sheet.
          */
         profileId: String? = null,
+        /** EXP-1533: a long-lived claude login (`claude setup-token`). */
+        longLived: Boolean = false,
     ) {
         issueCommand(
             key = agentLoginCommandKey(deviceId, agent, profileId),
-            command = agentLoginCommand(deviceId, agent, switchAccount, profileId),
+            command = agentLoginCommand(deviceId, agent, switchAccount, profileId, longLived),
             deviceOnline = deviceOnline,
             verb = "start",
             thing = "the sign-in",
+            // The toast's Retry re-queues the SAME login (long-lived included).
+            retry = { agentLogin(deviceId, agent, switchAccount, deviceOnline, profileId, longLived) },
         )
     }
 
