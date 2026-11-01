@@ -14880,36 +14880,36 @@
               "items": {
                 "type": "number"
               },
-              "description": "The composition [width, height] in px (required with layers); the box keeps its aspect."
+              "description": "The composition [width, height] px (with layers)."
             },
             "duration": {
               "type": "number",
-              "description": "The composition's length in ms (required with layers)."
+              "description": "Length in ms (with layers)."
             },
             "fps": {
               "type": "number",
-              "description": "Frames per second of the composition.",
+              "description": "Frames per second.",
               "default": 60
             },
             "assets": {
               "type": "object",
-              "description": "Precompositions {id: {layers}} referenced by precomp layers."
+              "description": "Precomps {id: {layers}}."
             },
             "markers": {
               "type": "array",
               "items": {
                 "type": "object"
               },
-              "description": "Named segments [{name, time, duration}] in ms."
+              "description": "Named segments [{name, time, duration}] ms."
             },
             "lottie": {
               "type": "object",
-              "description": "A Lottie JSON animation instead of layers (expressions are refused)."
+              "description": "Lottie JSON instead of layers (no expressions)."
             },
             "src": {
               "type": "string",
               "format": "uri-reference",
-              "description": "An attached .json or .lottie file instead of layers (attachments only)."
+              "description": "An attached .json or .lottie instead of layers."
             },
             "autoplay": {
               "type": "boolean",
@@ -14918,12 +14918,12 @@
             },
             "loop": {
               "type": "boolean",
-              "description": "Repeats forever; false plays once and holds the last frame.",
+              "description": "Repeats; false plays once and holds.",
               "default": true
             },
             "plays": {
               "type": "number",
-              "description": "Plays this many times, then holds (overrides loop)."
+              "description": "Plays this many times (overrides loop)."
             },
             "direction": {
               "enum": [
@@ -14936,7 +14936,7 @@
             },
             "speed": {
               "type": "number",
-              "description": "Playback speed multiplier.",
+              "description": "Speed multiplier.",
               "default": 1
             },
             "segment": {
@@ -14944,11 +14944,11 @@
               "items": {
                 "type": "number"
               },
-              "description": "Plays only [from, to] ms of the composition."
+              "description": "Plays only [from, to] ms."
             },
             "marker": {
               "type": "string",
-              "description": "Plays only this marker's segment."
+              "description": "Plays only this marker."
             },
             "progress": {
               "oneOf": [
@@ -14962,7 +14962,7 @@
                   "$ref": "#/$defs/FunctionCall"
                 }
               ],
-              "description": "Scrubs to this point (0–1) instead of playing; bind it to drive the animation from data."
+              "description": "Scrubs (0–1) instead of playing."
             },
             "play": {
               "oneOf": [
@@ -14976,12 +14976,12 @@
                   "$ref": "#/$defs/FunctionCall"
                 }
               ],
-              "description": "Pauses the animation while false.",
+              "description": "Pauses while false.",
               "default": true
             },
             "poster": {
               "type": "number",
-              "description": "The still frame (ms) shown before playing, off-screen and under reduced motion; defaults to the first."
+              "description": "The still frame (ms) for reduced motion and before play."
             },
             "fit": {
               "enum": [
@@ -14989,19 +14989,58 @@
                 "cover",
                 "fill"
               ],
-              "description": "How the composition fills the box.",
+              "description": "How it fills the box.",
               "default": "contain"
             },
             "slots": {
               "type": "object",
-              "description": "Lottie slot overrides {slotId: value} (recolouring a Lottie file)."
+              "description": "Lottie slot overrides {slotId: value}."
+            },
+            "stateMachine": {
+              "type": "object",
+              "description": "A dotLottie state machine driving playback (a .lottie src brings its own)."
+            },
+            "inputs": {
+              "oneOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
+              "description": "State-machine inputs {name: value}; bind to drive states from data."
             },
             "label": {
               "type": "string",
-              "description": "What the animation shows, for screen readers; omit for decoration."
+              "description": "What it shows, for screen readers."
             },
             "style": {
               "$ref": "#/$defs/Style"
+            },
+            "on": {
+              "type": "object",
+              "properties": {
+                "press": {
+                  "$ref": "#/$defs/Action"
+                },
+                "hover": {
+                  "$ref": "#/$defs/Action"
+                },
+                "visible": {
+                  "$ref": "#/$defs/Action"
+                },
+                "complete": {
+                  "$ref": "#/$defs/Action"
+                },
+                "state": {
+                  "$ref": "#/$defs/Action"
+                }
+              },
+              "additionalProperties": false
             },
             "visible": {
               "$ref": "#/$defs/Visible"

@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs"
 import { motionSourceHash } from "../../scripts/motion-source-hash"
 import frames from "../../fixtures/motion-frames.json"
 import playback from "../../fixtures/motion-playback.json"
+import stateFixture from "../../fixtures/motion-state.json"
 import { motionPropsProblems, motionWasmSync } from "./server"
 
 const wasm = motionWasmSync()
@@ -46,6 +47,35 @@ describe(`motion playback (fixtures/motion-playback.json)`, () => {
       for (const t of c.ticks) {
         expect(player.tick(t.elapsedMs)).toBeCloseTo(t.frame, 6)
         expect(player.done(t.elapsedMs)).toBe(t.done)
+      }
+      player.free()
+    })
+  }
+})
+
+describe(`motion state machines (fixtures/motion-state.json)`, () => {
+  type Snap = { state: string; entered: string[]; final: boolean; range: [number, number]; autoplay: boolean; inputs: Record<string, unknown> }
+  type Step = Snap & { step: { post?: string; layer?: string; set?: Record<string, unknown>; complete?: boolean } }
+  type C = { id: string; machine: unknown; initial: Snap; steps: Step[] }
+  for (const c of (stateFixture as unknown as { cases: C[] }).cases) {
+    it(c.id, () => {
+      const player = new wasm.MotionPlayer(JSON.stringify(stateFixture.lottie), ``)
+      expect(player.setStateMachine(JSON.stringify(c.machine))).toBe(true)
+      const check = (want: Snap) => {
+        const got = JSON.parse(player.smStatus()) as Snap
+        expect(got.state).toBe(want.state)
+        expect(got.entered).toEqual(want.entered)
+        expect(got.final).toBe(want.final)
+        expect(got.inputs).toEqual(want.inputs)
+        // The state's playback reached the clock: its range shows in the poster frame.
+        expect(player.posterFrame()).toBeCloseTo(want.range[0], 6)
+      }
+      check(c.initial)
+      for (const s of c.steps) {
+        if (s.step.post) player.smPost(s.step.post, s.step.layer ?? ``)
+        if (s.step.set) player.smSetInputs(JSON.stringify(s.step.set))
+        if (s.step.complete) player.smPost(`complete`, ``)
+        check(s)
       }
       player.free()
     })

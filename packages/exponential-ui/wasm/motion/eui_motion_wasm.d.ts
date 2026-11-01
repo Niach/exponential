@@ -50,6 +50,25 @@ export class MotionPlayer {
      */
     setPlayback(json: string): void;
     /**
+     * Start a dotLottie state machine (JSON); its current state's playback
+     * replaces `setPlayback`. Returns false when it has no states.
+     */
+    setStateMachine(json: string): boolean;
+    /**
+     * Report an interaction (click, pointerDown, pointerUp, pointerEnter,
+     * pointerExit, complete, loopComplete; `layer` = the hit layer or "").
+     * Returns whether the state changed (restart the clock).
+     */
+    smPost(kind: string, layer: string): boolean;
+    /**
+     * Write state-machine inputs (JSON object); returns whether the state changed.
+     */
+    smSetInputs(json: string): boolean;
+    /**
+     * `{state, entered: [...], final, inputs}`; `entered` drains (→ `on.state` actions).
+     */
+    smStatus(): string;
+    /**
      * The frame `elapsedMs` after play started; NaN-free. `done()` tells a finished finite loop.
      */
     tick(elapsed_ms: number): number;
@@ -90,6 +109,10 @@ export interface InitOutput {
     readonly motionplayer_progressFrame: (a: number, b: number) => number;
     readonly motionplayer_sample: (a: number, b: number) => any;
     readonly motionplayer_setPlayback: (a: number, b: number, c: number) => void;
+    readonly motionplayer_setStateMachine: (a: number, b: number, c: number) => number;
+    readonly motionplayer_smPost: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly motionplayer_smSetInputs: (a: number, b: number, c: number) => number;
+    readonly motionplayer_smStatus: (a: number) => [number, number];
     readonly motionplayer_tick: (a: number, b: number) => number;
     readonly motionplayer_warnings: (a: number) => [number, number];
     readonly motionplayer_width: (a: number) => number;

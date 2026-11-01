@@ -15,6 +15,7 @@ struct Inner {
     packed: Vec<f32>,
     playback: Playback,
     timeline: Timeline,
+    machine: Option<eui_motion::state_machine::StateMachine>,
 }
 
 #[derive(uniffi::Object)]
@@ -40,7 +41,7 @@ impl MotionPlayer {
             .map_err(|issues| UiError::Invalid { reason: serde_json::to_string(&issues).unwrap_or_default() })?;
         let timeline = motion.timeline();
         Ok(std::sync::Arc::new(Self {
-            inner: Mutex::new(Inner { motion, list: DisplayList::default(), packed: Vec::new(), playback: Playback::default(), timeline }),
+            inner: Mutex::new(Inner { motion, list: DisplayList::default(), packed: Vec::new(), playback: Playback::default(), timeline, machine: None }),
         }))
     }
 
@@ -84,6 +85,52 @@ impl MotionPlayer {
         g.timeline.at_progress(&g.playback, progress)
     }
 
+    /// Start a dotLottie state machine (JSON); its current state's playback
+    /// replaces `set_playback`. False when it has no states.
+    pub fn set_state_machine(&self, json: String) -> bool {
+        let mut g = self.inner.lock().unwrap();
+        g.machine = serde_json::from_str(&json).ok().and_then(|v| eui_motion::state_machine::StateMachine::parse(&v));
+        sync(&mut g);
+        g.machine.is_some()
+    }
+
+    /// Report an interaction (click, pointerDown, pointerUp, pointerEnter,
+    /// pointerExit, complete, loopComplete; `layer` = the hit layer or "").
+    /// True when the state changed (restart the clock).
+    pub fn sm_post(&self, kind: String, layer: String) -> bool {
+        let mut g = self.inner.lock().unwrap();
+        let layer = (!layer.is_empty()).then_some(layer);
+        let changed = match (&mut g.machine, eui_motion::state_machine::Interaction::parse(&kind, layer)) {
+            (Some(m), Some(eui_motion::state_machine::Interaction::Complete)) => m.complete(),
+            (Some(m), Some(i)) => m.post(&i),
+            _ => false,
+        };
+        sync(&mut g);
+        changed
+    }
+
+    /// Write state-machine inputs (a JSON object); true when the state changed.
+    pub fn sm_set_inputs(&self, json: String) -> bool {
+        let mut g = self.inner.lock().unwrap();
+        let mut changed = false;
+        if let (Some(m), Ok(serde_json::Value::Object(o))) = (&mut g.machine, serde_json::from_str::<serde_json::Value>(&json)) {
+            for (k, v) in &o {
+                changed |= m.set_input(k, v);
+            }
+        }
+        sync(&mut g);
+        changed
+    }
+
+    /// `{state, entered, final, inputs}` as JSON (`entered` drains), or "null".
+    pub fn sm_status(&self) -> String {
+        let mut g = self.inner.lock().unwrap();
+        match &mut g.machine {
+            Some(m) => serde_json::json!({"state": m.state(), "entered": m.take_entered(), "final": m.is_final(), "inputs": m.inputs_json()}).to_string(),
+            None => "null".into(),
+        }
+    }
+
     /// The packed display list of `frame`.
     pub fn sample(&self, frame: f64) -> Vec<f32> {
         let mut g = self.inner.lock().unwrap();
@@ -111,4 +158,10 @@ pub fn motion_read_dotlottie(data: Vec<u8>) -> Result<String, UiError> {
     let file = eui_motion::dotlottie::read(&data)
         .map_err(|issues| UiError::Invalid { reason: serde_json::to_string(&issues).unwrap_or_default() })?;
     file.animations.into_iter().next().map(|(_, a)| a.to_string()).ok_or_else(|| invalid("no animation in the archive"))
+}
+
+fn sync(g: &mut Inner) {
+    if let Some(m) = &g.machine {
+        g.playback = m.playback().clone();
+    }
 }

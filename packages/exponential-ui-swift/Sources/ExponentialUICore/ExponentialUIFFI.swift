@@ -2040,9 +2040,32 @@ public protocol MotionPlayerProtocol: AnyObject, Sendable {
     func setPlayback(playbackJson: String) 
     
     /**
+     * Start a dotLottie state machine (JSON); its current state's playback
+     * replaces `set_playback`. False when it has no states.
+     */
+    func setStateMachine(json: String)  -> Bool
+    
+    /**
      * Composition width and height.
      */
     func size()  -> [Float]
+    
+    /**
+     * Report an interaction (click, pointerDown, pointerUp, pointerEnter,
+     * pointerExit, complete, loopComplete; `layer` = the hit layer or "").
+     * True when the state changed (restart the clock).
+     */
+    func smPost(kind: String, layer: String)  -> Bool
+    
+    /**
+     * Write state-machine inputs (a JSON object); true when the state changed.
+     */
+    func smSetInputs(json: String)  -> Bool
+    
+    /**
+     * `{state, entered, final, inputs}` as JSON (`entered` drains), or "null".
+     */
+    func smStatus()  -> String
     
     /**
      * The frame `elapsed_ms` after play started.
@@ -2185,11 +2208,62 @@ open func setPlayback(playbackJson: String)  {try! rustCall() {
 }
     
     /**
+     * Start a dotLottie state machine (JSON); its current state's playback
+     * replaces `set_playback`. False when it has no states.
+     */
+open func setStateMachine(json: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_set_state_machine(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(json),$0
+    )
+})
+}
+    
+    /**
      * Composition width and height.
      */
 open func size() -> [Float]  {
     return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_motionplayer_size(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Report an interaction (click, pointerDown, pointerUp, pointerEnter,
+     * pointerExit, complete, loopComplete; `layer` = the hit layer or "").
+     * True when the state changed (restart the clock).
+     */
+open func smPost(kind: String, layer: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_post(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(kind),
+        FfiConverterString.lower(layer),$0
+    )
+})
+}
+    
+    /**
+     * Write state-machine inputs (a JSON object); true when the state changed.
+     */
+open func smSetInputs(json: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_set_inputs(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(json),$0
+    )
+})
+}
+    
+    /**
+     * `{state, entered, final, inputs}` as JSON (`entered` drains), or "null".
+     */
+open func smStatus() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_status(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -8413,7 +8487,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_playback() != 62187) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_state_machine() != 50084) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_size() != 53058) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_post() != 57413) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_set_inputs() != 55562) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_status() != 22305) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick() != 12132) {

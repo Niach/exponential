@@ -156,6 +156,28 @@ interprets Lottie, the dialect or the clock itself.
    must match within 2/255 per channel on ≥ 99 % of pixels (anti-aliasing
    differs). The clock replays `fixtures/motion-playback.json`.
 
+## Interactivity (M4, EXP-1605): the contract for every renderer
+
+1. **State machine**: the `stateMachine` prop (dotLottie 2 JSON), else a
+   `.lottie` `src`'s first state machine → `set_state_machine`. While one
+   runs, its current state's playback replaces the playback props.
+2. **Inputs**: the `inputs` prop (literal or bound) → `sm_set_inputs` on
+   every change (so a data model drives the states).
+3. **Interactions** → `sm_post(kind, layer)`: `click` on press (pointer or
+   Enter/Space), `pointerDown`/`pointerUp`, `pointerEnter`/`pointerExit` on
+   hover, `complete` once when `tick` reports `done` for the current
+   state. `layer` = "" (hit-testing layers is not required).
+   `sm_post`/`sm_set_inputs` returning true = the state changed: restart
+   the clock at 0.
+4. **Events** (the node's `on`, A2UI actions): `press` (click; Enter/Space
+   when focusable), `hover` (pointer enters), `visible` (first time half
+   of it is on screen), `complete` (a finite play finished, or the machine
+   reached a final state), `state` (each state `sm_status().entered`
+   reports, context `{state}`). A Motion with `on.press` is a button:
+   focusable, named by `label`.
+5. **Fixture**: `fixtures/motion-state.json` (replayed in Rust, over WASM
+   and over uniffi).
+
 ## Limits
 
 2 MB source, 5,000 shapes, 120 s, 100,000 vertices per frame. Expressions

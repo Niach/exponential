@@ -282,7 +282,7 @@ export interface ComponentProps {
   MessageBubble: { text: string | Dynamic; side?: MessageSideValue; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic }
   TreeGuides: { depth: number; elbowAt?: number; tee?: boolean; passThrough?: number[] }
   Unknown: { component: string; catalogId?: string }
-  Motion: { layers?: Record<string, unknown>[]; size?: number[]; duration?: number; fps?: number; assets?: Record<string, unknown>; markers?: Record<string, unknown>[]; lottie?: Record<string, unknown>; src?: string; autoplay?: boolean; loop?: boolean; plays?: number; direction?: MotionDirectionValue; speed?: number; segment?: number[]; marker?: string; progress?: number | Dynamic; play?: boolean | Dynamic; poster?: number; fit?: MotionFitValue; slots?: Record<string, unknown>; label?: string; style?: Style }
+  Motion: { layers?: Record<string, unknown>[]; size?: number[]; duration?: number; fps?: number; assets?: Record<string, unknown>; markers?: Record<string, unknown>[]; lottie?: Record<string, unknown>; src?: string; autoplay?: boolean; loop?: boolean; plays?: number; direction?: MotionDirectionValue; speed?: number; segment?: number[]; marker?: string; progress?: number | Dynamic; play?: boolean | Dynamic; poster?: number; fit?: MotionFitValue; slots?: Record<string, unknown>; stateMachine?: Record<string, unknown>; inputs?: Record<string, unknown> | Dynamic; label?: string; style?: Style }
 }
 
 /** A2UI basic component → core component. */
