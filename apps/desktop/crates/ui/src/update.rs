@@ -477,7 +477,9 @@ pub fn start_update(cx: &mut App) {
                 Ok(restart_path) => UpdateEvent::Ready { restart_path },
                 Err(err) => {
                     log::warn!("[ui] update: pipeline failed: {err:#}");
-                    UpdateEvent::Failed { message: format!("{err}") }
+                    // The whole chain, down to the HTTP status/body or the
+                    // transport cause — a bare step name explains nothing.
+                    UpdateEvent::Failed { message: format!("{err:#}") }
                 }
             };
             let _ = tx.send(event);
