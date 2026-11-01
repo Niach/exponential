@@ -709,7 +709,11 @@ function startsNothing(input: SessionsSendInput): boolean {
  *  registers the wake on the CALLING session (the core's `send.watch`);
  *  without `wakeOn` such a send is refused. Never an empty thread. */
 async function watchOnly(caller: Session | null, input: SessionsSendInput): Promise<SendOutcome> {
-  if (!input.wakeOn?.length) throw new TRPCError({ code: `BAD_REQUEST`, message: START_NEEDS_WORK })
+  // Anything beside the watch (a name, a seal, a device, runner picks) is a
+  // start without work, never a watch: a sealing daemon's fresh `seal` must
+  // not come back adopted under the CALLER's id.
+  const extra = Object.entries(input).some(([key, value]) => value !== undefined && key !== `wakeOn` && key !== `teamId`)
+  if (!input.wakeOn?.length || extra) throw new TRPCError({ code: `BAD_REQUEST`, message: START_NEEDS_WORK })
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     await applyWakeOn(tx, caller, input)
