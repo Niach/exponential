@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-sealed-agent-sends",
+    date: "2026-11-01",
+    title: "Agents seal their messages from the start",
+    summary: "Agents started while a device was still coming online now seal their messages and card answers.",
+    body: r#"- **No more refusals**: an agent started while its device was still coming online no longer gets "This chat is sealed" when it messages or answers a card."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_147: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-agent-signed-out",
     date: "2026-11-01",
     title: "Signed-out logins reach your inbox",
