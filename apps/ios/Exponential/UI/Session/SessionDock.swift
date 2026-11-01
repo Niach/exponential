@@ -25,11 +25,15 @@ enum SessionDock {
         }
     }
 
-    static func sources(_ model: AgentSessionModel, session: SessionEntity) -> [Dock.Source] {
+    /// `tasks` = false: the host passes THE Queue itself (#EXP-1545: a
+    /// thread's ONE tasks card, `Dock.threadDockQueue`).
+    static func sources(_ model: AgentSessionModel, session: SessionEntity, tasks: Bool = true) -> [Dock.Source] {
         var out: [Dock.Source] = []
         if !model.isOver {
             out.append(.queued(model.queued.map(\.text)))
-            out.append(.tasks(model.taskQueue(now: Date()).map(Dock.QueueSummary.init)))
+            if tasks {
+                out.append(.tasks(model.taskQueue(now: Date()).map(Dock.QueueSummary.init)))
+            }
         }
         let paused = hostPaused(model)
         let hasFeed = !model.feed.isEmpty
