@@ -881,5 +881,9 @@ class SessionTreeTest {
     fun blockedKindStuckReadsItsWord() = assertEquals("Stuck", blockedWord("stuck"))
 
     @Test
+    // EXP-1536: a failed start reads as failed, never Idle.
+    fun blockedKindStartFailedReadsItsWord() = assertEquals("Couldn't start", blockedWord("start_failed"))
+
+    @Test
     fun blockedKindUnknownReadsNeedsYou() = assertEquals("Needs you", blockedWord("quota"))
 }

@@ -73,6 +73,9 @@ pub enum BlockedKind {
     Unclaimed,
     Stuck,
     Restarted,
+    /// EXP-1536: the device could not start the run after the claim
+    /// (device-written, never said as a wall; its next report clears it).
+    StartFailed,
 }
 
 impl BlockedKind {

@@ -2548,6 +2548,8 @@ mod tests {
             ("rate_limit", "Usage limit"),
             ("unclaimed", "Not picked up"),
             ("stuck", "Stuck"),
+            // EXP-1536: a failed start reads as failed, never Idle.
+            ("start_failed", "Couldn't start"),
         ] {
             let session: SessionRow = serde_json::from_value(
                 serde_json::json!({"id": "s", "status": "running", "needs_input": true, "blocked": {"kind": kind}}),

@@ -240,8 +240,8 @@
     "values": ["queued", "running", "idle", "ended"]
   },
   "codingSessionBlocked": {
-    "$comment": "NEW-1: rate_limit = the usage wall (device-written; FEED-129: the server watchdog clears one whose resetsAt passed); device_offline, unclaimed, stuck = the server watchdog (sessionWatchdog). EXP-1374: restarted = the heartbeat no longer lists a busy session (its run stopped while the device lived: the runner restarted); NEW-17: or the device's `sessions.report {lost}` (process_lost | daemon_restart) on a busy session, or its `status: ended` while busy (the session never ends on it). device_offline and restarted are INTERRUPTIONS: never on a person (needs_input stays false), `resume` = it was mid-turn, so its device continues it by itself when back; any device report clears them.",
-    "kinds": ["rate_limit", "device_offline", "unclaimed", "stuck", "restarted"],
+    "$comment": "NEW-1: rate_limit = the usage wall (device-written; FEED-129: the server watchdog clears one whose resetsAt passed); device_offline, unclaimed, stuck = the server watchdog (sessionWatchdog). EXP-1374: restarted = the heartbeat no longer lists a busy session (its run stopped while the device lived: the runner restarted); NEW-17: or the device's `sessions.report {lost}` (process_lost | daemon_restart) on a busy session, or its `status: ended` while busy (the session never ends on it). device_offline and restarted are INTERRUPTIONS: never on a person (needs_input stays false), `resume` = it was mid-turn, so its device continues it by itself when back; any device report clears them. EXP-1536: start_failed = the device could not start the run after the claim (worktree, checkout, brief): device-written and handled (no bus line, no push: the session's \"Could not start\" reply already reached the sender), on a person (needs_input) and shown as failed, never idle; the device's next report without `blocked` (the relaunch) clears it.",
+    "kinds": ["rate_limit", "device_offline", "unclaimed", "stuck", "restarted", "start_failed"],
     "windows": ["session", "weekly", "model"]
   },
   "codingSession": {

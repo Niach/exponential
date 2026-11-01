@@ -27,7 +27,7 @@ public enum DomainContract {
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let sessionKindValues: [String] = ["thread", "agent"]
     public static let sessionStatusValues: [String] = ["queued", "running", "idle", "ended"]
-    public static let codingSessionBlockedKinds: [String] = ["rate_limit", "device_offline", "unclaimed", "stuck", "restarted"]
+    public static let codingSessionBlockedKinds: [String] = ["rate_limit", "device_offline", "unclaimed", "stuck", "restarted", "start_failed"]
     public static let codingSessionBlockedWindows: [String] = ["session", "weekly", "model"]
     public static let toolKindValues: [String] = ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "script", "other"]
     public static let toolKindEditValues: [String] = ["edit", "delete", "move"]

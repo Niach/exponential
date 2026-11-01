@@ -390,6 +390,7 @@ final class SessionTreeTests: XCTestCase {
         }
         XCTAssertEqual(try word(["kind": "unclaimed"]), "Not picked up")
         XCTAssertEqual(try word(["kind": "stuck"]), "Stuck")
+        XCTAssertEqual(try word(["kind": "start_failed"]), "Couldn't start")
         XCTAssertEqual(try word(["kind": "future_kind"]), SessionState.needsYou.word)
         XCTAssertEqual(try word(["window": "weekly"]), SessionState.needsYou.word)
         row["needsInput"] = false

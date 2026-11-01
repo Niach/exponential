@@ -444,10 +444,12 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertNil(AgentUsagePresentation.blockedBadgeLabel(blocked("restarted"), now: now))
         XCTAssertEqual(AgentUsagePresentation.blockedBadgeLabel(blocked("unclaimed"), now: now), "Not picked up")
         XCTAssertEqual(AgentUsagePresentation.blockedBadgeLabel(blocked("stuck"), now: now), "Stuck")
+        // EXP-1536: a failed start reads as failed, no countdown.
+        XCTAssertEqual(AgentUsagePresentation.blockedBadgeLabel(blocked("start_failed"), now: now), "Couldn't start")
         XCTAssertTrue(AgentUsagePresentation.isUsageWall(blocked("rate_limit")))
         XCTAssertTrue(AgentUsagePresentation.isUsageWall(blocked(nil)))
         XCTAssertTrue(AgentUsagePresentation.isUsageWall(nil))
-        for kind in ["device_offline", "unclaimed", "stuck"] {
+        for kind in ["device_offline", "unclaimed", "stuck", "start_failed"] {
             XCTAssertFalse(AgentUsagePresentation.isUsageWall(blocked(kind)), kind)
         }
     }

@@ -64,7 +64,7 @@ import { escalateTarget } from "@/lib/sessions/escalate"
 import { sendTarget } from "@/lib/sessions/send-target"
 import { extractMentionEmails } from "@/lib/mention-refs"
 import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage, postMovedMessage, inSession, sessionConversation } from "@/lib/sessions/messages"
-import { clearBlockedInTx, interruption, INTERRUPTIONS } from "@/lib/sessions/watchdog"
+import { clearBlockedInTx, interruption, INTERRUPTIONS, reportBlocked } from "@/lib/sessions/watchdog"
 import {
   dismissReplies,
   dismissSuggestion,
@@ -661,7 +661,9 @@ export const sessionsRouter = router({
    *  NEW-1: a wall is said ONCE in the parent (the bus); a blocked row
    *  stays under Needs you until the device clears it; any report clears a
    *  watchdog `stuck` flag (EXP-1374: and an interruption, `device_offline`
-   *  or `restarted`: the device is back on it); an ending reports through
+   *  or `restarted`: the device is back on it; EXP-1536: and a failed
+   *  start, `start_failed`, which is never said as a wall: its "Could not
+   *  start" reply already reached the sender); an ending reports through
    *  the bus. EXP-1374: `background` = busy only because background tasks
    *  still run after the turn (a not-busy report clears it). */
   report: authedProcedure
@@ -786,17 +788,16 @@ export const sessionsRouter = router({
       const now = new Date()
       const { handled = false, ...wall } = input.blocked ?? {}
       const blocked = (input.blocked ? wall : input.blocked) as CodingSessionBlocked | null | undefined
-      const newlyBlocked = !!blocked && !session.blocked && !handled
       // The device's wall replaces a watchdog flag; its next report with
-      // no `blocked` clears a `stuck` flag (activity = not stuck) and an
-      // interruption (EXP-1374: the device continued the run).
-      const nextBlocked =
-        input.blocked !== undefined
-          ? (blocked ?? null)
-          : session.blocked?.kind === `stuck` ||
-              (INTERRUPTIONS as readonly string[]).includes(session.blocked?.kind ?? ``)
-            ? null
-            : session.blocked
+      // no `blocked` clears a `stuck` flag (activity = not stuck), an
+      // interruption (EXP-1374: the device continued the run) and a failed
+      // start (EXP-1536: the relaunch is running), which is never said as
+      // a wall (its "Could not start" reply already reached the sender).
+      const { next: nextBlocked, newly: newlyBlocked } = reportBlocked(
+        session.blocked,
+        blocked,
+        handled ?? false
+      )
       const model =
         input.model !== undefined &&
         isRunnerModel(session.cli ?? (await effectiveCli(session)), input.model)

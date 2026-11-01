@@ -1335,6 +1335,8 @@ public enum SessionTree {
             "rate_limit": "Usage limit",
             "unclaimed": "Not picked up",
             "stuck": "Stuck",
+            // EXP-1536: a failed start reads as failed, never Idle.
+            "start_failed": "Couldn't start",
         ]
         /// S-3: `bannerIcons` / `bannerLabels` / `banner` per banner id.
         public static let bannerIcons: [String: String] = [

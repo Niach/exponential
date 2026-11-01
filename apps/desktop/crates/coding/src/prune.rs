@@ -513,23 +513,19 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
         {
             continue;
         }
+        // EXP-1536 A: the HEAD the landed check vouches for, taken BEFORE
+        // it; the removal refuses once it moved.
+        let head = crate::leftover::Verified::head_of(&entry.path);
         match landed_verdict(branch) {
             None => continue,
             Some(Err(reason)) => report.skipped.push((branch.clone(), reason)),
             Some(Ok(())) => {
-                let path = entry.path.to_string_lossy().into_owned();
-                let args: &[&str] = match worktree_dirty_state(&entry.path) {
-                    DirtyState::TrackedChanges => {
-                        report
-                            .skipped
-                            .push((branch.clone(), SkipReason::TrackedChanges));
-                        continue;
-                    }
-                    DirtyState::Clean => &["worktree", "remove", &path],
-                    // Untracked-only debris goes with the worktree — git
-                    // refuses untracked files without --force.
-                    DirtyState::UntrackedOnly => &["worktree", "remove", "--force", &path],
-                };
+                // Untracked-only debris goes with the worktree.
+                let dirty = worktree_dirty_state(&entry.path);
+                if dirty == DirtyState::TrackedChanges {
+                    report.skipped.push((branch.clone(), SkipReason::TrackedChanges));
+                    continue;
+                }
                 // EXP-478: last shield before removal — checked only when the
                 // removal is otherwise imminent, so a registered session never
                 // shows up here (`keep`/`busy` shield it first) and dirty
@@ -540,8 +536,26 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
                         .push((branch.clone(), SkipReason::RecentlyCreated));
                     continue;
                 }
-                match run_git(Some(clone), args, None, &format!("git worktree remove ({branch})"))
-                {
+                let Some(head) = head else {
+                    report
+                        .skipped
+                        .push((branch.clone(), SkipReason::RemoveFailed("HEAD unreadable".to_string())));
+                    continue;
+                };
+                // EXP-1536 A (#FEED-171): refused when it is locked or changed
+                // since the checks above (a clean tree that grew untracked
+                // files included); then build output first, `.git` last,
+                // long-path safe; a failure leaves a valid worktree.
+                let verified = crate::leftover::Verified {
+                    head,
+                    allow_untracked: dirty == DirtyState::UntrackedOnly,
+                };
+                match crate::leftover::remove_worktree(
+                    clone,
+                    &entry.path,
+                    &format!("git worktree remove ({branch})"),
+                    &verified,
+                ) {
                     Ok(_) => {
                         report.removed_worktrees.push(branch.clone());
                         // Landed per git — the branch carries nothing

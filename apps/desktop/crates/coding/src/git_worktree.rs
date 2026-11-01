@@ -506,7 +506,45 @@ pub fn create_worktree_with(
     url: &TokenUrl,
     parked: Parked,
 ) -> Result<PathBuf, GitError> {
+    create_worktree_noted(clone, branch, base_ref, url, parked).map(|created| created.path)
+}
+
+/// What [`create_worktree_noted`] made: the run's cwd, and (EXP-1536 A) the
+/// question its first turn opens with when an earlier run's folder blocked
+/// the layout path and was left untouched.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreatedWorktree {
+    pub path: PathBuf,
+    pub note: Option<String>,
+}
+
+/// [`create_worktree_with`] plus the leftover rules of EXP-1536 A
+/// (#FEED-168, #FEED-171): the layout path may hold an earlier run's
+/// folder. One without a working `.git` whose files all match origin
+/// ([`crate::leftover::Leftover::Clearable`]) is cleared and the worktree
+/// made in its place; any other one is NEVER deleted: the run starts in a
+/// free sibling path (`exp-MA-1430-2`) and its first turn asks the person
+/// what to do with it ([`CreatedWorktree::note`]). A live worktree parked
+/// on another branch whose uncommitted changes refuse the checkout back is
+/// treated the same way instead of failing the start.
+pub fn create_worktree_noted(
+    clone: &Path,
+    branch: &str,
+    base_ref: &str,
+    url: &TokenUrl,
+    parked: Parked,
+) -> Result<CreatedWorktree, GitError> {
     retry_config_lock(&CONFIG_LOCK_RETRY, || create_worktree_once(clone, branch, base_ref, url, parked))
+}
+
+/// How many `-<n>` sibling paths [`create_worktree_noted`] tries next to a
+/// folder it may not touch.
+const BESIDE_TRIES: usize = 9;
+
+/// The refs a leftover's files are compared with: the branch as origin and
+/// this clone know it, then the base it is cut from.
+fn leftover_refs(branch: &str, base_ref: &str) -> Vec<String> {
+    vec![format!("origin/{branch}"), branch.to_string(), base_ref.to_string()]
 }
 
 fn create_worktree_once(
@@ -515,8 +553,112 @@ fn create_worktree_once(
     base_ref: &str,
     url: &TokenUrl,
     parked: Parked,
+) -> Result<CreatedWorktree, GitError> {
+    use crate::leftover::{classify, clear_leftover, Leftover};
+    let layout = worktree_path(clone, branch);
+    let made = |path: PathBuf| CreatedWorktree { path, note: None };
+    match classify(clone, &layout, &leftover_refs(branch, base_ref)) {
+        Leftover::Absent | Leftover::Worktree => {}
+        Leftover::Clearable => {
+            log::info!("{}: an earlier run's folder matches origin, clearing it", layout.display());
+            clear_leftover(&layout).map_err(|e| GitError {
+                op: format!("clear the leftover folder for {branch}"),
+                detail: format!("{}: {e}", layout.display()),
+            })?;
+        }
+        Leftover::Unverified { count, samples } => {
+            let note = unverified_note(&layout, count, &samples);
+            return create_beside(clone, branch, base_ref, url, parked, &layout, note);
+        }
+    }
+    match create_at(clone, branch, base_ref, url, parked, layout.clone()) {
+        Err(err)
+            if parked == Parked::Reclaim
+                && layout.join(".git").exists()
+                && worktree_head(&layout).as_deref() != Some(branch)
+                && crate::prune::worktree_dirty_state(&layout) == crate::prune::DirtyState::TrackedChanges =>
+        {
+            let head = worktree_head(&layout).unwrap_or_else(|| "a detached HEAD".to_string());
+            log::warn!("{}: parked on {head} with uncommitted work ({}), starting beside it", layout.display(), err.detail);
+            let note = parked_dirty_note(&layout, &head);
+            create_beside(clone, branch, base_ref, url, parked, &layout, note)
+        }
+        other => other.map(made),
+    }
+}
+
+/// The run's worktree in the first free sibling of `layout`
+/// (`<layout>-2`, `-3`, …): an absent or clearable one, or one already on
+/// `branch` (an earlier launch's own beside-path). Folders it may not touch
+/// are skipped, never removed.
+fn create_beside(
+    clone: &Path,
+    branch: &str,
+    base_ref: &str,
+    url: &TokenUrl,
+    parked: Parked,
+    layout: &Path,
+    note: String,
+) -> Result<CreatedWorktree, GitError> {
+    use crate::leftover::{classify, clear_leftover, Leftover};
+    for n in 2..=BESIDE_TRIES + 1 {
+        let mut name = layout.file_name().unwrap_or_default().to_os_string();
+        name.push(format!("-{n}"));
+        let beside = layout.with_file_name(name);
+        let usable = match classify(clone, &beside, &leftover_refs(branch, base_ref)) {
+            Leftover::Absent => true,
+            Leftover::Clearable => clear_leftover(&beside).is_ok(),
+            Leftover::Worktree => worktree_head(&beside).as_deref() == Some(branch),
+            Leftover::Unverified { .. } => false,
+        };
+        if usable {
+            let path = create_at(clone, branch, base_ref, url, parked, beside)?;
+            return Ok(CreatedWorktree { path, note: Some(note) });
+        }
+    }
+    Err(GitError {
+        op: format!("git worktree add ({branch})"),
+        detail: format!(
+            "{} and its next {BESIDE_TRIES} sibling paths hold folders with work that is not on origin. \
+Nothing was deleted; move or remove one of them and retry.",
+            layout.display()
+        ),
+    })
+}
+
+/// The question an unverified leftover opens the run with.
+pub fn unverified_note(layout: &Path, count: usize, samples: &[String]) -> String {
+    let files = if count == 1 { "file" } else { "files" };
+    let examples = samples.iter().map(|path| format!("`{path}`")).collect::<Vec<_>>().join(", ");
+    format!(
+        "Before anything else: an earlier run left the folder `{}` on this device, without a working git checkout, \
+holding {count} {files} that are not on origin (for example {examples}). Nothing was deleted and you work in a \
+fresh worktree next to it. Ask the person (exponential_show ask) whether that folder should be kept or deleted, \
+and never delete it without their answer.",
+        layout.display()
+    )
+}
+
+/// The question a dirty worktree parked on another branch opens the run with.
+pub fn parked_dirty_note(layout: &Path, head: &str) -> String {
+    format!(
+        "Before anything else: this issue's worktree `{}` stands on {head} with uncommitted changes, so it was left \
+untouched and you work in a fresh worktree next to it. Ask the person (exponential_show ask) what should happen \
+to those changes (commit them there, or discard them), and never discard them without their answer.",
+        layout.display()
+    )
+}
+
+/// The worktree for `branch` at `worktree` (the layout path, or a sibling
+/// of it): the reuse / reclaim / add rules below.
+fn create_at(
+    clone: &Path,
+    branch: &str,
+    base_ref: &str,
+    url: &TokenUrl,
+    parked: Parked,
+    worktree: PathBuf,
 ) -> Result<PathBuf, GitError> {
-    let worktree = worktree_path(clone, branch);
     let layout_dir_exists = worktree.join(".git").exists();
     if layout_dir_exists && worktree_head(&worktree).as_deref() == Some(branch) {
         refresh_worktree_stamp(&worktree);
@@ -2199,8 +2341,13 @@ fatal: couldn't find remote ref nope\n";
         git(&worktree, &["commit", "--quiet", "-am", "NEW-5 work"]);
         fs::write(worktree.join("README.md"), "uncommitted on NEW-5\n").unwrap();
 
-        let err = create_worktree(&clone, branch, "origin/main", &url).unwrap_err();
-        assert!(err.detail.contains("overwritten"), "detail: {}", err.detail);
+        // EXP-1536 A: a fresh start never fails on it and never touches it:
+        // it runs beside the dirty dir and asks first.
+        let beside = create_worktree_noted(&clone, branch, "origin/main", &url, Parked::Reclaim).unwrap();
+        assert_eq!(beside.path, worktree.with_file_name("exp-session-1a2b3c4d-2"));
+        assert_eq!(worktree_head(&beside.path).as_deref(), Some(branch));
+        assert!(beside.note.as_deref().unwrap().contains("exp/NEW-5 with uncommitted changes"));
+        assert_eq!(fs::read_to_string(worktree.join("README.md")).unwrap(), "uncommitted on NEW-5\n");
 
         let kept = create_worktree_with(&clone, branch, "origin/main", &url, Parked::Keep).unwrap();
         assert_eq!(kept, worktree);
@@ -2218,6 +2365,85 @@ fatal: couldn't find remote ref nope\n";
         assert_eq!(carried_branch(&worktree, branch), None);
         // No worktree at all: nothing to carry either.
         assert_eq!(carried_branch(&dir.0.join("nowhere"), branch), None);
+    }
+
+    /// A clone of a fresh origin plus the url, for the leftover tests.
+    fn leftover_clone(tag: &str) -> (TempDir, PathBuf, TokenUrl) {
+        let dir = temp_dir(tag);
+        let origin = seed_origin(&dir.0);
+        let clone = clone_path(&dir.0.join("repos"), "acme/app");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(&dir.0, &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()]);
+        (dir, clone, TokenUrl::new("acme/app", "ghs_dead"))
+    }
+
+    /// #FEED-168 / #FEED-171 (matflow, exp-MA-1430): a second run on an
+    /// issue whose first run's cleanup died after `.git` was gone (origin's
+    /// files and a `node_modules` left) no longer fails with "already
+    /// exists": the husk matches origin, so it is cleared and the worktree
+    /// made in its place.
+    #[test]
+    fn a_husk_that_matches_origin_is_cleared_and_the_start_goes_on() {
+        let (dir, clone, url) = leftover_clone("husk-clear");
+        // `node_modules` is disposable only beside origin's package.json.
+        let origin = dir.0.join("origin-src");
+        fs::write(origin.join("package.json"), "{}\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "package"]);
+        git(&clone, &["fetch", "--quiet", "origin"]);
+        let first = create_worktree(&clone, "exp/MA-1430", "origin/main", &url).unwrap();
+        fs::create_dir_all(first.join("node_modules/a/b/c")).unwrap();
+        fs::write(first.join("node_modules/a/b/c/index.js"), "x").unwrap();
+        fs::remove_file(first.join(".git")).unwrap();
+        git(&clone, &["worktree", "prune"]);
+        git(&clone, &["branch", "-D", "exp/MA-1430"]);
+
+        let created = create_worktree_noted(&clone, "exp/MA-1430", "origin/main", &url, Parked::Reclaim).unwrap();
+        assert_eq!(created.path, first);
+        assert_eq!(created.note, None);
+        assert_eq!(worktree_head(&first).as_deref(), Some("exp/MA-1430"));
+        assert!(!first.join("node_modules").exists());
+    }
+
+    /// #1560 review: an untracked file in a folder merely NAMED like build
+    /// output (`src/build/`) is work: the husk is kept and the run starts
+    /// beside it.
+    #[test]
+    fn a_husk_with_work_in_a_build_named_folder_is_kept() {
+        let (_dir, clone, url) = leftover_clone("husk-build-name");
+        let first = create_worktree(&clone, "exp/MA-1431", "origin/main", &url).unwrap();
+        fs::create_dir_all(first.join("src/build")).unwrap();
+        fs::write(first.join("src/build/helpers.ts"), "export const mine = 1;\n").unwrap();
+        fs::remove_file(first.join(".git")).unwrap();
+        git(&clone, &["worktree", "prune"]);
+
+        let created = create_worktree_noted(&clone, "exp/MA-1431", "origin/main", &url, Parked::Reclaim).unwrap();
+        assert_eq!(created.path, first.with_file_name("exp-MA-1431-2"));
+        assert!(created.note.unwrap().contains("`src/build/helpers.ts`"));
+        assert_eq!(fs::read_to_string(first.join("src/build/helpers.ts")).unwrap(), "export const mine = 1;\n");
+    }
+
+    /// #FEED-168: a husk holding work origin does not have is never
+    /// deleted: the run starts beside it with a question, and a relaunch
+    /// reuses that same beside-path.
+    #[test]
+    fn a_husk_with_unpushed_work_is_kept_and_the_run_starts_beside_it() {
+        let (_dir, clone, url) = leftover_clone("husk-keep");
+        let first = create_worktree(&clone, "exp/MA-1430", "origin/main", &url).unwrap();
+        fs::write(first.join("README.md"), "my unpushed edit\n").unwrap();
+        fs::remove_file(first.join(".git")).unwrap();
+        git(&clone, &["worktree", "prune"]);
+
+        let created = create_worktree_noted(&clone, "exp/MA-1430", "origin/main", &url, Parked::Reclaim).unwrap();
+        assert_eq!(created.path, first.with_file_name("exp-MA-1430-2"));
+        assert_eq!(worktree_head(&created.path).as_deref(), Some("exp/MA-1430"));
+        let note = created.note.unwrap();
+        assert!(note.contains("`README.md`") && note.contains("exponential_show ask"), "{note}");
+        assert_eq!(fs::read_to_string(first.join("README.md")).unwrap(), "my unpushed edit\n");
+
+        let again = create_worktree_noted(&clone, "exp/MA-1430", "origin/main", &url, Parked::Reclaim).unwrap();
+        assert_eq!(again.path, created.path);
+        assert!(again.note.is_some(), "the question stands until the folder is dealt with");
     }
 
     /// The reclaim's `-b` leg: the agent detached the layout dir's HEAD and
