@@ -123,6 +123,7 @@ class StoriesTest {
         assertEquals(viewer.getValue("inset").jsonObject.str("x")!!.toFloat(), Stories.Viewer.INSET_X)
         assertEquals(viewer.getValue("inset").jsonObject.str("y")!!.toFloat(), Stories.Viewer.INSET_Y)
         assertEquals(viewer.str("minWidth")!!.toFloat(), Stories.Viewer.MIN_WIDTH)
+        assertEquals(viewer.str("footerMaxFraction")!!.toFloat(), Stories.Viewer.FOOTER_MAX_FRACTION)
         val row = fixture.getValue("row").jsonObject
         assertEquals(row.str("itemWidth")!!.toFloat(), Stories.Row.ITEM_WIDTH)
         assertEquals(row.str("gap")!!.toFloat(), Stories.Row.GAP)

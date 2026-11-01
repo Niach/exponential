@@ -194,9 +194,11 @@ fun StoryViewer(
 
     val entry = order.getOrNull(position)
     val current = entry?.let { live[it.frame.storyId] }
+    var viewerPx by remember { mutableIntStateOf(0) }
     Box(
         modifier
             .fillMaxSize()
+            .onSizeChanged { viewerPx = it.height }
             .background(Color.Black)
             .testTag(Stories.TestIds.VIEWER)
             .semantics {
@@ -323,6 +325,16 @@ fun StoryViewer(
                         .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(requireUnconsumed = false) } }
                         .navigationBarsPadding()
                         .imePadding()
+                        // #EXP-1523: never taller than `footerMaxFraction` of
+                        // the viewer; a long one scrolls inside itself.
+                        .heightIn(
+                            max = if (viewerPx == 0) {
+                                androidx.compose.ui.unit.Dp.Infinity
+                            } else {
+                                with(density) { (viewerPx * Stories.Viewer.FOOTER_MAX_FRACTION).toDp() }
+                            },
+                        )
+                        .verticalScroll(rememberScrollState())
                         .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
