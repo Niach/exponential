@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import {
+  EXPOSES_LIMITS,
   availableExtensions,
   defineExtension,
   supportedCatalogIds,
@@ -12,6 +13,7 @@ import extensionJson from "@exp/ui/exponential-ui/extension.json"
 import { APP_PACKAGE_MAX_BYTES, APP_RECORD_KINDS_MAX, APP_RECORD_MAX_BYTES, APP_TEMPLATE_MAX_COMPONENTS } from "@exp/domain-contract/apps"
 import { APP_RECORD_ROW_KEYS } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS } from "@exp/domain-contract/app-actions"
+import { validateExposes, type Expose } from "@exp/emcp/exposes"
 import type { RecordSchema } from "@exponential_app/eui"
 
 // VAPP-110: what an app's PACKAGE may be, server-side (tRPC `apps.upsertPackage`
@@ -74,12 +76,47 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
   if (valid.tools !== undefined) {
     rules.push({ path: `/tools`, message: `Exponential's app hosts run no package tools: call exponential.<noun>.<op> or harness.mcp instead` })
   }
+  // VAPP-180: the SDK checked the format of `exposes`; eMCP's contract adds
+  // what only this host knows: an action binding names an OFFERED, grantable
+  // exponential.<noun>.<op> whose call is not destructive by its arguments.
+  if (valid.exposes !== undefined) {
+    const ctx = { kinds: Object.keys(valid.records ?? {}), upstreams: valid.upstreams ?? [] }
+    for (const error of validateExposes(valid.exposes as unknown as Expose[], ctx)) {
+      const message = EXPOSE_HOST_MESSAGES[error.code]
+      if (message && error.index !== null) rules.push({ path: `/exposes/${error.index}/run/action`, message })
+    }
+    // VAPP-181: the broker never chains tools across apps, so an exposed tool
+    // never reaches an app (its own included) through exponential.apps.*.
+    valid.exposes.forEach((expose, index) => {
+      if (`action` in expose.run && expose.run.action.startsWith(`exponential.apps.`)) {
+        rules.push({ path: `/exposes/${index}/run/action`, message: `an exposed tool never reaches an app through exponential.apps.*: read or write this app's records with a records binding` })
+      }
+    })
+  }
   // VAPP-122: the SDK checked every kind's schema; the contract caps how many.
   const kinds = Object.keys(valid.records ?? {})
   if (kinds.length > APP_RECORD_KINDS_MAX) {
     rules.push({ path: `/records`, message: `records declares ${kinds.length} kinds; the cap is ${APP_RECORD_KINDS_MAX}` })
   }
   return { sdk: [], rules }
+}
+
+/** VAPP-180: the eMCP codes the SDK leaves to the host (an action binding
+ *  over Exponential's typed operations). */
+const EXPOSE_HOST_MESSAGES: Record<string, string> = {
+  action: `an exposed action is one of the exponential.<noun>.<op> operations (exponential_apps {op: "catalog"} lists them)`,
+  ownerOnly: `an owner-only operation is never grantable, so never exposed`,
+  destructive: `a destructive call (a delete, merge, close, end, remove or trash, or sessions.send with stop) is never exposed`,
+}
+
+/** VAPP-180: a package's `upstreams` name MCP servers of the app's team
+ *  (Settings › MCP); unknown names refuse with the ones the team has. A
+ *  server removed later only makes its bindings answer upstreamMissing. */
+export function upstreamIssues(pkg: AppPackage, teamServers: readonly string[]): PackageIssue[] {
+  const unknown = (pkg.upstreams ?? []).filter((name) => !teamServers.includes(name))
+  if (unknown.length === 0) return []
+  const have = teamServers.length > 0 ? `the team has ${[...teamServers].sort().join(`, `)}` : `the team has no MCP servers yet (Settings › MCP)`
+  return [{ path: `/upstreams`, message: `upstreams ${unknown.join(`, `)} are not MCP servers of this team: ${have}` }]
 }
 
 /** VAPP-121: everything wrong with a package as `{path, message}` rows (the
@@ -172,6 +209,9 @@ export function appCatalogText(): string {
     ``,
     `# Records (the app's own data)`,
     `Declare every kind in the manifest: records: {<kind>: {title?, schema: {type: "object", properties: {<field>: {type: string|number|integer|boolean|array, enum?, items? ({type}), maxLength?, minimum?, maximum?, format?: date|date-time|time, description?}}, required?: [fields], additionalProperties?: false}}} (a kind is lowercase letters, digits, underscores; ${APP_RECORD_KINDS_MAX} kinds at most; a record's data at most ${APP_RECORD_MAX_BYTES} bytes; the keys ${APP_RECORD_ROW_KEYS.join(`, `)} are reserved). Read with the exp:records binding, write with harness.records.upsert (bind a Form's fields to /draft/*, then call it with data: {path: "/draft"}; a row's Checkbox: id: {path: "id"}, data: {done: {path: "done"}}) and harness.records.delete. A write is validated against the kind's schema and lands in every client's binding live. Seed or inspect records yourself with exponential_apps {op: "records_upsert" | "records_list" | "records_delete", slug, kind, data}.`,
+    ``,
+    `# Exposed MCP tools (exposes: the app's tools on Exponential's MCP, /api/mcp/apps)`,
+    `exposes: [{name: lowercase_snake (≤ ${EXPOSES_LIMITS.nameMax}, no __), title, description, input: a JSON Schema {type: "object", properties, required?}, access: "read" | "write", run}] (≤ ${EXPOSES_LIMITS.maxTools} tools). A connected MCP client (Claude, ChatGPT…) sees them as <app slug>__<name> and runs them as the CALLING member (attributed "via <app>"); a read-only connection never lists a write tool. run = EXACTLY ONE of: {records: {op: "list" | "get" | "upsert", kind, id?, where?, data?, limit?}} (the app's own records of a declared kind); {action: "exponential.<noun>.<op>", args} (one of the operations above that a team owner could grant: never a destructive or owner-only one; it reads when its last word is list/get/show/catalog/activity/files, else it writes); {upstream: "<server>", tool, args} (a tool of a team MCP server named in upstreams: ["<server>"], with the member's own connection; Settings › MCP lists the team's servers). Every string in run may hold \${input.<field>} (a declared input property; a string that is exactly one template keeps the value's type). Destructive tools (delete, merge, close, end, remove, trash) are never exposed, and a "read" tool may not write. Package tools (\`tools\`) stay refused: expose bindings instead.`,
     ``,
     catalogPrompt({ extensions: [appExtension] }),
   ].join(`\n`)

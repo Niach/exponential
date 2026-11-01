@@ -16,34 +16,53 @@ struct ThreadPlanSheet: View {
     var canAnswer = true
     var busy = false
     var markdownContext: AgentMarkdownContext?
+    /// #EXP-1493: the plan page's draft (its DockCard counts the answers);
+    /// nil = the sheet's own.
+    var sharedDraft: PlanCardDraft?
+    /// #EXP-1493: the header glyph opening THE plan page; nil = none (on the
+    /// page itself).
+    var onOpenFull: (() -> Void)?
+    /// #EXP-1493: the plan page's sheet = the stepper WITHOUT its plan page
+    /// (the document is the page); fewer than `minQuestions` = every
+    /// question on one page.
+    var questionsOnly = false
     let onSubmit: (ThreadCardAnswer) -> Void
     let onClose: () -> Void
 
-    @State private var draft = PlanCardDraft()
+    @State private var ownDraft = PlanCardDraft()
     @State private var step = 0
     @State private var rejecting = false
 
+    private var draft: PlanCardDraft { sharedDraft ?? ownDraft }
+
     var body: some View {
+        @Bindable var bound = draft
         let decided = card.decision != nil
         let interactive = !decided && !busy && canAnswer
         let stepped = PlanCard.stepperApplies(kind: "plan", decision: card.decision, questionCount: card.questions.count)
         let count = card.questions.count
-        let pages = stepped ? 1 + count : 1
+        let lead = questionsOnly ? 0 : 1
+        let pages = stepped ? lead + count : 1
         let page = min(step, pages - 1)
         let last = page == pages - 1
-        let question = stepped && page > 0 ? card.questions[page - 1] : nil
+        let question = stepped && page >= lead ? card.questions[page - lead] : nil
         let issue = PlanCard.answerIssue(
             questions: card.questions,
             input: PlanCard.AnswerInput(planAnswers: draft.planAnswers(card.questions), decision: "approved")
         )
         DockSheetChrome(
             row: row,
-            meta: question != nil ? PlanCard.Copy.stepLabel(step: page, count: count) : nil,
+            meta: question != nil ? PlanCard.Copy.stepLabel(step: page + 1 - lead, count: count) : nil,
+            onOpenFull: onOpenFull,
             onClose: onClose
         ) {
             VStack(alignment: .leading, spacing: PlanCard.Card.blockGap) {
                 if let question {
                     questionBlock(question, editable: interactive)
+                } else if questionsOnly {
+                    ForEach(card.questions) { question in
+                        questionBlock(question, editable: interactive)
+                    }
                 } else {
                     AgentMarkdownText(
                         text: PlanCard.renderableMarkdown(card.plan),
@@ -76,7 +95,7 @@ struct ThreadPlanSheet: View {
                     ? PlanCardFooter.Decision(
                         approveIssue: issue.map(PlanCard.Copy.issue),
                         rejecting: $rejecting,
-                        feedback: $draft.feedback,
+                        feedback: $bound.feedback,
                         onDecide: { decide($0, blocked: issue != nil) },
                         busy: busy
                     )

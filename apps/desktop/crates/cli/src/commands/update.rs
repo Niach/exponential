@@ -4,14 +4,15 @@
 //! verified against the (signed) SHA256SUMS.txt and swapped in with the updater's
 //! atomic-rename install.
 //!
-//! Auto-update: opted into on the first interactive run (`cliAutoUpdate` in
-//! settings.json). One-shot commands check at most daily and RE-EXEC
-//! themselves after an install (same pid, same argv — the new binary picks
-//! the work up from the start); the daemon checks on its own cadence and
-//! on the web "Update" button, restarting only while no session is live.
-//! The deferral is visible remotely (EXP-411): heartbeats carry the
-//! live-session count, so a parked request reads "Update queued" in the
-//! machine rows instead of spinning until the last session closes.
+//! Auto-update: ON unless opted out (EXP-1489: `exponential update --auto
+//! off`, stored as `cliAutoUpdate: false` in settings.json; an install that
+//! never answered the prompt, a headless server, updates too). One-shot
+//! commands check at most daily and RE-EXEC themselves after an install
+//! (same pid, same argv — the new binary picks the work up from the start);
+//! the daemon checks every [`DAEMON_CHECK_INTERVAL_SECS`] and on the web
+//! "Update" button, and restarts by its turn rule. The wait is visible
+//! remotely (EXP-411): heartbeats carry the live-session count, so it
+//! reads "Update queued" in the machine rows.
 
 use std::process::ExitCode;
 
@@ -24,9 +25,11 @@ use crate::prefs;
 const RELEASES_URL: &str = "https://api.github.com/repos/Niach/exponential/releases?per_page=100";
 const TAG_PREFIX: &str = "cli-v";
 
-/// One-shot commands re-check at most daily; the daemon a bit more often.
+/// One-shot commands re-check at most daily; the daemon every 15 minutes
+/// (EXP-1489: a release reaches every server within minutes; 4 calls/h stay
+/// far inside the unauthenticated API's 60/h/IP).
 pub const ONE_SHOT_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
-pub const DAEMON_CHECK_INTERVAL_SECS: u64 = 6 * 60 * 60;
+pub const DAEMON_CHECK_INTERVAL_SECS: u64 = 15 * 60;
 
 #[derive(Deserialize)]
 struct Release {
@@ -93,9 +96,8 @@ fn parse_auto(raw: &str) -> Option<bool> {
 fn set_auto(data_dir: &std::path::Path, raw: &str) -> CommandResult {
     if raw.trim().is_empty() {
         let state = match prefs::auto_update(data_dir) {
-            Some(true) => "on",
             Some(false) => "off",
-            None => "not set",
+            _ => "on",
         };
         println!("Auto-update is {state}.");
         return Ok(ExitCode::SUCCESS);
@@ -108,7 +110,10 @@ fn set_auto(data_dir: &std::path::Path, raw: &str) -> CommandResult {
         prefs::set_last_update_check(data_dir, prefs::now_epoch());
     }
     if enabled {
-        println!("Auto-update on: commands check daily, the daemon every {}h.", DAEMON_CHECK_INTERVAL_SECS / 3600);
+        println!(
+            "Auto-update on: commands check daily, the daemon every {} minutes.",
+            DAEMON_CHECK_INTERVAL_SECS / 60
+        );
     } else {
         println!("Auto-update off: `exponential update` updates by hand.");
     }
@@ -265,9 +270,10 @@ fn request_daemon_update() -> bool {
     }
 }
 
-/// Whether an auto-check is due (enabled + throttle elapsed).
+/// Whether an auto-check is due (not opted out + throttle elapsed).
+/// EXP-1489: an install that never chose (`None`) updates too.
 pub fn auto_check_due(data_dir: &std::path::Path, interval_secs: u64) -> bool {
-    if prefs::auto_update(data_dir) != Some(true) {
+    if prefs::auto_update(data_dir) == Some(false) {
         return false;
     }
     match prefs::last_update_check(data_dir) {
@@ -385,6 +391,21 @@ mod tests {
         let unqueued = live_sessions_notice(42, 1, false, "hint");
         assert!(!unqueued.contains("queued"), "{unqueued}");
         assert!(unqueued.ends_with("To restart it by hand now: hint"), "{unqueued}");
+    }
+
+    /// EXP-1489: auto-update is on unless opted out — an install that never
+    /// answered the prompt (a headless server) updates too.
+    #[test]
+    fn auto_update_is_on_unless_opted_out() {
+        let dir = std::env::temp_dir().join(format!("exp-cli-auto-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(super::auto_check_due(&dir, 60), "never chose = on");
+        crate::prefs::set_auto_update(&dir, false);
+        assert!(!super::auto_check_due(&dir, 60), "opted out");
+        crate::prefs::set_auto_update(&dir, true);
+        crate::prefs::set_last_update_check(&dir, crate::prefs::now_epoch());
+        assert!(!super::auto_check_due(&dir, 60), "throttled");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

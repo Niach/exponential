@@ -27,6 +27,17 @@ const GENERATORS: { filter: string; pkg: string; outputs: string[] }[] = [
     ],
   },
   {
+    // #EXP-1504 — eCore's shared types, one contract for all four.
+    filter: `@exp/ecore`,
+    pkg: `packages/ecore`,
+    outputs: [
+      `apps/desktop/crates/ecore/src/contract.generated.rs`,
+      `packages/ecore/src/contract.generated.ts`,
+      `apps/ios/ExpCore/Sources/Domain/ECore.generated.swift`,
+      `apps/android/app/src/main/java/com/exponential/app/ecore/ECore.generated.kt`,
+    ],
+  },
+  {
     filter: `@exp/design-tokens`,
     pkg: `packages/design-tokens`,
     outputs: [

@@ -7,15 +7,18 @@
 //! - [`story_tab_body`]: the PR block slot (`lead`), `tile.leadGap` under
 //!   it the tiles in fold order `tile.listGap` apart, else THE EmptyState.
 //! - [`story_tile`]: #EXP-1462 one story's section, drawn INLINE (the
-//!   Guide's way, never a list of title rows): line 1 = the title (one
+//!   Guide's way, never a list of title rows): line 1 = THE kind badge
+//!   (#EXP-1493, [`crate::story_badge::kind_badge`]) then the title (one
 //!   line; none = the kind word) with `meta` muted at the end (a waiting one
 //!   leads with the plan/question tint dot and tints its meta), the
 //!   description (muted, wrapping) `tile.textGap` under it, then its body in
-//!   place `tile.gap` under that: ONE row of pictures (`tile.thumbHeight.wide`
-//!   tall, width by aspect capped at `tile.thumbMaxWidth.wide`, a muted
-//!   caption-or-label under each), else THE surface card (no title; a reply
-//!   press goes to the story's session as in the chat), else the plan
-//!   markdown.
+//!   place `tile.gap` under that: a PLAN = its counts line muted, then its
+//!   pictures row (a click ANYWHERE on a plan section opens THE plan page,
+//!   [`crate::plan_page::open`], never the viewer, never the markdown);
+//!   else ONE row of pictures (`tile.thumbHeight.wide` tall, width by aspect
+//!   capped at `tile.thumbMaxWidth.wide`, a muted caption-or-label under
+//!   each), else THE surface card (no title; a reply press goes to the
+//!   story's session as in the chat).
 //! - [`changes_row`]: the PR block's ONE `Changes` row (the diff glyph,
 //!   `n files +a −d`, a chevron) opening THE review pane; [`review_header`]
 //!   = that pane's `‹ Stories` back row.
@@ -34,16 +37,13 @@ use domain::stories::{Story, StoryKind, StoryPicture, StoryRing, STORIES};
 
 use crate::icons::registry;
 use crate::markdown::{ImageCache, ImageSlot};
-use crate::thread_screen::ThreadText;
 
 /// How the tab draws a story's body in place (#EXP-1462).
 pub(crate) struct TabBody<'a> {
-    /// The pictures' (and the plan markdown's) cache.
+    /// The pictures' cache.
     pub images: &'a Entity<ImageCache>,
     /// `false` = the thumbnails' muted fill alone (the styleguide).
     pub load_pictures: bool,
-    /// The plan markdown's mention/link context.
-    pub text: &'a ThreadText,
     /// The story's raw show card (its message's `card`), `None` = unknown.
     pub card_for: &'a dyn Fn(&Story, &App) -> Option<serde_json::Value>,
 }
@@ -54,7 +54,8 @@ pub(crate) fn store_story_card(story: &Story, cx: &App) -> Option<serde_json::Va
     store.collections().messages.read(cx).get(&story.id)?.card.clone()
 }
 
-/// A tile or a thumbnail was clicked: the story, the picture's index.
+/// A tile or a thumbnail was clicked: the story, the picture's index (a
+/// plan never: its section opens THE plan page).
 pub(crate) type OnOpenStory = Rc<dyn Fn(&Story, usize, &mut Window, &mut App)>;
 
 /// The waiting tint (ask-dock: plan primary, question yellow).
@@ -92,12 +93,18 @@ pub(crate) fn story_tile(
     let foreground = theme.foreground;
     let tint = story.waiting.then(|| waiting_tint(story, cx));
     let title = story.title.clone().unwrap_or_else(|| story.kind.label().to_string());
+    // #EXP-1493: a plan section opens THE plan page wherever it is clicked
+    // (the section's ONE handler), never the viewer.
+    let plan = story.kind == StoryKind::Plan;
+    let section_open = on_open.is_some() && plan;
+    let on_open = on_open.filter(|_| !plan);
     let line_open = on_open.clone();
     let line_story = story.clone();
     let head = h_flex()
         .min_w_0()
         .items_center()
         .gap_2()
+        .child(crate::story_badge::kind_badge(SharedString::from(format!("story-tile-badge-{}", story.id)), story.kind, cx))
         .when_some(tint, |line, tint| line.child(div().flex_shrink_0().size(px(6.)).rounded_full().bg(tint)))
         .child(
             div()
@@ -138,36 +145,35 @@ pub(crate) fn story_tile(
                     .text_color(muted)
                     .child(SharedString::from(description)),
             )
-        });
-    // The frame rule: pictures win, else the surface, else the plan text.
-    let surface = (story.pictures.is_empty() && story.surface)
+        })
+        // A plan's counts line (plan-page `planCountsLine`), muted.
+        .when_some(
+            story.counts.as_ref().filter(|_| plan).map(domain::plan_page::plan_counts_line).filter(|line| !line.is_empty()),
+            |line, counts| {
+                line.child(
+                    div()
+                        .id(SharedString::from(format!("story-tile-counts-{}", story.id)))
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(counts)),
+                )
+            },
+        );
+    // The frame rule: a plan = its counts + pictures; else pictures win,
+    // else the surface.
+    let inline: Option<AnyElement> = (!plan && story.pictures.is_empty() && story.surface)
         .then(|| (body.card_for)(story, cx))
         .flatten()
-        .and_then(|card| domain::session_tree::card_surface(card.get("surface")));
-    let inline: Option<AnyElement> = match (&surface, story.text.as_deref()) {
-        _ if !story.pictures.is_empty() => None,
-        (Some(surface), _) => Some(
+        .and_then(|card| domain::session_tree::card_surface(card.get("surface")))
+        .map(|surface| {
             div()
                 .id(SharedString::from(format!("story-tile-surface-{}", story.id)))
                 .w_full()
                 .min_w_0()
-                .child(crate::surface_card::surface_row(&story.id, &story.session_id, None, surface, window, cx))
-                .into_any_element(),
-        ),
-        (None, Some(markdown)) => Some(
-            crate::steer_viewer::ask_body_text(cx)
-                .id(SharedString::from(format!("story-tile-text-{}", story.id)))
-                .text_sm()
-                .child(crate::thread_screen::message_markdown(
-                    SharedString::from(format!("story-tab-text-{}", story.id)),
-                    &crate::plan_card::strip_pending_uploads(markdown),
-                    body.text,
-                    body.images,
-                ))
-                .into_any_element(),
-        ),
-        _ => None,
-    };    let thumbs: Vec<AnyElement> = story
+                .child(crate::surface_card::surface_row(&story.id, &story.session_id, None, &surface, window, cx))
+                .into_any_element()
+        });
+    let thumbs: Vec<AnyElement> = story
         .pictures
         .iter()
         .enumerate()
@@ -213,10 +219,16 @@ pub(crate) fn story_tile(
                 .into_any_element()
         })
         .collect();
+    let (plan_session, plan_message) = (story.session_id.clone(), story.id.clone());
     v_flex()
         .id(SharedString::from(format!("{}-{}", STORIES.tab.test_ids.tile, story.id)))
         .min_w_0()
         .gap(px(tile.gap))
+        .when(section_open, |section| {
+            section
+                .cursor_pointer()
+                .on_click(move |_, window, cx| crate::plan_page::open(&plan_session, &plan_message, window, cx))
+        })
         .child(line)
         .when(!thumbs.is_empty(), |column| {
             column.child(

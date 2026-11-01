@@ -420,6 +420,21 @@ object Prompts {
         fun prompt(server: String) = spec.render("title", "body", "server" to server)
     }
 
+    /** #VAPP-185: Settings › MCP › Clients, a row's Revoke. */
+    object RevokeMcpClient {
+        val spec = destructiveSpec(
+            "revoke-mcp-client",
+            mapOf(
+                "title" to "Revoke {client}?",
+                "body" to "It loses access right away. Connecting it again asks for consent again.",
+            ),
+            listOf("client"),
+            "revoke",
+            "Revoke",
+        )
+        fun prompt(client: String) = spec.render("title", "body", "client" to client)
+    }
+
     /** VAPP-91: a host asking before a surface acts as the person. Deny takes
      *  focus and Enter; Allow is the explicit `default` answer. */
     object ExponentialUiConsent {
@@ -475,7 +490,7 @@ object Prompts {
             RemoveDeviceShare.spec,
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,
             MakeOwner.spec, MakeMember.spec, RemoveRepository.spec, UnlinkSignInMethod.spec,
-            RemovePassword.spec, RemovePasskey.spec, DeleteAccount.spec, RemoveServer.spec,
+            RemovePassword.spec, RemovePasskey.spec, DeleteAccount.spec, RemoveServer.spec, RevokeMcpClient.spec,
             ExponentialUiConsent.spec, ExponentialUiConsentDestructive.spec,
         ).associateBy { it.id }
     }

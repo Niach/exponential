@@ -7,6 +7,7 @@ import {
   workingVerb,
   WORKING_FALLBACK,
 } from "@/lib/working-caption"
+import captionFixture from "@exp/domain-contract/fixtures/working-caption.json" with { type: "json" }
 
 // EXP-850 §5: the working caption — the verb ladder, the duration format, the
 // token format and the workflow override. Mirrored ×4.
@@ -104,4 +105,13 @@ describe(`workingCaption`, () => {
       })
     ).toBe(`Workflow wire-probe · 1/2 agents done · Alpha (37s · ↓ 2.0k tokens)`)
   })
+})
+
+// EXP-1501: the shared rule every mirror replays — whole strings.
+describe(`fixtures/working-caption.json`, () => {
+  for (const testCase of captionFixture.cases) {
+    it(testCase.name, () => {
+      expect(workingCaption(testCase.input)).toBe(testCase.expected)
+    })
+  }
 })

@@ -11,15 +11,16 @@ publish = false
 # `describe`: a script the agent writes calls the run's OTHER MCP servers
 # (`exponential`, `computer`, the team's HTTP servers) in bulk and in
 # parallel, and only its output returns to the model. Sibling of
-# `crates/epilot`, same topology (per-run bearer, tiny_http, plain JSON).
+# `crates/epilot`, same topology (per-run bearer on one loopback listener).
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = "0.4"
 uuid = { workspace = true }
-# The loopback MCP endpoint: a blocking HTTP/1.1 server on its own thread.
-tiny_http = { version = "0.12", default-features = false }
-# The upstream MCP calls (streamable HTTP answered as JSON): the workspace's
-# ONE HTTP stack (EXP-304), blocking, rustls.
+# EXP-1492: the loopback MCP endpoint and every upstream MCP call are
+# eMCP's (rmcp's Streamable HTTP server and client).
+emcp = { path = "../emcp" }
+# The gateway's transparent forward (a proxy, not an MCP client): the
+# workspace's ONE HTTP stack (EXP-304), blocking, rustls.
 reqwest = { workspace = true }
 # The script engine: a pure-Rust ECMAScript engine (Unlicense OR MIT), so the
 # device needs no node/bun/deno and every build target compiles it the same.
@@ -35,3 +36,7 @@ domain = { path = "../domain" }
 # its own data segment.
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+
+[dev-dependencies]
+# Raw fake upstreams for the gateway's proxy tests.
+tiny_http = { version = "0.12", default-features = false }

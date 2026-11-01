@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package that stays valid.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package that stays valid. VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list.",
   "packages": {
     "acme.devices": {
       "id": "acme.devices",
@@ -556,6 +556,426 @@
           ]
         }
       ]
+    },
+    "acme.exposes": {
+      "id": "acme.exposes",
+      "name": "Hours with tools",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Column"
+            }
+          ]
+        }
+      },
+      "records": {
+        "entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "hours": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "date"
+            ]
+          }
+        }
+      },
+      "upstreams": [
+        "m5"
+      ],
+      "exposes": [
+        {
+          "name": "list_entries",
+          "title": "List entries",
+          "description": "The time entries of a day.",
+          "input": {
+            "type": "object",
+            "properties": {
+              "day": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "integer"
+              }
+            }
+          },
+          "access": "read",
+          "run": {
+            "records": {
+              "op": "list",
+              "kind": "entry",
+              "where": {
+                "date": "${input.day}"
+              },
+              "limit": "${input.limit}"
+            }
+          }
+        },
+        {
+          "name": "add_entry",
+          "title": "Add an entry",
+          "description": "Log hours.",
+          "input": {
+            "type": "object",
+            "properties": {
+              "entry": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "entry"
+            ]
+          },
+          "access": "write",
+          "run": {
+            "records": {
+              "op": "upsert",
+              "kind": "entry",
+              "data": "${input.entry}"
+            }
+          }
+        },
+        {
+          "name": "log_comment",
+          "title": "Log a comment",
+          "description": "Comment the logged hours on an issue.",
+          "input": {
+            "type": "object",
+            "properties": {
+              "hours": {
+                "type": "number"
+              },
+              "issue": {
+                "type": "string"
+              }
+            }
+          },
+          "access": "write",
+          "run": {
+            "action": "exponential.comments.create",
+            "args": {
+              "body": "Logged ${input.hours} h",
+              "issueId": "${input.issue}"
+            }
+          }
+        },
+        {
+          "name": "open_issues",
+          "title": "Open issues",
+          "description": "A write tool over a read only narrows who sees it.",
+          "input": {
+            "type": "object"
+          },
+          "access": "write",
+          "run": {
+            "action": "exponential.issues.list",
+            "args": {}
+          }
+        },
+        {
+          "name": "find_customer",
+          "title": "Find a customer",
+          "description": "Search m5 customers.",
+          "input": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "string"
+              }
+            }
+          },
+          "access": "read",
+          "run": {
+            "upstream": "m5",
+            "tool": "search_customers",
+            "args": {
+              "query": "${input.q}"
+            }
+          }
+        }
+      ]
+    },
+    "acme.badexposes": {
+      "id": "acme.badexposes",
+      "name": "Bad tools",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Column"
+            }
+          ]
+        }
+      },
+      "records": {
+        "entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "hours": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "date"
+            ]
+          }
+        }
+      },
+      "upstreams": [
+        "m5",
+        "m5"
+      ],
+      "exposes": [
+        "x",
+        {
+          "name": "List",
+          "title": " ",
+          "description": "",
+          "input": {
+            "type": "string"
+          },
+          "access": "admin",
+          "run": {
+            "records": {
+              "op": "get",
+              "kind": "entry",
+              "id": "x"
+            }
+          }
+        },
+        {
+          "name": "list__all",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "read",
+          "run": {}
+        },
+        {
+          "name": "entries",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "write",
+          "run": {
+            "action": "exponential.issues.create",
+            "upstream": "m5",
+            "tool": "x"
+          }
+        },
+        {
+          "name": "entries",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "read",
+          "run": {
+            "records": {
+              "op": "count",
+              "kind": "entry"
+            }
+          }
+        },
+        {
+          "name": "by_day",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object",
+            "properties": {
+              "day": {
+                "type": "string"
+              }
+            }
+          },
+          "access": "read",
+          "run": {
+            "records": {
+              "op": "list",
+              "kind": "note",
+              "where": {
+                "date": "${input.day}",
+                "who": "${input.user.email}"
+              }
+            }
+          }
+        },
+        {
+          "name": "drop_entry",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "write",
+          "run": {
+            "records": {
+              "op": "delete",
+              "kind": "entry",
+              "id": "x"
+            }
+          }
+        },
+        {
+          "name": "drop_issue",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "write",
+          "run": {
+            "action": "exponential.issues.delete",
+            "args": {}
+          }
+        },
+        {
+          "name": "bad_action",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "write",
+          "run": {
+            "action": "Issues",
+            "args": {}
+          }
+        },
+        {
+          "name": "new_issue",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "read",
+          "run": {
+            "action": "exponential.issues.create",
+            "args": {}
+          }
+        },
+        {
+          "name": "add_entry",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "read",
+          "run": {
+            "records": {
+              "op": "upsert",
+              "kind": "entry",
+              "data": {}
+            }
+          }
+        },
+        {
+          "name": "github",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "write",
+          "run": {
+            "upstream": "github",
+            "tool": "create_issue",
+            "args": {}
+          }
+        },
+        {
+          "name": "drop_customer",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "write",
+          "run": {
+            "upstream": "m5",
+            "tool": "delete_customer"
+          }
+        },
+        {
+          "name": "no_tool",
+          "title": "A",
+          "description": "A.",
+          "input": {
+            "type": "object"
+          },
+          "access": "write",
+          "run": {
+            "upstream": "m5",
+            "tool": ""
+          }
+        },
+        {
+          "name": "long_title",
+          "title": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+          "description": "A.",
+          "input": {
+            "type": "object",
+            "properties": []
+          },
+          "access": "read",
+          "run": {
+            "records": {
+              "op": "list",
+              "kind": "entry"
+            }
+          }
+        }
+      ]
+    },
+    "acme.exposeslist": {
+      "id": "acme.exposeslist",
+      "name": "Tools not a list",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Column"
+            }
+          ]
+        }
+      },
+      "upstreams": [
+        "m5",
+        3
+      ],
+      "exposes": {
+        "list": {}
+      }
     }
   },
   "flows": [
@@ -1907,6 +2327,124 @@
         {
           "path": "/extensions/0/id",
           "message": "extension https://acme.example/catalogs/charts/v1 is not available on this host"
+        }
+      ]
+    },
+    {
+      "package": "acme.exposes",
+      "expected": []
+    },
+    {
+      "package": "acme.badexposes",
+      "expected": [
+        {
+          "path": "/upstreams/1",
+          "message": "duplicate upstream m5"
+        },
+        {
+          "path": "/exposes/0",
+          "message": "a tool is {name, title, description, input, access, run}"
+        },
+        {
+          "path": "/exposes/1/name",
+          "message": "name is lowercase letters, digits and _ (at most 40, no __)"
+        },
+        {
+          "path": "/exposes/1/title",
+          "message": "title is a non-blank string of at most 80 characters"
+        },
+        {
+          "path": "/exposes/1/description",
+          "message": "description is a non-blank string of at most 1024 characters"
+        },
+        {
+          "path": "/exposes/1/input",
+          "message": "input is a JSON Schema of type object"
+        },
+        {
+          "path": "/exposes/1/access",
+          "message": "access is read or write"
+        },
+        {
+          "path": "/exposes/2/name",
+          "message": "name is lowercase letters, digits and _ (at most 40, no __)"
+        },
+        {
+          "path": "/exposes/2/run",
+          "message": "run holds exactly one of records, action, upstream"
+        },
+        {
+          "path": "/exposes/3/run",
+          "message": "run holds exactly one of records, action, upstream"
+        },
+        {
+          "path": "/exposes/4/name",
+          "message": "duplicate tool entries"
+        },
+        {
+          "path": "/exposes/4/run/records/op",
+          "message": "op is list, get, upsert"
+        },
+        {
+          "path": "/exposes/5/run",
+          "message": "${input.user.email} names no input property"
+        },
+        {
+          "path": "/exposes/5/run/records/kind",
+          "message": "kind names no declared record kind"
+        },
+        {
+          "path": "/exposes/6/run/records/op",
+          "message": "a records delete is destructive: never exposed"
+        },
+        {
+          "path": "/exposes/7/run/action",
+          "message": "a destructive action is never exposed"
+        },
+        {
+          "path": "/exposes/8/run/action",
+          "message": "action is a function name like namespace.function"
+        },
+        {
+          "path": "/exposes/9/access",
+          "message": "the run writes: access is write"
+        },
+        {
+          "path": "/exposes/10/access",
+          "message": "the run writes: access is write"
+        },
+        {
+          "path": "/exposes/11/run/upstream",
+          "message": "upstream names none of the package's upstreams"
+        },
+        {
+          "path": "/exposes/12/run/tool",
+          "message": "a destructive tool is never exposed"
+        },
+        {
+          "path": "/exposes/13/run/tool",
+          "message": "tool is a non-empty string"
+        },
+        {
+          "path": "/exposes/14/title",
+          "message": "title is a non-blank string of at most 80 characters"
+        },
+        {
+          "path": "/exposes/14/input",
+          "message": "input is a JSON Schema of type object"
+        }
+      ]
+    },
+    {
+      "package": "acme.exposeslist",
+      "expected": [
+        {
+          "path": "/upstreams",
+          "message": "upstreams is a list of MCP server names"
+        },
+        {
+          "path": "/exposes",
+          "message": "exposes is a list of tools"
         }
       ]
     }

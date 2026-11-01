@@ -675,6 +675,168 @@ impl Render for GuideViewer {
     }
 }
 
+// ---------------------------------------------------------------------------
+// #EXP-1493 — THE lightbox over a group of pictures (the plan page)
+// ---------------------------------------------------------------------------
+
+/// One picture of a [`open_picture_gallery`]: its canonical url (the
+/// [`ImageCache`] key) and its alt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GalleryPicture {
+    pub url: String,
+    pub alt: String,
+}
+
+/// THE lightbox over `pictures` in order, opened on `index` (plan-page.json:
+/// a press on ANY picture of the plan opens it over EVERY picture): the
+/// picture fitted, the guide viewer's `‹ i / n ›` under it, ←/→ step (no
+/// wrap), Esc closes. One picture = the plain lightbox.
+pub(crate) fn open_picture_gallery(
+    pictures: Vec<GalleryPicture>,
+    index: usize,
+    images: Entity<ImageCache>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(first) = pictures.get(index).cloned() else {
+        return;
+    };
+    if pictures.len() < 2 {
+        open_image_preview(first.url, first.alt, None, Some(images), window, cx);
+        return;
+    }
+    let spec = DialogSpec::new(preview_label(&first.alt, &first.url), guide_viewer_window_size(window.viewport_size()))
+        .resizable(size(px(GUIDE_VIEWER_MIN_W), px(GUIDE_VIEWER_MIN_H)));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| PictureGallery::new(pictures, index, images, window, cx));
+        DialogContent::new(view).padless()
+    });
+}
+
+struct PictureGallery {
+    pictures: Vec<GalleryPicture>,
+    index: usize,
+    images: Entity<ImageCache>,
+    focus_handle: gpui::FocusHandle,
+    _images_changed: Subscription,
+    _activation: Subscription,
+}
+
+impl PictureGallery {
+    fn new(
+        pictures: Vec<GalleryPicture>,
+        index: usize,
+        images: Entity<ImageCache>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
+        let images_changed = cx.observe(&images, |_, _, cx| cx.notify());
+        let focus_handle = cx.focus_handle();
+        window.focus(&focus_handle, cx);
+        // The guide viewer's activation edge (EXP-1348): ←/→ keep working
+        // once the dialog window becomes key.
+        let activation = cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() && !this.focus_handle.contains_focused(window, cx) {
+                window.focus(&this.focus_handle, cx);
+            }
+        });
+        Self { pictures, index, images, focus_handle, _images_changed: images_changed, _activation: activation }
+    }
+
+    /// Step by `delta`; an end does nothing.
+    fn step(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {
+        let next = self.index as isize + delta;
+        if next >= 0 && (next as usize) < self.pictures.len() {
+            self.index = next as usize;
+            cx.notify();
+        }
+    }
+}
+
+impl gpui::Focusable for PictureGallery {
+    fn focus_handle(&self, _cx: &App) -> gpui::FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for PictureGallery {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        use gpui::InteractiveElement as _;
+        let Some(picture) = self.pictures.get(self.index).cloned() else {
+            return div().size_full().into_any_element();
+        };
+        let muted = cx.theme().muted_foreground;
+        let body = match self.images.update(cx, |cache, cx| cache.slot(&picture.url, cx)) {
+            ImageSlot::Ready(image) => img(image)
+                .max_w_full()
+                .max_h_full()
+                .object_fit(gpui::ObjectFit::ScaleDown)
+                .rounded(cx.theme().radius)
+                .into_any_element(),
+            ImageSlot::ReadyTall(tall) => {
+                let width = (f32::from(window.viewport_size().width) - 32.).min(tall.width as f32).max(1.);
+                div()
+                    .max_w_full()
+                    .max_h_full()
+                    .overflow_hidden()
+                    .child(crate::tall_image::render_tall(&tall, width))
+                    .into_any_element()
+            }
+            ImageSlot::Loading => crate::feedback::skeleton_block("picture-gallery-loading", 80., cx),
+            ImageSlot::Failed(_) | ImageSlot::Unrenderable => placeholder_box("Image unavailable", cx),
+        };
+        let count = self.pictures.len();
+        let back = crate::controls::ghost_icon_button("picture-gallery-prev", Icon::from(crate::icons::registry::UI_CHEVRON_LEFT), cx)
+            .disabled(self.index == 0)
+            .on_click(cx.listener(|this, _, _, cx| this.step(-1, cx)));
+        let forward = crate::controls::ghost_icon_button("picture-gallery-next", Icon::from(crate::icons::registry::UI_CHEVRON_RIGHT), cx)
+            .disabled(self.index + 1 >= count)
+            .on_click(cx.listener(|this, _, _, cx| this.step(1, cx)));
+        v_flex()
+            .id("picture-gallery")
+            .size_full()
+            .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                match event.keystroke.key.as_str() {
+                    "left" => this.step(-1, cx),
+                    "right" => this.step(1, cx),
+                    "escape" => native_dialog::close_dialog_window(window, cx),
+                    _ => return,
+                }
+                cx.stop_propagation();
+            }))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .p_4()
+                    .child(body),
+            )
+            .child(
+                gpui_component::h_flex()
+                    .flex_shrink_0()
+                    .w_full()
+                    .justify_center()
+                    .items_center()
+                    .gap_4()
+                    .pb_4()
+                    .child(back)
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .child(SharedString::from(guide_viewer_position(self.index + 1, count))),
+                    )
+                    .child(forward),
+            )
+            .into_any_element()
+    }
+}
+
 /// The panel's `index / count`.
 pub(crate) fn guide_viewer_position(index: usize, count: usize) -> String {
     format!("{index} / {count}")

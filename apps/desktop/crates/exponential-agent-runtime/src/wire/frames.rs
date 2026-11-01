@@ -237,6 +237,15 @@ impl CompactVerdict {
     }
 }
 
+/// EXP-1501: a tool call whose input is still streaming — its name and when
+/// the stream began (unix ms), the clock of `Writing {tool}… (54s)`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnWriting {
+    pub tool: String,
+    pub started_at: i64,
+}
+
 /// A single public activity event (masterplan §P7) — the desktop emits these
 /// from the Claude hooks sidecar ((`steer`'s hooks)) + worktree diffs, already
 /// redacted. Wire mirror of `apps/steer-relay/src/protocol.ts`
@@ -633,6 +642,12 @@ pub enum ActivityEvent {
         /// identical-edge dedupe.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tokens: Option<u64>,
+        /// EXP-1501: the tool call whose input the agent is STREAMING right
+        /// now (claude `input_json_delta`) — the working row's `Writing
+        /// {tool}…` (`fixtures/working-caption.json`). Unlike the two above
+        /// it is the frame's WHOLE state: absent = not writing.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        writing: Option<TurnWriting>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
@@ -1394,6 +1409,7 @@ impl ActivityEvent {
             state,
             started_at: None,
             tokens: None,
+            writing: None,
             at: None,
         }
     }
@@ -1406,8 +1422,24 @@ impl ActivityEvent {
             state,
             started_at,
             tokens: tokens.filter(|tokens| *tokens > 0),
+            writing: None,
             at: None,
         }
+    }
+
+    /// EXP-1501: [`ActivityEvent::turn_at`] with the streaming tool call, if
+    /// any (only ever on a `started` slot).
+    pub fn turn_writing(
+        state: TurnState,
+        started_at: Option<i64>,
+        tokens: Option<u64>,
+        writing: Option<TurnWriting>,
+    ) -> Self {
+        let mut event = Self::turn_at(state, started_at, tokens);
+        if let ActivityEvent::Turn { writing: slot, .. } = &mut event {
+            *slot = writing.filter(|_| state == TurnState::Started);
+        }
+        event
     }
 
     /// EXP-850 §2: the background-task slot; an EMPTY list is the publisher
@@ -2638,6 +2670,7 @@ mod tests {
                 state: TurnState::Started,
                 started_at: None,
                 tokens: None,
+                writing: None,
                 at: None
             }
         );

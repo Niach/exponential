@@ -1,6 +1,6 @@
 /* The state chip (src/components/blog/StatusChip.tsx): blog posts, the
    home page's library section and the lib docs pages under /ui/, /talk/,
-   /pilot/, /net/, /apps/ all import it. */
+   /pilot/, /net/, /apps/, /mcp/ all import it. */
 .blog-status {
   display: inline-flex;
   align-items: center;

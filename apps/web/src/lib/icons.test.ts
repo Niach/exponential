@@ -529,7 +529,7 @@ describe(`icon call sites`, () => {
       [`Widget`, `Widget`],
       // EXP-807: member-visible on both clients, so the pair belongs in the
       // SHARED list — without the row here the gate never bites on it.
-      [`MCP servers`, `McpServers`],
+      [`MCP`, `Mcp`],
       [`Account`, `Account`],
       [`Notifications`, `Notifications`],
       // EXP-862: the Personal entry is labelled Security on both clients.

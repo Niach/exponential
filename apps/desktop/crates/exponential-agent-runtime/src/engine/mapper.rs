@@ -106,7 +106,7 @@ pub const SETTLED_TOOLS_MAX: usize = 256;
 pub use super::local::{
     BACKGROUND_TASKS_META_KEY, COMPACTION_TRIGGER_META_KEY, INJECTED_PROMPT_META_KEY,
     SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY,
-    TURN_META_KEY, TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
+    TURN_META_KEY, TURN_TOKENS_META_KEY, TURN_WRITING_META_KEY, WORKFLOW_META_KEY,
 };
 
 /// Everything the mapper needs that is constant for a session.
@@ -337,6 +337,10 @@ pub struct Mapper {
     turn_started_at: Option<i64>,
     turn_tokens: u64,
     turn_tokens_published_at: Option<Instant>,
+    /// EXP-1501: the tool call whose input is streaming (`turn.writing`).
+    turn_writing: Option<wire::frames::TurnWriting>,
+    /// Its adapter id, so a re-send keeps the stream's own clock.
+    turn_writing_id: Option<String>,
     /// EXP-850 §2/§3: the last snapshot of each new latest-wins slot that
     /// actually went out — an identical re-emit says nothing, exactly like
     /// `config_state`.
@@ -647,6 +651,8 @@ impl Mapper {
             turn_started_at: None,
             turn_tokens: 0,
             turn_tokens_published_at: None,
+            turn_writing: None,
+            turn_writing_id: None,
             last_background_tasks: None,
             background_seen: HashMap::new(),
             open_thoughts: Vec::new(),
@@ -747,6 +753,14 @@ impl Mapper {
                 self.reopen_on_output(out);
             }
             self.note_turn_tokens(tokens, out);
+        }
+        // EXP-1501: a tool call's input streaming (or done streaming).
+        if let Some(writing) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(TURN_WRITING_META_KEY))
+        {
+            self.note_turn_writing(writing, out);
         }
         // EXP-1051: the context-layout slot, on the same carrier as the
         // rate-limit one (a no-op `session_info_update`) and read here for
@@ -1394,6 +1408,9 @@ impl Mapper {
             return;
         }
         self.turn_state = state;
+        // EXP-1501: a turn edge either way ends whatever input was streaming.
+        self.turn_writing = None;
+        self.turn_writing_id = None;
         // EXP-850 §5: a turn START is the caption's clock zero and resets the
         // token counter; the END keeps both so the final caption reads
         // "worked 2m 04s · 1.2k tokens" instead of blanking.
@@ -1413,7 +1430,46 @@ impl Mapper {
     /// inputs. `tokens` is omitted while zero: a caption with no number yet
     /// draws no token group at all.
     fn turn_event(&self) -> ActivityEvent {
-        ActivityEvent::turn_at(self.turn_state, self.turn_started_at, Some(self.turn_tokens))
+        ActivityEvent::turn_writing(
+            self.turn_state,
+            self.turn_started_at,
+            Some(self.turn_tokens),
+            self.turn_writing.clone(),
+        )
+    }
+
+    /// EXP-1501: the adapter's [`TURN_WRITING_META_KEY`] — `{"id", "tool"}`
+    /// while a tool call's input streams, `null` once it is complete. Every
+    /// object re-emits the slot (the adapter already rate-limits them to the
+    /// token tick): that frame IS the session's sign of life while nothing
+    /// else reaches the wire, so it is never deduped. A NEW id restarts the
+    /// clock; the same id keeps the stream's own start.
+    pub fn note_turn_writing(&mut self, writing: &Value, out: &mut MapOut) {
+        let id = writing.get("id").and_then(Value::as_str);
+        let Some(id) = id.filter(|id| !id.is_empty()) else {
+            if self.turn_writing.take().is_some() {
+                self.turn_writing_id = None;
+                if self.turn_state == wire::frames::TurnState::Started {
+                    emit(out, self.turn_event(), None);
+                }
+            }
+            return;
+        };
+        self.reopen_on_output(out);
+        if self.turn_state != wire::frames::TurnState::Started {
+            return;
+        }
+        let tool = writing.get("tool").and_then(Value::as_str).unwrap_or_default();
+        let started_at = match (&self.turn_writing, &self.turn_writing_id) {
+            (Some(current), Some(current_id)) if current_id == id => current.started_at,
+            _ => wire::activity::now_unix_millis(),
+        };
+        self.turn_writing = Some(wire::frames::TurnWriting {
+            tool: self.clean(tool, 200),
+            started_at,
+        });
+        self.turn_writing_id = Some(id.to_string());
+        emit(out, self.turn_event(), None);
     }
 
     /// EXP-850 §5: the output tokens this turn has produced so far, as an
@@ -6282,6 +6338,53 @@ mod exp850_tests {
         let mut evicted = MapOut::default();
         mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-0")), &mut evicted);
         assert_eq!(evicted.wire.len(), 1);
+    }
+
+    /// EXP-1501: a streaming tool call rides the turn slot as `writing`;
+    /// every re-send republishes (the sign of life), the same id keeps its
+    /// clock, `null` clears it, and a turn edge ends it.
+    #[test]
+    fn a_streaming_tool_call_rides_the_turn_slot_as_writing() {
+        let writing = |out: &MapOut| match out.wire.last() {
+            Some(ActivityEvent::Turn { writing, .. }) => writing.clone(),
+            other => panic!("expected a turn event, got {other:?}"),
+        };
+        let mut mapper = mapper();
+        let mut idle = MapOut::default();
+        // Not inside a turn: nothing to say.
+        mapper.on_update(&slot(TURN_WRITING_META_KEY, json!({ "id": "t-1", "tool": "Write" })), &mut idle);
+        assert!(idle.wire.is_empty(), "{:?}", idle.wire);
+
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        let mut started = MapOut::default();
+        mapper.on_update(
+            &slot(TURN_WRITING_META_KEY, json!({ "id": "t-1", "tool": "ExitPlanMode" })),
+            &mut started,
+        );
+        let first = writing(&started).expect("writing is set");
+        assert_eq!(first.tool, "ExitPlanMode");
+
+        let mut tick = MapOut::default();
+        mapper.on_update(
+            &slot(TURN_WRITING_META_KEY, json!({ "id": "t-1", "tool": "ExitPlanMode" })),
+            &mut tick,
+        );
+        assert_eq!(tick.wire.len(), 1, "a re-send is never deduped");
+        assert_eq!(writing(&tick), Some(first.clone()), "the same id keeps its clock");
+
+        let mut done = MapOut::default();
+        mapper.on_update(&slot(TURN_WRITING_META_KEY, Value::Null), &mut done);
+        assert_eq!(writing(&done), None);
+        let mut again = MapOut::default();
+        mapper.on_update(&slot(TURN_WRITING_META_KEY, Value::Null), &mut again);
+        assert!(again.wire.is_empty(), "a second clear says nothing");
+
+        let mut open = MapOut::default();
+        mapper.on_update(&slot(TURN_WRITING_META_KEY, json!({ "id": "t-2", "tool": "Edit" })), &mut open);
+        let mut ended = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Ended, false, &mut ended);
+        assert_eq!(writing(&ended), None, "the turn end clears it");
     }
 
     /// EXP-850 §5: the turn slot stamps `startedAt`, counts tokens forward

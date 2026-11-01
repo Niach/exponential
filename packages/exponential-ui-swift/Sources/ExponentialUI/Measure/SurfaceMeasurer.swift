@@ -100,7 +100,7 @@ public struct LeafRequest {
         part = l.part
         props = JSONValue.parse(l.propsJson).object ?? [:]
         text = l.text
-        textStyle = TextStyle(l.textStyle, defaultFamily: defaultFamily)
+        textStyle = TextStyle(l.textStyle, defaultFamily: defaultFamily).forPart(owner: l.ownerComponent, part: l.part)
         control = ControlBox(l.control)
         lines = l.lines.map { Int($0) }
         ownerComponent = l.ownerComponent

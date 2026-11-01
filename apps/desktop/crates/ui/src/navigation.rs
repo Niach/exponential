@@ -109,6 +109,11 @@ pub enum Screen {
     /// [`crate::session_screen`]), opened from its card. It shares its ROOT's
     /// tab: the tab rebinds to it and Back returns to the thread.
     Session { session_id: String },
+    /// #EXP-1493: THE plan page ([`crate::plan_page`], `fixtures/plan-page.json`)
+    /// for the plan card `message_id` that `session_id` posted. A detail that
+    /// shares its session's tab like [`Screen::Session`]: its root's tab
+    /// rebinds to it and Back returns to where it was opened from.
+    PlanPage { session_id: String, message_id: String },
     /// EXP-1294 / NEW-6: one agent's page ([`crate::agent_screen`]): the id
     /// is the `agents` row (a legacy conversation session id still resolves,
     /// [`crate::agent_screen::resolve_agent_id`]); it shows the caller's own
@@ -178,6 +183,7 @@ impl Screen {
             self,
             Screen::IssueDetail { .. }
                 | Screen::Session { .. }
+                | Screen::PlanPage { .. }
                 | Screen::Thread { .. }
                 | Screen::Agent { .. }
                 | Screen::Terminal { .. }
@@ -407,6 +413,8 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .unwrap_or_else(|| "Issue".into()),
         Screen::Settings => "Settings".into(),
         Screen::Session { session_id } => session_tab_title(session_id, cx),
+        // #EXP-1493: the session's tab label (the page shares its tab).
+        Screen::PlanPage { session_id, .. } => session_tab_title(session_id, cx),
         // EXP-1294: the thread's title (the fixture's `untitled` while the
         // root syncs).
         Screen::Thread { session_id } => thread_tab_title(session_id, cx),
@@ -895,6 +903,13 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
             if let Some(id) = spec.strip_prefix("thread:") {
                 return Some(Screen::Thread {
                     session_id: id.to_string(),
+                });
+            }
+            // #EXP-1493: `plan:<session id>/<message id>`, THE plan page.
+            if let Some((session_id, message_id)) = spec.strip_prefix("plan:").and_then(|ids| ids.split_once('/')) {
+                return Some(Screen::PlanPage {
+                    session_id: session_id.to_string(),
+                    message_id: message_id.to_string(),
                 });
             }
             if let Some(id) = spec.strip_prefix("session:") {

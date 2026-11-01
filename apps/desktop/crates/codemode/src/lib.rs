@@ -25,7 +25,6 @@
 //! instead of keeping a core and growing until the host exits.
 
 mod catalog;
-mod client;
 mod gateway;
 mod reports;
 mod runtime;
@@ -57,26 +56,14 @@ impl std::fmt::Debug for Grant {
 }
 
 /// One HTTP MCP server a run's scripts may call, with its headers RESOLVED
-/// (the values are the run's secrets: this type never prints them).
-#[derive(Clone, PartialEq, Eq)]
-pub struct Upstream {
-    /// The config key the agent knows the server by (`exponential`,
-    /// `computer`, a team server's key); scripts spell `tools.<name>.<tool>`.
-    pub name: String,
-    pub url: String,
-    pub headers: Vec<(String, String)>,
-}
-
-impl std::fmt::Debug for Upstream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let names: Vec<&str> = self.headers.iter().map(|(name, _)| name.as_str()).collect();
-        write!(f, "Upstream({} @ {}, headers {names:?})", self.name, self.url)
-    }
-}
+/// (the values are the run's secrets: its `Debug` never prints them).
+/// `name` is the config key the agent knows the server by (`exponential`,
+/// `computer`, a team server's key); scripts spell `tools.<name>.<tool>`.
+pub use emcp::Upstream;
 
 struct Host {
     hub: Arc<server::Hub>,
-    url: String,
+    server: emcp::Server,
 }
 
 /// The process-wide host, started on the first grant. An `Err` (no free
@@ -86,9 +73,9 @@ static HOST: OnceLock<Result<Host, String>> = OnceLock::new();
 fn host() -> Result<&'static Host, String> {
     HOST.get_or_init(|| {
         let hub = Arc::new(server::Hub::new());
-        let url = server::serve(hub.clone())?;
-        log::info!("[codemode] serving code mode on {url}");
-        Ok(Host { hub, url })
+        let server = server::serve(hub.clone())?;
+        log::info!("[codemode] serving code mode on {}", server.url());
+        Ok(Host { hub, server })
     })
     .as_ref()
     .map_err(Clone::clone)
@@ -99,7 +86,8 @@ fn host() -> Result<&'static Host, String> {
 /// reach; `direct_only` = the stdio servers named as unreachable.
 pub fn grant(session_id: &str, label: &str, upstreams: Vec<Upstream>, direct_only: Vec<String>) -> Result<Grant, String> {
     let host = host()?;
-    Ok(Grant { url: host.url.clone(), token: host.hub.grant(session_id, label, upstreams, direct_only) })
+    host.hub.admit(session_id, label, upstreams, direct_only);
+    Ok(Grant { url: host.server.url().to_string(), token: host.server.grant(session_id, label) })
 }
 
 /// EXP-1458: admit the run `session_id` to the MCP GATEWAY: the agent
@@ -114,9 +102,8 @@ pub fn gateway_grant(
     transform: Arc<dyn GatewayTransform>,
 ) -> Result<Grant, String> {
     let host = host()?;
-    let base = host.url.trim_end_matches("/mcp");
     Ok(Grant {
-        url: format!("{base}{}", gateway::ROUTE),
+        url: format!("{}{}", host.server.base(), gateway::ROUTE),
         token: host.hub.gateways.grant(session_id, label, upstream, transform),
     })
 }
@@ -125,7 +112,9 @@ pub fn gateway_grant(
 /// and the call logs its feed never claimed are dropped.
 pub fn revoke(session_id: &str) {
     if let Some(Ok(host)) = HOST.get() {
-        host.hub.revoke(session_id);
+        // The server's revoke reaches the hub (`ToolProvider::ended`): the
+        // run is cancelled and its gateway token dropped.
+        host.server.revoke(session_id);
     }
     reports::forget(session_id);
 }

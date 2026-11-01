@@ -1,7 +1,5 @@
-- Sessions stream straight from the device that runs them
-- A session whose device is offline says so and reconnects by itself once it's back
-- Session messages are sealed on your devices, so the server can no longer read them
-- A question from a chat you started pushes to your phone and shows the question itself
-- Tapping a decision in your inbox opens the chat that's waiting for you
-- Stories show the last 24 hours, and a chat's Stories tab shows them in place
-- Calls keep working when you switch between speaker, headphones and Bluetooth
+- Plans open on their own page, with an outline and their pictures
+- Stories are calmer: one card per plan or result, each with a badge
+- New app opens the editor right away, and the agent names your app
+- The working line shows which tool the agent is writing, and for how long
+- Quick replies above the composer are easier to read

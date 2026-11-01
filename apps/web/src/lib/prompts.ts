@@ -242,6 +242,12 @@ export const removeServerPrompt = (server: string) =>
     server,
   })
 
+/** #VAPP-185: Settings › MCP › Clients' Revoke. */
+export const revokeMcpClientPrompt = (client: string) =>
+  copyOf(P[`revoke-mcp-client`], P[`revoke-mcp-client`].title, P[`revoke-mcp-client`].body, {
+    client,
+  })
+
 /** VAPP-91: a host asking before a surface acts as the person (`harness.mcp`
  *  names its MCP tool, any other `ask` function its own name). Deny takes
  *  focus and Enter; Allow is the explicit `default` answer. VAPP-107:

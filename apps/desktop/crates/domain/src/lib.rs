@@ -152,6 +152,7 @@ pub mod message_conversation;
 pub mod options;
 // EXP-1280: THE plan / question card (answer text, issues, uploads, tiles), fixture-locked ×4.
 pub mod plan_card;
+pub mod plan_page;
 pub mod placeholder_status;
 pub mod pr_graph;
 pub mod pr_stack;

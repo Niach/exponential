@@ -32,7 +32,7 @@ public enum SettingsNav {
         case billing = "billing"
         case boards = "boards"
         case agents = "agents"
-        case mcpServers = "mcp-servers"
+        case mcp = "mcp"
         case devices = "devices"
     }
 
@@ -48,11 +48,11 @@ public enum SettingsNav {
         Row(id: "billing", label: "Plan & Billing", icon: "settings-billing", group: "team", visible: .ownerCloud, phone: false, count: nil),
         Row(id: "boards", label: "Boards", icon: "settings-boards", group: "boards", visible: .all, phone: true, count: .boards),
         Row(id: "agents", label: "Agents", icon: "settings-agents", group: "agents", visible: .all, phone: true, count: .agents),
-        Row(id: "mcp-servers", label: "MCP servers", icon: "settings-mcp", group: "agents", visible: .all, phone: false, count: nil),
+        Row(id: "mcp", label: "MCP", icon: "settings-mcp", group: "agents", visible: .all, phone: true, count: nil),
         Row(id: "devices", label: "Devices", icon: "nav-devices", group: "devices", visible: .all, phone: true, count: nil),
     ]
 
-    public static let phoneRows: [Id] = [.general, .members, .labels, .repositories, .prompts, .boards, .agents, .devices]
+    public static let phoneRows: [Id] = [.general, .members, .labels, .repositories, .prompts, .boards, .agents, .mcp, .devices]
 
     public static func row(_ id: Id) -> Row { rows.first { $0.id == id.rawValue }! }
 

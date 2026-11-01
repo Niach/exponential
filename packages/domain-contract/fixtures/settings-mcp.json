@@ -1,0 +1,82 @@
+{
+  "$comment": "#VAPP-185 (epic VAPP-175, owner 2026-10-31): Settings › MCP, ONE page ×4 (web routes/t/$teamSlug/settings/mcp.tsx, desktop crates/ui/src/settings/mcp.rs, iOS McpSettingsPage.swift, Android McpSettingsScreen.kt), the SAME look everywhere: existing components only (glass groups of rows, the section label above each group, Pill, the Picker, Button, SegmentedControl, the Prompt). It REPLACES the MCP servers page: the settings-nav row `mcp` (label `title`) on every platform, phones included; the old web route `/settings/mcp-servers` redirects to `/settings/mcp` keeping its query (`?connect=`, the OAuth callback's `?mcp=…&server=`). SECTIONS in `sections` order, each a label over one glass group (no explanatory subtitles): (1) ENDPOINT: one row, the global apps endpoint `<instance>/api/mcp/apps` in mono (truncated in the middle on phones) + a `copy` button (the platform's copy + the `copied` toast). (2) SERVERS: today's MCP servers rows unchanged (name, Default pill, host; the viewer's ONE action: Connect / Set key / Reconnect / a Connected caption; the … menu), each row's caption gains `usedBy` naming the apps (alphabetical, by name) whose head package declares the server in `upstreams` (`usedByCases`); owners add / edit / remove as today. Phones (no add/edit there) show the rows and the member's own Connect / Disconnect. (3) CLIENTS: the MCP clients (OAuth clients a member authorized: tRPC `mcpClients.list {teamId, scope}`); owners see a SegmentedControl `scopes` (Mine | Everyone) above the group, members only Mine and no control. A row = the client's name (its icon when it has one, else the concept `settings-mcp`), caption = `clientCaption` (`clientCaptionCases`: Everyone prefixes the member's name; the kinds, `builtin` first; the apps grant's access; `lastUsed` = the compact list relative time (`just now · 5m · 2h · 3d`) or `never`), trailing a `revoke` button (outline, small) asking the prompts.json `revoke-mcp-client` prompt; a member revokes only their own, an owner anyone's in Everyone. Empty = empty-state.json `mcp-clients`. (4) ACCESS (only when the team has an app exposing tools): ONE glass group PER APP (alphabetical by name; its header row = the app's glyph + name + `toolCount` caption), rows = the members (owners: every member, by name; a member: only their own row), each with the avatar, the name and the level: owners pick it with THE Picker over `levels` (labels in order), members read the label. Below the groups one row `activity` (chevron) opens the ACTIVITY page. (5) BUILT-IN: the existing built-in Exponential tools group (label `builtin`, its filter), unchanged, last. ACTIVITY (`activityPage`, its own page, title `activity`, back to MCP): the `mcp_calls` rows newest first (tRPC `mcpActivity.list {teamId}`; owners: the team's calls, a member: their own; 90 days), a row = the tool name in mono, caption = `activityCaption` (`activityCaptionCases`: the app's name or `builtinApp`, the member (owners only), the client or `firstParty`, the compact relative time), trailing a Pill with the `statusLabels` word of its status. Empty = empty-state.json `mcp-activity`. `testIds` = the anchors every client's capture and test use.",
+  "title": "MCP",
+  "sections": ["endpoint", "servers", "clients", "access", "builtin"],
+  "labels": {
+    "endpoint": "Endpoint",
+    "servers": "Servers",
+    "clients": "Clients",
+    "access": "Access",
+    "builtin": "Built-in Exponential tools"
+  },
+  "copy": "Copy",
+  "copied": "Copied",
+  "endpointPath": "/api/mcp/apps",
+  "revoke": "Revoke",
+  "activity": "Activity",
+  "scopes": [
+    { "value": "mine", "label": "Mine" },
+    { "value": "everyone", "label": "Everyone" }
+  ],
+  "levels": [
+    { "value": "none", "label": "None" },
+    { "value": "read", "label": "Read only" },
+    { "value": "write", "label": "Full" }
+  ],
+  "kindLabels": { "builtin": "Exponential tools", "apps": "Apps" },
+  "accessLabels": { "read": "Read only", "full": "Full" },
+  "statusLabels": { "ok": "OK", "denied": "Denied", "invalid": "Invalid", "failed": "Failed", "upstream": "Upstream" },
+  "never": "never used",
+  "builtinApp": "Exponential",
+  "firstParty": "API key",
+  "usedBy": "Used by {apps}",
+  "toolCount": { "one": "{n} tool", "other": "{n} tools" },
+  "usedByCases": [
+    { "name": "no app", "apps": [], "expected": null },
+    { "name": "one", "apps": ["m5 admin"], "expected": "Used by m5 admin" },
+    { "name": "sorted by name", "apps": ["Working hours", "m5 admin", "Billing"], "expected": "Used by Billing, m5 admin, Working hours" }
+  ],
+  "clientCaptionCases": [
+    {
+      "name": "mine, both kinds, apps full, used",
+      "scope": "mine",
+      "client": { "userName": "Danny", "kinds": ["builtin", "apps"], "appsAccess": "full", "lastUsed": "2h" },
+      "expected": "Exponential tools, Apps (Full) · 2h"
+    },
+    {
+      "name": "mine, apps read only, never used",
+      "scope": "mine",
+      "client": { "userName": "Danny", "kinds": ["apps"], "appsAccess": "read", "lastUsed": null },
+      "expected": "Apps (Read only) · never used"
+    },
+    {
+      "name": "everyone names the member",
+      "scope": "everyone",
+      "client": { "userName": "Mia", "kinds": ["builtin"], "appsAccess": null, "lastUsed": "3d" },
+      "expected": "Mia · Exponential tools · 3d"
+    }
+  ],
+  "activityCaptionCases": [
+    {
+      "name": "an app tool, owner view",
+      "owner": true,
+      "call": { "appName": "m5 admin", "userName": "Mia", "clientName": "Claude Code", "when": "5m" },
+      "expected": "m5 admin · Mia · Claude Code · 5m"
+    },
+    {
+      "name": "a built-in tool, member view, a key",
+      "owner": false,
+      "call": { "appName": null, "userName": "Danny", "clientName": null, "when": "1h" },
+      "expected": "Exponential · API key · 1h"
+    }
+  ],
+  "testIds": {
+    "page": "settings-mcp-page",
+    "endpoint": "settings-mcp-endpoint",
+    "servers": "settings-mcp-servers",
+    "clients": "settings-mcp-clients",
+    "access": "settings-mcp-access",
+    "builtin": "settings-mcp-builtin",
+    "activity": "settings-mcp-activity"
+  }
+}

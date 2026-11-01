@@ -114,21 +114,30 @@ export interface McpCallRow {
   argsHash: string
 }
 
+/** #VAPP-181: an endpoint's own reading of its calls: the app whose tool
+ * a name runs (`/api/mcp/apps`) and how its answers classify. */
+export interface AuditOptions {
+  appIdOf?: (tool: string) => string | null
+  classify?: (response: unknown) => { outcome: CallOutcome; error: string | null }
+}
+
 /** The audit rows of one request: one per `tools/call`, in request order. */
 export function auditRows(
   caller: AuditCaller,
   requestBody: unknown,
   responseBody: unknown,
-  latencyMs: number
+  latencyMs: number,
+  options: AuditOptions = {}
 ): McpCallRow[] {
   const responses = responsesById(responseBody)
+  const classify = options.classify ?? classifyToolResponse
   return toolCallsOf(requestBody).map((call) => {
-    const { outcome, error } = classifyToolResponse(call.id === null ? null : responses.get(call.id))
+    const { outcome, error } = classify(call.id === null ? null : responses.get(call.id))
     return {
       teamId: caller.teamId,
       userId: caller.userId,
       clientId: caller.clientId,
-      appId: caller.appId,
+      appId: options.appIdOf?.(call.tool) ?? caller.appId,
       tool: call.tool,
       status: callStatus(outcome),
       error,

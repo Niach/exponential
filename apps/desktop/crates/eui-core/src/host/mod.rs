@@ -12,6 +12,7 @@
 
 pub mod contract;
 pub mod decoders;
+pub mod exposes;
 pub mod package;
 pub mod policy;
 pub mod record_store;
@@ -22,6 +23,7 @@ pub mod sources;
 pub mod tools;
 
 pub use contract::*;
+pub use exposes::{expose_action_access, expose_issues, expose_name_destructive, expose_template_paths, validate_package_exposes, validate_upstreams, ExposeIssue};
 pub use decoders::{decode_jsonl, mcp_action_call, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder};
 pub use package::{
     available_extensions, client_capabilities, merge_data, package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package, validate_package_with, version_satisfies, AvailableExtension, PackageIssue,

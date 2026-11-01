@@ -306,6 +306,51 @@ pub fn next_focus(order: &[u32], current: Option<u32>, backwards: bool) -> Optio
     }
 }
 
+/// The AUTHORED a11y of a node (`accessibility` = the core's defaults and
+/// a macro's `$a11y`): `Some(None)` = hidden from AT (`hidden: true`,
+/// `role: none`), `Some(Some(role))` = an explicit role, `None` = infer it
+/// (EXP-1495: the Carousel counter, the Outline's navigation + link rows,
+/// the Mosaic's button tiles and decorative pictures).
+pub fn authored_role(n: &PlacedNode) -> Option<Option<Role>> {
+    let a = n.accessibility.as_ref()?;
+    if a.get("hidden").and_then(Value::as_bool) == Some(true) {
+        return Some(None);
+    }
+    Some(Some(match a.get("role").and_then(Value::as_str)? {
+        "none" | "presentation" => return Some(None),
+        "button" => Role::Button,
+        "link" => Role::Link,
+        "navigation" => Role::Navigation,
+        "group" => Role::Group,
+        "region" => Role::Region,
+        "heading" => Role::Heading,
+        "alert" => Role::Alert,
+        "alertdialog" => Role::AlertDialog,
+        "dialog" => Role::Dialog,
+        "status" => Role::Status,
+        "banner" => Role::Banner,
+        "main" => Role::Main,
+        "meter" => Role::Meter,
+        "progressbar" => Role::ProgressIndicator,
+        "list" => Role::List,
+        "listitem" => Role::ListItem,
+        "img" | "image" => Role::Image,
+        "tree" => Role::Tree,
+        "treeitem" => Role::TreeItem,
+        _ => return None,
+    }))
+}
+
+/// `accessibility.current` (`true` or a token like `location` / `page` /
+/// `step`; `false` or absent = not current).
+pub fn a11y_current(n: &PlacedNode) -> bool {
+    match n.accessibility.as_ref().and_then(|a| a.get("current")) {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::String(s)) => !s.is_empty() && s != "false",
+        _ => false,
+    }
+}
+
 fn str_of<'a>(n: &'a PlacedNode, key: &str) -> Option<&'a str> {
     n.props.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
 }

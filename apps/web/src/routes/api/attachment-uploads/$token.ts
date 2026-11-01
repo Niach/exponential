@@ -12,6 +12,7 @@ import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
+  buildPendingSessionAttachmentStorageKey,
   getMaxUploadBytesForContentType,
   isAcceptedImageContentType,
   isInlineMediaContentType,
@@ -155,13 +156,16 @@ async function uploadSignedAttachment({
 
   // The issue may have gone (trash purge, delete) inside the token's window;
   // a 404 beats the FK violation the insert would otherwise surface as a 500.
-  const [issue] = await db
-    .select({ id: issues.id })
-    .from(issues)
-    .where(eq(issues.id, payload.i))
-    .limit(1)
-  if (!issue) {
-    throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+  // EXP-1516: a token without one is a LOOSE upload (no issue, no board).
+  if (payload.i !== undefined) {
+    const [issue] = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.id, payload.i))
+      .limit(1)
+    if (!issue) {
+      throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+    }
   }
 
   const contentType = payload.c
@@ -180,7 +184,12 @@ async function uploadSignedAttachment({
 
   await assertWithinStorageLimit(payload.w, body.byteLength)
 
-  const storageKey = buildAttachmentStorageKey(payload.i, payload.a, payload.f)
+  // A loose upload takes the composer's team-scoped key (the paste path,
+  // lib/storage/session-attachment-upload.ts).
+  const storageKey =
+    payload.i !== undefined
+      ? buildAttachmentStorageKey(payload.i, payload.a, payload.f)
+      : buildPendingSessionAttachmentStorageKey(payload.w, payload.a, payload.f)
   const url = buildAttachmentUrl(payload.a)
   // Same probes as the inline path: images for their pixel size, MP4/MOV
   // media for size + duration. A pdf/zip has neither.
@@ -201,8 +210,8 @@ async function uploadSignedAttachment({
     await db.insert(attachments).values({
       id: payload.a,
       teamId: payload.w,
-      boardId: payload.b,
-      issueId: payload.i,
+      boardId: payload.b ?? null,
+      issueId: payload.i ?? null,
       commentId: payload.m ?? null,
       uploaderId: payload.u,
       filename: payload.f,

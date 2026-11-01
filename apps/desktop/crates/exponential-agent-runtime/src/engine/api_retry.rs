@@ -197,7 +197,7 @@ mod tests {
     use crate::wire::ActivityEvent as E;
 
     fn turn(state: TurnState) -> E {
-        E::Turn { state, started_at: None, tokens: None, at: None }
+        E::Turn { state, started_at: None, tokens: None, writing: None, at: None }
     }
 
     fn api_error(error_type: Option<&str>, subagent: Option<&str>) -> E {

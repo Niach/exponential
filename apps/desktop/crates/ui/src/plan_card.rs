@@ -37,8 +37,8 @@ use eui_gpui::host::HostPlugin;
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{
     div, img, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Entity, FontWeight,
-    InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, SharedString, Styled as _,
-    StyledImage as _, Subscription, Window,
+    InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, SharedString,
+    StatefulInteractiveElement as _, Styled as _, StyledImage as _, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -521,7 +521,7 @@ pub(crate) fn card_surface_view(
 /// its own frame (`card.surface*`; a skeleton-height box until the view
 /// exists). `labelled` false = the story viewer's look (stories.json: no
 /// label above the surface, no frame around it).
-fn surface_block(message_id: &str, labelled: bool, cx: &App) -> AnyElement {
+pub(crate) fn surface_block(message_id: &str, labelled: bool, cx: &App) -> AnyElement {
     let copy = model::copy();
     let card = model::card();
     let view = draft(message_id, cx).and_then(|draft| draft.surface.clone());
@@ -799,6 +799,9 @@ fn plan_answers(message_id: &str, questions: &[PlanQuestion], cx: &App) -> BTree
 /// A plan row's facts.
 pub(crate) struct PlanFacts<'a> {
     pub message_id: &'a str,
+    /// The session that posted the card (#EXP-1493: THE plan page opens
+    /// for `(session_id, message_id)`).
+    pub session_id: &'a str,
     pub questions: &'a [PlanQuestion],
     pub surface: Option<&'a CardSurface>,
     pub decision: Option<&'a str>,
@@ -902,18 +905,6 @@ pub(crate) fn plan_sheet(
     plan_sheet_with(facts, plan, false, images, window, cx)
 }
 
-/// S-3: the story viewer's plan footer (stories.json): Approve / Change,
-/// no fresh-context split, the same answer path.
-pub(crate) fn plan_story_sheet(
-    facts: &PlanFacts,
-    plan: AnyElement,
-    images: &Entity<ImageCache>,
-    window: &Window,
-    cx: &mut App,
-) -> crate::dock::SheetContent {
-    plan_sheet_with(facts, plan, true, images, window, cx)
-}
-
 fn plan_sheet_with(
     facts: &PlanFacts,
     plan: AnyElement,
@@ -966,13 +957,141 @@ fn plan_sheet_with(
     } else if let Some(decision) = facts.decision {
         footer = footer.child(closed_decision(facts, decision, cx));
     }
+    // #EXP-1493 (plan-page.json WAYS IN): the Dock sheet's header glyph
+    // `ui-fullscreen` (`copy.openFull`) opens THE plan page; the story
+    // viewer carries its own `Open plan`.
+    let action = (!story).then(|| open_full_glyph(facts.session_id, message_id, cx));
     crate::dock::SheetContent {
         meta: question.map(|_| SharedString::from(model::copy().step_label(page, count))),
-        action: None,
+        action,
         body: crate::dock::sheet_body(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)), body),
         // The story viewer floats its footer on the bottom scrim: no hairline.
         footer: Some(if story { footer.into_any_element() } else { crate::dock::sheet_footer(footer) }),
     }
+}
+
+/// #EXP-1493: the Dock sheet header's `ui-fullscreen` glyph
+/// (plan-page.json `copy.openFull`): opens THE plan page.
+fn open_full_glyph(session_id: &str, message_id: &str, cx: &App) -> AnyElement {
+    let page = &domain::plan_page::PLAN_PAGE;
+    let (session_id, id) = (session_id.to_string(), message_id.to_string());
+    crate::controls::ghost_icon_button(
+        SharedString::from(format!("{}-full-{message_id}", page.test_ids.open_plan)),
+        Icon::new(registry::UI_FULLSCREEN).xsmall(),
+        cx,
+    )
+    .tooltip(page.copy.open_full.clone())
+    .on_click(move |_, window, cx| {
+        cx.stop_propagation();
+        crate::plan_page::open(&session_id, &id, window, cx);
+    })
+    .into_any_element()
+}
+
+/// #EXP-1493: THE plan page's RAIL (plan-page.json, wide; web `PlanRail`):
+/// the `copy.questions` heading (with "Question n of m" once there are two
+/// or more) over ONE question at a time, Back / Next under it and, pinned
+/// at its foot on the last question, THE decision ([`plan_footer`]); no
+/// question = the decision alone; decided = THE closed card (every
+/// question's picks, `planDecisionLabel`, the feedback). The step is the
+/// card's draft step (the Dock sheet's page = 1 + the question), so the
+/// sheet and the rail stay on the same question.
+pub(crate) fn plan_rail(facts: &PlanFacts, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> AnyElement {
+    let message_id = facts.message_id;
+    let decided = facts.decision.is_some();
+    let answering = crate::thread_screen::answering(message_id, cx);
+    let interactive = !decided && !answering;
+    prepare_plan(facts, window, cx);
+    let count = facts.questions.len();
+    let ids = model::test_ids();
+    let copy = model::copy();
+    let at = current_step(message_id, cx).max(1).min(count.max(1)) - 1;
+    let question = (!decided).then(|| facts.questions.get(at)).flatten();
+    let last = at + 1 >= count;
+    let foreground = cx.theme().foreground;
+    let muted = cx.theme().muted_foreground;
+    let heading = (count > 0).then(|| {
+        h_flex()
+            .flex_shrink_0()
+            .w_full()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(foreground)
+                    .child(SharedString::from(domain::plan_page::PLAN_PAGE.copy.questions.clone())),
+            )
+            .when(question.is_some() && count > 1, |row| {
+                row.child(
+                    div()
+                        .id(SharedString::from(format!("{}-rail-{message_id}", ids.step)))
+                        .ml_auto()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(copy.step_label(at + 1, count))),
+                )
+            })
+    });
+    let mut body = v_flex()
+        .id(SharedString::from(format!("{}-rail-{message_id}", ids.card)))
+        .w_full()
+        .min_w_0();
+    match question {
+        Some(question) => {
+            let picked = plan_picked(facts, question, cx);
+            body = body.child(question_block(message_id, question, &picked, interactive, 0., images, window, cx));
+        }
+        None if decided => {
+            for (index, question) in facts.questions.iter().enumerate() {
+                let picked = plan_picked(facts, question, cx);
+                let top = if index == 0 { 0. } else { model::card().block_gap };
+                body = body.child(question_block(message_id, question, &picked, false, top, images, window, cx));
+            }
+            if let Some(decision) = facts.decision {
+                body = body.child(div().mt_2().w_full().child(closed_decision(facts, decision, cx)));
+            }
+        }
+        None => {}
+    }
+    let mut footer = v_flex().flex_shrink_0().w_full().min_w_0().gap_2();
+    if interactive {
+        // Back / Next in the sheet's page numbers (page = 1 + the question).
+        let back = at > 0;
+        if last {
+            // The decision's own Back (page 0 = none).
+            footer = footer.child(plan_footer(facts, if back { at + 1 } else { 0 }, false, window, cx));
+        } else {
+            footer = footer.child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap(px(model::stepper().button_gap))
+                    .when(back, |row| row.child(step_button(message_id, &ids.step_back, &copy.back, at)))
+                    .child(div().flex_1())
+                    .child(step_button(message_id, &ids.step_next, &copy.next, at + 2)),
+            );
+        }
+    } else if answering {
+        footer = footer.child(crate::thread_screen::card_answering(cx));
+    }
+    v_flex()
+        .id(SharedString::from(domain::plan_page::PLAN_PAGE.test_ids.rail.clone()))
+        .size_full()
+        .min_h_0()
+        .gap_3()
+        .children(heading)
+        .child(
+            div()
+                .id(SharedString::from(format!("plan-rail-scroll-{message_id}")))
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .child(body),
+        )
+        .when(!decided, |rail| rail.child(footer))
+        .into_any_element()
 }
 
 /// A footer button (small secondary, or the primary).

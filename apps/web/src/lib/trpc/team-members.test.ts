@@ -94,6 +94,10 @@ const fakeDb: FakeDb = {
 // keep Postgres out of the test.
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
+// #VAPP-184: the MCP grant/policy cascade (its SQL is real-DB tested in
+// lib/emcp/revoke.real-db.test.ts); here only that it runs, in the removal tx.
+vi.mock(`@/lib/emcp/revoke`, () => ({ revokeMemberMcpInTx: vi.fn(async () => {}) }))
+
 vi.mock(`@/lib/admin`, () => ({
   isUserAdmin: vi.fn(async () => false),
   assertAdmin: vi.fn(async () => {}),
@@ -282,6 +286,8 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     expect(deletes.findIndex((d) => d.table === mcpCredentials)).toBeGreaterThan(
       deletes.findIndex((d) => d.table === teamMembers)
     )
+    const { revokeMemberMcpInTx } = await import(`@/lib/emcp/revoke`)
+    expect(vi.mocked(revokeMemberMcpInTx)).toHaveBeenCalledWith(expect.anything(), WS, `user-b`)
   })
 
   it(`still refuses to remove the last owner (guard survives the transaction refactor)`, async () => {

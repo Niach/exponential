@@ -124,6 +124,11 @@ import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger } from "@expo
   `@exponential_app/eui/fixtures/primitive-specimens.json` with React's over the
   whole page body: `bun run --filter @exponential_app/eui-solid test:parity:primitives`.
 
+- Round 6 (EXP-1495) adds `Outline`, `Mosaic`, `CarouselCounter` and
+  `CarouselThumbnails` (React's API with `class`), specimens `plain/outline`,
+  `plain/mosaic`, `plain/carousel-extras`; the natives' Carousel `counter` +
+  `thumbnails` are React's markup (`src/round6.test.tsx`, `media.parity`).
+
 ## State attributes: the porting rule
 
 The theme CSS (`STATE_SELECTORS`) targets Radix's attribute names, so the

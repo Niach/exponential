@@ -1,0 +1,12 @@
+# Joins the gnome-keyring daemon PAM unlocked at login (secrets + pkcs11),
+# so apps find their passwords without a second prompt.
+[Unit]
+Description=eDE keyring (gnome-keyring secrets)
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionPathExists=/usr/bin/gnome-keyring-daemon
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/gnome-keyring-daemon --start --components=secrets,pkcs11

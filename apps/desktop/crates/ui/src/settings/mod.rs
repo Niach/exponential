@@ -42,6 +42,7 @@ mod add_repository_dialog;
 pub(crate) mod agent_detail;
 // VAPP-177: the app editor's Settings tab (rendered by the app screen).
 pub(crate) mod app_detail;
+mod app_mcp;
 mod new_agent;
 mod agents;
 mod agents_index;
@@ -53,6 +54,7 @@ mod invite_form;
 mod resend_invite_dialog;
 mod issues;
 mod labels;
+mod mcp;
 mod mcp_servers;
 // EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
 // re-renders on its own state).
@@ -150,7 +152,7 @@ use account::AccountPane;
 use api_keys::ApiKeysPane;
 use issues::IssuesPane;
 use labels::LabelsPane;
-use mcp_servers::McpServersPane;
+use mcp::{McpActivityPane, McpPane};
 use widget::WidgetPane;
 use statuses::StatusesPane;
 use local_repos::LocalReposPane;
@@ -204,12 +206,14 @@ pub(crate) enum SettingsSection {
     /// hand-off. Owner-only, like the web's `canManageWidgets` gate and the
     /// `widgets.list` router behind it.
     Widget,
-    /// EXP-792/EXP-807: the team's MCP servers — the registry plus the
-    /// person's OWN connection to each (Connect / Set key / Disconnect; the
-    /// server holds the credential). Member-visible: every member reads the
-    /// list and connects for themselves; the owner-only writes are gated
-    /// inside the pane, like the router behind it.
-    McpServers,
+    /// VAPP-185 (`settings-mcp.json`): Settings › MCP, the merged page —
+    /// Endpoint, Servers (EXP-792/EXP-807: the registry plus the person's OWN
+    /// connection to each), Clients, Access, Built-in tools. Member-visible;
+    /// the owner-only controls are gated inside the pane.
+    Mcp,
+    /// VAPP-185: the MCP page's Activity sub-page (the `mcp_calls` log).
+    /// The MCP nav row stays lit on it.
+    McpActivity,
     /// This-device tools (EXP-288: renamed from "Coding" — repos root,
     /// branch prefix, terminal shell).
     Tools,
@@ -348,11 +352,11 @@ const NAV_GROUPS: &[NavGroup] = &[
         items: &[NavItem::leaf("archived-boards", "Archived boards", SettingsSection::ArchivedBoards)],
     },
     // The viewer's Assistant, the team agents and New agent are injected at
-    // render; MCP servers close the group.
+    // render; MCP closes the group.
     NavGroup {
         id: "agents",
         label: AGENTS_GROUP,
-        items: &[NavItem::leaf("mcp-servers", "MCP servers", SettingsSection::McpServers)],
+        items: &[NavItem::leaf("mcp", mcp::SETTINGS_MCP.title, SettingsSection::Mcp)],
     },
     // VAPP-110: the per-app rows + New app are injected at render.
     NavGroup { id: "apps", label: APPS_GROUP, items: &[] },
@@ -441,7 +445,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Board(_) => Icon::from(registry::SETTINGS_BOARDS),
         SettingsSection::Repositories => Icon::from(registry::SETTINGS_REPOSITORIES),
         SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
-        SettingsSection::McpServers => Icon::from(registry::SETTINGS_MCP),
+        SettingsSection::Mcp | SettingsSection::McpActivity => Icon::from(registry::SETTINGS_MCP),
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
         SettingsSection::AgentClis
         | SettingsSection::Agents
@@ -586,6 +590,10 @@ fn first_agent_resolved(
 /// (web: the `/settings/prompts` entry matches its sub-routes).
 fn nav_lit(item: &SettingsSection, effective: &SettingsSection) -> bool {
     match item {
+        // VAPP-185: the MCP row stays lit on its Activity page.
+        SettingsSection::Mcp => {
+            matches!(effective, SettingsSection::Mcp | SettingsSection::McpActivity)
+        }
         SettingsSection::Prompts => matches!(
             effective,
             SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt
@@ -667,9 +675,10 @@ pub struct SettingsView {
     /// EXP-771 owner-only widget list (fetch-on-open server read —
     /// `widget_configs` is never synced).
     widget: Entity<WidgetPane>,
-    /// EXP-792 team MCP servers (fetch-on-open server read — `mcp_servers`
-    /// is never synced), member-visible.
-    mcp_servers: Entity<McpServersPane>,
+    /// VAPP-185 Settings › MCP (fetch-on-open server reads: `mcp_servers`
+    /// and the MCP clients/access/calls never sync) and its Activity page.
+    mcp: Entity<McpPane>,
+    mcp_activity: Entity<McpActivityPane>,
     /// This-device tools (EXP-288: repos root, branch prefix, terminal
     /// shell) — local per-install state, so NOT owner-gated.
     tools: Entity<ToolsPane>,
@@ -726,7 +735,8 @@ impl SettingsView {
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let apps_index = cx.new(|cx| crate::apps_view::AppsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
-        let mcp_servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
+        let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
+        let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agent_clis = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
@@ -773,7 +783,8 @@ impl SettingsView {
             prompt_page: None,
             repositories,
             widget,
-            mcp_servers,
+            mcp,
+            mcp_activity,
             tools,
             agent_clis,
             local_repos,
@@ -889,8 +900,9 @@ impl Render for SettingsView {
                 }
                 // Same reason, plus one of its own: a connection made on the
                 // web or from the CLI has to show on re-entry.
-                SettingsSection::McpServers => {
-                    self.mcp_servers.update(cx, |pane, cx| pane.mark_stale(cx))
+                SettingsSection::Mcp => self.mcp.update(cx, |pane, cx| pane.mark_stale(cx)),
+                SettingsSection::McpActivity => {
+                    self.mcp_activity.update(cx, |pane, cx| pane.mark_stale(cx))
                 }
                 SettingsSection::NewAgent => self.new_agent = None,
                 // A fresh create page on every entry (web: a new route).
@@ -967,7 +979,8 @@ impl Render for SettingsView {
             SettingsSection::Prompt(prompt_id) => self.prompt_pane(prompt_id, window, cx),
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
             SettingsSection::Widget => self.widget.clone().into_any_element(),
-            SettingsSection::McpServers => self.mcp_servers.clone().into_any_element(),
+            SettingsSection::Mcp => self.mcp.clone().into_any_element(),
+            SettingsSection::McpActivity => self.mcp_activity.clone().into_any_element(),
             SettingsSection::Tools => self.tools.clone().into_any_element(),
             SettingsSection::AgentClis => self.agent_clis.clone().into_any_element(),
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),

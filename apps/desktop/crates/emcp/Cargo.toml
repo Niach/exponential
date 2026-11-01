@@ -1,0 +1,62 @@
+[package]
+name = "emcp"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "eMCP: MCP on rmcp for Exponential's devices and spezl. A loopback Streamable HTTP server behind a tool-provider trait, a blocking client with OAuth and a vault for its credentials, and the eMCP contract (exposes, access, audit, vault, upstream) replayed from packages/emcp."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+keywords = ["mcp", "model-context-protocol", "oauth", "agent"]
+categories = ["network-programming", "api-bindings"]
+# EXP-1492: consumed outside the monorepo as a GIT dependency on a tag
+# `emcp-v<version>` (docs/libraries.md), never crates.io: the contract is
+# compiled in with include_str! from packages/emcp/fixtures (and
+# packages/domain-contract/fixtures/app-actions.json), which a crates.io
+# package would not carry.
+publish = false
+
+# THE RULE (gated by `tests/dependency_gate.rs`): no Exponential app crate
+# (api, domain, coding, ui, app, …) and no other lib of this repo. The hosts
+# (codemode, epilot, epilot-screen, api, ui) depend on emcp, never the reverse.
+[dependencies]
+# The MCP protocol, server and client: the official Rust SDK. Stateless
+# Streamable HTTP with JSON responses on the server, the reqwest transport
+# and OAuth (`auth`: discovery, DCR, PKCE, refresh) on the client.
+rmcp = { version = "3.8", default-features = false, features = [
+    "server",
+    "client",
+    "transport-streamable-http-server",
+    "transport-streamable-http-client-reqwest",
+    "reqwest-tls-no-provider",
+    "auth",
+] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = "0.4"
+uuid = { workspace = true }
+# One private runtime per process (`runtime.rs`): every host of this crate is
+# blocking code, so the async SDK lives on emcp's own threads.
+tokio = { workspace = true }
+# The loopback listener: rmcp's tower service under a bare hyper HTTP/1.1
+# server (no web framework), plus the bearer check and the raw routes.
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+# rmcp's own HTTP client (its pin, 0.13, already in the tree via iroh),
+# handed to the transport. `rustls-no-provider`: the workspace's rustls is
+# ring-only; reqwest's `rustls` feature would turn on aws-lc-rs for EVERY
+# rustls user (a C build, and two providers make rustls refuse to pick).
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+# The crypto provider emcp installs for its clients (`runtime.rs`): ring,
+# the one the rest of the tree builds.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# The vault (vault.json): AES-256-GCM + base64; the audit hash and the slug
+# hash (audit.json, exposes.json): SHA-256.
+aes-gcm = "0.10"
+base64 = "0.22"
+sha2 = { workspace = true }
+rand = "0.8"
+# rmcp's `CredentialStore` is an async_trait trait (its own pin).
+async-trait = "0.1"

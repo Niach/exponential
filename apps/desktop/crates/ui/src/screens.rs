@@ -170,6 +170,10 @@ pub(crate) fn build_screen_content(
                 crate::session_screen::SessionScreenView::remote(session_id.clone(), window, cx)
             })
             .into(),
+        // #EXP-1493: the plan page is never undocked; kept total.
+        Screen::PlanPage { session_id, message_id } => cx
+            .new(|cx| crate::plan_page::PlanPageView::new(session_id.clone(), message_id.clone(), window, cx))
+            .into(),
         // EXP-1294: a thread and an agent's channel are never undocked
         // either; kept total with their real views.
         Screen::Thread { session_id } => cx
@@ -311,8 +315,9 @@ fn screen_root(screen: &Screen, cx: &App) -> Option<String> {
         // NEW-6: the caller's conversation with the agent (the agent id
         // until the first message creates it).
         Screen::Agent { agent_id } => Some(crate::agent_screen::agent_screen_root(agent_id, cx)),
-        Screen::Session { session_id } => crate::session_data::session(session_id, cx)
-            .map(|row| row.root_id_or_self().to_string()),
+        Screen::Session { session_id } | Screen::PlanPage { session_id, .. } => {
+            crate::session_data::session(session_id, cx).map(|row| row.root_id_or_self().to_string())
+        }
         _ => None,
     }
 }
@@ -822,6 +827,10 @@ fn terminal_chip_content(tab: terminal::TabId, cx: &App) -> ChipContent {
 fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
     match screen {
         Screen::Session { session_id } => return session_chip_content(session_id, cx),
+        // #EXP-1493: the plan page wears its session's chip (one tab).
+        Screen::PlanPage { session_id, .. } => {
+            return chip_content(&crate::navigation::session_screen_for(session_id, cx), cx)
+        }
         Screen::Thread { session_id } => return thread_chip_content(session_id, cx),
         Screen::Agent { agent_id } => return agent_chip_content(agent_id, cx),
         Screen::Terminal { tab } => return terminal_chip_content(*tab, cx),
@@ -912,6 +921,9 @@ pub struct ScreensPanel {
     /// EXP-1294: one agent channel per OPEN agent tab, keyed by the agent's
     /// root session id.
     agents: HashMap<String, Entity<crate::agent_screen::AgentScreenView>>,
+    /// #EXP-1493: the plan page a tab SHOWS, keyed by `(session, message)`;
+    /// dropped when its tab moves off it or closes (like a session view).
+    plan_pages: HashMap<(String, String), Entity<crate::plan_page::PlanPageView>>,
     /// EXP-851: the board list screen's view, full width (EXP-1192: the
     /// Inbox moved into [`Self::side_list`]).
     list: Entity<ListPanel>,
@@ -1102,6 +1114,7 @@ impl ScreensPanel {
             sessions: HashMap::new(),
             threads: HashMap::new(),
             agents: HashMap::new(),
+            plan_pages: HashMap::new(),
             list,
             side_list,
             side_anim: SwapAnim::new(None),
@@ -1389,6 +1402,11 @@ impl ScreensPanel {
                         .clone();
                     thread.update(cx, |thread, cx| thread.set_focus(Some((session_id, view)), cx));
                 }
+            }
+            Screen::PlanPage { session_id, message_id } => {
+                self.plan_pages.entry((session_id.clone(), message_id.clone())).or_insert_with(|| {
+                    cx.new(|cx| crate::plan_page::PlanPageView::new(session_id, message_id, window, cx))
+                });
             }
             Screen::Terminal { tab } => {
                 // EXP-769: the manager's active tab follows the screen (cmd-w
@@ -1747,6 +1765,10 @@ impl ScreensPanel {
     /// screen kind — the shared single-instance views outlive every tab.
     /// Shutting the view down drops its FEED, not the session.
     fn shutdown_session_view(&mut self, screen: &Screen, cx: &mut gpui::Context<Self>) {
+        if let Screen::PlanPage { session_id, message_id } = screen {
+            self.plan_pages.remove(&(session_id.clone(), message_id.clone()));
+            return;
+        }
         let Screen::Session { session_id } = screen else {
             return;
         };
@@ -1768,6 +1790,7 @@ impl ScreensPanel {
             view.update(cx, |view, cx| view.shutdown(cx));
         }
         self.agents.clear();
+        self.plan_pages.clear();
     }
 
     /// Undock the tab at `ix` into its own native window (EXP-65): open (or
@@ -3223,6 +3246,14 @@ impl Render for ScreensPanel {
                         .cloned()
                         .map(gpui::IntoElement::into_any_element)
                 })
+                .unwrap_or_else(|| self.render_syncing(cx)),
+            // #EXP-1493: built by `sync_tabs` on activation (the fallback
+            // only shows for the frame before that observer).
+            Some(Screen::PlanPage { session_id, message_id }) => self
+                .plan_pages
+                .get(&(session_id.clone(), message_id.clone()))
+                .cloned()
+                .map(gpui::IntoElement::into_any_element)
                 .unwrap_or_else(|| self.render_syncing(cx)),
             // EXP-769: the terminal fills the center — its grid, exit strip
             // and Latest-changes bar are the session bar host's (the entity

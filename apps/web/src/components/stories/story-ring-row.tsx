@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react"
 import { StoryViewer } from "@exp/ui"
 import type { StoryRing } from "@exp/domain-contract/stories"
-import { renderThreadText } from "@/components/thread/thread-markdown"
+import { useOpenPlan } from "@/hooks/use-open-plan"
 import { useSessionNav } from "@/hooks/use-session-nav"
 import { useStories } from "@/hooks/use-stories"
 
@@ -24,6 +24,7 @@ export function useChatStories(
   // A header tap opens that session (the #1309 back stack, nothing pushed:
   // the chats list is the route underneath).
   const { open } = useSessionNav({ teamSlug, here: null, back: undefined })
+  const openPlan = useOpenPlan(teamSlug)
   return {
     rings: stories.rings,
     avatarFor: stories.avatarFor,
@@ -37,10 +38,9 @@ export function useChatStories(
         cardFor={stories.cardFor}
         onShown={stories.markShown}
         onOpenSession={open}
-        onDecide={stories.onDecide}
+        onOpenPlan={(story) => openPlan(story.sessionId, story.id)}
         onAnswer={stories.onAnswer}
         pending={stories.pending}
-        renderText={renderThreadText}
       />
     ),
   }

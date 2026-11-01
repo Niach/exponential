@@ -27,6 +27,7 @@ import {
   removePasswordPrompt,
   removeRepositoryPrompt,
   removeServerPrompt,
+  revokeMcpClientPrompt,
   resumeRunPrompt,
   stopRunPrompt,
   trashBoardPrompt,
@@ -93,6 +94,7 @@ const CASES: Record<string, Record<string, () => PromptCopy>> = {
     titleOnServer: () => deleteAccountPrompt(`{server}`),
   },
   "remove-server": { title: () => removeServerPrompt(`{server}`) },
+  "revoke-mcp-client": { title: () => revokeMcpClientPrompt(`{client}`) },
   "exponential-ui-consent": {
     title: () => exponentialUiConsentPrompt(`{tool}`),
   },

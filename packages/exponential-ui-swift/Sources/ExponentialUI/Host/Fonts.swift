@@ -71,8 +71,8 @@ public enum ExponentialUIFonts {
     /// The platform font for a family NAME (nil/missing = system), a CSS
     /// weight and a size: the SAME face the measurer shapes with (CSS font
     /// matching, `TextFonts`), so painted text matches measured text.
-    public static func font(family: String?, weight: Int, size: CGFloat, italic: Bool = false) -> PlatformFont {
-        TextFonts.platformFont(family: family, weight: weight, size: size, italic: italic)
+    public static func font(family: String?, weight: Int, size: CGFloat, italic: Bool = false, tabular: Bool = false) -> PlatformFont {
+        TextFonts.platformFont(family: family, weight: weight, size: size, italic: italic, tabular: tabular)
     }
 
     /// The system font at a CSS weight (`TextFonts`' fallback).
@@ -125,6 +125,9 @@ public struct TextStyle: Equatable, Hashable, Sendable {
     public var textTransform: String?
     /// `fontStyle: italic`.
     public var italic: Bool
+    /// Tabular figures (`font-variant-numeric: tabular-nums`): a painter-side
+    /// rule, never the core's (`forPart`).
+    public var tabular: Bool = false
 
     public init(fontSize: CGFloat, fontWeight: Int, lineHeight: CGFloat, fontFamily: String?, letterSpacing: CGFloat? = nil, textTransform: String? = nil, italic: Bool = false) {
         self.fontSize = fontSize
@@ -146,6 +149,15 @@ public struct TextStyle: Equatable, Hashable, Sendable {
         letterSpacing = f.letterSpacing.flatMap { $0 == 0 ? nil : CGFloat($0) }
         textTransform = f.textTransform.flatMap { $0 == "none" || $0.isEmpty ? nil : $0 }
         italic = f.fontStyle == "italic"
+    }
+
+    /// EXP-1495 (round-6 §3): the parts whose figures are tabular, so a
+    /// counting text keeps its width as it counts (the Carousel `counter`).
+    func forPart(owner: String?, part: String?) -> TextStyle {
+        guard owner == "Carousel", part == "counter" else { return self }
+        var t = self
+        t.tabular = true
+        return t
     }
 
     /// `text` as this style shows it (`textTransform`, CSS semantics).

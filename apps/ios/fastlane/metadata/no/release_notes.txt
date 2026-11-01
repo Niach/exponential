@@ -1,7 +1,5 @@
-- Økter strømmes direkte fra enheten som kjører dem
-- En økt der enheten er frakoblet sier fra og kobler til igjen av seg selv når den er tilbake
-- Meldinger i økter forsegles på enhetene dine, så serveren ikke lenger kan lese dem
-- Et spørsmål fra en chat du har startet, kommer som varsel på telefonen og viser selve spørsmålet
-- Et trykk på en beslutning i innboksen åpner chatten som venter på deg
-- Stories viser de siste 24 timene, og en chats Stories-fane viser dem på stedet
-- Samtaler fortsetter når du bytter mellom høyttaler, hodetelefoner og Bluetooth
+- Planer åpnes på sin egen side, med en oversikt og bildene sine
+- Roligere historier: ett kort per plan eller resultat, hvert med et merke
+- Ny app åpner redigeringsverktøyet med en gang, og agenten gir appen et navn
+- Arbeidslinjen viser hvilket verktøy agenten skriver, og hvor lenge
+- Hurtigsvar over tekstfeltet er lettere å lese

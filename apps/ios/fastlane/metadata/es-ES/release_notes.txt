@@ -1,7 +1,5 @@
-- Las sesiones se transmiten directamente desde el dispositivo que las ejecuta
-- Una sesión cuyo dispositivo está desconectado lo indica y se reconecta sola cuando vuelve
-- Los mensajes de las sesiones se sellan en tus dispositivos, así que el servidor ya no puede leerlos
-- Una pregunta de un chat que has iniciado llega a tu móvil como notificación y muestra la propia pregunta
-- Al tocar una decisión en tu bandeja de entrada se abre el chat que te está esperando
-- Las historias muestran las últimas 24 horas y la pestaña Historias de un chat las muestra en su sitio
-- Las llamadas siguen funcionando al cambiar entre altavoz, auriculares y Bluetooth
+- Los planes se abren en su propia página, con un índice y sus imágenes
+- Historias más tranquilas: una tarjeta por plan o resultado, cada una con su etiqueta
+- Nueva app abre el editor al instante y el agente le pone nombre a tu app
+- La línea de trabajo muestra qué herramienta está escribiendo el agente y desde hace cuánto
+- Las respuestas rápidas sobre el campo de texto se leen mejor

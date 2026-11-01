@@ -697,6 +697,10 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `state · proposed`, node: { id: `plan`, component: `Plan`, props: { title: `Here's my plan`, description: `I'll use your mouse and keyboard for about two minutes.`, state: `proposed`, approveLabel: `Yes, do it`, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `pending` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `pending` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }] }, style: { maxWidth: 480 } } },
     { label: `state · running`, node: { id: `plan`, component: `Plan`, props: { title: `Working on it · step 2 of 4`, description: `Hands off the mouse for a moment. Esc stops me.`, state: `running`, progress: 0.4, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `done` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `running` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }, { title: `Add it to your calendar`, icon: `calendar`, status: `skipped` }] }, style: { maxWidth: 480 } } },
   ],
+  // EXP-1493: the Carousel shows its round-6 counter + thumbnail strip (one thumbnail per page).
+  Carousel: [
+    { label: `counter · thumbnails`, node: { id: `carousel`, component: `Carousel`, props: { page: 0, indicators: true, counter: true, thumbnails: [`https://example.com/1.jpg`, `https://example.com/2.jpg`, `https://example.com/3.jpg`] } } },
+  ],
   QrCode: [
     { label: `example`, node: { id: `qr`, component: `QrCode`, props: { value: `spezl://pair?host=macbook.local&key=Zm9vYmFy`, label: `Scan to pair` } } },
     { label: `level · H · size 120`, node: { id: `qr`, component: `QrCode`, props: { value: `HELLO`, level: `H`, size: 120 } } },
@@ -1192,7 +1196,8 @@ function promptBudget() {
     // VAPP-126 (a named budget exception, see the Guide): the six layout macros: +1,396 chars / +349 tokens; VAPP-128 trims nine prop descriptions; the budget is the measured total (7,335), no slack.
     // NEW-77: VoiceWave, the measured 7,410.
     // VAPP-162 (a named budget exception): MessageBubble, CallSurface, Plan, QrCode, QrScanner + Segmented orientation, Button hold, VoiceWave variant: +1,967 chars / +490 tokens after trimming every new description; the budget is the measured total (7,900), no slack.
-    budgetTokens: 7900,
+    // EXP-1495 (a named budget exception): Outline, Mosaic + Carousel counter/thumbnails: +134 tokens after trimming the new descriptions; the measured total (8,034), no slack.
+    budgetTokens: 8034,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

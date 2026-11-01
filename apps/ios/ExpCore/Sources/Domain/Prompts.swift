@@ -496,6 +496,21 @@ public enum Prompts {
         }
     }
 
+    /// #VAPP-185: Settings › MCP › Clients' Revoke.
+    public enum RevokeMcpClient {
+        public static let entry = destructive(
+            "revoke-mcp-client",
+            texts: [
+                "title": "Revoke {client}?",
+                "body": "It loses access right away. Connecting it again asks for consent again.",
+            ],
+            params: ["client"], answer: "revoke", label: "Revoke"
+        )
+        public static func copy(client: String) -> PromptCopy {
+            entry.copy(["client": client])
+        }
+    }
+
     /// VAPP-91: a host asking before a surface acts as the person. Deny
     /// takes focus and Return; Allow is the explicit `default` answer.
     public enum ExponentialUiConsent {
@@ -565,6 +580,6 @@ public enum Prompts {
         DeleteLabel.entry, RemoveMember.entry, LeaveTeam.entry, MakeOwner.entry,
         MakeMember.entry, RemoveRepository.entry, UnlinkSignInMethod.entry,
         RemovePassword.entry, RemovePasskey.entry, DeleteAccount.entry,
-        RemoveServer.entry, ExponentialUiConsent.entry, ExponentialUiConsentDestructive.entry,
+        RemoveServer.entry, RevokeMcpClient.entry, ExponentialUiConsent.entry, ExponentialUiConsentDestructive.entry,
     ]
 }

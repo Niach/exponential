@@ -18,7 +18,7 @@
 import { isSessionPrincipal } from "@/lib/sessions/host"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull } from "drizzle-orm"
 import {
   MAX_MCP_SERVER_NAME,
   MAX_MCP_SERVER_NAMES,
@@ -31,6 +31,7 @@ import { router, authedProcedure, type Context } from "@/lib/trpc"
 import {
   mcpCredentials,
   mcpOauthFlows,
+  apps,
   mcpServers,
   sessions,
   teamMembers,
@@ -50,6 +51,7 @@ import {
   type McpConnection,
 } from "@/lib/emcp/upstream/credentials"
 import { beginFlow } from "@/lib/emcp/upstream/flows"
+import { unlinkUpstream } from "@/lib/emcp/revoke"
 import { safeReturnTo } from "@/lib/emcp/upstream/urls"
 import { McpHttpError } from "@/lib/emcp/upstream/net"
 import { McpOauthError } from "@/lib/emcp/upstream/oauth-client"
@@ -73,6 +75,9 @@ export type McpServerListRow = McpServer & {
   sharedCount: number
   sharedUserIds: string[]
   connectedUserIds: string[]
+  /** #VAPP-185: the apps whose head package declares this server in
+   * `upstreams` (names, alphabetical): Settings › MCP's "Used by". */
+  usedBy: string[]
 }
 
 const nameSchema = z.string().trim().min(1).max(MAX_MCP_SERVER_NAME)
@@ -276,6 +281,18 @@ export const mcpServersRouter = router({
           .from(teamMembers)
           .where(eq(teamMembers.teamId, input.teamId)),
       ])
+      const teamApps = await ctx.db
+        .select({ name: apps.name, package: apps.package })
+        .from(apps)
+        .where(and(eq(apps.teamId, input.teamId), isNull(apps.deletedAt)))
+      const usedBy = (server: string) =>
+        teamApps
+          .filter((app) => {
+            const upstreams = (app.package as { upstreams?: unknown } | null)?.upstreams
+            return Array.isArray(upstreams) && upstreams.includes(server)
+          })
+          .map((app) => app.name)
+          .sort((a, b) => a.localeCompare(b))
       const memberIds = new Set(members.map((member) => member.userId))
       const now = new Date()
       return rows.map((row) => {
@@ -314,6 +331,7 @@ export const mcpServersRouter = router({
           sharedCount: sharedUserIds.length,
           sharedUserIds,
           connectedUserIds,
+          usedBy: usedBy(row.name),
         }
       })
     }),
@@ -519,14 +537,8 @@ export const mcpServersRouter = router({
     .mutation(async ({ ctx, input }) => {
       await assertNotAgentKey(ctx)
       const server = await loadMemberServer(ctx, input.serverId)
-      await ctx.db
-        .delete(mcpCredentials)
-        .where(
-          and(
-            eq(mcpCredentials.serverId, server.id),
-            eq(mcpCredentials.userId, ctx.session.user.id)
-          )
-        )
+      // #VAPP-184: RFC 7009 at the provider first (best effort), then the row.
+      await unlinkUpstream(ctx.db, server, ctx.session.user.id)
       return { ok: true as const }
     }),
 

@@ -44,6 +44,7 @@ import { entry as sessionXref } from "./session-xref.tsx"
 import { entry as askDock } from "./ask-dock.tsx"
 import { entry as dockCard } from "./dock-card.tsx"
 import { entry as planCard } from "./plan-card.tsx"
+import { entry as planPage } from "./plan-page.tsx"
 import { entry as scriptCard } from "./script-card.tsx"
 import { entry as commentCallCard } from "./comment-call-card.tsx"
 import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
@@ -72,6 +73,8 @@ import { entry as sealedLocked } from "./sealed-locked.tsx"
 import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
 import { entry as qrCode } from "./qr-code.tsx"
+import { entry as outline } from "./outline.tsx"
+import { entry as mosaic } from "./mosaic.tsx"
 import { entry as qrScanner } from "./qr-scanner.tsx"
 import { entry as navRail } from "./nav-rail.tsx"
 import { entry as sidebarRows } from "./sidebar-rows.tsx"
@@ -110,6 +113,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   navRail,
   voiceLevel,
   sidebarRows,
+  outline,
+  mosaic,
   composerDialog,
   issueContextMenu,
   sessionRow,
@@ -132,6 +137,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   askDock,
   dockCard,
   planCard,
+  planPage,
   scriptCard,
   commentCallCard,
   teamAgentsSettings,

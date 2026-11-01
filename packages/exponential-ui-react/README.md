@@ -326,6 +326,15 @@ A step = the scroll, the window's render flushed and the layout read back
 | Button `hold` | `ButtonHold` (the shared machine): pointer capture on down, 24 px slop, Space/Enter key down → up, Escape/blur/pointercancel cancel; `holdingLabel` while held; never `press` |
 | serif | `ui-serif` stays a CSS keyword: `font-family: ui-serif, Georgia, serif` |
 
+## Round 6 (EXP-1495, `docs/round-6-contract.md`)
+
+| item | web |
+|---|---|
+| macros | `Outline` (the anchor list: ONE active row, its leading bar absolute at `inset-inline-start: 0`, `select {id}`) and `Mosaic` (the wide picture group: `aspect-ratio: 1.6`, the 60 % lead, cover pictures absolute `inset: 0`, "+N") need no painter |
+| Carousel `counter` | 2+ pages: the `counter` part (`$string.pageCounter`, `i / n`) absolute at the track's top-start corner inside a `relative` stage (so the pill stays while the track scrolls), `pointer-events: none`, `aria-hidden` |
+| Carousel `thumbnails` | 2+ pages: the `thumbnails` strip between the track and the controls, ONE `thumbnail` button per page (`<id>.thumbnail.<i>`; URLs past the page count ignored, a missing one = the empty muted square), the current one `selected` + `aria-current` + `data-current`, named `$string.pageOf`; a press pages and fires `change {page}` like a dot; the current one is scrolled into view inside the strip |
+| primitives | `Outline`, `Mosaic`, `CarouselCounter`, `CarouselThumbnails` on `OUTLINE_CLASSES` / `MOSAIC_CLASSES` / `CAROUSEL_CLASSES` (specimens `plain/outline`, `plain/mosaic`, `plain/carousel-extras`) |
+
 ## The primitive set
 
 `src/primitives/` holds the generic shadcn/Radix components the app and

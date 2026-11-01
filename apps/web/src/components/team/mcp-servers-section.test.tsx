@@ -4,6 +4,7 @@ import { TooltipProvider } from "@exp/ui"
 import {
   BUILTIN_TOOLS_FILTER_PLACEHOLDER,
   filterBuiltinTools,
+  BuiltinToolsGroup,
   TeamMcpServersSection,
 } from "@/components/team/mcp-servers-section"
 import { contract } from "@exp/domain-contract"
@@ -124,9 +125,8 @@ describe(`TeamMcpServersSection`, () => {
   })
 
   it(`lists every built-in tool expanded, with an inline filter and no count`, async () => {
-    mockState.list.mockResolvedValue([])
-    const { container } = render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
-    await screen.findByText(`No MCP servers yet`)
+    // #VAPP-185: the group is Settings › MCP's last section, its own component.
+    const { container } = render(<BuiltinToolsGroup />)
     const total = contract.expToolDisplay.tools.length
     const band = screen.getByText(`Built-in Exponential tools`).closest(`[data-slot="glass-section-header"]`)!
     expect(band.tagName).toBe(`DIV`)
@@ -141,7 +141,7 @@ describe(`TeamMcpServersSection`, () => {
 
     fireEvent.change(filter, { target: { value: `zzz-nothing` } })
     expect(screen.queryAllByTitle(/^exponential_/).length).toBe(0)
-    expect(container.querySelectorAll(`[data-slot="empty-state"][data-size="list"]`).length).toBe(2)
+    expect(container.querySelectorAll(`[data-slot="empty-state"][data-size="list"]`).length).toBe(1)
     expect(screen.getByText(`No tools match`)).toBeTruthy()
   })
 

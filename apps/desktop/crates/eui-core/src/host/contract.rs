@@ -65,7 +65,7 @@ pub const RECORD_KIND_PATTERN: &str = "^[a-z][a-z0-9_]{0,31}$";
 
 /// `catalog/host.json` without its `$comment`s, rebuilt from the constants.
 pub fn host_contract() -> Value {
-    use super::{record_store as rs, signature as sig, tools};
+    use super::{exposes as ex, record_store as rs, signature as sig, tools};
     json!({
         "version": HOST_CONTRACT_VERSION,
         "a2uiVersion": A2UI_VERSION,
@@ -96,6 +96,15 @@ pub fn host_contract() -> Value {
                 "query": {"sortDefault": rs::RECORDS_SORT_DEFAULT, "orderDefault": rs::RECORDS_ORDER_DEFAULT, "limitDefault": rs::RECORDS_LIMIT_DEFAULT, "limitMax": rs::RECORDS_LIMIT_MAX, "reserved": rs::RECORDS_RESERVED_PARAMS},
             },
             "tools": {"idPattern": tools::TOOL_ID_PATTERN, "kinds": tools::TOOL_KINDS, "transports": tools::TOOL_TRANSPORTS, "functionPrefix": tools::TOOL_FUNCTION_PREFIX},
+            "exposes": {
+                "limits": {"namePattern": ex::EXPOSE_NAME_PATTERN, "nameMax": ex::EXPOSE_NAME_MAX, "titleMax": ex::EXPOSE_TITLE_MAX, "descriptionMax": ex::EXPOSE_DESCRIPTION_MAX, "maxTools": ex::EXPOSE_MAX_TOOLS, "separator": ex::EXPOSE_SEPARATOR},
+                "runKinds": ex::EXPOSE_RUN_KINDS,
+                "recordOps": ex::EXPOSE_RECORD_OPS,
+                "readRecordOps": ex::EXPOSE_READ_RECORD_OPS,
+                "readOpWords": ex::EXPOSE_READ_OP_WORDS,
+                "destructiveWords": ex::EXPOSE_DESTRUCTIVE_WORDS,
+                "actionPattern": ex::EXPOSE_ACTION_PATTERN,
+            },
             "extensions": {"versionPattern": super::package::EXTENSION_VERSION_PATTERN},
             "signature": {"alg": sig::PACKAGE_FILE_SIGNATURE_ALG, "context": sig::PACKAGE_FILE_SIGNATURE_CONTEXT, "keyPrefix": sig::AUTHOR_KEY_PREFIX, "nameMax": sig::AUTHOR_NAME_MAX, "statuses": sig::PACKAGE_FILE_STATUSES},
         },

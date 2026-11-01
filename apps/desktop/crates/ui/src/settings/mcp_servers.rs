@@ -1,4 +1,5 @@
-//! Settings → MCP servers (EXP-792, desktop half EXP-807).
+//! Settings → MCP › Servers (EXP-792, desktop half EXP-807; VAPP-185 folded
+//! the page into [`super::mcp`], the merged MCP page).
 //!
 //! Web parity: `components/team/mcp-servers-section.tsx`. The team's MCP
 //! server registry lives in Exponential, and so do the credentials: each
@@ -24,14 +25,14 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     div, prelude::FluentBuilder as _, App, AppContext as _, Entity, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    IntoElement, ParentElement, Render, SharedString,
+    Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant},
+    button::ButtonVariant,
     h_flex,
     input::InputState,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 
 use api::mcp_servers::{McpServerConfig, McpServerListEntry};
@@ -66,6 +67,17 @@ fn row_detail(entry: &McpServerListEntry) -> String {
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join(" ")
+    }
+}
+
+/// VAPP-185 (web `ServerRow`): [`row_detail`] then ` · Used by <apps>`
+/// when an app's package declares the server in `upstreams`.
+fn row_caption(entry: &McpServerListEntry) -> String {
+    let detail = row_detail(entry);
+    match super::mcp::used_by_caption(&entry.used_by) {
+        Some(used_by) if detail.is_empty() => used_by,
+        Some(used_by) => format!("{detail} · {used_by}"),
+        None => detail,
     }
 }
 
@@ -178,7 +190,7 @@ fn test_message(name: &str, result: &api::mcp_servers::McpTestResult) -> String 
 
 /// EXP-1274 — the built-in tools filter: a case-insensitive substring of
 /// the title, the blurb or the wire name. A blank query keeps every tool.
-fn filter_builtin_tools(
+pub(super) fn filter_builtin_tools(
     tools: Vec<steer::exp_tool::BuiltinExpTool>,
     query: &str,
 ) -> Vec<steer::exp_tool::BuiltinExpTool> {
@@ -231,8 +243,6 @@ pub struct McpServersPane {
     /// FEED-79: the load in flight is the person's Retry press (its failure
     /// toasts); a load on entry or after a write fails quietly.
     retry_pressed: bool,
-    /// EXP-1274: the built-in tools band's inline filter.
-    tool_filter: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -247,12 +257,7 @@ impl McpServersPane {
                 .placeholder("Paste the key")
                 .masked(true)
         });
-        let tool_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tools"));
-        let subscriptions = vec![
-            cx.observe(&nav, |_, _, cx| cx.notify()),
-            // Typing in the built-in tools filter re-filters its rows.
-            cx.observe(&tool_filter, |_, _, cx| cx.notify()),
-        ];
+        let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         Self {
             nav,
             load: Load::Idle,
@@ -266,7 +271,6 @@ impl McpServersPane {
             reload_requested: false,
             reloading: false,
             retry_pressed: false,
-            tool_filter,
             _subscriptions: subscriptions,
         }
     }
@@ -817,86 +821,6 @@ impl McpServersPane {
             .child(div().text_xs().child(SharedString::from(text)))
     }
 
-    /// EXP-862/1274 — the "Built-in Exponential tools" group: what the
-    /// agents can already do without a server in the registry above. A plain
-    /// band (never folded, no count: bands carry no numbers) with an inline
-    /// filter at its trailing edge ([`filter_builtin_tools`]: title, blurb or wire name);
-    /// a filter with no match is the shared LIST empty state (fixture
-    /// `builtin-tools-no-match`). One row per contract tool, styled like the
-    /// session feed's Exponential tool row (`steer_viewer::exp_tool_call_row`):
-    /// the app's own mark, the tool's title, the blurb muted beside it. The
-    /// raw wire name (`exponential_issues_create`) is the row's TOOLTIP only —
-    /// nobody reads a reference list in snake_case.
-    fn render_builtin_tools(&self, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let query = self.tool_filter.read(cx).value().to_string();
-        let tools = filter_builtin_tools(steer::exp_tool::builtin_tools(), &query);
-        let muted = cx.theme().muted_foreground;
-        let filter = crate::controls::search_field(
-            &self.tool_filter,
-            crate::controls::SearchFieldSize::Sm,
-            window,
-            cx,
-        );
-        let trailing = h_flex()
-            .gap_2()
-            .items_center()
-            .child(div().w(gpui::px(192.)).child(filter))
-            .into_any_element();
-        let band = crate::surface::glass_section_header(
-            "Built-in Exponential tools",
-            Some(trailing),
-            cx,
-        );
-        let mut group = v_flex().w_full().min_w_0().child(band);
-        if tools.is_empty() {
-            return group.child(crate::controls::empty_state_list(
-                Icon::new(registry::UI_EMPTY_SEARCH),
-                crate::empty_state_copy::BUILTIN_TOOLS_NO_MATCH,
-                cx,
-            ));
-        }
-        for (index, tool) in tools.into_iter().enumerate() {
-            group = group.child(
-                crate::surface::flat_row()
-                    .id(("mcp-builtin-tool", index))
-                    .flex()
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .py_1p5()
-                    .tooltip({
-                        let name = SharedString::from(tool.name.clone());
-                        move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx)
-                        }
-                    })
-                    .child(
-                        Icon::from(crate::icons::ExpIcon::Logo)
-                            .xsmall()
-                            .flex_shrink_0()
-                            .text_color(muted),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_sm()
-                            .child(SharedString::from(tool.title)),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(SharedString::from(tool.blurb)),
-                    ),
-            );
-        }
-        group
-    }
-
     /// The row's ONE connection control (web `ConnectionAction`).
     fn render_action(&self, entry: &McpServerListEntry, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let config = &entry.config;
@@ -1002,7 +926,8 @@ impl McpServersPane {
     ) -> gpui::Div {
         let config = &entry.config;
         let muted = cx.theme().muted_foreground;
-        let detail = row_detail(entry);
+        // VAPP-185: the caption gains "· Used by <apps>".
+        let detail = row_caption(entry);
 
         // Web `ServerRow`: the Default pill is the row's ONLY chip.
         let mut chips = h_flex().gap_1().items_center().flex_wrap();
@@ -1182,7 +1107,7 @@ impl McpServersPane {
 }
 
 impl Render for McpServersPane {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),
@@ -1211,7 +1136,7 @@ impl Render for McpServersPane {
         });
 
         let mut body = section(cx).child(crate::surface::glass_section_header_loading(
-            "MCP servers",
+            super::mcp::SETTINGS_MCP.labels.servers,
             self.reloading,
             trailing,
             cx,
@@ -1253,29 +1178,6 @@ impl Render for McpServersPane {
                 }
                 body = body.child(list);
             }
-        }
-
-        body = body.child(self.render_builtin_tools(window, cx));
-
-        // The web hand-off — the web page adds the catalog and the probe.
-        let slug = super::active_team(cx, &self.nav).and_then(|team| team.slug);
-        if let (Some(slug), Some(account)) = (slug, queries::active_account(cx)) {
-            let url = format!(
-                "{}/t/{slug}/settings/mcp-servers",
-                account.instance_url.trim_end_matches('/')
-            );
-            body = body.child(
-                h_flex().child(
-                    Button::new("mcp-servers-manage")
-                        .outline()
-                        .web_sm()
-                        .icon(registry::UI_EXTERNAL_LINK)
-                        .label("Manage on the web")
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            open_url(cx, url.clone());
-                        })),
-                ),
-            );
         }
 
         v_flex().child(body)

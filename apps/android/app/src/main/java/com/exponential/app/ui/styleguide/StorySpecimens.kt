@@ -182,7 +182,6 @@ fun StoryViewerSpecimenScreen() {
             rows = mapOf(DRAFT_QUESTION.id to DRAFT_QUESTION),
             avatar = ::avatar,
             onAnswer = { _, _, settled -> settled(false) },
-            onDecidePlan = { _, _, settled -> settled(false) },
             onClose = {},
             frozen = true,
         )

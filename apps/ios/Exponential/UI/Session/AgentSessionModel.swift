@@ -805,12 +805,13 @@ final class AgentSessionModel {
     }
 
     /// §5: the trailing working row's caption at `now` — the turn's verb (or
-    /// the running workflow's caption) with its duration and token count. The
+    /// the running workflow's caption, or EXP-1501's `Writing {tool}…`) with
+    /// its duration and token count. The
     /// row itself ticks the clock, so this stays pure.
     func workingCaption(now: Date) -> String {
         AgentFeed.workingCaption(
             startedAt: turn.startedAt, tokens: turn.tokens, now: now,
-            workflow: runningWorkflow
+            workflow: runningWorkflow, writing: turn.writing
         )
     }
 

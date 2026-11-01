@@ -1,4 +1,4 @@
-/* The library family (EXP-1421, docs/libraries.md): the five open libs
+/* The library family (EXP-1421, docs/libraries.md): the six open libs
    Exponential is built from, in nav order. The marketing front page's
    library section, the footer, every lib's docs sidebar and the header
    sections all read this one list, so the libs always link each other. */
@@ -21,6 +21,7 @@ export const LIBRARIES: readonly Library[] = [
   { name: `ePilot`, href: `/pilot/`, desc: `Computer use: the agent plans, acts on the real screen, and looks again.`, status: `shipped`, label: `0.1.0` },
   { name: `eNet`, href: `/net/`, desc: `Peer to peer and end-to-end encrypted tunnels between every client, on iroh.`, status: `shipped`, label: `0.1.0` },
   { name: `eApps`, href: `/apps/`, desc: `The app package format: templates, bindings, records and tools as data, never code.`, status: `in-progress`, label: `in the app` },
+  { name: `eMCP`, href: `/mcp/`, desc: `MCP for devices: a loopback server for your tools, a client with OAuth and a vault.`, status: `in-progress`, label: `0.1.0` },
 ]
 
 /** A one-page lib's header level: its name, no sub-links. */

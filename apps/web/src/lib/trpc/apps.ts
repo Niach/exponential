@@ -13,12 +13,12 @@ import {
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { appRecords, appVersions, apps, sessions, type App } from "@/db/schema"
+import { appRecords, appVersions, apps, mcpServers, sessions, type App } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
-import { appPackageIssues, packageBytes, recordKindSchema, validateAppPackage } from "@/lib/apps/package"
+import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
-import { validateRecord, verifyPackageFile } from "@exponential_app/eui"
+import { validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_QUERY } from "@exp/domain-contract/app-records"
@@ -195,6 +195,16 @@ export async function checkAppImport(text: string): Promise<ParsedAppImport> {
   return issues.length > 0 ? { issues, file: null } : { issues: [], file }
 }
 
+/** VAPP-180: a written package's `upstreams` are MCP servers of the app's
+ *  team (an import keeps its names: an unknown one answers upstreamMissing
+ *  until an owner adds the server). */
+async function assertTeamUpstreams(db: Pick<Tx, `select`>, teamId: string, pkg: AppPackage): Promise<void> {
+  if (!pkg.upstreams?.length) return
+  const rows = await db.select({ name: mcpServers.name }).from(mcpServers).where(eq(mcpServers.teamId, teamId))
+  const issue = upstreamIssues(pkg, rows.map((r) => r.name))[0]
+  if (issue) throw new TRPCError({ code: `BAD_REQUEST`, message: issue.message })
+}
+
 const IMPORT_SLUG_ATTEMPTS = 5
 
 const importInputSchema = z.object({ teamId: uuid, text: z.string().max(APP_EXPORT_LIMITS.importMaxBytes * 2) })
@@ -276,6 +286,7 @@ export const appsRouter = router({
       const userId = ctx.session.user.id
       await assertTeamMember(userId, input.teamId)
       const pkg = input.package ? validateAppPackage(input.package) : null
+      if (pkg) await assertTeamUpstreams(ctx.db, input.teamId, pkg)
       // Release train 2026-10-23: hoisted so the CONFLICT message names a derived slug too.
       let slug = input.slug
       const name = input.name ?? APPS_COPY.untitled
@@ -426,6 +437,7 @@ export const appsRouter = router({
       const app = await loadApp(ctx.db, input)
       const { member } = await resolveTeamAccess(userId, app.teamId)
       const pkg = validateAppPackage(input.package)
+      await assertTeamUpstreams(ctx.db, app.teamId, pkg)
       // Release train 2026-10-23: the version always names its author; the
       // session is kept only when it is the caller's own editor session for
       // THIS app (anything else is ignored, never a 400: old callers).

@@ -93,7 +93,7 @@ pub use crate::engine::local::INJECTED_PROMPT_META_KEY;
 /// the two a WAIT tool row carries (ACP v1 has no `wait` kind).
 pub use crate::engine::local::{
     BACKGROUND_TASKS_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_META_KEY,
-    TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
+    TURN_TOKENS_META_KEY, TURN_WRITING_META_KEY, WORKFLOW_META_KEY,
 };
 
 /// The subagents the CLI ships. They are spawned by the model, never picked
@@ -642,6 +642,9 @@ struct State {
     /// summing per id would double it). Reset at every prompt.
     turn_thinking_tokens: u64,
     turn_message_tokens: HashMap<String, u64>,
+    /// EXP-1501: the tool_use block whose input is streaming right now
+    /// (`input_json_delta`), keyed by lane + block index.
+    writing: Option<WritingBlock>,
     /// Bumped by every `session/prompt`. Tags the tasks a turn spawns so a
     /// stale one cannot defer a later turn (EXP-780).
     turn_seq: u64,
@@ -822,6 +825,16 @@ struct ToolEntry {
     name: String,
     input: Value,
     surfaced: bool,
+}
+
+/// EXP-1501: one streaming tool_use block — which lane and index it is, the
+/// call's id and name, and when its `writing` state last went out.
+struct WritingBlock {
+    lane: String,
+    index: u64,
+    id: String,
+    tool: String,
+    published_at: Instant,
 }
 
 struct StreamedBlock {
@@ -1617,6 +1630,7 @@ impl ClaudeSession {
             state.turn_seq = state.turn_seq.wrapping_add(1);
             // EXP-850 §5: the working caption counts THIS turn's output.
             state.turn_thinking_tokens = 0;
+            state.writing = None;
             state.turn_message_tokens.clear();
             // EXP-1224 review: this prompt is the next turn; a notification
             // that landed before it is answered in it.
@@ -1754,6 +1768,7 @@ impl ClaudeSession {
         state.continuation_seq = state.continuation_seq.wrapping_add(1);
         if slot_closed {
             state.turn_thinking_tokens = 0;
+            state.writing = None;
             state.turn_message_tokens.clear();
         }
         self.publish_turn(cx, crate::wire::TurnState::Started);
@@ -2321,6 +2336,66 @@ impl ClaudeSession {
         }
         let mut meta = Map::new();
         meta.insert(TURN_TOKENS_META_KEY.to_string(), json!(tokens));
+        self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
+    }
+
+    /// EXP-1501: a tool_use block opened — its input streams from here.
+    fn start_writing(&self, cx: &ConnectionTo<Client>, lane: &str, index: u64, block: &Value) {
+        let Some(id) = block.get("id").and_then(Value::as_str) else { return };
+        let tool = block.get("name").and_then(Value::as_str).unwrap_or_default();
+        self.lock().writing = Some(WritingBlock {
+            lane: lane.to_string(),
+            index,
+            id: id.to_string(),
+            tool: tool.to_string(),
+            published_at: Instant::now(),
+        });
+        self.publish_writing(cx, json!({ "id": id, "tool": tool }));
+    }
+
+    /// EXP-1501: an `input_json_delta` of the streaming block — re-sends the
+    /// state at most every `steerWorking.tokenTickMs`. Each re-send is the
+    /// session's sign of life while a long input (a plan card) streams.
+    fn tick_writing(&self, cx: &ConnectionTo<Client>, lane: &str, index: u64) {
+        let due = {
+            let mut state = self.lock();
+            match state.writing.as_mut() {
+                Some(block)
+                    if block.lane == lane
+                        && block.index == index
+                        && block.published_at.elapsed()
+                            >= Duration::from_millis(crate::engine::mapper::WORKING_TOKEN_TICK_MS) =>
+                {
+                    block.published_at = Instant::now();
+                    Some(json!({ "id": block.id, "tool": block.tool }))
+                }
+                _ => None,
+            }
+        };
+        if let Some(writing) = due {
+            self.publish_writing(cx, writing);
+        }
+    }
+
+    /// EXP-1501: the streaming block closed — its card follows on the
+    /// consolidated `assistant` message.
+    fn stop_writing(&self, cx: &ConnectionTo<Client>, lane: &str, index: u64) {
+        let stopped = {
+            let mut state = self.lock();
+            let open = state
+                .writing
+                .as_ref()
+                .is_some_and(|block| block.lane == lane && block.index == index);
+            open.then(|| state.writing.take()).flatten().is_some()
+        };
+        if stopped {
+            self.publish_writing(cx, Value::Null);
+        }
+    }
+
+    fn publish_writing(&self, cx: &ConnectionTo<Client>, writing: Value) {
+        let mut meta = Map::new();
+        meta.insert(TURN_WRITING_META_KEY.to_string(), writing);
         self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
     }
 
@@ -3759,9 +3834,17 @@ impl ClaudeSession {
                     // complete input on the consolidated `assistant` message:
                     // the relay `tool` event is one-shot and must carry the real
                     // title and path, never a "Preparing file…" placeholder.
-                    Some("tool_use") => self.record_tool_use(block),
+                    Some("tool_use") => {
+                        self.record_tool_use(block);
+                        self.start_writing(cx, &parent_key, index, block);
+                    }
                     _ => {}
                 }
+            }
+            // EXP-1501: the block's input is complete — nothing streams.
+            "content_block_stop" => {
+                let index = event.event.get("index").and_then(Value::as_u64).unwrap_or(0);
+                self.stop_writing(cx, &parent_key, index);
             }
             "content_block_delta" => {
                 if self.streaming_synthetic(&parent_key) {
@@ -3787,7 +3870,9 @@ impl ClaudeSession {
                     // Partial tool input is deliberately NOT refined into the
                     // card: an Edit missing its `new_string` renders as a pure
                     // deletion, and the consolidated assistant message carries
-                    // the complete input moments later.
+                    // the complete input moments later. EXP-1501: it is still
+                    // the agent working, so it ticks the `writing` state.
+                    Some("input_json_delta") => self.tick_writing(cx, &parent_key, index),
                     _ => {}
                 }
             }

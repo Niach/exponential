@@ -173,13 +173,13 @@ public enum TextFonts {
     }
 
     /// The CoreText font for a family NAME, CSS weight, size and style.
-    public static func font(family: String?, weight: Int, size: CGFloat, italic: Bool = false) -> CTFont {
-        let key = "\(family ?? "")|\(weight)|\(size)|\(italic)"
+    public static func font(family: String?, weight: Int, size: CGFloat, italic: Bool = false, tabular: Bool = false) -> CTFont {
+        let key = "\(family ?? "")|\(weight)|\(size)|\(italic)|\(tabular)"
         lock.lock()
         if let hit = fontCache[key] { lock.unlock(); return hit }
         lock.unlock()
         let (resolved, mono, serif) = resolve(family)
-        let font: CTFont
+        var font: CTFont
         if let resolved, let face = match(faces(of: resolved), weight: weight, italic: italic) {
             font = CTFontCreateWithFontDescriptor(face.descriptor, size, nil)
         } else if mono {
@@ -189,6 +189,12 @@ public enum TextFonts {
         } else {
             font = ExponentialUIFonts.systemFont(weight: weight, size: size, italic: italic) as CTFont
         }
+        if tabular {
+            // `tnum`: the monospaced-numbers selector of the number-spacing feature.
+            let feature: [CFString: Any] = [kCTFontFeatureTypeIdentifierKey: kNumberSpacingType, kCTFontFeatureSelectorIdentifierKey: kMonospacedNumbersSelector]
+            let d = CTFontDescriptorCreateWithAttributes([kCTFontFeatureSettingsAttribute: [feature]] as CFDictionary)
+            font = CTFontCreateCopyWithAttributes(font, size, nil, d)
+        }
         lock.lock()
         fontCache[key] = font
         lock.unlock()
@@ -196,8 +202,8 @@ public enum TextFonts {
     }
 
     /// The same font as a platform font (TextKit attributes).
-    public static func platformFont(family: String?, weight: Int, size: CGFloat, italic: Bool = false) -> PlatformFont {
-        font(family: family, weight: weight, size: size, italic: italic) as PlatformFont
+    public static func platformFont(family: String?, weight: Int, size: CGFloat, italic: Bool = false, tabular: Bool = false) -> PlatformFont {
+        font(family: family, weight: weight, size: size, italic: italic, tabular: tabular) as PlatformFont
     }
 }
 
@@ -220,7 +226,7 @@ public enum TextFonts {
 public enum TextShaper {
     /// The attributes a text style renders with.
     public static func attributes(_ ts: TextStyle, italic: Bool = false, family: String? = nil, align: NSTextAlignment = .natural, lineBreak: NSLineBreakMode = .byWordWrapping) -> [NSAttributedString.Key: Any] {
-        let font = TextFonts.platformFont(family: family ?? ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, italic: italic || ts.italic)
+        let font = TextFonts.platformFont(family: family ?? ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, italic: italic || ts.italic, tabular: ts.tabular)
         let p = NSMutableParagraphStyle()
         p.minimumLineHeight = ts.lineHeight
         p.maximumLineHeight = ts.lineHeight
@@ -262,11 +268,11 @@ public enum TextShaper {
         if text.isEmpty { return 0 }
         let italic = italic || ts.italic
         let spacing = ts.letterSpacing ?? 0
-        let key = "\(ts.fontFamily ?? "")|\(ts.fontWeight)|\(ts.fontSize)|\(italic)|\(spacing)|\(text)"
+        let key = "\(ts.fontFamily ?? "")|\(ts.fontWeight)|\(ts.fontSize)|\(italic)|\(ts.tabular)|\(spacing)|\(text)"
         lock.lock()
         if let hit = widths[key] { lock.unlock(); return hit }
         lock.unlock()
-        let font = TextFonts.font(family: ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, italic: italic)
+        let font = TextFonts.font(family: ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, italic: italic, tabular: ts.tabular)
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font]))
         // Letter spacing follows every character (CSS), the last one too.
         let w = layoutUnit(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) + spacing * CGFloat(text.count))

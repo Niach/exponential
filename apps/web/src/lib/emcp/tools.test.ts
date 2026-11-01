@@ -1086,7 +1086,7 @@ describe(`exponential_attachments_upload signed path (EXP-988/EXP-929)`, () => {
     expect(result.content[0].text).toContain(`attachmentId alone`)
   })
 
-  it(`still requires issueId, filename and contentType on a first call`, async () => {
+  it(`still requires filename and contentType on a first call`, async () => {
     const result = await tool(`exponential_attachments_upload`)({
       issueId: UUID,
       filename: `shot.png`,
@@ -1106,6 +1106,114 @@ describe(`exponential_attachments_upload signed path (EXP-988/EXP-929)`, () => {
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`attachmentIds`)
     expect(uploadObject).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-1516: no issueId = a LOOSE upload (the composer's paste path) in the
+// caller's session's team, else the one team the connection may write to, so
+// sessions_send({attachmentIds}) can claim it.
+describe(`exponential_attachments_upload without issueId (EXP-1516)`, () => {
+  const loose = {
+    filename: `shot.png`,
+    contentType: `image/png`,
+    dataBase64: Buffer.from(`fake-png-bytes`).toString(`base64`),
+    alt: `a shot`,
+  }
+  const sessionRow = {
+    id: SESSION,
+    teamId: WS,
+    rootId: SESSION,
+    parentId: null,
+    userId: USER.id,
+    deviceId: null,
+    rootAgentId: null,
+    planMode: false,
+    watched: false,
+  }
+
+  it(`uploads into the caller's session's team as an owner-less row`, async () => {
+    dbRows.current = [sessionRow]
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_attachments_upload`
+    )!(loose)
+    const payload = parseOk(result) as { id: string; url: string; markdown: string; width: number }
+    expect(payload.url).toBe(`/api/attachments/${payload.id}`)
+    expect(payload.markdown).toBe(`![a shot](/api/attachments/${payload.id})`)
+    expect(payload.width).toBe(12)
+    expect(membership.getIssueTeamContext).not.toHaveBeenCalled()
+    expect(membership.getUserTeamIds).not.toHaveBeenCalled()
+    expect(membership.assertTeamMember).toHaveBeenCalledWith(USER.id, WS)
+    expect(assertWithinStorageLimit).toHaveBeenCalledWith(WS, expect.any(Number))
+    const key = `session-attachments/pending/${WS}/${payload.id}-shot.png`
+    expect(uploadObject).toHaveBeenCalledWith(expect.objectContaining({ key }))
+    expect(insertValues).toHaveBeenCalledWith({
+      id: payload.id,
+      teamId: WS,
+      uploaderId: USER.id,
+      filename: `shot.png`,
+      contentType: `image/png`,
+      sizeBytes: Buffer.from(`fake-png-bytes`).byteLength,
+      storageKey: key,
+      url: payload.url,
+      width: 12,
+      height: 8,
+    })
+  })
+
+  it(`without a session uses the connection's only team`, async () => {
+    membership.getUserTeamIds.mockResolvedValue([`ws-1`])
+    const result = await tool(`exponential_attachments_upload`)(loose)
+    parseOk(result)
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ teamId: `ws-1` })
+    )
+  })
+
+  it(`a confined grant narrows the teams to the granted one`, async () => {
+    membership.getUserTeamIds.mockResolvedValue([WS, `ws-other`])
+    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS).get(
+      `exponential_attachments_upload`
+    )!(loose)
+    parseOk(result)
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ teamId: WS })
+    )
+  })
+
+  it(`refuses an ambiguous team (no session, several teams) before storing anything`, async () => {
+    membership.getUserTeamIds.mockResolvedValue([WS, `ws-other`])
+    const result = await tool(`exponential_attachments_upload`)(loose)
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`pass issueId, or upload from a session`)
+    expect(uploadObject).not.toHaveBeenCalled()
+    expect(insertValues).not.toHaveBeenCalled()
+  })
+
+  it(`denies a non-member`, async () => {
+    membership.assertTeamMember.mockRejectedValue(forbidden())
+    const result = await tool(`exponential_attachments_upload`)(loose)
+    expect(result.isError).toBe(true)
+    expect(uploadObject).not.toHaveBeenCalled()
+  })
+
+  it(`without dataBase64 mints a loose signed upload`, async () => {
+    const result = await tool(`exponential_attachments_upload`)({
+      filename: `shot.png`,
+      contentType: `image/png`,
+    })
+    const payload = parseOk(result) as { attachmentId: string; uploadUrl: string }
+    expect(payload.uploadUrl.startsWith(`https://x.test/api/attachment-uploads/`)).toBe(true)
+    expect(uploadObject).not.toHaveBeenCalled()
+  })
+
+  it(`refuses commentId without issueId`, async () => {
+    const result = await tool(`exponential_attachments_upload`)({
+      filename: `shot.png`,
+      contentType: `image/png`,
+      commentId: UUID,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`commentId needs issueId`)
   })
 })
 

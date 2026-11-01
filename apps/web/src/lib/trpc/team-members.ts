@@ -1,3 +1,4 @@
+import { revokeMemberMcpInTx } from "@/lib/emcp/revoke"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
@@ -330,6 +331,9 @@ export const teamMembersRouter = router({
               eq(mcpCredentials.userId, target.userId)
             )
           )
+        // #VAPP-184: and grant end: their apps grants for this team, their
+        // access policy rows, and the tokens of a client left without a grant.
+        await revokeMemberMcpInTx(tx, target.teamId, target.userId)
         await tx
           .delete(mcpOauthFlows)
           .where(

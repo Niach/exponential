@@ -48,6 +48,8 @@ const COVERAGE_GAPS: &[(&str, &str, &str)] = &[
     ("video.controls", "ref", "Video controls bar: painted inside the Video leaf (16:9 box compared)."),
     ("audio.track", "ref", "AudioPlayer title line: painted inside the AudioPlayer leaf (its height is the core's)."),
     ("audio.controls", "ref", "AudioPlayer controls row: painted inside the AudioPlayer leaf (its height is the core's)."),
+    ("carousel.thumbnailImage.0", "gpui", "Carousel thumbnail picture: the web paints a bare <img> filling the thumbnail button (inset 0, no data-xui-id); its box is the thumbnail's, which is compared."),
+    ("carousel.thumbnailImage.1", "gpui", "Carousel thumbnail picture: the web paints a bare <img> filling the thumbnail button (inset 0, no data-xui-id); its box is the thumbnail's, which is compared."),
 ];
 
 /// `conformance/baseline.ts` `decodeBaseline`.

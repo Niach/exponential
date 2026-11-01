@@ -25,6 +25,8 @@ pub(crate) const ARCHIVED_BOARDS: &str = "No archived boards";
 pub(crate) const NO_TEAM_SELECTED: &str = "No team selected";
 pub(crate) const DEVICES: &str = "No devices yet";
 pub(crate) const MCP_SERVERS: &str = "No MCP servers yet";
+pub(crate) const MCP_CLIENTS: &str = "No MCP clients yet";
+pub(crate) const MCP_ACTIVITY: &str = "No MCP calls yet";
 pub(crate) const BUILTIN_TOOLS_NO_MATCH: &str = "No tools match";
 pub(crate) const WIDGETS: &str = "No widgets yet";
 pub(crate) const LABELS: &str = "No labels yet";
@@ -72,6 +74,8 @@ mod tests {
             ("no-team-selected", NO_TEAM_SELECTED),
             ("devices", DEVICES),
             ("mcp-servers", MCP_SERVERS),
+            ("mcp-clients", MCP_CLIENTS),
+            ("mcp-activity", MCP_ACTIVITY),
             ("builtin-tools-no-match", BUILTIN_TOOLS_NO_MATCH),
             ("widgets", WIDGETS),
             ("labels", LABELS),

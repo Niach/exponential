@@ -317,7 +317,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         // trigger (a press Menu's default button): paint the children.
         CompositionLocalProvider(LocalInvisible provides invisible) {
             if (node.isLeaf && model.children.getOrNull(index).isNullOrEmpty()) {
-                LeafContent(LeafContext(model, node, size, style, inheritedInk(model.ink(index)), model.textStyle(index)))
+                LeafContent(LeafContext(model, node, size, style, inheritedInk(model.ink(index)), model.textStyle(index).forPart(node.ownerComponent, node.part)))
             } else {
                 ContainerContent(index, node, model, style, size)
             }

@@ -18,6 +18,9 @@ exponential-agent-runtime = { path = "../exponential-agent-runtime" }
 # eTalk: the voice, call and meeting state machines (packages/etalk/fixtures).
 etalk = { path = "../etalk", default-features = false }
 domain = { path = "../domain" }
+# EXP-1492: the calls into the instance's own `/api/mcp` (mcp_tools.rs) are
+# eMCP's client (rmcp's Streamable HTTP).
+emcp = { path = "../emcp" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }

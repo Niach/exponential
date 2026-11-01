@@ -13,13 +13,13 @@
       "call-controls",
       "feedback-states",
       "trace", "code-block",
-      "qr-code", "qr-scanner", "nav-rail", "voice-level", "sidebar-rows"
+      "qr-code", "qr-scanner", "nav-rail", "voice-level", "sidebar-rows", "outline", "mosaic"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings", "work-screen",
       "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
       "device-readiness", "device-attention", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-agent-row",
-      "work-card", "thread-parts", "ask-dock", "dock-card", "plan-card", "script-card", "comment-call-card",
+      "work-card", "thread-parts", "ask-dock", "dock-card", "plan-card", "plan-page", "script-card", "comment-call-card",
       "team-agents-settings", "voice-call-overlay", "voice-call", "computer-use-banner", "voice-settings", "meeting-consent",
       "agent-home", "work-tabs-strip",
       "getting-started",
@@ -55,6 +55,8 @@
     "nav-rail": "VAPP-162",
     "sidebar-rows": "EXP-1477",
     "voice-level": "VAPP-162",
+    "outline": "EXP-1495",
+    "mosaic": "EXP-1495",
     "composer-dialog": "EXP-1019",
     "session-row": "EXP-1248",
     "pr-row": "EXP-1248",
@@ -76,6 +78,7 @@
     "ask-dock": "EXP-1341",
     "dock-card": "N-12",
     "plan-card": "EXP-1280",
+    "plan-page": "EXP-1493",
     "script-card": "EXP-1279",
     "comment-call-card": "EXP-1241",
     "team-agents-settings": "EXP-1293",

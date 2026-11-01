@@ -111,7 +111,7 @@ describe(`SETTINGS_NAV follows settings-nav.json nav (S-3)`, () => {
     expect(entries).toEqual({
       team: [`general`, `members`, `issues`, `repositories`, `prompts`, `widget`, `storage`, `billing`, `import`],
       boards: [`@boards`, `@new-board`, `archived-boards`],
-      agents: [`@assistant`, `@agents`, `@new-agent`, `mcp-servers`],
+      agents: [`@assistant`, `@agents`, `@new-agent`, `mcp`],
       apps: [`@apps`, `@new-app`],
       personal: [`account`, `notifications`, `security`],
     })

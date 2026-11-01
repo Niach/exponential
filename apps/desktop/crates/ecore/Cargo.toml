@@ -1,0 +1,19 @@
+[package]
+name = "ecore"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "eCore: the plain types every ExponentialOS module shares (ids, grants + tokens, the delivery verdict, the error shape, the event envelope, capability names). Types and pure rules only."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+publish = false
+
+# THE RULE (gated by `tests/dependency_gate.rs`): serde and serde_json only.
+# No I/O, no async runtime, no network, no UI, no other module; every module
+# may link eCore, eCore links nothing of theirs.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+toml = "0.8"

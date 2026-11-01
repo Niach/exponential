@@ -424,6 +424,24 @@ extension AgentFeed {
     /// publisher sends no start stamp, and a verb needs one. Byte-identical ×4.
     public static let workingFallbackLabel = "Working…"
 
+    /// EXP-1501: the head while a tool call's input STREAMS (`turn.writing`),
+    /// `{tool}` = `writingToolLabel`; the blank-name variant beside it.
+    /// Byte-identical ×4 (`fixtures/working-caption.json` `copy`).
+    public static let workingWritingLabel = "Writing {tool}…"
+    public static let workingWritingBlankLabel = "Writing a tool call…"
+
+    /// EXP-1501: the tool name the writing caption shows — whitespace
+    /// collapsed, an `mcp__<server>__` prefix dropped (everything after the
+    /// second `__`); nil = blank.
+    public static func writingToolLabel(_ tool: String) -> String? {
+        let clean = tool.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        var label = clean
+        if clean.hasPrefix("mcp__"), let split = clean.dropFirst(5).range(of: "__") {
+            label = String(clean[split.upperBound...])
+        }
+        return label.isEmpty ? nil : label
+    }
+
     /// The verb this turn wears: `verbs[startedAt % verbs.count]`, so every
     /// client picks the SAME word for the same turn and it never flickers.
     public static func workingVerb(startedAt: Int) -> String {
@@ -459,18 +477,33 @@ extension AgentFeed {
     /// No `startedAt` (an older publisher) falls back to `Working…` with no
     /// suffix at all; a known start with no token count keeps the duration and
     /// drops the ` · ↓ N tokens` half.
+    ///
+    /// EXP-1501: while a tool call's input streams (`writing`) the head reads
+    /// `Writing {tool}…` and the duration runs from the STREAM's start, not the
+    /// turn's (`fixtures/working-caption.json`).
     public static func workingCaption(
-        startedAt: Int?, tokens: Int?, now: Date, workflow: AgentWorkflow? = nil
+        startedAt: Int?, tokens: Int?, now: Date, workflow: AgentWorkflow? = nil,
+        writing: WorkingWriting? = nil
     ) -> String {
-        let head = workflow?.caption
-        guard let startedAt else { return head ?? workingFallbackLabel }
-        let lead = head ?? "\(workingVerb(startedAt: startedAt))…"
-        let elapsed = Int(now.timeIntervalSince1970 * 1000) - startedAt
+        let head: String
+        if let caption = workflow?.caption {
+            head = caption
+        } else if let writing {
+            head = writingToolLabel(writing.tool).map {
+                workingWritingLabel.replacingOccurrences(of: "{tool}", with: $0)
+            } ?? workingWritingBlankLabel
+        } else if let startedAt {
+            head = "\(workingVerb(startedAt: startedAt))…"
+        } else {
+            return workingFallbackLabel
+        }
+        guard let clockStart = writing?.startedAt ?? startedAt else { return head }
+        let elapsed = Int(now.timeIntervalSince1970 * 1000) - clockStart
         var group = workingDuration(ms: elapsed)
         if let tokens, tokens > 0 {
             group += "\(WorkflowCaption.separator)↓ \(workingTokens(tokens)) tokens"
         }
-        return "\(lead) (\(group))"
+        return "\(head) (\(group))"
     }
 
     private static func pad2(_ value: Int) -> String {

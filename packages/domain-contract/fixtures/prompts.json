@@ -587,6 +587,29 @@
       ],
       "focus": "cancel"
     },
+    "revoke-mcp-client": {
+      "title": "Revoke {client}?",
+      "body": "It loses access right away. Connecting it again asks for consent again.",
+      "params": [
+        {
+          "name": "client",
+          "meaning": "the MCP client's name, unquoted"
+        }
+      ],
+      "actions": [
+        {
+          "id": "cancel",
+          "label": "Cancel",
+          "role": "cancel"
+        },
+        {
+          "id": "revoke",
+          "label": "Revoke",
+          "role": "destructive"
+        }
+      ],
+      "focus": "cancel"
+    },
     "exponential-ui-consent": {
       "title": "Allow this surface to run {tool}?",
       "body": "It acts as you, with your access to this team.",

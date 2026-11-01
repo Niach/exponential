@@ -17,6 +17,9 @@ use steer::{BackgroundTask, FeedItem, FeedItemId, FeedKind, FeedRowSpec, ToolKin
 /// The fallback caption while the run says nothing about its turn (a codex
 /// run publishes no `startedAt`; §5 says the whole group is omitted then).
 pub(crate) const WORKING_FALLBACK: &str = "Working…";
+/// EXP-1501: `fixtures/working-caption.json` `copy.writing` / `writingBlank`.
+pub(crate) const WORKING_WRITING: &str = "Writing {tool}…";
+pub(crate) const WORKING_WRITING_BLANK: &str = "Writing a tool call…";
 
 // ---------------------------------------------------------------------------
 // §9 — the pending ask/plan card sits at the bottom
@@ -163,6 +166,9 @@ pub(crate) struct WorkingFacts<'a> {
     /// The caption of the newest RUNNING workflow (`steer::workflow_caption`),
     /// which replaces the verb while one is up.
     pub workflow: Option<&'a str>,
+    /// EXP-1501: the tool call whose input is streaming (`turn.writing`) —
+    /// `Writing {tool}…`, timed from the stream's own start.
+    pub writing: Option<&'a steer::frames::TurnWriting>,
 }
 
 /// §5 — `{verb}… ({duration} · ↓ {tokens} tokens)`.
@@ -173,15 +179,20 @@ pub(crate) struct WorkingFacts<'a> {
 /// suffix. With nothing known at all the row falls back to
 /// [`WORKING_FALLBACK`].
 pub(crate) fn working_caption(facts: &WorkingFacts<'_>) -> String {
-    let head = match facts.workflow {
-        Some(caption) if !caption.trim().is_empty() => caption.trim().to_string(),
+    let head = match (facts.workflow, facts.writing) {
+        (Some(caption), _) if !caption.trim().is_empty() => caption.trim().to_string(),
+        // EXP-1501 (`fixtures/working-caption.json`).
+        (_, Some(writing)) => match writing_tool_label(&writing.tool) {
+            Some(tool) => WORKING_WRITING.replace("{tool}", &tool),
+            None => WORKING_WRITING_BLANK.to_string(),
+        },
         _ => match facts.started_at {
             Some(started_at) => format!("{}…", working_verb(started_at)),
             None => return WORKING_FALLBACK.to_string(),
         },
     };
     let mut parts: Vec<String> = Vec::new();
-    if let Some(started_at) = facts.started_at {
+    if let Some(started_at) = facts.writing.map(|writing| writing.started_at).or(facts.started_at) {
         parts.push(format_duration(facts.now_ms.saturating_sub(started_at)));
     }
     if let Some(tokens) = facts.tokens.filter(|tokens| *tokens > 0) {
@@ -191,6 +202,17 @@ pub(crate) fn working_caption(facts: &WorkingFacts<'_>) -> String {
         return head;
     }
     format!("{head} ({})", parts.join(" · "))
+}
+
+/// EXP-1501: the tool name the writing caption shows — whitespace collapsed,
+/// an `mcp__<server>__` prefix dropped; `None` = blank.
+pub(crate) fn writing_tool_label(tool: &str) -> Option<String> {
+    let clean = tool.split_whitespace().collect::<Vec<_>>().join(" ");
+    let label = match clean.strip_prefix("mcp__").and_then(|rest| rest.split_once("__")) {
+        Some((_, name)) => name.to_string(),
+        None => clean,
+    };
+    (!label.is_empty()).then_some(label)
 }
 
 /// The turn's verb: `steerWorking.verbs[startedAt % verbs.length]` (§5, the
@@ -656,6 +678,33 @@ mod tests {
         assert!(duplicate_warnings(&[narration(1), subagent(2, "a-1", None)]).is_empty());
     }
 
+    /// EXP-1501: the shared rule every client replays — whole strings.
+    #[test]
+    fn the_working_caption_replays_its_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/working-caption.json"
+        ))
+        .expect("the fixture parses");
+        assert_eq!(fixture["copy"]["fallback"], WORKING_FALLBACK);
+        assert_eq!(fixture["copy"]["writing"], WORKING_WRITING);
+        assert_eq!(fixture["copy"]["writingBlank"], WORKING_WRITING_BLANK);
+        for case in fixture["cases"].as_array().expect("cases") {
+            let input = &case["input"];
+            let writing = input["writing"].is_object().then(|| steer::frames::TurnWriting {
+                tool: input["writing"]["tool"].as_str().unwrap_or_default().to_string(),
+                started_at: input["writing"]["startedAt"].as_i64().expect("startedAt"),
+            });
+            let caption = working_caption(&WorkingFacts {
+                started_at: input["startedAt"].as_i64(),
+                tokens: input["tokens"].as_u64(),
+                now_ms: input["now"].as_i64().expect("now"),
+                workflow: None,
+                writing: writing.as_ref(),
+            });
+            assert_eq!(caption, case["expected"].as_str().expect("expected"), "{}", case["name"]);
+        }
+    }
+
     /// §5: the caption, in all four shapes.
     #[test]
     fn the_working_caption_names_the_verb_the_clock_and_the_tokens() {
@@ -668,6 +717,7 @@ mod tests {
                 tokens: Some(812),
                 now_ms: started_at + 37_000,
                 workflow: None,
+                writing: None,
             }),
             format!("{verb}… (37s · ↓ 812 tokens)")
         );
@@ -678,6 +728,7 @@ mod tests {
                 tokens: None,
                 now_ms: started_at,
                 workflow: None,
+                writing: None,
             }),
             WORKING_FALLBACK
         );
@@ -688,6 +739,7 @@ mod tests {
                 tokens: None,
                 now_ms: started_at + 124_000,
                 workflow: None,
+                writing: None,
             }),
             format!("{verb}… (2m 04s)")
         );
@@ -698,6 +750,7 @@ mod tests {
                 tokens: Some(2_000),
                 now_ms: started_at + 3_780_000,
                 workflow: Some("Workflow wire-probe · 2/3 agents done · Beta"),
+                writing: None,
             }),
             "Workflow wire-probe · 2/3 agents done · Beta (1h 03m · ↓ 2.0k tokens)"
         );
@@ -979,6 +1032,7 @@ mod tests {
                 tokens: feed.turn_tokens(),
                 now_ms: started_at + 9_000,
                 workflow: None,
+                writing: None,
             }),
             format!("{}… (9s · ↓ 1.4k tokens)", working_verb(started_at))
         );

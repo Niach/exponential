@@ -442,6 +442,18 @@ pub const REMOVE_SERVER: Spec = Spec {
     focus: "cancel",
 };
 
+/// VAPP-185: Settings › MCP › Clients' Revoke.
+pub const REVOKE_MCP_CLIENT: Spec = Spec {
+    id: "revoke-mcp-client",
+    copy: &[
+        ("title", "Revoke {client}?"),
+        ("body", "It loses access right away. Connecting it again asks for consent again."),
+    ],
+    params: &["client"],
+    actions: confirm!(destructive "revoke", "Revoke"),
+    focus: "cancel",
+};
+
 pub const EXPONENTIAL_UI_CONSENT: Spec = Spec {
     id: "exponential-ui-consent",
     copy: &[
@@ -499,6 +511,7 @@ pub const ALL: &[Spec] = &[
     REMOVE_PASSKEY,
     DELETE_ACCOUNT,
     REMOVE_SERVER,
+    REVOKE_MCP_CLIENT,
     EXPONENTIAL_UI_CONSENT,
     EXPONENTIAL_UI_CONSENT_DESTRUCTIVE,
 ];
@@ -634,6 +647,11 @@ pub fn delete_account(server: Option<&str>) -> Prompt {
 
 pub fn remove_server(server: &str) -> Prompt {
     REMOVE_SERVER.render("title", Some("body"), &[("server", server)])
+}
+
+/// VAPP-185: `client` = the MCP client's name, unquoted.
+pub fn revoke_mcp_client(client: &str) -> Prompt {
+    REVOKE_MCP_CLIENT.render("title", Some("body"), &[("client", client)])
 }
 
 /// VAPP-91: a host asking before a surface acts as the person; `tool` = the
@@ -811,6 +829,7 @@ mod tests {
             delete_account(Some("Cloud")),
             delete_account(None),
             remove_server("Cloud"),
+            revoke_mcp_client("Claude Code"),
             exponential_ui_consent("exponential_issues_list"),
             exponential_ui_consent_destructive("exponential_issues"),
         ];

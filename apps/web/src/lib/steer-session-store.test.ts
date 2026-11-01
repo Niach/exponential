@@ -3233,6 +3233,30 @@ describe(`turn startedAt and tokens (§5)`, () => {
     store.dispose()
   })
 
+  it(`EXP-1501: writing is the frame's whole state (set, then cleared)`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `turn`,
+        state: `started`,
+        startedAt: 1_000,
+        writing: { tool: `ExitPlanMode`, startedAt: 5_000 },
+      },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().turnWriting).toEqual({ tool: `ExitPlanMode`, startedAt: 5_000 })
+    // The tool call landed: the next frame carries no writing.
+    socket.frame({
+      t: `activity`,
+      event: { kind: `turn`, state: `started`, startedAt: 1_000, tokens: 900 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot()).toMatchObject({ turnWriting: null, turnStartedAt: 1_000 })
+    store.dispose()
+  })
+
   it(`a NEW start resets the token counter`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)

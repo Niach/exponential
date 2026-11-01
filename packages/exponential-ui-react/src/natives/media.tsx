@@ -146,6 +146,18 @@ export function AvatarNative({ node, props, rootProps }: NativeProps) {
   )
 }
 
+/** One thumbnail of the strip (round 6 §3): a button over its picture
+ *  (through the host's media request), the empty muted square without one. */
+function CarouselThumbnail({ attrs, src, current, label, onPress }: { attrs: Record<string, unknown>; src: string; current: boolean; label: string; onPress: () => void }) {
+  const ctx = useSurfaceContext()
+  const url = useMediaSrc(ctx.host, src)
+  return (
+    <button type="button" {...(attrs as Record<string, string>)} aria-label={label} aria-current={current ? `true` : undefined} data-current={current ? `true` : undefined} onClick={onPress}>
+      {src && url ? <img className="xui-carousel-thumb" src={url} alt="" aria-hidden="true" loading="lazy" decoding="async" draggable={false} /> : null}
+    </button>
+  )
+}
+
 export function CarouselNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
@@ -176,6 +188,38 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
     scrollTo(target)
   }
   const many = pages.length > 1
+  // EXP-1495 (round 6 §3): the counter pill and the thumbnail strip, both
+  // only with two or more pages.
+  const counter = many && bool(props.counter)
+  const thumbnails = many && Array.isArray(props.thumbnails) ? (props.thumbnails as unknown[]) : null
+  const strip = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // The current thumbnail scrolled into view (the strip only: never the
+    // page around it).
+    const el = strip.current
+    const thumb = el?.children[page] as HTMLElement | undefined
+    if (!el || !thumb) return
+    const a = el.getBoundingClientRect()
+    const b = thumb.getBoundingClientRect()
+    const delta = b.left < a.left ? b.left - a.left : b.right > a.right ? b.right - a.right : 0
+    if (delta !== 0) el.scrollLeft += delta
+  }, [page, thumbnails !== null])
+  const trackView = (
+    <div ref={track} className="xui-carousel-track" onScroll={onScroll} aria-live="polite">
+      {pages.map((child, i) => {
+        // Round 2 §7: only the ACTIVE page is placed; the others stay
+        // mounted for swiping, hidden from AT, inert, `data-xui-inactive`.
+        const active = i === page
+        const attrs = part(`page`, active && `selected`) as Record<string, string>
+        if (!active) delete attrs[`data-xui-id`]
+        return (
+          <div key={child.id} {...attrs} role="group" aria-roledescription={ctx.t(`slide`)} aria-label={ctx.t(`pageOf`, { page: i + 1, total: pages.length })} aria-hidden={active ? undefined : true} data-xui-inactive={active ? undefined : ``} {...(active ? {} : INERT)}>
+            <NodeView node={child} />
+          </div>
+        )
+      })}
+    </div>
+  )
   return (
     <div
       {...(rootProps as Record<string, unknown>)}
@@ -187,20 +231,23 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
         else if (e.key === `ArrowLeft`) go(page + (rtl ? 1 : -1))
       }}
     >
-      <div ref={track} className="xui-carousel-track" onScroll={onScroll} aria-live="polite">
-        {pages.map((child, i) => {
-          // Round 2 §7: only the ACTIVE page is placed; the others stay
-          // mounted for swiping, hidden from AT, inert, `data-xui-inactive`.
-          const active = i === page
-          const attrs = part(`page`, active && `selected`) as Record<string, string>
-          if (!active) delete attrs[`data-xui-id`]
-          return (
-            <div key={child.id} {...attrs} role="group" aria-roledescription={ctx.t(`slide`)} aria-label={ctx.t(`pageOf`, { page: i + 1, total: pages.length })} aria-hidden={active ? undefined : true} data-xui-inactive={active ? undefined : ``} {...(active ? {} : INERT)}>
-              <NodeView node={child} />
-            </div>
-          )
-        })}
-      </div>
+      {counter ? (
+        <div className="xui-carousel-stage">
+          {trackView}
+          <span {...(part(`counter`) as Record<string, string>)} aria-hidden="true">
+            {ctx.t(`pageCounter`, { page: page + 1, total: pages.length })}
+          </span>
+        </div>
+      ) : (
+        trackView
+      )}
+      {thumbnails ? (
+        <div ref={strip} {...(part(`thumbnails`) as Record<string, string>)}>
+          {pages.map((child, i) => (
+            <CarouselThumbnail key={child.id} attrs={part.at(`thumbnail`, i, i === page && `selected`)} src={typeof thumbnails[i] === `string` ? (thumbnails[i] as string) : ``} current={i === page} label={ctx.t(`pageOf`, { page: i + 1, total: pages.length })} onPress={() => go(i)} />
+          ))}
+        </div>
+      ) : null}
       {many ? (
         <div {...withClass(part(`controls`), `xui-carousel-controls`)}>
           <button type="button" {...withClass(part(`previous`), `xui-carousel-nav`)} aria-label={ctx.t(`previous`)} disabled={!bool(props.loop) && page === 0} onClick={() => go(page - 1)}>

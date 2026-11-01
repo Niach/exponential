@@ -163,7 +163,8 @@ class SurfaceMeasurer(
 
     private fun shown(text: String, leaf: LeafRequest): String = applyTransform(text, leaf.textStyle.textTransform)
 
-    private fun ts(leaf: LeafRequest): ResolvedTextStyle = leaf.textStyle
+    /** The leaf's style (+ the painter's per-part features, EXP-1495 tabular figures). */
+    private fun ts(leaf: LeafRequest): ResolvedTextStyle = leaf.textStyle.forPart(leaf.ownerComponent, leaf.part)
 
     private fun line(text: String, ts: ResolvedTextStyle): Float = shaper.maxContent(text, ts)
 

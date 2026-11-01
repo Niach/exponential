@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Exponential (safe mode)
+Comment=eDE with the stock settings, ignoring your configuration
+Exec=ede-session --safe-mode
+TryExec=ede-session
+Type=Application
+DesktopNames=eDE

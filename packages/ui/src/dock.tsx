@@ -319,8 +319,8 @@ export function DockSheetChrome({
     <SheetMetaContext.Provider value={setMeta}>
       <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-2">
         <Icon className={cn(`size-3.5 shrink-0`, TINT_CLASS[row.tint])} />
-        {title ?? <span className={cn(`text-xs font-medium`, TINT_CLASS[row.tint])}>{row.label}</span>}
-        {row.caption && <span className="min-w-0 truncate text-xs text-muted-foreground">{row.caption}</span>}
+        {title ?? <span className={cn(`truncate text-xs font-medium`, TINT_CLASS[row.tint])}>{row.label}</span>}
+        {row.caption && <span className="min-w-0 shrink-[999] truncate text-xs text-muted-foreground">{row.caption}</span>}
         <span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
           {meta}
           <Button

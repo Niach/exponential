@@ -154,11 +154,30 @@ public struct AgentTurnSlot: Equatable, Sendable {
     public var startedAt: Int?
     /// Output tokens produced in this turn so far (monotone within a turn).
     public var tokens: Int?
+    /// EXP-1501: the tool call whose input is streaming right now, or nil.
+    public var writing: WorkingWriting?
 
-    public init(state: AgentTurnState = .ended, startedAt: Int? = nil, tokens: Int? = nil) {
+    public init(
+        state: AgentTurnState = .ended, startedAt: Int? = nil, tokens: Int? = nil,
+        writing: WorkingWriting? = nil
+    ) {
         self.state = state
         self.startedAt = startedAt
         self.tokens = tokens
+        self.writing = writing
+    }
+}
+
+/// EXP-1501: the agent is STREAMING one tool call's input (the `turn` slot's
+/// `writing`, claude `input_json_delta`) — the tool it is writing and when
+/// that stream began (Unix ms). The working row reads `Writing {tool}… (54s)`.
+public struct WorkingWriting: Equatable, Sendable {
+    public let tool: String
+    public let startedAt: Int
+
+    public init(tool: String, startedAt: Int) {
+        self.tool = tool
+        self.startedAt = startedAt
     }
 }
 
@@ -1253,6 +1272,10 @@ public enum AgentFeed {
     ) -> AgentTurnSlot {
         var next = current
         if let state = edge.state { next.state = state }
+        // EXP-1501: unlike the clock and the count, `writing` is the frame's
+        // WHOLE state — absent (or any frame that is not a `started` edge)
+        // means the tool call landed or the turn ended (web `turnWriting`).
+        next.writing = edge.state == .started ? edge.writing : nil
         if let startedAt = edge.startedAt, startedAt != current.startedAt {
             next.startedAt = startedAt
             next.tokens = edge.tokens

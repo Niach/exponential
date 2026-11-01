@@ -154,6 +154,26 @@ const val WORKFLOW_PHASE_EMPTY = "no agents"
  *  clock. Byte-identical ×4. */
 const val WORKING_FALLBACK_CAPTION = "Working…"
 
+/** EXP-1501: the caption while a tool call's input streams — `{tool}` is
+ *  [writingToolLabel]; the blank-name form stands in when there is none.
+ *  Byte-identical ×4 (`fixtures/working-caption.json` `copy`). */
+const val WORKING_WRITING_CAPTION = "Writing {tool}…"
+const val WORKING_WRITING_BLANK_CAPTION = "Writing a tool call…"
+
+/** EXP-1501: the agent is STREAMING one tool call's input (the `turn` slot's
+ *  `writing`): the tool it is writing and when that stream began (unix ms). */
+data class WorkingWriting(val tool: String, val startedAt: Long)
+
+/** EXP-1501: the tool name the writing caption shows — whitespace collapsed,
+ *  an `mcp__<server>__` prefix dropped (everything after the second `__`);
+ *  null = blank. */
+fun writingToolLabel(tool: String): String? {
+    val clean = tool.trim().replace(Regex("\\s+"), " ")
+    val split = if (clean.startsWith("mcp__")) clean.indexOf("__", 5) else -1
+    val label = if (split < 0) clean else clean.substring(split + 2)
+    return label.ifEmpty { null }
+}
+
 /** The verb of the turn that started at [startedAt] — a stable pick out of the
  *  contract's 24, so the same turn reads the same on every client and never
  *  flickers between frames. Null without a start. */
@@ -248,13 +268,21 @@ fun workingCaption(
     tokens: Long?,
     nowMs: Long,
     workflowCaption: String? = null,
+    writing: WorkingWriting? = null,
 ): String {
+    // EXP-1501: while a tool call's input streams the caption names the tool
+    // and its clock runs from the STREAM's start, not the turn's.
     val head = workflowCaption?.takeIf { it.isNotBlank() }
+        ?: writing?.let { w ->
+            writingToolLabel(w.tool)?.let { WORKING_WRITING_CAPTION.replace("{tool}", it) }
+                ?: WORKING_WRITING_BLANK_CAPTION
+        }
         ?: workingVerb(startedAt)?.let { "$it…" }
         ?: WORKING_FALLBACK_CAPTION
     val parts = listOfNotNull(
-        formatWorkingDuration(startedAt, nowMs),
-        formatWorkingTokens(tokens)?.let { "↓ $it tokens" },
+        formatWorkingDuration(writing?.startedAt ?: startedAt, nowMs),
+        // A zero count is as unknown as a missing one (EXP-1501 fixture).
+        formatWorkingTokens(tokens?.takeIf { it > 0L })?.let { "↓ $it tokens" },
     )
     if (parts.isEmpty()) return head
     return "$head (${parts.joinToString(WorkflowCaption.SEPARATOR)})"

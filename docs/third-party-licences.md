@@ -501,3 +501,13 @@ licensing"); livekit-wakeword trains on the same features and publishes its
 classifier is a derived work of its training data is untested. Re-check
 before selling a model (spezl's marketplace), and retrain without the
 ACAV100M features if the answer changes.
+
+## eDE's bundled Xwayland (NEW-120)
+
+The eDE .deb ships Xwayland 24.1.x at `/usr/lib/ede/bin/Xwayland`, built
+from the unmodified X.Org tarball (`apps/ede/packaging/xwayland/build.sh`).
+Its licence is the MIT/X11 family (permissive, notice-preserving), and the
+.deb carries its `COPYING` as `/usr/share/doc/ede/xwayland-copyright`. It
+links only noble's own system libraries, which come in through the .deb's
+Depends and are never copied into it. xorgproto is used at build time only:
+it is headers, and nothing of it ships.

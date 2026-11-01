@@ -3,6 +3,9 @@ package com.exponential.app.data.push
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.domain.InboxRoute
+import com.exponential.app.domain.PlanPage
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.WireTimestamps
 import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -74,6 +77,24 @@ class WebLinkResolver @Inject constructor(
             userId = root?.userId ?: session.userId,
             viewerId = auth.userId.value,
         )
+    }
+
+    /** #EXP-1493 (plan-page.json WAYS IN): the session's own waiting plan
+     *  message ([PlanPage.planPageFor]) an inbox row / push opens THE plan
+     *  page on; null = none (the session's own route). */
+    suspend fun planPageTarget(sessionId: String): String? = activeDb(null) { db ->
+        val messages = db.messageDao().observeBySession(sessionId).first().mapNotNull { row ->
+            val message = SessionTree.message(row, sessionId)
+            if (message.card?.get("kind")?.toString() != "\"plan\"") return@mapNotNull null
+            PlanPage.Message(
+                id = message.id,
+                sessionId = sessionId,
+                authorSessionId = message.authorSessionId,
+                createdAt = WireTimestamps.parseEpochMs(message.createdAt) ?: 0L,
+                card = message.card,
+            )
+        }
+        PlanPage.planPageFor(sessionId, messages)
     }
 
     /**

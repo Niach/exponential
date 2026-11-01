@@ -36,6 +36,8 @@ struct StoryTabView: View {
     var renderers = StoryBodyRenderers()
     /// A tap on a story's line (picture 0) or a picture (its index).
     var onOpen: (Stories.Story, Int) -> Void = { _, _ in }
+    /// #EXP-1493: a tap anywhere on a plan section = THE plan page.
+    var onOpenPlan: (Stories.Story) -> Void = { _ in }
 
     var body: some View {
         let stories = ring?.stories ?? []
@@ -48,7 +50,7 @@ struct StoryTabView: View {
             } else {
                 VStack(alignment: .leading, spacing: CGFloat(Stories.Tab.Tile.listGap)) {
                     ForEach(stories) { story in
-                        StoryTile(story: story, renderers: renderers, onOpen: onOpen)
+                        StoryTile(story: story, renderers: renderers, onOpen: onOpen, onOpenPlan: onOpenPlan)
                     }
                 }
             }
@@ -63,25 +65,31 @@ struct StoryTabView: View {
 /// kind word) with `meta` muted at the end (a waiting one leads with the
 /// tint dot and tints its meta); the description (muted, wrapping)
 /// `tile.textGap` under it; then its body `tile.gap` under that, by the
-/// frame rule: ONE sideways row of pictures (a muted caption-or-label line
-/// under each), else THE surface card inline (no title over it, presses
-/// reply like the chat), else the plan markdown, else nothing.
+/// frame rule: a PLAN (#EXP-1493) = its counts line (after the description)
+/// then its pictures row,
+/// a tap anywhere opening THE plan page; else ONE sideways row of pictures
+/// (a muted caption-or-label line under each), else THE surface card inline
+/// (no title over it, presses reply like the chat), else nothing. THE kind
+/// badge leads line 1.
 struct StoryTile: View {
     let story: Stories.Story
     var renderers = StoryBodyRenderers()
     let onOpen: (Stories.Story, Int) -> Void
+    var onOpenPlan: (Stories.Story) -> Void = { _ in }
 
     @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
         let gap = CGFloat(Stories.Tab.Tile.gap)
-        // The frame rule: pictures win, else the surface, else the plan text.
-        let surface = story.pictures.isEmpty && story.surface ? renderers.card(story.id)?.surface : nil
-        let text = story.pictures.isEmpty && surface == nil ? story.text : nil
+        // The frame rule: a plan = counts + pictures; pictures win, else the surface.
+        let plan = story.kind == .plan
+        let surface = !plan && story.pictures.isEmpty && story.surface ? renderers.card(story.id)?.surface : nil
+        let counts = story.counts.map(PlanPage.countsLine) ?? ""
         VStack(alignment: .leading, spacing: gap) {
-            Button { onOpen(story, 0) } label: {
+            Button { plan ? onOpenPlan(story) : onOpen(story, 0) } label: {
                 VStack(alignment: .leading, spacing: CGFloat(Stories.Tab.Tile.textGap)) {
                     HStack(spacing: 8) {
+                        StoryKindBadge(kind: story.kind)
                         if story.waiting {
                             Circle()
                                 .fill(storyTint(story))
@@ -108,6 +116,13 @@ struct StoryTile: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .multilineTextAlignment(.leading)
                     }
+                    if plan, !counts.isEmpty {
+                        Text(counts)
+                            .font(.system(size: 12))
+                            .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("story-tile-counts")
+                    }
                 }
                 .contentShape(Rectangle())
             }
@@ -116,7 +131,7 @@ struct StoryTile: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: gap) {
                         ForEach(Array(story.pictures.enumerated()), id: \.offset) { index, picture in
-                            Button { onOpen(story, index) } label: {
+                            Button { plan ? onOpenPlan(story) : onOpen(story, index) } label: {
                                 StoryThumbnail(picture: picture)
                             }
                             .buttonStyle(.plain)
@@ -132,34 +147,10 @@ struct StoryTile: View {
                     )
                 }
                 .accessibilityIdentifier("story-tile-surface")
-            } else if let text {
-                StoryTileText(text: text)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Stories.Tab.TestIds.tile)
-    }
-}
-
-/// A plan story's text in place: THE markdown renderer at the body size.
-private struct StoryTileText: View {
-    let text: String
-
-    @Environment(AppDependencies.self) private var deps
-    @Environment(\.accountId) private var accountId
-
-    var body: some View {
-        AgentMarkdownText(
-            text: PlanCard.renderableMarkdown(text),
-            context: AgentMarkdownContext(
-                baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-                accountId: accountId,
-                httpClient: deps.httpClient
-            ),
-            options: [.hardLineBreaks]
-        )
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityIdentifier("story-tile-text")
     }
 }
 
@@ -238,6 +229,8 @@ struct ThreadStoriesPage: View {
 
     @State private var opened: StoryTabTarget?
     @State private var pendingSession: Stories.Story?
+    /// #EXP-1493: the plan a cover's Open plan opens once the viewer is gone.
+    @State private var pendingPlan: Stories.Story?
     @State private var prChanges: ChangesViewModel?
     @State private var review = false
     @State private var focusPath: String?
@@ -259,6 +252,8 @@ struct ThreadStoriesPage: View {
                         )
                     ) { story, picture in
                         opened = StoryTabTarget(storyId: story.id, picture: picture)
+                    } onOpenPlan: { story in
+                        pushRoute(.planPage(accountId: accountId, sessionId: story.sessionId, messageId: story.id))
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 24)
@@ -281,6 +276,10 @@ struct ThreadStoriesPage: View {
                 onAnswer: canEdit ? answer : { _ in false },
                 onOpenSession: { story in
                     pendingSession = story
+                    opened = nil
+                },
+                onOpenPlan: { story in
+                    pendingPlan = story
                     opened = nil
                 },
                 onClose: { opened = nil }
@@ -475,6 +474,11 @@ struct ThreadStoriesPage: View {
     // MARK: - The viewer
 
     private func openPendingSession() {
+        if let plan = pendingPlan {
+            pendingPlan = nil
+            pushRoute(.planPage(accountId: accountId, sessionId: plan.sessionId, messageId: plan.id))
+            return
+        }
         guard let story = pendingSession else { return }
         pendingSession = nil
         pushRoute(.thread(

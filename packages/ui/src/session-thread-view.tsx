@@ -44,6 +44,7 @@ import {
   stepLabel,
   stepperApplies,
 } from "@exp/domain-contract/plan-card"
+import { PLAN_PAGE_COPY } from "@exp/domain-contract/plan-page"
 import { AskAnsweredLine, AskCard, AskPrompt } from "./ask-card"
 import {
   closedPicks,
@@ -680,6 +681,8 @@ export interface ThreadConversationProps {
   onAnswer?: (rowId: string, input: ThreadQuestionAnswer) => void
   /** A plan card's decision + the reject's note (absent = read-only). */
   onDecide?: (rowId: string, input: ThreadPlanDecision) => void
+  /** #EXP-1493: a plan card's `Open plan` (THE plan page; absent = none). */
+  onOpenPlan?: (row: Extract<ThreadRow, { type: `plan` }>) => void
   /** The rows whose answer is in flight. */
   pending?: ReadonlySet<string>
   /** The rows THE Dock holds. FEED-140 (chats.json): a waiting plan or
@@ -742,6 +745,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
     origin,
     onAnswer,
     onDecide,
+    onOpenPlan,
     pending,
     docked,
     viewerId,
@@ -936,7 +940,16 @@ export function ThreadConversation(props: ThreadConversationProps) {
                     renderText={renderText}
                     attachmentSrc={attachmentSrc}
                     busy={pending?.has(waiting.id) ?? false}
-                    headerAction={openChat}
+                    headerAction={
+                      onOpenPlan ? (
+                        <span className="ml-auto flex shrink-0 items-center gap-3">
+                          <OpenPlanLink onOpen={() => onOpenPlan(waiting)} />
+                          {openChat}
+                        </span>
+                      ) : (
+                        openChat
+                      )
+                    }
                     onDecide={
                       onDecide
                         ? (input) => {
@@ -971,6 +984,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
             renderText={renderText}
             attachmentSrc={attachmentSrc}
             busy={pending?.has(row.id) ?? false}
+            headerAction={onOpenPlan && row.decision !== `superseded` ? <OpenPlanLink onOpen={() => onOpenPlan(row)} /> : undefined}
             onDecide={onDecide ? (input) => latest.current.onDecide?.(row.id, input) : undefined}
           />
         )
@@ -1809,29 +1823,41 @@ export function ThreadPlanSheet({
   attachmentSrc,
   busy,
   onDecide,
+  questionsOnly = false,
 }: {
   row: Extract<ThreadRow, { type: `plan` }>
   renderText: (text: string) => ReactNode
   attachmentSrc: (attachmentId: string) => string
   busy: boolean
   onDecide?: (input: ThreadPlanDecision) => void
+  /** #EXP-1493: THE plan page's sheet: the document is the page, so the
+   *  sheet holds the questions (and the decision) only. */
+  questionsOnly?: boolean
 }) {
   const form = usePlanForm(row, busy, onDecide)
   const [step, setStep] = useState(0)
   const [rejecting, setRejecting] = useState(false)
   const stepped = !form.decided && stepperApplies({ kind: `plan`, plan: row.plan, questions: row.questions })
   const count = row.questions.length
-  const pages = stepped ? 1 + count : 1
+  const lead = questionsOnly ? 0 : 1
+  const pages = stepped ? lead + count : 1
   const page = Math.min(step, pages - 1)
   const last = page === pages - 1
-  const question = stepped && page > 0 ? row.questions[page - 1] : undefined
-  useDockSheetMeta(question ? <span data-testid={PLAN_CARD_TEST_IDS.step}>{stepLabel(page, count)}</span> : null)
+  const question = stepped && page >= lead ? row.questions[page - lead] : undefined
+  useDockSheetMeta(
+    question ? <span data-testid={PLAN_CARD_TEST_IDS.step}>{stepLabel(page - lead + 1, count)}</span> : null
+  )
   return (
     <>
       <DockSheetBody>
         <div data-testid={PLAN_CARD_TEST_IDS.card} data-kind="plan" data-page={page}>
           {question ? (
             form.block(question, attachmentSrc, `mt-0`)
+          ) : questionsOnly ? (
+            <>
+              {row.questions.map((q) => form.block(q, attachmentSrc))}
+              {form.decided && <PlanClosedLines row={row} />}
+            </>
           ) : (
             <>
               <div className="text-sm">{renderText(stripPendingUploads(row.plan))}</div>
@@ -1872,6 +1898,119 @@ export function ThreadPlanSheet({
         )}
       </DockSheetFooter>
     </>
+  )
+}
+
+const FullscreenIcon = conceptIcon(`ui-fullscreen`)
+
+/** #EXP-1493: a plan card's `Open plan` (plan-page.json WAYS IN): the
+ *  header's trailing link, the open-chat link's look + `ui-fullscreen`. */
+function OpenPlanLink({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      data-testid="open-plan"
+      className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground active:opacity-70"
+      onClick={onOpen}
+    >
+      <FullscreenIcon className="size-3.5" />
+      {PLAN_PAGE_COPY.openPlan}
+    </button>
+  )
+}
+
+/** A decided plan's closing lines: the decision label + the feedback. */
+function PlanClosedLines({ row }: { row: Extract<ThreadRow, { type: `plan` }> }) {
+  if (row.decision === null) return null
+  return (
+    <>
+      <AskAnsweredLine
+        answer={
+          row.decision === `superseded`
+            ? planDecisionLabel(`superseded`, false)
+            : planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh)
+        }
+      />
+      {row.feedback && (
+        <div data-testid={PLAN_CARD_TEST_IDS.feedback} className="mt-1 text-xs text-muted-foreground">
+          {PLAN_CARD_COPY.feedbackLine.replace(`{feedback}`, () => row.feedback ?? ``)}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** #EXP-1493: THE plan page's RAIL (plan-page.json, wide): the questions
+ *  heading + THE stepper (one question at a time, Back / Next) and, pinned
+ *  at its foot, THE decision; decided = the closed card (every question's
+ *  picks, the decision label, the feedback). */
+export function PlanRail({
+  row,
+  attachmentSrc = defaultAttachmentSrc,
+  busy,
+  onDecide,
+  heading,
+  className,
+}: {
+  row: Extract<ThreadRow, { type: `plan` }>
+  attachmentSrc?: (attachmentId: string) => string
+  busy: boolean
+  onDecide?: (input: ThreadPlanDecision) => void
+  heading: string
+  className?: string
+}) {
+  const form = usePlanForm(row, busy, onDecide)
+  const [step, setStep] = useState(0)
+  const [rejecting, setRejecting] = useState(false)
+  const count = row.questions.length
+  const page = Math.min(step, Math.max(0, count - 1))
+  const question = form.decided ? undefined : row.questions[page]
+  const last = page >= count - 1
+  return (
+    <div data-testid="plan-rail" className={cn(`flex min-h-0 flex-col gap-3`, className)}>
+      {count > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">{heading}</span>
+          {question && count > 1 && (
+            <span data-testid={PLAN_CARD_TEST_IDS.step} className="ml-auto text-xs text-muted-foreground">
+              {stepLabel(page + 1, count)}
+            </span>
+          )}
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div data-testid={PLAN_CARD_TEST_IDS.card} data-kind="plan" data-page={page}>
+          {question
+            ? form.block(question, attachmentSrc, `mt-0`)
+            : form.decided
+              ? row.questions.map((q) => form.block(q, attachmentSrc))
+              : null}
+          {form.decided && <PlanClosedLines row={row} />}
+        </div>
+      </div>
+      {!form.decided && (
+        <div className="flex shrink-0 flex-col gap-2">
+          <PlanCardFooter
+            onBack={page > 0 ? () => setStep(page - 1) : undefined}
+            onNext={!last ? () => setStep(page + 1) : undefined}
+            decision={
+              last && form.interactive
+                ? {
+                    approveIssue: form.approveIssue,
+                    rejecting,
+                    onRejecting: setRejecting,
+                    feedback: form.feedback,
+                    onFeedback: form.setFeedback,
+                    onDecide: form.decide,
+                    busy,
+                  }
+                : undefined
+            }
+          />
+          {busy && <AskPrompt options={[]} answerable={false} locked={{ labels: [] }} onAnswer={noop} />}
+        </div>
+      )}
+    </div>
   )
 }
 

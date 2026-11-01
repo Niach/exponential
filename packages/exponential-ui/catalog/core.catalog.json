@@ -698,6 +698,41 @@
           "description": "The step's state."
         }
       }
+    },
+    "outlineItem": {
+      "description": "One Outline row.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true,
+          "description": "Reported by `select`."
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "The row text."
+        },
+        "count": {
+          "type": "number",
+          "bindable": true,
+          "description": "A muted count."
+        }
+      }
+    },
+    "picture": {
+      "description": "One picture of a Mosaic.",
+      "properties": {
+        "src": {
+          "type": "url",
+          "required": true,
+          "description": "The image URL."
+        },
+        "alt": {
+          "type": "string",
+          "description": "The accessibility description."
+        }
+      }
     }
   },
   "functions": {
@@ -2069,6 +2104,18 @@
           "type": "boolean",
           "default": true,
           "description": "Shows the page dots."
+        },
+        "counter": {
+          "type": "boolean",
+          "default": false,
+          "description": "Shows `i / n`."
+        },
+        "thumbnails": {
+          "type": "array",
+          "items": {
+            "type": "url"
+          },
+          "description": "A thumbnail URL per page."
         }
       },
       "events": [
@@ -2077,6 +2124,51 @@
       "example": {
         "page": 0,
         "indicators": true
+      }
+    },
+    "Mosaic": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "description": "Pictures: halves, or one large + two small with `+N`; press fires `select {index}`.",
+      "props": {
+        "pictures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "picture"
+          },
+          "required": true,
+          "description": "The pictures in order."
+        },
+        "label": {
+          "type": "string",
+          "description": "The a11y label."
+        }
+      },
+      "events": [
+        "select"
+      ],
+      "example": {
+        "pictures": [
+          {
+            "src": "https://example.com/editor.png",
+            "alt": "Editor"
+          },
+          {
+            "src": "https://example.com/preview.png",
+            "alt": "Preview"
+          },
+          {
+            "src": "https://example.com/data.png",
+            "alt": "Data"
+          },
+          {
+            "src": "https://example.com/versions.png",
+            "alt": "Versions"
+          }
+        ]
       }
     },
     "Tabs": {
@@ -2488,6 +2580,56 @@
           {
             "label": "EXP-42",
             "value": "exp-42"
+          }
+        ]
+      }
+    },
+    "Outline": {
+      "kind": "macro",
+      "group": "navigation",
+      "lite": true,
+      "children": "none",
+      "description": "Anchor rows under a caption, one active; press fires `select {id}`.",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "outlineItem"
+          },
+          "required": true,
+          "description": "The rows in order."
+        },
+        "value": {
+          "type": "string",
+          "bindable": true,
+          "description": "The active row id."
+        },
+        "caption": {
+          "type": "string",
+          "description": "The heading."
+        }
+      },
+      "events": [
+        "select"
+      ],
+      "example": {
+        "caption": "Outline",
+        "value": "part-a",
+        "items": [
+          {
+            "id": "current",
+            "title": "Current state"
+          },
+          {
+            "id": "part-a",
+            "title": "Part A: editor-first creation",
+            "count": 5
+          },
+          {
+            "id": "part-b",
+            "title": "Part B: MCP for eApps",
+            "count": 2
           }
         ]
       }

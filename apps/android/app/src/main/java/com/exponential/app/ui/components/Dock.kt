@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import com.exponential.app.domain.Dock
+import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.ToastStack
 import com.exponential.app.ui.components.picker.InlinePickerSlot
 import com.exponential.app.ui.components.picker.InlinePickerSlotRows
@@ -367,6 +368,8 @@ class DockSheetScope {
 fun DockSheet(
     row: Dock.Row,
     onDismiss: () -> Unit,
+    /** #EXP-1493: a plan sheet's header glyph opening THE plan page. */
+    onOpenFull: (() -> Unit)? = null,
     content: @Composable ColumnScope.(DockSheetScope) -> Unit,
 ) {
     // ONE gray ×4: the sheet wears the card's fill, not the sheet's darker ground.
@@ -376,7 +379,7 @@ fun DockSheet(
         modifier = Modifier.testTag(Dock.TestIds.SHEET),
         containerColor = GlassTokens.OpaqueCardFill,
     ) {
-        DockSheetChrome(row = row, onClose = onDismiss, content = content)
+        DockSheetChrome(row = row, onClose = onDismiss, onOpenFull = onOpenFull, content = content)
     }
 }
 
@@ -388,6 +391,8 @@ fun ColumnScope.DockSheetChrome(
     row: Dock.Row,
     onClose: (() -> Unit)?,
     scope: DockSheetScope = remember(row.id) { DockSheetScope() },
+    /** #EXP-1493: the `ui-fullscreen` glyph opening THE plan page; null = none. */
+    onOpenFull: (() -> Unit)? = null,
     content: @Composable ColumnScope.(DockSheetScope) -> Unit,
 ) {
     val tint = dockTint(row.tint)
@@ -422,6 +427,19 @@ fun ColumnScope.DockSheetChrome(
                 color = Muted,
                 maxLines = 1,
             )
+        }
+        if (onOpenFull != null) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .clickable(role = Role.Button, onClick = onOpenFull)
+                    .semantics { contentDescription = PlanPage.Copy.OPEN_FULL }
+                    .testTag(PlanPage.TestIds.OPEN_PLAN),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(ExpIcons.uiFullscreen, contentDescription = null, modifier = Modifier.size(14.dp), tint = Muted)
+            }
         }
         // The ghost icon-xs close (24dp).
         Box(

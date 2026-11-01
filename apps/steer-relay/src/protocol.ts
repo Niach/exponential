@@ -657,6 +657,16 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     // identical-frame dedupe; latest-wins, so it costs no replay growth.
     startedAt: z.number().int().min(0).optional(),
     tokens: z.number().int().min(0).max(1_000_000_000).optional(),
+    // EXP-1501: the agent is STREAMING one tool call's input (claude
+    // `input_json_delta`): `Writing {tool}… (54s)` on the working row
+    // (`fixtures/working-caption.json`). Every frame carries the CURRENT
+    // state, so a frame without it clears it.
+    writing: z
+      .object({
+        tool: z.string().max(200),
+        startedAt: z.number().int().min(0),
+      })
+      .optional(),
     at: z.number().optional(),
   }),
   // EXP-850 §2: the agent's background tasks, as the CLI last listed them in

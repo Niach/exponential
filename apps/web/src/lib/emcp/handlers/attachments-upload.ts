@@ -28,7 +28,11 @@ import { db } from "@/db/connection"
 import { attachments, comments, type Attachment } from "@/db/schema"
 import { finalizeAttachmentUpload } from "@/lib/attachments/finalize"
 import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
-import { assertBoardGranted, type McpAccess } from "@/lib/emcp/scope"
+import {
+  assertBoardGranted,
+  assertTeamFullyGranted,
+  type McpAccess,
+} from "@/lib/emcp/scope"
 import { mintAttachmentUploadToken } from "@/lib/storage/attachment-upload-token"
 import {
   isAcceptedImageContentType,
@@ -36,10 +40,11 @@ import {
 } from "@/lib/storage/issue-attachments"
 
 export interface SignedAttachmentUploadInput {
-  /** The resolved issue UUID. */
-  issueId: string
+  /** The resolved issue UUID; absent (with boardId) = a LOOSE upload in
+   *  `teamId` that `sessions_send({attachmentIds})` claims (EXP-1516). */
+  issueId?: string
   teamId: string
-  boardId: string
+  boardId?: string
   userId: string
   filename: string
   contentType: string
@@ -91,6 +96,20 @@ export async function assertAttachmentUploadAccess(input: {
   return issueCtx
 }
 
+/**
+ * EXP-1516: the gate of a LOOSE upload (no issue): the grant covers the team
+ * as a whole (a write outside any board) and the caller is a member. The
+ * same rule `sessions_send` applies to a confined grant.
+ */
+export async function assertLooseAttachmentUploadAccess(input: {
+  teamId: string
+  userId: string
+  access: McpAccess
+}) {
+  assertTeamFullyGranted(input.access, input.teamId)
+  await assertTeamMember(input.userId, input.teamId)
+}
+
 /** POSIX single-quoting: safe for any filename `sanitizeUploadFilename` lets
  *  through (Unicode, spaces, quotes, `$`). */
 function shellQuote(value: string) {
@@ -101,6 +120,9 @@ export async function mintSignedAttachmentUpload(
   input: SignedAttachmentUploadInput
 ): Promise<SignedAttachmentUploadResult> {
   if (input.commentId !== undefined) {
+    if (input.issueId === undefined) {
+      throw new Error(`commentId needs issueId: a loose upload is not on an issue.`)
+    }
     // The same gate `comments.create({ attachmentIds })` applies when linking
     // after the fact: the comment is on this issue and the caller wrote it.
     const [comment] = await db
@@ -187,6 +209,8 @@ export async function finalizeSignedAttachmentUpload(input: {
       id: attachments.id,
       uploaderId: attachments.uploaderId,
       issueId: attachments.issueId,
+      draftId: attachments.draftId,
+      teamId: attachments.teamId,
     })
     .from(attachments)
     .where(eq(attachments.id, input.attachmentId))
@@ -201,16 +225,23 @@ export async function finalizeSignedAttachmentUpload(input: {
   if (row.uploaderId !== input.userId) {
     throw new Error(`This attachment was not uploaded by you.`)
   }
-  // A signed upload always has an issue; a draft attachment (issue_id NULL)
-  // is not this tool's to finalize.
-  if (!row.issueId) {
+  // A signed upload is on an issue or LOOSE (EXP-1516, no issue and no
+  // draft); a draft attachment is not this tool's to finalize.
+  if (row.issueId) {
+    await assertAttachmentUploadAccess({
+      issueId: row.issueId,
+      userId: input.userId,
+      access: input.access,
+    })
+  } else if (row.draftId) {
     throw new Error(`This attachment is not on an issue.`)
+  } else {
+    await assertLooseAttachmentUploadAccess({
+      teamId: row.teamId,
+      userId: input.userId,
+      access: input.access,
+    })
   }
-  await assertAttachmentUploadAccess({
-    issueId: row.issueId,
-    userId: input.userId,
-    access: input.access,
-  })
   const finalized = await finalizeAttachmentUpload(input.attachmentId)
   return finalizedAttachmentResult(finalized)
 }

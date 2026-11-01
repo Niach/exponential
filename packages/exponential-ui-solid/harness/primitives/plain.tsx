@@ -22,6 +22,8 @@ import {
   BreadcrumbSeparator,
   Button,
   Card,
+  CarouselCounter,
+  CarouselThumbnails,
   CardAction,
   CardContent,
   CardDescription,
@@ -48,6 +50,8 @@ import {
   Label,
   ListEmpty,
   Meter,
+  Mosaic,
+  Outline,
   Progress,
   ProgressRing,
   Separator,
@@ -71,6 +75,7 @@ const VARIANTS = [`default`, `destructive`, `outline`, `glass`, `secondary`, `gh
 const TEXT_SIZES = [`default`, `xs`, `sm`, `lg`, `inline`] as const
 const ICON_SIZES = [`icon`, `icon-sm`, `icon-xs`, `icon-lg`] as const
 const PICTURE = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Crect width='16' height='10' fill='%2360a5fa'/%3E%3C/svg%3E`
+const PICTURE_ALT = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Crect width='16' height='10' fill='%23f97316'/%3E%3C/svg%3E`
 const SOURCE = `import { tokenizeCode } from "@exponential_app/eui"\n\nconst lines = tokenizeCode(source, \`ts\`)\nexport default lines.length\n`
 const noop = () => {}
 const DOT = { display: `block`, borderRadius: 9999, background: `#2563eb` }
@@ -432,6 +437,30 @@ export const SPECIMENS: Record<string, () => JSX.Element> = {
           }))}
         />
       ))}
+    </div>
+  ),
+  // EXP-1495 (round 6): the plan page's outline column, the wide picture
+  // group (1, 2, 3 and 5 pictures) and the Carousel's counter + strip.
+  "plain/outline": () => (
+    <div style={css({ ...COLUMN, width: 240 })}>
+      <Outline caption="Plan" value="design" items={[{ id: `goal`, title: `Goal` }, { id: `design`, title: `Design`, count: 3 }, { id: `rollout`, title: `Rollout and the long tail of follow-ups`, count: 12 }, { id: `risks`, title: `Risks`, count: 0 }]} onSelect={noop} />
+      <Outline items={[{ id: `a`, title: `No active row` }]} />
+    </div>
+  ),
+  "plain/mosaic": () => (
+    <div style={css({ ...COLUMN, width: 480 })}>
+      {[1, 2, 3, 5].map((n) => (
+        <Mosaic label={`${n} pictures`} pictures={Array.from({ length: n }, (_, i) => ({ src: i % 2 ? PICTURE_ALT : PICTURE, alt: `Picture ${i + 1}` }))} onSelect={noop} />
+      ))}
+    </div>
+  ),
+  "plain/carousel-extras": () => (
+    <div style={css({ ...COLUMN, width: 240 })}>
+      <div style={css({ position: `relative`, height: 120, borderRadius: 8, background: `#60a5fa` })}>
+        <CarouselCounter page={1} total={4} />
+      </div>
+      <CarouselThumbnails count={4} urls={[PICTURE, PICTURE_ALT, null, PICTURE, PICTURE]} page={1} onPageChange={noop} />
+      <CarouselThumbnails count={8} urls={[]} page={0} />
     </div>
   ),
 }

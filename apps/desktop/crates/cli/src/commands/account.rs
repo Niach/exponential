@@ -65,9 +65,8 @@ pub fn status(args: &[String]) -> CommandResult {
         println!("{line}");
     }
     let auto_update = match crate::prefs::auto_update(&ctx.data_dir) {
-        Some(true) => "on",
         Some(false) => "off (`exponential update --auto on` turns it on)",
-        None => "not set (`exponential update --auto on|off`)",
+        _ => "on",
     };
     println!("Updates   {} {auto_update}", crate::cli_version());
 

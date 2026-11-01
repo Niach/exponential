@@ -280,6 +280,25 @@ describe(`PUT /api/attachment-uploads/$token`, () => {
     expect(h.uploadObject).not.toHaveBeenCalled()
   })
 
+  // EXP-1516: a loose token (no issue/board) writes an owner-less row under
+  // the composer's team-scoped key, with no issue lookup.
+  it(`stores a loose upload under the team's pending key with no issue or board`, async () => {
+    h.selects.queue = [[]]
+    const response = await put(token({ issueId: undefined, boardId: undefined }), BYTES)
+    expect(response.status).toBe(200)
+    expect(h.select).toHaveBeenCalledTimes(1)
+    const key = `session-attachments/pending/${TEAM}/${ATTACHMENT}-shot.png`
+    expect(h.uploadObject).toHaveBeenCalledWith(expect.objectContaining({ key }))
+    expect(h.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamId: TEAM,
+        boardId: null,
+        issueId: null,
+        storageKey: key,
+      })
+    )
+  })
+
   it(`404s once the issue is gone`, async () => {
     h.selects.queue = [[], []]
     const response = await put(token(), BYTES)

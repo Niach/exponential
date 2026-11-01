@@ -6,6 +6,7 @@
 
 import fixture from "../fixtures/stories.json" with { type: "json" }
 import { askDockTitle } from "./ask-dock"
+import { type PlanCounts, planCounts } from "./plan-page"
 
 export const STORIES_COPY = fixture.copy
 export const STORIES_CONSTANTS = fixture.constants
@@ -15,9 +16,11 @@ export const STORY_VIEWER = fixture.viewer
 export const STORY_ROW = fixture.row
 export const STORIES_TEST_IDS = fixture.testIds
 export const STORY_TAB = fixture.tab
+export const STORY_BADGE = fixture.badge
 
 export type StoryKind = `plan` | `question` | `result`
-export type StoryFooter = `plan` | `choices` | `reply` | `none`
+/** `open` = a plan: THE plan page (plan-page.json), never a decision in a story. */
+export type StoryFooter = `open` | `choices` | `reply` | `none`
 
 export interface StorySessionInput {
   id: string
@@ -85,7 +88,8 @@ export interface Story {
   description: string | null
   pictures: StoryPicture[]
   surface: boolean
-  text: string | null
+  /** A plan's counts (plan-page `planCounts`), else null. */
+  counts: PlanCounts | null
   footer: StoryFooter
   autoAdvanceMs: number | null
 }
@@ -146,6 +150,8 @@ export function storyAge(createdAt: number, now: number): string {
 }
 
 const byCreated = (a: Story, b: Story) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+/** #EXP-1493: newest first (createdAt desc, then id desc). */
+const byNewest = (a: Story, b: Story) => byCreated(b, a)
 const HOUR = 3_600_000
 
 type StoryResolution = `approved` | `changed` | `answered` | `superseded`
@@ -210,12 +216,12 @@ function storyOf(
     description: str(card.description)?.trim() || null,
     pictures,
     surface,
-    text: kind === `plan` && pictures.length === 0 && !surface ? (str(card.plan) ?? null) : null,
+    counts: kind === `plan` ? planCounts(card) : null,
     footer:
-      resolution !== null
-        ? `none`
-        : kind === `plan`
-          ? `plan`
+      kind === `plan`
+        ? `open`
+        : resolution !== null
+          ? `none`
           : kind === `question`
             ? options.length > 0
               ? `choices`
@@ -267,10 +273,17 @@ export function stories(input: StoriesInput): StoryRing[] {
 
   const list = [...rings.values()]
   for (const ring of list) {
-    const waiting = ring.stories.filter((story) => story.waiting).sort(byCreated)
-    const unseen = ring.stories.filter((story) => !story.waiting && !story.seen).sort(byCreated)
-    const seen = ring.stories.filter((story) => !story.waiting && story.seen).sort(byCreated)
-    ring.stories = [...waiting, ...unseen, ...seen]
+    // #EXP-1493: a session's newer result replaces its older ones in a ring.
+    const newestResult = new Map<string, Story>()
+    for (const story of ring.stories) {
+      if (story.kind !== `result`) continue
+      const kept = newestResult.get(story.sessionId)
+      if (!kept || byNewest(story, kept) < 0) newestResult.set(story.sessionId, story)
+    }
+    const kept = ring.stories.filter((story) => story.kind !== `result` || newestResult.get(story.sessionId) === story)
+    const waiting = kept.filter((story) => story.waiting).sort(byNewest)
+    const rest = kept.filter((story) => !story.waiting).sort(byNewest)
+    ring.stories = [...waiting, ...rest]
     ring.waiting = waiting.length
     ring.unseen = ring.stories.some((story) => story.waiting || !story.seen)
   }
@@ -281,61 +294,51 @@ export function stories(input: StoriesInput): StoryRing[] {
   )
 }
 
-export type StoryFrameKind = `picture` | `surface` | `text` | `title`
+export type StoryFrameKind = `plan` | `gallery` | `surface` | `title`
 
-/** One step of THE viewer (`frames`): a picture OR a surface (or a plan's
- *  text / a bare question), never both. */
+/** THE viewer's ONE step per story (#EXP-1493): a plan's cover, a gallery
+ *  (the pictures swipe inside the frame), a surface, or a bare title. */
 export interface StoryFrame {
   /** The story's index in the ring and its id. */
   story: number
   storyId: string
-  /** This frame's place among its story's frames. */
-  index: number
-  count: number
   kind: StoryFrameKind
-  /** The picture's index in `story.pictures` (kind `picture`), else null. */
-  picture: number | null
+  /** The story's resolved pictures (a plan's cover = the first). */
+  pictures: number
   title: string | null
   description: string | null
   footer: StoryFooter
+  /** Per picture on a gallery (the frame lasts pictures × it), else the frame's. */
   autoAdvanceMs: number | null
 }
 
-/** A story's frames: one per picture (pictures win: the surface stays in the
- *  chat), else the surface, else the plan text, else the bare title. */
-function framesOf(story: Story, at: number): StoryFrame[] {
-  const kinds: { kind: StoryFrameKind; picture: number | null }[] =
-    story.pictures.length > 0
-      ? story.pictures.map((_, picture) => ({ kind: `picture` as const, picture }))
-      : [{ kind: story.surface ? `surface` : story.text ? `text` : `title`, picture: null }]
-  return kinds.map(({ kind, picture }, index) => ({
+/** A story's frame: a plan = its cover; else pictures win (a gallery: the
+ *  surface stays in the chat), else the surface, else the bare title. */
+function frameOf(story: Story, at: number): StoryFrame {
+  const kind: StoryFrameKind =
+    story.kind === `plan` ? `plan` : story.pictures.length > 0 ? `gallery` : story.surface ? `surface` : `title`
+  return {
     story: at,
     storyId: story.id,
-    index,
-    count: kinds.length,
     kind,
-    picture,
-    // The plan text already begins with the title line.
-    title: kind === `text` ? null : story.title,
-    description:
-      kind === `picture` ? (story.pictures[picture!]!.caption?.trim() || null) : kind === `text` ? null : story.description,
-    footer: index === kinds.length - 1 ? story.footer : `none`,
+    pictures: story.pictures.length,
+    title: story.title,
+    description: story.description,
+    footer: story.footer,
     autoAdvanceMs: story.autoAdvanceMs,
-  }))
+  }
 }
 
-/** THE viewer's steps over a ring (stories.json `frames`): every story's
- *  frames, flattened in story order. */
+/** THE viewer's steps over a ring (stories.json `frameCases`): ONE frame per
+ *  story, in ring order. */
 export function storyFrames(ring: Pick<StoryRing, `stories`>): StoryFrame[] {
-  return ring.stories.flatMap((story, at) => framesOf(story, at))
+  return ring.stories.map((story, at) => frameOf(story, at))
 }
 
-/** The flat frame index of a story (and one of its pictures); -1 = none. */
-export function storyFrameIndex(frames: readonly StoryFrame[], storyId: string, picture = 0): number {
-  const first = frames.findIndex((frame) => frame.storyId === storyId)
-  if (first < 0) return -1
-  const hit = frames.findIndex((frame) => frame.storyId === storyId && frame.picture === picture)
-  return hit >= 0 ? hit : first
+/** The frame index of a story; -1 = none. A thumbnail opens its story's
+ *  frame with the gallery at that picture (the host's state). */
+export function storyFrameIndex(frames: readonly StoryFrame[], storyId: string): number {
+  return frames.findIndex((frame) => frame.storyId === storyId)
 }
 
 /** THE STORY ROW of the chats header (EXP-1461, `rowCases`): ONLY rings.
@@ -387,8 +390,8 @@ export function storyViewerSize(
 
 /** THE Stories tab of a session screen (stories.json `tab`): every story the
  *  root's tree ever posted, never expiring (no `windowHours` cut); settled plans/questions stay
- *  (footer none, `meta` names the outcome), a superseded plan drops. Waiting
- *  first (oldest first), then the rest newest first. ONE ring (the root's,
+ *  (footer none, a plan keeps `open`; `meta` names the outcome), a superseded
+ *  plan drops. Waiting first, then the rest, each newest first. ONE ring (the root's,
  *  as `stories` keys it) so the viewer opens on it; null = the empty state.
  *  `unseen` = the tab chip's dot. */
 export function storyTab(input: StoriesInput & { rootId: string }): StoryRing | null {
@@ -404,8 +407,8 @@ export function storyTab(input: StoriesInput & { rootId: string }): StoryRing | 
     list.push(built.story)
   }
   if (list.length === 0) return null
-  const waiting = list.filter((story) => story.waiting).sort(byCreated)
-  const rest = list.filter((story) => !story.waiting).sort((a, b) => byCreated(b, a))
+  const waiting = list.filter((story) => story.waiting).sort(byNewest)
+  const rest = list.filter((story) => !story.waiting).sort(byNewest)
   return {
     ...emptyRing(root, agents),
     waiting: waiting.length,

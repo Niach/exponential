@@ -1,0 +1,12 @@
+#!/bin/sh
+# Runs the first polkit agent the system has.
+for agent in \
+    /usr/lib/policykit-1-gnome/polkit-gnome-authentication-agent-1 \
+    /usr/libexec/polkit-gnome-authentication-agent-1 \
+    /usr/libexec/polkit-mate-authentication-agent-1 \
+    /usr/lib/x86_64-linux-gnu/polkit-mate/polkit-mate-authentication-agent-1 \
+    /usr/lib/xfce4/polkit-xfce-authentication-agent-1; do
+    [ -x "$agent" ] && exec "$agent"
+done
+echo "ede-polkit-agent: no polkit agent installed (apt install policykit-1-gnome)" >&2
+exit 1

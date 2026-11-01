@@ -308,6 +308,8 @@ public struct DockCard: View {
 public struct DockSheetChrome<Body: View, Footer: View>: View {
     let row: Dock.Row
     var meta: String?
+    /// #EXP-1493: a plan sheet's header glyph opening THE plan page.
+    var onOpenFull: (() -> Void)?
     let onClose: () -> Void
     let sheetBody: Body
     let footer: Footer
@@ -315,12 +317,14 @@ public struct DockSheetChrome<Body: View, Footer: View>: View {
     public init(
         row: Dock.Row,
         meta: String? = nil,
+        onOpenFull: (() -> Void)? = nil,
         onClose: @escaping () -> Void,
         @ViewBuilder body: () -> Body,
         @ViewBuilder footer: () -> Footer
     ) {
         self.row = row
         self.meta = meta
+        self.onOpenFull = onOpenFull
         self.onClose = onClose
         self.sheetBody = body()
         self.footer = footer()
@@ -332,7 +336,7 @@ public struct DockSheetChrome<Body: View, Footer: View>: View {
             height: .fitted,
             headerTrailing: { EmptyView() },
             pinnedHeader: {
-                DockSheetHeader(row: row, meta: meta, onClose: onClose)
+                DockSheetHeader(row: row, meta: meta, onOpenFull: onOpenFull, onClose: onClose)
             },
             content: {
                 sheetBody
@@ -377,11 +381,13 @@ extension DockSheetChrome where Footer == EmptyView {
 public struct DockSheetHeader: View {
     let row: Dock.Row
     var meta: String?
+    var onOpenFull: (() -> Void)?
     var onClose: (() -> Void)?
 
-    public init(row: Dock.Row, meta: String? = nil, onClose: (() -> Void)? = nil) {
+    public init(row: Dock.Row, meta: String? = nil, onOpenFull: (() -> Void)? = nil, onClose: (() -> Void)? = nil) {
         self.row = row
         self.meta = meta
+        self.onOpenFull = onOpenFull
         self.onClose = onClose
     }
 
@@ -408,6 +414,16 @@ public struct DockSheetHeader: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .fixedSize()
                     .accessibilityIdentifier(PlanCard.TestIds.step)
+            }
+            if let onOpenFull {
+                GhostIconButton(
+                    AppIcons.uiFullscreen,
+                    accessibilityLabel: PlanPage.Copy.openFull,
+                    size: 24,
+                    glyphSize: 14,
+                    action: onOpenFull
+                )
+                .accessibilityIdentifier(PlanPage.TestIds.openPlan)
             }
             GhostIconButton(
                 AppIcons.uiClose,

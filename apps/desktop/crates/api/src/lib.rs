@@ -61,6 +61,7 @@
 
 pub mod accounts;
 pub mod agents;
+pub mod app_access;
 pub mod apps;
 pub use exponential_agent_runtime::atomic_file;
 pub mod attachments;
@@ -73,6 +74,7 @@ pub mod issue_drafts;
 pub mod issues;
 pub mod labels;
 pub mod login;
+pub mod mcp_clients;
 pub mod mcp_servers;
 pub mod mcp_tools;
 pub mod notifications;

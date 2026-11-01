@@ -200,6 +200,13 @@ pub const WORKFLOW_META_KEY: &str = "exponentialWorkflow";
 /// `steerWorking.tokenTickMs`.
 pub const TURN_TOKENS_META_KEY: &str = "exponentialTurnTokens";
 
+/// EXP-1501: the `_meta` key carrying the tool call whose input the agent is
+/// STREAMING (`{"id", "tool"}`), or `null` once that input is complete. The
+/// adapter re-sends it at most every `steerWorking.tokenTickMs` while deltas
+/// arrive; the mapper folds it onto the `turn` slot's `writing`, and every
+/// such frame is engine activity (the stall clock, the heartbeat).
+pub const TURN_WRITING_META_KEY: &str = "exponentialTurnWriting";
+
 /// EXP-1224: the `_meta` key an adapter stamps (same carrier as the token
 /// count) when the AGENT opens or closes a turn nobody prompted — claude
 /// re-announces `system/init` after a `result` and runs a continuation turn

@@ -93,12 +93,12 @@
       "count": "agents"
     },
     {
-      "id": "mcp-servers",
-      "label": "MCP servers",
+      "id": "mcp",
+      "label": "MCP",
       "icon": "settings-mcp",
       "group": "agents",
       "visible": "all",
-      "phone": false
+      "phone": true
     },
     {
       "id": "devices",
@@ -117,6 +117,7 @@
     "prompts",
     "boards",
     "agents",
+    "mcp",
     "devices"
   ],
   "testIds": {
@@ -140,7 +141,7 @@
         "billing",
         "boards",
         "agents",
-        "mcp-servers",
+        "mcp",
         "devices"
       ],
       "expectedPhone": [
@@ -151,6 +152,7 @@
         "prompts",
         "boards",
         "agents",
+        "mcp",
         "devices"
       ]
     },
@@ -169,7 +171,7 @@
         "widget",
         "boards",
         "agents",
-        "mcp-servers",
+        "mcp",
         "devices"
       ],
       "expectedPhone": [
@@ -180,6 +182,7 @@
         "prompts",
         "boards",
         "agents",
+        "mcp",
         "devices"
       ]
     },
@@ -196,7 +199,7 @@
         "prompts",
         "boards",
         "agents",
-        "mcp-servers",
+        "mcp",
         "devices"
       ],
       "expectedPhone": [
@@ -206,6 +209,7 @@
         "prompts",
         "boards",
         "agents",
+        "mcp",
         "devices"
       ]
     },
@@ -222,7 +226,7 @@
         "prompts",
         "boards",
         "agents",
-        "mcp-servers",
+        "mcp",
         "devices"
       ],
       "expectedPhone": [
@@ -232,6 +236,7 @@
         "prompts",
         "boards",
         "agents",
+        "mcp",
         "devices"
       ]
     }
@@ -270,7 +275,7 @@
           "@assistant",
           "@agents",
           "@new-agent",
-          "mcp-servers"
+          "mcp"
         ]
       },
       {
@@ -425,7 +430,7 @@
             "@assistant",
             "@agents",
             "@new-agent",
-            "mcp-servers"
+            "mcp"
           ],
           "apps": [
             "@apps",
@@ -456,7 +461,7 @@
           "agents": [
             "@assistant",
             "@agents",
-            "mcp-servers"
+            "mcp"
           ],
           "apps": [
             "@apps"
@@ -499,7 +504,7 @@
             "@assistant",
             "@agents",
             "@new-agent",
-            "mcp-servers"
+            "mcp"
           ],
           "apps": [
             "@apps",

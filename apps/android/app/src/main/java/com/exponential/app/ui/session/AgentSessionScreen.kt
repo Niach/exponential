@@ -238,6 +238,7 @@ import com.exponential.app.domain.WORKFLOW_STATUS_COMPLETED
 import com.exponential.app.domain.WORKFLOW_STATUS_FAILED
 import com.exponential.app.domain.WORKFLOW_STATUS_STOPPED
 import com.exponential.app.domain.workingCaption
+import com.exponential.app.domain.WorkingWriting
 import com.exponential.app.domain.WORKFLOW_AGENT_STATE_DONE
 import com.exponential.app.domain.WORKFLOW_AGENT_STATE_ERROR
 import com.exponential.app.domain.WORKFLOW_AGENT_STATE_RUNNING
@@ -1072,6 +1073,7 @@ private fun RunFaceContent(
                     // EXP-850 (S5): the working caption's inputs.
                     turnStartedAt = activity.turnStartedAt,
                     turnTokens = activity.turnTokens,
+                    turnWriting = activity.turnWriting,
                     workflowCaption = workflowCaption,
                     workingAgent = workingAgent,
                     // EXP-850 (S3): the cards, looked up by the id of
@@ -1594,6 +1596,8 @@ private fun ActivityFeed(
      *  of the running workflow, which REPLACES the verb while one runs. */
     turnStartedAt: Long? = null,
     turnTokens: Long? = null,
+    /** EXP-1501: the tool call whose input is streaming, if any. */
+    turnWriting: WorkingWriting? = null,
     workflowCaption: String? = null,
     /** EXP-850 (S5): whose brand mark pulses beside that caption. */
     workingAgent: String? = null,
@@ -1981,6 +1985,7 @@ private fun ActivityFeed(
                         WorkingIndicatorRow(
                             startedAt = turnStartedAt,
                             tokens = turnTokens,
+                            writing = turnWriting,
                             workflowCaption = workflowCaption,
                             agent = workingAgent,
                         )
@@ -2289,14 +2294,17 @@ private fun feedClock(at: Long): String =
 private fun WorkingIndicatorRow(
     startedAt: Long? = null,
     tokens: Long? = null,
+    writing: WorkingWriting? = null,
     workflowCaption: String? = null,
     agent: String? = null,
 ) {
     // One tick a second, only while a start is known — with no clock to show
-    // there is nothing to recompose for.
+    // there is nothing to recompose for. EXP-1501: a streaming tool call runs
+    // its own clock, with or without a turn start.
+    val clockStart = writing?.startedAt ?: startedAt
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(startedAt) {
-        if (startedAt == null) return@LaunchedEffect
+    LaunchedEffect(clockStart) {
+        if (clockStart == null) return@LaunchedEffect
         while (true) {
             nowMs = System.currentTimeMillis()
             delay(WORKING_CLOCK_TICK_MS)
@@ -2316,7 +2324,7 @@ private fun WorkingIndicatorRow(
             fallbackTint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
         Text(
-            workingCaption(startedAt, tokens, nowMs, workflowCaption),
+            workingCaption(startedAt, tokens, nowMs, workflowCaption, writing),
             style = transcriptToolStyle(),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             maxLines = 2,
@@ -2617,6 +2625,7 @@ internal fun SessionLiveTail(activity: ActivityFeedState, session: SessionEntity
             WorkingIndicatorRow(
                 startedAt = activity.turnStartedAt,
                 tokens = activity.turnTokens,
+                writing = activity.turnWriting,
                 workflowCaption = activity.runningWorkflow()?.caption(),
                 agent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
             )

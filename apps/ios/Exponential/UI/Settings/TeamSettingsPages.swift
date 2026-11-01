@@ -8,7 +8,7 @@ import GRDB
 /// shows and observes only that category. The page of every section stacked
 /// (and the scroll-to inside it) is gone.
 enum TeamSettingsSection: String, Hashable, CaseIterable {
-    case general, members, labels, boards, agents, repositories, prompts, devices
+    case general, members, labels, boards, agents, repositories, prompts, mcp, devices
 
     init?(_ id: SettingsNav.Id) { self.init(rawValue: id.rawValue) }
 
@@ -30,6 +30,8 @@ struct TeamSettingsPage: View {
         case .agents: TeamAgentsPage(teamId: teamId)
         case .repositories: TeamRepositoriesPage(teamId: teamId)
         case .prompts: TeamPromptsPage(teamId: teamId)
+        // #VAPP-185: Settings › MCP (settings-mcp.json).
+        case .mcp: McpSettingsPage(teamId: teamId)
         // The devices page moved here from the phone tab bar (chats.json
         // `shell`): the same screen, titled "Devices" by itself.
         case .devices: AgentsView()
@@ -41,7 +43,7 @@ struct TeamSettingsPage: View {
 
 /// One settings page's chrome: the app background, the scrolling column, the
 /// row's label as the inline title.
-private struct TeamSettingsPageChrome<Content: View>: View {
+struct TeamSettingsPageChrome<Content: View>: View {
     let section: TeamSettingsSection
     @ViewBuilder let content: Content
 
@@ -62,7 +64,7 @@ private struct TeamSettingsPageChrome<Content: View>: View {
     }
 }
 
-private enum TeamPageQueries {
+enum TeamPageQueries {
     /// The viewer OWNS the team (settings-nav.json `owner`).
     static func isOwner(_ db: Database, teamId: String, userId: String?) throws -> Bool {
         guard let userId else { return false }

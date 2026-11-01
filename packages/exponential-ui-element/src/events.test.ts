@@ -328,3 +328,32 @@ describe(`plugin.qrScanner`, () => {
     expect(stop).toHaveBeenCalledTimes(1)
   })
 })
+
+// EXP-1495 (round-6 contract §3): the Carousel's counter pill and thumbnail
+// strip paint through the Solid painter inside the element; a thumbnail
+// press pages and fires `change {page}` as `xui-action`, like a dot.
+describe(`Carousel counter + thumbnails`, () => {
+  const carousel: NestedNode = {
+    id: `cr`,
+    component: `Carousel`,
+    props: { counter: true, thumbnails: [`https://example.com/1.png`, `https://example.com/2.png`, `https://example.com/3.png`, `https://example.com/extra.png`] },
+    on: { change: { event: { name: `paged` } } },
+    children: [1, 2, 3].map((i) => ({ id: `p${i}`, component: `Text`, props: { text: `Page ${i}` } })),
+  } as NestedNode
+
+  it(`the counter follows a thumbnail press; change {page} reaches xui-action`, async () => {
+    const seen: SurfaceActionDetail[] = []
+    const el = mount(fixture(carousel))
+    el.addEventListener(`xui-action`, (e) => void seen.push(e.detail))
+    await tick()
+    expect(el.querySelector(`[data-xui-part="Carousel/counter"]`)?.textContent).toBe(`1 / 3`)
+    const thumbs = el.querySelectorAll<HTMLButtonElement>(`[data-xui-part="Carousel/thumbnail"]`)
+    expect(thumbs).toHaveLength(3)
+    thumbs[2]!.click()
+    await tick()
+    expect(seen.map((d) => [d.event, d.name, d.payload?.page])).toEqual([[`change`, `paged`, 2]])
+    expect(el.querySelector(`[data-xui-part="Carousel/counter"]`)?.textContent).toBe(`3 / 3`)
+    expect(thumbs[2]!.getAttribute(`aria-current`)).toBe(`true`)
+    expect(thumbs[0]!.getAttribute(`aria-current`)).toBeNull()
+  })
+})

@@ -169,6 +169,14 @@
     {
       "route": "/t/$teamSlug/settings/voice",
       "reason": "S-3: Personal → Voice is gone; the route redirects to the Assistant page, whose Voice section settings-assistant photographs."
+    },
+    {
+      "route": "/t/$teamSlug/settings/mcp-servers",
+      "reason": "#VAPP-185: the MCP servers page merged into Settings › MCP; the route redirects to /settings/mcp (keeping its query), which settings-mcp photographs."
+    },
+    {
+      "route": "/t/$teamSlug/sessions/$sessionId/plan/$messageId",
+      "reason": "#EXP-1493: THE plan page needs a real plan message; the `plan-page` view captures its specimen (`?dev=plan-page`)."
     }
   ],
   "views": [
@@ -1731,15 +1739,15 @@
       }
     },
     {
-      "id": "settings-mcp-servers",
+      "id": "settings-mcp",
       "group": "settings",
-      "title": "Settings · MCP servers",
-      "blurb": "The team's MCP servers: one row per server (name, Default pill, host) with the viewer's one action (Connect, Set key, Reconnect, No sign-in needed, or a read-only Connected caption) and ONE … menu holding the connection items (Test connection, Replace key, Share with team / Stop sharing, Disconnect) plus the owner's Edit / Remove. Each member connects their own account once; the server holds the credential. Owners add from a catalog or a pasted URL, with the technical fields behind Advanced.",
+      "title": "Settings · MCP",
+      "blurb": "#VAPP-185 (fixtures/settings-mcp.json): ONE MCP page. Endpoint (the apps endpoint <instance>/api/mcp/apps + Copy); Servers (one row per team server: name, Default pill, host · Used by <apps>, the viewer's one action and the … menu; owners add / edit / remove); Clients (the OAuth clients members authorized, Mine | Everyone for owners, Revoke); Access (one group per app exposing tools, the members' levels None / Read only / Full, owners pick them) + the Activity row (the mcp_calls log, its own page); Built-in Exponential tools last.",
       "order": 20,
       "web": {
-        "route": "/t/$teamSlug/settings/mcp-servers",
+        "route": "/t/$teamSlug/settings/mcp",
         "anchor": {
-          "text": "MCP servers",
+          "text": "Endpoint",
           "timeoutMs": 20000
         },
         "settleMs": 800
@@ -1748,12 +1756,38 @@
       "desktop": {
         "drive": {
           "kind": "settings",
-          "value": "mcp-servers"
+          "value": "mcp"
         }
       },
       "notes": {
-        "ios": "No native section: MCP servers are configured on the web and the desktop IDE (SettingsSection::McpServers).",
-        "android": "No native section: MCP servers are configured on the web and the desktop IDE (SettingsSection::McpServers)."
+        "ios": "The native page (McpSettingsPage.swift, settings-mcp.json) has no capture wired into the shots pipeline yet.",
+        "android": "The native page (McpSettingsScreen.kt, settings-mcp.json) has no capture wired into the shots pipeline yet."
+      }
+    },
+    {
+      "id": "settings-mcp-activity",
+      "group": "settings",
+      "title": "Settings · MCP · Activity",
+      "blurb": "#VAPP-185 (settings-mcp.json activityPage): the mcp_calls log newest first (owners: the team's calls, a member: their own): the tool in mono, caption app · [member ·] client · when, a status Pill.",
+      "order": 9,
+      "web": {
+        "route": "/t/$teamSlug/settings/mcp/activity",
+        "anchor": {
+          "text": "Activity",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "mcp-activity"
+        }
+      },
+      "notes": {
+        "ios": "The native Activity page (settings-mcp.json activityPage) has no capture wired into the shots pipeline yet.",
+        "android": "The native Activity page (settings-mcp.json activityPage) has no capture wired into the shots pipeline yet."
       }
     },
     {
@@ -3541,6 +3575,72 @@
       },
       "android": {
         "shot": "exponential-ui-qr-code",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-outline",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Outline",
+      "blurb": "An anchor list: one row per section, the active one marked by a 2 px bar, a trailing count. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/outline/.",
+      "order": 104,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-outline",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-outline"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-outline",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-outline",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-mosaic",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Mosaic",
+      "blurb": "A wide picture group: one large picture beside two small ones, a +N tile past three. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/mosaic/.",
+      "order": 105,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-mosaic",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-mosaic"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-mosaic",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-mosaic",
         "lane": "package"
       },
       "notes": {
@@ -5553,6 +5653,44 @@
         "ios": "The ExpUI plan card specimen (`PlanCardSpecimens`), the web island line for line, shot sg_plan-card.",
         "android": "See ios: the same specimen (`PlanCardSpecimens.kt`) in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:plan-card`: the IDE styleguide entry `plan_card.rs` drawn full-window, the web island line for line."
+      }
+    },
+    {
+      "id": "plan-page",
+      "group": "coding",
+      "title": "Plan page",
+      "blurb": "THE plan page ×4 (#EXP-1493, plan-page.json): the expanded form of THE plan card. Wide: header, THE Outline (scroll-spy), the document (THE markdown, picture groups as THE Mosaic), the sticky rail (the stepper + the decision). Phones: the same document, groups as THE Carousel, the outline in a sheet, THE Dock's plan card opening the questions-only sheet; no composer.",
+      "order": 6,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=plan-page",
+        "anchor": {
+          "testId": "plan-page-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_plan-page",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_plan-page",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:plan-page"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=plan-page` on the Agent route: `@exp/ui` `PlanPageSpecimen` (plan-page.json `specimen`) at 1280 × 720, placeholder pictures.",
+        "web-mobile": "Inherits web: the phone specimen (390 × 760) under the phone frame.",
+        "ios": "The specimen in ChatSpecimens / StyleguideScreenshots (plan-page.json `specimen`, phone), shot sg_plan-page.",
+        "android": "The same specimen in StyleguideScreenshotsTest (PlanPageSpecimen.kt), shot sg_plan-page.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:plan-page`: the IDE styleguide entry `plan_page.rs` drawn full-window."
       }
     },
     {

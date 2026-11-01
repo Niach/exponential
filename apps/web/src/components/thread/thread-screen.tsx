@@ -52,6 +52,7 @@ import { useChatActions } from "@/components/thread/chat-menu"
 import { ChatHeaderTitle } from "@/components/thread/chat-header"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { BackStackButton, InPlaceSession } from "@/components/thread/session-body"
+import { useOpenPlan } from "@/hooks/use-open-plan"
 import { useSessionNav, useXrefAgent } from "@/hooks/use-session-nav"
 import { backSearch } from "@/lib/session-back"
 import { useMeasuredSize } from "@/hooks/use-detail-chrome"
@@ -684,6 +685,7 @@ function ConversationBody({
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
   const { answer, pending } = useAnswerMessage()
   const unqueue = useUnqueueMessage()
+  const openPlan = useOpenPlan()
   const { data: session } = useSession()
   // EXP-1316 (1n): the session feed's scroll — opens at the newest row,
   // follows while pinned, THE jump button once scrolled up.
@@ -776,6 +778,7 @@ function ConversationBody({
             origin={view.origin}
             onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
             onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
+            onOpenPlan={(plan) => openPlan(plan.sessionId, plan.id)}
             pending={pending}
             docked={dockedIds}
             viewerId={session?.user?.id ?? null}

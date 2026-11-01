@@ -206,7 +206,7 @@ const SECTIONS = [
       paths: TALK_ROUTES.map((r) => r.path),
     },
     {
-      heading: `ePilot, eNet, eApps (the other open libraries)`,
+      heading: `ePilot, eNet, eApps, eMCP (the other open libraries)`,
       paths: LIB_ROUTES.map((r) => r.path),
     },
   ]

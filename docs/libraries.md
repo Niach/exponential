@@ -35,9 +35,10 @@ consumes them as dependencies.
 | **eNet** | `enet-core` (crates.io), `exponential-net-ffi`, `exponential-net-wasm` (not published yet) | `enet` (the wasm build, planned) | `enet` (planned) | `ExponentialNet` (planned) | `enet-v*` → `release-enet.yml` | exponential.at/net/ |
 | **eApps** | inside `eui-core` for now | inside `@exponential_app/eui/host` | | | rides `eui-v*` | exponential.at/apps/ |
 | agent-runtime | `exponential-agent-runtime` (from `coding` + `engine`, #EXP-1426; git dependency on the tag) | none | none | none | `agent-runtime-v*` → `release-agent-runtime.yml` | in the repo README only |
-| **eMCP** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` (planned) | in the package README for now |
+| **eMCP** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/mcp/ |
+| **eCore** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | the crate README |
 
-eTalk, ePilot and agent-runtime are git dependencies (`publish = false`: the
+eTalk, ePilot, eMCP and agent-runtime are git dependencies (`publish = false`: the
 fixtures are compiled in with `include_str!` from outside the crate), so their
 release is the tag plus a GitHub release; no crates.io name is spent.
 
@@ -63,7 +64,8 @@ How spezl (or anyone) depends on the `publish = false` crates:
    `include_str!` from `packages/`, which a git checkout carries.
    **Another lib comes in through ITS release tag** (#EXP-1460): `etalk-gpui`
    takes `eui-core`/`eui-gpui` with `git = "https://github.com/Niach/exponential",
-   tag = "eui-v…"` and `epilot`/`epilot-screen` at `epilot-v…`; a path
+   tag = "eui-v…"` and `epilot`/`epilot-screen` at `epilot-v…`, and
+   `epilot`/`epilot-screen` take `emcp` at `emcp-v…` (#EXP-1492); a path
    dependency would resolve inside the etalk tag's checkout and hand a
    consumer a second eui-gpui whose types never unify with its own. The
    desktop workspace's `[patch."https://github.com/Niach/exponential"]` builds
@@ -74,7 +76,7 @@ How spezl (or anyone) depends on the `publish = false` crates:
    reach its consumers): the ztracing patch and the zed pin, exactly as
    `apps/desktop/crates/eui-gpui/README.md` "gpui revisions" says. The
    non-gpui crates (`etalk`, `etalk-codec`, `etalk-engine`, `epilot`,
-   `epilot-screen`, `exponential-agent-runtime`) need neither.
+   `epilot-screen`, `emcp`, `exponential-agent-runtime`) need neither.
 6. **Proven per release.** Each lib's release workflow runs
    `scripts/libs/git-consumer-smoke.sh <lib> <commit>`: a scratch crate outside
    this workspace depends on every crate of the lib through `git` + the commit,
@@ -87,6 +89,7 @@ How spezl (or anyone) depends on the `publish = false` crates:
 |---|---|---|---|
 | eTalk | `etalk-v*` | `etalk`, `etalk-codec`, `etalk-engine`, `etalk-crispasr`, `etalk-wakeword`, `etalk-gpui` (+ npm `@exponential_app/etalk`, SwiftPM `ExponentialTalk`, Maven `at.exponential:etalk`) | `release-etalk.yml` |
 | ePilot | `epilot-v*` | `epilot`, `epilot-screen` | `release-epilot.yml` |
+| eMCP | `emcp-v*` | `emcp` | `release-emcp.yml` |
 | agent-runtime | `agent-runtime-v*` | `exponential-agent-runtime` | `release-agent-runtime.yml` |
 
 Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
@@ -115,9 +118,10 @@ Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 
 | product | version | registry | tag |
 |---|---|---|---|
-| eUI | 0.2.1 | npm `@exponential_app/eui{,-react,-solid,-element}`, crates.io `eui-core`, Maven Central `at.exponential:eui-compose{,-primitives}`, SwiftPM `Niach/exponential-ui-swift`; `eui-gpui` = git dependency on the tag | `eui-v0.2.1` |
+| eUI | 0.3.0 | npm `@exponential_app/eui{,-react,-solid,-element}`, crates.io `eui-core`, Maven Central `at.exponential:eui-compose{,-primitives}`, SwiftPM `Niach/exponential-ui-swift`; `eui-gpui` = git dependency on the tag | `eui-v0.3.0` |
 | eTalk | 0.2.3 | GitHub release (git dependencies on the tag), npm `@exponential_app/etalk`, SwiftPM `Niach/exponential-talk-swift` (product `ExponentialTalk`), Maven Central `at.exponential:etalk` (`etalk-ffi` inside both) | `etalk-v0.2.3` |
 | ePilot | 0.1.0 | GitHub release (git dependencies on the tag) | `epilot-v0.1.0` |
 | eNet | 0.1.0 | crates.io `enet-core` (the bindings are not published yet) | `enet-v0.1.0` |
 | eUI (old name) | 0.1.1 | npm `@exponential_app/ui*` (deprecated), crates.io `exponential-ui`, Maven `at.exponential:ui-compose*` | `ui-v0.1.1` |
 | agent-runtime | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
+| eMCP | 0.1.0 | GitHub release (git dependency on the tag) | `emcp-v0.1.0` |

@@ -10,6 +10,7 @@ use super::policy::matches_pattern;
 use super::record_store::RECORDS_SCHEME;
 use super::records::{is_record_kind, validate_record_schema};
 use super::sources::parse_source;
+use super::exposes::{validate_package_exposes, validate_upstreams};
 use super::tools::validate_tools;
 use crate::catalog::{A2UI_BASIC_CATALOG_ID, A2UI_VERSION, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID};
 use crate::types::ExtensionDef;
@@ -255,6 +256,12 @@ pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], exte
     }
     if let Some(tools) = p.get("tools") {
         issues.extend(validate_tools(tools));
+    }
+    if let Some(upstreams) = p.get("upstreams") {
+        issues.extend(validate_upstreams(upstreams));
+    }
+    if let Some(exposes) = p.get("exposes") {
+        issues.extend(validate_package_exposes(exposes, p.get("records"), p.get("upstreams")));
     }
     if let Some(list) = p.get("extensions") {
         issues.extend(validate_extensions(list, catalog_ids, extensions));

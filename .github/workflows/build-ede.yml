@@ -1,0 +1,89 @@
+# The eDE .deb (#NEW-103, #NEW-120): ede-compositor + ede-session + the
+# Xwayland 24.1.x it bundles (noble ships 23.2.6, without explicit sync).
+# Built on ubuntu-24.04 because the .deb targets noble (Mint 22); the
+# Xwayland build is cached on its script's hash. Published on ede-v* tags
+# (never latest: the desktop owns releases/latest); pull requests run it only
+# when they touch the packaging, outside the required `gate`.
+name: build-ede
+
+on:
+  push:
+    tags: ["ede-v*"]
+  pull_request:
+    paths:
+      - apps/ede/packaging/**
+      - .github/workflows/build-ede.yml
+  workflow_dispatch:
+
+jobs:
+  deb:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps (udev backend)
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl1
+      - uses: actions/cache@v4
+        id: xwayland
+        with:
+          path: ~/ede-xwayland
+          key: xwayland-noble-${{ hashFiles('apps/ede/packaging/xwayland/build.sh') }}
+      - name: Build Xwayland
+        if: steps.xwayland.outputs.cache-hit != 'true'
+        run: apps/ede/packaging/xwayland/build.sh --install-deps ~/ede-xwayland
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/ede
+          key: ede-deb
+      - name: Build the .deb
+        run: EDE_XWAYLAND=~/ede-xwayland apps/ede/packaging/build-deb.sh
+      # A throwaway runner: the Depends must resolve on noble, and the
+      # installed compositor must pick the bundled Xwayland.
+      - name: Install and check
+        run: |
+          set -euo pipefail
+          deb="$(ls apps/ede/target-deb/ede_*.deb)"
+          dpkg-deb -f "$deb" Depends
+          sudo apt-get install -y "./$deb"
+          /usr/lib/ede/bin/Xwayland -version 2>&1 | grep 'Xwayland Version 24\.1\.'
+          ede-compositor doctor | tee doctor.txt || true
+          grep -E '^ok +Xwayland +/usr/lib/ede/bin/Xwayland 24\.1\.' doctor.txt
+      # Without the distro's xwayland this can only be the bundled one (the
+      # test skips when it finds none: a failure here).
+      - name: Headless Xwayland test against the bundled one
+        working-directory: apps/ede
+        run: |
+          set -euo pipefail
+          sudo apt-get remove -y xwayland || true
+          if command -v Xwayland; then echo "a distro Xwayland is still on PATH" >&2; exit 1; fi
+          PATH="/usr/lib/ede/bin:$PATH" cargo test --locked -p ede-compositor an_x11_window_through_xwayland -- --nocapture 2>&1 | tee test.txt
+          if grep -q 'skipped: no Xwayland' test.txt; then exit 1; fi
+          grep -q '^test an_x11_window_through_xwayland.* ok$' test.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ede-deb
+          path: apps/ede/target-deb/ede_*.deb
+          if-no-files-found: error
+
+  release:
+    needs: [deb]
+    if: startsWith(github.ref, 'refs/tags/ede-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ede-deb
+          path: dist
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          make_latest: false
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

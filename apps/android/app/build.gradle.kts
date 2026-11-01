@@ -122,6 +122,8 @@ android {
             it.systemProperty("exponential.enet.sealedFixture", File(repoRoot, "packages/domain-contract/fixtures/sealed-content.json").absolutePath)
             // VAPP-33: the steer-over-eNet envelope rules (SteerEnetTest).
             it.systemProperty("exponential.steer.enetFixture", File(repoRoot, "packages/domain-contract/fixtures/steer-enet.json").absolutePath)
+            // #EXP-1504: eCore's shared rules (ECoreTest).
+            it.systemProperty("exponential.ecore.fixture", File(repoRoot, "packages/ecore/fixtures/ecore.json").absolutePath)
         }
     }
 
@@ -136,8 +138,8 @@ android {
         applicationId = "at.exponential"
         minSdk = 26
         targetSdk = 36
-        versionCode = 163
-        versionName = "0.14.80"
+        versionCode = 164
+        versionName = "0.14.81"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -86,6 +86,8 @@ function attachmentRow(overrides: Record<string, unknown> = {}) {
     durationMs: null,
     uploaderId: `user-1`,
     issueId: ISSUE,
+    draftId: null,
+    teamId: `team-1`,
     ...overrides,
   }
 }
@@ -299,6 +301,66 @@ describe(`finalizeSignedAttachmentUpload (EXP-929)`, () => {
         access: FULL_ACCESS,
       })
     ).rejects.toThrow(/not in storage/)
+  })
+})
+
+// EXP-1516: a LOOSE upload (no issue): a token without issue/board, and a
+// finalize gated on the row's team instead of an issue.
+describe(`loose signed upload (EXP-1516)`, () => {
+  const looseInput = {
+    teamId: `team-1`,
+    userId: `user-1`,
+    filename: `shot.png`,
+    contentType: `image/png`,
+    origin: `https://x.test`,
+  }
+
+  it(`mints a token with no issue and no board`, async () => {
+    const result = await mintSignedAttachmentUpload(looseInput)
+    const payload = verifyAttachmentUploadToken(result.uploadUrl.split(`/`).pop()!)
+    expect(payload).toMatchObject({ a: result.attachmentId, w: `team-1`, u: `user-1` })
+    expect(`i` in payload! || `b` in payload!).toBe(false)
+  })
+
+  it(`refuses a commentId without an issue`, async () => {
+    await expect(
+      mintSignedAttachmentUpload({ ...looseInput, commentId: `comment-1` })
+    ).rejects.toThrow(/commentId needs issueId/)
+  })
+
+  it(`finalizes a loose row on its team's grant + membership`, async () => {
+    h.rows.current = [attachmentRow({ issueId: null })]
+    h.finalizeAttachmentUpload.mockResolvedValue(attachmentRow({ issueId: null }))
+    await expect(
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        access: FULL_ACCESS,
+      })
+    ).resolves.toMatchObject({ id: ATTACHMENT })
+    expect(h.getIssueTeamContext).not.toHaveBeenCalled()
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, `team-1`)
+  })
+
+  it(`refuses a loose row outside the grant's whole teams, and a draft row`, async () => {
+    h.rows.current = [attachmentRow({ issueId: null })]
+    await expect(
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        // A board grant does not cover a team-level (board-less) file.
+        access: boardGrant(`board-1`, `team-1`),
+      })
+    ).rejects.toThrow()
+    h.rows.current = [attachmentRow({ issueId: null, draftId: `draft-1` })]
+    await expect(
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        access: FULL_ACCESS,
+      })
+    ).rejects.toThrow(/not on an issue/)
+    expect(h.finalizeAttachmentUpload).not.toHaveBeenCalled()
   })
 })
 

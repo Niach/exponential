@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { APP_SOURCE_NAMES, appCatalogText, validateAppPackage } from "@/lib/apps/package"
+import { APP_SOURCE_NAMES, appCatalogText, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
+import emcp from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
 
 // VAPP-110 / VAPP-107: what a stored app package may be.
 
@@ -84,5 +85,41 @@ describe(`validateAppPackage: format version 2`, () => {
     const text = appCatalogText()
     expect(text).toContain(`records:<kind>`)
     expect(text).toContain(`records.upsert`)
+  })
+})
+
+// VAPP-180: an app's exposed MCP tools: the SDK checks the format, the host
+// adds eMCP's action rules (offered, grantable, not destructive by its args)
+// and the team's MCP servers.
+describe(`validateAppPackage: exposes`, () => {
+  const records = { entry: { schema: { type: `object`, properties: { hours: { type: `number` } } } } }
+  const withExposes = (exposes: unknown[], upstreams: string[] = [`m5`]) => pkg({ records, upstreams, exposes })
+
+  it.each(emcp.validateCases)(`$name`, (c) => {
+    const records = Object.fromEntries(c.context.kinds.map((k) => [k, { schema: { type: `object`, properties: {} } }]))
+    const run = () => validateAppPackage(pkg({ records, upstreams: c.context.upstreams, exposes: c.exposes }))
+    if (c.expected.length === 0) expect(run().exposes).toHaveLength(c.exposes.length)
+    else expect(run).toThrow(/exposes|upstream/)
+  })
+
+  it(`refuses an action that is not an offered operation, owner-only or destructive by its args`, () => {
+    const one = (run: unknown) => [{ name: `t`, title: `T`, description: `T.`, input: { type: `object`, properties: { s: { type: `string` } } }, access: `write`, run }]
+    expect(() => validateAppPackage(withExposes(one({ action: `harness.toast`, args: {} })))).toThrow(/exponential.<noun>.<op> operations/)
+    expect(() => validateAppPackage(withExposes(one({ action: `exponential.people.invites_create`, args: {} })))).toThrow(/owner-only/)
+    expect(() => validateAppPackage(withExposes(one({ action: `exponential.sessions.send`, args: { sessionId: `\${input.s}`, stop: true } })))).toThrow(/destructive call/)
+    expect(validateAppPackage(withExposes(one({ action: `exponential.sessions.send`, args: { sessionId: `\${input.s}`, text: `hi` } }))).exposes).toHaveLength(1)
+  })
+
+  it(`upstreams name MCP servers of the app's team`, () => {
+    const valid = validateAppPackage(withExposes([], [`m5`, `github`]))
+    expect(upstreamIssues(valid, [`m5`, `github`])).toEqual([])
+    expect(upstreamIssues(valid, [`m5`])).toEqual([{ path: `/upstreams`, message: `upstreams github are not MCP servers of this team: the team has m5` }])
+    expect(upstreamIssues(valid, [])[0]!.message).toMatch(/no MCP servers yet/)
+  })
+
+  it(`documents exposes in the catalog`, () => {
+    const text = appCatalogText()
+    expect(text).toContain(`# Exposed MCP tools`)
+    for (const word of [`records:`, `action:`, `upstream:`, `upstreams:`, `\${input.`]) expect(text).toContain(word)
   })
 })

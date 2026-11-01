@@ -483,7 +483,10 @@ function feedFrames(agentComment: AgentComment | null): Record<string, unknown>[
   // EXP-877: a pending question hides the composer (EXP-820), so a capture of
   // the composer FOOTER (model picker, Plan mode, context ring) opts out of
   // the closing ask. Capture-only; the catalog's `steering` keeps the ask.
-  const skipQuestion = process.env.SCREENSHOT_FEED_NO_QUESTION === `1`
+  // EXP-1501: a capture of the working row while a tool call's input streams
+  // (`Writing ExitPlanMode… (54s)`) ends on a running turn instead of the ask.
+  const writing = process.env.SCREENSHOT_FEED_WRITING === `1`
+  const skipQuestion = writing || process.env.SCREENSHOT_FEED_NO_QUESTION === `1`
   for (const [index, entry] of FEED.entries()) {
     if (skipQuestion && entry.kind === `question`) continue
     // Without the seeded comment (an older seed) the call is left out rather
@@ -538,6 +541,20 @@ function feedFrames(agentComment: AgentComment | null): Record<string, unknown>[
         ...(output ? { output } : {}),
         ...(preview ? { preview } : {}),
         ...(script ? { script } : {}),
+      },
+      seq: seq++,
+    })
+  }
+  if (writing) {
+    send({
+      t: `activity`,
+      event: {
+        kind: `turn`,
+        state: `started`,
+        startedAt: now - 3 * 60_000,
+        tokens: 12_480,
+        writing: { tool: `ExitPlanMode`, startedAt: now - 54_000 },
+        at: now,
       },
       seq: seq++,
     })

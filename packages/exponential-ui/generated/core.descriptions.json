@@ -605,12 +605,49 @@
         },
         "indicators": {
           "description": "Shows the page dots."
+        },
+        "counter": {
+          "description": "Shows `i / n`."
+        },
+        "thumbnails": {
+          "description": "A thumbnail URL per page."
         }
       },
       "description": "A horizontally paging scroller; each child is one page.",
       "example": {
         "page": 0,
         "indicators": true
+      }
+    },
+    "Mosaic": {
+      "props": {
+        "pictures": {
+          "description": "The pictures in order."
+        },
+        "label": {
+          "description": "The a11y label."
+        }
+      },
+      "description": "Pictures: halves, or one large + two small with `+N`; press fires `select {index}`.",
+      "example": {
+        "pictures": [
+          {
+            "src": "https://example.com/editor.png",
+            "alt": "Editor"
+          },
+          {
+            "src": "https://example.com/preview.png",
+            "alt": "Preview"
+          },
+          {
+            "src": "https://example.com/data.png",
+            "alt": "Data"
+          },
+          {
+            "src": "https://example.com/versions.png",
+            "alt": "Versions"
+          }
+        ]
       }
     },
     "Tabs": {
@@ -853,6 +890,40 @@
           {
             "label": "EXP-42",
             "value": "exp-42"
+          }
+        ]
+      }
+    },
+    "Outline": {
+      "props": {
+        "items": {
+          "description": "The rows in order."
+        },
+        "value": {
+          "description": "The active row id."
+        },
+        "caption": {
+          "description": "The heading."
+        }
+      },
+      "description": "Anchor rows under a caption, one active; press fires `select {id}`.",
+      "example": {
+        "caption": "Outline",
+        "value": "part-a",
+        "items": [
+          {
+            "id": "current",
+            "title": "Current state"
+          },
+          {
+            "id": "part-a",
+            "title": "Part A: editor-first creation",
+            "count": 5
+          },
+          {
+            "id": "part-b",
+            "title": "Part B: MCP for eApps",
+            "count": 2
           }
         ]
       }
@@ -2697,6 +2768,31 @@
         }
       },
       "description": "One step of a Plan."
+    },
+    "outlineItem": {
+      "properties": {
+        "id": {
+          "description": "Reported by `select`."
+        },
+        "title": {
+          "description": "The row text."
+        },
+        "count": {
+          "description": "A muted count."
+        }
+      },
+      "description": "One Outline row."
+    },
+    "picture": {
+      "properties": {
+        "src": {
+          "description": "The image URL."
+        },
+        "alt": {
+          "description": "The accessibility description."
+        }
+      },
+      "description": "One picture of a Mosaic."
     }
   },
   "functions": {

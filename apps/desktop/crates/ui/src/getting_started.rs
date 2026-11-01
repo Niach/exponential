@@ -787,7 +787,7 @@ fn run_target_here(target: Target, team_id: String, window: &mut Window, cx: &mu
         // The IDE has no invite dialog: team settings' Members pane holds
         // the invite form.
         Target::Invite => open_settings(SettingsSection::Members, window, cx),
-        Target::Mcp => open_settings(SettingsSection::McpServers, window, cx),
+        Target::Mcp => open_settings(SettingsSection::Mcp, window, cx),
         Target::Widget => open_settings(SettingsSection::Widget, window, cx),
     }
 }

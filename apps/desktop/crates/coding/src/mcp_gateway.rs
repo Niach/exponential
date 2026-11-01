@@ -1627,7 +1627,11 @@ mod tests {
                     let _ = request.respond(tiny_http::Response::from_string(json!({ "result": { "data": data } }).to_string()).with_header(json_header));
                     continue;
                 }
-                let message: Value = serde_json::from_str(&body).unwrap_or_default();
+                // A client's GET stream or session DELETE: not served.
+                let Ok(message) = serde_json::from_str::<Value>(&body) else {
+                    let _ = request.respond(tiny_http::Response::empty(405));
+                    continue;
+                };
                 let Some(id) = message.get("id").cloned() else {
                     let _ = request.respond(tiny_http::Response::empty(202));
                     continue;
@@ -1640,7 +1644,11 @@ mod tests {
                         let data = answer(&tool, &args);
                         json!({ "jsonrpc": "2.0", "id": id, "result": { "content": [{ "type": "text", "text": serde_json::to_string_pretty(&data).unwrap() }] } })
                     }
-                    _ => json!({ "jsonrpc": "2.0", "id": id, "result": { "protocolVersion": "2025-06-18" } }),
+                    // A whole `initialize` answer: the transform's own reads
+                    // go through emcp's client, which reads it strictly.
+                    _ => json!({ "jsonrpc": "2.0", "id": id, "result": {
+                        "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "fake", "version": "1" },
+                    } }),
                 };
                 let _ = request.respond(tiny_http::Response::from_string(reply.to_string()).with_header(json_header));
             }

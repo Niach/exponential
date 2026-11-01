@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::ask_dock::ask_dock_title;
+use crate::plan_page::{PlanCounts, plan_counts};
 
 const STORIES_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/stories.json");
 
@@ -46,10 +47,8 @@ pub struct StoryRingSpec {
 #[serde(rename_all = "camelCase")]
 pub struct StoryProgressSpec {
     pub height: f32,
-    /// Between the frames of one story.
+    /// #EXP-1493: between the segments (one per story).
     pub gap: f32,
-    /// #EXP-1432: before the first frame of the next story.
-    pub story_gap: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -153,11 +152,39 @@ pub struct StoryTabSpec {
     pub specimen: StoryTabSpecimen,
 }
 
+/// #EXP-1493 THE kind badge ×4 (`badge`): THE Pill (sm, readonly) with the
+/// concept leading and the kind word, tinted per kind.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StoryBadgeSpec {
+    pub icons: StoryKindWords,
+    pub tints: StoryKindWords,
+    pub fill: f32,
+    pub stroke: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StoryKindWords {
+    pub plan: String,
+    pub question: String,
+    pub result: String,
+}
+
+impl StoryKindWords {
+    pub fn of(&self, kind: StoryKind) -> &str {
+        match kind {
+            StoryKind::Plan => &self.plan,
+            StoryKind::Question => &self.question,
+            StoryKind::Result => &self.result,
+        }
+    }
+}
+
 /// `fixtures/stories.json` minus its cases.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoriesSpec {
     pub constants: StoriesConstants,
+    pub badge: StoryBadgeSpec,
     pub copy: StoriesCopy,
     pub ring: StoryRingSpec,
     pub progress: StoryProgressSpec,
@@ -192,7 +219,8 @@ impl StoryKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StoryFooter {
-    Plan,
+    /// #EXP-1493: a plan opens THE plan page (never a decision in a story).
+    Open,
     Choices,
     Reply,
     None,
@@ -274,7 +302,8 @@ pub struct Story {
     pub description: Option<String>,
     pub pictures: Vec<StoryPicture>,
     pub surface: bool,
-    pub text: Option<String>,
+    /// #EXP-1493: a plan's counts (plan-page `planCounts`), else `None`.
+    pub counts: Option<PlanCounts>,
     pub footer: StoryFooter,
     pub auto_advance_ms: Option<u64>,
 }
@@ -456,12 +485,12 @@ fn story_of<'a>(
         },
         title,
         description: non_empty(s(card, "description")),
-        text: if kind == StoryKind::Plan && pictures.is_empty() && !surface { s(card, "plan") } else { None },
+        counts: (kind == StoryKind::Plan).then(|| plan_counts(card)),
         pictures,
         surface,
         footer: match kind {
+            StoryKind::Plan => StoryFooter::Open,
             _ if resolution.is_some() => StoryFooter::None,
-            StoryKind::Plan => StoryFooter::Plan,
             StoryKind::Question if options > 0 => StoryFooter::Choices,
             StoryKind::Question => StoryFooter::Reply,
             StoryKind::Result => StoryFooter::None,
@@ -493,8 +522,9 @@ fn empty_ring(root: &StorySessionInput, agents: &HashMap<&str, &StoryAgentInput>
     }
 }
 
-fn by_created(a: &Story, b: &Story) -> std::cmp::Ordering {
-    a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id))
+/// #EXP-1493: newest first (createdAt desc, then id desc).
+fn by_newest(a: &Story, b: &Story) -> std::cmp::Ordering {
+    b.created_at.cmp(&a.created_at).then_with(|| b.id.cmp(&a.id))
 }
 
 /// THE fold: the viewer's story rings, in display order.
@@ -519,14 +549,22 @@ pub fn stories(input: &StoriesInput) -> Vec<StoryRing> {
     }
 
     for ring in &mut rings {
+        // #EXP-1493: a session's newer result replaces its older ones in a ring.
+        let mut newest_result: HashMap<&str, &Story> = HashMap::new();
+        for story in ring.stories.iter().filter(|story| story.kind == StoryKind::Result) {
+            let kept = newest_result.entry(story.session_id.as_str()).or_insert(story);
+            if by_newest(story, kept).is_lt() {
+                *kept = story;
+            }
+        }
+        let kept_ids: Vec<String> = newest_result.values().map(|story| story.id.clone()).collect();
         let all = std::mem::take(&mut ring.stories);
-        let (mut waiting, rest): (Vec<_>, Vec<_>) = all.into_iter().partition(|story| story.waiting);
-        let (mut unseen, mut seen): (Vec<_>, Vec<_>) = rest.into_iter().partition(|story| !story.seen);
-        waiting.sort_by(by_created);
-        unseen.sort_by(by_created);
-        seen.sort_by(by_created);
+        let kept = all.into_iter().filter(|story| story.kind != StoryKind::Result || kept_ids.contains(&story.id));
+        let (mut waiting, mut rest): (Vec<_>, Vec<_>) = kept.partition(|story| story.waiting);
+        waiting.sort_by(by_newest);
+        rest.sort_by(by_newest);
         ring.waiting = waiting.len();
-        ring.stories = waiting.into_iter().chain(unseen).chain(seen).collect();
+        ring.stories = waiting.into_iter().chain(rest).collect();
         ring.unseen = ring.stories.iter().any(|story| story.waiting || !story.seen);
     }
     let rank = |ring: &StoryRing| {
@@ -552,9 +590,9 @@ pub fn stories(input: &StoriesInput) -> Vec<StoryRing> {
 
 /// THE Stories tab of a session screen (stories.json `tab`, web
 /// `storyTab`): every story the root's tree ever posted, never expiring;
-/// settled plans/questions stay (footer none, `meta` names the outcome), a
-/// superseded plan drops. Waiting first (oldest first), then the rest newest
-/// first. ONE ring (the root's, as `stories` keys it) so the viewer opens on
+/// settled plans/questions stay (footer none, a plan keeps `open`; `meta`
+/// names the outcome), a superseded plan drops. Waiting first, then the
+/// rest, each newest first (#EXP-1493). ONE ring (the root's, as `stories` keys it) so the viewer opens on
 /// it; `None` = the empty state. `unseen` = the tab chip's dot.
 pub fn story_tab(input: &StoriesInput, root_id: &str) -> Option<StoryRing> {
     let sessions: HashMap<&str, &StorySessionInput> = input.sessions.iter().map(|s| (s.id.as_str(), s)).collect();
@@ -577,8 +615,8 @@ pub fn story_tab(input: &StoriesInput, root_id: &str) -> Option<StoryRing> {
         return None;
     }
     let (mut waiting, mut rest): (Vec<_>, Vec<_>) = list.into_iter().partition(|story| story.waiting);
-    waiting.sort_by(by_created);
-    rest.sort_by(|a, b| by_created(b, a));
+    waiting.sort_by(by_newest);
+    rest.sort_by(by_newest);
     let unseen = waiting.iter().chain(&rest).any(|story| story.waiting || !story.seen);
     Some(StoryRing {
         waiting: waiting.len(),
@@ -588,87 +626,69 @@ pub fn story_tab(input: &StoriesInput, root_id: &str) -> Option<StoryRing> {
     })
 }
 
-/// #EXP-1432: what one viewer frame draws.
+/// #EXP-1493: what one viewer frame draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StoryFrameKind {
-    Picture,
+    /// A plan's cover (the first picture, the counts, Open plan).
+    Plan,
+    /// The story's pictures in THE carousel (pictures win over a surface).
+    Gallery,
     Surface,
-    Text,
     Title,
 }
 
-/// #EXP-1432: one step of THE viewer (stories.json `frames`): a picture OR a
-/// surface (or a plan's text / a bare question), never both.
+/// #EXP-1493: THE viewer's ONE step per story (stories.json `frameCases`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoryFrame {
     /// The story's index in the ring and its id.
     pub story: usize,
     pub story_id: String,
-    /// This frame's place among its story's frames.
-    pub index: usize,
-    pub count: usize,
     pub kind: StoryFrameKind,
-    /// The picture's index in `story.pictures` (kind `picture`).
-    pub picture: Option<usize>,
+    /// The story's resolved pictures (a plan's cover = the first).
+    pub pictures: usize,
     pub title: Option<String>,
     pub description: Option<String>,
     pub footer: StoryFooter,
+    /// Per picture on a gallery (the frame lasts pictures × it).
     pub auto_advance_ms: Option<u64>,
 }
 
-/// A story's frames: one per picture (pictures win: the surface stays in
-/// the chat), else the surface, else the plan text, else the bare title.
-fn frames_of(story: &Story, at: usize) -> Vec<StoryFrame> {
-    let kinds: Vec<(StoryFrameKind, Option<usize>)> = if !story.pictures.is_empty() {
-        (0..story.pictures.len()).map(|picture| (StoryFrameKind::Picture, Some(picture))).collect()
+/// A story's frame: a plan = its cover; else pictures win (a gallery: the
+/// surface stays in the chat), else the surface, else the bare title.
+fn frame_of(story: &Story, at: usize) -> StoryFrame {
+    let kind = if story.kind == StoryKind::Plan {
+        StoryFrameKind::Plan
+    } else if !story.pictures.is_empty() {
+        StoryFrameKind::Gallery
     } else if story.surface {
-        vec![(StoryFrameKind::Surface, None)]
-    } else if story.text.is_some() {
-        vec![(StoryFrameKind::Text, None)]
+        StoryFrameKind::Surface
     } else {
-        vec![(StoryFrameKind::Title, None)]
+        StoryFrameKind::Title
     };
-    let count = kinds.len();
-    kinds
-        .into_iter()
-        .enumerate()
-        .map(|(index, (kind, picture))| StoryFrame {
-            story: at,
-            story_id: story.id.clone(),
-            index,
-            count,
-            kind,
-            picture,
-            // The plan text already begins with the title line.
-            title: if kind == StoryFrameKind::Text { None } else { story.title.clone() },
-            description: match (kind, picture) {
-                (StoryFrameKind::Picture, Some(picture)) => non_empty(story.pictures[picture].caption.clone()),
-                (StoryFrameKind::Text, _) => None,
-                _ => story.description.clone(),
-            },
-            footer: if index + 1 == count { story.footer } else { StoryFooter::None },
-            auto_advance_ms: story.auto_advance_ms,
-        })
-        .collect()
+    StoryFrame {
+        story: at,
+        story_id: story.id.clone(),
+        kind,
+        pictures: story.pictures.len(),
+        title: story.title.clone(),
+        description: story.description.clone(),
+        footer: story.footer,
+        auto_advance_ms: story.auto_advance_ms,
+    }
 }
 
-/// #EXP-1432: THE viewer's steps over a ring (`frameCases`): every story's
-/// frames, flattened in story order.
+/// #EXP-1493: THE viewer's steps over a ring (`frameCases`): ONE frame per
+/// story, in ring order.
 pub fn story_frames(stories: &[Story]) -> Vec<StoryFrame> {
-    stories.iter().enumerate().flat_map(|(at, story)| frames_of(story, at)).collect()
+    stories.iter().enumerate().map(|(at, story)| frame_of(story, at)).collect()
 }
 
-/// The flat frame index of a story (and one of its pictures); `None` = none.
-pub fn story_frame_index(frames: &[StoryFrame], story_id: &str, picture: usize) -> Option<usize> {
-    let first = frames.iter().position(|frame| frame.story_id == story_id)?;
-    Some(
-        frames
-            .iter()
-            .position(|frame| frame.story_id == story_id && frame.picture == Some(picture))
-            .unwrap_or(first),
-    )
+/// The frame index of a story; `None` = none. A thumbnail opens its story's
+/// frame with the gallery at that picture (the host's state).
+pub fn story_frame_index(frames: &[StoryFrame], story_id: &str) -> Option<usize> {
+    frames.iter().position(|frame| frame.story_id == story_id)
 }
 
 /// The viewer's place: (ring index, story index).
@@ -843,15 +863,10 @@ mod tests {
             let actual = serde_json::to_value(story_frames(&stories)).unwrap();
             assert_eq!(actual, case["expected"], "{}", case["name"]);
         }
-        let stories: Vec<Story> =
-            serde_json::from_value(cases.iter().map(|case| case["input"]["stories"].clone()).max_by_key(|list| list.as_array().map_or(0, Vec::len)).unwrap()).unwrap();
+        let stories: Vec<Story> = serde_json::from_value(cases[1]["input"]["stories"].clone()).unwrap();
         let frames = story_frames(&stories);
-        assert_eq!(story_frame_index(&frames, "missing", 0), None);
-        if let Some(picture_story) = stories.iter().find(|story| story.pictures.len() > 1) {
-            let first = story_frame_index(&frames, &picture_story.id, 0).unwrap();
-            assert_eq!(story_frame_index(&frames, &picture_story.id, 1), Some(first + 1));
-            assert_eq!(story_frame_index(&frames, &picture_story.id, 99), Some(first));
-        }
+        assert_eq!(story_frame_index(&frames, "missing"), None);
+        assert_eq!(story_frame_index(&frames, &stories[1].id), Some(1));
     }
 
     #[test]

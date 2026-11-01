@@ -44,41 +44,32 @@ describe(`storyArcs`, () => {
 
 describe(`stepFrame`, () => {
   const rings = STORY_RING_SPECIMEN
-  const at = (ring: number, storyId: string) => ({ ringKey: rings[ring]!.key, storyId, index: 0 })
-  it(`walks a ring's frames, then the next ring; past the last ring closes`, () => {
+  const at = (ring: number, storyId: string) => ({ ringKey: rings[ring]!.key, storyId, picture: 0 })
+  it(`walks a ring's stories, then the next ring; past the last ring closes`, () => {
     expect(stepFrame(rings, at(1, `triage-plan`), 1)).toEqual(at(1, `triage-result`))
     expect(stepFrame(rings, at(1, `triage-result`), 1)).toEqual(at(2, `designer-result`))
     expect(stepFrame(rings, at(3, `ship-result`), 1)).toBeNull()
   })
-  it(`back from a ring's first frame = the previous ring's last; the very first stays`, () => {
+  it(`back from a ring's first story = the previous ring's last; the very first stays`, () => {
     expect(stepFrame(rings, at(2, `designer-result`), -1)).toEqual(at(1, `triage-result`))
     expect(stepFrame(rings, at(0, `board-question`), -1)).toBe(`stay`)
   })
-  it(`a picture story = one frame per picture`, () => {
+  it(`#EXP-1493: a picture story is ONE step (its pictures swipe inside it)`, () => {
     const ring = STORY_TAB_SPECIMEN
-    const pictured = ring.stories.find((story) => story.pictures.length > 1)!
-    const first = { ringKey: ring.key, storyId: pictured.id, index: 0 }
-    expect(stepFrame([ring], first, 1)).toEqual({ ...first, index: 1 })
-    expect(stepFrame([ring], { ...first, index: 1 }, -1)).toEqual(first)
+    const index = ring.stories.findIndex((story) => story.pictures.length > 1)
+    const pictured = ring.stories[index]!
+    const next = ring.stories[index + 1]
+    const step = stepFrame([ring], { ringKey: ring.key, storyId: pictured.id }, 1)
+    expect(step).toEqual(next ? { ringKey: ring.key, storyId: next.id, picture: 0 } : null)
   })
 })
 
 describe(`StoryProgress`, () => {
-  it(`done segments full, the current at its fraction, the rest empty`, () => {
+  it(`done segments full, the current at its fraction, the rest empty, progress.gap apart`, () => {
     const { container } = render(<StoryProgress count={3} index={1} fraction={0.5} />)
-    const fills = [...container.querySelectorAll(`[data-slot="story-progress-segment"] > span`)].map(
-      (node) => (node as HTMLElement).style.width
-    )
-    expect(fills).toEqual([`100%`, `50%`, `0%`])
-  })
-
-  it(`one story's segments sit progress.gap apart, a new story progress.storyGap`, () => {
-    const { container } = render(<StoryProgress count={4} index={0} fraction={0} groups={[0, 0, 1, 2]} />)
-    const leads = [...container.querySelectorAll(`[data-slot="story-progress-segment"]`)].map(
-      (node) => (node as HTMLElement).style.marginLeft
-    )
-    const { gap, storyGap } = fixture.progress
-    expect(leads).toEqual([`0px`, `${gap}px`, `${storyGap}px`, `${storyGap}px`])
+    const segments = [...container.querySelectorAll(`[data-slot="story-progress-segment"]`)] as HTMLElement[]
+    expect(segments.map((node) => (node.firstElementChild as HTMLElement).style.width)).toEqual([`100%`, `50%`, `0%`])
+    expect(segments.map((node) => node.style.marginLeft)).toEqual([`0px`, `${fixture.progress.gap}px`, `${fixture.progress.gap}px`])
   })
 })
 
@@ -97,43 +88,56 @@ describe(`StoryViewer frames`, () => {
     />
   )
 
-  it(`a thumbnail opens its picture's frame: the picture on black, the caption as the description, no dots`, () => {
-    render(viewer({ openStory: pictured.id, openPicture: 0 }))
+  it(`a thumbnail opens its story's ONE gallery frame at that picture: one segment per story, the badge, the caption under the picture`, () => {
+    render(viewer({ openStory: pictured.id, openPicture: 1 }))
     const panel = screen.getByTestId(STORIES_TEST_IDS.viewer)
-    expect(panel.dataset.frame).toBe(`picture`)
-    expect(screen.getByTestId(STORIES_TEST_IDS.progress).dataset.index).toBe(
-      String(storyFrameIndex(frames, pictured.id, 0))
+    expect(panel.dataset.frame).toBe(`gallery`)
+    expect(screen.getByTestId(STORIES_TEST_IDS.progress).dataset.index).toBe(String(storyFrameIndex(frames, pictured.id)))
+    expect(panel.querySelectorAll(`[data-slot="story-progress-segment"]`)).toHaveLength(ring.stories.length)
+    expect(panel.querySelector(`[data-slot="story-badge"]`)!.getAttribute(`data-kind`)).toBe(pictured.kind)
+    expect(panel.querySelector(`[data-slot="carousel-counter"]`)!.textContent).toBe(`2 / ${pictured.pictures.length}`)
+    expect(panel.querySelectorAll(`[data-slot="carousel-thumbnails"] button`)).toHaveLength(pictured.pictures.length)
+    expect(panel.querySelector(`[data-slot="story-caption"]`)!.textContent).toBe(
+      pictured.pictures[1]!.caption ?? pictured.pictures[1]!.label
     )
-    expect(panel.querySelectorAll(`[data-slot="story-progress-segment"]`)).toHaveLength(frames.length)
-    expect(panel.querySelector(`[data-slot="story-picture"]`)!.className).toContain(`object-contain`)
-    expect(panel.querySelector(`[data-slot="story-description"]`)!.textContent).toBe(pictured.pictures[0]!.caption)
-    expect(panel.querySelectorAll(`[data-slot="story-title"]`)).toHaveLength(1)
-    expect(panel.textContent!.split(pictured.title!).length - 1).toBe(1)
-    expect(panel.querySelector(`[data-slot="story-picture-pager"]`)).toBeNull()
   })
 
-  it(`the side arrows step frames and never close; only the bare scrim closes`, () => {
+  it(`the side arrows step STORIES and never close`, () => {
     const onClose = vi.fn()
-    render(viewer({ openStory: pictured.id, openPicture: 0, onClose }))
+    const at = storyFrameIndex(frames, pictured.id)
+    render(viewer({ openStory: pictured.id, onClose }))
     fireEvent.click(screen.getByTestId(STORIES_TEST_IDS.next))
     expect(onClose).not.toHaveBeenCalled()
-    expect(screen.getByTestId(STORIES_TEST_IDS.progress).dataset.index).toBe(
-      String(storyFrameIndex(frames, pictured.id, 1))
-    )
-    expect(screen.getByTestId(STORIES_TEST_IDS.viewer).querySelector(`img`)!.getAttribute(`alt`)).toBe(
-      pictured.pictures[1]!.label
-    )
+    expect(screen.getByTestId(STORIES_TEST_IDS.progress).dataset.index).toBe(String(Math.min(at + 1, frames.length - 1)))
     fireEvent.click(screen.getByTestId(STORIES_TEST_IDS.previous))
-    expect(screen.getByTestId(STORIES_TEST_IDS.progress).dataset.index).toBe(
-      String(storyFrameIndex(frames, pictured.id, 0))
-    )
-    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId(STORIES_TEST_IDS.progress).dataset.index).toBe(String(at))
   })
 
-  it(`ArrowRight past the last frame of the last ring closes`, () => {
+  it(`a plan = its cover with Open plan (the viewer closes, the host opens the page)`, () => {
+    const plan = ring.stories.find((story) => story.kind === `plan`)!
+    const onOpenPlan = vi.fn()
     const onClose = vi.fn()
-    const last = frames.at(-1)!
-    render(viewer({ openStory: last.storyId, openPicture: last.picture ?? 0, onClose }))
+    render(viewer({ openStory: plan.id, onOpenPlan, onClose }))
+    expect(screen.getByTestId(STORIES_TEST_IDS.viewer).dataset.frame).toBe(`plan`)
+    fireEvent.click(screen.getByTestId(`open-plan`))
+    expect(onClose).toHaveBeenCalled()
+    expect(onOpenPlan).toHaveBeenCalledWith(expect.objectContaining({ id: plan.id }))
+  })
+
+  it(`a tap ANYWHERE on a plan cover opens the plan, the side thirds included`, () => {
+    const plan = ring.stories.find((story) => story.kind === `plan`)!
+    const onOpenPlan = vi.fn()
+    render(viewer({ openStory: plan.id, onOpenPlan }))
+    const panel = screen.getByTestId(STORIES_TEST_IDS.viewer)
+    fireEvent.pointerDown(panel, { clientX: 0, clientY: 0 })
+    fireEvent.pointerUp(panel, { clientX: 0, clientY: 0 })
+    expect(onOpenPlan).toHaveBeenCalledWith(expect.objectContaining({ id: plan.id }))
+    expect(screen.getByTestId(STORIES_TEST_IDS.progress).dataset.index).toBe(String(storyFrameIndex(frames, plan.id)))
+  })
+
+  it(`ArrowRight past the last story of the last ring closes`, () => {
+    const onClose = vi.fn()
+    render(viewer({ openStory: frames.at(-1)!.storyId, onClose }))
     fireEvent.keyDown(screen.getByTestId(STORIES_TEST_IDS.viewer), { key: `ArrowRight` })
     expect(onClose).toHaveBeenCalled()
   })

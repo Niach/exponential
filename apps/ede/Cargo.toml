@@ -1,0 +1,22 @@
+# eDE, the Exponential Desktop Environment (#NEW-10): a Wayland compositor plus
+# a shell drawn in eUI. Its own Cargo workspace, apart from apps/desktop: the
+# compositor never links gpui, and eDE depends on the shared libraries, never
+# the other way round (plan v5, thread 196b5162).
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+# Pinned to the 0.7 line; `default-features = false` keeps the graph to what
+# each crate names. The udev/DRM + libinput backend is the `udev` feature on
+# ede-compositor, so a dev box without those headers still builds winit.
+smithay = { version = "0.7.0", default-features = false }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -14,7 +14,7 @@ use eui_core::surface::{Layer, PlacedNode};
 use gpui::{canvas, div, linear_color_stop, linear_gradient, prelude::*, px, AnyElement, Context, Div, ExternalPaths, Hsla, MouseButton, SharedString, Stateful, Window};
 use serde_json::{json, Value};
 
-use super::state::{a11y_description, a11y_label, is_text_field, role_of, NodeFlags};
+use super::state::{a11y_current, a11y_description, a11y_label, authored_role, is_text_field, role_of, NodeFlags};
 use super::SurfaceView;
 use crate::extension::PaintContext;
 use crate::host::PaintError;
@@ -364,7 +364,10 @@ impl SurfaceView {
     pub(crate) fn node_a11y(&self, n: &PlacedNode) -> Option<super::AccessibleInfo> {
         let parent = n.parent.and_then(|p| self.cache.node(p)).map(|p| p.component.as_str());
         let macro_root = self.cache.macro_root(n.index);
-        let role = role_of(n, parent, macro_root)?;
+        let role = match authored_role(n) {
+            Some(authored) => authored?,
+            None => role_of(n, parent, macro_root)?,
+        };
         // A macro root is labelled by its title (a Group described by its
         // footer), unless the author named it.
         let title = macro_root.and_then(|_| self.cache.macro_part_text(n.index, "title"));
@@ -435,6 +438,11 @@ impl SurfaceView {
             }
             gpui::Role::Button if n.part.as_deref() == Some("trigger") => el = el.aria_expanded(flags.open),
             _ => {}
+        }
+        // EXP-1495: `current` (the active Outline row, the current Carousel
+        // thumbnail) reads as selected; AccessKit has no aria-current.
+        if a11y_current(n) && !matches!(role, gpui::Role::Tab | gpui::Role::ListBoxOption | gpui::Role::GridCell | gpui::Role::Row) {
+            el = el.aria_selected(true);
         }
         el
     }

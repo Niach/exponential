@@ -41,6 +41,8 @@ export interface Discovery {
   authorizationEndpoint: string
   tokenEndpoint: string
   registrationEndpoint: string | null
+  /** #VAPP-184: RFC 7009 `revocation_endpoint`, when the provider has one. */
+  revocationEndpoint: string | null
   /** `client_id_metadata_document_supported` (the CIMD signal). */
   cimdSupported: boolean
   /** The PRM's `scopes_supported` (the AS's when the PRM has none). */
@@ -163,6 +165,10 @@ export async function discover(serverUrl: string): Promise<Discovery> {
       registrationEndpoint:
         typeof doc.registration_endpoint === `string`
           ? assertEndpointUrl(doc.registration_endpoint, serverUrl, `registration endpoint`)
+          : null,
+      revocationEndpoint:
+        typeof doc.revocation_endpoint === `string`
+          ? assertEndpointUrl(doc.revocation_endpoint, serverUrl, `revocation endpoint`)
           : null,
       cimdSupported: doc.client_id_metadata_document_supported === true,
       scopesSupported: scopes,
@@ -406,11 +412,8 @@ function parseTokenResponse(
   }
 }
 
-async function postToken(
-  tokenEndpoint: string,
-  client: OauthClient,
-  params: Record<string, string>
-): Promise<Record<string, unknown>> {
+/** A form POST to the provider, authenticated as `client`. */
+function clientForm(client: OauthClient, params: Record<string, string>) {
   const body = new URLSearchParams(params)
   const headers: Record<string, string> = {
     "content-type": `application/x-www-form-urlencoded`,
@@ -423,6 +426,33 @@ async function postToken(
     body.set(`client_id`, client.clientId)
     if (client.clientSecret) body.set(`client_secret`, client.clientSecret)
   }
+  return { headers, body }
+}
+
+/** #VAPP-184: RFC 7009 token revocation (best effort: true = the provider
+ * answered 200; any other answer or a transport failure = false, never a
+ * throw: the caller deletes its copy either way). */
+export async function revokeToken(args: {
+  revocationEndpoint: string
+  client: OauthClient
+  token: string
+  hint: `refresh_token` | `access_token`
+}): Promise<boolean> {
+  const { headers, body } = clientForm(args.client, { token: args.token, token_type_hint: args.hint })
+  try {
+    const response = await mcpFetch(args.revocationEndpoint, { method: `POST`, headers, body: body.toString() })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+async function postToken(
+  tokenEndpoint: string,
+  client: OauthClient,
+  params: Record<string, string>
+): Promise<Record<string, unknown>> {
+  const { headers, body } = clientForm(client, params)
   let response: Response
   try {
     response = await mcpFetch(tokenEndpoint, { method: `POST`, headers, body: body.toString() })

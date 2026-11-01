@@ -5,7 +5,7 @@
     "cpu": "Apple M4 Pro",
     "cores": 14,
     "memoryGb": 24,
-    "os": "darwin 27.0.0"
+    "os": "darwin 27.2.0"
   },
   "runs": {
     "compose-android": {
@@ -140,63 +140,63 @@
     },
     "core": {
       "platform": "macos",
-      "date": "2026-10-23T06:54:33Z",
+      "date": "2026-10-31T16:14:20Z",
       "scenarios": {
         "cold-start": {
-          "allocations": 198610,
-          "coldStartMs": 11.942,
-          "firstPaintMs": 7.857,
-          "memoryMb": 27.391,
-          "nodes": 609
+          "allocations": 232319,
+          "coldStartMs": 15.252,
+          "firstPaintMs": 11.457,
+          "memoryMb": 21.906,
+          "nodes": 688
         },
         "card-grid": {
           "upcallsPerPass": 1,
-          "warmPassMs": 0.123
+          "warmPassMs": 0.135
         },
         "list-100k": {
-          "firstPaintMs": 53.241,
-          "memoryMb": 95.219,
+          "firstPaintMs": 25.155,
+          "memoryMb": 88.672,
           "renderedItems": 30,
-          "scrollStepMs": 1.476,
-          "scrollToIndexMs": 1.309
+          "scrollStepMs": 1.931,
+          "scrollToIndexMs": 1.692
         },
         "streaming": {
-          "applyMs": 0.854,
+          "applyMs": 1.22,
           "nodes": 607,
-          "p95ApplyMs": 2.184,
-          "totalMs": 170.75
+          "p95ApplyMs": 3.258,
+          "totalMs": 243.965
         },
         "theme-switch": {
-          "modeSwitchMs": 1.896,
-          "restyled": 609,
-          "themeSwitchMs": 5.229
+          "modeSwitchMs": 3.574,
+          "restyled": 688,
+          "themeSwitchMs": 8.053
         },
         "resize": {
-          "resizeMs": 2.098,
+          "resizeMs": 2.998,
           "upcallsPerResize": 1
         },
         "deep-nesting": {
           "depth": 48,
-          "firstPaintMs": 0.554,
-          "warmPassMs": 0.068
+          "firstPaintMs": 1.023,
+          "warmPassMs": 0.079
         },
         "template-10k": {
-          "firstPaintMs": 39.265,
+          "firstPaintMs": 44.5,
           "nodes": 10001,
-          "rebindMs": 48.183
+          "rebindMs": 56.335
         },
         "overlay": {
-          "closeMs": 0.015,
-          "openMs": 0.087
+          "closeMs": 0.023,
+          "openMs": 0.112
         },
         "table-1k": {
-          "firstPaintMs": 2.139,
+          "firstPaintMs": 2.289,
           "renderedRows": 30,
-          "scrollStepMs": 1.818,
-          "sortMs": 1.863
+          "scrollStepMs": 2.569,
+          "sortMs": 2.725
         }
       },
-      "commit": "72edf865a10"
+      "commit": "5b1261f467a"
     },
     "element-chromium": {
       "platform": "web",

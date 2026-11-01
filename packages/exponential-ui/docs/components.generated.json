@@ -1813,11 +1813,28 @@
           "responsive": false,
           "default": true,
           "description": "Shows the page dots."
+        },
+        {
+          "name": "counter",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Shows `i / n`."
+        },
+        {
+          "name": "thumbnails",
+          "type": "[url]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "A thumbnail URL per page."
         }
       ],
       "accessibility": {
         "role": "region",
-        "notes": "region, roledescription carousel; each page a group `page i of n`",
+        "notes": "region, roledescription carousel; each page a group `page i of n`; the counter `$string.pageCounter` is hidden (each page already says page i of n); each thumbnail a button `page i of n`, aria-current on the current one",
         "keys": [
           "ArrowLeft/ArrowRight: previous/next page while focus is inside",
           "Home/End: first/last page"
@@ -1830,6 +1847,68 @@
         "indicators": true
       },
       "macro": null
+    },
+    {
+      "name": "Mosaic",
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "specimenId": "exponential-ui-mosaic",
+      "description": "Pictures: halves, or one large + two small with `+N`; press fires `select {index}`.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "select"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "pictures",
+          "type": "[picture]",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "The pictures in order."
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The a11y label."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group labelled `label`; each tile a button named its picture's `alt`; the `+N` tile reads `alt` then `+N` ($string.morePictures).",
+        "keys": [
+          "Tab through the tiles; Enter, Space: select"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Mosaic",
+        "pictures": [
+          {
+            "src": "https://example.com/editor.png",
+            "alt": "Editor"
+          },
+          {
+            "src": "https://example.com/preview.png",
+            "alt": "Preview"
+          },
+          {
+            "src": "https://example.com/data.png",
+            "alt": "Data"
+          },
+          {
+            "src": "https://example.com/versions.png",
+            "alt": "Versions"
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Mosaic/<part>."
     },
     {
       "name": "Tabs",
@@ -2480,6 +2559,76 @@
         ]
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Breadcrumb/<part>."
+    },
+    {
+      "name": "Outline",
+      "kind": "macro",
+      "group": "navigation",
+      "lite": true,
+      "specimenId": "exponential-ui-outline",
+      "description": "Anchor rows under a caption, one active; press fires `select {id}`.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "select"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "items",
+          "type": "[outlineItem]",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "The rows in order."
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The active row id."
+        },
+        {
+          "name": "caption",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The heading."
+        }
+      ],
+      "accessibility": {
+        "role": "navigation",
+        "notes": "navigation labelled by `caption`; each row a link (aria-current=location on the active row) named `title` then the count; press fires `select {id}`.",
+        "keys": [
+          "Tab through the rows; Enter, Space: select"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Outline",
+        "caption": "Outline",
+        "value": "part-a",
+        "items": [
+          {
+            "id": "current",
+            "title": "Current state"
+          },
+          {
+            "id": "part-a",
+            "title": "Part A: editor-first creation",
+            "count": 5
+          },
+          {
+            "id": "part-b",
+            "title": "Part B: MCP for eApps",
+            "count": 2
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Outline/<part>."
     },
     {
       "name": "Stepper",

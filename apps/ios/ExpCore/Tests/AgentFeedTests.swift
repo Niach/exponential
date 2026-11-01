@@ -1986,6 +1986,48 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(slot, AgentTurnSlot(state: .started, startedAt: 9000, tokens: nil))
     }
 
+    func testTheTurnSlotTakesEachFramesWritingStateWhole() {
+        // EXP-1501: `writing` is the frame's WHOLE state, unlike the clock
+        // and the count — a frame without it clears it.
+        let writing = WorkingWriting(tool: "ExitPlanMode", startedAt: 5000)
+        var slot = AgentFeed.applyTurn(
+            AgentTurnSlot(),
+            edge: AgentTurnEdge(state: .started, startedAt: 1000, tokens: 10, writing: writing)
+        )
+        XCTAssertEqual(
+            slot, AgentTurnSlot(state: .started, startedAt: 1000, tokens: 10, writing: writing)
+        )
+        // The call landed: the next frame carries no `writing`, the rest stays.
+        slot = AgentFeed.applyTurn(slot, edge: AgentTurnEdge(state: .started, tokens: 40))
+        XCTAssertEqual(slot, AgentTurnSlot(state: .started, startedAt: 1000, tokens: 40))
+        // An `ended` edge is never writing, even if a frame claims it.
+        slot = AgentFeed.applyTurn(slot, edge: AgentTurnEdge(state: .started, writing: writing))
+        XCTAssertEqual(slot.writing, writing)
+        slot = AgentFeed.applyTurn(slot, edge: AgentTurnEdge(state: .ended, writing: writing))
+        XCTAssertEqual(slot.state, .ended)
+        XCTAssertNil(slot.writing)
+        // Through the wire decoder too.
+        slot = AgentFeed.applyTurn(AgentTurnSlot(), event: [
+            "kind": "turn", "state": "started", "startedAt": 1000,
+            "writing": ["tool": "Edit", "startedAt": 2000],
+        ])
+        XCTAssertEqual(slot.writing, WorkingWriting(tool: "Edit", startedAt: 2000))
+        slot = AgentFeed.applyTurn(slot, event: ["kind": "turn", "state": "started", "startedAt": 1000])
+        XCTAssertNil(slot.writing)
+    }
+
+    func testTheWritingCaptionRunsOnTheStreamsClock() {
+        let startedAt = 1_789_204_409_000
+        let now = Date(timeIntervalSince1970: Double(startedAt + 124_000) / 1000)
+        XCTAssertEqual(
+            AgentFeed.workingCaption(
+                startedAt: startedAt, tokens: 1432, now: now,
+                writing: WorkingWriting(tool: "Write", startedAt: startedAt + 70_000)
+            ),
+            "Writing Write… (54s · ↓ 1.4k tokens)"
+        )
+    }
+
     func testWorkingDurationAndTokenFormats() {
         XCTAssertEqual(AgentFeed.workingDuration(ms: 0), "0s")
         XCTAssertEqual(AgentFeed.workingDuration(ms: -500), "0s")

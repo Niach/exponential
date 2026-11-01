@@ -1,7 +1,5 @@
-- Sessions kommen direkt vom Gerät, auf dem sie laufen
-- Ist das Gerät einer Session offline, steht das dort, und sie verbindet sich von selbst, sobald es zurück ist
-- Session-Nachrichten werden auf deinen Geräten versiegelt, der Server kann sie nicht mehr lesen
-- Eine Frage aus einem Chat, den du gestartet hast, kommt als Push aufs Handy und zeigt die Frage selbst
-- Ein Tipp auf eine Entscheidung im Posteingang öffnet den Chat, der auf dich wartet
-- Stories zeigen die letzten 24 Stunden, und der Stories-Tab eines Chats zeigt sie direkt an
-- Anrufe laufen weiter, wenn du zwischen Lautsprecher, Kopfhörern und Bluetooth wechselst
+- Pläne öffnen sich auf einer eigenen Seite, mit Gliederung und ihren Bildern
+- Ruhigere Stories: eine Karte pro Plan oder Ergebnis, jede mit Kennzeichnung
+- Neue App öffnet sofort den Editor, und der Agent gibt deiner App einen Namen
+- Die Arbeitszeile zeigt, welches Tool der Agent gerade schreibt und wie lange schon
+- Schnellantworten über dem Eingabefeld sind besser lesbar

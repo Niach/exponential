@@ -63,6 +63,7 @@ import com.exponential.app.ui.issue.DiffFileCard
 import com.exponential.app.ui.issue.DiffFileListSheet
 import com.exponential.app.ui.issue.diffOpensByDefault
 import com.exponential.app.ui.issue.toDiffFile
+import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.stories.StoriesViewModel
 import com.exponential.app.ui.stories.StoryTab
 import com.exponential.app.ui.stories.StoryTabState
@@ -160,6 +161,7 @@ fun ThreadStoriesPage(
 
     val failure by storiesViewModel.failure.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = storiesViewModel::clearFailure)
+    val openPlan = LocalOpenPlanPage.current
     val ring = tab.ring
     val target = open
     if (ring != null && target != null) {
@@ -175,11 +177,15 @@ fun ThreadStoriesPage(
                 rows = tab.draw.rows,
                 avatar = tab.draw::avatar,
                 onAnswer = storiesViewModel::answer,
-                onDecidePlan = storiesViewModel::decidePlan,
                 onSeen = storiesViewModel::markSeen,
                 onOpenSession = { story ->
                     open = null
                     onOpenSession(story)
+                },
+                // #EXP-1493: a plan cover's Open plan: the viewer closes, THE plan page opens.
+                onOpenPlan = { story ->
+                    open = null
+                    openPlan.open(story.sessionId, story.id)
                 },
                 onClose = { open = null },
                 modifier = Modifier.fillMaxSize(),

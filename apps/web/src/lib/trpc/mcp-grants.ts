@@ -16,7 +16,12 @@ import {
   clampScopeSelection,
   scopeSelectionInput,
 } from "@/lib/emcp/scope-selection"
-import { authedProcedure, router } from "@/lib/trpc"
+import {
+  appsConsentTree,
+  clampAppsSelection,
+  writeAppsGrant,
+} from "@/lib/emcp/apps-consent"
+import { authedProcedure, router, type Context } from "@/lib/trpc"
 
 // Backs the /auth/consent page of the MCP OAuth flow: what the client is,
 // what the user can grant, and the accept/deny action that both persists the
@@ -40,6 +45,38 @@ async function getMemberTeams(userId: string) {
     .innerJoin(teamMembers, eq(teamMembers.teamId, teams.id))
     .where(eq(teamMembers.userId, userId))
     .orderBy(asc(teams.name))
+}
+
+// The better-auth consent hop: mints the authorization code (accept) or the
+// access_denied redirect (deny); throws on an expired or replayed code.
+async function completeConsent(
+  ctx: Context,
+  accept: boolean,
+  consentCode: string
+): Promise<{ redirectURI: string }> {
+  const result = await auth.api.oAuthConsent({
+    body: { accept, consent_code: consentCode },
+    headers: ctx.request.headers,
+  })
+  const redirectURI = (result as { redirectURI?: string }).redirectURI
+  if (!redirectURI) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `The consent request is no longer valid. Re-run authentication from your MCP client.`,
+    })
+  }
+  return { redirectURI }
+}
+
+async function assertKnownClient(clientId: string) {
+  const [client] = await db
+    .select({ clientId: oauthApplications.clientId })
+    .from(oauthApplications)
+    .where(eq(oauthApplications.clientId, clientId))
+    .limit(1)
+  if (!client) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Unknown OAuth client` })
+  }
 }
 
 export const mcpGrantsRouter = router({
@@ -125,34 +162,15 @@ export const mcpGrantsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const completeConsent = async () => {
-        const result = await auth.api.oAuthConsent({
-          body: { accept: input.accept, consent_code: input.consentCode },
-          headers: ctx.request.headers,
-        })
-        const redirectURI = (result as { redirectURI?: string }).redirectURI
-        if (!redirectURI) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `The consent request is no longer valid. Re-run authentication from your MCP client.`,
-          })
-        }
-        return { redirectURI }
-      }
+      const completeConsentOnce = () =>
+        completeConsent(ctx, input.accept, input.consentCode)
 
-      if (!input.accept) return completeConsent()
+      if (!input.accept) return completeConsentOnce()
 
       const userId = ctx.session.user.id
       assertScopeSelectionNonEmpty(input)
 
-      const [client] = await db
-        .select({ clientId: oauthApplications.clientId })
-        .from(oauthApplications)
-        .where(eq(oauthApplications.clientId, input.clientId))
-        .limit(1)
-      if (!client) {
-        throw new TRPCError({ code: `NOT_FOUND`, message: `Unknown OAuth client` })
-      }
+      await assertKnownClient(input.clientId)
 
       // Clamp the selection to what the user is actually a member of — the
       // page sends ids, but the grant must never exceed membership (the same
@@ -174,19 +192,20 @@ export const mcpGrantsRouter = router({
       // successful consent, the code is consumed but never delivered and the
       // user re-runs the flow; the old (or absent) grant keeps governing any
       // token — do not "fix" this by reordering.
-      const consent = await completeConsent()
+      const consent = await completeConsentOnce()
 
       await db
         .insert(mcpGrants)
         .values({
           userId,
           clientId: input.clientId,
+          kind: `builtin`,
           allTeams,
           teamIds,
           boardIds,
         })
         .onConflictDoUpdate({
-          target: [mcpGrants.userId, mcpGrants.clientId],
+          target: [mcpGrants.userId, mcpGrants.clientId, mcpGrants.kind],
           set: {
             allTeams,
             teamIds,
@@ -195,6 +214,48 @@ export const mcpGrantsRouter = router({
           },
         })
 
+      return consent
+    }),
+
+  // #VAPP-182: the apps endpoint's consent (`/auth/consent?resource=apps`):
+  // the member's teams with the apps they could grant, each app's tool
+  // count and upstreams (the member's own connection to each).
+  appsTree: authedProcedure.query(async ({ ctx }) => ({
+    teams: await appsConsentTree(ctx.session.user.id),
+  })),
+
+  // #VAPP-182: Allow writes the client's `apps` grant (one team, all apps or
+  // a list, Read only | Full) after the consent hop, exactly like the
+  // builtin grant above; Deny writes nothing.
+  grantAppsAndConsent: authedProcedure
+    .input(
+      z.object({
+        clientId: z.string().min(1).max(255),
+        consentCode: z.string().min(1).max(255),
+        accept: z.boolean(),
+        teamId: z.string().uuid().optional(),
+        allApps: z.boolean().default(false),
+        appIds: z.array(z.string().uuid()).max(200).default([]),
+        access: z.enum([`read`, `full`]).default(`full`),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!input.accept) return completeConsent(ctx, false, input.consentCode)
+      await assertKnownClient(input.clientId)
+      const selection = input.teamId
+        ? await clampAppsSelection(ctx.session.user.id, {
+            teamId: input.teamId,
+            allApps: input.allApps,
+            appIds: input.appIds,
+            access: input.access,
+          })
+        : null
+      if (!selection) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `Choose a team and at least one app.` })
+      }
+      // Consent first (see grantAndConsent): a failed hop never rewrites a grant.
+      const consent = await completeConsent(ctx, true, input.consentCode)
+      await writeAppsGrant(ctx.session.user.id, input.clientId, selection)
       return consent
     }),
 })

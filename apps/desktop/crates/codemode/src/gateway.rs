@@ -19,7 +19,8 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::client::McpClient;
+use emcp::Client;
+
 use crate::Upstream;
 
 /// The route prefix on the code-mode listener: a grant's base URL is
@@ -61,8 +62,8 @@ pub(crate) struct GatewayRun {
     upstream: Upstream,
     transform: Arc<dyn GatewayTransform>,
     http: reqwest::blocking::Client,
-    /// The transform's own client (lazily initialized once).
-    lookups: Mutex<Option<Arc<McpClient>>>,
+    /// The transform's own client (connected once, on first use).
+    lookups: Mutex<Option<Client>>,
 }
 
 impl GatewayUpstream for GatewayRun {
@@ -72,10 +73,8 @@ impl GatewayUpstream for GatewayRun {
             match slot.as_ref() {
                 Some(client) => client.clone(),
                 None => {
-                    let client = Arc::new(McpClient::new(self.http.clone(), self.upstream.clone()));
-                    if let Err(err) = client.initialize(LOOKUP_TIMEOUT) {
-                        return Err(format!("upstream initialize failed: {err}"));
-                    }
+                    let client = Client::connect(&self.upstream, crate::server::CLIENT_NAME, LOOKUP_TIMEOUT)
+                        .map_err(|err| format!("upstream initialize failed: {err}"))?;
                     *slot = Some(client.clone());
                     client
                 }
@@ -198,6 +197,38 @@ fn incoming(run: &GatewayRun, mut message: Value, pending: &[Pending]) -> Value 
         *result = run.transform.result(&call.tool, &call.sent, taken);
     }
     message
+}
+
+/// `/gateway/*` on the code-mode listener: the run's gateway token, then
+/// forwarded upstream through its transform ([`handle`]).
+pub(crate) struct Route(pub Arc<crate::server::Hub>);
+
+impl emcp::RawRoute for Route {
+    fn handle(&self, request: emcp::RawRequest) -> emcp::RawResponse {
+        let Some(run) = request.bearer().and_then(|token| self.0.gateways.run(token)) else {
+            return emcp::RawResponse::empty(401);
+        };
+        if request.method != "POST" {
+            return emcp::RawResponse::empty(405);
+        }
+        let Some(body) = request.body.as_deref().and_then(|body| std::str::from_utf8(body).ok()) else {
+            return emcp::RawResponse::empty(400);
+        };
+        let passed = Passed {
+            session: request.header("mcp-session-id").map(str::to_string),
+            protocol: request.header("mcp-protocol-version").map(str::to_string),
+            accept: request.header("accept").map(str::to_string),
+        };
+        let reply = handle(&run, body, &passed);
+        let mut headers = Vec::new();
+        if let Some(content_type) = reply.content_type {
+            headers.push(("Content-Type".to_string(), content_type));
+        }
+        if let Some(session) = reply.session {
+            headers.push(("Mcp-Session-Id".to_string(), session));
+        }
+        emcp::RawResponse { status: reply.status, headers, body: reply.body.into_bytes() }
+    }
 }
 
 /// One POST from the agent: forward, transform, answer.
@@ -369,14 +400,20 @@ mod tests {
                     .unwrap_or_default();
                 let mut body = String::new();
                 request.as_reader().read_to_string(&mut body).unwrap();
+                // A client's GET stream or session DELETE: not served.
+                let Ok(message) = serde_json::from_str::<Value>(&body) else {
+                    let _ = request.respond(tiny_http::Response::empty(405));
+                    continue;
+                };
                 record.lock().unwrap().push((auth, body.clone()));
-                let message: Value = serde_json::from_str(&body).unwrap();
                 let Some(id) = message.get("id").cloned() else {
                     let _ = request.respond(tiny_http::Response::empty(202));
                     continue;
                 };
                 let reply = match message["method"].as_str().unwrap_or_default() {
-                    "initialize" => json!({ "jsonrpc": "2.0", "id": id, "result": { "protocolVersion": "2025-06-18" } }),
+                    "initialize" => json!({ "jsonrpc": "2.0", "id": id, "result": {
+                        "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "fake", "version": "1" },
+                    } }),
                     _ => {
                         let args = &message["params"]["arguments"];
                         let text = args.get("text").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| args.to_string());

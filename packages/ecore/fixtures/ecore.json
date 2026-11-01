@@ -1,0 +1,90 @@
+{
+  "$comment": "eCore's rules (#EXP-1504), replayed by Rust (crates/ecore tests/fixtures.rs), TS (src/ecore.test.ts), Swift (ExpCore ECoreTests) and Kotlin (ECoreTest) against the code generated from contract.json.",
+  "idCases": [
+    { "id": "8296328e-d2e8-4e99-a79f-c8fcc620fd86", "valid": true },
+    { "id": "run_01", "valid": true },
+    { "id": "space:2.window-7", "valid": true },
+    { "id": "a", "valid": true },
+    { "id": "", "valid": false },
+    { "id": "-leading", "valid": false },
+    { "id": ".hidden", "valid": false },
+    { "id": "has space", "valid": false },
+    { "id": "slash/inside", "valid": false },
+    { "id": "ümlaut", "valid": false },
+    { "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "valid": true },
+    { "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "valid": false }
+  ],
+  "tokenCases": [
+    { "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "valid": true },
+    { "token": "0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef", "valid": false },
+    { "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde", "valid": false },
+    { "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0", "valid": false },
+    { "token": "0123456789abcdeg0123456789abcdef0123456789abcdef0123456789abcdef", "valid": false },
+    { "token": "", "valid": false }
+  ],
+  "bearerCases": [
+    { "header": "Bearer 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+    { "header": "bearer 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+    { "header": "  Bearer 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  ", "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+    { "header": "Bearer  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "token": null },
+    { "header": "Basic 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "token": null },
+    { "header": "Bearer abc", "token": null },
+    { "header": "Bearer", "token": null },
+    { "header": "", "token": null }
+  ],
+  "bearerHeader": {
+    "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "header": "Bearer 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "capabilityCases": [
+    { "name": "capture", "known": true },
+    { "name": "input:person", "known": true },
+    { "name": "space", "known": true },
+    { "name": "lend", "known": true },
+    { "name": "ui", "known": true },
+    { "name": "system", "known": true },
+    { "name": "input", "known": false },
+    { "name": "Capture", "known": false },
+    { "name": "", "known": false }
+  ],
+  "grantCases": [
+    { "capabilities": ["capture", "ui"], "expiresAt": null, "now": 1000, "capability": "ui", "admits": true },
+    { "capabilities": ["capture", "ui"], "expiresAt": null, "now": 1000, "capability": "space", "admits": false },
+    { "capabilities": ["space"], "expiresAt": 2000, "now": 1999, "capability": "space", "admits": true },
+    { "capabilities": ["space"], "expiresAt": 2000, "now": 2000, "capability": "space", "admits": false },
+    { "capabilities": [], "expiresAt": null, "now": 0, "capability": "system", "admits": false }
+  ],
+  "verdictCases": [
+    { "verdict": "delivered_verified", "mayRetry": false },
+    { "verdict": "not_delivered", "mayRetry": true },
+    { "verdict": "retry_safe", "mayRetry": true }
+  ],
+  "errorCases": [
+    { "code": "unauthorized", "refusal": true, "retryable": false },
+    { "code": "forbidden", "refusal": true, "retryable": false },
+    { "code": "invalid", "refusal": true, "retryable": false },
+    { "code": "limit", "refusal": true, "retryable": false },
+    { "code": "not_found", "refusal": false, "retryable": false },
+    { "code": "conflict", "refusal": false, "retryable": false },
+    { "code": "unavailable", "refusal": false, "retryable": true },
+    { "code": "timeout", "refusal": false, "retryable": true },
+    { "code": "internal", "refusal": false, "retryable": false }
+  ],
+  "errorMessage": {
+    "$comment": "clampMessage keeps the first messageMax characters (Unicode scalars, not bytes).",
+    "cases": [
+      { "message": "Device is offline", "clamped": "Device is offline" },
+      { "repeat": "é", "times": 501, "clampedLength": 500 }
+    ]
+  },
+  "envelopeCases": [
+    { "envelope": { "v": 1, "id": "evt-1", "kind": "session.turn_ended", "at": 1761934527000, "source": "eagent", "sessionId": "8296328e-d2e8-4e99-a79f-c8fcc620fd86" }, "errors": [] },
+    { "envelope": { "v": 1, "id": "evt-2", "kind": "capture", "at": 0, "source": "epilot", "sessionId": null }, "errors": [] },
+    { "envelope": { "v": 2, "id": "evt-3", "kind": "session.ended", "at": 1, "source": "eagent", "sessionId": null }, "errors": ["v"] },
+    { "envelope": { "v": 1, "id": "", "kind": "Session.Ended", "at": -1, "source": "", "sessionId": "bad id" }, "errors": ["id", "kind", "at", "source", "sessionId"] },
+    { "envelope": { "v": 1, "id": "evt-5", "kind": "session..ended", "at": 5, "source": "eagent", "sessionId": null }, "errors": ["kind"] },
+    { "envelope": { "v": 1, "id": "evt-6", "kind": "session.1ended", "at": 5, "source": "eagent", "sessionId": null }, "errors": ["kind"] },
+    { "envelope": { "v": 1, "id": "evt-7", "kind": "a.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "at": 5, "source": "eagent", "sessionId": null }, "errors": ["kind"] },
+    { "envelope": { "v": 1, "id": "evt-8", "kind": "ui.surface_shown", "at": 5, "source": "eui", "sessionId": null }, "errors": [] }
+  ]
+}

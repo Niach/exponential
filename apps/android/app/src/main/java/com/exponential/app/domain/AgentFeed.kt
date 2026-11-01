@@ -1581,6 +1581,11 @@ data class ActivityFeedState(
      *  omits it never blanks what we already learned; a NEW [turnStartedAt]
      *  resets it, because those tokens belong to the turn that is over. */
     val turnTokens: Long? = null,
+    /** EXP-1501: the tool call whose input is streaming right now. Unlike the
+     *  clock and the tokens, every `turn` frame carries the FULL writing
+     *  state, so a frame without it clears it (the call landed, the turn
+     *  ended). */
+    val turnWriting: WorkingWriting? = null,
     /** EXP-850 (S2): what the machine is running in the background, as ONE
      *  latest-wins list — an empty one closes the strip above the composer. */
     val backgroundTasks: List<BackgroundTask> = emptyList(),
@@ -2021,6 +2026,13 @@ fun ActivityFeedState.applyActivityEvent(
         val startedAt = event.long("startedAt")?.takeIf { it > 0L }
         val tokens = event.long("tokens")?.takeIf { it >= 0L }
         val freshTurn = startedAt != null && startedAt != turnStartedAt
+        // EXP-1501: `writing` is not sticky — absent (or unreadable) = not
+        // writing, whatever the previous frame said.
+        val writing = (event["writing"] as? JsonObject)?.let { w ->
+            val tool = w.str("tool") ?: return@let null
+            val writingStartedAt = w.long("startedAt")?.takeIf { it > 0L } ?: return@let null
+            WorkingWriting(tool = tool, startedAt = writingStartedAt)
+        }
         // EXP-1324: a turn that ended leaves no thought running.
         (if (state == TURN_STATE_ENDED) closeOpenThoughts() else this).copy(
             turnState = state ?: turnState,
@@ -2030,6 +2042,7 @@ fun ActivityFeedState.applyActivityEvent(
                 tokens != null -> tokens
                 else -> turnTokens
             },
+            turnWriting = writing,
         )
     }
     // EXP-850 (S2): the machine's background tasks, as ONE latest-wins list —
