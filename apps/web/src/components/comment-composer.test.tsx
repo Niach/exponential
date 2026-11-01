@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { CommentComposer } from "@/components/comment-composer"
 import { readTabMemory, resetTabMemory } from "@/lib/work-tab-memory"
@@ -240,5 +240,60 @@ describe(`CommentComposer reply-to-reporter toggle`, () => {
     await waitFor(() =>
       expect(onSubmit).toHaveBeenLastCalledWith(`internal note`, [], `team`)
     )
+  })
+})
+
+// EXP-1543 (fixtures/composer-send.json): the field stays editable while the
+// comment is in flight; a success clears only what went out.
+describe(`CommentComposer send in flight (EXP-1543)`, () => {
+  function deferredSubmit() {
+    let resolve!: () => void
+    let reject!: (error: Error) => void
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((res, rej) => {
+          resolve = res
+          reject = rej
+        })
+    )
+    return { onSubmit, resolve: () => resolve(), reject: (error: Error) => reject(error) }
+  }
+
+  function setup() {
+    const pending = deferredSubmit()
+    render(<CommentComposer issueId="issue-1" users={[]} onSubmit={pending.onSubmit} />)
+    const field = screen.getByPlaceholderText(`Leave a reply…`) as HTMLTextAreaElement
+    const type = (value: string) => fireEvent.change(field, { target: { value } })
+    return { ...pending, field, type }
+  }
+
+  it(`text typed while the comment was in flight stays`, async () => {
+    const { onSubmit, resolve, field, type } = setup()
+    type(`ship it`)
+    fireEvent.click(screen.getByLabelText(`Send comment`))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(`ship it`, [], `team`))
+    expect(field.disabled).toBe(false)
+    type(`ship it and then the docs`)
+    await act(async () => resolve())
+    expect(field.value).toBe(`ship it and then the docs`)
+  })
+
+  it(`an untouched field clears once the comment lands`, async () => {
+    const { onSubmit, resolve, field, type } = setup()
+    type(`ship it `)
+    fireEvent.click(screen.getByLabelText(`Send comment`))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(`ship it`, [], `team`))
+    await act(async () => resolve())
+    await waitFor(() => expect(field.value).toBe(``))
+  })
+
+  it(`a failed send keeps what is in the field now`, async () => {
+    const { onSubmit, reject, field, type } = setup()
+    type(`ship it`)
+    fireEvent.click(screen.getByLabelText(`Send comment`))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    type(`ship it now`)
+    await act(async () => reject(new Error(`down`)))
+    expect(field.value).toBe(`ship it now`)
   })
 })
