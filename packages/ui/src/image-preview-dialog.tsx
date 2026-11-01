@@ -82,6 +82,9 @@ export function previewBoxStyle(natural: PreviewNaturalSize): CSSProperties {
   return { width, height: `calc(${width} * ${h / w})` }
 }
 
+/** Below `sm` the zoom view fills the full-screen page (beats the inline box). */
+const PHONE_PAGE_ZOOM = `max-sm:min-h-0 max-sm:flex-1 max-sm:h-full! max-sm:w-full! max-sm:rounded-none`
+
 /** The box of a picture whose size never resolved (it failed to load). */
 const UNKNOWN_BOX: CSSProperties = { width: `min(calc(96vw - 1rem), 48rem)` }
 
@@ -122,6 +125,10 @@ function PreviewPicture({
       naturalWidth={size?.width}
       naturalHeight={size?.height}
       style={size ? previewBoxStyle(size) : UNKNOWN_BOX}
+      // Phones: the lightbox is a full-screen page, so the zoom view IS the
+      // page (the picture still rests fitted and centred; a zoom fills the
+      // screen like the native viewers, not the fitted box).
+      className={PHONE_PAGE_ZOOM}
       onZoom={onZoom}
     />
   )
