@@ -63,18 +63,57 @@ public enum SessionDeviceMove {
         device.sharedTeamIds.isEmpty || sharedWithTeam(device, teamId: teamId)
     }
 
+    /// #EXP-1541: a QUEUED ROOT with no sub-sessions (nothing ran; the
+    /// `visibilityMove` exception). Fixture `queuedRootCases`.
+    public static func queuedRoot(status: String, parentId: String?, hasSubSessions: Bool) -> Bool {
+        status == "queued" && (parentId ?? "").isEmpty && !hasSubSessions
+    }
+
+    /// #FEED-177 (#EXP-1536 B3), web `visibilityMove`: a session keeps its
+    /// tree's visibility on a move, except a QUEUED ROOT with no sub-sessions
+    /// moving to one of its STARTER's own machines, which takes that
+    /// machine's sharing; only the starter may make a shared session
+    /// private. The visibility it has there, nil = refused. Fixture
+    /// `visibilityCases`.
+    public static func visibilityMove(
+        sessionShared: Bool,
+        targetShared: Bool,
+        queuedRoot: Bool,
+        targetIsStarters: Bool,
+        moverIsStarter: Bool
+    ) -> Bool? {
+        if targetShared == sessionShared { return sessionShared }
+        if !queuedRoot || !targetIsStarters { return nil }
+        if sessionShared && !moverIsStarter { return nil }
+        return targetShared
+    }
+
     /// One target's refusal, or nil = movable. Order ×4 (web
-    /// `deviceMoveTargetReason`): offline, visibility, no-login. `agent` =
-    /// the session's agent (nil skips the login check). Old builds are the
+    /// `deviceMoveTargetReason`, fixture `session-device-move.json`):
+    /// offline, visibility (`visibilityMove`: the target's owner = its
+    /// `owner`, else the viewer), no-login. `agent` = the session's agent
+    /// (nil skips the login check). `queuedRoot` + `starterId` open
+    /// #FEED-177's exception; unset = the strict rule. Old builds are the
     /// CLIENT_MIN_VERSION floor's job, never a refusal here.
     public static func rowBlockedReason(
         _ device: SteerDevice,
         sessionTeamId: String,
         sessionShared: Bool,
-        agent: String?
+        agent: String?,
+        queuedRoot: Bool = false,
+        starterId: String? = nil,
+        viewerId: String? = nil
     ) -> String? {
         if !device.isOnline { return reasonOffline }
-        if sessionShared != sharedWithTeam(device, teamId: sessionTeamId) { return reasonVisibility }
+        let ownerId = device.owner?.id ?? viewerId
+        let visibility = visibilityMove(
+            sessionShared: sessionShared,
+            targetShared: sharedWithTeam(device, teamId: sessionTeamId),
+            queuedRoot: queuedRoot,
+            targetIsStarters: starterId != nil && ownerId == starterId,
+            moverIsStarter: starterId != nil && viewerId == starterId
+        )
+        if visibility == nil { return reasonVisibility }
         if let agent, !agent.isEmpty, !device.agentIds.contains(agent) { return reasonNoLogin }
         return nil
     }
@@ -109,7 +148,10 @@ public enum SessionDeviceMove {
         currentDeviceId: String,
         sessionTeamId: String,
         sessionShared: Bool,
-        agent: String?
+        agent: String?,
+        queuedRoot: Bool = false,
+        starterId: String? = nil,
+        viewerId: String? = nil
     ) -> [Row] {
         var rows = devices.map { device in
             let current = device.deviceId == currentDeviceId
@@ -120,7 +162,10 @@ public enum SessionDeviceMove {
                     device,
                     sessionTeamId: sessionTeamId,
                     sessionShared: sessionShared,
-                    agent: agent
+                    agent: agent,
+                    queuedRoot: queuedRoot,
+                    starterId: starterId,
+                    viewerId: viewerId
                 )
             )
         }

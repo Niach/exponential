@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import fixture from "@exp/domain-contract/fixtures/session-device-move.json"
 import type { SteerDevice } from "@/lib/steer-devices"
 import {
   canSteerSession,
@@ -13,6 +14,7 @@ import {
   deviceMoveBlockedReason,
   deviceMoveHiddenReason,
   deviceMovePick,
+  deviceMoveQueuedRoot,
   deviceMoveTargetReason,
   deviceMoveVisible,
   deviceUsableInTeam,
@@ -286,5 +288,77 @@ describe(`visibilityMove (the server's rule)`, () => {
     expect(
       visibilityMove({ ...base, sessionShared: true, targetShared: false, moverIsStarter: false })
     ).toBeNull()
+  })
+})
+
+// #EXP-1541: the pickers ×4 replay `session-device-move.json`: the pure rule,
+// when a session is a queued root, and the whole per-target refusal off a
+// device row (its `owner`, else the viewer's own), a session and the viewer.
+describe(`session-device-move.json (#EXP-1541)`, () => {
+  const REASONS: Record<string, string> = {
+    offline: REASON_OFFLINE,
+    visibility: REASON_VISIBILITY,
+    noLogin: REASON_NO_LOGIN,
+  }
+
+  it(`carries the refusal copy`, () => {
+    expect(fixture.reasons).toEqual({
+      offline: REASON_OFFLINE,
+      visibility: REASON_VISIBILITY,
+      noLogin: REASON_NO_LOGIN,
+    })
+  })
+
+  it.each(fixture.visibilityCases)(`visibilityMove: $name`, ({ input, expected }) => {
+    expect(visibilityMove(input)).toBe(expected)
+  })
+
+  it.each(fixture.queuedRootCases)(
+    `queued root: $status, parent $parentId, sub-sessions $hasSubSessions`,
+    ({ expected, ...input }) => {
+      expect(deviceMoveQueuedRoot(input)).toBe(expected)
+    }
+  )
+
+  it.each(fixture.targetCases)(`target: $name`, (testCase) => {
+    const target = device({
+      online: testCase.device.online,
+      sharedTeamIds: testCase.device.targetShared ? [TEAM] : [],
+      logins: testCase.device.signedIn ? [`claude`] : [`codex`],
+      ...(testCase.device.deviceOwner === testCase.mover
+        ? {}
+        : { owner: { id: testCase.device.deviceOwner, name: `Mate` } }),
+    })
+    const reason = deviceMoveTargetReason(
+      target,
+      {
+        ...session({ shared: testCase.session.shared }),
+        queuedRoot: testCase.session.queuedRoot,
+        userId: testCase.session.starter,
+      },
+      testCase.mover
+    )
+    expect(reason).toBe(testCase.expected === null ? null : REASONS[testCase.expected])
+  })
+
+  it(`the rows offer a queued root its starter's differently shared machine`, () => {
+    const rows = sessionDeviceMoveRows(
+      [
+        device({ deviceId: `old`, deviceLabel: `Old`, online: false }),
+        device({ deviceId: `srv`, deviceLabel: `Build`, sharedTeamIds: [TEAM] }),
+      ],
+      { ...rowSession(), deviceId: `old`, queuedRoot: true, userId: `u1` },
+      `u1`
+    )
+    expect(rows.map((row) => [row.id, row.reason])).toEqual([
+      [`old`, null],
+      [`srv`, null],
+    ])
+    const running = sessionDeviceMoveRows(
+      [device({ deviceId: `srv`, deviceLabel: `Build`, sharedTeamIds: [TEAM] })],
+      { ...rowSession(), deviceId: `old`, queuedRoot: false, userId: `u1` },
+      `u1`
+    )
+    expect(running.find((row) => row.id === `srv`)?.reason).toBe(REASON_VISIBILITY)
   })
 })
