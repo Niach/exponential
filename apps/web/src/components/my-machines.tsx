@@ -388,7 +388,9 @@ function DeviceCard({
       label: loginLabel(login),
       health: login.health,
       limitHit: loginLimitHit(login, now),
+      tokenExpiresAt: login.tokenExpiresAt,
     })),
+    now: now.toISOString(),
   })
   const requestUpdate = async () => {
     if (updating) return

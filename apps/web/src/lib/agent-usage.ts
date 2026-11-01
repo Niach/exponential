@@ -818,3 +818,11 @@ export function refreshAllowedAt(
   const next = fetched + RATE_LIMITED_FLOOR_MS
   return next > now.getTime() ? new Date(next) : null
 }
+
+/** EXP-1600: Keep signed in (`claude setup-token`, one year, no refresh grant
+ *  to lose) is the DEFAULT claude sign-in on every client and the MCP;
+ *  `longLived: false` asks for the refresh-grant browser login (Advanced).
+ *  Every other agent has no setup-token. Hand-mirrored ×4. */
+export function loginIsLongLived(agent: string, longLived?: boolean | null): boolean {
+  return agent === `claude` && longLived !== false
+}

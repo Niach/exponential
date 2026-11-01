@@ -311,19 +311,19 @@ class AgentAccountsRowsTest {
         // dir and the credential's state never decided whether that is possible.
         val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
         assertEquals(
-            listOf("Sign in", "Keep signed in", "Remove account"),
+            listOf("Sign in", "Remove account"),
             AgentAccountsRows.chipActions(signedOut),
         )
         val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
         assertEquals(
-            listOf("Sign in", "Keep signed in", "Sign out", "Remove account"),
+            listOf("Sign in", "Sign out", "Remove account"),
             AgentAccountsRows.chipActions(expired),
         )
         // EXP-1158: healthy, last used or not, the menu is the same — there
         // is no "make it the default" entry any more.
         listOf(true, false).forEach { active ->
             assertEquals(
-                listOf("Keep signed in", "Sign out", "Remove account"),
+                listOf("Switch to Keep signed in", "Sign out", "Remove account"),
                 AgentAccountsRows.chipActions(
                     chip(signedIn = true, active = active, health = AgentHealth.Ok),
                 ),
@@ -343,7 +343,7 @@ class AgentAccountsRowsTest {
         // The last used login is removable like any other: every row is a
         // profile dir Exponential created.
         assertEquals(
-            listOf("Keep signed in", "Sign out", "Remove account"),
+            listOf("Switch to Keep signed in", "Sign out", "Remove account"),
             AgentAccountsRows.chipActions(other),
         )
     }
@@ -383,19 +383,20 @@ class AgentAccountsRowsTest {
         )
     }
 
-    // EXP-1533: a claude login offers the long-lived sign-in right after
-    // "Sign in" (before "Sign out"); renewed once the row carries an expiry.
-    // Codex never does.
+    // EXP-1600: a claude login that does not sign in offers the switch to
+    // Keep signed in (before "Sign out"), "Renew Keep signed in" once the row
+    // carries an expiry; a claude Sign in already IS Keep signed in, so a
+    // login that signs in offers no second entry. Codex never does.
     @Test
     fun `a claude login offers the long-lived sign-in`() {
         assertEquals(
-            listOf("Renew long-lived login", "Sign out", "Remove account"),
+            listOf("Renew Keep signed in", "Sign out", "Remove account"),
             AgentAccountsRows.chipActions(
                 row(deviceId = "mint", agent = "claude", tokenExpiresAt = "2027-11-01T00:00:00.000Z"),
             ),
         )
         assertEquals(
-            listOf("Sign in", "Renew long-lived login", "Remove account"),
+            listOf("Sign in", "Remove account"),
             AgentAccountsRows.chipActions(
                 row(
                     deviceId = "mint",
@@ -407,7 +408,18 @@ class AgentAccountsRowsTest {
         )
         // A blank expiry is no long-lived login.
         assertEquals(
-            listOf("Keep signed in", "Sign out", "Remove account"),
+            listOf("Sign in", "Sign out", "Remove account"),
+            AgentAccountsRows.chipActions(
+                row(
+                    deviceId = "mint",
+                    agent = "claude",
+                    health = AgentHealth.NeedsRelogin,
+                    tokenExpiresAt = "2027-11-01T00:00:00.000Z",
+                ),
+            ),
+        )
+        assertEquals(
+            listOf("Switch to Keep signed in", "Sign out", "Remove account"),
             AgentAccountsRows.chipActions(row(deviceId = "mint", agent = "claude", tokenExpiresAt = "")),
         )
         assertEquals(

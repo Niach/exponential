@@ -79,15 +79,15 @@ describe(`accountChipActions`, () => {
     ])
   })
 
-  // EXP-1533: a claude login offers its long-lived sign-in right after
-  // "Sign in" — "Keep signed in" without one, "Renew" while it holds one.
-  it(`offers claude's long-lived login after Sign in`, () => {
+  // EXP-1600: a claude "Sign in" IS Keep signed in, so a row that signs in
+  // has no second entry; a signed-in row offers the switch, or the renewal
+  // while it holds a token.
+  it(`offers claude's switch or renewal only when it does not sign in`, () => {
     expect(
       accountChipActions(chip({ signedIn: false, health: `signed_out` }))
-    ).toEqual([ACTION_SIGN_IN, ACTION_KEEP_SIGNED_IN, ACTION_REMOVE])
+    ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
     expect(accountChipActions(chip({ health: `needs_relogin` }))).toEqual([
       ACTION_SIGN_IN,
-      ACTION_KEEP_SIGNED_IN,
       ACTION_SIGN_OUT,
       ACTION_REMOVE,
     ])
@@ -108,8 +108,8 @@ describe(`accountChipActions`, () => {
   })
 
   it(`labels the long-lived entries byte-identically ×4`, () => {
-    expect(ACTION_KEEP_SIGNED_IN).toBe(`Keep signed in`)
-    expect(ACTION_RENEW_LONG_LIVED).toBe(`Renew long-lived login`)
+    expect(ACTION_KEEP_SIGNED_IN).toBe(`Switch to Keep signed in`)
+    expect(ACTION_RENEW_LONG_LIVED).toBe(`Renew Keep signed in`)
   })
 })
 

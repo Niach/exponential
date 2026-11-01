@@ -405,13 +405,16 @@ final class AgentAccountsRowsTests: XCTestCase {
         )
     }
 
-    // EXP-1533: a claude login offers the long-lived entry right after Sign
-    // in — "Keep signed in" until its row carries `tokenExpiresAt`, then
-    // "Renew long-lived login" (byte-identical ×4). Other agents: none.
+    // EXP-1533/EXP-1600: a claude login the menu does not sign in offers the
+    // long-lived entry right after Sign in — "Switch to Keep signed in" until
+    // its row carries `tokenExpiresAt`, then "Renew Keep signed in"
+    // (byte-identical ×4). A login that signs in (its Sign in already is Keep
+    // signed in) and other agents: none.
     func testTheChipMenuOffersTheLongLivedLoginOnClaudeOnly() throws {
         func chip(
             _ agent: String,
             signedIn: Bool = true,
+            health: AgentAccountHealth? = nil,
             tokenExpiresAt: String? = nil
         ) -> AgentProfileUsageRow {
             AgentProfileUsageRow(
@@ -428,25 +431,28 @@ final class AgentAccountsRowsTests: XCTestCase {
                 plan: nil,
                 usage: nil,
                 checkedAt: nil,
-                health: signedIn ? .ok : .signedOut,
+                health: health ?? (signedIn ? .ok : .signedOut),
                 tokenExpiresAt: tokenExpiresAt
             )
         }
-        XCTAssertEqual(AgentAccountsRows.chipLongLivedLabel(chip("claude")), "Keep signed in")
         XCTAssertEqual(
-            AgentAccountsRows.chipLongLivedLabel(chip("claude", signedIn: false)),
-            "Keep signed in"
+            AgentAccountsRows.chipLongLivedLabel(chip("claude")),
+            "Switch to Keep signed in"
+        )
+        XCTAssertNil(AgentAccountsRows.chipLongLivedLabel(chip("claude", signedIn: false)))
+        XCTAssertNil(
+            AgentAccountsRows.chipLongLivedLabel(chip("claude", health: .needsRelogin))
         )
         XCTAssertEqual(
             AgentAccountsRows.chipLongLivedLabel(
                 chip("claude", tokenExpiresAt: "2027-10-01T10:00:00.000Z")
             ),
-            "Renew long-lived login"
+            "Renew Keep signed in"
         )
         // An empty stamp is no token.
         XCTAssertEqual(
             AgentAccountsRows.chipLongLivedLabel(chip("claude", tokenExpiresAt: "")),
-            "Keep signed in"
+            "Switch to Keep signed in"
         )
         XCTAssertNil(AgentAccountsRows.chipLongLivedLabel(chip("codex")))
         XCTAssertNil(

@@ -54,6 +54,10 @@
 //! hand-off, then the one-year token it prints is scraped off the grid and
 //! stored in the profile ([`agent_login::store_setup_token`]). Nothing is
 //! committed by email, and the command's result never carries the token.
+//! EXP-1600: `longLived` with NO `profileId` is a long-lived Add (claude's
+//! default sign-in): `claude setup-token` in a fresh staging dir, whose
+//! token then makes that dir a NEW profile
+//! ([`agent_login::commit_setup_token_add`]); no token = abandoned.
 //!
 //! The retired `import: "true"` (EXP-1532: nothing ever copies the
 //! machine's AMBIENT login into a profile) is refused by the payload parse:
@@ -171,6 +175,7 @@ pub fn run(
                 (true, Some(profile)) => {
                     sign_in_long_lived(&trpc, &settings, &data_dir, profile, &command_id, &codes)
                 }
+                (true, None) => add_long_lived(&trpc, &settings, &data_dir, &command_id, &codes),
                 _ => sign_in(
                     &trpc,
                     &settings,
@@ -275,6 +280,40 @@ fn sign_in_long_lived(
     match agent_login::store_setup_token(data_dir, profile, scraped) {
         Ok(expires_at) => {
             log::info!("agent_login: claude long-lived login stored ({profile}, until {expires_at})");
+            run.completion.map(|_| (true, "Signed in".to_string()))
+        }
+        Err(message) => {
+            log::warn!("agent_login: {message}");
+            run.completion.map(|_| (false, message))
+        }
+    }
+}
+
+/// EXP-1600 — one remote long-lived "Add account": `claude setup-token` in
+/// a fresh staging dir, driven like any sign-in; the token it printed makes
+/// that dir a new profile, no token abandons it. Returns the completion
+/// still owed, `None` when the command already completed with the link.
+fn add_long_lived(
+    trpc: &Arc<api::trpc::TrpcClient>,
+    settings: &Settings,
+    data_dir: &std::path::Path,
+    command_id: &str,
+    codes: &CodeInbox,
+) -> Option<(bool, String)> {
+    let agent = CodingAgent::Claude;
+    let (staging, plan) = match agent_login::long_lived_add_plan(settings, data_dir, true) {
+        Ok(started) => started,
+        Err(message) => return Some((false, message)),
+    };
+    let run = drive_with_inbox(trpc, &plan, agent, command_id, codes, true);
+    let Some(scraped) = run.setup_token else {
+        log::info!("agent_login: the long-lived Add ended without a token");
+        agent_login::abandon_login(agent, &staging);
+        return run.completion;
+    };
+    match agent_login::commit_setup_token_add(data_dir, &staging, scraped) {
+        Ok((profile, expires_at)) => {
+            log::info!("agent_login: claude long-lived login added ({profile}, until {expires_at})");
             run.completion.map(|_| (true, "Signed in".to_string()))
         }
         Err(message) => {
@@ -535,6 +574,16 @@ mod tests {
         assert_eq!(
             parse_login_payload(&serde_json::json!({"agent": "claude", "import": "true"})),
             Err("Import was removed: sign this account in on this device instead.".to_string())
+        );
+        // EXP-1600: a long-lived Add is a claude sign-in the host runs;
+        // codex refuses it.
+        let add = parse_login_payload(&serde_json::json!({"agent": "claude", "longLived": "true"}))
+            .unwrap();
+        assert!(add.long_lived);
+        assert_eq!(add.target, LoginTarget::Add);
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "codex", "longLived": "true"})),
+            Err("A long-lived login is Claude only.".to_string())
         );
         // An unknown agent is refused before its target is looked at.
         assert!(parse_login_payload(&serde_json::json!({

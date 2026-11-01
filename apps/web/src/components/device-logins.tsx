@@ -154,6 +154,16 @@ export function DeviceAccountIcons({
   )
 }
 
+/** The hover card pill a login item's action reads (devices-list.json):
+ *  `sign_in`, or EXP-1600's switch / renew of the long-lived claude login.
+ *  Every one opens the same sign-in: claude's is long-lived by default. */
+export function loginActionLabel(item: LoginAttention): string {
+  if (item.action !== `keep_signed_in`) return DEVICES_LIST_COPY.signIn
+  return item.status === `renew`
+    ? DEVICES_LIST_COPY.renewKeepSignedIn
+    : DEVICES_LIST_COPY.switchToKeepSignedIn
+}
+
 /** The login's preview: email (else the label), the plan, its status, the
  *  usage windows — the hover card's body and the account menu's header. */
 function LoginPreview({
@@ -187,9 +197,9 @@ function LoginPreview({
           stale={usageAge(row.usage, now) !== null}
         />
       )}
-      {onSignIn && item?.action === `sign_in` && (
+      {onSignIn && item?.action && (
         <Pill mode="action" className="self-start" onClick={onSignIn}>
-          {DEVICES_LIST_COPY.signIn}
+          {loginActionLabel(item)}
         </Pill>
       )}
     </div>
@@ -212,13 +222,8 @@ function DeviceAccountIcon({
   const touch = useIsMobile()
   const label = loginLabel(row)
   const actionable = !readOnly && accountChipActionable(device)
-  const signIn = (opts?: { longLived?: boolean }) =>
-    requestAgentLogin({
-      device,
-      agent: row.agent,
-      profileId: row.profileId,
-      ...(opts?.longLived ? { longLived: true } : {}),
-    })
+  const signIn = () =>
+    requestAgentLogin({ device, agent: row.agent, profileId: row.profileId })
   const icon = (
     <Button
       variant="ghost"

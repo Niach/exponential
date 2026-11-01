@@ -43,6 +43,7 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
       kind: `agent_login`,
       agent: `claude`,
       switch: false,
+      longLived: true,
     })
     expect(result).toMatchObject({
       status: `url`,
@@ -74,6 +75,26 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
       profileId: `p1`,
       longLived: true,
     })
+  })
+
+  // EXP-1600: Keep signed in is claude's default; false = the browser login;
+  // codex never carries the flag.
+  it(`defaults claude to the long-lived login, never codex`, async () => {
+    const add = deps([{ status: `done`, result: URL_RESULT }])
+    await deviceAccountLogin({ deviceId: `dev`, agent: `claude` }, add.built)
+    expect(add.created[0]).toEqual({
+      deviceId: `dev`,
+      kind: `agent_login`,
+      agent: `claude`,
+      switch: false,
+      longLived: true,
+    })
+    const browser = deps([{ status: `done`, result: URL_RESULT }])
+    await deviceAccountLogin({ deviceId: `dev`, agent: `claude`, longLived: false }, browser.built)
+    expect(browser.created[0]).not.toHaveProperty(`longLived`)
+    const codex = deps([{ status: `done`, result: URL_RESULT }])
+    await deviceAccountLogin({ deviceId: `dev`, agent: `codex` }, codex.built)
+    expect(codex.created[0]).not.toHaveProperty(`longLived`)
   })
 
   it(`hands back the commandId when the machine has not answered in time`, async () => {

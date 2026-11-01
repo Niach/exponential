@@ -315,6 +315,9 @@ class DeviceSettingsViewModel @Inject constructor(
             thing = "the sign-in",
             // The toast's Retry re-queues the SAME login (long-lived included).
             retry = { agentLogin(deviceId, agent, switchAccount, deviceOnline, profileId, longLived) },
+            // EXP-1600: an older device refusing a long-lived Add is no failure
+            // to toast: the sign-in sheet re-queues it as the browser login.
+            quiet = { longLived && profileId == null && isLongLivedRefused(it) },
         )
     }
 
@@ -371,11 +374,13 @@ class DeviceSettingsViewModel @Inject constructor(
         verb: String,
         thing: String,
         retry: (() -> Unit)? = null,
+        /** A failure the caller handles itself: no toast. */
+        quiet: (String) -> Boolean = { false },
     ) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runDeviceCommand(devicesApi, accountId, command, deviceOnline) { state ->
-                if (state is DeviceCommandUiState.Failed) _failure.value = FailedAction(verb, thing, state.message, retry = retry)
+                if (state is DeviceCommandUiState.Failed && !quiet(state.message)) _failure.value = FailedAction(verb, thing, state.message, retry = retry)
                 if (state is DeviceCommandUiState.Done) {
                     markDone(key, state.message)
                 } else {

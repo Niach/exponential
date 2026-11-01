@@ -30,13 +30,21 @@ struct AgentLoginTarget: Identifiable {
     /// The login whose Sign in was tapped (the INTENDED profile); nil = "Add
     /// account". It only decides whether the landing is a duplicate.
     var profileId: String? = nil
-    /// EXP-1533: the chip's "Keep signed in" / "Renew long-lived login" — the
-    /// same flow, but the queued `agent_login` mints a one-year login on
-    /// `profileId` (claude only). Every (re-)queue of this sheet carries it.
-    var longLived = false
+    /// EXP-1600: the refresh-grant browser login instead of the default — the
+    /// sheet's "Use browser login (Advanced)" (or the one fallback when an
+    /// older device refuses a long-lived Add).
+    var browserLogin = false
+
+    /// EXP-1533/EXP-1600: a claude sign-in is the long-lived `claude
+    /// setup-token` login BY DEFAULT (Add account, Sign in, Switch, Renew):
+    /// the queued `agent_login` mints a one-year login. Codex has no
+    /// setup-token.
+    var longLived: Bool {
+        agent == "claude" && !browserLogin
+    }
 
     var id: String {
-        "\(deviceId):\(agent):\(profileId ?? "new")\(longLived ? ":long" : "")"
+        "\(deviceId):\(agent):\(profileId ?? "new")"
     }
 }
 
@@ -67,11 +75,24 @@ struct AgentLoginSheet: View {
     /// Every profile's `lastLoginAt` when the command was queued — what a
     /// landing is measured against (`AgentAccountsRows.loginLanding`).
     @State private var baseline: [String: String]?
+    /// EXP-1600: the mode the sheet switched to (the ghost button, or the
+    /// one browser fallback); nil = the target's own.
+    @State private var browserOverride: Bool?
+    /// EXP-1600: an Add the device refused long-lived re-queues ONCE.
+    @State private var fellBack = false
+
+    /// The target as currently queued, in its current mode.
+    private var current: AgentLoginTarget {
+        var target = target
+        if let browserOverride { target.browserLogin = browserOverride }
+        return target
+    }
 
     var body: some View {
         GlassSheetChrome(title: "Sign in") {
             VStack(alignment: .leading, spacing: 12) {
                 statusLine
+                modeNote
                 link
                 if let codeResult {
                     Text(codeResult)
@@ -125,6 +146,34 @@ struct AgentLoginSheet: View {
             return "Waiting for \(target.deviceLabel) to publish the \(agent) sign-in link…"
         }
         return "\(agent) on \(target.deviceLabel)"
+    }
+
+    /// EXP-1600: claude only — ONE muted line saying the trade-off of the
+    /// current mode, and a ghost text button re-queuing the SAME target in
+    /// the other mode. Codex: neither.
+    @ViewBuilder
+    private var modeNote: some View {
+        if target.agent == "claude" {
+            let longLived = current.longLived
+            VStack(alignment: .leading, spacing: 4) {
+                Text(longLived ? DevicesList.Copy.keepSignedInNote : DevicesList.Copy.browserLoginNote)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("agent-login-mode-note")
+                Button {
+                    browserOverride = longLived
+                    queueLogin()
+                } label: {
+                    Text(longLived ? DevicesList.Copy.useBrowserLogin : DevicesList.Copy.useKeepSignedIn)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                }
+                .buttonStyle(.plain)
+                .disabled(pendingLogin || pendingCode)
+                .accessibilityIdentifier("agent-login-mode-switch")
+            }
+        }
     }
 
     /// The published link, its code, and Claude's way back.
@@ -232,15 +281,24 @@ struct AgentLoginSheet: View {
         codeDraft = ""
         pendingLogin = true
         baseline = AgentAccountsRows.loginBaseline(liveAccount)
+        let queued = current
         Task {
             let outcome = await run(
                 kind: "agent_login",
-                profileId: target.profileId,
-                longLived: target.longLived
+                profileId: queued.profileId,
+                longLived: queued.longLived
             )
             pendingLogin = false
             switch outcome {
             case let .done(result): loginResult = result
+            // EXP-1600: an older device refuses a long-lived Add: re-queue
+            // ONCE as the browser login.
+            case let .failed(message)
+                where queued.longLived && queued.profileId == nil && !fellBack
+                && message == DevicesList.Copy.longLivedRefused:
+                fellBack = true
+                browserOverride = true
+                queueLogin()
             // FEED-79: a refusal is the error toast, never a red line.
             case let .failed(message):
                 toaster.error(

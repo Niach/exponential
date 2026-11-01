@@ -16,6 +16,11 @@
 // device's own sentence about finishing the sign-in and sit there forever,
 // whether or not the sign-in ever landed; a wait that never lands is now a
 // short error with a "Try again" that re-queues the login.
+//
+// EXP-1600: a claude sign-in is Keep signed in (`claude setup-token`, one
+// year, no refresh grant) by default; one muted line says the trade-off and a
+// ghost text button switches to the browser login (Advanced) and back
+// (devices-list.json copy, ×4).
 import { useEffect, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Device } from "@/db/schema"
@@ -45,6 +50,8 @@ import {
   toast,
 } from "@exp/ui"
 import { failedAction } from "@/lib/action-error"
+import { loginIsLongLived } from "@/lib/agent-usage"
+import { DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
 
 // Multi-client surface (iOS `AgentLoginSheet`, the IDE's login dialog) — a
 // CONCEPT, never a raw glyph.
@@ -69,8 +76,9 @@ export interface AgentLoginTarget {
    *  account. Only the duplicate check reads it: the login lands on the
    *  profile whose email it signed in as. */
   profileId?: string
-  /** EXP-1533: the row's "Keep signed in": a long-lived claude login for
-   *  `profileId`. Same dialog, same link + code. */
+  /** EXP-1533 / EXP-1600: a long-lived `claude setup-token` login. Absent =
+   *  claude's DEFAULT (long-lived); false = the browser login. Same dialog,
+   *  same link + code. */
   longLived?: boolean
 }
 
@@ -93,6 +101,22 @@ export function AgentLoginDialog({
     active: open,
   })
   const state = login.stateFor(agent)
+  // EXP-1600: the mode this open signs in with — claude starts long-lived,
+  // the ghost button flips it (and re-queues), an older device's refusal of
+  // a long-lived Add falls back to the browser login once.
+  const [longLived, setLongLived] = useState(() =>
+    loginIsLongLived(agent, target?.longLived)
+  )
+  const [fellBack, setFellBack] = useState(false)
+  const openKey = `${device?.deviceId ?? ``}:${agent}:${target?.profileId ?? ``}:${String(target?.longLived)}`
+  const lastOpenKey = useRef<string | null>(null)
+  if (open && lastOpenKey.current !== openKey) {
+    lastOpenKey.current = openKey
+    const initial = loginIsLongLived(agent, target?.longLived)
+    if (initial !== longLived) setLongLived(initial)
+    if (fellBack) setFellBack(false)
+  }
+  if (!open && lastOpenKey.current !== null) lastOpenKey.current = null
 
   // EXP-862: closes itself on success. The device stamps `lastLoginAt` on the
   // profile a login COMMITS into and its next heartbeat reports it — a move
@@ -123,16 +147,13 @@ export function AgentLoginDialog({
       baselineRef.current = null
       return
     }
-    const key = `${device.deviceId}:${agent}:${target?.profileId ?? ``}:${target?.longLived === true}`
+    const key = `${device.deviceId}:${agent}:${target?.profileId ?? ``}:${longLived}`
     if (queuedRef.current === key) return
     queuedRef.current = key
     baselineRef.current = row ? agentLoginBaseline(account) : null
-    login.queueLogin(agent, false, {
-      profileId: target?.profileId,
-      longLived: target?.longLived === true,
-    })
+    login.queueLogin(agent, false, { profileId: target?.profileId, longLived })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, device?.deviceId, agent, target?.profileId, target?.longLived])
+  }, [open, device?.deviceId, agent, target?.profileId, longLived])
   if (open && queuedRef.current !== null && baselineRef.current === null && row) {
     baselineRef.current = agentLoginBaseline(account)
   }
@@ -186,15 +207,34 @@ export function AgentLoginDialog({
     setSigning(false)
     setSignedIn(false)
     baselineRef.current = row ? agentLoginBaseline(account) : null
-    login.queueLogin(agent, false, {
-      profileId: target?.profileId,
-      longLived: target?.longLived === true,
-    })
+    login.queueLogin(agent, false, { profileId: target?.profileId, longLived })
   }
 
-  const failure = timedOut
+  // EXP-1600: flip between Keep signed in and the browser login; the queue
+  // effect re-queues on the new mode.
+  const switchMode = () => {
+    setTimedOut(false)
+    setSigning(false)
+    setSignedIn(false)
+    setLongLived((current) => !current)
+  }
+
+  const rawFailure = timedOut
     ? SIGN_IN_TIMED_OUT
     : state.codeError || state.error || agentLoginFailure(state.result)
+  // An older device refuses a long-lived Add: fall back to the browser login
+  // once instead of failing.
+  const refusedAdd =
+    longLived &&
+    !target?.profileId &&
+    !fellBack &&
+    rawFailure === DEVICES_LIST_COPY.longLivedRefused
+  useEffect(() => {
+    if (!open || !refusedAdd) return
+    setFellBack(true)
+    setLongLived(false)
+  }, [open, refusedAdd])
+  const failure = refusedAdd ? `` : rawFailure
   const waiting = signing || state.codePending
 
   // FEED-79: a failed sign-in is a toast (once per failure, Retry re-queues
@@ -231,6 +271,13 @@ export function AgentLoginDialog({
             {state.pending && <Spinner />}
             {statusText}
           </p>
+          {agent === `claude` && !signedIn && (
+            <p className="text-xs text-muted-foreground" data-slot="login-mode-note">
+              {longLived
+                ? DEVICES_LIST_COPY.keepSignedInNote
+                : DEVICES_LIST_COPY.browserLoginNote}
+            </p>
+          )}
           {signedIn ? (
             <p className="flex items-center gap-1.5 text-xs text-foreground">
               <CheckIcon className="size-3.5 shrink-0 text-emerald-500" />
@@ -263,6 +310,18 @@ export function AgentLoginDialog({
                 }}
               />
             )
+          )}
+          {agent === `claude` && !signedIn && !waiting && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-fit px-0 text-xs text-muted-foreground"
+              onClick={switchMode}
+            >
+              {longLived
+                ? DEVICES_LIST_COPY.useBrowserLogin
+                : DEVICES_LIST_COPY.useKeepSignedIn}
+            </Button>
           )}
         </div>
       </DialogContent>

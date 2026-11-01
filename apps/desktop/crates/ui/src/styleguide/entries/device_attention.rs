@@ -70,7 +70,9 @@ fn login(
         checked_at: None,
         health,
         unmonitored: false,
-        token_expires_at: None,
+        // EXP-1600: every claude login keeps signed in (a far expiry), so
+        // only the specimen's dead login badges: no switch prompt.
+        token_expires_at: (agent == "claude").then(|| "2099-01-01T00:00:00Z".to_string()),
     }
 }
 
@@ -160,14 +162,14 @@ fn props(index: usize, device: DeviceCard) -> DeviceCardProps {
                 {
                     login_flags[slot] = Some(LoginFlag {
                         status: *status,
-                        sign_in: item.action.map(|action| inert(action.label())),
+                        sign_in: item.action.map(|action| inert(action.label(Some(*status)))),
                     });
                 }
             }
             AttentionKind::Update | AttentionKind::UpdateQueued => {
                 update_line = Some(UpdateLine {
                     text: SharedString::from(item.text.clone()),
-                    update: item.action.map(|action| inert(action.label())),
+                    update: item.action.map(|action| inert(action.label(None))),
                 });
             }
         }
