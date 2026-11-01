@@ -125,8 +125,8 @@ struct A11yInfo: Equatable {
             info.label = "\(name), \(activity)"
             info.traits = .isImage
             return info
-        case ("QrCode", _):
-            // VAPP-162 (a11y.json): an img named by `label`; decorative
+        case ("QrCode", _), ("Motion", _):
+            // VAPP-162, EXP-1604 (a11y.json): an img named by `label`; decorative
             // without one; never focusable.
             let name = a.label ?? n.props.str("label")
             guard !name.isEmpty else {

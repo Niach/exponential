@@ -93,3 +93,22 @@ impl MotionPlayer {
         packed.clone()
     }
 }
+
+/// Compile an authoring-dialect document (a Motion's inline `layers` plus
+/// `size`, `fps`, `duration`, `start`, `time`, `assets`, `markers`) into Lottie
+/// JSON; the issues as `UiError::Invalid` (JSON) otherwise.
+#[uniffi::export]
+pub fn motion_compile(dialect_json: String) -> Result<String, UiError> {
+    let doc: serde_json::Value = serde_json::from_str(&dialect_json).map_err(invalid)?;
+    eui_motion::dialect::compile(&doc)
+        .map(|l| l.to_string())
+        .map_err(|issues| UiError::Invalid { reason: serde_json::to_string(&issues).unwrap_or_default() })
+}
+
+/// The first animation of a `.lottie` archive as Lottie JSON (images inlined).
+#[uniffi::export]
+pub fn motion_read_dotlottie(data: Vec<u8>) -> Result<String, UiError> {
+    let file = eui_motion::dotlottie::read(&data)
+        .map_err(|issues| UiError::Invalid { reason: serde_json::to_string(&issues).unwrap_or_default() })?;
+    file.animations.into_iter().next().map(|(_, a)| a.to_string()).ok_or_else(|| invalid("no animation in the archive"))
+}

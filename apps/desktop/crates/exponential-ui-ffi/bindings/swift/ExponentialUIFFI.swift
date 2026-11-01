@@ -7850,6 +7850,28 @@ public func zoomJson(requestJson: String) -> String  {
     )
 })
 }
+/**
+ * Compile an authoring-dialect document (a Motion's inline `layers` plus
+ * `size`, `fps`, `duration`, `start`, `time`, `assets`, `markers`) into Lottie
+ * JSON; the issues as `UiError::Invalid` (JSON) otherwise.
+ */
+public func motionCompile(dialectJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_motion_compile(
+        FfiConverterString.lower(dialectJson),$0
+    )
+})
+}
+/**
+ * The first animation of a `.lottie` archive as Lottie JSON (images inlined).
+ */
+public func motionReadDotlottie(data: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(
+        FfiConverterData.lower(data),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -8062,6 +8084,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_zoom_json() != 60442) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_motion_compile() != 7142) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie() != 13234) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 12162) {

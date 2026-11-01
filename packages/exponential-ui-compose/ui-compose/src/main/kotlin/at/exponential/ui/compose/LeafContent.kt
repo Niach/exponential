@@ -36,6 +36,8 @@ fun LeafContent(context: LeafContext) {
         // EXP-1586: the zoomable picture + THE pill.
         "ZoomableImage" -> ZoomableImageLeaf(cx)
         "Video" -> VideoLeaf(cx)
+        // EXP-1604: the core's display list for the clock's frame.
+        "Motion" -> MotionLeaf(cx)
         "AudioPlayer" -> AudioLeaf(cx)
         "Spinner" -> LeafFrame {
             SpinnerView(min(cx.inner.width, cx.inner.height), cx.ink, Modifier.align(Alignment.Center))
