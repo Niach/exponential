@@ -70,6 +70,10 @@ final class AppDependencies: @unchecked Sendable {
     let agentsApi: AgentsApi
     // Widget/agent submission metadata (EXP-496) — tRPC-only.
     let widgetsApi: WidgetsApi
+    /// #EXP-1528: the sealed relay fallback's ticket + the connection
+    /// analytics buffer every steer viewer records into.
+    let steerTunnelApi: SteerTunnelApi
+    let connStats: SteerConnStatsRecorder
 
     // Push
     let pushTokenManager: PushTokenManager
@@ -194,6 +198,8 @@ final class AppDependencies: @unchecked Sendable {
         self.appsApi = AppsApi(trpc: trpc)
         self.agentsApi = AgentsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)
+        self.steerTunnelApi = SteerTunnelApi(trpc: trpc)
+        self.connStats = SteerConnStatsRecorder(sink: SteerConnStatsApi(trpc: trpc))
 
         // Push notifications
         // EXP-1435: the APNs device token for the relay install comes from

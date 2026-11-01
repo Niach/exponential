@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-steady-live-sessions",
+    date: "2026-11-01",
+    title: "Steadier live sessions",
+    summary: "A live session keeps streaming when the direct connection to its device stalls or drops.",
+    body: r#"- **Direct first**: your app still connects straight to the device running the session.
+- **Encrypted fallback**: when that connection stalls or drops, the session keeps streaming through our server, end-to-end encrypted, and moves back once the direct connection returns."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_140: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-app-preview-phone",
     date: "2026-10-31",
     title: "Preview apps as a phone",
