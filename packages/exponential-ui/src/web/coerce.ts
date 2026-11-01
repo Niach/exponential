@@ -25,6 +25,16 @@ export function phrase(ctx: { strings: Readonly<Record<string, string>>; t: (id:
 const SIZE_UNITS = [`byte`, `kilobyte`, `megabyte`, `gigabyte`] as const
 const sizeFormats = new Map<string, Intl.NumberFormat[]>()
 
+/** EXP-1556: a media position as `m:ss` / `h:mm:ss` (desktop's
+ *  `fmt_duration`, the Video and AudioPlayer clocks ×4). */
+export function mediaClock(ms: number): string {
+  const total = Math.round(Math.max(0, Number.isFinite(ms) ? ms : 0) / 1000)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor(total / 60) % 60
+  const s = String(total % 60).padStart(2, `0`)
+  return h > 0 ? `${h}:${String(m).padStart(2, `0`)}:${s}` : `${m}:${s}`
+}
+
 /** A byte count in the surface locale with a LOCALIZED unit (1024 steps,
  *  `Intl.NumberFormat` `style: "unit"`, e.g. `1,5 kB` / `١٫٥ ك.بايت`). */
 export function formatFileSize(bytes: number, locale: string): string {

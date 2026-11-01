@@ -88,13 +88,17 @@ describe(`actions`, () => {
     expect(button.disabled).toBe(false)
     fireEvent.click(button)
     expect(actions[0]).toMatchObject({ surfaceId: `act`, event: `press`, name: `scan`, componentId: `root`, context: { source: `reddit` } })
-    expect(button.disabled).toBe(true)
+    // EXP-1556: pending refuses a second press without dimming the button.
     expect(button.getAttribute(`aria-busy`)).toBe(`true`)
+    fireEvent.click(button)
+    expect(actions).toHaveLength(1)
     await act(async () => {
       resolve!()
       await Promise.resolve()
     })
-    expect(button.disabled).toBe(false)
+    expect(button.getAttribute(`aria-busy`)).toBeNull()
+    fireEvent.click(button)
+    expect(actions).toHaveLength(2)
   })
   it(`a macro part's routed event (Pagination → change) reaches the host with its context`, () => {
     const actions: SurfaceActionEvent[] = []

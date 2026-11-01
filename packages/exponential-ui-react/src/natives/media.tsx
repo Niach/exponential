@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from "react"
 import { useBoundState } from "./bound"
 import { Avatar as AvatarPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { IconGlyph } from "../icons"
+import { CHROME, IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView, mergeStyle, withClass } from "../node-view"
 import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
+import { mediaClock } from "@exponential_app/eui/web"
 
 /** The media box's intrinsic width (catalog/layout.json
  *  `mediaIntrinsicWidth`: max-content 320, min-content 0 — a compressible
@@ -74,35 +75,87 @@ export function ImageNative({ node, props, rootProps }: NativeProps) {
   )
 }
 
+/** Video (×4 since EXP-1556): the poster (or a dark tint) with the round
+ *  play button and the `durationMs` clock, as desktop, iOS and Android draw
+ *  it; the press (or `autoplay`) swaps in the browser's player with its
+ *  controls, playing. */
 export function VideoNative({ node, props, rootProps }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const src = str(props.src)
   const poster = str(props.poster)
+  const autoplay = bool(props.autoplay)
+  const [started, setStarted] = useState(false)
   // The video streams (no byte caps); its poster is an image (the limits hold).
   const url = useMediaSrc(ctx.host, src, `stream`)
   const posterUrl = useMediaSrc(ctx.host, poster)
   // Round 2 §7: height = width / `aspectRatio` (default 16:9), never the
   // browser's 300×150.
   const ratio = num(props.aspectRatio, MEDIA_ASPECT_RATIO) || MEDIA_ASPECT_RATIO
+  const durationMs = props.durationMs !== undefined ? num(props.durationMs) : undefined
+  const Play = CHROME.play
   return (
     <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { aspectRatio: String(ratio) })}>
       <MediaSizer />
-      <video {...(part(`controls`) as Record<string, string>)} src={url} poster={posterUrl} controls autoPlay={bool(props.autoplay)} muted={bool(props.autoplay)} playsInline preload="metadata" data-duration-ms={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
+      {started || autoplay ? (
+        <video {...(part(`controls`) as Record<string, string>)} src={url} poster={posterUrl} controls autoPlay muted={autoplay && !started} playsInline preload="metadata" data-duration-ms={durationMs} />
+      ) : (
+        <>
+          {posterUrl ? <img className="xui-video-poster" src={posterUrl} alt="" aria-hidden="true" decoding="async" draggable={false} /> : null}
+          <button type="button" className="xui-media-play" data-size="lg" aria-label={ctx.t(`play`)} disabled={!url} onClick={() => setStarted(true)}>
+            <Play aria-hidden="true" />
+          </button>
+          {durationMs !== undefined ? <span className="xui-video-duration">{mediaClock(durationMs)}</span> : null}
+        </>
+      )}
     </div>
   )
 }
 
+/** AudioPlayer (×4 since EXP-1556): the title over a bar of the round
+ *  play/pause button, the progress track and `position / duration`, as
+ *  desktop, iOS and Android draw it; a hidden `<audio>` plays. */
 export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const src = str(props.src)
   const title = str(props.title)
   const url = useMediaSrc(ctx.host, src, `stream`)
+  const audio = useRef<HTMLAudioElement>(null)
+  const [playing, setPlaying] = useState(false)
+  const [position, setPosition] = useState(0)
+  const [loadedMs, setLoadedMs] = useState<number | null>(null)
+  const durationMs = props.durationMs !== undefined ? num(props.durationMs) : (loadedMs ?? 0)
+  const Glyph = playing ? CHROME.pause : CHROME.play
+  const toggle = () => {
+    const el = audio.current
+    if (!el) return
+    if (el.paused) void el.play()?.catch(() => setPlaying(false))
+    else el.pause()
+  }
   return (
     <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { flexDirection: `column`, gap: `var(--xui-spacing-xs)` })}>
       {title ? <span {...(part(`track`) as Record<string, string>)}>{title}</span> : null}
-      <audio {...(part(`controls`) as Record<string, string>)} src={url} controls preload="metadata" aria-label={title || undefined} data-duration-ms={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
+      <div {...(part(`controls`) as Record<string, string>)} data-duration-ms={props.durationMs !== undefined ? num(props.durationMs) : undefined}>
+        <button type="button" className="xui-media-play" data-size="sm" aria-label={ctx.t(playing ? `pause` : `play`)} disabled={!url} onClick={toggle}>
+          <Glyph aria-hidden="true" />
+        </button>
+        <span className="xui-audio-progress" aria-hidden="true">
+          <span style={{ width: `${durationMs > 0 ? Math.min(100, (position / durationMs) * 100) : 0}%` }} />
+        </span>
+        <span className="xui-audio-clock">{`${mediaClock(position)} / ${mediaClock(durationMs)}`}</span>
+      </div>
+      <audio
+        ref={audio}
+        src={url}
+        preload="metadata"
+        aria-label={title || undefined}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime * 1000)}
+        onLoadedMetadata={(e) => setLoadedMs(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration * 1000 : null)}
+      />
     </div>
   )
 }
@@ -147,13 +200,19 @@ export function AvatarNative({ node, props, rootProps }: NativeProps) {
 }
 
 /** One thumbnail of the strip (round 6 §3): a button over its picture
- *  (through the host's media request), the empty muted square without one. */
+ *  (through the host's media request); EXP-1556: the muted square shows the
+ *  Image placeholder glyph until the picture paints over it (none, loading
+ *  or failed), never the browser's broken-image icon. */
 function CarouselThumbnail({ attrs, src, current, label, onPress }: { attrs: Record<string, unknown>; src: string; current: boolean; label: string; onPress: () => void }) {
   const ctx = useSurfaceContext()
   const url = useMediaSrc(ctx.host, src)
+  const [broken, setBroken] = useState<string | null>(null)
   return (
     <button type="button" {...(attrs as Record<string, string>)} aria-label={label} aria-current={current ? `true` : undefined} data-current={current ? `true` : undefined} onClick={onPress}>
-      {src && url ? <img className="xui-carousel-thumb" src={url} alt="" aria-hidden="true" loading="lazy" decoding="async" draggable={false} /> : null}
+      <span className="xui-carousel-thumb-fallback" aria-hidden="true">
+        <BuiltinIcon slot="Image.fallback" />
+      </span>
+      {src && url && broken !== url ? <img className="xui-carousel-thumb" src={url} alt="" aria-hidden="true" loading="lazy" decoding="async" draggable={false} onError={() => setBroken(url)} /> : null}
     </button>
   )
 }

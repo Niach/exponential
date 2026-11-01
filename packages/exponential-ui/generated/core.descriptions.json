@@ -676,8 +676,8 @@
             "value": "issue"
           },
           {
-            "label": "Run",
-            "value": "run"
+            "label": "Session",
+            "value": "session"
           }
         ],
         "value": "issue"

@@ -600,10 +600,10 @@ const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
   Card: [text(`t`, `3 open issues · 2 in review`), button(`b`, `Open board`, `outline`)],
   List: [text(`l1`, `Inbox`), text(`l2`, `Drafts`), text(`l3`, `Archive`)],
   // Round 3: a Section of nested rows shows the elbow, the tee and a pass-through.
-  Section: [row(`r1`, `Release 0.18`, `4 runs`), row(`r2`, `Build the macOS app`, `done`, 1), row(`r3`, `Notarize`, `running`, 2), row(`r4`, `Upload the dmg`, `queued`, 2), row(`r5`, `Publish the release notes`, `queued`, 1), row(`r6`, `Release 0.17`, `3 runs`)],
+  Section: [row(`r1`, `Release 0.18`, `4 steps`), row(`r2`, `Build the macOS app`, `done`, 1), row(`r3`, `Notarize`, `running`, 2), row(`r4`, `Upload the dmg`, `queued`, 2), row(`r5`, `Publish the release notes`, `queued`, 1), row(`r6`, `Release 0.17`, `3 steps`)],
   Group: [row(`r1`, `Mentions`, `Push + email`), row(`r2`, `Assigned to me`, `Push`)],
   Carousel: [card(`p1`, `Page one`, `Swipe for more`), card(`p2`, `Page two`, ``), card(`p3`, `Page three`, ``)],
-  Tabs: [text(`p1`, `The issue panel.`), text(`p2`, `The run panel.`)],
+  Tabs: [text(`p1`, `The issue panel.`), text(`p2`, `The session panel.`)],
   Accordion: [text(`p`, `Created 2 days ago by Ada; 3 comments.`)],
   Collapsible: [text(`p`, `Retries, timeouts and the proxy live here.`, `muted`)],
   Dialog: [text(`p`, `The board and its 42 issues move to the trash for 48 hours.`)],
@@ -662,6 +662,13 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `example`, node: { id: `page`, component: `Page`, props: { title: `Settings`, subtitle: `Acme`, back: true } } },
     { label: `padded · false`, node: { id: `page`, component: `Page`, props: { title: `Members`, padded: false } } },
   ],
+  // EXP-1556: the vertical Separator is an extra (SPECIMEN_EXTRA: its row
+  // keeps its own children); the horizontal List gets a gap.
+  Separator: [{ label: `example`, node: { id: `separator`, component: `Separator`, props: { orientation: `horizontal` } } }],
+  List: [
+    { label: `example`, node: { id: `list`, component: `List`, props: { direction: `vertical`, divided: true }, children: SPECIMEN_CHILDREN.List } },
+    { label: `direction · horizontal`, node: { id: `list`, component: `List`, props: { direction: `horizontal`, divided: true, gap: `lg` }, children: SPECIMEN_CHILDREN.List } },
+  ],
   SplitView: [{ label: `example`, node: { id: `split-view`, component: `SplitView`, props: { width: 280 } } }],
   FormActions: [
     { label: `example`, node: { id: `form-actions`, component: `FormActions`, props: { submit: `Save`, cancel: true } } },
@@ -718,6 +725,12 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  // EXP-1556: a vertical Separator between two items of a row (alone in a
+  // column it has no height to draw).
+  Separator: [{
+    label: `orientation · vertical`,
+    node: { id: `bar`, component: `Stack`, props: { direction: `horizontal`, gap: `md`, align: `center` }, children: [text(`a`, `Inbox`), { id: `separator`, component: `Separator`, props: { orientation: `vertical` }, style: { height: 20 } }, text(`b`, `Drafts`)] },
+  }],
   Heading: [{
     label: `style · on a band`,
     node: { id: `band`, component: `Box`, style: { backgroundColor: `$color.primary`, padding: `$spacing.lg`, borderRadius: `$radius.lg` }, children: [
@@ -806,6 +819,13 @@ function specimenContent(node: NestedNode): NestedNode {
     else delete out.children
   }
   if (slots) out.slots = slots
+  // EXP-1556: a Box's example carries its layout as a `style` prop; every
+  // renderer lays a node out by its node style, so the specimen hoists it.
+  if (node.component === `Box` && out.props?.style) {
+    const { style: hoisted, ...props } = out.props
+    out.props = props
+    out.style = { ...(hoisted as Record<string, unknown>), ...(out.style ?? {}) }
+  }
   const style = SPECIMEN_STYLES[node.component]
   if (style) out.style = { ...(node.style ?? {}), ...style }
   return out

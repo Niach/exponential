@@ -8,8 +8,9 @@
 import { For, Show, createComputed, createRenderEffect, createEffect, createMemo, createSignal, on, onCleanup, type Component, type JSX } from "solid-js"
 import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
 import type { UiNode } from "@exponential_app/eui"
+import { mediaClock } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
-import { IconGlyph } from "../icons"
+import { CHROME, IconGlyph, PaintIcon } from "../icons"
 import { createMediaSource, createMediaSrc } from "../media"
 import { NodeView, mergeStyle, withClass, type NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
@@ -83,6 +84,9 @@ export function ImageNative(props: NativeProps): JSX.Element {
   )
 }
 
+/** Video (×4 since EXP-1556, React's): the poster (or a dark tint) with the
+ *  round play button and the `durationMs` clock; the press (or `autoplay`)
+ *  swaps in the browser's player with its controls, playing. */
 export function VideoNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
@@ -92,35 +96,86 @@ export function VideoNative(props: NativeProps): JSX.Element {
   // Round 2 §7: height = width / `aspectRatio` (default 16:9).
   const ratio = () => num(props.props.aspectRatio, MEDIA_ASPECT_RATIO) || MEDIA_ASPECT_RATIO
   const autoplay = () => bool(props.props.autoplay)
+  const [started, setStarted] = createSignal(false)
+  const durationMs = () => (props.props.durationMs !== undefined ? num(props.props.durationMs) : undefined)
   return (
     <div {...props.rootProps} style={mergeStyle(props.rootProps, { aspectRatio: String(ratio()) })}>
       <MediaSizer />
-      <video
-        {...part(`controls`)}
-        src={url()}
-        poster={posterUrl()}
-        controls
-        autoplay={autoplay()}
-        ref={(el) => createRenderEffect(() => (el.muted = autoplay()))}
-        playsinline
-        preload="metadata"
-        data-duration-ms={props.props.durationMs !== undefined ? num(props.props.durationMs) : undefined}
-      />
+      <Show
+        when={started() || autoplay()}
+        fallback={
+          <>
+            <Show when={posterUrl()}>
+              <img class="xui-video-poster" src={posterUrl()} alt="" aria-hidden="true" decoding="async" draggable={false} />
+            </Show>
+            <button type="button" class="xui-media-play" data-size="lg" aria-label={ctx.t(`play`)} disabled={!url()} onClick={() => setStarted(true)}>
+              <PaintIcon icon={CHROME.play} aria-hidden="true" />
+            </button>
+            <Show when={durationMs() !== undefined}>
+              <span class="xui-video-duration">{mediaClock(durationMs()!)}</span>
+            </Show>
+          </>
+        }
+      >
+        <video
+          {...part(`controls`)}
+          src={url()}
+          poster={posterUrl()}
+          controls
+          autoplay
+          ref={(el) => createRenderEffect(() => (el.muted = autoplay() && !started()))}
+          playsinline
+          preload="metadata"
+          data-duration-ms={durationMs()}
+        />
+      </Show>
     </div>
   )
 }
 
+/** AudioPlayer (×4 since EXP-1556, React's): the title over a bar of the
+ *  round play/pause button, the progress track and `position / duration`;
+ *  a hidden `<audio>` plays. */
 export function AudioPlayerNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
   const title = () => str(props.props.title)
   const url = createMediaSrc(() => ctx.host, () => str(props.props.src), `stream`)
+  let audio: HTMLAudioElement | undefined
+  const [playing, setPlaying] = createSignal(false)
+  const [position, setPosition] = createSignal(0)
+  const [loadedMs, setLoadedMs] = createSignal<number | null>(null)
+  const durationMs = () => (props.props.durationMs !== undefined ? num(props.props.durationMs) : (loadedMs() ?? 0))
+  const toggle = () => {
+    if (!audio) return
+    if (audio.paused) void audio.play()?.catch(() => setPlaying(false))
+    else audio.pause()
+  }
   return (
     <div {...props.rootProps} style={mergeStyle(props.rootProps, { flexDirection: `column`, gap: `var(--xui-spacing-xs)` })}>
       <Show when={title()}>
         <span {...part(`track`)}>{title()}</span>
       </Show>
-      <audio {...part(`controls`)} src={url()} controls preload="metadata" aria-label={title() || undefined} data-duration-ms={props.props.durationMs !== undefined ? num(props.props.durationMs) : undefined} />
+      <div {...part(`controls`)} data-duration-ms={props.props.durationMs !== undefined ? num(props.props.durationMs) : undefined}>
+        <button type="button" class="xui-media-play" data-size="sm" aria-label={ctx.t(playing() ? `pause` : `play`)} disabled={!url()} onClick={toggle}>
+          <PaintIcon icon={playing() ? CHROME.pause : CHROME.play} aria-hidden="true" />
+        </button>
+        <span class="xui-audio-progress" aria-hidden="true">
+          <span style={{ width: `${durationMs() > 0 ? Math.min(100, (position() / durationMs()) * 100) : 0}%` }} />
+        </span>
+        <span class="xui-audio-clock">{`${mediaClock(position())} / ${mediaClock(durationMs())}`}</span>
+      </div>
+      <audio
+        ref={audio}
+        src={url()}
+        preload="metadata"
+        aria-label={title() || undefined}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime * 1000)}
+        onLoadedMetadata={(e) => setLoadedMs(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration * 1000 : null)}
+      />
     </div>
   )
 }
@@ -188,10 +243,15 @@ export function AvatarNative(props: NativeProps): JSX.Element {
 function CarouselThumbnail(props: { attrs: Attrs; src: string; current: boolean; label: string; onPress: () => void }): JSX.Element {
   const ctx = useSurfaceContext()
   const url = createMediaSrc(() => ctx.host, () => props.src)
+  // EXP-1556: the placeholder glyph until the picture paints over it.
+  const [broken, setBroken] = createSignal<string | null>(null)
   return (
     <button type="button" {...props.attrs} aria-label={props.label} aria-current={props.current ? `true` : undefined} data-current={props.current ? `true` : undefined} onClick={() => props.onPress()}>
-      <Show when={props.src && url()}>
-        <img class="xui-carousel-thumb" src={url()} alt="" aria-hidden="true" loading="lazy" decoding="async" draggable={false} />
+      <span class="xui-carousel-thumb-fallback" aria-hidden="true">
+        <BuiltinIcon slot="Image.fallback" />
+      </span>
+      <Show when={props.src && url() && broken() !== url()}>
+        <img class="xui-carousel-thumb" src={url()} alt="" aria-hidden="true" loading="lazy" decoding="async" draggable={false} onError={() => setBroken(url() ?? null)} />
       </Show>
     </button>
   )
