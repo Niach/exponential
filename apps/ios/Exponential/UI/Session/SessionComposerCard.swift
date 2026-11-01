@@ -54,18 +54,23 @@ extension SessionComposerDraft {
 
     var hasContent: Bool { !trimmedDraft.isEmpty || hasPendingAttachments }
 
-    /// Send what is in the box. Text alone clears ONLY once the message is
-    /// out (EXP-621) and only if nobody typed on meanwhile; with picks, every
-    /// one uploads first (a failure keeps the strip with the ids already
-    /// stamped, so a retry uploads only the rest), then ONE message carries
-    /// the text plus a markdown embed per attachment (EXP-511, wave D).
+    /// Send what is in the box. The field stays editable while the send is
+    /// out (EXP-1537, `composer-send.json`): what Send saw (the UNTRIMMED
+    /// text, the picks) is snapshotted, and once the message is out
+    /// `ComposerSend` decides what the CURRENT field keeps (the text clears
+    /// only if nobody typed on, only the sent picks leave); a failure leaves
+    /// the field as it is now. With picks, every one uploads first (a failure
+    /// stamps the ids already uploaded onto the picks still in the strip, so a
+    /// retry uploads only the rest), then ONE message carries the text plus a
+    /// markdown embed per attachment (EXP-511, wave D). Callers run this on an
+    /// unstructured Task holding the draft, so backing out never cancels it.
     func sendDraft() async {
         guard !steerSending else { return }
+        let sentText = draftText
         guard hasPendingAttachments else {
             guard !trimmedDraft.isEmpty else { return }
-            let text = draftText
-            if await sendMessage(text, attachmentIds: nil), draftText == text {
-                draftText = ""
+            if await sendMessage(sentText, attachmentIds: nil) {
+                draftText = ComposerSend.textAfterSend(sent: sentText, current: draftText)
             }
             return
         }
@@ -91,25 +96,42 @@ extension SessionComposerDraft {
             }
         } catch {
             steerImageError = error.userFacingMessage
-            pendingImages = images
-            pendingFiles = files
+            restampPending(images: images, files: files)
             return
         }
+        restampPending(images: images, files: files)
         let imageIds = images.compactMap(\.uploadedId)
         let sent = await sendMessage(
             SteerImageMessage.buildMessage(
-                text: draftText, imageIds: imageIds, files: files.compactMap(\.wireFile)
+                text: sentText, imageIds: imageIds, files: files.compactMap(\.wireFile)
             ),
             attachmentIds: imageIds + files.compactMap(\.uploadedId)
         )
-        guard sent else {
-            pendingImages = images
-            pendingFiles = files
-            return
-        }
-        draftText = ""
-        pendingImages = []
-        pendingFiles = []
+        guard sent else { return }
+        let after = ComposerSend.afterSend(
+            outcome: .sent,
+            sent: ComposerSend.Content(
+                text: sentText,
+                attachments: images.map(\.id.uuidString) + files.map(\.id.uuidString)
+            ),
+            current: ComposerSend.Content(
+                text: draftText,
+                attachments: pendingImages.map(\.id.uuidString) + pendingFiles.map(\.id.uuidString)
+            )
+        )
+        if after.text != draftText { draftText = after.text }
+        let kept = Set(after.attachments)
+        pendingImages.removeAll { !kept.contains($0.id.uuidString) }
+        pendingFiles.removeAll { !kept.contains($0.id.uuidString) }
+    }
+
+    /// Carry the upload stamps onto the picks STILL in the strip (one removed
+    /// meanwhile stays gone, one added meanwhile stays unstamped).
+    private func restampPending(images: [PendingSteerImage], files: [PendingSteerFile]) {
+        let imageStamps = Dictionary(uniqueKeysWithValues: images.map { ($0.id, $0) })
+        let fileStamps = Dictionary(uniqueKeysWithValues: files.map { ($0.id, $0) })
+        pendingImages = pendingImages.map { imageStamps[$0.id] ?? $0 }
+        pendingFiles = pendingFiles.map { fileStamps[$0.id] ?? $0 }
     }
 
     /// Wave D: Files-app picks, ANY type — an inline image queues as an image

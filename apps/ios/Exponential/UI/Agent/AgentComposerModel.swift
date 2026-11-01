@@ -707,8 +707,11 @@ final class AgentComposerModel {
     /// Upload the pending attachments (sequentially, stamping `uploadedId`
     /// so a retry after a mid-batch failure never uploads the same file
     /// twice), then ONE `sessions.send` for a new thread root. On success
-    /// the composer clears and the page opens the thread; on failure the
-    /// draft, the chips and the strip stay and a toast offers Retry.
+    /// the page opens the thread and `ComposerSend` decides what the field
+    /// keeps (EXP-1537: text typed while the send was out stays, only the
+    /// sent picks leave); on failure the draft, the chips and the strip stay
+    /// as they are now and a toast offers Retry. The send runs on a Task the
+    /// model holds (it outlives the page), so backing out never cancels it.
     func submit() {
         guard canSubmit, let teamId else { return }
         let messagedAgentId = agentId
@@ -721,53 +724,66 @@ final class AgentComposerModel {
         if messagedAgentId == nil, let device {
             starting = Starting(deviceLabel: LaunchVocabulary.deviceName(device), since: Date())
         }
+        // EXP-1537: what Send saw (the UNTRIMMED text, the picks); the
+        // field stays editable while the send is out.
+        let sentText = draftText
+        var images = pendingImages
+        var files = pendingFiles
         Task {
             defer {
                 sending = false
                 starting = nil
             }
-            for index in pendingImages.indices where pendingImages[index].uploadedId == nil {
+            for index in images.indices where images[index].uploadedId == nil {
                 do {
                     let uploaded = try await deps.attachmentsApi.uploadTeamSessionImage(
                         accountId: accountId,
                         teamId: teamId,
-                        data: pendingImages[index].data,
-                        filename: pendingImages[index].filename,
-                        contentType: pendingImages[index].contentType
+                        data: images[index].data,
+                        filename: images[index].filename,
+                        contentType: images[index].contentType
                     )
-                    pendingImages[index].uploadedId = uploaded.id
+                    images[index].uploadedId = uploaded.id
                 } catch {
+                    restamp(images: images, files: files)
                     failed(verb: "upload", thing: "the attachment", error)
                     return
                 }
             }
             // Wave D: then the files, through the same route (any type),
             // idempotent exactly like the images.
-            for index in pendingFiles.indices where pendingFiles[index].uploadedId == nil {
+            for index in files.indices where files[index].uploadedId == nil {
                 do {
                     let uploaded = try await deps.attachmentsApi.uploadTeamSessionImage(
                         accountId: accountId,
                         teamId: teamId,
-                        data: pendingFiles[index].data,
-                        filename: pendingFiles[index].filename,
-                        contentType: pendingFiles[index].contentType
+                        data: files[index].data,
+                        filename: files[index].filename,
+                        contentType: files[index].contentType
                     )
-                    pendingFiles[index].stamp(uploaded)
+                    files[index].stamp(uploaded)
                 } catch {
+                    restamp(images: images, files: files)
                     failed(verb: "upload", thing: "the attachment", error)
                     return
                 }
             }
-            let imageIds = pendingImages.compactMap(\.uploadedId)
-            let attachmentIds = imageIds + pendingFiles.compactMap(\.uploadedId)
+            restamp(images: images, files: files)
+            let sent = ComposerSend.Content(
+                text: sentText,
+                attachments: images.map(\.id.uuidString) + files.map(\.id.uuidString)
+            )
+            let imageIds = images.compactMap(\.uploadedId)
+            let attachmentIds = imageIds + files.compactMap(\.uploadedId)
             let text = AgentComposerPrompt.build(
-                text: draftText,
+                text: sentText,
                 attachmentIds: imageIds,
-                files: pendingFiles.compactMap(\.wireFile)
+                files: files.compactMap(\.wireFile)
             )
             if let messagedAgentId {
                 await sendToAgent(
-                    messagedAgentId, text: text, attachmentIds: attachmentIds, issueIds: effectiveChecked
+                    messagedAgentId, text: text, attachmentIds: attachmentIds,
+                    issueIds: effectiveChecked, sent: sent
                 )
                 return
             }
@@ -777,7 +793,7 @@ final class AgentComposerModel {
                     accountId: accountId,
                     sendInput(teamId: teamId, deviceId: device.deviceId, text: text, attachmentIds: attachmentIds)
                 )
-                clearDraft()
+                settleDraft(sent: sent)
                 landedRootId = result.sessionId
             } catch {
                 failed(verb: "start", thing: "the session", error)
@@ -790,9 +806,10 @@ final class AgentComposerModel {
     /// `sessions.send({agentId, text, attachmentIds, issueIds})`, opened on
     /// first use server-side (EXP-1450: the issue chips forward onto it) —
     /// and `landedAgentId` tells the page to open that chat. The draft
-    /// clears; the agent pick stays.
+    /// settles (`settleDraft`); the agent pick stays.
     private func sendToAgent(
-        _ agentId: String, text: String?, attachmentIds: [String], issueIds: [String]
+        _ agentId: String, text: String?, attachmentIds: [String], issueIds: [String],
+        sent: ComposerSend.Content
     ) async {
         do {
             _ = try await deps.sessionsApi.send(
@@ -804,7 +821,7 @@ final class AgentComposerModel {
                     issueIds: issueIds.isEmpty ? nil : issueIds
                 )
             )
-            clearDraft()
+            settleDraft(sent: sent)
             landedAgentId = agentId
         } catch {
             failed(verb: "send", thing: "the message", error)
@@ -872,10 +889,32 @@ final class AgentComposerModel {
         Toaster.shared.dismiss(id)
     }
 
-    private func clearDraft() {
-        draftText = ""
-        pendingImages = []
-        pendingFiles = []
+    /// Carry the upload stamps onto the picks STILL in the strip (one removed
+    /// meanwhile stays gone, one added meanwhile stays unstamped), so a
+    /// retry uploads only the rest.
+    private func restamp(images: [PendingSteerImage], files: [PendingSteerFile]) {
+        let imageStamps = Dictionary(uniqueKeysWithValues: images.map { ($0.id, $0) })
+        let fileStamps = Dictionary(uniqueKeysWithValues: files.map { ($0.id, $0) })
+        pendingImages = pendingImages.map { imageStamps[$0.id] ?? $0 }
+        pendingFiles = pendingFiles.map { fileStamps[$0.id] ?? $0 }
+    }
+
+    /// EXP-1537 (`composer-send.json`): the send is out — the CURRENT field
+    /// keeps what `ComposerSend` leaves (text typed meanwhile, picks added
+    /// meanwhile); the subject clears.
+    private func settleDraft(sent: ComposerSend.Content) {
+        let after = ComposerSend.afterSend(
+            outcome: .sent,
+            sent: sent,
+            current: ComposerSend.Content(
+                text: draftText,
+                attachments: pendingImages.map(\.id.uuidString) + pendingFiles.map(\.id.uuidString)
+            )
+        )
+        if after.text != draftText { draftText = after.text }
+        let kept = Set(after.attachments)
+        pendingImages.removeAll { !kept.contains($0.id.uuidString) }
+        pendingFiles.removeAll { !kept.contains($0.id.uuidString) }
         subjectState.clearSubject()
         // S-3: the agent row's pick is no draft: it stays.
         seededDraft = ""

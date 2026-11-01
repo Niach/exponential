@@ -13,6 +13,7 @@ import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTION_TIMEOUT_MS
 import com.exponential.app.domain.CompactionState
+import com.exponential.app.domain.ComposerSend
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HISTORY_PAGE_LIMIT
 import com.exponential.app.domain.HistoryState
@@ -1284,8 +1285,20 @@ class SteerConnection internal constructor(
      *  identity: a removal mid-send never stamps the wrong entry. */
     fun stampPendingUpload(entry: PendingAttachment, id: String, name: String?) {
         _pendingImages.value = _pendingImages.value.map {
-            if (it === entry) it.copy(uploadedId = id, uploadedName = name) else it
+            if (it.key == entry.key) it.copy(uploadedId = id, uploadedName = name) else it
         }
+    }
+
+    /**
+     * EXP-1537: apply a settled send to the draft and the pending files
+     * ([ComposerSend.settle]): [sentText] / [sent] = the composer when Send
+     * was pressed. Runs even after the screen is gone — this connection
+     * outlives it, and so does its draft.
+     */
+    fun settleSend(outcome: ComposerSend.Outcome, sentText: String, sent: List<PendingAttachment>) {
+        val after = ComposerSend.settle(outcome, sentText, sent, _draft.value, _pendingImages.value)
+        _draft.value = after.text
+        _pendingImages.value = after.attachments
     }
 
     fun removePendingImage(index: Int) {
@@ -1316,7 +1329,7 @@ class SteerConnection internal constructor(
             // question or plan hides the composer and takes its free text in
             // an inline field on the card (`sendQuestionAnswer` /
             // `answerThenSend`), so nothing typed here answers a card.
-            if (sendMessage(text)) _draft.value = ""
+            if (sendMessage(text)) settleSend(ComposerSend.Outcome.Sent, text, images)
             return
         }
         scope.launch {
@@ -1336,6 +1349,7 @@ class SteerConnection internal constructor(
             _steerSending.value = true
             _steerImageError.value = null
             try {
+                var sent = images
                 for ((index, image) in images.withIndex()) {
                     if (image.uploadedId != null) continue
                     val uploaded = try {
@@ -1357,14 +1371,13 @@ class SteerConnection internal constructor(
                         )
                         return@launch
                     }
-                    _pendingImages.value = _pendingImages.value.mapIndexed { i, entry ->
+                    sent = sent.mapIndexed { i, entry ->
                         if (i == index) entry.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename) else entry
                     }
+                    stampPendingUpload(image, uploaded.id, uploaded.filename)
                 }
-                val pending = _pendingImages.value
-                if (sendMessage(buildSteerMessage(text, pending.uploadedImageIds(), pending.uploadedSteerFiles()))) {
-                    _pendingImages.value = emptyList()
-                    _draft.value = ""
+                if (sendMessage(buildSteerMessage(text, sent.uploadedImageIds(), sent.uploadedSteerFiles()))) {
+                    settleSend(ComposerSend.Outcome.Sent, text, sent)
                 }
             } finally {
                 _steerSending.value = false

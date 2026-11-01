@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.ComposerSend
 import com.exponential.app.domain.Chats
 import android.net.Uri
 import android.os.SystemClock
@@ -1196,9 +1197,10 @@ class AgentSessionViewModel @AssistedInject constructor(
                     _sendError.value = trpcErrorMessage(t, "")
                     return@launchDetached
                 }
-                for (index in images.indices.reversed()) connection.removePendingImage(index)
-                // Only the text that went out: anything typed since stays.
-                if (connection.draft.value == text) connection.setDraft("")
+                // EXP-1537 (composer-send.json): the text clears only if the
+                // field still holds what went out; exactly the sent files
+                // leave, one picked or removed meanwhile is left alone.
+                connection.settleSend(ComposerSend.Outcome.Sent, text, images)
             } finally {
                 _sending.value = false
             }

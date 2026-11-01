@@ -34,6 +34,10 @@ data class PendingAttachment(
     val width: Int? = null,
     val height: Int? = null,
     val durationMs: Long? = null,
+    /** EXP-1537: the client's own key for this pick, kept across [copy]
+     *  (an upload stamp): a settled send removes exactly the picks it took
+     *  ([ComposerSend.settle]), whatever was added or removed meanwhile. */
+    val key: String = java.util.UUID.randomUUID().toString(),
 ) {
     // ByteArray breaks data-class equality; compare by the scalar fields only.
     override fun equals(other: Any?): Boolean {

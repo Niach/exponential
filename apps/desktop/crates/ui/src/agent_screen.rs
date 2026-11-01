@@ -501,7 +501,11 @@ impl AgentScreenView {
         };
         let app_device = matches!(self.subject, ChannelSubject::App(_)).then(|| self.device_id.clone());
         let text = self.first.input.read(cx).value().to_string();
+        // EXP-1537: the field stays editable while the send is in flight;
+        // what lands takes out only what was sent (`composer_send`).
+        let sent = self.first.images.content(text.clone());
         let jobs = self.first.images.jobs();
+        let file_keys = composer_images::file_keys(&jobs);
         let transport = if jobs.is_empty() {
             None
         } else {
@@ -517,28 +521,51 @@ impl AgentScreenView {
             crate::action_error::failed_action("send", "the message", None, cx);
             return;
         };
+        let upload_team = team_id.clone();
+        let send_input = move |text: &str, attachment_ids: Vec<String>| match &app_device {
+            Some(device_id) => {
+                crate::chat_launch::app_send_input(&team_id, &subject_id, device_id.as_deref(), text, attachment_ids)
+            }
+            None => crate::chat_launch::agent_send_input(&team_id, &subject_id, text, attachment_ids),
+        };
+        // The sealing facts are the text's and the subject's (the uploads
+        // name no one): read now, so the send needs nothing of the screen
+        // once the uploads land.
+        let plan = crate::sealing::plan_send(&send_input(&text, Vec::new()), cx);
         self.first.sending = true;
         self.first.notice = None;
         cx.notify();
+        // EXP-1537: the uploads AND the send run in one background job that
+        // holds nothing of the screen, so leaving it never cancels either.
         cx.spawn_in(window, async move |this, cx| {
-            let upload_team = team_id.clone();
-            let uploaded = match transport {
-                None => Ok(Vec::new()),
-                Some(transport) => {
-                    cx.background_executor()
-                        .spawn(async move {
-                            composer_images::upload_all(jobs, |filename, content_type, bytes| {
-                                transport.upload_team_session_file(&upload_team, filename, content_type, bytes)
-                            })
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let resolved = match transport {
+                        None => Vec::new(),
+                        Some(transport) => composer_images::upload_all(jobs, |filename, content_type, bytes| {
+                            transport.upload_team_session_file(&upload_team, filename, content_type, bytes)
                         })
-                        .await
-                }
-            };
-            let resolved = match uploaded {
-                Ok(resolved) => resolved,
-                Err((resolved, error)) => {
-                    let _ = this.update_in(cx, |this, _window, cx| {
-                        this.first.sending = false;
+                        .map_err(|(resolved, error)| composer_images::UploadSendError::Upload(resolved, error))?,
+                    };
+                    let message = composer_images::uploaded_message(&text, &file_keys, &resolved);
+                    let parsed = domain::image_message::parse_steer_message(&message);
+                    let mut attachment_ids = parsed.attachment_ids;
+                    attachment_ids.extend(parsed.files.into_iter().map(|file| file.id));
+                    let input = send_input(&parsed.text, attachment_ids);
+                    match crate::sealing::send_blocking(&trpc, &input, &plan) {
+                        Ok(_) => Ok(()),
+                        Err(err) => Err(composer_images::UploadSendError::Send(resolved, err)),
+                    }
+                })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.first.sending = false;
+                match outcome {
+                    Ok(()) => {
+                        composer_images::settle_sent(&this.first.input, &mut this.first.images, &sent, window, cx);
+                    }
+                    Err(composer_images::UploadSendError::Upload(resolved, error)) => {
                         this.first.images.note_uploaded(&resolved);
                         log::warn!("[ui] agent composer upload failed: {error}");
                         let view = cx.entity().downgrade();
@@ -551,45 +578,11 @@ impl AgentScreenView {
                             },
                             cx,
                         );
-                        cx.notify();
-                    });
-                    return;
-                }
-            };
-            let Ok((input, plan)) = this.update(cx, |this, cx| {
-                this.first.images.note_uploaded(&resolved);
-                let parsed = domain::image_message::parse_steer_message(&this.first.images.message(&text));
-                let mut attachment_ids = parsed.attachment_ids;
-                attachment_ids.extend(parsed.files.into_iter().map(|file| file.id));
-                let input = match &app_device {
-                    Some(device_id) => crate::chat_launch::app_send_input(
-                        &team_id,
-                        &subject_id,
-                        device_id.as_deref(),
-                        &parsed.text,
-                        attachment_ids,
-                    ),
-                    None => crate::chat_launch::agent_send_input(&team_id, &subject_id, &parsed.text, attachment_ids),
-                };
-                let plan = crate::sealing::plan_send(&input, cx);
-                (input, plan)
-            }) else {
-                return;
-            };
-            let result = cx
-                .background_executor()
-                .spawn(async move { crate::sealing::send_blocking(&trpc, &input, &plan) })
-                .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                this.first.sending = false;
-                match result {
-                    Ok(_) => {
-                        this.first.images.clear();
-                        this.first
-                            .input
-                            .update(cx, |state, cx| state.set_value("", window, cx));
                     }
-                    Err(err) => crate::action_error::failed_action_err("send", "the message", &err, cx),
+                    Err(composer_images::UploadSendError::Send(resolved, err)) => {
+                        this.first.images.note_uploaded(&resolved);
+                        crate::action_error::failed_action_err("send", "the message", &err, cx);
+                    }
                 }
                 cx.notify();
             });

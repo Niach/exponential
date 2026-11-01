@@ -504,6 +504,25 @@ describe(`useLaunchComposer start`, () => {
     expect(result.current.busy).toBe(false)
   })
 
+  it(`EXP-1537: text typed while the start was in flight stays (composer-send.json)`, async () => {
+    let resolve!: (value: { sessionId: string; txid: number }) => void
+    mockState.send.mockImplementation(() => new Promise((res) => (resolve = res)))
+    const { result } = mount()
+    act(() => result.current.setText(`hi`))
+    let done: Promise<void> | undefined
+    act(() => {
+      done = result.current.submit()
+    })
+    await vi.waitFor(() => expect(mockState.send).toHaveBeenCalledTimes(1))
+    act(() => result.current.setText(`hi, and the docs`))
+    await act(async () => {
+      resolve({ sessionId: `s-new`, txid: 42 })
+      await done
+    })
+    expect(mockState.send.mock.calls[0]![0]).toMatchObject({ text: `hi` })
+    expect(result.current.text).toBe(`hi, and the docs`)
+  })
+
   it(`opens the thread anyway when the sync wait gives up`, async () => {
     vi.useFakeTimers()
     try {

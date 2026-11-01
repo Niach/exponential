@@ -45,6 +45,7 @@ import {
 } from "@/lib/steer-devices"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { composerTextAfterSend } from "@exp/domain-contract/composer-send"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
@@ -561,6 +562,9 @@ export function useLaunchComposer({
 
   const submit = async () => {
     if (blocked || (!device && !toAgent)) return
+    // EXP-1537 (composer-send.json): the field stays editable while the
+    // start is in flight; a success clears only what went out.
+    const sentText = text
     setSending(true)
     const retry = () => void submitRef.current()
     try {
@@ -572,7 +576,9 @@ export function useLaunchComposer({
           if (image.uploadedId) continue
           const uploaded = await uploadTeamSessionImageFile(teamId, image.file)
           current = markPendingImageUploaded(current, image.url, uploaded.id, uploaded.filename)
-          setImages(current)
+          // The live strip, not the snapshot: a pick added or removed
+          // meanwhile keeps its edit (composer-send.json).
+          setImages((images) => markPendingImageUploaded(images, image.url, uploaded.id, uploaded.filename))
         }
       } catch (error) {
         failedAction(`upload`, `the attachment`, error, { retry })
@@ -586,7 +592,7 @@ export function useLaunchComposer({
         teamId,
         deviceId: device?.deviceId ?? ``,
         options,
-        text,
+        text: sentText,
         attachmentIds,
         subject,
         repoId,
@@ -602,7 +608,7 @@ export function useLaunchComposer({
       }
       await awaitSynced(result.txid, START_SYNC_WAIT_MS)
       const agentId = recipient?.id ?? null
-      clearDraft()
+      clearSent(sentText, current)
       onStartedRef.current?.(result.sessionId)
       if (teamSlug) {
         // S-3: a message opens the agent's chat, a start its thread.
@@ -620,10 +626,11 @@ export function useLaunchComposer({
     }
   }
 
-  const clearDraft = () => {
-    for (const image of imagesRef.current) URL.revokeObjectURL(image.url)
-    setImages([])
-    setText(``)
+  const clearSent = (sentText: string, sentImages: readonly PendingAttachment[]) => {
+    const gone = new Set(sentImages.map((image) => image.url))
+    for (const url of gone) URL.revokeObjectURL(url)
+    setImages((images) => images.filter((image) => !gone.has(image.url)))
+    setText((current) => composerTextAfterSend(sentText, current))
     setSubject(null)
   }
 
