@@ -53,6 +53,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 data class MemberRow(
     val member: TeamMemberEntity,
@@ -413,7 +415,7 @@ class TeamSettingsViewModel @Inject constructor(
             teamDeleted = deleted,
             accountId = accountId,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamSettingsState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamSettingsState())
 
     fun updateRole(memberId: String, role: String): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch

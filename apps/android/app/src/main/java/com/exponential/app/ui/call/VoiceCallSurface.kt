@@ -104,6 +104,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // NEW-69 (voice V5, `fixtures/voice-call.json`): the phone's call. THE
 // telephone in the agent chat's header ([AgentCallButton]) and, S-3, THE
@@ -451,7 +453,7 @@ class AgentCallViewModel @Inject constructor(
             ),
             device = device,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Target(VoiceCall.callAvailability(OFF), null))
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Target(VoiceCall.callAvailability(OFF), null))
 
     fun refresh() {
         val accountId = auth.activeAccountId.value ?: return

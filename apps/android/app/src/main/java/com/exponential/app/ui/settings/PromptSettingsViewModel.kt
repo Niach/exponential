@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // NEW-2/NEW-7: Settings → Prompts (prompts replaced actions). The list = the
 // SELECTED team's synced, body-less `prompts` rows; a prompt's page fetches
@@ -67,13 +69,13 @@ class PromptSettingsViewModel @Inject constructor(
         .flatMapLatest { (db, team) ->
             if (db == null || team == null) flowOf(null) else db.promptDao().observeByTeam(team).map { rows -> rows.map { it.toPromptDto() } }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The page's LIVE synced row (null while loading, or once deleted). */
     val row: StateFlow<PromptDto?> = dbFlow.flatMapLatest { db ->
         val id = promptId
         if (db == null || id == null) flowOf(null) else db.promptDao().observeById(id).map { it?.toPromptDto() }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The team the page writes in: the row's own, else the selection. */
     private val teamId = combine(row, selection.selectedId) { r, selected -> r?.teamId ?: selected }
@@ -87,7 +89,7 @@ class PromptSettingsViewModel @Inject constructor(
         .combine(auth.userId) { members, userId ->
             userId != null && members.firstOrNull { it.userId == userId }?.role == DomainContract.teamRoleOwner
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _state = MutableStateFlow(PromptPageState(loading = promptId != null))
     val state: StateFlow<PromptPageState> = _state

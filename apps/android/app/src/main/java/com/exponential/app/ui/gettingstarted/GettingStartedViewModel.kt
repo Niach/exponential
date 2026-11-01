@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 /**
  * The getting-started checklist's signals for the SELECTED team (EXP-698 r5,
@@ -117,7 +119,7 @@ class GettingStartedViewModel @Inject constructor(
     /** Whether the team has a board yet — the Agent home shows the block until it does. */
     val hasBoard: StateFlow<Boolean?> = boards
         .map<List<*>, Boolean?> { it.isNotEmpty() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val state: StateFlow<GettingStartedState> = combine(
         signals,
@@ -143,7 +145,7 @@ class GettingStartedViewModel @Inject constructor(
                 loading = false,
             )
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GettingStartedState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GettingStartedState())
 
     init {
         viewModelScope.launch {
@@ -164,7 +166,7 @@ class GettingStartedViewModel @Inject constructor(
     /** The `EXP_INSTANCE` the server install one-liner points at. */
     val instanceOrigin: StateFlow<String?> = auth.instanceUrl
         .map { it?.trimEnd('/') }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The active team, for the create-board action's target. */
     val selectedTeamId: StateFlow<String?> = selection.selectedId
