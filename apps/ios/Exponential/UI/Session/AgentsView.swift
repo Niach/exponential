@@ -369,7 +369,7 @@ struct AgentsView: View {
     /// empty-slot wording and its attention items — off the ×4 pure rule.
     private func listRow(_ vm: AgentsViewModel, _ device: SteerDevice) -> DevicesList.Row {
         let now = Date()
-        DevicesList.row(DevicesList.Input(
+        return DevicesList.row(DevicesList.Input(
             online: device.isOnline,
             mine: device.isMine,
             server: device.isServer,

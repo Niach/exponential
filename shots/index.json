@@ -110,8 +110,8 @@
         "file": "shots/agents/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 23888,
-        "sha256": "08200c3d4d08f5bfee9952f82226d2152f92a63d568a53bde89765a5f94c5f3a"
+        "bytes": 23816,
+        "sha256": "eb96b01f9c5d21df750ebf9ea10b0cbaf55a218a88701ed09ff9675d9d0662b3"
       },
       "web": {
         "file": "shots/agents/web.webp",
