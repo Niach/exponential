@@ -38,6 +38,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 /**
  * EXP-1291 Threads v2 / NEW-2: Team settings → Agents (lane AGENTS owns the
@@ -90,7 +92,7 @@ class AgentSettingsViewModel @Inject constructor(
         auth.userId,
     ) { defs, sessions, team, me ->
         if (team == null) emptyList() else SessionTree.listAgents(defs.map(SessionTree::agentDefinition), sessions, team, me)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * NEW-2: the selected team's Events band (web `AgentEventsBand`): newest
@@ -126,20 +128,20 @@ class AgentSettingsViewModel @Inject constructor(
                 }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The page's synced agent definition (null for `New agent` / while loading). */
     val agent: StateFlow<AgentDefinitionEntity?> = (
         agentId?.let { id ->
             dbFlow.scopedQuery<AgentDefinitionEntity?>(null) { it.agentDefinitionDao().observeById(id) }
         } ?: flowOf(null)
-        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        ).flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** NEW-2: the caller's own conversation session with the agent (the
      *  page's chat button opens it); null = none yet. */
     val conversationId: StateFlow<String?> = combine(sessionRows, auth.userId) { sessions, me ->
         agentId?.let { SessionTree.conversations(sessions, me)[it] }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Whether the caller owns the team (owner-only controls hide otherwise). */
     val isTeamOwner: StateFlow<Boolean> = combine(
@@ -151,7 +153,7 @@ class AgentSettingsViewModel @Inject constructor(
         }
         .combine(auth.userId) { members, userId ->
             userId != null && members.firstOrNull { it.userId == userId }?.role == DomainContract.teamRoleOwner
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** The Device picker (`agent-settings.json`): the ONLINE devices of the
      *  team the caller may start on (the caller's machines + the team's shared
@@ -162,7 +164,7 @@ class AgentSettingsViewModel @Inject constructor(
         agent,
     ) { list, row ->
         list?.filter { it.online || it.deviceId == row?.deviceId }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _instructions = MutableStateFlow<String?>(null)
     /** The server-only instructions (`agents.get`); null = not loaded. */
@@ -175,7 +177,7 @@ class AgentSettingsViewModel @Inject constructor(
     /** The agent's readable triggers, stored order (the Triggers rows). */
     val triggers: StateFlow<List<AgentTrigger>> = combine(agent, lastWritten) { row, written ->
         triggerBase(row, written)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _busy = MutableStateFlow(false)
     /** ONE write at a time (each trigger write replaces the whole array). */

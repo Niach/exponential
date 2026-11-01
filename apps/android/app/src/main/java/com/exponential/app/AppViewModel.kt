@@ -44,6 +44,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 data class AppState(
     val instanceUrl: String? = null,
@@ -213,7 +215,7 @@ class AppViewModel @Inject constructor(
             accounts = accounts,
             updateRequired = url?.let { UpdateGate.originKey(it) }?.let { gated[it] },
         )
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, AppState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, AppState())
 
     // Signed-in servers OTHER than the active one that answered 426 (REV2-18).
     // Their pipelines are stopped below; this is the banner that says so, since
@@ -227,7 +229,7 @@ class AppViewModel @Inject constructor(
             .filter { it.id != activeId && it.token != null && it.isGated(gated) }
             .map { it.displayName }
             .distinct()
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // EXP-533: is the ACTIVE account's sync reaching its server? Drives the
     // floating offline banner. WhileSubscribed, because the model re-evaluates
@@ -235,7 +237,7 @@ class AppViewModel @Inject constructor(
     // needs that.
     val syncHealth: StateFlow<SyncHealth> =
         syncHealthTracker.activeHealth(auth.activeAccountId)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncHealth.Ok)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncHealth.Ok)
 
     // Unread notifications of the ACTIVE team on the active account — drives
     // the inbox dot. Counted exactly like the inbox page (chats.json: the
@@ -260,7 +262,7 @@ class AppViewModel @Inject constructor(
             activeTeamUnread(notifications, issues, boards, teamId)
         }
     }.distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     // EXP-1272: the ACTIVE team's drafts (web `useDraftCount(team.id)`, iOS
     // `draftTeamIds` against the active team), resolved exactly like the
@@ -281,7 +283,7 @@ class AppViewModel @Inject constructor(
             }
         }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     // EXP-1291: true while at least one of MY sessions is live in ANY member
     // team (`lightsLiveDot`: not ended; an agent only while busy / waiting) —
@@ -300,7 +302,7 @@ class AppViewModel @Inject constructor(
     // dots; the old board switcher sheet's were the only reader on phones).
     val liveRunsByTeam: StateFlow<Map<String, TeamLiveRuns>> = combine(myLiveSessions, auth.userId) { sessions, me ->
         liveRunsByTeam(sessions, me)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     // The Board tab root's current board (`currentBoardFor`): the ACTIVE
     // team's last-used board, else its first board, else none (chats.json:
@@ -324,11 +326,11 @@ class AppViewModel @Inject constructor(
                 currentBoardFor(teams, boards, teamSelection.lastBoard(accountId), selectedTeamId)
             }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val currentBoardId: StateFlow<String?> = currentBoard
         .map { it?.id }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun setInstanceUrl(url: String) {
         viewModelScope.launch { auth.setInstanceUrl(url) }

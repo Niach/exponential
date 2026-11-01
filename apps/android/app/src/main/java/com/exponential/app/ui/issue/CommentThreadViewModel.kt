@@ -56,6 +56,7 @@ import kotlinx.coroutines.withContext
 
 import com.exponential.app.domain.AgentSettings
 import com.exponential.app.ui.components.actorRow
+import kotlinx.coroutines.flow.flowOn
 
 data class CommentThreadState(
     val issue: IssueEntity? = null,
@@ -177,7 +178,7 @@ class CommentThreadViewModel @Inject constructor(
             agents = agents,
             appNames = appNames,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CommentThreadState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CommentThreadState())
 
     fun bind(issueId: String) {
         if (issueIdFlow.value != issueId) {
@@ -238,7 +239,7 @@ class CommentThreadViewModel @Inject constructor(
                     .sortedBy { it.createdAt }
                     .groupBy { it.commentId!! }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** Files queued for the NEXT comment — uploaded on send, never before. */
     private val _pendingAttachments = MutableStateFlow<List<PendingAttachment>>(emptyList())

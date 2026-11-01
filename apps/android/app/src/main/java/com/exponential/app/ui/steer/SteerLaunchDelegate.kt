@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 /** Send feedback: an informational Sent caption vs a persistent red Failed. */
 sealed interface ActionRunState {
@@ -143,14 +145,14 @@ class SteerLaunchDelegate @Inject constructor(
                         )
                     }
             }
-        }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
         val registryFlow = steerDeviceFlow(dbFlow, teamIdFlow, auth.userId)
-            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
         _registry = registryFlow
         _devices = combine(registryFlow, _enabled) { devices, enabled ->
             onlineStartTargets(devices, enabled)
-        }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
 
         // Steer availability, resolved once per account (env-derived, static
         // per INSTANCE).

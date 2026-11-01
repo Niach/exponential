@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.flowOn
 
 // The device-settings sheet's data + mutations (EXP-481): rename, team
 // sharing, the server-authoritative launch-defaults edit — all of which work
@@ -134,7 +135,7 @@ class DeviceSettingsViewModel @Inject constructor(
     /** The caller's teams — one sharing switch each (FEED-33). */
     val teams: StateFlow<List<TeamEntity>> =
         dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Per-section busy flags (EXP-323 idiom).
     private val _nameBusy = MutableStateFlow(false)
