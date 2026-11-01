@@ -853,6 +853,8 @@ impl SurfaceView {
             // An exiting layer paints nothing live (the view is the open tree's).
             ("ZoomableImage", _) if self.ghosting.get() => return None,
             ("ZoomableImage", _) => self.zoom_element(&n.id, w, h, cx)?,
+            // EXP-1604: the raster's frame as an image (view/motion_leaf.rs).
+            ("Motion", _) => self.motion_element(n, cx),
             ("Video", _) => natives::video(&lcx, self.media_play(n, "mp4")),
             ("AudioPlayer", _) => natives::audio(&lcx, self.media_play(n, "m4a")),
             ("Spinner", _) => natives::spinner(&lcx),

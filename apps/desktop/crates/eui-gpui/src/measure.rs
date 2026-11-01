@@ -1077,6 +1077,16 @@ impl<'a> GpuiMeasure<'a> {
                 };
                 plain((w, w / eui_core::layout_tree::zoomable_aspect_ratio(props) as f32))
             }
+            // EXP-1604: the composition's px size, shrinking to the offered
+            // width with its aspect (the core's `width` + `maxWidth` +
+            // `aspectRatio` decide in a flow); a `src` animation: none.
+            ("Motion", _) => match eui_core::layout_tree::motion_size(props) {
+                Some((cw, ch)) => {
+                    let w = inner.map_or(cw as f32, |x| x.max(0.0).min(cw as f32));
+                    plain((w, w * (ch / cw) as f32))
+                }
+                None => plain((0.0, 0.0)),
+            },
             ("AudioPlayer", _) => {
                 let title = str_prop(props, "title");
                 // Round 2 §7: the title line + `$spacing.xs` + a controls

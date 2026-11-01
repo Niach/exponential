@@ -36,6 +36,13 @@ gpui-component.workspace = true
 gpui-base.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# EXP-1604: the Motion native. The engine samples the display list, its
+# `raster` feature (tiny-skia, the parity reference) paints it into the
+# pixmap the painter hands gpui as a RenderImage.
+eui-motion = { path = "../eui-motion", default-features = false, features = ["raster"] }
+tiny-skia = "0.11.4"
+# RenderImage frames (`image::Frame`): the version gpui and eui-motion already use.
+image = { version = "0.25", default-features = false }
 # CSS-aligned break opportunities (UAX #14) for min-content and the
 # painter's own line wrapping; already in the lock via cosmic-text.
 unicode-linebreak = "0.1.5"
