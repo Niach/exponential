@@ -55,8 +55,10 @@ public enum Dock {
         /// = how many questions the card asks; `createdAt` = the asks' order.
         case plan(id: String, text: String, sessionName: String?, questions: Int, createdAt: Double)
         case question(id: String, text: String, sessionName: String?, createdAt: Double)
-        /// THE Queue, or nil when nothing is to do.
-        case tasks(QueueSummary?)
+        /// THE Queue, or nil when nothing is to do. #EXP-1545: `sessionName`
+        /// = a thread's Live child carrying the card (its name leads the
+        /// caption); nil = the root / the session view.
+        case tasks(QueueSummary?, sessionName: String? = nil)
         /// The queued messages' texts, oldest first.
         case queued([String])
         /// EXP-1323's suggested-tasks row while any item is open
@@ -191,11 +193,12 @@ public enum Dock {
                     label: counted(messages.count, one: Copy.queuedOne, many: Copy.queuedMany),
                     caption: nil, meta: nil, title: first, expandable: true, action: nil
                 ), 0))
-            case let .tasks(queue):
+            case let .tasks(queue, sessionName):
                 guard let queue, let first = queue.items.first else { continue }
+                let caption = [sessionName, queue.completedTitle].compactMap { $0 }.joined(separator: " · ")
                 rows.append((Row(
                     id: "tasks", kind: .tasks, tint: .muted, icon: Icons.tasks, label: queue.todoTitle,
-                    caption: queue.completedTitle, meta: first.description, title: first.label,
+                    caption: caption.isEmpty ? nil : caption, meta: first.description, title: first.label,
                     expandable: true, action: nil
                 ), 0))
             case let .suggestions(id, label, caption, title, _):
@@ -233,6 +236,55 @@ public enum Dock {
             if a.createdAt != b.createdAt { return a.createdAt < b.createdAt }
             return a.row.id < b.row.id
         }.map(\.row)
+    }
+
+    /// #EXP-1545: a session of a thread's tree that may carry the Dock's ONE
+    /// `tasks` card. `activeAt` = epoch ms of its last turn (else its start),
+    /// nil = no activity yet; `open` = its Queue has a todo item to show.
+    public struct ThreadQueueCandidate: Equatable, Sendable {
+        public let sessionId: String
+        public let name: String
+        public let root: Bool
+        public let ended: Bool
+        public let activeAt: Double?
+        public let open: Bool
+
+        public init(sessionId: String, name: String, root: Bool, ended: Bool, activeAt: Double?, open: Bool) {
+            self.sessionId = sessionId
+            self.name = name
+            self.root = root
+            self.ended = ended
+            self.activeAt = activeAt
+            self.open = open
+        }
+    }
+
+    /// #EXP-1545: whose Queue a thread's Dock shows; `sessionName` nil = the root.
+    public struct ThreadDockQueue: Equatable, Sendable {
+        public let sessionId: String
+        public let sessionName: String?
+
+        public init(sessionId: String, sessionName: String?) {
+            self.sessionId = sessionId
+            self.sessionName = sessionName
+        }
+    }
+
+    /// #EXP-1545: the root's Queue while it is open, else the most recently
+    /// active Live child's (no activity = oldest, ties by id), else none. An
+    /// ended session contributes nothing.
+    public static func threadDockQueue(_ candidates: [ThreadQueueCandidate]) -> ThreadDockQueue? {
+        let live = candidates.filter { $0.open && !$0.ended }
+        if let root = live.first(where: \.root) {
+            return ThreadDockQueue(sessionId: root.sessionId, sessionName: nil)
+        }
+        var best: ThreadQueueCandidate?
+        for candidate in live {
+            guard let current = best else { best = candidate; continue }
+            let a = candidate.activeAt ?? -.infinity, b = current.activeAt ?? -.infinity
+            if a > b || (a == b && candidate.sessionId < current.sessionId) { best = candidate }
+        }
+        return best.map { ThreadDockQueue(sessionId: $0.sessionId, sessionName: $0.name) }
     }
 
     /// The band: the pile (or the fan while `expanded`), the front card, the

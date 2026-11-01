@@ -383,6 +383,9 @@ pub(crate) struct SteerSessionView {
     /// where an inline `sessions_show` picture is looked up.
     guide_results: Option<serde_json::Value>,
     feed: SteerFeed,
+    /// #EXP-1538: the feed generation whose stream slots were last kept in
+    /// [`StreamSlotMemo`].
+    slots_kept_at: u64,
     /// EXP-746: what drives the feed. The relay handle lives inside it.
     source: FeedSource,
     /// A `Remote` source with no handle yet: dialled once an account is
@@ -634,6 +637,44 @@ pub(crate) struct SteerSessionView {
     _subscriptions: Vec<Subscription>,
 }
 
+/// #EXP-1538 (dock.json LOCAL FIRST): the stream's latest-wins slots
+/// ([`steer::StreamSlots`]) per session, as this app last saw them. It
+/// outlives every screen (a session view and its feed are rebuilt each time
+/// a chat opens), so a fresh view draws THE Dock from it in its first frame
+/// while the relay joins. An ended session and a sign-out forget it.
+#[derive(Default)]
+pub(crate) struct StreamSlotMemo(HashMap<String, steer::StreamSlots>);
+
+impl gpui::Global for StreamSlotMemo {}
+
+impl StreamSlotMemo {
+    fn last_known(session_id: &str, cx: &App) -> Option<steer::StreamSlots> {
+        cx.try_global::<Self>()?.0.get(session_id).cloned()
+    }
+
+    fn keep(session_id: &str, slots: steer::StreamSlots, cx: &mut App) {
+        let memo = &mut cx.default_global::<Self>().0;
+        if slots.is_empty() {
+            memo.remove(session_id);
+        } else {
+            memo.insert(session_id.to_string(), slots);
+        }
+    }
+
+    fn forget(session_id: &str, cx: &mut App) {
+        if cx.has_global::<Self>() {
+            cx.global_mut::<Self>().0.remove(session_id);
+        }
+    }
+
+    /// Sign-out: nothing of the last account's sessions stays.
+    pub(crate) fn clear(cx: &mut App) {
+        if cx.has_global::<Self>() {
+            cx.global_mut::<Self>().0.clear();
+        }
+    }
+}
+
 impl SteerSessionView {
     /// EXP-746 — the view over any [`FeedSource`]. A `Remote` source with no
     /// handle yet is DIALLED here and the socket stays up for the view's
@@ -740,6 +781,7 @@ impl SteerSessionView {
             may_message: false,
             guide_results: None,
             feed: SteerFeed::new(),
+            slots_kept_at: 0,
             source,
             pending_dial: PendingDial(None),
             context_legend_open: false,
@@ -845,6 +887,7 @@ impl SteerSessionView {
             this.pending_dial = PendingDial(Some(events_tx));
             this.dial_pending(cx);
             this.seed_from_journal(cx);
+            this.seed_stream_slots(cx);
         }
         // EXP-773: a journal source is the whole transcript, already on disk.
         // Fold it into the SAME reducer the wire feeds, then mark the run
@@ -1834,6 +1877,7 @@ impl SteerSessionView {
         self.refresh_derived();
         self.note_feed_moved(pulse);
         self.note_compaction(was_compacting, cx);
+        self.keep_stream_slots(cx);
         cx.notify();
     }
 
@@ -1950,6 +1994,7 @@ impl SteerSessionView {
                 self.refresh_derived();
                 self.note_feed_moved(pulse);
                 self.note_compaction(was_compacting, cx);
+                self.keep_stream_slots(cx);
             }
             engine::LocalFeedEvent::Phase(phase) => {
                 // EXP-758: `Failed` is terminal too, and it arrives BEFORE
@@ -1996,7 +2041,42 @@ impl SteerSessionView {
             self.phase = merge_ended_phase(&self.phase, next);
             self.feed.clear_compaction();
         }
+        // #EXP-1538: an ended session keeps no last-known slots.
+        StreamSlotMemo::forget(&self.session_id, cx);
         cx.notify();
+    }
+
+    /// #EXP-1538 (dock.json LOCAL FIRST): a fresh RELAY view of a session
+    /// that is not over starts from the slots this app last saw for it (the
+    /// screen that held them may be gone), so THE Dock draws in the first
+    /// frame instead of after the join's replay commits; that commit
+    /// restates them. A local engine replays its own backlog at once. The
+    /// hosting device's journal is fresher: when it seeded, the memo stays
+    /// out. A seeded compaction arms its backstop like a live one.
+    fn seed_stream_slots(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.journal_seeded
+            || crate::session_data::session(&self.session_id, cx).is_none_or(|row| row.is_ended())
+        {
+            return;
+        }
+        if let Some(slots) = StreamSlotMemo::last_known(&self.session_id, cx) {
+            let was_compacting = self.feed.compacting().is_some();
+            self.feed.seed_stream_slots(slots);
+            self.slots_kept_at = self.feed.generation();
+            self.note_compaction(was_compacting, cx);
+        }
+    }
+
+    /// #EXP-1538: keep this live view's stream slots as the session's
+    /// last-known ones whenever the committed feed moved (never mid-replay:
+    /// the staged burst has not touched them yet).
+    fn keep_stream_slots(&mut self, cx: &mut App) {
+        let live = matches!(self.source, FeedSource::Remote { .. } | FeedSource::Local { .. }) && self.run_open();
+        if !live || self.feed.is_staging() || self.feed.generation() == self.slots_kept_at {
+            return;
+        }
+        self.slots_kept_at = self.feed.generation();
+        StreamSlotMemo::keep(&self.session_id, self.feed.stream_slots(), cx);
     }
 
     /// EXP-724: the feed reads no clock, so the [`COMPACTION_TIMEOUT`]
@@ -7499,22 +7579,13 @@ impl SteerSessionView {
         )
     }
 
-    /// N-12: the session's own DockCards (web `useSessionDock`): the queued
-    /// messages, THE Queue and the status banners. The session view adds
-    /// its waiting cards; a root's host (thread, agent channel) adds the
-    /// tree's.
-    pub(crate) fn session_dock_sources(&self, cx: &App) -> Vec<domain::dock::DockSource> {
-        use domain::dock::{DockQueue, DockQueueCompleted, DockQueueItem, DockQueueTodo, DockQueuedMessage, DockSource};
-        let queued = if self.run_open() {
-            self.feed
-                .queue()
-                .iter()
-                .map(|message| DockQueuedMessage { id: message.id.clone(), text: message.text.split_whitespace().collect::<Vec<_>>().join(" ") })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let queue = self.task_queue_model().map(|queue| DockQueue {
+    /// N-12: THE Queue as the `tasks` DockCard reads it; `None` when nothing
+    /// is to do or the session is over. #EXP-1545: a thread reads each Live
+    /// child's through its own view.
+    pub(crate) fn dock_queue(&self) -> Option<domain::dock::DockQueue> {
+        use domain::dock::{DockQueue, DockQueueCompleted, DockQueueItem, DockQueueTodo};
+        // #EXP-1538: a session that is over shows none of the stream's slots.
+        self.task_queue_model().filter(|_| self.run_open()).map(|queue| DockQueue {
             todo: DockQueueTodo {
                 title: queue.todo.title.clone(),
                 items: queue
@@ -7529,8 +7600,26 @@ impl SteerSessionView {
                     .collect(),
             },
             completed: queue.completed.as_ref().map(|section| DockQueueCompleted { title: section.title.clone() }),
-        });
-        let mut out = vec![DockSource::Queued { messages: queued }, DockSource::Tasks { queue }];
+        })
+    }
+
+    /// N-12: the session's own DockCards (web `useSessionDock`): the queued
+    /// messages, THE Queue and the status banners. The session view adds
+    /// its waiting cards; a root's host (thread, agent channel) adds the
+    /// tree's.
+    pub(crate) fn session_dock_sources(&self, cx: &App) -> Vec<domain::dock::DockSource> {
+        use domain::dock::{DockQueuedMessage, DockSource};
+        let queued = if self.run_open() {
+            self.feed
+                .queue()
+                .iter()
+                .map(|message| DockQueuedMessage { id: message.id.clone(), text: message.text.split_whitespace().collect::<Vec<_>>().join(" ") })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let queue = self.dock_queue();
+        let mut out = vec![DockSource::Queued { messages: queued }, DockSource::Tasks { session_name: None, queue }];
         out.extend(self.dock_banners(cx));
         out
     }

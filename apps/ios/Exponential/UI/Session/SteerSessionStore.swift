@@ -1,3 +1,4 @@
+import ExpCore
 import Foundation
 
 /// EXP-621: steer sessions outlive the screen showing them. The socket owner
@@ -17,6 +18,8 @@ final class SteerSessionStore {
     private struct Key: Hashable {
         let accountId: String
         let sessionId: String
+
+        var memoryKey: String { "\(accountId)/\(sessionId)" }
     }
 
     private final class Entry {
@@ -41,6 +44,13 @@ final class SteerSessionStore {
     private static let detachedCap = 3
 
     private var entries: [Key: Entry] = [:]
+
+    /// #EXP-1538 LOCAL FIRST (dock.json): the last-known Dock slots of the
+    /// sessions whose model this store retired while they still ran, so the
+    /// next open draws THE Queue, the queued messages and the strips in its
+    /// first frame instead of after the join replay. Forgotten when the
+    /// session is over and on sign-out.
+    @ObservationIgnored private var dockMemory = SteerDockMemory()
 
     /// Constructed alongside the other long-lived services in AppDependencies,
     /// whose init is not main-actor isolated.
@@ -72,6 +82,12 @@ final class SteerSessionStore {
         let entry = Entry(model: make())
         entry.attached = 1
         entries[key] = entry
+        // #EXP-1538: what this session's Dock showed when its last model was
+        // retired, until the new one's join replay restates it.
+        if let slots = dockMemory.lastKnown(key.memoryKey) {
+            dockMemory.forget(key.memoryKey)
+            entry.model.seedDockSlots(slots)
+        }
         entry.model.start()
         return entry.model
     }
@@ -114,6 +130,7 @@ final class SteerSessionStore {
             entry.model.shutdown()
         }
         entries = [:]
+        dockMemory.forgetAll()
     }
 
     /// Retire finished sessions nobody is looking at, then enforce the
@@ -123,14 +140,23 @@ final class SteerSessionStore {
             guard let entry = entries[key] else { return false }
             return entry.attached == 0 && entry.model.isOver
         }
-        for key in finished { drop(key) }
+        for key in finished {
+            dockMemory.forget(key.memoryKey)
+            drop(key)
+        }
         let detached = entries.keys
             .filter { entries[$0]?.attached == 0 }
             .sorted { a, b in
                 (entries[a]?.detachedAt ?? .distantPast) < (entries[b]?.detachedAt ?? .distantPast)
             }
         guard detached.count > Self.detachedCap else { return }
-        for key in detached.prefix(detached.count - Self.detachedCap) { drop(key) }
+        for key in detached.prefix(detached.count - Self.detachedCap) {
+            // Evicted while it still runs: keep what its Dock showed.
+            if let model = entries[key]?.model, !model.isOver {
+                dockMemory.remember(key.memoryKey, model.dockSlots)
+            }
+            drop(key)
+        }
     }
 
     private func drop(_ key: Key) {

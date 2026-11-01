@@ -51,6 +51,27 @@ const CloseIcon = conceptIcon(DOCK_ICONS.close as IconConcept)
 
 const TINT_CLASS: Record<DockTint, string> = DOCK_CARD_CLASSES.tint
 
+/** #EXP-1538: the open-chat → Dock-visible benchmark. The host marks
+ *  `dock:open` when its session view mounts (`markDockOpen`, a layout
+ *  effect); the band marks `dock:visible` the first time it then shows a
+ *  card and measures `dock:open-to-visible` between them. */
+export const DOCK_TIMING = { open: `dock:open`, visible: `dock:visible`, measure: `dock:open-to-visible` } as const
+let dockOpenPending = false
+const canMark = () => typeof performance !== `undefined` && typeof performance.mark === `function`
+
+export function markDockOpen() {
+  if (!canMark()) return
+  performance.mark(DOCK_TIMING.open)
+  dockOpenPending = true
+}
+
+function markDockVisible() {
+  if (!dockOpenPending || !canMark()) return
+  dockOpenPending = false
+  performance.mark(DOCK_TIMING.visible)
+  performance.measure(DOCK_TIMING.measure, DOCK_TIMING.open, DOCK_TIMING.visible)
+}
+
 /** The band's column: the work column's measure, the phone's gutter. */
 export const DOCK_COLUMN_CLASS = `mx-auto w-full max-w-4xl px-3 md:px-5`
 
@@ -107,6 +128,10 @@ export function Dock({
   // sits over it) and is re-measured whenever it mounts or resizes, so the
   // transcript's last rows never run under the capsule or a later card.
   const present = view.mode !== `none` || !!composer || phoneClearance
+  const hasCards = view.mode !== `none`
+  useEffect(() => {
+    if (hasCards) markDockVisible()
+  }, [hasCards, rows])
   useLayoutEffect(() => {
     if (!onHeight) return
     const node = bandRef.current
@@ -200,6 +225,9 @@ export function DockPile({
         node: (
           <DockCard
             row={row}
+            // dock.json: a card enters with `motion.enter`, rising
+            // `stack.gap`, one present when the view opens included (#EXP-1538).
+            className="motion-enter slide-in-from-bottom-1.5"
             hidden={!fanned && row.id !== frontId}
             action={renderAction?.(row)}
             onOpen={() => {

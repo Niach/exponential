@@ -56,6 +56,40 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_146: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-comments-keep-typed-text",
+    date: "2026-11-01",
+    title: "Comments keep what you type while they send",
+    summary: "Text typed or files added while a comment is sending stay in the composer.",
+    body: r#"- **Keep typing**: the comment field stays editable while a comment sends, and only what went out clears.
+- **Leave anytime**: on Android, backing out of an issue no longer cancels a comment that is still sending."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_145: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-thread-dock-child-tasks",
+    date: "2026-11-01",
+    title: "A child's tasks in the thread",
+    summary: "The Dock of a thread shows the tasks of a running child session when the root has none.",
+    body: r#"- **Tasks card**: when the root session has no open tasks, the thread's Dock shows the tasks of the most recently active running child, named in the card.
+- **Sheet**: opening the card shows that child's full task list."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_144: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-chat-stability",
+    date: "2026-11-01",
+    title: "Chats stay smooth and keep what you type",
+    summary: "Typing, sending and reopening a chat are faster and never lose your text.",
+    body: r#"- **Typing**: on Android, letters no longer drop or swap, and typing and scrolling stay smooth while the agent works.
+- **Sending**: text you type while a message is sending is no longer lost, and leaving the screen no longer cancels a send or an upload. Sending and going straight back no longer freezes Android.
+- **Reopening a chat**: its task and queue cards show right away instead of after the live view connects."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_143: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-claude-long-lived-login",
     date: "2026-11-01",

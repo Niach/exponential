@@ -79,7 +79,9 @@ object Dock {
         ) : Source
 
         /** THE Queue (task-queue.json `taskQueue`), or null when nothing is to do. */
-        data class Tasks(val queue: TaskQueue?) : Source
+        /** [sessionName] = #EXP-1545: a thread's Live child carrying the card
+         *  (its name leads the caption); null in the session view and for the root. */
+        data class Tasks(val queue: TaskQueue?, val sessionName: String? = null) : Source
 
         data class Queued(val messages: List<QueuedMessage>) : Source
 
@@ -176,7 +178,9 @@ object Dock {
                         tint = Tint.Muted,
                         icon = Icons.TASKS,
                         label = queue.todo.title,
-                        caption = queue.completed?.title,
+                        caption = listOfNotNull(source.sessionName, queue.completed?.title)
+                            .joinToString(" · ")
+                            .ifEmpty { null },
                         meta = first.description,
                         title = first.label,
                         expandable = true,
@@ -279,5 +283,32 @@ object Dock {
             title = open.first().second,
             open = open.size,
         )
+    }
+
+    /** #EXP-1545: a session of a thread's tree that may carry the Dock's ONE
+     *  `tasks` card. [activeAt] = epoch ms of its last turn (else its start),
+     *  null = no activity yet; [open] = its Queue has a todo item to show. */
+    data class ThreadQueueCandidate(
+        val sessionId: String,
+        val name: String,
+        val root: Boolean,
+        val ended: Boolean,
+        val activeAt: Long?,
+        val open: Boolean,
+    )
+
+    /** The session whose Queue the thread's Dock shows ([sessionName] null for the root). */
+    data class ThreadDockQueue(val sessionId: String, val sessionName: String?)
+
+    /** #EXP-1545: whose Queue the thread's Dock shows: the root's while it is
+     *  open, else the most recently active Live child's (ties by id), else
+     *  none. An ended session contributes nothing. */
+    fun threadDockQueue(candidates: List<ThreadQueueCandidate>): ThreadDockQueue? {
+        val live = candidates.filter { it.open && !it.ended }
+        live.firstOrNull { it.root }?.let { return ThreadDockQueue(it.sessionId, null) }
+        val best = live.sortedWith(
+            compareByDescending<ThreadQueueCandidate> { it.activeAt ?: Long.MIN_VALUE }.thenBy { it.sessionId },
+        ).firstOrNull() ?: return null
+        return ThreadDockQueue(best.sessionId, best.name)
     }
 }

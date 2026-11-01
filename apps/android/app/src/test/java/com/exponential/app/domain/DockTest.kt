@@ -68,6 +68,7 @@ class DockTest {
             (json["queue"] as? JsonObject)?.let { q ->
                 TaskQueue(section(q.getValue("todo").jsonObject)!!, section(q["completed"] as? JsonObject))
             },
+            sessionName = json.str("sessionName"),
         )
         "queued" -> Dock.Source.Queued(
             json.getValue("messages").jsonArray.map { Dock.QueuedMessage(it.jsonObject.str("id")!!, it.jsonObject.str("text")!!) },
@@ -171,6 +172,31 @@ class DockTest {
         for (case in cases) {
             val rows = Dock.dockRows(case.getValue("sources").jsonArray.map { source(it.jsonObject) })
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(rows.map(::rowJson)))
+        }
+    }
+
+    @Test
+    fun `thread queue cases`() {
+        val cases = array("threadQueueCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val candidates = case.getValue("candidates").jsonArray.map { it.jsonObject }.map { c ->
+                Dock.ThreadQueueCandidate(
+                    sessionId = c.str("sessionId")!!,
+                    name = c.str("name")!!,
+                    root = c.getValue("root").jsonPrimitive.boolean,
+                    ended = c.getValue("ended").jsonPrimitive.boolean,
+                    activeAt = c.str("activeAt")?.toLong(),
+                    open = c.getValue("open").jsonPrimitive.boolean,
+                )
+            }
+            val actual: JsonElement = Dock.threadDockQueue(candidates)?.let { q ->
+                buildJsonObject {
+                    put("sessionId", q.sessionId)
+                    put("sessionName", nullable(q.sessionName))
+                }
+            } ?: JsonNull
+            assertEquals(case.str("name"), case.getValue("expected"), actual)
         }
     }
 

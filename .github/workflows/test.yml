@@ -201,11 +201,25 @@ jobs:
       - run: bun test
         working-directory: apps/styleguide
 
+  # The eUI rewrite-gap list must classify every view in the catalog exactly
+  # once. views.json lives outside the eui path filter, so this runs on every
+  # PR (bun:test over two JSON files, no install, ~1 s): a new view can't land
+  # without its rewrite-gaps.json row, and a merge race that doubles a row
+  # reddens the next PR instead of only eUI ones.
+  rewrite-gaps:
+    needs: pick
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun test eval/gaps.test.ts
+        working-directory: packages/exponential-ui
+
   # EXP-1364: the ONE required status check on master (the "master: test
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, migrations, desktop, ede, eui, gpui-revs, styleguide]
+    needs: [pick, changes, web, migrations, desktop, ede, eui, gpui-revs, styleguide, rewrite-gaps]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -118,6 +118,11 @@ struct ThreadScreen: View {
     /// (`attachSteerModel`, paired with `steerSessions.detach`).
     @State private var liveModel: AgentSessionModel?
     @State private var liveClaimId: String?
+    /// #EXP-1545: the claims on the tree's Live children's socket owners
+    /// (their per-session relay slots: THE Queue for the thread's ONE tasks
+    /// card), keyed by session id; released once a child ends or the screen
+    /// goes.
+    @State private var childModels: [String: AgentSessionModel] = [:]
     /// EXP-1343: the shown session page's model (its embedded view's claim);
     /// nil off a session page.
     @State private var sessionPageModel: (id: String, model: AgentSessionModel)?
@@ -426,6 +431,8 @@ struct ThreadScreen: View {
         .onChange(of: rows?.guidePullRequest?.id) { _, _ in mergeState = WorkMergeState() }
         // EXP-1323: the live tail follows the root while it is not ended.
         .onChange(of: model?.view?.liveSessionId, initial: true) { _, _ in syncLiveTail() }
+        // #EXP-1545: the Live children's relay slots follow the tree.
+        .onChange(of: liveChildIds, initial: true) { _, _ in syncChildModels() }
         // A newer agent message read here is read: re-stamp the root.
         .onChange(of: newestAgentMessageAt) { _, newest in
             if newest != nil { markRead() }
@@ -699,10 +706,43 @@ struct ThreadScreen: View {
     /// inline in the transcript, answerable.
     private func conversationDockRows(rows: ThreadRows, view: SessionThreadView) -> [Dock.Row] {
         guard canEdit else { return [] }
-        let live = liveModel.map { SessionDock.sources($0, session: rows.root) } ?? []
+        let live = liveModel.map { SessionDock.sources($0, session: rows.root, tasks: false) } ?? []
+        // #EXP-1545: the ONE tasks card, the root's else a Live child's.
+        let tasks = threadQueue(rows: rows, view: view).map { pick -> Dock.Source in
+            .tasks(pick.model.taskQueue(now: Date()).map(Dock.QueueSummary.init), sessionName: pick.sessionName)
+        }
         // #EXP-1383: the agent chat's "Instructions changed" banner.
         let hint = SessionDock.agentHint(root: rows.root, agent: rows.agent).map { [$0] } ?? []
-        return Dock.rows(Dock.suggestionSources(view.rows) + live + hint)
+        return Dock.rows(Dock.suggestionSources(view.rows) + live + (tasks.map { [$0] } ?? []) + hint)
+    }
+
+    /// #EXP-1545 (dock.json THREAD QUEUE): whose Queue the thread's Dock
+    /// shows (`Dock.threadDockQueue`) over the root's and every Live child's
+    /// relay slots (LOCAL FIRST: the store seeds a fresh model with the
+    /// last-known ones); its model draws the card and its sheet's Trace.
+    private func threadQueue(
+        rows: ThreadRows, view: SessionThreadView
+    ) -> (model: AgentSessionModel, sessionName: String?)? {
+        let names = Dictionary(
+            ThreadStripGroup(tabs: view.tabs).sessions.map { ($0.sessionId, $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let now = Date()
+        var models: [String: AgentSessionModel] = childModels
+        if let liveModel, let liveClaimId { models[liveClaimId] = liveModel }
+        let candidates = models.compactMap { id, model -> Dock.ThreadQueueCandidate? in
+            guard let session = rows.session(id: id) else { return nil }
+            return Dock.ThreadQueueCandidate(
+                sessionId: id,
+                name: names[id] ?? session.title ?? "",
+                root: session.parentId == nil,
+                ended: session.status == DomainContract.sessionStatusEnded || model.isOver,
+                activeAt: Stories.ms(session.lastTurnAt) ?? Stories.ms(session.startedAt),
+                open: !(model.taskQueue(now: now)?.todo.items.isEmpty ?? true)
+            )
+        }
+        guard let pick = Dock.threadDockQueue(candidates), let model = models[pick.sessionId] else { return nil }
+        return (model, pick.sessionName)
     }
 
     /// A card's sheet: the suggested tasks' sheet, the root's Queue and
@@ -727,6 +767,10 @@ struct ThreadScreen: View {
                 },
                 onClose: close
             ))
+        }
+        // #EXP-1545: the tasks card opens ITS session's Trace.
+        if row.kind == .tasks, let pick = threadQueue(rows: rows, view: view) {
+            return SessionDock.sheet(row, model: pick.model, close: close)
         }
         return liveModel.flatMap { SessionDock.sheet(row, model: $0, close: close) }
     }
@@ -973,6 +1017,35 @@ struct ThreadScreen: View {
         liveModel = deps.attachSteerModel(accountId: accountId, session: root)
     }
 
+    /// #EXP-1545: the tree's not-ended children (any depth).
+    private var liveChildIds: [String] {
+        (rows?.sessions ?? [])
+            .filter { $0.parentId != nil && $0.status != DomainContract.sessionStatusEnded }
+            .map(\.id)
+            .sorted()
+    }
+
+    /// #EXP-1545: ONE claim per Live child (`attachSteerModel` / `detach`
+    /// pairs, like the root's); an ended or gone child is released.
+    private func syncChildModels() {
+        let wanted = Set(liveChildIds)
+        for id in childModels.keys where !wanted.contains(id) {
+            childModels[id] = nil
+            deps.steerSessions.detach(accountId: accountId, sessionId: id)
+        }
+        for id in wanted where childModels[id] == nil {
+            guard let session = rows?.session(id: id) else { continue }
+            childModels[id] = deps.attachSteerModel(accountId: accountId, session: session)
+        }
+    }
+
+    private func releaseChildModels() {
+        for id in childModels.keys {
+            deps.steerSessions.detach(accountId: accountId, sessionId: id)
+        }
+        childModels = [:]
+    }
+
     private func releaseLiveTail() {
         guard let claimed = liveClaimId else { return }
         liveClaimId = nil
@@ -1196,6 +1269,7 @@ struct ThreadScreen: View {
         model?.start()
         syncIssueModels()
         syncLiveTail()
+        syncChildModels()
         markRead()
     }
 
@@ -1204,6 +1278,7 @@ struct ThreadScreen: View {
         model?.stop()
         stopIssueModel()
         releaseLiveTail()
+        releaseChildModels()
     }
 
     /// EXP-1288: ONE issue model observes at a time — the shown issue tab's,

@@ -587,6 +587,29 @@ fn retained_turn_edges(
     log
 }
 
+/// #EXP-1538: the stream's latest-wins slots THE Dock reads
+/// ([`SteerFeed::stream_slots`]): what a host keeps per session so a view
+/// built later draws them at once ([`SteerFeed::seed_stream_slots`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StreamSlots {
+    pub task_list: Vec<crate::frames::TaskListEntry>,
+    pub background_tasks: Vec<crate::frames::BackgroundTask>,
+    pub queue: Vec<crate::frames::QueuedMessage>,
+    pub compacting: Option<Compaction>,
+    pub rate_limit: Option<SessionRateLimit>,
+}
+
+impl StreamSlots {
+    /// Nothing worth keeping.
+    pub fn is_empty(&self) -> bool {
+        self.task_list.is_empty()
+            && self.background_tasks.is_empty()
+            && self.queue.is_empty()
+            && self.compacting.is_none()
+            && self.rate_limit.is_none()
+    }
+}
+
 /// The staged half of an EXP-656 replay swap.
 #[derive(Default)]
 struct Staged {
@@ -752,6 +775,35 @@ impl SteerFeed {
     pub fn remove_queued(&mut self, id: &str) {
         self.touch();
         self.queue.retain(|message| message.id != id);
+    }
+
+    /// #EXP-1538 (dock.json LOCAL FIRST): the stream's latest-wins slots the
+    /// Dock draws from (THE Queue's task_list + background_tasks, the relay
+    /// queue, compaction, the rate limit), as they stand now.
+    pub fn stream_slots(&self) -> StreamSlots {
+        StreamSlots {
+            task_list: self.task_list.clone(),
+            background_tasks: self.background_tasks.clone(),
+            queue: self.queue.clone(),
+            compacting: self.compacting.clone(),
+            rate_limit: self.rate_limit.clone(),
+        }
+    }
+
+    /// #EXP-1538: seed a fresh feed with the session's LAST-KNOWN slots, so
+    /// the Dock draws them in the view's first frame while the stream joins.
+    /// The live replay restates every one of them in its one commit
+    /// ([`Self::apply_synced`] clears the slots before folding it in), and a
+    /// live frame replaces its slot whole, so a seed never outlives the
+    /// stream's own word.
+    pub fn seed_stream_slots(&mut self, slots: StreamSlots) {
+        self.touch();
+        let StreamSlots { task_list, background_tasks, queue, compacting, rate_limit } = slots;
+        self.task_list = task_list;
+        self.background_tasks = background_tasks;
+        self.queue = queue;
+        self.compacting = compacting;
+        self.rate_limit = rate_limit;
     }
 
     /// EXP-873: take every unread message out of the bar — the optimistic
@@ -4333,6 +4385,49 @@ mod tests {
         feed.apply_synced();
         assert!(feed.task_list().is_empty());
         assert!(feed.background_tasks().is_empty());
+    }
+
+    /// #EXP-1538 (dock.json LOCAL FIRST): a fresh feed seeded with the
+    /// session's last-known slots holds them through the join's staging
+    /// window, and the replay's ONE commit restates them (here: a new task
+    /// list, no queue).
+    #[test]
+    fn seeded_slots_hold_until_the_replay_restates_them() {
+        let entry = |content: &str| crate::frames::TaskListEntry {
+            content: content.to_string(),
+            status: crate::frames::TaskListStatus::Pending,
+        };
+        let mut live = SteerFeed::new();
+        live.apply(ActivityEvent::task_list(vec![entry("Read the issue")]));
+        live.apply(ActivityEvent::queue(vec![crate::frames::QueuedMessage {
+            id: "q1".to_string(),
+            text: "and then".to_string(),
+            ..Default::default()
+        }]));
+        let kept = live.stream_slots();
+        assert!(!kept.is_empty());
+
+        // BEFORE (an unseeded fresh view): nothing to draw until the commit
+        // that ends the join's whole replay.
+        let mut unseeded = SteerFeed::new();
+        unseeded.apply_reset();
+        unseeded.apply(ActivityEvent::narration("the replayed history"));
+        unseeded.apply(ActivityEvent::task_list(vec![entry("Read the issue")]));
+        assert!(unseeded.stream_slots().is_empty(), "blank through the replay");
+        unseeded.apply_synced();
+        assert_eq!(unseeded.task_list(), &[entry("Read the issue")]);
+
+        let mut fresh = SteerFeed::new();
+        assert!(fresh.stream_slots().is_empty());
+        fresh.seed_stream_slots(kept.clone());
+        assert_eq!(fresh.stream_slots(), kept, "drawn before any frame");
+        fresh.apply_reset();
+        fresh.apply(ActivityEvent::narration("the replayed history"));
+        fresh.apply(ActivityEvent::task_list(vec![entry("Write the fix")]));
+        assert_eq!(fresh.stream_slots(), kept, "staging never blanks the seed");
+        fresh.apply_synced();
+        assert_eq!(fresh.task_list(), &[entry("Write the fix")]);
+        assert!(fresh.queue().is_empty(), "a replay with no queue means none");
     }
 
     // ── Projections ────────────────────────────────────────────────────────

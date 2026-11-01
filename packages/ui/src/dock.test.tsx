@@ -3,7 +3,7 @@
 import { act, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { dockRows, type DockSource } from "@exp/domain-contract/dock"
-import { Dock } from "./dock"
+import { Dock, DOCK_TIMING, markDockOpen } from "./dock"
 
 const queued = (count: number): DockSource => ({
   kind: `queued`,
@@ -72,5 +72,30 @@ describe(`Dock open sheet`, () => {
     expect(onOpenChange).not.toHaveBeenCalled()
     rerender(<Dock rows={[]} openId="queued" {...props} />)
     expect(onOpenChange).toHaveBeenCalledWith(null)
+  })
+})
+
+// #EXP-1538 (dock.json LOCAL FIRST): a card present when the view opens
+// draws in the first frame and enters with `motion.enter`.
+describe(`Dock local first`, () => {
+  const props = { openId: null, onOpenChange: vi.fn(), renderSheet: () => null }
+
+  it(`a card present on mount enters with motion.enter, rising stack.gap`, () => {
+    render(<Dock rows={dockRows([queued(1)])} {...props} />)
+    const card = screen.getByTestId(`dock-card`)
+    expect(card.className).toContain(`motion-enter`)
+    expect(card.className).toContain(`slide-in-from-bottom-1.5`)
+  })
+
+  it(`measures open → visible once, on the first render that holds a card`, () => {
+    performance.clearMarks()
+    performance.clearMeasures()
+    markDockOpen()
+    const { rerender } = render(<Dock rows={[]} {...props} composer={<p>composer</p>} />)
+    expect(performance.getEntriesByName(DOCK_TIMING.measure)).toHaveLength(0)
+    rerender(<Dock rows={dockRows([queued(1)])} {...props} composer={<p>composer</p>} />)
+    expect(performance.getEntriesByName(DOCK_TIMING.measure)).toHaveLength(1)
+    rerender(<Dock rows={dockRows([queued(2)])} {...props} composer={<p>composer</p>} />)
+    expect(performance.getEntriesByName(DOCK_TIMING.measure)).toHaveLength(1)
   })
 })

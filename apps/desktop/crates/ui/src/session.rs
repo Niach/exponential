@@ -212,6 +212,8 @@ pub fn sign_out_active(cx: &mut App) {
     // EXP-1457: an explicit sign-out revokes this install's eNet endpoint
     // (taken before the control-channel stop, which only stops it).
     let enet = crate::enet_wiring::stop(&account_id, cx);
+    // #EXP-1538: the Dock's last-known stream slots belong to this account.
+    crate::steer_viewer::StreamSlotMemo::clear(cx);
     // §08: stop this account's steer control socket before tearing sync down.
     crate::steer_wiring::stop_control_channel(&account_id, cx);
     crate::device_sync::stop_device_sync(&account_id, cx);

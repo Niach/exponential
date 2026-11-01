@@ -2454,6 +2454,12 @@ internal class SessionDock(
     val action: @Composable (Dock.Row) -> Unit,
 )
 
+/** #EXP-1538 (dock.json LOCAL FIRST): whether the Dock draws the stream's
+ *  last-known slots (THE Queue, the relay queue): connecting, reconnecting
+ *  or parked; never over, nor a final disconnect that nothing restates. */
+internal fun dockStreamSlots(phase: AgentPhase, sessionEnded: Boolean): Boolean =
+    phase !is AgentPhase.Ended && !(phase is AgentPhase.Closed && !phase.reconnecting) && !sessionEnded
+
 @Composable
 internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: (() -> Unit)?): SessionDock {
     val session by viewModel.session.collectAsStateWithLifecycle()
@@ -2472,16 +2478,20 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
     var completedOpen by rememberSaveable { mutableStateOf(false) }
     // EXP-861/1291: the server's not-yet-consumed rows are the queue (X =
     // `sessions.unqueue`); the device's own relay queue while it reports one.
-    val relayQueue = phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()
+    // #EXP-1538 (dock.json LOCAL FIRST): the stream's slots are the session's
+    // last-known values (the connection outlives the screen), drawn at once
+    // while it (re)joins instead of after the replay; over = none of them.
+    val streamSlots = dockStreamSlots(phase, sessionEnded)
+    val relayQueue = streamSlots && activity.queue.isNotEmpty()
     val queue: List<QueuedMessage> = when {
         serverQueue.isNotEmpty() -> serverQueue
         relayQueue -> activity.queue
         else -> emptyList()
     }
     val onRemove: (String) -> Unit = if (serverQueue.isNotEmpty()) viewModel::unqueueMessage else viewModel::unqueue
-    // EXP-1321/1324: THE Queue, only while the run is live.
+    // EXP-1321/1324: THE Queue, while the run is not over.
     val taskQueue = rememberSessionTaskQueue(feed, activity.taskList, activity.backgroundTasks)
-        .takeIf { phase == AgentPhase.Live && !sessionEnded }
+        .takeIf { streamSlots }
     // EXP-1374 (session-card.json `banner`): a background or queued
     // session's own Dock banner. S-3: an offline host and an interruption
     // draw nothing (no Paused, no interrupted banner).

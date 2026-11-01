@@ -1,0 +1,3 @@
+- Text you type while a message is sending is no longer lost
+- Chats open with their task and queue cards right away
+- Leaving a chat no longer cancels a send or an upload
