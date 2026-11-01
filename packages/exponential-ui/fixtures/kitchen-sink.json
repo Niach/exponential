@@ -1736,6 +1736,17 @@
           ]
         },
         {
+          "id": "zoomable",
+          "component": "ZoomableImage",
+          "props": {
+            "src": "https://example.com/1.jpg",
+            "alt": "Zoomable",
+            "naturalWidth": 1440,
+            "naturalHeight": 900,
+            "controls": "always"
+          }
+        },
+        {
           "id": "mosaic",
           "component": "Mosaic",
           "props": {

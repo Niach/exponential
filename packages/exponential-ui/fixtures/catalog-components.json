@@ -2886,6 +2886,117 @@
       }
     },
     {
+      "name": "ZoomableImage/example",
+      "node": {
+        "id": "zoomable-image",
+        "component": "ZoomableImage",
+        "props": {
+          "src": "https://example.com/screenshot.png",
+          "alt": "Screenshot",
+          "naturalWidth": 1440,
+          "naturalHeight": 900
+        }
+      }
+    },
+    {
+      "name": "ZoomableImage/initial=auto",
+      "node": {
+        "id": "zoomable-image",
+        "component": "ZoomableImage",
+        "props": {
+          "src": "https://example.com/screenshot.png",
+          "alt": "Screenshot",
+          "naturalWidth": 1440,
+          "naturalHeight": 900,
+          "initial": "auto"
+        }
+      }
+    },
+    {
+      "name": "ZoomableImage/initial=fit",
+      "node": {
+        "id": "zoomable-image",
+        "component": "ZoomableImage",
+        "props": {
+          "src": "https://example.com/screenshot.png",
+          "alt": "Screenshot",
+          "naturalWidth": 1440,
+          "naturalHeight": 900,
+          "initial": "fit"
+        }
+      }
+    },
+    {
+      "name": "ZoomableImage/initial=fitWidth",
+      "node": {
+        "id": "zoomable-image",
+        "component": "ZoomableImage",
+        "props": {
+          "src": "https://example.com/screenshot.png",
+          "alt": "Screenshot",
+          "naturalWidth": 1440,
+          "naturalHeight": 900,
+          "initial": "fitWidth"
+        }
+      }
+    },
+    {
+      "name": "ZoomableImage/initial=actual",
+      "node": {
+        "id": "zoomable-image",
+        "component": "ZoomableImage",
+        "props": {
+          "src": "https://example.com/screenshot.png",
+          "alt": "Screenshot",
+          "naturalWidth": 1440,
+          "naturalHeight": 900,
+          "initial": "actual"
+        }
+      }
+    },
+    {
+      "name": "ZoomableImage/controls=auto",
+      "node": {
+        "id": "zoomable-image",
+        "component": "ZoomableImage",
+        "props": {
+          "src": "https://example.com/screenshot.png",
+          "alt": "Screenshot",
+          "naturalWidth": 1440,
+          "naturalHeight": 900,
+          "controls": "auto"
+        }
+      }
+    },
+    {
+      "name": "ZoomableImage/controls=always",
+      "node": {
+        "id": "zoomable-image",
+        "component": "ZoomableImage",
+        "props": {
+          "src": "https://example.com/screenshot.png",
+          "alt": "Screenshot",
+          "naturalWidth": 1440,
+          "naturalHeight": 900,
+          "controls": "always"
+        }
+      }
+    },
+    {
+      "name": "ZoomableImage/controls=none",
+      "node": {
+        "id": "zoomable-image",
+        "component": "ZoomableImage",
+        "props": {
+          "src": "https://example.com/screenshot.png",
+          "alt": "Screenshot",
+          "naturalWidth": 1440,
+          "naturalHeight": 900,
+          "controls": "none"
+        }
+      }
+    },
+    {
       "name": "Icon/example",
       "node": {
         "id": "icon",

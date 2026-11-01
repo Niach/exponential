@@ -2600,6 +2600,53 @@
       }
     },
     {
+      "id": "exponential-ui-zoomable-image",
+      "component": "ZoomableImage",
+      "title": "ZoomableImage",
+      "node": {
+        "id": "specimen-zoomable-image",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-zoomable-image-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-zoomable-image-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-zoomable-image",
+                "component": "ZoomableImage",
+                "props": {
+                  "src": "https://example.com/screenshot.png",
+                  "alt": "Screenshot",
+                  "naturalWidth": 1440,
+                  "naturalHeight": 900
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-icon",
       "component": "Icon",
       "title": "Icon",

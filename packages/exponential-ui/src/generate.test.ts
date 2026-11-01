@@ -13,7 +13,7 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the fifty outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix)`, () => {
+  test(`renders the fifty-one outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix, EXP-1586 the zoom maths)`, () => {
     expect(Object.keys(files).sort()).toEqual([
       `../../apps/desktop/crates/eui-core/src/generated/catalog.rs`,
       `../../apps/desktop/crates/eui-core/src/generated/descriptions.rs`,
@@ -54,6 +54,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/tree-guides.json`,
       `fixtures/virtual-list.json`,
       `fixtures/voice-wave.json`,
+      `fixtures/zoom.json`,
       `generated/ExponentialUICatalog.generated.kt`,
       `generated/ExponentialUICatalog.generated.swift`,
       `generated/ExponentialUIThemes.generated.kt`,
