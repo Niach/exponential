@@ -49,7 +49,7 @@ import {
 } from "@/lib/steer-devices"
 import { addableAgents } from "@/lib/agent-account-add"
 import { AddAccountDialog } from "@/components/add-account-dialog"
-import { miniUsageWindows } from "@/components/agent-usage-windows"
+import { fullUsageWindows } from "@/components/agent-usage-windows"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
   AccountChipMenu,
@@ -170,7 +170,7 @@ function LoginPreview({
 }) {
   const ready = usageState(row) === `ready`
   return (
-    <div data-slot="login-preview" className="flex w-48 flex-col gap-2">
+    <div data-slot="login-preview" className="flex w-60 flex-col gap-2">
       <div className="flex min-w-0 flex-col">
         <span className="truncate text-sm font-medium">{row.email || loginLabel(row)}</span>
         {row.email && row.plan && (
@@ -180,10 +180,10 @@ function LoginPreview({
           <span className="text-xs text-amber-500">{DEVICES_LIST_COPY.status[item.status]}</span>
         )}
       </div>
-      {ready && (
+      {ready && row.usage && (
         <UsageWindows
-          windows={miniUsageWindows(row.usage, now)}
-          density="hover"
+          windows={fullUsageWindows(row.usage, now)}
+          density="full"
           stale={usageAge(row.usage, now) !== null}
         />
       )}

@@ -16,7 +16,7 @@ import type { StyleguideEntry } from "./types.ts"
 // EXP-1560 (was A-16): THE Devices page card (`devices-list.json`), drawn
 // from the pieces the page uses: GlassCard, the ⋯ ghost button, the logins as
 // AgentRunMark icons (the amber `needs_input` badge ON the login that needs
-// attention) and its preview — email, plan, status, UsageWindows `hover`,
+// attention) and its preview — email, plan, status, UsageWindows `full`,
 // Sign in — open under the badged icon.
 
 const MoreIcon = conceptIcon(`ui-more`)
@@ -29,9 +29,9 @@ const LOGINS: { agent: string; attention: boolean }[] = [
 ]
 
 const WINDOWS = [
-  { key: `session`, label: `5h`, percent: 42, caption: `resets in 2h 10m` },
-  { key: `weekly`, label: `Week`, percent: 81, caption: `resets in 3d 14h` },
-  { key: `model:fable`, label: `Fable`, percent: 64, caption: `resets in 3d 14h` },
+  { key: `session`, label: `Current session`, percent: 42, caption: `resets in 2h 10m` },
+  { key: `weekly`, label: `All models`, percent: 81, caption: `resets in 3d 14h` },
+  { key: `model:fable`, label: `Fable only`, percent: 64, caption: `resets in 3d 14h` },
 ]
 
 function Icon({ agent, attention }: { agent: string; attention: boolean }) {
@@ -83,13 +83,13 @@ function Card({ name, version, outdated, status, preview }: {
                 </span>
               </HoverCardTrigger>
               <HoverCardContent side="bottom" align="start" sideOffset={6} className="w-auto p-3">
-                <div className="flex w-48 flex-col gap-2">
+                <div className="flex w-60 flex-col gap-2">
                   <div className="flex min-w-0 flex-col">
                     <span className="truncate text-sm font-medium">danny@yourev.at</span>
                     <span className="truncate text-xs text-muted-foreground">max</span>
                     <span className="text-xs text-amber-500">{DEVICES_LIST_COPY.status.needs_relogin}</span>
                   </div>
-                  <UsageWindows windows={WINDOWS} density="hover" />
+                  <UsageWindows windows={WINDOWS} density="full" />
                   <Pill mode="action" className="self-start">
                     {DEVICES_LIST_COPY.signIn}
                   </Pill>
