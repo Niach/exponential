@@ -938,7 +938,7 @@ export const sessionsRouter = router({
       // EXP-1472: a keyed tree takes sealed replies only (the device seals
       // every body and card; one in clear failed open).
       if ((input.body.trim() && !isSealedBody(input.body)) || (card && !sealedCard)) {
-        await assertNotPlainInSealedTree(ctx.db, session.rootId)
+        await assertNotPlainInSealedTree(ctx.db, session.rootId, session.id)
       }
       const asks = card?.kind === `question` || card?.kind === `plan`
       // #EXP-1439 (agent-settings.json `assistant.chat`): an Assistant's
