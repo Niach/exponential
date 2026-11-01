@@ -54,7 +54,7 @@ struct ZoomableImageLeaf: View {
                     if let image {
                         MediaImage<Image, EmptyView>.swiftUI(image).resizable().interpolation(.high)
                     } else {
-                        ImagePlaceholder(ink: muted, label: alt, model: cx.model)
+                        ZoomPlaceholder(ink: muted, label: alt, model: cx.model)
                     }
                 } pill: { c in
                     ZoomPill(controller: c, style: Self.pillStyle(cx), strings: Self.strings(cx.model)) { g, size, color in
@@ -62,7 +62,7 @@ struct ZoomableImageLeaf: View {
                     }
                 }
             } else {
-                ImagePlaceholder(ink: muted, label: alt, model: cx.model)
+                ZoomPlaceholder(ink: muted, label: alt, model: cx.model)
                     .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             }
         }
@@ -187,5 +187,25 @@ struct ZoomableImageLeaf: View {
             dividerWidth: divider.width ?? 1,
             menu: menu
         )
+    }
+}
+
+/// The picture area before (or without) a picture: the image glyph and the
+/// alt text over a light tint — Compose's `ZoomableImage` overlay and web's
+/// box. Its own view: EXP-1555 made the `Image` leaf's placeholder glyph-only.
+private struct ZoomPlaceholder: View {
+    let ink: Color
+    let label: String
+    let model: SurfaceModel
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ConceptIcon(name: BuiltinIcons.name("Image.fallback"), size: 20, color: ink.opacity(0.6), model: model)
+            if !label.isEmpty {
+                Text(label).font(.system(size: 12)).foregroundStyle(ink.opacity(0.6)).lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ink.opacity(0.08))
     }
 }
