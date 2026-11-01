@@ -2668,7 +2668,7 @@ async function main() {
   // stub's heartbeat upserts on the same (user_id, device_id) and only
   // refreshes the liveness + report columns, so nothing here is overwritten
   // that the captures rely on. Offline until the stub beats (the 90s window).
-  await db.insert(devices).values({
+  const [demoDevice] = await db.insert(devices).values({
     userId: demoId,
     deviceId: DEMO_DEVICE_ID,
     label: DEMO_DEVICE_LABEL,
@@ -2697,6 +2697,16 @@ async function main() {
         createdAt: daysAgo(58),
       },
     })
+    .returning({ id: devices.id })
+  // #EXP-1534: a login the demo desktop held healthy signed out (team-less,
+  // device-routed: notifyAgentSignOuts), unread, under the newest rows.
+  await db.insert(notifications).values({
+    userId: demoId,
+    deviceId: demoDevice!.id,
+    type: `agent_signed_out`,
+    title: `Claude Code account alex@northwind.dev is signed out on ${DEMO_DEVICE_LABEL}`,
+    createdAt: hoursAgo(0.5),
+  })
 
   // EXP-1293: the session tree (threads, a child session, agents, their
   // conversations and pull requests), then the TEMP steer-ticket row.
@@ -2978,7 +2988,7 @@ Seeded screenshot demo data:
   starter     ${STARTER_EMAIL} / ${STARTER_PASSWORD} (owns ${STARTER_TEAM_NAME}, no board — the wizard's invite + devices steps)
   invite      /invite/${DEMO_INVITE_TOKEN} (+ 2 more pending invites)
   showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${4} comments incl. @mention + #issue ref)
-  inbox       6 notifications (4 unread)
+  inbox       7 notifications (5 unread)
   threads     6 (${DEMO_THREAD_ID} = cold start, needs input via its child ${DEMO_SESSION_ID}; 3 more running, 1 idle with an open PR + Guide, 1 ended with a merged PR)
   agents      Triage (${DEMO_AGENT_ID}), Designer, Release
   machines    demo desktop (offline until screenshots:desktop beats) + 1 shared team server (offline)

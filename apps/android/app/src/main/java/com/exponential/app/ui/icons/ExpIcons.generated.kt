@@ -9216,6 +9216,7 @@ public object ExpIcons {
         "nav-terminal" -> `square-terminal`
         "nav-threads" -> `list-tree`
         "notification-agent-message" -> `bot`
+        "notification-agent-signed-out" -> `log-out`
         "notification-issue-assigned" -> `user-plus`
         "notification-issue-comment" -> `message-square`
         "notification-issue-created" -> `circle-dot`
@@ -9605,6 +9606,8 @@ public object ExpIcons {
     public val navThreads: ImageVector get() = `list-tree`
     /** Concept `notification-agent-message`. */
     public val notificationAgentMessage: ImageVector get() = `bot`
+    /** Concept `notification-agent-signed-out`. */
+    public val notificationAgentSignedOut: ImageVector get() = `log-out`
     /** Concept `notification-issue-assigned`. */
     public val notificationIssueAssigned: ImageVector get() = `user-plus`
     /** Concept `notification-issue-comment`. */

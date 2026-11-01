@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-agent-signed-out",
+    date: "2026-11-01",
+    title: "Signed-out logins reach your inbox",
+    summary: "When one of your devices loses an agent login, you get one notification that opens that device's settings.",
+    body: r#"- **Once per login**: one inbox row and push when a login signs out; the next only after it was signed in again.
+- **Straight to the fix**: tapping it opens the device's settings to sign in again."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_140: ChangelogEntry = ChangelogEntry {
     id: "2026-10-31-app-preview-phone",
     date: "2026-10-31",
     title: "Preview apps as a phone",

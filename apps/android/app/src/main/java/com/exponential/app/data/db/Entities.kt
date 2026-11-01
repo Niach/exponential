@@ -377,6 +377,10 @@ data class NotificationEntity(
     // and its push both route to it. NULL on every other type, and on a row
     // whose run has since been pruned.
     @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    // #EXP-1534: the devices row an `agent_signed_out` row is about (team-less,
+    // issue-less): the row and its push open that device's settings. NULL on
+    // every other type, and once the device is removed.
+    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String? = null,
     val type: String,
     val title: String,
     val body: String? = null,

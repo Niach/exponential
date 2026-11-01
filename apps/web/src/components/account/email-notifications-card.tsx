@@ -65,6 +65,12 @@ const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> 
       label: `Blocked sessions`,
       hint: `One of your coding sessions hits a rate limit.`,
     },
+    // #EXP-1534: a device lost a login it held healthy.
+    {
+      type: `agent_signed_out`,
+      label: `Signed-out agents`,
+      hint: `One of your devices loses an agent login.`,
+    },
   ]
 
 // The whole email-digest preferences card, split out of the old

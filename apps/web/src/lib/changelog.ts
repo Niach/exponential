@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-agent-signed-out`,
+    date: `2026-11-01`,
+    title: `Signed-out logins reach your inbox`,
+    summary: `When one of your devices loses an agent login, you get one notification that opens that device's settings.`,
+    body: `- **Once per login**: one inbox row and push when a login signs out; the next only after it was signed in again.
+- **Straight to the fix**: tapping it opens the device's settings to sign in again.`,
+  },
+  {
     id: `2026-10-31-app-preview-phone`,
     date: `2026-10-31`,
     title: `Preview apps as a phone`,

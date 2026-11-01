@@ -362,6 +362,11 @@ export const notificationTypeValues = [
   // carries `session_id` (+ `team_id`) so the inbox row and the push route to
   // the run. Issue-less even for an issue run: the run is the subject.
   `session_blocked`,
+  // #EXP-1534: one of the owner's devices reports a login it held healthy as
+  // signed_out / needs_relogin. Issue-less AND team-less: the row carries
+  // `device_id` (the inbox row and the push open that device's settings ×4);
+  // once per login until it reads `ok` again (`devices.agent_sign_out_notified`).
+  `agent_signed_out`,
 ] as const
 
 // Pull-request state surfaced on issues.pr_state. Mirrors the GitHub PR state

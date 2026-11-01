@@ -27,7 +27,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // state. `team_id` IS synced: issue-less rows (`agent_message`,
 // `session_blocked`) carry it so clients can route the notification to the
 // right team; issue-anchored rows (SLOP-4: `reporter_reply` included) leave
-// it NULL (their team comes from the issue).
+// it NULL (their team comes from the issue). #EXP-1534: `device_id` IS
+// synced: an `agent_signed_out` row (team-less) opens that device's settings.
 export const Route = createFileRoute(`/api/shapes/notifications`)({
   server: {
     handlers: {
@@ -40,6 +41,7 @@ export const Route = createFileRoute(`/api/shapes/notifications`)({
           `issue_id`,
           `team_id`,
           `session_id`,
+          `device_id`,
           `type`,
           `title`,
           `body`,

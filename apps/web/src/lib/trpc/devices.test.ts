@@ -162,8 +162,10 @@ vi.mock(`@/lib/sessions/lifecycle`, () => ({
   pauseDeviceAgents: h.pauseDeviceTriggers,
 }))
 // FEED-154: the device owner's notice (notifications tests cover delivery).
+const notifyAgentSignOuts = vi.hoisted(() => vi.fn(async (_args: unknown) => {}))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   notifyDeviceShareRemoved: vi.fn(async () => {}),
+  notifyAgentSignOuts,
 }))
 // NEW-57: the meeting stop after a share (meeting.real-db.test.ts covers the
 // private-agent rule against Postgres).
@@ -497,6 +499,48 @@ describe(`devices.heartbeat`, () => {
     await expect(
       caller.heartbeat({ deviceId: `dev-1` } as never)
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+})
+
+// #EXP-1534: a login going healthy → signed_out notifies its owner once.
+describe(`devices.heartbeat agent sign-outs`, () => {
+  const report = (health: string) => ({
+    claude: { signedIn: true, email: `d@acme.dev`, profiles: [{ id: `work`, signedIn: true, email: `d@acme.dev`, health }] },
+  })
+  const stored = (health: string, notified: string[]) => [
+    [{ id: `row-1`, label: `mint`, agentAccounts: report(health), notified }],
+  ]
+  const beat = (health: string) =>
+    caller.heartbeat({ deviceId: `dev-1`, activeSessions: 0, defaultsSyncedAt: null, agentAccounts: report(health) })
+
+  beforeEach(() => notifyAgentSignOuts.mockClear())
+
+  it(`notifies once and remembers the login`, async () => {
+    h.state.selectQueue = stored(`ok`, [])
+    // The settle's own write (the notified keys), then the beat's.
+    h.state.updateReturning = [[], [{ id: `row-1` }]]
+    await beat(`signed_out`)
+    expect(notifyAgentSignOuts).toHaveBeenCalledTimes(1)
+    expect(notifyAgentSignOuts.mock.calls[0]![0]).toMatchObject({
+      ownerId: `actor`,
+      deviceId: `row-1`,
+      deviceLabel: `mint`,
+      signOuts: [{ key: `claude/work`, health: `signed_out` }],
+    })
+    expect(h.state.updates.some((u) => JSON.stringify(u.set).includes(`"agentSignOutNotified":["claude/work"]`))).toBe(true)
+  })
+
+  it(`never repeats it on the next heartbeats`, async () => {
+    h.state.selectQueue = stored(`signed_out`, [`claude/work`])
+    await beat(`signed_out`)
+    h.state.selectQueue = stored(`signed_out`, [`claude/work`])
+    await beat(`needs_relogin`)
+    expect(notifyAgentSignOuts).not.toHaveBeenCalled()
+  })
+
+  it(`a beat without a report reads nothing`, async () => {
+    await caller.heartbeat({ deviceId: `dev-1`, activeSessions: 0, defaultsSyncedAt: null })
+    expect(notifyAgentSignOuts).not.toHaveBeenCalled()
   })
 })
 

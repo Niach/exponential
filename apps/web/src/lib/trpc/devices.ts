@@ -73,7 +73,8 @@ import { endHostedSessions, foreignHostedSessionIds, pauseDeviceAgents } from "@
 import { firstSharerTeams, lockDeviceShares, otherShareRows } from "@/lib/sessions/host"
 import { checkDeviceKeyProof, deviceKeyRejectionLog, pinDeviceKeyInTx, shareKeyRefusal, type SquatRow } from "@/lib/device-keys"
 import { hostedIds, withdrawShareInTx, type HostedByTeam } from "@/lib/device-shares"
-import { notifyDeviceShareRemoved } from "@/lib/integrations/notifications"
+import { notifyAgentSignOuts, notifyDeviceShareRemoved } from "@/lib/integrations/notifications"
+import { detectAgentSignOuts, type AgentSignOut } from "@/lib/agent-sign-out"
 import {
   agentEffortValues,
   agentModelValues,
@@ -263,6 +264,52 @@ export function clampDoctor(
       : {}),
   }
 }
+
+/** #EXP-1534: before a register / heartbeat stores `next`, compare it with
+ *  the stored report under the row lock and move the device's
+ *  `agent_sign_out_notified` keys; the logins that just signed out come back
+ *  (with the row), the caller notifies after its write. No row yet = nothing
+ *  to compare. */
+export async function settleAgentSignOuts(
+  database: Context[`db`],
+  userId: string,
+  deviceId: string,
+  next: DeviceAgentAccounts
+): Promise<{ id: string; label: string; signOuts: AgentSignOut[] } | null> {
+  return database.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        id: devices.id,
+        label: devices.label,
+        agentAccounts: devices.agentAccounts,
+        notified: devices.agentSignOutNotified,
+      })
+      .from(devices)
+      .where(and(eq(devices.userId, userId), eq(devices.deviceId, deviceId)))
+      .limit(1)
+      .for(`update`)
+    if (!row) return null
+    const { signOuts, notified } = detectAgentSignOuts(row.agentAccounts, next, row.notified ?? [])
+    if (JSON.stringify(notified) !== JSON.stringify([...(row.notified ?? [])].sort())) {
+      await tx.update(devices).set({ agentSignOutNotified: notified }).where(eq(devices.id, row.id))
+    }
+    return { id: row.id, label: row.label, signOuts }
+  })
+}
+
+async function notifySettled(
+  userId: string,
+  settled: { id: string; label: string; signOuts: AgentSignOut[] } | null
+): Promise<void> {
+  if (!settled || settled.signOuts.length === 0) return
+  await notifyAgentSignOuts({
+    ownerId: userId,
+    deviceId: settled.id,
+    deviceLabel: settled.label,
+    signOuts: settled.signOuts,
+  })
+}
+
 
 // EXP-484: same contract as clampLaunchDefaults — ALWAYS clamp, never reject.
 // A machine whose agent vocabulary drifts (or whose nullish fields arrive as
@@ -797,6 +844,8 @@ export const devicesRouter = router({
         // FEED-159: a stale/future `signedAt` logs how far the clock is off.
         console.warn(deviceKeyRejectionLog(input.deviceId, proof))
       }
+      const accounts = input.agentAccounts ? clampAgentAccounts(input.agentAccounts) : null
+      const settled = accounts ? await settleAgentSignOuts(ctx.db, userId, input.deviceId, accounts) : null
       const [row] = await ctx.db
         .insert(devices)
         .values({
@@ -813,9 +862,7 @@ export const devicesRouter = router({
             ? clampLaunchDefaults(input.launchDefaults)
             : null,
           launchDefaultsUpdatedAt: input.launchDefaults ? now : null,
-          agentAccounts: input.agentAccounts
-            ? clampAgentAccounts(input.agentAccounts)
-            : null,
+          agentAccounts: accounts,
           version: input.version ?? null,
           doctor: clampDoctor(input.doctor),
           publicKey,
@@ -840,9 +887,7 @@ export const devicesRouter = router({
               : {}),
             // Absent = the probe had nothing to say (see the input doc):
             // keep whatever the last reporting register wrote.
-            ...(input.agentAccounts
-              ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
-              : {}),
+            ...(accounts ? { agentAccounts: accounts } : {}),
             doctor: clampDoctor(input.doctor),
             version: input.version ?? null,
             // FEED-154: the key THIS register proved; no proof = NULL, so a
@@ -862,6 +907,7 @@ export const devicesRouter = router({
           launchDefaults: devices.launchDefaults,
           launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
+      await notifySettled(userId, settled)
       // FEED-159: the first account to register the id is its owner for
       // pinning; Remove never clears it (deleting that ACCOUNT does: the FK
       // cascades, and the next account to register the id takes it).
@@ -964,6 +1010,10 @@ export const devicesRouter = router({
         }
         liveSessionIds = clean.ids
       }
+      const accounts = input.agentAccounts ? clampAgentAccounts(input.agentAccounts) : null
+      const settled = accounts
+        ? await settleAgentSignOuts(ctx.db, ctx.session.user.id, input.deviceId, accounts)
+        : null
       const updated = await ctx.db
         .update(devices)
         .set({
@@ -974,9 +1024,7 @@ export const devicesRouter = router({
           // for a long turn). FEED-146: sent every beat, so absent (the
           // device is past its cap) = NULL, never the last list standing.
           liveSessionIds,
-          ...(input.agentAccounts
-            ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
-            : {}),
+          ...(accounts ? { agentAccounts: accounts } : {}),
           ...(input.agentUsage
             ? {
                 agentUsage: clampAgentUsage(input.agentUsage, now),
@@ -998,6 +1046,7 @@ export const devicesRouter = router({
           launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
       const row = updated[0]
+      if (row) await notifySettled(ctx.session.user.id, settled)
       if (!row) {
         // EXP-1417: removed by its owner: the device stops re-registering
         // until its next launch (only a launch register brings it back).

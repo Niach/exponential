@@ -40,11 +40,16 @@ export const Route = createFileRoute(`/t/$teamSlug/devices`)({
       })
     }
   },
+  // #EXP-1534 (inbox-route.json): `?device=<devices row id>` opens that
+  // device's settings (an `agent_signed_out` inbox row or push).
+  validateSearch: (search: Record<string, unknown>): { device?: string } =>
+    typeof search.device === `string` ? { device: search.device } : {},
   component: DevicesPage,
 })
 
 function DevicesPage() {
   const { teamSlug } = Route.useParams()
+  const { device: openSettingsRowId } = Route.useSearch()
   const navigate = useNavigate()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
@@ -116,6 +121,10 @@ function DevicesPage() {
               latestVersions={remote.latestVersions}
               teamId={teamId}
               isTeamOwner={isOwner}
+              openSettingsRowId={openSettingsRowId}
+              onSettingsClosed={() =>
+                void navigate({ to: `/t/$teamSlug/devices`, params: { teamSlug }, search: {}, replace: true })
+              }
             />
           )}
         </div>

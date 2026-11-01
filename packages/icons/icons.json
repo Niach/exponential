@@ -220,6 +220,7 @@
     "notification-reporter-reply": "message-square-reply",
     "notification-agent-message": "bot",
     "notification-session-blocked": "hourglass",
+    "notification-agent-signed-out": "log-out",
     "notification-mark-read": "list-checks",
     "notification-mute": "bell-off",
 

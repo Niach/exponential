@@ -14,6 +14,9 @@ public enum NotificationRouting {
         /// whose row was pruned).
         case inbox
         case issue(id: String)
+        /// #EXP-1534: a device's settings (an `agent_signed_out` push;
+        /// `id` = the devices row id).
+        case device(id: String)
         /// Nothing to open.
         case none
     }
@@ -29,6 +32,12 @@ public enum NotificationRouting {
         // and lands on the issue through the generic branch below.
         let type = userInfo["type"] as? String
         if let issueId = nonEmpty(userInfo["issueId"]) { return .issue(id: issueId) }
+        // #EXP-1534 (inbox-route.json): a signed-out login opens that
+        // device's settings; a removed device (no `deviceId`) opens nothing.
+        if type == DomainContract.notificationTypeAgentSignedOut {
+            guard let deviceId = nonEmpty(userInfo["deviceId"]) else { return .none }
+            return .device(id: deviceId)
+        }
         // #EXP-1456 (inbox-route.json): a push naming a session opens it
         // whatever its type (an agent's decision, a mention, a wall); the
         // navigator resolves where (`InboxRoute.sessionTarget`).

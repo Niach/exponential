@@ -82,6 +82,25 @@ sealed interface InboxEntry {
         /** The run to open, or null once it is gone. */
         val sessionId: String? get() = notification.sessionTarget()
     }
+
+    /**
+     * One lost agent login (#EXP-1534): an issue-less, TEAM-LESS
+     * `agent_signed_out` row, its own entry like a wall (the same row). It
+     * belongs to the viewer, so it lists in every team's inbox. Tapping marks
+     * it read AND opens its device's settings; a row whose device was removed
+     * (`device_id` NULL) only marks read.
+     */
+    data class Device(val notification: NotificationEntity) : InboxEntry {
+        override val unread: Int get() = if (notification.readAt == null) 1 else 0
+        override val key: String get() = "device:${notification.id}"
+
+        /** The `devices` row whose settings open, or null once it is gone. */
+        val deviceId: String?
+            get() = (
+                InboxRoute.inboxRowTarget(notification.type, notification.issueId, notification.sessionId, notification.deviceId)
+                    as? InboxRoute.RowTarget.Device
+                )?.deviceId
+    }
 }
 
 /** #EXP-1456: the session an issue-less row opens, by the ONE inbox-route rule. */
@@ -100,6 +119,7 @@ private sealed interface GroupKey {
     data class Issue(val issueId: String) : GroupKey
     data class Message(val notificationId: String) : GroupKey
     data class Session(val notificationId: String) : GroupKey
+    data class Device(val notificationId: String) : GroupKey
 }
 
 /**
@@ -121,11 +141,13 @@ internal fun buildInboxState(
         val iid = n.issueId
         val key = if (iid == null) {
             // Issue-less rows are an agent's message (`agent_message`,
-            // EXP-801) or a blocked coding run (`session_blocked`, EXP-980),
-            // one entry each; anything else without an issue is dropped.
+            // EXP-801), a blocked coding run (`session_blocked`, EXP-980) or a
+            // lost agent login (`agent_signed_out`, #EXP-1534), one entry
+            // each; anything else without an issue is dropped.
             when (n.type) {
                 DomainContract.notificationTypeAgentMessage -> GroupKey.Message(n.id)
                 DomainContract.notificationTypeSessionBlocked -> GroupKey.Session(n.id)
+                DomainContract.notificationTypeAgentSignedOut -> GroupKey.Device(n.id)
                 else -> continue
             }
         } else {
@@ -148,13 +170,16 @@ internal fun buildInboxState(
                 notification = ns.single(),
                 teamName = ns.single().teamId?.let { teamMap[it]?.name },
             )
+            // Team-less: no team name beside it.
+            is GroupKey.Device -> InboxEntry.Device(notification = ns.single())
         }
     }
     return InboxState(entries = entries, totalUnread = entries.sumOf { it.unread }, loaded = true)
 }
 
 /** Thread 58cb32df: the notifications of [teamId] (null = all): an issue
- *  row's team = its board's, an issue-less row's its own `team_id`. */
+ *  row's team = its board's, an issue-less row's its own `team_id`. A
+ *  team-less row (#EXP-1534 `agent_signed_out`) lists in every team. */
 internal fun activeTeamNotifications(
     notifications: List<NotificationEntity>,
     issues: List<IssueEntity>,
@@ -226,9 +251,9 @@ class InboxViewModel @Inject constructor(
     fun markGroupRead(group: InboxGroup) = markRead(group.notifications)
 
     /**
-     * Tap on an agent message (EXP-801) or a blocked run (EXP-980): mark that
-     * one row read. The caller ALSO opens the row's session when it names
-     * one (#EXP-1456).
+     * Tap on an agent message (EXP-801), a blocked run (EXP-980) or a lost
+     * login (#EXP-1534): mark that one row read. The caller ALSO opens the
+     * row's session (#EXP-1456) or device when it names one.
      */
     fun markMessageRead(notification: NotificationEntity) = markRead(listOf(notification))
 

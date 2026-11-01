@@ -350,6 +350,9 @@ pub const SHAPES: [ShapeSpec; 32] = [
             // EXP-980: nullable — set on issue-less `session_blocked` rows
             // (the run that hit a rate limit) so the inbox row can open it.
             "session_id",
+            // #EXP-1534: nullable — set on team-less `agent_signed_out` rows
+            // (the devices row that lost a login) so the row opens its settings.
+            "device_id",
             "type",
             "title",
             "body",
@@ -938,6 +941,14 @@ mod tests {
         // about — the inbox row's only handle on which run to open.
         let spec = shape_by_name("notifications").unwrap();
         assert!(spec.columns.contains(&"session_id"));
+    }
+
+    #[test]
+    fn notifications_model_device_id_for_signed_out_agents() {
+        // #EXP-1534: team-less `agent_signed_out` rows carry the device that
+        // lost a login — the inbox row's only handle on which settings to open.
+        let spec = shape_by_name("notifications").unwrap();
+        assert!(spec.columns.contains(&"device_id"));
     }
 
     #[test]

@@ -44,4 +44,23 @@ final class NotificationRoutingTests: XCTestCase {
         XCTAssertEqual(NotificationRouting.pushTarget(["type": "issue_assigned"]), .none)
         XCTAssertEqual(NotificationRouting.pushTarget([:]), .none)
     }
+
+    // #EXP-1534: a signed-out login (team-less, no issue) opens that
+    // device's settings; a removed device opens nothing.
+    func testAnAgentSignedOutPushOpensTheDevice() {
+        XCTAssertEqual(
+            NotificationRouting.pushTarget([
+                "type": "agent_signed_out",
+                "deviceId": "d1",
+                "notificationId": "n1",
+            ]),
+            .device(id: "d1")
+        )
+        XCTAssertEqual(NotificationRouting.pushTarget(["type": "agent_signed_out"]), .none)
+        XCTAssertEqual(
+            NotificationRouting.pushTarget(["type": "agent_signed_out", "deviceId": ""]), .none
+        )
+        // Only the signed-out type reads `deviceId`.
+        XCTAssertEqual(NotificationRouting.pushTarget(["type": "issue_assigned", "deviceId": "d1"]), .none)
+    }
 }

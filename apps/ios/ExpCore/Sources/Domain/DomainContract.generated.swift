@@ -23,7 +23,7 @@ public enum DomainContract {
     public static let commentKindValues: [String] = ["regular"]
     public static let commentSourceValues: [String] = ["user", "mcp", "reporter"]
     public static let commentAudienceValues: [String] = ["team", "reporter"]
-    public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "reporter_reply", "agent_message", "session_blocked"]
+    public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "reporter_reply", "agent_message", "session_blocked", "agent_signed_out"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let sessionKindValues: [String] = ["thread", "agent"]
     public static let sessionStatusValues: [String] = ["queued", "running", "idle", "ended"]
@@ -200,6 +200,7 @@ public enum DomainContract {
     public static let notificationTypeReporterReply: String = "reporter_reply"
     public static let notificationTypeAgentMessage: String = "agent_message"
     public static let notificationTypeSessionBlocked: String = "session_blocked"
+    public static let notificationTypeAgentSignedOut: String = "agent_signed_out"
     public static let prStateOpen: String = "open"
     public static let prStateClosed: String = "closed"
     public static let prStateMerged: String = "merged"

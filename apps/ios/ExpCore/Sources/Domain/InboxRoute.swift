@@ -3,7 +3,8 @@ import GRDB
 
 // #EXP-1456: where an inbox row (and its push) opens ×4. An issue row opens
 // its issue; an issue-less row naming a session opens that session (an
-// agent's question or plan, a mention, a wall); `sessionTarget` is the S-3
+// agent's question or plan, a mention, a wall); #EXP-1534: an
+// `agent_signed_out` row opens its device's settings; `sessionTarget` is the S-3
 // session-open rule. fixtures/inbox-route.json; mirrors: TS
 // `src/inbox-route.ts`, desktop `domain::inbox_route`, Android
 // `domain/InboxRoute.kt`.
@@ -12,6 +13,9 @@ public enum InboxRoute {
         /// `resultsFace` = an `agent_message` about the issue (EXP-933).
         case issue(id: String, resultsFace: Bool)
         case session(id: String)
+        /// #EXP-1534: the Devices page with this device's settings open
+        /// (`id` = the devices row id).
+        case device(id: String)
         case none
     }
 
@@ -36,12 +40,17 @@ public enum InboxRoute {
         return value
     }
 
-    public static func inboxRowTarget(type: String, issueId: String?, sessionId: String?) -> RowTarget {
+    public static func inboxRowTarget(
+        type: String, issueId: String?, sessionId: String?, deviceId: String? = nil
+    ) -> RowTarget {
         if let issueId = nonEmpty(issueId) {
             return .issue(id: issueId, resultsFace: type == DomainContract.notificationTypeAgentMessage)
         }
         if sessionRowTypes.contains(type), let sessionId = nonEmpty(sessionId) {
             return .session(id: sessionId)
+        }
+        if type == DomainContract.notificationTypeAgentSignedOut, let deviceId = nonEmpty(deviceId) {
+            return .device(id: deviceId)
         }
         return .none
     }

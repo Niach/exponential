@@ -672,6 +672,13 @@ struct MainNavigator: View {
                 }
             }
         }
+        // #EXP-1534: a signed-out login (inbox row or push) opens that
+        // device's settings on the Devices page.
+        .onChange(of: deps.deepLinkBus.pendingDeviceRowId) { _, rowId in
+            if rowId != nil {
+                navigate({ openDeviceFromLink() }, dropped: { _ = deps.deepLinkBus.consumeDevice() })
+            }
+        }
         // EXP-825: a `/t/{team}/agent` universal link.
         .onChange(of: deps.deepLinkBus.pendingAgentTeamSlug) { _, slug in
             if slug != nil {
@@ -712,6 +719,7 @@ struct MainNavigator: View {
             }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingAgentTeamSlug != nil { openAgentFromLink() }
+            if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             syncBanner
@@ -1262,10 +1270,12 @@ extension MainNavigator {
                 LEFT JOIN "issues" AS "i" ON "i"."id" = "n"."issue_id"
                 LEFT JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
                 WHERE "n"."read_at" IS NULL
-                  AND (("n"."issue_id" IS NULL AND "n"."type" IN (?, ?)) OR "i"."id" IS NOT NULL)
+                  AND (("n"."issue_id" IS NULL AND "n"."type" IN (?, ?, ?)) OR "i"."id" IS NOT NULL)
                 """, arguments: [
                     DomainContract.notificationTypeAgentMessage,
                     DomainContract.notificationTypeSessionBlocked,
+                    // #EXP-1534: team-less (`team_id` NULL = every team's dot).
+                    DomainContract.notificationTypeAgentSignedOut,
                 ]).map { $0["team_id"] as String? }
         }
         let notifTask = Task { @MainActor in
@@ -1504,6 +1514,29 @@ extension MainNavigator {
         // EXP-1373: the Inbox is a page pushed over the Chats tab.
         landOnRoot(of: .threads)
         path.append(.myWork)
+    }
+
+    /// #EXP-1534 (inbox-route.json): land on the Devices page (the Team
+    /// tab's Devices row, the same page) and hand it the devices ROW id whose
+    /// settings sheet it opens. A push for another signed-in account switches
+    /// first and leaves the tap PENDING: `.id(activeAccountId)` recreates this
+    /// navigator and its cold-launch `.task` drains it under that account.
+    private func openDeviceFromLink() {
+        let bus = deps.deepLinkBus
+        guard let rowId = bus.pendingDeviceRowId else { return }
+        let accountId = bus.pendingDeviceAccountId ?? issueAccountId(forUserId: bus.pendingDeviceUserId)
+        if !accountId.isEmpty, accountId != deps.auth.activeAccountId {
+            deps.auth.switchAccount(id: accountId)
+            return
+        }
+        _ = bus.consumeDevice()
+        bus.pendingDeviceSettingsRowId = rowId
+        // Already on the Devices page: it opens the sheet in place.
+        if case .teamSettingsSection(_, _, .devices)? = path.last { return }
+        landOnRoot(of: .team)
+        path.append(.teamSettingsSection(
+            accountId: accountId, teamId: teamState.activeTeamId ?? "", section: .devices
+        ))
     }
 
     /// EXP-825: land on Home in the linked team — switch account first when

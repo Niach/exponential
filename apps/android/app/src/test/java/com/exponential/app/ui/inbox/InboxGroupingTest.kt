@@ -27,13 +27,14 @@ class InboxGroupingTest {
         issueId: String? = null,
         teamId: String? = null,
         sessionId: String? = null,
+        deviceId: String? = null,
         type: String = DomainContract.notificationTypeIssueComment,
         title: String = "title-$id",
         body: String? = null,
         readAt: String? = null,
     ) = NotificationEntity(
         id = id, userId = "u1", issueId = issueId, teamId = teamId, sessionId = sessionId,
-        type = type, title = title, body = body, readAt = readAt, createdAt = ts, updatedAt = ts,
+        deviceId = deviceId, type = type, title = title, body = body, readAt = readAt, createdAt = ts, updatedAt = ts,
     )
 
     private fun issue(id: String) = IssueEntity(
@@ -196,6 +197,55 @@ class InboxGroupingTest {
     }
 
     /**
+     * #EXP-1534: a lost agent login is its own issue-less, team-less entry
+     * (the wall's row), carrying the device its tap opens; a row whose
+     * device was removed still renders and only marks read.
+     */
+    @Test
+    fun signedOutAgentsAreOneEntryEachAndCarryTheirDevice() {
+        val state = buildInboxState(
+            notifications = listOf(
+                notification(
+                    "d1", deviceId = "dev-row-1",
+                    type = DomainContract.notificationTypeAgentSignedOut,
+                    title = "Claude Code account a@b.dev is signed out on mint",
+                ),
+                notification(
+                    "d2", deviceId = null,
+                    type = DomainContract.notificationTypeAgentSignedOut, readAt = ts,
+                ),
+            ),
+            issues = emptyList(),
+            teams = listOf(team("t1", "Acme")),
+        )
+
+        val devices = state.entries.filterIsInstance<InboxEntry.Device>()
+        assertEquals(2, devices.size)
+        assertEquals("device:d1", devices[0].key)
+        assertEquals("Claude Code account a@b.dev is signed out on mint", devices[0].notification.title)
+        assertEquals("dev-row-1", devices[0].deviceId)
+        assertEquals(1, devices[0].unread)
+        assertNull(devices[1].deviceId)
+        assertEquals(0, devices[1].unread)
+        assertEquals(1, state.totalUnread)
+    }
+
+    /** #EXP-1534: a team-less row lists in EVERY team's inbox. */
+    @Test
+    fun signedOutAgentsListInEveryTeam() {
+        val notifications = listOf(
+            notification("d1", deviceId = "dev-row-1", type = DomainContract.notificationTypeAgentSignedOut),
+            notification("n1", teamId = "team-b", type = DomainContract.notificationTypeAgentMessage),
+        )
+        for (team in listOf("team-a", "team-b", null)) {
+            val listed = activeTeamNotifications(notifications, emptyList(), emptyList(), team)
+            assertTrue(listed.any { it.id == "d1" })
+        }
+        assertEquals(1, activeTeamUnread(notifications, emptyList(), emptyList(), "team-a"))
+        assertEquals(2, activeTeamUnread(notifications, emptyList(), emptyList(), "team-b"))
+    }
+
+    /**
      * Issue-less rows of any other type are dropped — a comment without an
      * issue, a reporter reply whose issue has not synced, and an issue id
      * the local issues table does not know.
@@ -280,6 +330,26 @@ class InboxGroupingTest {
         assertEquals(DomainContract.notificationTypeSessionBlocked, row.type)
     }
 
+    // #EXP-1534: the shape gained a nullable device_id, set on agent_signed_out.
+    @Test
+    fun decodesAgentSignedOutRowWithDeviceId() {
+        val row = json.decodeFromString(
+            NotificationEntity.serializer(),
+            """
+            {"id":"d1","user_id":"u1","issue_id":null,"team_id":null,"session_id":null,
+             "device_id":"dev-row-1","type":"agent_signed_out",
+             "title":"Claude Code account a@b.dev is signed out on mint",
+             "body":null,"read_at":null,
+             "created_at":"$ts","updated_at":"$ts"}
+            """.trimIndent(),
+        )
+        assertNull(row.issueId)
+        assertNull(row.teamId)
+        assertNull(row.body)
+        assertEquals("dev-row-1", row.deviceId)
+        assertEquals(DomainContract.notificationTypeAgentSignedOut, row.type)
+    }
+
     @Test
     fun decodesIssueAnchoredRowWithoutTeamId() {
         val row = json.decodeFromString(
@@ -293,6 +363,7 @@ class InboxGroupingTest {
         assertEquals("i1", row.issueId)
         assertNull(row.teamId)
         assertNull(row.sessionId)
+        assertNull(row.deviceId)
     }
 
     /**
