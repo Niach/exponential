@@ -5,3 +5,6 @@
 - Snabbsvar ovanför textfältet är lättare att läsa
 - Appar får flikarna Chatt, Data, Versioner och Inställningar i redigeraren
 - Inställningar › MCP är en sida för dina MCP-servrar, appverktyg och aktivitet
+- Livesessioner fortsätter att strömma, end-to-end-krypterat, när den direkta anslutningen till enheten bryts
+- Text du skriver medan en kommentar skickas stannar kvar i skrivfältet
+- En tråd visar uppgifterna för sin pågående undersession

@@ -5,3 +5,6 @@
 - Brzi odgovori iznad polja za unos lakše se čitaju
 - Aplikacije u uređivaču dobivaju kartice Chat, Podaci, Verzije i Postavke
 - Postavke › MCP jedna je stranica za MCP poslužitelje, alate aplikacija i aktivnost
+- Sesije uživo nastavljaju prijenos, šifrirano s kraja na kraj, kada izravna veza s uređajem padne
+- Tekst koji upišeš dok se komentar šalje ostaje u polju za pisanje
+- Nit prikazuje zadatke svoje pokrenute podsesije

@@ -5,3 +5,6 @@
 - A beviteli mező feletti gyors válaszok könnyebben olvashatók
 - Az alkalmazások szerkesztője Csevegés, Adatok, Verziók és Beállítások lapokat kap
 - A Beállítások › MCP egy oldal az MCP-szervereknek, alkalmazáseszközöknek és tevékenységnek
+- Az élő munkamenetek végponttól végpontig titkosítva tovább streamelnek, ha megszakad a közvetlen kapcsolat az eszközzel
+- A megjegyzés küldése közben beírt szöveg a szerkesztőben marad
+- Egy szál megmutatja a futó gyermek-munkamenete feladatait

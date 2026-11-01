@@ -5,3 +5,6 @@
 - Rychlé odpovědi nad polem pro psaní jsou lépe čitelné
 - Aplikace mají v editoru karty Chat, Data, Verze a Nastavení
 - Nastavení › MCP je jedna stránka pro servery MCP, nástroje aplikací a aktivitu
+- Živé relace pokračují ve streamování, šifrovaně end-to-end, když přímé spojení se zařízením spadne
+- Text napsaný během odesílání komentáře zůstane v poli pro psaní
+- Vlákno zobrazuje úkoly své běžící podřízené relace

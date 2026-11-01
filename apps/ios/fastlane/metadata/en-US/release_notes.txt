@@ -5,3 +5,6 @@
 - Quick replies above the composer are easier to read
 - Apps get Chat, Data, Versions and Settings tabs in the editor
 - Settings › MCP is one page for your MCP servers, app tools and activity
+- Live sessions keep streaming, end-to-end encrypted, when the direct connection to the device drops
+- Text you type while a comment is sending stays in the composer
+- A thread shows the tasks of its running child session

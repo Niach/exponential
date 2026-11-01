@@ -5,3 +5,6 @@
 - Schnellantworten über dem Eingabefeld sind besser lesbar
 - Apps bekommen im Editor die Tabs Chat, Daten, Versionen und Einstellungen
 - Einstellungen › MCP ist eine Seite für deine MCP-Server, App-Tools und Aktivitäten
+- Live-Sitzungen streamen Ende-zu-Ende-verschlüsselt weiter, wenn die direkte Verbindung zum Gerät abbricht
+- Text, den du tippst, während ein Kommentar gesendet wird, bleibt im Eingabefeld
+- Ein Thread zeigt die Aufgaben seiner laufenden Untersitzung
