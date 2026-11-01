@@ -28,6 +28,8 @@ pub const COPIED_RESET: Duration = Duration::from_millis(2000);
 
 /// How far a Drawer is dragged toward its edge before it dismisses.
 pub const SHEET_DISMISS_PX: f32 = 64.0;
+/// EXP-1555: how long overlay scrollbars stay after the last scroll step.
+pub const SCROLLBAR_LINGER: Duration = Duration::from_millis(1000);
 
 /// A sheet drag's offset: the pointer's travel toward the sheet's edge only.
 pub fn sheet_offset(side: &str, x: f32, y: f32) -> (f32, f32) {
@@ -1371,7 +1373,9 @@ impl SurfaceView {
             cx.notify();
             return;
         }
-        self.scroll_drag = None;
+        if let Some(d) = self.scroll_drag.take() {
+            self.scrollbars_recent(&d.id, cx);
+        }
         self.md_dragging = false;
         if let Some(d) = self.sheet_drag.take() {
             if d.offset.0.abs().max(d.offset.1.abs()) >= SHEET_DISMISS_PX {
@@ -1410,8 +1414,38 @@ impl SurfaceView {
         cx.stop_propagation();
         if self.surface.scroll_to(id, x, y) {
             self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
+            self.scrollbars_recent(id, cx);
             cx.notify();
         }
+    }
+
+    /// EXP-1555: a scroll shows the container's overlay scrollbars for
+    /// [`SCROLLBAR_LINGER`] after its last step (none at rest, like web).
+    pub(crate) fn scrollbars_recent(&mut self, id: &str, cx: &mut Context<Self>) {
+        let key = id.to_string();
+        let task = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SCROLLBAR_LINGER).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.scroll_recent.remove(&key).is_some() {
+                    cx.notify();
+                }
+            });
+        });
+        self.scroll_recent.insert(id.to_string(), task);
+    }
+
+    /// EXP-1555: the pointer entered / left a scroll container.
+    pub(crate) fn scroll_hovered(&mut self, id: &str, hovered: bool, cx: &mut Context<Self>) {
+        let changed = if hovered { self.scroll_hover.insert(id.to_string()) } else { self.scroll_hover.remove(id) };
+        if changed {
+            cx.notify();
+        }
+    }
+
+    /// EXP-1555: does scroll container `id` show its scrollbars (hovered,
+    /// just scrolled, or its thumb dragged)?
+    pub(crate) fn scrollbars_shown(&self, id: &str) -> bool {
+        self.scroll_hover.contains(id) || self.scroll_recent.contains_key(id) || self.scroll_drag.as_ref().is_some_and(|d| d.id == id)
     }
 
     // -- Segmented, charts --------------------------------------------------

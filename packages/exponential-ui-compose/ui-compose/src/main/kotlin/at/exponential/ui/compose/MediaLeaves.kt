@@ -374,29 +374,55 @@ internal fun AvatarLeaf(cx: LeafContext) {
     }
 }
 
-/** The tinted placeholder an `Image` paints without a loaded picture: the image glyph over the alt text (glyph only without one). */
+/**
+ * The placeholder an `Image` paints without a loaded picture (×4, web's
+ * `Image/fallback`): the `muted` fill with the STATIC `fallback` icon
+ * (default `builtinIcons["Image.fallback"]`, Lucide `circle-dashed`) at
+ * `control.iconLg` in `mutedForeground`, centred; no caption. Under a
+ * sibling overlay (a Mosaic's `+N` scrim) only the fill paints; over an
+ * ancestor's own background (a Mosaic tile, a tinted cover) no fill.
+ */
 @Composable
-internal fun ImagePlaceholder(cx: LeafContext, ink: Color, label: String) {
-    Column(
-        Modifier.fillMaxSize().background(ink.copy(alpha = ink.alpha * 0.08f)),
-        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        GlyphView(Glyph.Image, 20f, ink.copy(alpha = ink.alpha * 0.6f))
-        if (label.isNotEmpty()) BasicText(
-            label,
-            style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = ink.copy(alpha = ink.alpha * 0.6f)),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+internal fun ImagePlaceholder(cx: LeafContext, covered: Boolean = false) {
+    val fallback = cx.part("Image", "fallback")
+    val ink = fallback.color ?: cx.themeColor("mutedForeground") ?: cx.ink
+    // The fill only where nothing behind the Image paints one (web: a
+    // Mosaic tile's `muted`, a tinted cover box show through).
+    val fill = if (backdropPainted(cx)) Color.Transparent else fallback.style.background ?: cx.themeColor("muted") ?: ink.copy(alpha = ink.alpha * 0.08f)
+    Box(Modifier.fillMaxSize().background(fill), contentAlignment = Alignment.Center) {
+        if (!covered) {
+            val size = cx.control("iconLg", 24f)
+            val name = cx.props.str("fallback").ifEmpty { "ui-icon-placeholder" }
+            IconOrGlyph(name, Glyph.CircleDashed, size, cx, ink)
+        }
+    }
+}
+
+/** Does an ancestor of the Image paint a background (it shows through the placeholder)? */
+private fun backdropPainted(cx: LeafContext): Boolean {
+    var i = cx.node.parent
+    while (i != null) {
+        if (cx.model.style(i).background != null) return true
+        i = cx.model.node(i)?.parent
+    }
+    return false
+}
+
+/**
+ * Is the Image [index] under a sibling overlay (a Mosaic tile's `more` scrim)?
+ * A macro's expanded nodes carry no `part` over the FFI, only their path id
+ * (`<tile>.more`), so the scrim is found by that too.
+ */
+private fun imageCovered(cx: LeafContext): Boolean {
+    val parent = cx.node.parent?.let { cx.model.node(it) } ?: return false
+    return parent.children.any { c ->
+        c != cx.index && cx.model.node(c)?.let { (it.part == "more" || it.id == "${parent.id}.more") && !it.hidden } == true
     }
 }
 
 /** `Image`: the picture scaled by `fit` (cover default; contain / scaleDown fit; fill stretches), clipped; else the placeholder. */
 @Composable
 internal fun ImageLeaf(cx: LeafContext) {
-    val alt = cx.props.str("alt")
-    val muted = cx.themeColor("mutedForeground") ?: cx.ink
     val picture = rememberLeafImage(cx, cx.props.str("src"))
     val scale = when (cx.props.str("fit")) {
         "contain", "scaleDown" -> ContentScale.Fit
@@ -408,7 +434,7 @@ internal fun ImageLeaf(cx: LeafContext) {
         if (picture != null) {
             Image(picture, null, Modifier.fillMaxSize(), contentScale = scale)
         } else {
-            ImagePlaceholder(cx, muted, alt)
+            ImagePlaceholder(cx, covered = imageCovered(cx))
         }
     }
 }

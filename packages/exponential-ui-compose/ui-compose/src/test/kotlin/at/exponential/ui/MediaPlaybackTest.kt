@@ -334,7 +334,7 @@ class MediaPlaybackTest {
     }
 
     @Test
-    fun anImageWithoutAltPaintsNoLabel() {
+    fun anImagePlaceholderPaintsNoCaption() {
         Fixtures.require()
         val m = makeModel(host = NoHost)
         m.setNested(
@@ -346,7 +346,9 @@ class MediaPlaybackTest {
         compose.setContent { ExponentialSurface(m) }
         compose.waitForIdle()
         compose.onAllNodesWithText("image", ignoreCase = true, useUnmergedTree = true).assertCountEquals(0)
-        compose.onAllNodesWithText("Cat", useUnmergedTree = true).assertCountEquals(1)
+        // ×4: the placeholder is the static fallback glyph only, the alt
+        // stays the accessibility name, never a painted caption.
+        compose.onAllNodesWithText("Cat", useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test

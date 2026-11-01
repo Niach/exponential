@@ -184,62 +184,54 @@ struct SwitchTrackLeaf: View {
     }
 }
 
-/// A Slider `track`: range + thumb at the value (drawn, with a drag), or
-/// the platform slider when the recipe leaves `native` unset.
+/// A Slider `track`, drawn by hand from the web recipe on every theme
+/// (EXP-1555: the platform slider looked nothing like web's): the thin
+/// `track` capsule, the filled `range` up to the value and the hollow
+/// ring `thumb` (its recipe fill, hairline border and shadow) at the
+/// value, with a drag. VoiceOver adjusts it through the node's
+/// `accessibilityAdjustableAction` (`Adjustable`).
 struct SliderTrackLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let min = cx.props.num("min") ?? 0
         let max = cx.props.num("max") ?? 100
-        let step = cx.props.num("step") ?? 1
         let value = cx.model.sliderValue(cx.index)
         let track = cx.part("Slider", "track")
         let disabled = cx.model.isDisabled(cx.index)
-        if track.native == false || cx.model.theme == nil {
-            let range = cx.part("Slider", "range")
-            let thumb = cx.part("Slider", "thumb", states: cx.states.filter { $0 == "focus" || $0 == "hover" })
-            let barH = Swift.min(track.height ?? 6, Swift.max(cx.size.height, 1))
-            let t = thumb.sliderThumbBox.width ?? 16
-            let f = max > min ? CGFloat((value - min) / (max - min)) : 0
-            let w = cx.size.width
-            // The minimum sits at the right edge in rtl (gpui `slider_geometry`).
-            let (fillX, fillW, thumbX) = cx.rtl ? (w * (1 - f), w * f, (w - t) * (1 - f)) : (0, w * f, (w - t) * f)
-            let originX = cx.model.frame(cx.index).minX
-            ZStack(alignment: .leading) {
-                Capsule().fill(track.style.background ?? cx.themeColor("muted") ?? cx.ink.opacity(0.15)).frame(width: w, height: barH)
-                Capsule().fill(range.style.background ?? cx.themeColor("primary") ?? cx.ink).frame(width: fillW, height: barH).offset(x: fillX)
-                Circle()
-                    .fill(thumb.style.background ?? .white)
-                    .overlay(Circle().strokeBorder(thumb.style.borderColor ?? .clear, lineWidth: thumb.style.borderWidth))
-                    .frame(width: t, height: t)
-                    .offset(x: thumbX)
-            }
-            .frame(width: w, height: cx.size.height)
-            .contentShape(Rectangle().inset(by: -8))
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { g in
-                        cx.model.sliderDrag(cx.index, value: cx.model.sliderValue(at: originX + g.location.x, trackIndex: cx.index))
-                    }
-                    .onEnded { _ in cx.model.sliderRelease(cx.index) }
-            )
-            .disabled(disabled)
-        } else {
-            let geometry = SurfaceModel.sliderRange(min: min, max: max, step: step)
-            let binding = Binding(get: { value }, set: { cx.model.sliderDrag(cx.index, value: SurfaceModel.snap($0, min: min, max: max, step: step)) })
-            Group {
-                if let s = geometry.step {
-                    Slider(value: binding, in: geometry.range, step: s) { _ in cx.model.sliderRelease(cx.index) }
-                } else {
-                    Slider(value: binding, in: geometry.range) { _ in cx.model.sliderRelease(cx.index) }
-                }
-            }
-            .tint(cx.themeColor("primary"))
-            .disabled(disabled)
-            .frame(width: cx.size.width)
-            .frame(height: cx.size.height)
+        let range = cx.part("Slider", "range")
+        let thumb = cx.part("Slider", "thumb", states: cx.states.filter { $0 == "focus" || $0 == "hover" })
+        let barH = Swift.min(track.height ?? 6, Swift.max(cx.size.height, 1))
+        let t = thumb.sliderThumbBox.width ?? cx.control("slider", 16)
+        let f = max > min ? CGFloat(Swift.min(1, Swift.max(0, (value - min) / (max - min)))) : 0
+        let w = cx.size.width
+        // The minimum sits at the right edge in rtl (gpui `slider_geometry`).
+        let (fillX, fillW, thumbX) = cx.rtl ? (w * (1 - f), w * f, (w - t) * (1 - f)) : (0, w * f, (w - t) * f)
+        let originX = cx.model.frame(cx.index).minX
+        var ring = thumb.style
+        if ring.background == nil { ring.background = cx.themeColor("background") ?? .white }
+        if ring.borderColor == nil { ring.borderColor = cx.themeColor("primary") ?? cx.ink }
+        if !ring.borderWidths.contains(where: { $0 > 0 }) { ring.borderWidths = [1, 1, 1, 1]; ring.borderWidth = 1 }
+        ring.radii = [t / 2, t / 2, t / 2, t / 2]
+        ring.radius = t / 2
+        return ZStack(alignment: .leading) {
+            Capsule().fill(track.style.background ?? cx.themeColor("muted") ?? cx.ink.opacity(0.15)).frame(width: w, height: barH)
+            Capsule().fill(range.style.background ?? cx.themeColor("primary") ?? cx.ink).frame(width: fillW, height: barH).offset(x: fillX)
+            Color.clear
+                .frame(width: t, height: t)
+                .paintedBox(ring, size: CGSize(width: t, height: t))
+                .offset(x: thumbX)
         }
+        .frame(width: w, height: cx.size.height)
+        .contentShape(Rectangle().inset(by: -8))
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { g in
+                    cx.model.sliderDrag(cx.index, value: cx.model.sliderValue(at: originX + g.location.x, trackIndex: cx.index))
+                }
+                .onEnded { _ in cx.model.sliderRelease(cx.index) }
+        )
+        .disabled(disabled)
     }
 }
 
@@ -309,7 +301,12 @@ struct SegmentedLeaf: View {
                     }
                     .frame(maxWidth: fill ? .infinity : nil)
                     .frame(height: h)
-                    .paintedBox(st.style, size: CGSize(width: 0, height: h))
+                    // EXP-1555: the corners clamp to half the SHORTER side; a
+                    // zero width clamped every radius to 0 (sharp segments,
+                    // toggle tiles and outline buttons). The item's own width
+                    // when the recipe gives one (the rail), else wide enough
+                    // that the height bounds the radius (a `full` pill).
+                    .paintedBox(st.style, size: CGSize(width: box.width ?? max(h, 1) * 1000, height: h))
                     .overlay {
                         if ring, st.style.shadows.isEmpty {
                             RoundedRectangle(cornerRadius: st.style.radius).strokeBorder(cx.themeColor("ring") ?? cx.ink.opacity(0.5), lineWidth: 2)

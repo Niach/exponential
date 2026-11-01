@@ -679,33 +679,48 @@ pub struct ImageFallback {
     size: f32,
     name: String,
     path: Option<SharedString>,
+    /// EXP-1555: false under a Mosaic's "+N" scrim (nothing under the count).
+    glyph: bool,
+}
+
+/// EXP-1555: what surrounds an Image's placeholder: an ancestor already
+/// painting a background (`backdrop`), a sibling laid over it (`covered`,
+/// the Mosaic's "+N").
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ImageSurround {
+    pub backdrop: bool,
+    pub covered: bool,
 }
 
 impl ImageFallback {
-    pub fn of(cx: &LeafCx) -> ImageFallback {
+    pub fn of(cx: &LeafCx, around: ImageSurround) -> ImageFallback {
         let part = cx.part("Image", "fallback", &[]);
         let ink = part.color.or_else(|| cx.theme_color("mutedForeground")).unwrap_or(cx.ink);
-        let bg = part.bg.or_else(|| cx.theme_color("muted"));
-        let size = cx.theme.and_then(|t| t.tokens.control.get("iconLg").copied()).unwrap_or(24.0) as f32;
+        // EXP-1555: the muted fill only where nothing behind paints one (a
+        // Mosaic tile, a card): never a second translucent layer.
+        let bg = if around.backdrop { None } else { part.bg.or_else(|| cx.theme_color("muted")) };
+        // A Carousel thumbnail's square shows it at `iconMd` (the web strip).
+        let token = if cx.node.part.as_deref() == Some("thumbnailImage") { "iconMd" } else { "iconLg" };
+        let size = cx.theme.and_then(|t| t.tokens.control.get(token).copied()).unwrap_or(if token == "iconMd" { 20.0 } else { 24.0 }) as f32;
         let name = match cx.str("fallback") {
             "" => eui_core::layout_tree::builtin_icon("Image.fallback").unwrap_or("ui-icon-placeholder").to_string(),
             f => f.to_string(),
         };
         let path = cx.host.icon(&name);
-        ImageFallback { bg, ink, size, name, path }
+        ImageFallback { bg, ink, size, name, path, glyph: !around.covered }
     }
 
     pub fn element(&self) -> AnyElement {
-        let glyph = match &self.path {
-            Some(p) => gpui::svg().path(p.clone()).size(px(self.size)).text_color(self.ink).into_any_element(),
+        let glyph = self.glyph.then(|| match &self.path {
+            Some(p) => gpui::svg().path(p.clone()).size(px(self.size)).flex_none().text_color(self.ink).into_any_element(),
             None => icons::glyph(Glyph::for_concept(&self.name).unwrap_or(Glyph::Image), self.size, self.ink),
-        };
-        div().size_full().flex().items_center().justify_center().when_some(self.bg, |d, bg| d.bg(bg)).child(glyph).into_any_element()
+        });
+        div().size_full().flex().items_center().justify_center().when_some(self.bg, |d, bg| d.bg(bg)).children(glyph).into_any_element()
     }
 }
 
-pub fn image_placeholder(cx: &LeafCx) -> AnyElement {
-    ImageFallback::of(cx).element()
+pub fn image_placeholder(cx: &LeafCx, around: ImageSurround) -> AnyElement {
+    ImageFallback::of(cx, around).element()
 }
 
 fn rounded<E: Styled>(e: E, r: [f32; 4]) -> E {
@@ -753,10 +768,10 @@ fn render_image(source: &ImageSource, window: &mut Window, cx: &mut App) -> Opti
 /// (the placeholder while loading and on failure), clipped to the leaf's
 /// (and its rounded ancestors') corners. `focalX` / `focalY` (CSS
 /// `object-position`) place the decoded image with [`focal_bounds`].
-pub fn image(cx: &LeafCx, window: &mut Window, app: &mut App) -> AnyElement {
+pub fn image(cx: &LeafCx, around: ImageSurround, window: &mut Window, app: &mut App) -> AnyElement {
     let src = cx.str("src");
     let Some(source) = crate::media::image_source(cx.host, src) else {
-        return rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx)).into_any_element();
+        return rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx, around)).into_any_element();
     };
     let fit_name = match cx.str("fit") {
         f @ ("contain" | "fill" | "none" | "scaleDown") => f,
@@ -792,10 +807,10 @@ pub fn image(cx: &LeafCx, window: &mut Window, app: &mut App) -> AnyElement {
                 .size_full()
                 .into_any_element()
             }
-            _ => rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx)).into_any_element(),
+            _ => rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx, around)).into_any_element(),
         };
     }
-    let (fa, fb) = (ImageFallback::of(cx), ImageFallback::of(cx));
+    let (fa, fb) = (ImageFallback::of(cx, around), ImageFallback::of(cx, around));
     rounded(div().size_full().overflow_hidden(), cx.radii)
         .child(rounded(img(source).size_full().object_fit(fit), cx.radii).with_fallback(move || fa.element()).with_loading(move || fb.element()))
         .into_any_element()
@@ -1322,7 +1337,10 @@ pub fn slider(cx: &LeafCx, fraction: f32) -> AnyElement {
     let thumb_states: Vec<String> = cx.states.iter().filter(|s| matches!(s.as_str(), "focus" | "focus-visible" | "hover" | "pressed")).cloned().collect();
     let thumb_props = cx.part_props("Slider", "thumb", &thumb_states);
     let thumb = PaintStyle::from_visual(&eui_core::style::visual(&thumb_props, eui_core::style::BoxKind::Leaf));
-    let t = px_prop(&thumb_props, "width").unwrap_or(16.0).min(cx.h.max(1.0));
+    // EXP-1555: the thumb keeps the recipe's size (`$control.slider`), centred
+    // on the track and overflowing a thinner leaf (the web's Radix thumb),
+    // never squeezed to the bar's height.
+    let t = px_prop(&thumb_props, "width").unwrap_or_else(|| control(cx.theme, "slider", 16.0));
     let (fill_x, fill_w, thumb_x) = slider_geometry(fraction, cx.w, t, cx.rtl);
     let y = (cx.h - bar_h) / 2.0;
     let primary = cx.theme_color("primary").unwrap_or(cx.ink);

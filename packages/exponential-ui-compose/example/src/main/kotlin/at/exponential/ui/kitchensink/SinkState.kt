@@ -97,7 +97,10 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
             var json = assets.open("kitchen-sink.json").bufferedReader().use { it.readText() }
             if (options.rtl) json = json.replace("\"direction\": \"ltr\"", "\"direction\": \"rtl\"")
             model.setNested(json)
-            model.setData("/draft", JsonValue.Obj(mapOf("title" to JsonValue.Str(""))))
+            // The data model web renders the sink against (the Inbox
+            // header's team name, the posts, every bound input).
+            val data = JsonValue.parse(assets.open("kitchen-sink.data.json").bufferedReader().use { it.readText() })
+            model.setData("", JsonValue.Obj((data.obj ?: emptyMap()) - "\$comment"))
         }
     }
 

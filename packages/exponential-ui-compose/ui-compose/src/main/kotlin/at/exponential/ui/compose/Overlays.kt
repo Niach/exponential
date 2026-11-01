@@ -6,9 +6,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -193,7 +194,13 @@ private fun DialogLayer(model: SurfaceModel, layer: LayerInfo) {
     }
 }
 
-/** A Drawer: the layer tree in a modal bottom sheet with a drag handle (swipe / scrim / back dismiss unless pinned). */
+/**
+ * A Drawer: the layer tree in a modal bottom sheet (swipe / scrim / back
+ * dismiss unless pinned). The layer paints the ONE sheet itself (its
+ * `content` surface, top radius and `handle` grabber, like every other
+ * renderer), so the M3 sheet is only the window, the gesture and the scrim:
+ * no container, no shape, no elevation, no drag handle of its own.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DrawerLayer(model: SurfaceModel, layer: LayerInfo) {
@@ -202,14 +209,19 @@ private fun DrawerLayer(model: SurfaceModel, layer: LayerInfo) {
         skipPartiallyExpanded = true,
         confirmValueChange = { it != SheetValue.Hidden || dismissible },
     )
+    val scrim = model.part("Dialog", "overlay", emptyMap()).style.background ?: BottomSheetDefaults.ScrimColor
     ModalBottomSheet(
         onDismissRequest = { if (dismissible) model.dismissLayer(layer.owner) },
         sheetState = state,
-        containerColor = model.color("background") ?: BottomSheetDefaults.ContainerColor,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
+        shape = RectangleShape,
+        containerColor = Color.Transparent,
+        tonalElevation = 0.dp,
+        scrimColor = scrim,
+        dragHandle = null,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = dismissible),
     ) {
-        Box(Modifier.fillMaxWidth().padding(bottom = 12.dp), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             LayerView(layer)
         }
     }

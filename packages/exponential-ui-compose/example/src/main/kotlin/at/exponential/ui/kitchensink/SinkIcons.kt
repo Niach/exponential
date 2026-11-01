@@ -2,35 +2,6 @@ package at.exponential.ui.kitchensink
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ExitToApp
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.List
-import androidx.compose.material.icons.automirrored.outlined.Send
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ArrowDropDown
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Create
-import androidx.compose.material.icons.outlined.DateRange
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.Face
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Phone
-import androidx.compose.material.icons.outlined.Place
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -45,7 +16,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * A 24-unit outline glyph from SVG path data (Lucide geometry, 2-unit
- * stroke) for the concepts `material-icons-core` has no shape for.
+ * stroke, round caps and joins: lucide-react's own SVG attributes).
  */
 private fun outline(name: String, vararg paths: String): ImageVector {
     val b = ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)
@@ -61,70 +32,127 @@ private fun outline(name: String, vararg paths: String): ImageVector {
     return b.build()
 }
 
-private fun square(x: Int, y: Int) = "M${x + 1} ${y}h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z"
-
-private val grid = outline("grid", square(3, 3), square(14, 3), square(14, 14), square(3, 14))
-private val folder = outline("folder", "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z")
-private val archive = outline("archive", "M3 3h18a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z", "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8", "M10 12h4")
-private val copy = outline("copy", "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z", "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2")
-private val minus = outline("minus", "M5 12h14")
-private val upload = outline("upload", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "M17 8l-5-5-5 5", "M12 3v12")
-private val file = outline("file", "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", "M14 2v4a2 2 0 0 0 2 2h4")
-private val clock = outline("clock", "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "M12 6v6l4 2")
-private val attach = outline("attach", "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48")
-private val stop = outline("stop", "M8 6h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z")
-private val back = outline("back", "M19 12H5", "M12 19l-7-7 7-7")
-private val menu = outline("menu", "M4 12h16", "M4 6h16", "M4 18h16")
-private val star = outline("star", "M11.5 2.3a.53.53 0 0 1 .95 0l2.31 4.68a2.12 2.12 0 0 0 1.6 1.16l5.16.75a.53.53 0 0 1 .3.91l-3.74 3.64a2.12 2.12 0 0 0-.61 1.88l.88 5.14a.53.53 0 0 1-.77.56l-4.62-2.43a2.12 2.12 0 0 0-1.97 0L6.4 21.01a.53.53 0 0 1-.77-.56l.88-5.14a2.12 2.12 0 0 0-.61-1.88L2.16 9.8a.53.53 0 0 1 .3-.91l5.16-.75a2.12 2.12 0 0 0 1.6-1.16z")
-private val filter = outline("filter", "M22 3H2l8 9.46V19l4 2v-8.54L22 3z")
-private val undo = outline("undo", "M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11")
-private val issues = outline("issues", "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z")
-private val messageCircle = outline("message-circle", "M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719")
-private val users = outline(
-    "users",
-    "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2",
-    "M16 3.128a4 4 0 0 1 0 7.744",
-    "M22 21v-2a4 4 0 0 0-3-3.87",
-    "M9 3a4 4 0 1 0 0 8a4 4 0 1 0 0-8z",
-)
-
-// VAPP-162: the round-5 concepts (calls, pairing, push-to-talk) in Lucide geometry.
-private fun rect(x: Float, y: Float, w: Float, h: Float, r: Float) =
-    "M${x + r} ${y}h${w - 2 * r}a$r $r 0 0 1 $r ${r}v${h - 2 * r}a$r $r 0 0 1 -$r ${r}h-${w - 2 * r}a$r $r 0 0 1 -$r -${r}v-${h - 2 * r}a$r $r 0 0 1 $r -${r}z"
-private fun circle(cx: Float, cy: Float, r: Float) = "M$cx ${cy - r}a$r $r 0 1 0 0 ${2 * r}a$r $r 0 1 0 0 -${2 * r}z"
-
-private val mic = outline("mic", "M12 19v3", "M19 10v2a7 7 0 0 1-14 0v-2", rect(9f, 2f, 6f, 13f, 3f))
-private val micOff = outline("mic-off", "M12 19v3", "M15 9.34V5a3 3 0 0 0-5.68-1.33", "M16.95 16.95A7 7 0 0 1 5 12v-2", "M18.89 13.23A7 7 0 0 0 19 12v-2", "m2 2 20 20", "M9 9v3a3 3 0 0 0 5.12 2.12")
-private val phoneOff = outline(
-    "phone-off",
-    "M10.1 13.9a14 14 0 0 0 3.732 2.668 1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2 18 18 0 0 1-12.728-5.272",
-    "M22 2 2 22",
-    "M4.76 13.582A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 .244.473",
-)
-private val phoneIncoming = outline(
-    "phone-incoming",
-    "M16 2v6h6",
-    "m22 2-6 6",
-    "M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384",
-)
-private val volume2 = outline("volume-2", "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z", "M16 9a5 5 0 0 1 0 6", "M19.364 18.364a9 9 0 0 0 0-12.728")
-private val ear = outline("ear", "M6 8.5a6.5 6.5 0 1 1 13 0c0 6-6 6-6 10a3.5 3.5 0 1 1-7 0", "M15 8.5a2.5 2.5 0 0 0-5 0v1a2 2 0 1 1 0 4")
-private val qrCode = outline(
-    "qr-code",
-    rect(3f, 3f, 5f, 5f, 1f), rect(16f, 3f, 5f, 5f, 1f), rect(3f, 16f, 5f, 5f, 1f),
-    "M21 16h-3a2 2 0 0 0-2 2v3", "M21 21v.01", "M12 7v3a2 2 0 0 1-2 2H7", "M3 12h.01", "M12 3h.01", "M12 16v.01", "M16 12h1", "M21 12v.01", "M12 21v-1",
-)
-private val scanLine = outline("scan-line", "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2", "M7 12h10")
-private val audioLines = outline("audio-lines", "M2 10v3", "M6 6v11", "M10 3v18", "M14 8v7", "M18 5v13", "M22 10v3")
-private val hand = outline("hand", "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2", "M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2", "M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8", "M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15")
-private val checkCheck = outline("check-check", "M18 6 7 17l-5-5", "m22 10-7.5 7.5L13 16")
-private val globe = outline("globe", circle(12f, 12f, 10f), "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", "M2 12h20")
-private val mail = outline("mail", "m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7", rect(2f, 4f, 20f, 16f, 2f))
-private val pencil = outline("pencil", "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z", "m15 5 4 4")
-private val layers = outline("layers", "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z", "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12", "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17")
-private val fileText = outline("file-text", "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", "M14 2v4a2 2 0 0 0 2 2h4", "M10 9H8", "M16 13H8", "M16 17H8")
-private val bot = outline("bot", "M12 8V4H8", rect(4f, 8f, 16f, 12f, 2f), "M2 14h2", "M20 14h2", "M15 13v2", "M9 13v2")
-private val repeat = outline("repeat", "m17 2 4 4-4 4", "M3 11v-1a4 4 0 0 1 4-4h14", "m7 22-4-4 4-4", "M21 13v1a4 4 0 0 1-4 4H3")
+// The Lucide glyphs, path data copied from lucide-react 0.544.0's
+// `__iconNode` (the version icons.json names; `<circle>`/`<rect>`/`<line>`/
+// `<polyline>` flattened to paths the way packages/icons/scripts/generate.ts
+// does), so every concept paints the exact glyph web draws.
+private val lArchive = outline("archive", "M3 3H21A1 1 0 0 1 22 4V7A1 1 0 0 1 21 8H3A1 1 0 0 1 2 7V4A1 1 0 0 1 3 3Z", "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8", "M10 12h4")
+private val lArrowLeft = outline("arrow-left", "m12 19-7-7 7-7", "M19 12H5")
+private val lArrowRight = outline("arrow-right", "M5 12h14", "m12 5 7 7-7 7")
+private val lAtSign = outline("at-sign", "M8 12A4 4 0 1 0 16 12A4 4 0 1 0 8 12Z", "M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8")
+private val lAudioLines = outline("audio-lines", "M2 10v3", "M6 6v11", "M10 3v18", "M14 8v7", "M18 5v13", "M22 10v3")
+private val lBell = outline("bell", "M10.268 21a2 2 0 0 0 3.464 0", "M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326")
+private val lBold = outline("bold", "M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8")
+private val lBot = outline("bot", "M12 8V4H8", "M6 8H18A2 2 0 0 1 20 10V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18V10A2 2 0 0 1 6 8Z", "M2 14h2", "M20 14h2", "M15 13v2", "M9 13v2")
+private val lBrain = outline("brain", "M12 18V5", "M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4", "M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5", "M17.997 5.125a4 4 0 0 1 2.526 5.77", "M18 18a4 4 0 0 0 2-7.464", "M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517", "M6 18a4 4 0 0 1-2-7.464", "M6.003 5.125a4 4 0 0 0-2.526 5.77")
+private val lBriefcase = outline("briefcase", "M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16", "M4 6H20A2 2 0 0 1 22 8V18A2 2 0 0 1 20 20H4A2 2 0 0 1 2 18V8A2 2 0 0 1 4 6Z")
+private val lBug = outline("bug", "M12 20v-9", "M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z", "M14.12 3.88 16 2", "M21 21a4 4 0 0 0-3.81-4", "M21 5a4 4 0 0 1-3.55 3.97", "M22 13h-4", "M3 21a4 4 0 0 1 3.81-4", "M3 5a4 4 0 0 0 3.55 3.97", "M6 13H2", "m8 2 1.88 1.88", "M9 7.13V6a3 3 0 1 1 6 0v1.13")
+private val lBuilding2 = outline("building-2", "M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z", "M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2", "M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2", "M10 6h4", "M10 10h4", "M10 14h4", "M10 18h4")
+private val lCalendar = outline("calendar", "M8 2v4", "M16 2v4", "M5 4H19A2 2 0 0 1 21 6V20A2 2 0 0 1 19 22H5A2 2 0 0 1 3 20V6A2 2 0 0 1 5 4Z", "M3 10h18")
+private val lCheck = outline("check", "M20 6 9 17l-5-5")
+private val lCheckCheck = outline("check-check", "M18 6 7 17l-5-5", "m22 10-7.5 7.5L13 16")
+private val lChevronDown = outline("chevron-down", "m6 9 6 6 6-6")
+private val lChevronLeft = outline("chevron-left", "m15 18-6-6 6-6")
+private val lChevronRight = outline("chevron-right", "m9 18 6-6-6-6")
+private val lChevronUp = outline("chevron-up", "m18 15-6-6-6 6")
+private val lChevronsUpDown = outline("chevrons-up-down", "m7 15 5 5 5-5", "m7 9 5-5 5 5")
+private val lChromium = outline("chromium", "M10.88 21.94 15.46 14", "M21.17 8H12", "M3.95 6.06 8.54 14", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "M8 12A4 4 0 1 0 16 12A4 4 0 1 0 8 12Z")
+private val lCircle = outline("circle", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z")
+private val lCircleCheck = outline("circle-check", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "m9 12 2 2 4-4")
+private val lCircleCheckBig = outline("circle-check-big", "M21.801 10A10 10 0 1 1 17 3.335", "m9 11 3 3L22 4")
+private val lCircleDashed = outline("circle-dashed", "M10.1 2.182a10 10 0 0 1 3.8 0", "M13.9 21.818a10 10 0 0 1-3.8 0", "M17.609 3.721a10 10 0 0 1 2.69 2.7", "M2.182 13.9a10 10 0 0 1 0-3.8", "M20.279 17.609a10 10 0 0 1-2.7 2.69", "M21.818 10.1a10 10 0 0 1 0 3.8", "M3.721 6.391a10 10 0 0 1 2.7-2.69", "M6.391 20.279a10 10 0 0 1-2.69-2.7")
+private val lCircleDot = outline("circle-dot", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "M11 12A1 1 0 1 0 13 12A1 1 0 1 0 11 12Z")
+private val lCircleStop = outline("circle-stop", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "M10 9H14A1 1 0 0 1 15 10V14A1 1 0 0 1 14 15H10A1 1 0 0 1 9 14V10A1 1 0 0 1 10 9Z")
+private val lCircleUser = outline("circle-user", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "M9 10A3 3 0 1 0 15 10A3 3 0 1 0 9 10Z", "M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662")
+private val lCircleX = outline("circle-x", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "m15 9-6 6", "m9 9 6 6")
+private val lClipboardList = outline("clipboard-list", "M9 2H15A1 1 0 0 1 16 3V5A1 1 0 0 1 15 6H9A1 1 0 0 1 8 5V3A1 1 0 0 1 9 2Z", "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2", "M12 11h4", "M12 16h4", "M8 11h.01", "M8 16h.01")
+private val lClock = outline("clock", "M12 6v6l4 2", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z")
+private val lCopy = outline("copy", "M10 8H20A2 2 0 0 1 22 10V20A2 2 0 0 1 20 22H10A2 2 0 0 1 8 20V10A2 2 0 0 1 10 8Z", "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2")
+private val lCreditCard = outline("credit-card", "M4 5H20A2 2 0 0 1 22 7V17A2 2 0 0 1 20 19H4A2 2 0 0 1 2 17V7A2 2 0 0 1 4 5Z", "M2 10L22 10")
+private val lEar = outline("ear", "M6 8.5a6.5 6.5 0 1 1 13 0c0 6-6 6-6 10a3.5 3.5 0 1 1-7 0", "M15 8.5a2.5 2.5 0 0 0-5 0v1a2 2 0 1 1 0 4")
+private val lEllipsis = outline("ellipsis", "M11 12A1 1 0 1 0 13 12A1 1 0 1 0 11 12Z", "M18 12A1 1 0 1 0 20 12A1 1 0 1 0 18 12Z", "M4 12A1 1 0 1 0 6 12A1 1 0 1 0 4 12Z")
+private val lExternalLink = outline("external-link", "M15 3h6v6", "M10 14 21 3", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6")
+private val lFile = outline("file", "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", "M14 2v4a2 2 0 0 0 2 2h4")
+private val lFileCode = outline("file-code", "M10 12.5 8 15l2 2.5", "m14 12.5 2 2.5-2 2.5", "M14 2v4a2 2 0 0 0 2 2h4", "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z")
+private val lFilePlay = outline("file-play", "M14 2v4a2 2 0 0 0 2 2h4", "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z", "M15.033 13.44a.647.647 0 0 1 0 1.12l-4.065 2.352a.645.645 0 0 1-.968-.56v-4.704a.645.645 0 0 1 .967-.56z")
+private val lFileSpreadsheet = outline("file-spreadsheet", "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", "M14 2v4a2 2 0 0 0 2 2h4", "M8 13h2", "M14 13h2", "M8 17h2", "M14 17h2")
+private val lFileText = outline("file-text", "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", "M14 2v4a2 2 0 0 0 2 2h4", "M10 9H8", "M16 13H8", "M16 17H8")
+private val lFiles = outline("files", "M15 2a2 2 0 0 1 1.414.586l4 4A2 2 0 0 1 21 8v7a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z", "M15 2v4a2 2 0 0 0 2 2h4", "M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1")
+private val lFolder = outline("folder", "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z")
+private val lFolderGit2 = outline("folder-git-2", "M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5", "M11 12A2 2 0 1 0 15 12A2 2 0 1 0 11 12Z", "M18 19c-2.8 0-5-2.2-5-5v8", "M18 19A2 2 0 1 0 22 19A2 2 0 1 0 18 19Z")
+private val lFolderInput = outline("folder-input", "M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1", "M2 13h10", "m9 16 3-3-3-3")
+private val lFolderKanban = outline("folder-kanban", "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z", "M8 10v4", "M12 10v2", "M16 10v6")
+private val lFunnel = outline("funnel", "M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z")
+private val lGitBranch = outline("git-branch", "M6 3L6 15", "M15 6A3 3 0 1 0 21 6A3 3 0 1 0 15 6Z", "M3 18A3 3 0 1 0 9 18A3 3 0 1 0 3 18Z", "M18 9a9 9 0 0 1-9 9")
+private val lGitPullRequest = outline("git-pull-request", "M15 18A3 3 0 1 0 21 18A3 3 0 1 0 15 18Z", "M3 6A3 3 0 1 0 9 6A3 3 0 1 0 3 6Z", "M13 6h3a2 2 0 0 1 2 2v7", "M6 9L6 21")
+private val lGithub = outline("github", "M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4", "M9 18c-4.51 2-5-2-7-2")
+private val lGitlab = outline("gitlab", "m22 13.29-3.33-10a.42.42 0 0 0-.14-.18.38.38 0 0 0-.22-.11.39.39 0 0 0-.23.07.42.42 0 0 0-.14.18l-2.26 6.67H8.32L6.1 3.26a.42.42 0 0 0-.1-.18.38.38 0 0 0-.26-.08.39.39 0 0 0-.23.07.42.42 0 0 0-.14.18L2 13.29a.74.74 0 0 0 .27.83L12 21l9.69-6.88a.71.71 0 0 0 .31-.83Z")
+private val lGlobe = outline("globe", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", "M2 12h20")
+private val lHand = outline("hand", "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2", "M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2", "M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8", "M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15")
+private val lHash = outline("hash", "M4 9L20 9", "M4 15L20 15", "M10 3L8 21", "M16 3L14 21")
+private val lHeart = outline("heart", "M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5")
+private val lImage = outline("image", "M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z", "M7 9A2 2 0 1 0 11 9A2 2 0 1 0 7 9Z", "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21")
+private val lInbox = outline("inbox", "M22 12L16 12L14 15L10 15L8 12L2 12", "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z")
+private val lInfo = outline("info", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "M12 16v-4", "M12 8h.01")
+private val lItalic = outline("italic", "M19 4L10 4", "M14 20L5 20", "M15 4L9 20")
+private val lLayers = outline("layers", "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z", "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12", "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17")
+private val lLightbulb = outline("lightbulb", "M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5", "M9 18h6", "M10 22h4")
+private val lLink = outline("link", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71")
+private val lList = outline("list", "M3 5h.01", "M3 12h.01", "M3 19h.01", "M8 5h13", "M8 12h13", "M8 19h13")
+private val lListMusic = outline("list-music", "M16 5H3", "M11 12H3", "M11 19H3", "M21 16V5", "M15 16A3 3 0 1 0 21 16A3 3 0 1 0 15 16Z")
+private val lLoader = outline("loader", "M12 2v4", "m16.2 7.8 2.9-2.9", "M18 12h4", "m16.2 16.2 2.9 2.9", "M12 18v4", "m4.9 19.1 2.9-2.9", "M2 12h4", "m4.9 4.9 2.9 2.9")
+private val lLogOut = outline("log-out", "m16 17 5-5-5-5", "M21 12H9", "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4")
+private val lMail = outline("mail", "m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7", "M4 4H20A2 2 0 0 1 22 6V18A2 2 0 0 1 20 20H4A2 2 0 0 1 2 18V6A2 2 0 0 1 4 4Z")
+private val lMenu = outline("menu", "M4 5h16", "M4 12h16", "M4 19h16")
+private val lMessageCircle = outline("message-circle", "M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719")
+private val lMessageSquare = outline("message-square", "M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z")
+private val lMic = outline("mic", "M12 19v3", "M19 10v2a7 7 0 0 1-14 0v-2", "M12 2H12A3 3 0 0 1 15 5V12A3 3 0 0 1 12 15H12A3 3 0 0 1 9 12V5A3 3 0 0 1 12 2Z")
+private val lMicOff = outline("mic-off", "M12 19v3", "M15 9.34V5a3 3 0 0 0-5.68-1.33", "M16.95 16.95A7 7 0 0 1 5 12v-2", "M18.89 13.23A7 7 0 0 0 19 12v-2", "m2 2 20 20", "M9 9v3a3 3 0 0 0 5.12 2.12")
+private val lMinus = outline("minus", "M5 12h14")
+private val lMonitor = outline("monitor", "M4 3H20A2 2 0 0 1 22 5V15A2 2 0 0 1 20 17H4A2 2 0 0 1 2 15V5A2 2 0 0 1 4 3Z", "M8 21L16 21", "M12 17L12 21")
+private val lMusic = outline("music", "M9 18V5l12-2v13", "M3 18A3 3 0 1 0 9 18A3 3 0 1 0 3 18Z", "M15 16A3 3 0 1 0 21 16A3 3 0 1 0 15 16Z")
+private val lPackage = outline("package", "M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z", "M12 22V12", "M3.29 7L12 12L20.71 7", "m7.5 4.27 9 5.15")
+private val lPaperclip = outline("paperclip", "m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551")
+private val lPenTool = outline("pen-tool", "M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z", "m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18", "m2.3 2.3 7.286 7.286", "M9 11A2 2 0 1 0 13 11A2 2 0 1 0 9 11Z")
+private val lPencil = outline("pencil", "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z", "m15 5 4 4")
+private val lPhone = outline("phone", "M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384")
+private val lPhoneIncoming = outline("phone-incoming", "M16 2v6h6", "m22 2-6 6", "M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384")
+private val lPhoneOff = outline("phone-off", "M10.1 13.9a14 14 0 0 0 3.732 2.668 1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2 18 18 0 0 1-12.728-5.272", "M22 2 2 22", "M4.76 13.582A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 .244.473")
+private val lPin = outline("pin", "M12 17v5", "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z")
+private val lPlus = outline("plus", "M5 12h14", "M12 5v14")
+private val lQrCode = outline("qr-code", "M4 3H7A1 1 0 0 1 8 4V7A1 1 0 0 1 7 8H4A1 1 0 0 1 3 7V4A1 1 0 0 1 4 3Z", "M17 3H20A1 1 0 0 1 21 4V7A1 1 0 0 1 20 8H17A1 1 0 0 1 16 7V4A1 1 0 0 1 17 3Z", "M4 16H7A1 1 0 0 1 8 17V20A1 1 0 0 1 7 21H4A1 1 0 0 1 3 20V17A1 1 0 0 1 4 16Z", "M21 16h-3a2 2 0 0 0-2 2v3", "M21 21v.01", "M12 7v3a2 2 0 0 1-2 2H7", "M3 12h.01", "M12 3h.01", "M12 16v.01", "M16 12h1", "M21 12v.01", "M12 21v-1")
+private val lRefreshCw = outline("refresh-cw", "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", "M21 3v5h-5", "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", "M8 16H3v5")
+private val lRepeat = outline("repeat", "m17 2 4 4-4 4", "M3 11v-1a4 4 0 0 1 4-4h14", "m7 22-4-4 4-4", "M21 13v1a4 4 0 0 1-4 4H3")
+private val lReply = outline("reply", "M20 18v-2a4 4 0 0 0-4-4H4", "m9 17-5-5 5-5")
+private val lRotateCcw = outline("rotate-ccw", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5")
+private val lScan = outline("scan", "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2")
+private val lScanLine = outline("scan-line", "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2", "M7 12h10")
+private val lSearch = outline("search", "m21 21-4.34-4.34", "M3 11A8 8 0 1 0 19 11A8 8 0 1 0 3 11Z")
+private val lSearchX = outline("search-x", "m13.5 8.5-5 5", "m8.5 8.5 5 5", "M3 11A8 8 0 1 0 19 11A8 8 0 1 0 3 11Z", "m21 21-4.3-4.3")
+private val lSend = outline("send", "M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z", "m21.854 2.147-10.94 10.939")
+private val lSettings = outline("settings", "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915", "M9 12A3 3 0 1 0 15 12A3 3 0 1 0 9 12Z")
+private val lShieldCheck = outline("shield-check", "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z", "m9 12 2 2 4-4")
+private val lSignalHigh = outline("signal-high", "M2 20h.01", "M7 20v-4", "M12 20v-8", "M17 20V8")
+private val lSkipBack = outline("skip-back", "M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z", "M3 20V4")
+private val lSkipForward = outline("skip-forward", "M21 4v16", "M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z")
+private val lSlidersHorizontal = outline("sliders-horizontal", "M10 5H3", "M12 19H3", "M14 3v4", "M16 17v4", "M21 12h-9", "M21 19h-5", "M21 5h-7", "M8 10v4", "M8 12H3")
+private val lSprout = outline("sprout", "M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3", "M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4", "M5 21h14")
+private val lSquare = outline("square", "M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z")
+private val lSquareKanban = outline("square-kanban", "M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z", "M8 7v7", "M12 7v4", "M16 7v9")
+private val lStar = outline("star", "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z")
+private val lTerminal = outline("terminal", "M12 19h8", "m4 17 6-6-6-6")
+private val lTrash2 = outline("trash-2", "M10 11v6", "M14 11v6", "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", "M3 6h18", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2")
+private val lTriangleAlert = outline("triangle-alert", "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3", "M12 9v4", "M12 17h.01")
+private val lTruck = outline("truck", "M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2", "M15 18H9", "M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14", "M15 18A2 2 0 1 0 19 18A2 2 0 1 0 15 18Z", "M5 18A2 2 0 1 0 9 18A2 2 0 1 0 5 18Z")
+private val lUndo = outline("undo", "M3 7v6h6", "M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13")
+private val lUndo2 = outline("undo-2", "M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11")
+private val lUpload = outline("upload", "M12 3v12", "m17 8-5-5-5 5", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4")
+private val lUser = outline("user", "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2", "M8 7A4 4 0 1 0 16 7A4 4 0 1 0 8 7Z")
+private val lUserPlus = outline("user-plus", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M5 7A4 4 0 1 0 13 7A4 4 0 1 0 5 7Z", "M19 8L19 14", "M22 11L16 11")
+private val lUsers = outline("users", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M16 3.128a4 4 0 0 1 0 7.744", "M22 21v-2a4 4 0 0 0-3-3.87", "M5 7A4 4 0 1 0 13 7A4 4 0 1 0 5 7Z")
+private val lVolume2 = outline("volume-2", "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z", "M16 9a5 5 0 0 1 0 6", "M19.364 18.364a9 9 0 0 0 0-12.728")
+private val lWifi = outline("wifi", "M12 20h.01", "M2 8.82a15 15 0 0 1 20 0", "M5 12.859a10 10 0 0 1 14 0", "M8.5 16.429a5 5 0 0 1 7 0")
+private val lX = outline("x", "M18 6 6 18", "m6 6 12 12")
 
 /** A filled 24-unit mark (icons.json `imported`/`custom`, `custom-icons.generated.ts`). */
 private fun mark(name: String, d: String): ImageVector =
@@ -149,137 +177,202 @@ private val progress24: ImageVector =
         .addPath(PathParser().parsePathString("M12 12 L12 6 A6 6 0 0 1 12 18 Z").toNodes(), fill = SolidColor(Color.Black))
         .build()
 
+
 /**
- * The catalog icon concepts the kitchen sink names, as Material outlined
- * glyphs (`material-icons-core`, the example's only icon dependency) plus
- * three Lucide outlines it lacks (grid, folder, archive). A
- * real host hands the renderer its own registry (the Exponential app's
- * Lucide set); the SDK ships none, so the example maps the concepts the
- * way the iOS example maps them to SF Symbols.
+ * The catalog icon names the kitchen sink, the specimens and the eval
+ * surfaces draw, resolved the way the web harness resolves them
+ * (`packages/exponential-ui-react/harness/icons.ts`): an icons.json
+ * `semantic` concept to its Lucide name, else the bare Lucide name, plus the
+ * `custom`/`imported` marks. A name neither resolves (web's placeholder)
+ * stays out, so the painter draws its placeholder too. A real host hands
+ * the renderer its own registry (the Exponential app's generated Lucide
+ * set); the SDK ships none.
  */
 val sinkIcons: Map<String, ImageVector> = mapOf(
-    "nav-boards" to grid,
-    "nav-inbox" to Icons.Outlined.Email,
-    "pr-open" to Icons.Outlined.CheckCircle,
-    "nav-search" to Icons.Outlined.Search,
-    "ui-folder" to folder,
-    "ui-archive" to archive,
-    "ui-send" to Icons.AutoMirrored.Outlined.Send,
-    "ui-issue" to Icons.Outlined.Refresh,
-    "ui-pin" to Icons.Outlined.Place,
-    "ui-success" to Icons.Outlined.CheckCircle,
-    "ui-assignee" to Icons.Outlined.Person,
-    "ui-device" to Icons.Outlined.Phone,
-    "settings-statuses" to Icons.Outlined.Settings,
-    "editor-bold" to Icons.Outlined.Create,
-    "editor-italic" to Icons.Outlined.Edit,
-    "ui-warning" to Icons.Outlined.Warning,
-    "ui-info" to Icons.Outlined.Info,
-    "ui-error" to Icons.Outlined.Warning,
-    "ui-close" to Icons.Outlined.Close,
-    "ui-plus" to Icons.Outlined.Add,
-    "ui-more" to Icons.Outlined.MoreVert,
-    "ui-settings" to Icons.Outlined.Settings,
-    "ui-chevron-right" to Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-    "ui-chevron-left" to Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
-    "ui-chevron-down" to Icons.Outlined.KeyboardArrowDown,
-    "ui-chevron-up" to Icons.Outlined.KeyboardArrowUp,
-    "ui-selector" to Icons.Outlined.ArrowDropDown,
-    "ui-check" to Icons.Outlined.Check,
-    // The specimens' demo surface names the bare glyph (VAPP-93).
-    "check" to Icons.Outlined.Check,
-    "ui-search" to Icons.Outlined.Search,
-    "ui-calendar" to Icons.Outlined.DateRange,
-    "ui-image" to Icons.Outlined.Face,
-    "ui-link" to Icons.Outlined.Share,
-    "ui-external" to Icons.AutoMirrored.Outlined.ExitToApp,
-    "ui-trash" to Icons.Outlined.Delete,
-    "ui-edit" to Icons.Outlined.Edit,
-    "ui-properties" to Icons.AutoMirrored.Outlined.List,
-    // Round 1 built-in glyphs (core.catalog.json `builtinIcons`) and the specimens' concepts.
-    "ui-copy" to copy,
-    "ui-minus" to minus,
-    "ui-add" to Icons.Outlined.Add,
-    "upload" to upload,
-    "ui-file" to file,
-    "ui-clock" to clock,
-    "calendar" to Icons.Outlined.DateRange,
-    "search" to Icons.Outlined.Search,
-    "ui-attach" to attach,
-    "ui-stop" to stop,
-    "ui-back" to back,
-    "back" to back,
-    "menu" to menu,
-    "star" to star,
-    "filter" to filter,
-    "undo" to undo,
-    "refresh" to Icons.Outlined.Refresh,
-    "settings" to Icons.Outlined.Settings,
-    "send" to Icons.AutoMirrored.Outlined.Send,
-    "nav-issues" to issues,
-    "nav-settings" to Icons.Outlined.Settings,
-    // EXP-1324 Trace concepts (the kitchen sink's and the specimen's).
-    "trace-chevron" to Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-    "trace-terminal" to Icons.AutoMirrored.Outlined.List,
-    "trace-edit" to Icons.Outlined.Edit,
-    "trace-reasoning" to Icons.Outlined.Info,
-    "trace-think" to Icons.Outlined.Info,
-    "trace-search" to Icons.Outlined.Search,
-    "trace-run" to Icons.Outlined.Refresh,
-    "trace-next" to Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-    "trace-out" to Icons.AutoMirrored.Outlined.ExitToApp,
-    "trace-failed" to Icons.Outlined.Close,
-    "trace-task-done" to Icons.Outlined.CheckCircle,
-    // N-12: the DockCard specimen's plan glyph.
-    "coding-plan" to Icons.AutoMirrored.Outlined.List,
-    // VAPP-163: the bar's icon segments and the Icon specimen's non-Lucide marks.
-    "message-circle" to messageCircle,
-    "users" to users,
+    "archive" to lArchive,
+    "arrow-left" to lArrowLeft,
+    "arrow-right" to lArrowRight,
+    "at-sign" to lAtSign,
+    "audio-lines" to lAudioLines,
+    "bell" to lBell,
+    "briefcase" to lBriefcase,
+    "bug" to lBug,
+    "building-2" to lBuilding2,
+    "calendar" to lCalendar,
+    "call-end" to lPhoneOff,
+    "call-incoming" to lPhoneIncoming,
+    "call-mute" to lMic,
+    "call-speaker" to lVolume2,
+    "call-speaker-off" to lEar,
+    "call-unmute" to lMicOff,
+    "check" to lCheck,
+    "check-check" to lCheckCheck,
+    "check-circle" to lCircleCheckBig,
+    "chevron-left" to lChevronLeft,
+    "chevron-right" to lChevronRight,
+    "chevrons-up-down" to lChevronsUpDown,
+    "chrome" to lChromium,
+    "circle" to lCircle,
+    "circle-check" to lCircleCheck,
+    "circle-dashed" to lCircleDashed,
+    "circle-dot" to lCircleDot,
+    "circle-x" to lCircleX,
+    "clock" to lClock,
+    "coding-plan" to lClipboardList,
+    "copy" to lCopy,
+    "credit-card" to lCreditCard,
+    "editor-bold" to lBold,
+    "editor-italic" to lItalic,
+    "external-link" to lExternalLink,
+    "file" to lFile,
+    "file-code" to lFileCode,
+    "file-spreadsheet" to lFileSpreadsheet,
+    "file-text" to lFileText,
+    "file-video" to lFilePlay,
+    "files" to lFiles,
+    "filter" to lFunnel,
+    "folder" to lFolder,
+    "folder-git-2" to lFolderGit2,
+    "folder-input" to lFolderInput,
+    "git-branch" to lGitBranch,
+    "git-pull-request" to lGitPullRequest,
+    "github" to lGithub,
+    "gitlab" to lGitlab,
+    "globe" to lGlobe,
+    "hand" to lHand,
+    "hash" to lHash,
+    "heart" to lHeart,
+    "image" to lImage,
+    "info" to lInfo,
+    "kanban-square" to lSquareKanban,
+    "layers" to lLayers,
+    "lightbulb" to lLightbulb,
+    "list-music" to lListMusic,
+    "loader" to lLoader,
+    "log-out" to lLogOut,
+    "mail" to lMail,
+    "menu" to lMenu,
+    "message-circle" to lMessageCircle,
+    "message-square" to lMessageSquare,
+    "mic" to lMic,
+    "mic-off" to lMicOff,
+    "monitor" to lMonitor,
+    "music" to lMusic,
+    "nav-boards" to lFolderKanban,
+    "nav-inbox" to lInbox,
+    "nav-issues" to lList,
+    "nav-search" to lSearch,
+    "nav-settings" to lSettings,
+    "package" to lPackage,
+    "pen-tool" to lPenTool,
+    "pencil" to lPencil,
+    "phone" to lPhone,
+    "phone-incoming" to lPhoneIncoming,
+    "phone-off" to lPhoneOff,
+    "plus" to lPlus,
+    "pr-open" to lGitPullRequest,
+    "qr-code" to lQrCode,
+    "refresh-cw" to lRefreshCw,
+    "reply" to lReply,
+    "rotate-ccw" to lRotateCcw,
+    "scan" to lScan,
+    "scan-line" to lScanLine,
+    "search" to lSearch,
+    "search-x" to lSearchX,
+    "send" to lSend,
+    "settings" to lSettings,
+    "settings-statuses" to lCircleDot,
+    "shield-check" to lShieldCheck,
+    "signal-high" to lSignalHigh,
+    "skip-back" to lSkipBack,
+    "skip-forward" to lSkipForward,
+    "sprout" to lSprout,
+    "square" to lSquare,
+    "square-kanban" to lSquareKanban,
+    "star" to lStar,
+    "status-backlog" to lCircleDashed,
+    "status-done" to lCircleCheck,
+    "terminal" to lTerminal,
+    "trace-background" to lRepeat,
+    "trace-chevron" to lChevronRight,
+    "trace-edit" to lPencil,
+    "trace-failed" to lCircleX,
+    "trace-read" to lFileText,
+    "trace-reasoning" to lBrain,
+    "trace-search" to lSearch,
+    "trace-subagent" to lBot,
+    "trace-task-done" to lCircleCheck,
+    "trace-terminal" to lTerminal,
+    "trash-2" to lTrash2,
+    "truck" to lTruck,
+    "ui-add" to lPlus,
+    "ui-archive" to lArchive,
+    "ui-arrow-right" to lArrowRight,
+    "ui-assignee" to lCircleUser,
+    "ui-attach" to lPaperclip,
+    "ui-back" to lArrowLeft,
+    "ui-check" to lCheck,
+    "ui-chevron-down" to lChevronDown,
+    "ui-chevron-left" to lChevronLeft,
+    "ui-chevron-right" to lChevronRight,
+    "ui-chevron-up" to lChevronUp,
+    "ui-clock" to lClock,
+    "ui-close" to lX,
+    "ui-copy" to lCopy,
+    "ui-device" to lMonitor,
+    "ui-edit" to lPencil,
+    "ui-error" to lCircleX,
+    "ui-external-link" to lExternalLink,
+    "ui-file" to lFile,
+    "ui-folder" to lFolder,
+    "ui-hold" to lHand,
+    "ui-icon-placeholder" to lCircleDashed,
+    "ui-info" to lInfo,
+    "ui-issue" to lFileText,
+    "ui-link" to lLink,
+    "ui-minus" to lMinus,
+    "ui-more" to lEllipsis,
+    "ui-pin" to lPin,
+    "ui-properties" to lSlidersHorizontal,
+    "ui-qr-code" to lQrCode,
+    "ui-read" to lCheckCheck,
+    "ui-scan" to lScanLine,
+    "ui-search" to lSearch,
+    "ui-selector" to lChevronsUpDown,
+    "ui-send" to lSend,
+    "ui-stop" to lCircleStop,
+    "ui-success" to lCircleCheck,
+    "ui-undo" to lUndo2,
+    "ui-warning" to lTriangleAlert,
+    "undo" to lUndo,
+    "undo-2" to lUndo2,
+    "upload" to lUpload,
+    "user" to lUser,
+    "user-plus" to lUserPlus,
+    "users" to lUsers,
+    "voice-level" to lAudioLines,
+    "wifi" to lWifi,
+    "x" to lX,
+    // icons.json `custom` / `imported` marks.
+    "status-in-progress" to progress24,
+    "progress-2-4" to progress24,
     "os-apple" to osApple,
     "os-windows" to osWindows,
     "os-linux" to osLinux,
-    "progress-2-4" to progress24,
-    // VAPP-162: the call, pairing and push-to-talk concepts (icons.json) and their bare Lucide names.
-    "call-mute" to mic,
-    "call-unmute" to micOff,
-    "call-end" to phoneOff,
-    "call-speaker" to volume2,
-    "call-speaker-off" to ear,
-    "call-incoming" to phoneIncoming,
-    "ui-qr-code" to qrCode,
-    "ui-scan" to scanLine,
-    "ui-read" to checkCheck,
-    "ui-hold" to hand,
-    "voice-level" to audioLines,
-    "mic" to mic,
-    "mic-off" to micOff,
-    "phone-off" to phoneOff,
-    "phone-incoming" to phoneIncoming,
-    "qr-code" to qrCode,
-    "scan-line" to scanLine,
-    "audio-lines" to audioLines,
-    "hand" to hand,
-    "check-check" to checkCheck,
-    // The Plan / Trace specimens' step glyphs.
-    "globe" to globe,
-    "mail" to mail,
-    "pencil" to pencil,
-    "layers" to layers,
-    "trace-read" to fileText,
-    "trace-subagent" to bot,
-    "trace-background" to repeat,
 )
 
 /**
- * The host's `icon(name, size)`: the concept's glyph at 80 % of the slot,
- * tinted with the `LocalContentColor` the painter provides; null (the
- * painter's placeholder circle) for a concept the map lacks.
+ * The host's `icon(name, size)`: the concept's 24-unit glyph filling the
+ * slot (web sizes the Lucide `<svg>` to the slot; the glyph's own margin
+ * is in its viewBox), tinted with the `LocalContentColor` the painter
+ * provides; null (the painter's placeholder circle) for a concept the map
+ * lacks.
  */
 fun sinkIcon(name: String, size: Float): (@Composable () -> Unit)? {
     val vector = sinkIcons[name] ?: return null
     return {
         Box(Modifier.size(size.dp), contentAlignment = Alignment.Center) {
-            Icon(vector, contentDescription = null, modifier = Modifier.size((size * 0.8f).dp))
+            Icon(vector, contentDescription = null, modifier = Modifier.size(size.dp))
         }
     }
 }
