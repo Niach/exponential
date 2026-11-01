@@ -887,6 +887,10 @@ external fun uniffi_exponential_ui_ffi_checksum_func_week_start(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_zoom_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_motion_compile(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_number(
@@ -1549,6 +1553,10 @@ external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_json(`inputJson`: Rust
 external fun uniffi_exponential_ui_ffi_fn_func_week_start(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 external fun uniffi_exponential_ui_ffi_fn_func_zoom_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_motion_compile(`dialectJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun ffi_exponential_ui_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10807,6 +10815,36 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_zoom_json(
     
         FfiConverterString.lower(`requestJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Compile an authoring-dialect document (a Motion's inline `layers` plus
+         * `size`, `fps`, `duration`, `start`, `time`, `assets`, `markers`) into Lottie
+         * JSON; the issues as `UiError::Invalid` (JSON) otherwise.
+         */
+    @Throws(UiException::class) fun `motionCompile`(`dialectJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_compile(
+    
+        FfiConverterString.lower(`dialectJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The first animation of a `.lottie` archive as Lottie JSON (images inlined).
+         */
+    @Throws(UiException::class) fun `motionReadDotlottie`(`data`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(
+    
+        FfiConverterByteArray.lower(`data`),_status)
 }
     )
     }

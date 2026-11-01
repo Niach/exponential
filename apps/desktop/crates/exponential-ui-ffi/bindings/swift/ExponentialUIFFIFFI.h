@@ -1391,6 +1391,16 @@ uint8_t uniffi_exponential_ui_ffi_fn_func_week_start(RustBuffer locale, RustCall
 RustBuffer uniffi_exponential_ui_ffi_fn_func_zoom_json(RustBuffer request_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MOTION_COMPILE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MOTION_COMPILE
+RustBuffer uniffi_exponential_ui_ffi_fn_func_motion_compile(RustBuffer dialect_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MOTION_READ_DOTLOTTIE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MOTION_READ_DOTLOTTIE
+RustBuffer uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(RustBuffer data, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_FFI_EXPONENTIAL_UI_FFI_RUSTBUFFER_ALLOC
 #define UNIFFI_FFIDEF_FFI_EXPONENTIAL_UI_FFI_RUSTBUFFER_ALLOC
 RustBuffer ffi_exponential_ui_ffi_rustbuffer_alloc(uint64_t size, RustCallStatus *_Nonnull out_status
@@ -2044,6 +2054,18 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_week_start(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_ZOOM_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_ZOOM_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_zoom_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MOTION_COMPILE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MOTION_COMPILE
+uint16_t uniffi_exponential_ui_ffi_checksum_func_motion_compile(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MOTION_READ_DOTLOTTIE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MOTION_READ_DOTLOTTIE
+uint16_t uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie(void
     
 );
 #endif

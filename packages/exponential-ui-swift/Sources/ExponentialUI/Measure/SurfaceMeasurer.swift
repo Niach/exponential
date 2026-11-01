@@ -318,6 +318,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         // naturalWidth (a tall capture capped at a square: a window onto
         // its top), else 16:9. A style height wins.
         case ("ZoomableImage", _): content = MeasuredContent(Self.zoomableBox(props, wrap: inner))
+        // EXP-1604 (contract §4): the composition's px size, shrinking to
+        // the available width, aspect kept (the core's style defaults agree).
+        case ("Motion", _): content = MeasuredContent(Self.motionBox(props, wrap: inner))
         case ("AudioPlayer", _):
             let track: CGFloat = props.str("title").isEmpty ? 0 : ts.lineHeight + spacing("xs")
             let w: CGFloat
@@ -553,6 +556,16 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             return CGSize(width: w, height: nw / nh < 1.0 / 3.0 ? w : w * CGFloat(nh / nw))
         }
         return CGSize(width: w, height: w * 9 / 16)
+    }
+
+    /// The composition [w, h] of `size` or the `lottie`'s `w` / `h`; within `wrap`.
+    static func motionBox(_ props: Props, wrap: CGFloat?) -> CGSize {
+        let size = props["size"]?.array?.compactMap(\.number) ?? []
+        let w = size.count == 2 ? size[0] : props["lottie"]?["w"]?.number ?? 0
+        let h = size.count == 2 ? size[1] : props["lottie"]?["h"]?.number ?? 0
+        guard w > 0, h > 0 else { return .zero }
+        let width = min(CGFloat(w), max(0, wrap ?? CGFloat(w)))
+        return CGSize(width: width, height: width * CGFloat(h / w))
     }
 
     private func skeleton(_ props: Props, wrap: CGFloat?) -> CGSize {
