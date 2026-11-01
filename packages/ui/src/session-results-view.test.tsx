@@ -92,7 +92,7 @@ describe(`SessionResultsView`, () => {
   })
 
   // EXP-1128: a full-page capture takes the 4:3 frame, top-cropped under a
-  // Tall pill, and opens in the scrolling lightbox; its landscape sibling is
+  // Tall pill, and opens in the lightbox's zoom view; its landscape sibling is
   // untouched.
   it(`frames a tall capture at 4:3, top-cropped with a Tall badge`, () => {
     render(
@@ -115,9 +115,8 @@ describe(`SessionResultsView`, () => {
     expect(screen.getByText(`Tall`)).toBeTruthy()
 
     fireEvent.click(screen.getByTestId(`session-result-tall-1`))
-    const scroller = document.querySelector(`[data-testid="preview-tall-scroll"]`)
-    expect(scroller).toBeTruthy()
-    expect(scroller?.querySelector(`img`)?.getAttribute(`src`)).toBe(
+    const view = screen.getByTestId(`preview-zoom`)
+    expect(view.querySelector(`img`)?.getAttribute(`src`)).toBe(
       `/api/attachments/tall-1`
     )
   })

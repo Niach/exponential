@@ -102,6 +102,7 @@ import {
   Pill,
   PrGithubButton,
   PreviewMedia,
+  planCardStandIn,
   ResizeHandle,
   SessionInlineResultTile,
   SessionResultsView,
@@ -130,6 +131,7 @@ import {
 import viewerFixture from "@exp/domain-contract/fixtures/session-results.json"
 import { guideViewer, type GuideViewerEntry } from "@exp/domain-contract/guide-viewer"
 import { tokenSlug } from "./component-styles.ts"
+import { ZOOM_PILL_ISLAND_CSS } from "./entries/zoomable-image.tsx"
 import {
   escapeHtml,
   svgBell,
@@ -2510,7 +2512,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `lightbox`,
     title: `Media lightbox`,
     kind: `Surfaces`,
-    blurb: `EXP-316/EXP-824: the shared viewer a picture, a clip or an audio attachment opens in — the description editor's image node, the storage table's filename, a results tile. The dialog is borderless and HUGS its media instead of spanning the viewport, and it is the one dialog that stays a full-screen page below sm rather than dropping to a sheet: a lightbox wants the whole screen. The video arm mounts only while open, so autoplay fires on every open and the stream stops the moment it unmounts. The dialog is a portal, so the island is its BODY (\`PreviewMedia\`) — the same switch, without the frame.`,
+    blurb: `EXP-316/EXP-824: the shared viewer a picture, a clip or an audio attachment opens in — the description editor's image node, the storage table's filename, a results tile. The dialog is borderless and HUGS its media instead of spanning the viewport, and it is the one dialog that stays a full-screen page below sm rather than dropping to a sheet: a lightbox wants the whole screen. A picture is THE zoom view (the zoomable-image entry) in a box of its fitted size; a swipe pages only at rest. The video arm mounts only while open, so autoplay fires on every open and the stream stops the moment it unmounts. The dialog is a portal, so the island is its BODY (\`PreviewMedia\`) — the same switch, without the frame.`,
     status: {
       web: ok(
         `ImagePreviewDialog / PreviewMedia`,
@@ -2531,7 +2533,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     island: () => (
       <div className="w-fit rounded-lg border border-glass-stroke-card bg-glass-card-opaque p-2">
-        <PreviewMedia src={THUMB_FIXTURE_SRC} alt="Merge queue" label="merge-queue.png" />
+        <style dangerouslySetInnerHTML={{ __html: ZOOM_PILL_ISLAND_CSS }} />
+        <PreviewMedia src={planCardStandIn(`att-1`)} alt="Merge queue" label="merge-queue.png" naturalSize={{ width: 352, height: 220 }} />
       </div>
     ),
   },

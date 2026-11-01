@@ -13,7 +13,7 @@
       "call-controls",
       "feedback-states",
       "trace", "code-block",
-      "qr-code", "qr-scanner", "nav-rail", "voice-level", "sidebar-rows", "outline", "mosaic"
+      "qr-code", "qr-scanner", "nav-rail", "voice-level", "sidebar-rows", "outline", "mosaic", "zoomable-image"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings", "work-screen",
@@ -57,6 +57,7 @@
     "voice-level": "VAPP-162",
     "outline": "EXP-1495",
     "mosaic": "EXP-1495",
+    "zoomable-image": "EXP-1586",
     "composer-dialog": "EXP-1019",
     "session-row": "EXP-1248",
     "pr-row": "EXP-1248",
