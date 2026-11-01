@@ -189,6 +189,18 @@ object Apps {
     fun <T : ListLike> sortApps(apps: List<T>): List<T> =
         apps.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
 
+    /** VAPP-179: the preview's template ids, sorted by id (web `previewTemplates`;
+     *  a JSON layer, Postgres JSONB included, does not keep the declared order). */
+    fun previewTemplates(templateIds: Collection<String>): List<String> = templateIds.sorted()
+
+    /** VAPP-179 the shown template (fixture `templateCases`): [picked] when the
+     *  package has it, else the first of [previewTemplates]; null = no template.
+     *  Phones have no picker: they pass null. */
+    fun previewTemplate(templateIds: Collection<String>, picked: String? = null): String? {
+        val list = previewTemplates(templateIds)
+        return if (picked != null && picked in list) picked else list.firstOrNull()
+    }
+
     /** The fixture's `mediaPolicy` (`AppsTest` locks the copy). */
     object MediaPolicy {
         val DATA_MIME_PREFIXES = listOf("image/", "audio/", "video/")

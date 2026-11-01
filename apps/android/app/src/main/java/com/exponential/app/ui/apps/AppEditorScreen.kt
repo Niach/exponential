@@ -473,12 +473,12 @@ private fun AppPreviewPane(
     }
 }
 
-/** One package's first template on the app host (`applyTemplate`). */
+/** One package's default template (`Apps.previewTemplate`) on the app host (`applyTemplate`). */
 @Composable
 private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, appId: String, teamId: String?, me: String?, grants: Boolean) {
     val parsed = remember(packageJson) { runCatching { JsonValue.parse(packageJson) }.getOrNull() }
     val packageId = parsed?.get("id")?.string
-    val templateId = parsed?.get("templates")?.obj?.keys?.firstOrNull()
+    val templateId = parsed?.get("templates")?.obj?.keys?.let { Apps.previewTemplate(it) }
     val consent = remember { AppConsentGate() }
     val host = rememberAppHost(
         packages = listOf(packageJson),
