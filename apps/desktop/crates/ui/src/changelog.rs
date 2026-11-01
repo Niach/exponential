@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-agents-get-the-issue",
+    date: "2026-11-01",
+    title: "Agents get the issue you hand them",
+    summary: "Start coding with an agent picked now gives it the issue's title and description.",
+    body: r#"- **The whole issue**: an issue you send to an agent, or forward into a running session, reaches it with its identifier, title and description, in sealed chats too.
+- **No prompt needed**: sending just the issue wakes the agent."#,
+};
+
+#[allow(dead_code)]
+const PREVIOUS_148: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-sealed-agent-sends",
     date: "2026-11-01",
     title: "Agents seal their messages from the start",

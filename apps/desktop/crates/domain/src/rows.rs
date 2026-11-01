@@ -944,6 +944,12 @@ pub struct MessageRow {
     /// cannot, so the device adds them to what the agent reads).
     #[serde(default, deserialize_with = "tolerant_id_list")]
     pub attachment_ids: Vec<String>,
+    /// #EXP-1584: the Issues section of the issues this message forwarded
+    /// into a session already under way (fixtures/session-brief.json
+    /// `issueBriefCases`), clear even when the body is sealed: the pickup
+    /// appends it to what the agent reads. Never drawn.
+    #[serde(default)]
+    pub issue_brief: Option<String>,
     #[serde(default)]
     pub answered_at: Option<String>,
     #[serde(default)]

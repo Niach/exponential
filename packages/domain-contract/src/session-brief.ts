@@ -5,10 +5,17 @@
 import fixture from "../fixtures/session-brief.json" with { type: "json" }
 import contractJson from "../contract.json" with { type: "json" }
 
+/** EXP-1584: an issue as a brief names it (its description rides along). */
+export interface BriefIssue {
+  identifier: string
+  title: string
+  description?: string | null
+}
+
 export interface BriefInput {
   /** The person's text (the composer, an agent's spawn request …). */
   text?: string | null
-  issues?: { identifier: string; title: string }[]
+  issues?: BriefIssue[]
   /** A CHILD session's parent. */
   parent?: { title: string; depth: number; branch: string | null } | null
 }
@@ -28,16 +35,41 @@ function cutToBytes(text: string, maxBytes: number): string {
   return `${kept.join(`\n`)}\n…`
 }
 
+/** The Issues section's body: the `- <identifier> <title>` lines, then
+ *  (EXP-1584) one `### <identifier>` block per issue with a description. */
+function issuesBody(issues: BriefIssue[]): string {
+  const lines = issues.map((issue) => `- ${issue.identifier} ${issue.title}`).join(`\n`)
+  const details = issues.flatMap((issue) => {
+    const description = issue.description?.trim()
+    return description ? [`### ${issue.identifier}\n\n${description}`] : []
+  })
+  return [lines, ...details].filter(Boolean).join(`\n\n`)
+}
+
+/** EXP-1584 (`issueBriefCases`): the Issues section a message forwarding
+ *  `issues` into a session already under way carries (`issue_brief`); the
+ *  device appends it to what the agent reads. No issues = null. */
+export function composeIssueBrief(issues: BriefIssue[]): string | null {
+  if (issues.length === 0) return null
+  return cutToBytes(`## ${fixture.headings.issues}\n\n${issuesBody(issues)}`, contractJson.sessionsSend.briefMaxBytes)
+}
+
+/** EXP-1584 (`deliveryCases`): the text the agent reads for a message with
+ *  an `issue_brief` (the device's half; this is its reference). */
+export function withIssueBrief(body: string, issueBrief: string | null | undefined): string {
+  const brief = issueBrief?.trim()
+  if (!brief) return body
+  const text = body.trimEnd()
+  return text ? `${text}\n\n${brief}` : brief
+}
+
 export function composeBrief(input: BriefInput): string {
   const sections: string[] = []
   const section = (heading: string, body: string) => {
     if (body.trim()) sections.push(`## ${heading}\n\n${body}`)
   }
   section(fixture.headings.request, (input.text ?? ``).trim())
-  section(
-    fixture.headings.issues,
-    (input.issues ?? []).map((issue) => `- ${issue.identifier} ${issue.title}`).join(`\n`)
-  )
+  section(fixture.headings.issues, issuesBody(input.issues ?? []))
   if (input.parent) {
     const template = input.parent.branch ? fixture.parent : fixture.parentNoBranch
     section(
