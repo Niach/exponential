@@ -14,7 +14,7 @@ apps/push-relay   Hono/Bun            apps/steer-relay  presence + control + eTa
 apps/marketing    exponential.at (Vite + React; ui/ = the Exponential UI section at /ui/, ui.exponential.at 301s there)   apps/styleguide   shot gallery + islands
 apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
 apps/ede          eDE (#NEW-10): own Cargo workspace; crates/ede-compositor = smithay compositor (winit nested for dev, headless pixman tests)
-apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/eagent = eAgent, the server-free agent core (EXP-1426/1505, never an app-crate dep; `exponential-agent-runtime` = its one-release shim); crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/eui-* + exponential-ui-ffi = the eUI SDK
+apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/eagent = eAgent, the server-free agent core (EXP-1426/1505, never an app-crate dep; `exponential-agent-runtime` = its one-release shim); crates/eagent-hub-core = the pure orchestration reducer replaying packages/eagent's fixtures (+ `-wasm`, EXP-1509); crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/eui-* + exponential-ui-ffi = the eUI SDK
 packages/db-schema        Drizzle schema + zod/domain types (authoritative; never mirrored here)
 packages/domain-contract  contract.json → per-language enums + the fixtures (×4 replay) + pure TS references
 packages/etalk            @exp/etalk: eTalk's contract (voice, voice-call, talk-listen, meeting fixtures ×4 + TS references); Rust = crates/etalk*
