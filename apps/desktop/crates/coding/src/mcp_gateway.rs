@@ -154,6 +154,16 @@ impl SealingTransform {
                 let target = match self.send_target(obj) {
                     Ok(target) => target,
                     Err(err) => {
+                        // #FEED-185: without a key holder, a conversation the
+                        // server (or this process) says is keyed fails here
+                        // instead of going out in clear. One whose tree is
+                        // not known (no tRPC, a failed lookup) still goes as
+                        // given and the server refuses it if it is keyed.
+                        if err == SealError::NoService {
+                            if let Some(root) = self.lookup_target(obj).ok().and_then(|t| t.keyed_root()) {
+                                return Err(no_holder(&root, "sessions_send", ""));
+                            }
+                        }
                         unsealed("sessions_send", &err)?;
                         return Ok(args);
                     }
@@ -191,6 +201,9 @@ impl SealingTransform {
             }
             (None, false) => match self.new_root_seal() {
                 Err(err) => {
+                    // A fresh root is a NEW tree: no key holder = no key, so
+                    // it is keyless and plaintext stays legal there (no
+                    // known tree to check, unlike `unsealed_into`).
                     unsealed("a new thread", &err)?;
                     return Ok(args);
                 }
@@ -228,6 +241,11 @@ impl SealingTransform {
     /// send to an agent / app lands in, its key and an app's brief.
     fn send_target(&self, args: &Map<String, Value>) -> Result<SendTarget, SealError> {
         sealing::sealer()?;
+        self.lookup_target(args)
+    }
+
+    /// [`Self::send_target`]'s tRPC lookup alone (no key holder needed).
+    fn lookup_target(&self, args: &Map<String, Value>) -> Result<SendTarget, SealError> {
         let Some(trpc) = &self.trpc else {
             return Err(SealError::NoKey("no tRPC client to look its chat up".into()));
         };
@@ -386,7 +404,8 @@ impl SealingTransform {
         let sealed = match self.seal_card(&root, &report) {
             Ok(sealed) => sealed,
             Err(err) => {
-                unsealed_into(&root, "an end report", &err)?;
+                // #FEED-185: an end needs no summary: it can still end.
+                unsealed_into_or(&root, "an end report", &err, "End without a summary (or restart, then end again)")?;
                 return Ok(args);
             }
         };
@@ -700,6 +719,15 @@ struct SendTarget {
     brief: Option<String>,
 }
 
+impl SendTarget {
+    /// The conversation's root when it is known to be keyed: the server
+    /// names its key, or this process learned it from the synced rows.
+    fn keyed_root(&self) -> Option<String> {
+        let root = self.root_id.as_deref()?;
+        (self.epoch.is_some() && self.public_key.is_some() || sealing::tree_keyed(root)).then(|| root.to_string())
+    }
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EscalateTarget {
@@ -722,11 +750,23 @@ fn unsealed(what: &str, err: &SealError) -> Result<(), String> {
 /// clear the server would refuse it with an "update" hint the current
 /// release does not need).
 fn unsealed_into(root: &str, what: &str, err: &SealError) -> Result<(), String> {
+    unsealed_into_or(root, what, err, "")
+}
+
+/// [`unsealed_into`] with what else the agent can do (`or`, a sentence).
+fn unsealed_into_or(root: &str, what: &str, err: &SealError, or: &str) -> Result<(), String> {
     if *err == SealError::NoService && sealing::tree_keyed(root) {
-        log::warn!("gateway: {what} not sent: {root} is sealed and no key holder runs");
-        return Err(format!("{what} was not sent: {}. Nothing left this device.", SealError::NoHolder));
+        return Err(no_holder(root, what, or));
     }
     unsealed(what, err)
+}
+
+/// #FEED-185: the agent-facing error of content bound for the keyed tree
+/// `root` with no key holder in this process (logged).
+fn no_holder(root: &str, what: &str, or: &str) -> String {
+    log::warn!("gateway: {what} not sent: {root} is sealed and no key holder runs");
+    let or = if or.is_empty() { String::new() } else { format!(" {or}.") };
+    format!("{what} was not sent: {}. Nothing left this device.{or}", SealError::NoHolder)
 }
 
 /// The agent-facing error of content refused unsealed (logged).
@@ -2358,12 +2398,46 @@ mod tests {
             assert!(err.contains("key holder is not running") && err.contains("restart"), "{err}");
             assert!(!err.contains("update"), "{err}");
         }
-        let err = transform.request("exponential_sessions", json!({ "op": "end", "summary": "done" }));
-        if let Err(err) = err {
-            assert!(err.contains("key holder is not running"), "{err}");
-        }
+        // An end summary is refused the same way, naming the way out: end
+        // without one (an end with no summary goes as given).
+        let err = transform.request(SESSIONS_TOOL, json!({ "op": "end", "summary": "done" })).unwrap_err();
+        assert!(err.contains("key holder is not running") && err.contains("End without a summary"), "{err}");
+        let bare = transform.request(SESSIONS_TOOL, json!({ "op": "end" })).unwrap();
+        assert_eq!(bare, json!({ "op": "end" }));
         let other = SealingTransform::new("plain-185", "plain-185", None);
         let out = other.request(SEND_TOOL, json!({ "sessionId": "plain-185", "text": "still legal" })).unwrap();
         assert_eq!(out["text"], "still legal");
+    }
+
+    /// #FEED-185: a send to an agent (or app) conversation with no key
+    /// holder: a conversation `sessions.sendTarget` names as keyed fails
+    /// here; a keyless one, or one whose tree is not known (no lookup),
+    /// goes as given (the server refuses a keyed one).
+    #[test]
+    fn without_a_key_holder_a_send_to_a_keyed_agent_conversation_fails_here() {
+        let _serial = serial();
+        sealing::uninstall();
+        sealing::expect_service(false);
+        let tree = sealing::generate_tree_key();
+        let answer: Answer = Arc::new(|_, _| json!({ "ok": true }));
+        let keyed = fake_server(
+            answer.clone(),
+            json!({ "sessions.sendTarget": { "rootId": "agent-root-185", "epoch": 1, "publicKey": sealing::b64url_encode(&tree.public) } }),
+        );
+        let trpc = Arc::new(TrpcClient::new(&keyed.url, Arc::new(api::StaticToken("t".into()))));
+        let transform = SealingTransform::new("own-185", "own-185", Some(trpc));
+        let agent = "00000000-0000-4000-8000-000000000185";
+        let err = transform.request(SEND_TOOL, json!({ "agentId": agent, "text": "PING-185" })).unwrap_err();
+        assert!(err.contains("key holder is not running") && err.contains("restart"), "{err}");
+
+        let keyless = fake_server(answer, json!({ "sessions.sendTarget": { "rootId": "agent-root-2", "epoch": null, "publicKey": null } }));
+        let trpc = Arc::new(TrpcClient::new(&keyless.url, Arc::new(api::StaticToken("t".into()))));
+        let transform = SealingTransform::new("own-185", "own-185", Some(trpc));
+        let out = transform.request(SEND_TOOL, json!({ "agentId": agent, "text": "plain is legal" })).unwrap();
+        assert_eq!(out["text"], "plain is legal");
+
+        let unknown = SealingTransform::new("own-185", "own-185", None);
+        let out = unknown.request(SEND_TOOL, json!({ "agentId": agent, "text": "not known here" })).unwrap();
+        assert_eq!(out["text"], "not known here");
     }
 }

@@ -552,6 +552,12 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
             started_by_agent_id: caller_tree_agent(&ctx.state, caller),
         },
     )?;
+    // #FEED-185: a sealed start keys its new tree (the server creates its key at epoch 1, createTreeKeyInTx).
+    if data.sealed == Some(true) {
+        if let Some(row) = ctx.state.sessions.get_mut(&root.id) {
+            row.seal_epoch = Some(1);
+        }
+    }
     let message_id = post_send(ctx, &root.id, data.text.as_deref().unwrap_or(""), data.sealed == Some(true), caller)?;
     if let Some(caller) = caller {
         watch_sessions(ctx, &caller.id, std::slice::from_ref(&root.id));
@@ -1397,6 +1403,13 @@ fn step(ctx: &mut Ctx, event: &HubEvent, data: &Value) -> Step<StepResult> {
         }
         "session.end" => {
             let top = session(&ctx.state, data_str(data, "sessionId"))?;
+            // #FEED-185: a plaintext summary into a keyed tree is refused like a send; an end without one still ends.
+            let summary_sealed = data.get("summarySealed") == Some(&Value::Bool(true));
+            let plain_summary = !js::trim(data_str(data, "summary").unwrap_or("")).is_empty() && !summary_sealed;
+            let keyed = ctx.state.sessions.get(&top.root_id).is_some_and(|root| root.seal_epoch.is_some());
+            if plain_summary && is_live(&top) && keyed {
+                return refuse(ErrorCode::Invalid, text(&["plainInSealedTree"]));
+            }
             let subtree = live_subtree(&ctx.state, &top);
             let named = Named {
                 id: &top.id,

@@ -410,6 +410,8 @@ function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepRes
     deviceId: deviceId!,
     startedByAgentId: callerTreeAgent(ctx.state, caller),
   })
+  // #FEED-185: a sealed start keys its new tree (the server creates its key at epoch 1, createTreeKeyInTx).
+  if (data.sealed === true) root.sealEpoch = 1
   const messageId = postSend(ctx, root, data.text ?? ``, data.sealed === true, caller)
   if (caller) {
     watchSessions(ctx, caller.id, [root.id])
@@ -945,6 +947,10 @@ export function reduce(state: HubState, event: HubEvent): Outcome {
         break
       case `session.end`: {
         const top = session(ctx.state, data.sessionId as string)
+        // #FEED-185: a plaintext summary into a keyed tree is refused like a send; an end without one still ends.
+        const summary = (data.summary as string | undefined)?.trim()
+        if (summary && data.summarySealed !== true && isLive(top) && ctx.state.sessions[top.rootId]?.sealEpoch != null)
+          refuse(`invalid`, copy.plainInSealedTree)
         const endedIds = endRows(ctx, liveSubtree(ctx.state, top), {
           id: top.id,
           summary: (data.summary as string | undefined) ?? null,
