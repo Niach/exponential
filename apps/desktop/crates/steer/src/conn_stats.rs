@@ -182,7 +182,9 @@ pub fn flush() {
     runtime.spawn_blocking(move || {
         for batch in events.chunks(BATCH_MAX) {
             if let Err(err) = sink.record(batch) {
-                log::debug!("conn stats: connStats.record failed ({} events dropped): {err}", batch.len());
+                // EXP-1593: visible at the default level (a debug line hid
+                // every failed post); at most one per batch a minute.
+                log::warn!("conn stats: connStats.record failed ({} events dropped): {err}", batch.len());
             }
         }
     });
