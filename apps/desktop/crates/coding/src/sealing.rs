@@ -443,6 +443,12 @@ fn with_keyring<R>(f: impl FnOnce(&Keyring) -> R) -> R {
     }
 }
 
+/// #FEED-185: whether `root` is a keyed (sealed) tree, as far as this
+/// process knows (synced rows feed it even without a key holder).
+pub fn tree_keyed(root_id: &str) -> bool {
+    with_keyring(|keyring| keyring.current(root_id).is_some())
+}
+
 /// [`Keyring::changed`] of the installed keyring.
 pub fn changed() -> u64 {
     with_keyring(Keyring::changed)
@@ -503,6 +509,9 @@ pub enum SealError {
     UnknownRoot,
     /// The tree has no key and none could be created / fetched.
     NoKey(String),
+    /// #FEED-185: the tree is sealed but this process has no key holder
+    /// and none is coming (signed out, eNet off, registration refused).
+    NoHolder,
     Invalid(String),
 }
 
@@ -513,6 +522,10 @@ impl std::fmt::Display for SealError {
             SealError::NotReady => write!(f, "this device's key holder is not running yet (its install is still registering)"),
             SealError::UnknownRoot => write!(f, "unknown session root"),
             SealError::NoKey(why) => write!(f, "no tree key: {why}"),
+            SealError::NoHolder => write!(
+                f,
+                "this chat is sealed and this device's key holder is not running (signed out, offline or not registered when the session started); restart the app or daemon while signed in and online, then send again"
+            ),
             SealError::Invalid(why) => write!(f, "{why}"),
         }
     }
@@ -976,5 +989,41 @@ mod tests {
         let json = serde_json::to_value(&seal).unwrap();
         assert!(json.get("secret").is_none());
         assert_eq!(json["installId"], "me");
+    }
+
+    /// #FEED-185: a daemon restarted after a reboot reloads its tree
+    /// secrets from disk and relearns each tree's current key from the
+    /// synced rows: its agent's sends into the sealed tree seal again
+    /// (nothing about the key is lost with the process).
+    #[test]
+    fn a_restarted_daemon_reloads_its_tree_keys_and_seals_again() {
+        let _serial = serial();
+        let dir = std::env::temp_dir().join(format!("exp-sealing-185-{}", std::process::id()));
+        let path = dir.join("cli-seal-keys");
+        let tree = generate_tree_key();
+        {
+            let before = Keyring::load(path.clone());
+            before.insert_secret("root-185", 1, tree.secret);
+            before.set_current("root-185", 1, tree.public);
+        }
+        // The "reboot": a fresh process, a fresh keyring from the same file.
+        let fake = Arc::new(FakeService { keyring: Keyring::load(path.clone()), ..Default::default() });
+        install(fake.clone());
+        assert_eq!(fake.keyring.secret("root-185", 1), Some(tree.secret));
+        note_sessions(&[SessionRow {
+            id: "root-185".into(),
+            seal_public_key: Some(b64url_encode(&tree.public)),
+            seal_epoch: Some(1),
+            ..Default::default()
+        }]);
+        assert_eq!(fake.keyring.current("root-185"), Some((1, tree.public)));
+        let body = seal_body("root-185", "PING-185").unwrap();
+        assert!(body.starts_with(SEALED_BODY_PREFIX));
+        let opened = enet_core::sealed::open_body(&body, &|_| fake.keyring.secret("root-185", 1));
+        assert_eq!(opened.text.as_deref(), Some("PING-185"));
+        // No key was minted: the reloaded one is the tree's.
+        assert!(fake.created.lock().unwrap().is_empty());
+        uninstall();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

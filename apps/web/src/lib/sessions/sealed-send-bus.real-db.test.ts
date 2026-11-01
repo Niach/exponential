@@ -286,6 +286,21 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     await expect(
       sendSession({ userId: w.owner, callerSessionId: childId, viaMcp: true, input: { sessionId: rootId, text: `from an agent` } })
     ).rejects.toThrow(`device "box" (CLI 0.14.94) sent it in clear`)
+    // #FEED-185: a writer already on a sealing release is never told to
+    // update: its key holder was not running; plaintext from the tree's
+    // own agent is still refused (the server never reads a sealed tree).
+    await db.update(devices).set({ version: SEALING_WRITER_MIN_VERSION }).where(eq(devices.deviceId, w.deviceId))
+    const current = sendSession({
+      userId: w.owner,
+      callerSessionId: childId,
+      viaMcp: true,
+      input: { sessionId: rootId, text: `from the tree's own agent` },
+    })
+    await expect(current).rejects.toThrow(
+      `device "box" (CLI ${SEALING_WRITER_MIN_VERSION}) sent it in clear because its key holder was not running`
+    )
+    await expect(current).rejects.not.toThrow(/update/)
+    await db.update(devices).set({ version: `0.14.94` }).where(eq(devices.deviceId, w.deviceId))
     await expect(
       w.host.reply({ sessionId: childId, body: ``, card: { kind: `question`, question: `In clear?`, options: [`Yes`] } as never })
     ).rejects.toThrow(PLAIN_IN_SEALED_TREE_MESSAGE)

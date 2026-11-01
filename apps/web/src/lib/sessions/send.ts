@@ -87,6 +87,7 @@ import { attachmentLine } from "@/lib/sessions/attachment-lines"
 import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
 import { composeIssueBrief } from "@exp/domain-contract/session-brief"
 import { isSealedBody, validSealedBody } from "@/lib/sessions/sealed"
+import { parseVersionTuple } from "@/lib/client-version"
 import { createTreeKeyInTx, dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -369,7 +370,23 @@ export async function plainWriterHint(
   if (!writer) return `: sealing needs ${needs} (or an up-to-date web, iOS or Android app)`
   const app = writer.kind === `desktop` ? `desktop app` : `CLI`
   const version = writer.version ? ` ${writer.version}` : ``
-  return `: device "${writer.label}" (${app}${version}) sent it in clear. Sealing needs ${needs}: update it and restart its ${writer.kind === `desktop` ? `app` : `daemon`}`
+  const restart = writer.kind === `desktop` ? `app` : `daemon`
+  // #FEED-185: a writer already on a sealing release is never told to
+  // update: its key holder was not running (signed out, offline, or its
+  // install not registered) when its agent launched.
+  if (writerSeals(writer.version)) {
+    return `: device "${writer.label}" (${app}${version}) sent it in clear because its key holder was not running (signed out, offline or not registered when the session started). Restart its ${restart} while signed in and online, then send again`
+  }
+  return `: device "${writer.label}" (${app}${version}) sent it in clear. Sealing needs ${needs}: update it and restart its ${restart}`
+}
+
+/** #FEED-185: the writer's release seals every send (unknown = no). */
+export function writerSeals(version: string | null | undefined): boolean {
+  const have = version ? parseVersionTuple(version) : null
+  const need = parseVersionTuple(SEALING_WRITER_MIN_VERSION)!
+  if (!have) return false
+  for (let i = 0; i < 3; i++) if (have[i] !== need[i]) return have[i]! > need[i]!
+  return true
 }
 
 /** EXP-1472: a keyed tree takes no plaintext content from a writer (server

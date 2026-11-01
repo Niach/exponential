@@ -142,7 +142,7 @@ impl SealingTransform {
                 match (seal(&text), seal(&name)) {
                     (Ok(text), Ok(name)) => (text, name, None),
                     (Err(err), _) | (_, Err(err)) => {
-                        unsealed("sessions_send", &err)?;
+                        unsealed_into(&root, "sessions_send", &err)?;
                         return Ok(args);
                     }
                 }
@@ -343,7 +343,7 @@ impl SealingTransform {
         let sealed = match self.seal_card(&self.root_id, &card) {
             Ok(sealed) => sealed,
             Err(err) => {
-                unsealed("exponential_show", &err)?;
+                unsealed_into(&self.root_id, "exponential_show", &err)?;
                 return Ok(strip_picture_ids(args));
             }
         };
@@ -386,7 +386,7 @@ impl SealingTransform {
         let sealed = match self.seal_card(&root, &report) {
             Ok(sealed) => sealed,
             Err(err) => {
-                unsealed("an end report", &err)?;
+                unsealed_into(&root, "an end report", &err)?;
                 return Ok(args);
             }
         };
@@ -715,6 +715,18 @@ fn unsealed(what: &str, err: &SealError) -> Result<(), String> {
         SealError::NoService => Ok(()),
         err => Err(refused(what, err)),
     }
+}
+
+/// #FEED-185: [`unsealed`] for content bound for `root`: without a key
+/// holder, a tree known to be sealed fails HERE with what to do (sent in
+/// clear the server would refuse it with an "update" hint the current
+/// release does not need).
+fn unsealed_into(root: &str, what: &str, err: &SealError) -> Result<(), String> {
+    if *err == SealError::NoService && sealing::tree_keyed(root) {
+        log::warn!("gateway: {what} not sent: {root} is sealed and no key holder runs");
+        return Err(format!("{what} was not sent: {}. Nothing left this device.", SealError::NoHolder));
+    }
+    unsealed(what, err)
 }
 
 /// The agent-facing error of content refused unsealed (logged).
@@ -2319,5 +2331,39 @@ mod tests {
     #[test]
     fn upload_embeds_finds_every_label() {
         assert_eq!(upload_embeds("![a](upload:web-a) and ![b](upload:ios-b) ![c](upload:bad label)"), ["web-a", "ios-b"]);
+    }
+
+    /// #FEED-185: a process with no key holder (and none coming) that knows
+    /// the target tree is sealed refuses the send on the device with what to
+    /// do, never sends it in clear; a keyless tree still takes plaintext.
+    #[test]
+    fn without_a_key_holder_a_send_into_a_sealed_tree_fails_here_with_what_to_do() {
+        let _serial = serial();
+        sealing::uninstall();
+        sealing::expect_service(false);
+        let tree = sealing::generate_tree_key();
+        sealing::note_sessions(&[
+            domain::rows::SessionRow {
+                id: "root-185".into(),
+                seal_public_key: Some(sealing::b64url_encode(&tree.public)),
+                seal_epoch: Some(1),
+                ..Default::default()
+            },
+            domain::rows::SessionRow { id: "child-185".into(), root_id: Some("root-185".into()), parent_id: Some("root-185".into()), ..Default::default() },
+            domain::rows::SessionRow { id: "plain-185".into(), ..Default::default() },
+        ]);
+        let transform = SealingTransform::new("root-185", "root-185", None);
+        for target in ["child-185", "root-185"] {
+            let err = transform.request(SEND_TOOL, json!({ "sessionId": target, "text": "PING-185" })).unwrap_err();
+            assert!(err.contains("key holder is not running") && err.contains("restart"), "{err}");
+            assert!(!err.contains("update"), "{err}");
+        }
+        let err = transform.request("exponential_sessions", json!({ "op": "end", "summary": "done" }));
+        if let Err(err) = err {
+            assert!(err.contains("key holder is not running"), "{err}");
+        }
+        let other = SealingTransform::new("plain-185", "plain-185", None);
+        let out = other.request(SEND_TOOL, json!({ "sessionId": "plain-185", "text": "still legal" })).unwrap();
+        assert_eq!(out["text"], "still legal");
     }
 }

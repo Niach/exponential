@@ -341,6 +341,7 @@ function insertSession(ctx: Ctx, row: Pick<HubSession, `id` | `parentId` | `root
     needsInput: false,
     blocked: null,
     wakeOn: [],
+    sealEpoch: null,
     createdAt: ctx.now,
     startedAt: null,
     endedAt: null,
@@ -356,6 +357,9 @@ function insertSession(ctx: Ctx, row: Pick<HubSession, `id` | `parentId` | `root
 /** A send's message: the caller session's input (agent-authored) or a person's; blank = none. */
 function postSend(ctx: Ctx, to: HubSession, text: string, sealed: boolean, caller: HubSession | null): string | null {
   if (!text.trim()) return null
+  // EXP-1472/#FEED-185: a keyed tree takes no plaintext, not even from its own agent (the hub never reads a sealed
+  // tree); the writer's device seals it (its MCP gateway) or the send fails.
+  if (!sealed && ctx.state.sessions[to.rootId]?.sealEpoch != null) refuse(`invalid`, copy.plainInSealedTree)
   return post(ctx, to.id, {
     authorKind: caller ? `agent` : `user`,
     authorSessionId: caller?.id ?? null,

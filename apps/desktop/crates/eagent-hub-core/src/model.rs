@@ -128,6 +128,9 @@ pub struct HubSession {
     pub blocked: Option<Blocked>,
     /// Sessions this one watches (the bus wakes it with their transitions).
     pub wake_on: Vec<String>,
+    /// A ROOT's tree key epoch (EXP-1458): `Some` = keyed, its tree takes sealed text only (#FEED-185).
+    #[serde(default)]
+    pub seal_epoch: Option<i64>,
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub ended_at: Option<i64>,

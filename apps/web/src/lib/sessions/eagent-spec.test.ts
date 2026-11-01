@@ -10,9 +10,9 @@ import watchdog from "@exp/eagent/fixtures/watchdog.json"
 import { ASSISTANT_SILENT_EVENTS } from "@/lib/agents/assistant-chat"
 import { TRIGGER_COPY } from "@/lib/agents/triggers"
 import { agentReuseRefusal } from "./agent-reuse"
-import { START_NEEDS_WORK } from "./send"
 import { askHiddenText, askText, BUS_COPY, privateText, REPORT_FALLBACK } from "./bus"
 import { BACKGROUND_STUCK_MINUTES, silentMinutes } from "./watchdog"
+import { PLAIN_IN_SEALED_TREE_MESSAGE, START_NEEDS_WORK } from "./send"
 import {
   PRIVATE_PR_LEAD,
   PRIVATE_REPLY_LEAD,
@@ -79,6 +79,9 @@ describe(`eagent spec: the server's copy`, () => {
     // The schema refuses an empty start before send.ts sees it: the same words.
     const parsed = sessionsSendInputSchema.safeParse({ teamId: `00000000-0000-4000-8000-000000000000` })
     expect(parsed.success ? null : parsed.error.issues.map((issue) => issue.message)).toContain(START_NEEDS_WORK)
+  })
+  it(`plaintext into a sealed tree (#FEED-185)`, () => {
+    expect(rules.copy.plainInSealedTree).toBe(PLAIN_IN_SEALED_TREE_MESSAGE)
   })
   it(`private leads`, () => {
     expect(rules.copy.privateReplyLead).toBe(PRIVATE_REPLY_LEAD)
