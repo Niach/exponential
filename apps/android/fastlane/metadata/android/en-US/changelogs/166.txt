@@ -1,3 +1,4 @@
+- Typing in the composer no longer drops or swaps letters
 - Apps get Chat, Data, Versions and Settings tabs in the editor
 - Settings › MCP is one page for your MCP servers, app tools and recent activity
 - Comments an app tool writes say which app wrote them
