@@ -46,7 +46,7 @@ import com.exponential.app.ui.theme.TextEmphasis
  * under a circle (it is the label and the accessibility label).
  */
 /** Every circle's glyph (web `size-5` inside the 40 px bubble). */
-private val GLYPH = 16.dp
+private val GLYPH = 20.dp
 
 @Composable
 internal fun ComposerAgentRowView(
