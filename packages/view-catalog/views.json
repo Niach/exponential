@@ -3758,6 +3758,39 @@
       }
     },
     {
+      "id": "exponential-ui-motion",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Motion",
+      "blurb": "A vector animation (Lottie-compatible) painted from the core's display list, the same pixels on every platform. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/motion/.",
+      "order": 107,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-motion",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-motion"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-motion",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-motion",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-qr-scanner",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · QrScanner",

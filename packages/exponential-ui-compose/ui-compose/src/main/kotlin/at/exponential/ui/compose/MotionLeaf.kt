@@ -1,6 +1,7 @@
 package at.exponential.ui.compose
 
 import android.graphics.Bitmap
+import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -12,7 +13,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -102,7 +102,8 @@ class MotionSource(val player: MotionPlayer) {
 
 /**
  * EXP-1604: `Motion` (contract §3–6): a `Canvas` painting the core's display
- * list for the clock's frame, one frame per `withFrameNanos` (≤ 60 fps); the
+ * list for the clock's frame, one frame per display frame
+ * (`withInfiniteAnimationFrameNanos`: tests treat it as idle; ≤ 60 fps); the
  * poster under reduced motion, `autoplay: false`, while the app is not
  * resumed, off-screen (not composed) and past the surface's first 8
  * animating Motions; a bound `progress` scrubs; `play: false` freezes.
@@ -155,7 +156,7 @@ internal fun MotionLeaf(cx: LeafContext) {
             // Resume where `play: false` froze it.
             var last = -1L
             while (true) {
-                val now = withFrameNanos { it }
+                val now = withInfiniteAnimationFrameNanos { it }
                 if (last >= 0) elapsed.doubleValue += (now - last) / 1e6
                 last = now
             }
