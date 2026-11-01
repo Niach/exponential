@@ -18,7 +18,6 @@ import {
   isTextEntry,
   logicalSessionIds,
   nextShowLabel,
-  soleHeadSession,
   ownedBy,
   ownedByAny,
   ownedBySubtree,
@@ -33,6 +32,7 @@ import { postAgentMessage } from "@/lib/sessions/messages"
 import type { Db, Tx } from "@/lib/sessions/tx"
 import { deleteObject } from "@/lib/storage"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
+import { headSession } from "@/lib/sessions/push-attribution"
 import {
   rollbackSessionImage,
   sessionAttachmentValues,
@@ -453,9 +453,10 @@ export async function publishGuidePicture(
 /** EXP-1397: a merged PR's logical session's untagged text topics went out
  *  with it: stamped with its URL, they leave every still-open body of the
  *  thread (a body excludes by prUrl only). The PR's recorded session first;
- *  a PR with none (UI-opened, adopted) resolves through its head, but only
- *  when ONE logical session sits on it: two live lineages on the same head
- *  stamp nobody's rather than the newest's (#EXP-1402). True = the Guide
+ *  a PR with none (UI-opened, adopted) resolves through its head: the
+ *  session that pushed it (#EXP-1540), else the ONE logical session sitting
+ *  on it: two live lineages on the same head stamp nobody's rather than the
+ *  newest's (#EXP-1402). True = the Guide
  *  moved. */
 export async function tagGuideForMergedPullRequest(pr: {
   rootSessionId: string | null
@@ -473,11 +474,13 @@ export async function tagGuideForMergedPullRequest(pr: {
         continuedFromId: sessions.continuedFromId,
         status: sessions.status,
         branch: sessions.branch,
+        pushedBranch: sessions.pushedBranch,
+        pushedAt: sessions.pushedAt,
       })
       .from(sessions)
       .where(eq(sessions.rootId, pr.rootSessionId))
       .orderBy(asc(sessions.createdAt))
-    sessionId = soleHeadSession(tree, pr.head)
+    sessionId = headSession(tree, pr.head)
   }
   if (!sessionId) return false
   return tagGuideForPullRequest({ sessionId, prUrl: pr.url })

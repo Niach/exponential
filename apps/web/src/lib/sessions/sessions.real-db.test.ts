@@ -1164,7 +1164,7 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
     const body = async (prUrl: string) => prBodyFromGuide(await guide(), { prUrl }) ?? ``
     const write = (sessionId: string, topic: string, extra: Record<string, unknown> = {}) =>
       writeGuide({ userId: w.owner, sessionId, topic, ...extra })
-    return { w, root: root.sessionId, kid, pr, guide, body, write }
+    return { w, root: root.sessionId, repo: repo!, kid, pr, guide, body, write }
   }
 
   const picture = () => {
@@ -1252,6 +1252,35 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
     const bodyB = await t.body(prB.url)
     expect(bodyB).toContain(`B's work.`)
     expect(bodyB).not.toContain(`A's work.`)
+  })
+
+  it(`#EXP-1540: a UI-opened PR on a shared head resolves to the session that pushed it`, async () => {
+    const { attributePush } = await import(`@/lib/sessions/push-attribution`)
+    const t = await thread()
+    const a = await t.kid(`exp/shared`)
+    const b = await t.kid(`exp/shared`)
+    await db
+      .update(sessions)
+      .set({ status: `running`, repositoryId: t.repo.id })
+      .where(inArray(sessions.id, [a, b]))
+    await t.write(a, `Alpha`, { text: `A's work.` })
+    await t.write(b, `Beta`, { text: `B's work.` })
+    // Two idle lineages on the branch: the push credits nobody.
+    expect(await attributePush({ fullName: t.repo.fullName, branch: `exp/shared` })).toBeNull()
+    // B is mid-turn when the push lands: B pushed. updated_at stays put.
+    await db.update(sessions).set({ busy: true }).where(eq(sessions.id, b))
+    const before = (await row(b)).updatedAt
+    // Another repository's branch of the same name credits nobody here.
+    expect(await attributePush({ fullName: `other/repo`, branch: `exp/shared` })).toBeNull()
+    expect(await attributePush({ fullName: t.repo.fullName, branch: `exp/shared` })).toBe(b)
+    expect(await row(b)).toMatchObject({ pushedBranch: `exp/shared`, updatedAt: before })
+    expect((await row(a)).pushedAt).toBeNull()
+
+    const pr = await t.pr(1, null, `exp/shared`)
+    await applyPullRequestMerged({ pullRequestId: pr.id })
+    const guide = await t.guide()
+    expect(guide.find((e) => e.topic === `Beta`)?.prUrl).toBe(pr.url)
+    expect(guide.find((e) => e.topic === `Alpha`)?.prUrl).toBeUndefined()
   })
 
   it(`an explicit prUrl: null sticks across rewrites; a NEW topic takes the open PR`, async () => {

@@ -7,7 +7,8 @@ import { issues, messages, pullRequestIssues, pullRequests, sessions } from "@/d
 import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 import { githubApiHeaders } from "@/lib/integrations/github-app"
 import { appBaseUrl, buildSessionDeepLinkPath } from "@/lib/notification-email-policy"
-import { logicalSessionIds, soleHeadSession, type GuideTreeRow } from "@/lib/sessions/guide-entries"
+import { logicalSessionIds, type GuideTreeRow } from "@/lib/sessions/guide-entries"
+import { headSession } from "@/lib/sessions/push-attribution"
 import { inSessions, messageSessionId } from "@/lib/sessions/messages"
 import { isSealedCard } from "@/lib/sessions/sealed"
 
@@ -74,7 +75,8 @@ export function storySessionIds(
  *  (`storySessionIds`), oldest first; sealed cards count through their
  *  clear part (`storyPicturesOfCard`). `pullRequestId` = the PR rendered
  *  (every OTHER PR of the thread claims its opener's lineage); `head` = its
- *  branch, the opener of a PR with none when one lineage sits on it. */
+ *  branch: a PR with no opener resolves through it (`headSession`: the
+ *  session that pushed it, else the one lineage on it, #EXP-1540). */
 export async function loadStoryPictures(
   rootId: string,
   recordedOpenerId: string | null,
@@ -87,11 +89,13 @@ export async function loadStoryPictures(
       continuedFromId: sessions.continuedFromId,
       status: sessions.status,
       branch: sessions.branch,
+      pushedBranch: sessions.pushedBranch,
+      pushedAt: sessions.pushedAt,
     })
     .from(sessions)
     .where(eq(sessions.rootId, rootId))
     .orderBy(asc(sessions.createdAt))
-  const openerSessionId = recordedOpenerId ?? (opts.head ? soleHeadSession(tree, opts.head) : null)
+  const openerSessionId = recordedOpenerId ?? (opts.head ? headSession(tree, opts.head) : null)
   const pullRequestId = opts.pullRequestId ?? null
   const others = await db
     .select({ sessionId: pullRequests.sessionId })

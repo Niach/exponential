@@ -2082,6 +2082,12 @@ export const sessions = pgTable(
     // an MCP call by the session, a push to its branch. The stuck watchdog
     // measures from greatest(updated_at, last_activity_at).
     lastActivityAt: timestamp(`last_activity_at`, { withTimezone: true }),
+    // #EXP-1540 (SERVER-ONLY): the latest push this session is credited
+    // with (GitHub `push` webhook, `lib/sessions/push-attribution.ts`): the
+    // branch it pushed and when. A PR with no recorded session resolves its
+    // author through the session that pushed its head.
+    pushedBranch: varchar(`pushed_branch`, { length: 255 }),
+    pushedAt: timestamp(`pushed_at`, { withTimezone: true }),
     // EXP-1413 (SERVER-ONLY): a person's Stop interrupted a busy turn; set
     // until the session works again. The yolo automerge waits on it, so a
     // stopped turn's half-done work never merges.
@@ -3806,9 +3812,11 @@ export const selectSyncedSessionSchema = selectSessionSchema.omit({
   wakeOn: true,
   // EXP-1374: the stuck rule's clock, server-only.
   lastActivityAt: true,
-  // EXP-1413 / #EXP-1402: server-only, outside the shape's columns.
+  // EXP-1413 / #EXP-1402 / #EXP-1540: server-only, outside the shape's columns.
   stoppedAt: true,
   continuedFromId: true,
+  pushedBranch: true,
+  pushedAt: true,
 })
 
 // NEW-2: agents, events, prompts.
