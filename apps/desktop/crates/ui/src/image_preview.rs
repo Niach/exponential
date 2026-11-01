@@ -10,6 +10,9 @@
 //! behind a big "Open in player" button — the desktop decodes no media, so
 //! the preview is a launcher for the system player, not a player.
 
+use std::rc::Rc;
+
+use eui_gpui::controls::{ZoomableImage, ZoomableImageOptions};
 use gpui::{
     div, img, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Pixels, Render,
     ScrollHandle, SharedString, Size, Styled, StyledImage as _, Subscription, Window,
@@ -36,14 +39,15 @@ use crate::queries;
 /// image itself gets the aspect-true remainder.
 const PREVIEW_HEADER_H: f32 = 44.;
 
-/// EXP-1128: the tall lightbox body's horizontal padding (each side) and the
-/// right gutter kept clear for the overlay scrollbar.
+/// The image lightbox's picture margin (each side) and, EXP-1128, the right
+/// gutter a strip column keeps clear for the overlay scrollbar.
 const TALL_BODY_PAD: f32 = 8.;
 const TALL_SCROLLBAR_GUTTER: f32 = 12.;
 
 /// A TALL picture (width/height under the shared ×4
-/// [`SESSION_RESULT_TALL_ASPECT`]) opens as a scrolling column at a readable
-/// width instead of a sliver scaled to fit the viewport height.
+/// [`SESSION_RESULT_TALL_ASPECT`]) opens in a column window at a readable
+/// width (the zoom view fits its width, from the top) instead of a sliver
+/// scaled to fit the viewport height.
 fn is_tall(natural: Option<(f32, f32)>) -> bool {
     matches!(natural, Some((width, height)) if width > 0. && height > 0.
         && width / height < SESSION_RESULT_TALL_ASPECT)
@@ -81,20 +85,16 @@ pub(crate) fn open_image_preview(
     // EXP-285: chromeless — traffic lights over the image corner read as
     // dirt; the header ✕ stays the dismissal. The label still names the OS
     // window even though the in-content header shows no title. EXP-1128: a
-    // tall picture's scroll column is resizable (wider = bigger text).
-    let mut spec = DialogSpec::new(label, window_size).chromeless();
+    // tall picture's column is resizable (wider = bigger text).
+    let mut spec = DialogSpec::new(label.clone(), window_size).chromeless();
     if tall {
         spec = spec.resizable(size(px(420.), px(280.)));
     }
-    native_dialog::open_dialog_window(window, cx, spec, move |_, cx| {
-        let preview = cx.new(|cx| ImagePreview::new(url, images, natural, cx));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let preview = cx.new(|cx| ImagePreview::new(url, &label, images, natural, window, cx));
         // The header's ✕ is the only mouse dismissal a lightbox has (there is
         // no Cancel footer) — without it the modal window is a dead end.
         let mut content = DialogContent::new(preview).chromeless_header("").padless();
-        if tall {
-            // The view owns its scroll pane (the md-preview pattern).
-            content = content.self_scrolling();
-        }
         if let Some(open_url) = open_url {
             content = content.chromeless_header_actions(move |_, cx| {
                 open_in_browser_button("image-preview-open-browser", open_url.clone(), cx)
@@ -274,7 +274,7 @@ fn preview_label(label: &str, url: &str) -> String {
 /// window matches the IMAGE's aspect ratio (plus the header strip): the image
 /// scales to fit 90% of the viewport, never upscales, and the window floors
 /// at 480×320 so the header controls always fit. Without dimensions, the old
-/// generic viewport share. EXP-1128: a TALL picture gets a scroll column —
+/// generic viewport share. EXP-1128: a TALL picture gets a column —
 /// its natural width within 480..=min(90% viewport, 1100), 90% of the height.
 fn preview_window_size(natural: Option<(f32, f32)>, viewport: Size<Pixels>) -> Size<Pixels> {
     let (vw, vh) = (f32::from(viewport.width), f32::from(viewport.height));
@@ -295,121 +295,200 @@ fn preview_window_size(natural: Option<(f32, f32)>, viewport: Size<Pixels>) -> S
     }
 }
 
+// ---------------------------------------------------------------------------
+// EXP-1586 — THE lightbox picture (every lightbox below)
+// ---------------------------------------------------------------------------
+
+/// The picture body of [`ImagePreview`], [`GuideViewer`] and
+/// [`PictureGallery`]: the eUI zoom view (`eui_gpui::controls::ZoomableImage`,
+/// catalog `zoomableImage`) over the cached decode — fit, never upscaled, a
+/// TALL picture at fit-width from the top (the wheel scrolls it), zoom and
+/// pan, the pill. A Tap does nothing here; ←/→ stay the host's (the view
+/// never takes them), the zoom keys reach it through [`Self::key`] while the
+/// host holds focus.
+struct LightboxPicture {
+    zoom: Entity<ZoomableImage>,
+    /// The strip column's scroll (a strip-decoded TALL picture only).
+    strips: ScrollHandle,
+}
+
+impl LightboxPicture {
+    fn new<V: 'static>(alt: &str, cx: &mut gpui::Context<V>) -> Self {
+        let options = ZoomableImageOptions {
+            alt: SharedString::from(alt.to_string()),
+            theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
+            mode: eui_core::theme::Mode::Dark,
+            host: Rc::new(crate::exponential_ui_host::IdePlugin { media_origin: String::new() }),
+            reduced_motion: theme::motion::reduce_motion(),
+            ..ZoomableImageOptions::default()
+        };
+        let zoom = cx.new(|cx| ZoomableImage::new("", None, None, options, cx));
+        Self { zoom, strips: ScrollHandle::new() }
+    }
+
+    /// A page change: the next picture opens at rest, without animation.
+    fn show(&self, url: &str, cx: &mut App) {
+        self.zoom.update(cx, |zoom, cx| zoom.set_source(url.to_string(), None, None, cx));
+    }
+
+    /// A key while the host holds focus (the view's own rule: no modifier
+    /// chords); `true` = the view zoomed.
+    fn key(&self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut App) -> bool {
+        let modifiers = event.keystroke.modifiers;
+        if modifiers.platform || modifiers.control || modifiers.alt {
+            return false;
+        }
+        let key = event
+            .keystroke
+            .key_char
+            .as_deref()
+            .filter(|key| !key.is_empty())
+            .unwrap_or(event.keystroke.key.as_str())
+            .to_string();
+        self.zoom.update(cx, |zoom, cx| zoom.handle_key(&key, window, cx))
+    }
+
+    /// The picture filling a `relative` box `box_w` wide, `pad` in from its
+    /// edges. `natural` = the probed size (`None` = the decoded one).
+    fn render(
+        &self,
+        id: &'static str,
+        url: &str,
+        slot: ImageSlot,
+        natural: Option<(f32, f32)>,
+        box_w: f32,
+        pad: f32,
+        cx: &mut App,
+    ) -> gpui::AnyElement {
+        let fill = || div().absolute().inset_0().p(px(pad)).flex().items_center().justify_center();
+        match slot {
+            ImageSlot::Ready(image) => {
+                let natural = natural.map(|(width, height)| (f64::from(width), f64::from(height)));
+                self.zoom
+                    .update(cx, |zoom, cx| zoom.set_source(url.to_string(), Some(image.into()), natural, cx));
+                fill().child(div().size_full().child(self.zoom.clone())).into_any_element()
+            }
+            // Over the texture cap (`crate::tall_image`): the zoom view paints
+            // one texture, so a strip-decoded TALL picture keeps the EXP-1128
+            // scroll column (no zoom) at the box's width, less the overlay
+            // scrollbar's gutter.
+            ImageSlot::ReadyTall(tall) if is_tall(Some((tall.width as f32, tall.height as f32))) => {
+                let inner_w = (box_w - pad * 2. - TALL_SCROLLBAR_GUTTER).max(1.);
+                v_flex()
+                    .absolute()
+                    .inset_0()
+                    .px(px(pad))
+                    .pb(px(pad))
+                    .child(crate::scroll_pane::v_scroll_pane(
+                        SharedString::from(format!("{id}-scroll")),
+                        &self.strips,
+                        v_flex()
+                            .w_full()
+                            .pr(px(TALL_SCROLLBAR_GUTTER))
+                            .child(crate::tall_image::render_tall(&tall, inner_w)),
+                    ))
+                    .into_any_element()
+            }
+            // A >16k px WIDE picture: strips at the box's width, clipped.
+            ImageSlot::ReadyTall(tall) => {
+                let width = (box_w - pad * 2.).min(tall.width as f32).max(1.);
+                fill()
+                    .child(
+                        div()
+                            .max_w_full()
+                            .max_h_full()
+                            .overflow_hidden()
+                            .child(crate::tall_image::render_tall(&tall, width)),
+                    )
+                    .into_any_element()
+            }
+            ImageSlot::Loading => fill()
+                .child(crate::feedback::skeleton_block(SharedString::from(format!("{id}-loading")), 80., cx))
+                .into_any_element(),
+            ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
+                fill().child(placeholder_box("Image unavailable", cx)).into_any_element()
+            }
+        }
+    }
+}
+
+/// Keeps the host's focus across the dialog window becoming key (EXP-1348:
+/// the shell takes it on that edge, which left the keys dead).
+fn refocus_on_activation<V: gpui::Focusable>(
+    focus_handle: &gpui::FocusHandle,
+    window: &mut Window,
+    cx: &mut gpui::Context<V>,
+) -> Subscription {
+    window.focus(focus_handle, cx);
+    cx.observe_window_activation(window, |this, window, cx| {
+        let focus_handle = this.focus_handle(cx);
+        if window.is_window_active() && !focus_handle.contains_focused(window, cx) {
+            window.focus(&focus_handle, cx);
+        }
+    })
+}
+
 struct ImagePreview {
     url: String,
     images: Entity<ImageCache>,
-    /// EXP-1128: a tall picture scrolls at the window's width.
-    tall: bool,
     natural: Option<(f32, f32)>,
-    scroll: ScrollHandle,
+    picture: LightboxPicture,
+    focus_handle: gpui::FocusHandle,
     /// Re-render when the cache resolves the async fetch.
     _images_changed: Subscription,
+    _activation: Subscription,
 }
 
 impl ImagePreview {
     fn new(
         url: String,
+        label: &str,
         images: Entity<ImageCache>,
         natural: Option<(f32, f32)>,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let images_changed = cx.observe(&images, |_, _, cx| cx.notify());
+        let focus_handle = cx.focus_handle();
+        let activation = refocus_on_activation(&focus_handle, window, cx);
         Self {
             url,
             images,
-            tall: is_tall(natural),
             natural,
-            scroll: ScrollHandle::new(),
+            picture: LightboxPicture::new(label, cx),
+            focus_handle,
             _images_changed: images_changed,
+            _activation: activation,
         }
+    }
+}
+
+impl gpui::Focusable for ImagePreview {
+    fn focus_handle(&self, _cx: &App) -> gpui::FocusHandle {
+        self.focus_handle.clone()
     }
 }
 
 impl Render for ImagePreview {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        use gpui::InteractiveElement as _;
         let url = self.url.clone();
         let slot = self.images.update(cx, |cache, cx| cache.slot(&url, cx));
-        // EXP-1128: a strip-decoded picture knows its own size, so a slot
-        // that arrived without a probed `natural` (no synced dimensions)
-        // still takes the scrolling column instead of the clipped box.
-        let decoded = match &slot {
-            ImageSlot::ReadyTall(tall) => Some((tall.width as f32, tall.height as f32)),
-            _ => None,
-        };
-        let natural = self.natural.or(decoded);
-        let tall = self.tall || is_tall(decoded);
-
-        if tall {
-            // The column is the window's content width: padding off both
-            // sides and a gutter for the overlay scrollbar (md preview).
-            let inner_w = (f32::from(window.viewport_size().width)
-                - TALL_BODY_PAD * 2.
-                - TALL_SCROLLBAR_GUTTER)
-                .max(1.);
-            let aspect = natural
-                .map(|(width, height)| width / height)
-                .unwrap_or(1.);
-            let body = match slot {
-                ImageSlot::Ready(image) => img(image)
-                    .flex_shrink_0()
-                    .w(px(inner_w))
-                    .h(px(inner_w / aspect))
-                    .object_fit(gpui::ObjectFit::Fill)
-                    .into_any_element(),
-                ImageSlot::ReadyTall(tall) => crate::tall_image::render_tall(&tall, inner_w),
-                ImageSlot::Loading => crate::feedback::skeleton_block("image-loading", 80., cx),
-                ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
-                    placeholder_box("Image unavailable", cx)
-                }
-            };
-            return v_flex()
-                .size_full()
-                .px(px(TALL_BODY_PAD))
-                .pb(px(TALL_BODY_PAD))
-                .child(crate::scroll_pane::v_scroll_pane(
-                    "image-preview-scroll",
-                    &self.scroll,
-                    v_flex().w_full().pr(px(TALL_SCROLLBAR_GUTTER)).child(body),
-                ))
-                .into_any_element();
-        }
-
-        let body = match slot {
-            ImageSlot::Ready(image) => img(image)
-                .max_w_full()
-                .max_h_full()
-                .object_fit(gpui::ObjectFit::ScaleDown)
-                .rounded(cx.theme().radius)
-                .into_any_element(),
-            // Over the texture cap but not tall (a >16k px WIDE picture):
-            // strips at the window's width, clipped to its height.
-            ImageSlot::ReadyTall(tall) => {
-                let width = (f32::from(window.viewport_size().width) - TALL_BODY_PAD * 2.)
-                    .min(tall.width as f32)
-                    .max(1.);
-                div()
-                    .max_w_full()
-                    .max_h_full()
-                    .overflow_hidden()
-                    .child(crate::tall_image::render_tall(&tall, width))
-                    .into_any_element()
-            }
-            ImageSlot::Loading => crate::feedback::skeleton_block("image-loading", 80., cx),
-            ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
-                placeholder_box("Image unavailable", cx)
-            }
-        };
-
-        // One centered fill — the window already matches the image's aspect
-        // ratio, so the image reads near-fullscreen with a slim margin.
+        let box_w = f32::from(window.viewport_size().width);
+        // The window already matches the image's aspect ratio, so the
+        // picture reads near-fullscreen with a slim margin.
+        let body = self.picture.render("image-preview", &url, slot, self.natural, box_w, TALL_BODY_PAD, cx);
         div()
+            .id("image-preview")
+            .relative()
             .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .p_2()
+            .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.picture.key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .child(body)
-            .into_any_element()
     }
 }
 
@@ -422,6 +501,9 @@ pub(crate) const GUIDE_VIEWER_PANEL_W: f32 = 360.;
 
 /// The viewer dialog's window title (EXP-1348).
 const GUIDE_VIEWER_TITLE: &str = "Guide";
+
+/// The Guide viewer's and the gallery's picture margin (each side).
+const GUIDE_PICTURE_PAD: f32 = 16.;
 
 /// The viewer's size floor: the panel and a picture both fit.
 const GUIDE_VIEWER_MIN_W: f32 = 720.;
@@ -474,6 +556,7 @@ struct GuideViewer {
     source: crate::session_results::GuideViewerSource,
     attachment_id: String,
     images: Entity<ImageCache>,
+    picture: LightboxPicture,
     focus_handle: gpui::FocusHandle,
     _images_changed: Subscription,
     _activation: Subscription,
@@ -489,20 +572,16 @@ impl GuideViewer {
     ) -> Self {
         let images_changed = cx.observe(&images, |_, _, cx| cx.notify());
         let focus_handle = cx.focus_handle();
-        window.focus(&focus_handle, cx);
         // EXP-1348: a native-chrome dialog window loses the focus claimed
-        // above as it becomes key (the shell then takes it), which left ←/→
+        // here as it becomes key (the shell then takes it), which left ←/→
         // dead: take it back on that edge — once per activation, never per
         // frame — whenever nothing inside the viewer holds it.
-        let activation = cx.observe_window_activation(window, |this, window, cx| {
-            if window.is_window_active() && !this.focus_handle.contains_focused(window, cx) {
-                window.focus(&this.focus_handle, cx);
-            }
-        });
+        let activation = refocus_on_activation(&focus_handle, window, cx);
         Self {
             source,
             attachment_id,
             images,
+            picture: LightboxPicture::new("", cx),
             focus_handle,
             _images_changed: images_changed,
             _activation: activation,
@@ -516,6 +595,7 @@ impl GuideViewer {
     /// Step to `id` (‹ › and ←/→); `None` = at an end, nothing happens.
     fn go(&mut self, id: Option<String>, cx: &mut gpui::Context<Self>) {
         if let Some(id) = id {
+            self.picture.show(&attachment_url(&id), cx);
             self.attachment_id = id;
             cx.notify();
         }
@@ -523,29 +603,9 @@ impl GuideViewer {
 
     fn picture(&self, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let url = attachment_url(&self.attachment_id);
-        match self.images.update(cx, |cache, cx| cache.slot(&url, cx)) {
-            ImageSlot::Ready(image) => img(image)
-                .max_w_full()
-                .max_h_full()
-                .object_fit(gpui::ObjectFit::ScaleDown)
-                .rounded(cx.theme().radius)
-                .into_any_element(),
-            ImageSlot::ReadyTall(tall) => {
-                let width = (f32::from(window.viewport_size().width) - GUIDE_VIEWER_PANEL_W - 32.)
-                    .min(tall.width as f32)
-                    .max(1.);
-                div()
-                    .max_w_full()
-                    .max_h_full()
-                    .overflow_hidden()
-                    .child(crate::tall_image::render_tall(&tall, width))
-                    .into_any_element()
-            }
-            ImageSlot::Loading => crate::feedback::skeleton_block("guide-viewer-loading", 80., cx),
-            ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
-                placeholder_box("Image unavailable", cx)
-            }
-        }
+        let slot = self.images.update(cx, |cache, cx| cache.slot(&url, cx));
+        let box_w = f32::from(window.viewport_size().width) - GUIDE_VIEWER_PANEL_W;
+        self.picture.render("guide-viewer", &url, slot, None, box_w, GUIDE_PICTURE_PAD, cx)
     }
 }
 
@@ -655,21 +715,12 @@ impl Render for GuideViewer {
                     "left" => this.go(prev.clone(), cx),
                     "right" => this.go(next.clone(), cx),
                     "escape" => native_dialog::close_dialog_window(window, cx),
+                    _ if this.picture.key(event, window, cx) => {}
                     _ => return,
                 }
                 cx.stop_propagation();
             }))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .p_4()
-                    .child(picture),
-            )
+            .child(div().relative().flex_1().min_w_0().h_full().child(picture))
             .child(panel)
             .into_any_element()
     }
@@ -717,6 +768,7 @@ struct PictureGallery {
     pictures: Vec<GalleryPicture>,
     index: usize,
     images: Entity<ImageCache>,
+    picture: LightboxPicture,
     focus_handle: gpui::FocusHandle,
     _images_changed: Subscription,
     _activation: Subscription,
@@ -732,15 +784,11 @@ impl PictureGallery {
     ) -> Self {
         let images_changed = cx.observe(&images, |_, _, cx| cx.notify());
         let focus_handle = cx.focus_handle();
-        window.focus(&focus_handle, cx);
         // The guide viewer's activation edge (EXP-1348): ←/→ keep working
         // once the dialog window becomes key.
-        let activation = cx.observe_window_activation(window, |this, window, cx| {
-            if window.is_window_active() && !this.focus_handle.contains_focused(window, cx) {
-                window.focus(&this.focus_handle, cx);
-            }
-        });
-        Self { pictures, index, images, focus_handle, _images_changed: images_changed, _activation: activation }
+        let activation = refocus_on_activation(&focus_handle, window, cx);
+        let picture = LightboxPicture::new("", cx);
+        Self { pictures, index, images, picture, focus_handle, _images_changed: images_changed, _activation: activation }
     }
 
     /// Step by `delta`; an end does nothing.
@@ -748,6 +796,7 @@ impl PictureGallery {
         let next = self.index as isize + delta;
         if next >= 0 && (next as usize) < self.pictures.len() {
             self.index = next as usize;
+            self.picture.show(&self.pictures[self.index].url, cx);
             cx.notify();
         }
     }
@@ -766,25 +815,9 @@ impl Render for PictureGallery {
             return div().size_full().into_any_element();
         };
         let muted = cx.theme().muted_foreground;
-        let body = match self.images.update(cx, |cache, cx| cache.slot(&picture.url, cx)) {
-            ImageSlot::Ready(image) => img(image)
-                .max_w_full()
-                .max_h_full()
-                .object_fit(gpui::ObjectFit::ScaleDown)
-                .rounded(cx.theme().radius)
-                .into_any_element(),
-            ImageSlot::ReadyTall(tall) => {
-                let width = (f32::from(window.viewport_size().width) - 32.).min(tall.width as f32).max(1.);
-                div()
-                    .max_w_full()
-                    .max_h_full()
-                    .overflow_hidden()
-                    .child(crate::tall_image::render_tall(&tall, width))
-                    .into_any_element()
-            }
-            ImageSlot::Loading => crate::feedback::skeleton_block("picture-gallery-loading", 80., cx),
-            ImageSlot::Failed(_) | ImageSlot::Unrenderable => placeholder_box("Image unavailable", cx),
-        };
+        let slot = self.images.update(cx, |cache, cx| cache.slot(&picture.url, cx));
+        let box_w = f32::from(window.viewport_size().width);
+        let body = self.picture.render("picture-gallery", &picture.url, slot, None, box_w, GUIDE_PICTURE_PAD, cx);
         let count = self.pictures.len();
         let back = crate::controls::ghost_icon_button("picture-gallery-prev", Icon::from(crate::icons::registry::UI_CHEVRON_LEFT), cx)
             .disabled(self.index == 0)
@@ -801,21 +834,12 @@ impl Render for PictureGallery {
                     "left" => this.step(-1, cx),
                     "right" => this.step(1, cx),
                     "escape" => native_dialog::close_dialog_window(window, cx),
+                    _ if this.picture.key(event, window, cx) => {}
                     _ => return,
                 }
                 cx.stop_propagation();
             }))
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .p_4()
-                    .child(body),
-            )
+            .child(div().relative().flex_1().min_h_0().w_full().child(body))
             .child(
                 gpui_component::h_flex()
                     .flex_shrink_0()
@@ -903,6 +927,41 @@ mod tests {
         assert!(!is_tall(Some((300., 900.))));
         assert!(is_tall(Some((299., 900.))));
         assert!(!is_tall(None));
+    }
+
+    /// EXP-1586: the gallery's zoom keys reach the zoom view while the
+    /// gallery holds focus, and a page (→) opens the next picture at rest.
+    #[gpui::test]
+    async fn the_gallery_zooms_by_key_and_pages_back_to_rest(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let images = cx.new(|_| {
+            let mut cache = ImageCache::new(None);
+            for (id, from, to) in [("a", [0x3f, 0x3f, 0x46], [0x52, 0x52, 0x5b]), ("b", [0x1e, 0x3a, 0x5f], [0x3b, 0x82, 0xf6])] {
+                let png = crate::styleguide::entries::plan_card::picture_png(from, to, 800, 500);
+                cache.insert_bytes(attachment_url(id), "image/png", png);
+            }
+            cache
+        });
+        let pictures = ["a", "b"]
+            .map(|id| GalleryPicture { url: attachment_url(id), alt: id.to_string() })
+            .to_vec();
+        let (gallery, cx) =
+            cx.add_window_view(|window, cx| PictureGallery::new(pictures, 0, images, window, cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.refresh());
+        cx.run_until_parked();
+        let zoom = gallery.read_with(cx, |gallery, _| gallery.picture.zoom.clone());
+        assert!(zoom.read_with(cx, |zoom, _| zoom.at_rest()));
+        cx.simulate_keystrokes("=");
+        cx.run_until_parked();
+        assert!(!zoom.read_with(cx, |zoom, _| zoom.at_rest()), "= zooms in");
+        cx.simulate_keystrokes("right");
+        cx.run_until_parked();
+        assert_eq!(gallery.read_with(cx, |gallery, _| gallery.index), 1);
+        assert!(zoom.read_with(cx, |zoom, _| zoom.at_rest()), "a page opens at rest");
     }
 
     #[test]
