@@ -1137,7 +1137,7 @@ export const planCardSchema = z
     surface: cardSurfaceSchema.nullish(),
     // FEED-140: `superseded` = the agent replaced the waiting plan with a
     // newer `plan` call (server-written, never a person's pick).
-    decision: z.enum([`approved`, `rejected`, `superseded`]).nullish(),
+    decision: z.enum([`approved`, `rejected`, `superseded`, `dismissed`]).nullish(),
     fresh: z.boolean().nullish(),
     feedback: z.string().nullish(),
     answers: planCardAnswersSchema.nullish(),
@@ -1213,6 +1213,8 @@ export type MessageCard =
       answer?: string | null
       answers?: string[] | null
       surfaceData?: Record<string, unknown> | null
+      /** #EXP-1561: a person dismissed it (fixtures/waiting-cards.json). */
+      dismissed?: boolean | null
     }
   | {
       kind: `plan`
@@ -1224,13 +1226,15 @@ export type MessageCard =
       /** S-3 stories.json: false keeps the card in the chat only. */
       story?: boolean | null
       /** FEED-140: `superseded` = replaced by a newer plan (server-written). */
-      decision?: `approved` | `rejected` | `superseded` | null
+      decision?: `approved` | `rejected` | `superseded` | `dismissed` | null
       /** An approval that starts the work in a fresh context (ask-dock.json `planOptions`). */
       fresh?: boolean | null
       feedback?: string | null
       /** EXP-1280: question id → picked labels; the surface's data model at answer time. */
       answers?: Record<string, string[]> | null
       surfaceData?: Record<string, unknown> | null
+      /** #EXP-1561: a person dismissed it (decision `dismissed` too). */
+      dismissed?: boolean | null
     }
   | { kind: `subagent`; title: string; status: string; summary?: string | null }
   | { kind: `session`; sessionId: string }
@@ -1375,6 +1379,9 @@ export const SESSIONS_SEND_MAX_WAKE_ON = 20
  *  Same shape as `sessions.answer`'s card answer. */
 export const sessionAnswerSchema = z.object({
   messageId: sendUuid.optional(),
+  // #EXP-1561 (fixtures/waiting-cards.json): dismiss the card instead of
+  // answering it (nothing else rides along); the agent hears it dismissed.
+  dismissed: z.literal(true).optional(),
   answer: z.string().max(MESSAGE_BODY_MAX).optional(),
   answers: z
     .union([planCardAnswersSchema, z.array(z.string().max(PLAN_CARD_LABEL_MAX)).max(QUESTION_CARD_OPTIONS_MAX)])

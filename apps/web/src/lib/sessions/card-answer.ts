@@ -5,6 +5,7 @@ import {
   PLAN_CARD_COPY,
   type AskCardLike,
 } from "@exp/domain-contract/plan-card"
+import { dismissedCard } from "@exp/domain-contract/waiting-cards"
 import { clearCard, isSealedCard, validSealedCard } from "@/lib/sessions/sealed"
 
 // EXP-1316: ONE answered-card shape for both write paths: the thread card
@@ -14,6 +15,8 @@ import { clearCard, isSealedCard, validSealedCard } from "@/lib/sessions/sealed"
 // the contract's `answerIssue` (fixtures/plan-card.json) and stamped IN it.
 
 export interface CardAnswerInput {
+  /** #EXP-1561: dismissed instead of answered (nothing else rides along). */
+  dismissed?: true
   answer?: string
   /** A plan: question id → picked labels; a question: the picked labels. */
   answers?: Record<string, string[]> | string[]
@@ -42,6 +45,15 @@ const bad = (message: string): CardAnswerResult => ({ ok: false, code: `BAD_REQU
 export function answeredCard(card: MessageCard | null, input: CardAnswerInput): CardAnswerResult {
   if (!card || (card.kind !== `question` && card.kind !== `plan`)) {
     return bad(`This message asks nothing`)
+  }
+  // #EXP-1561 (fixtures/waiting-cards.json): a dismiss carries no answer;
+  // a sealed card keeps its envelope (the clear fields say it).
+  if (input.dismissed) {
+    const { answer, answers, decision, fresh, feedback, surfaceData, sealedCard } = input
+    if ([answer, answers, decision, fresh, feedback, surfaceData, sealedCard].some((value) => value !== undefined)) {
+      return bad(`A dismiss carries no answer: send dismissed alone`)
+    }
+    return { ok: true, card: dismissedCard(card) as unknown as MessageCard }
   }
   // EXP-1458: a sealed card takes only a sealed answer, a plaintext card
   // only a plaintext one: plaintext answers never land in a sealed card.
