@@ -67,6 +67,8 @@ struct ThreadConversationView: View {
     var answeringId: String?
     /// Whether this reader may answer the cards (a member of the team).
     var canAnswer = true
+    /// #EXP-1562: the card a waiting pick lit (the focus ring).
+    var highlightId: String?
     /// EXP-1323: the suggested tasks cards' actions; nil = read-only.
     var suggestions: ThreadSuggestionActions?
     /// EXP-1323/1324: the live tail — THE Queue + the status line off the
@@ -153,6 +155,7 @@ struct ThreadConversationView: View {
                 // clock tick or an answer elsewhere re-renders only the
                 // rows whose inputs moved.
                 rowView(row).equatable()
+                    .waitingHighlight(highlightId == row.id)
                     // S-3 CHAT MODE `bubbles`: cards sit in the agent's
                     // column (the agent bubble's ~94%).
                     .padding(.trailing, bubbles && Self.isCard(row) ? ChatBubbleMetrics.agentTrailingGap : 0)
@@ -487,16 +490,8 @@ struct ThreadConversationRow: View, Equatable {
         case let .plan(card) where card.decision == "superseded":
             // FEED-140: a plan the agent replaced paints CLOSED and
             // collapsed to `copy.superseded`, never in the dock.
-            HStack(spacing: 8) {
-                AppIcon(AppIcons.codingPlan, size: 13)
-                Text(Chats.Copy.superseded)
-                    .font(.footnote)
-                    .lineLimit(1)
-            }
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("thread-plan-superseded")
+            ThreadCardLine(icon: AppIcons.codingPlan, text: Chats.Copy.superseded)
+                .accessibilityIdentifier("thread-plan-superseded")
         case .question, .plan:
             // FEED-140: a WAITING plan or question card is ALWAYS visible
             // inline at its place with its actions (Approve / answer),
@@ -610,6 +605,77 @@ struct ThreadConversationRow: View, Equatable {
         }
     }
 
+}
+
+/// FEED-140: a settled card collapsed to ONE quiet muted line: the kind
+/// icon and the outcome (`Replaced by a newer plan`).
+struct ThreadCardLine: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AppIcon(icon, size: 13)
+            Text(text)
+                .font(.footnote)
+                .lineLimit(1)
+        }
+        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// #EXP-1561 (waiting-cards.json): a DISMISSED card = THE card frame (the
+/// kind icon in its tint) at 80 % holding ONE line: `Dismissed` (xs,
+/// medium, muted), then the card's title (xs, muted, truncated). No label
+/// row, no body, no ×.
+struct AskDismissedCard: View {
+    let kind: AskDock.Kind
+    let title: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            AppIcon(kind == .plan ? AppIcons.codingPlan : AppIcons.uiHelp, size: 14)
+                .foregroundStyle(WaitingCardTint.color(kind))
+            HStack(spacing: 6) {
+                Text(WaitingCards.Copy.dismissed)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .fixedSize()
+                if !title.isEmpty {
+                    Text(title)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .foregroundStyle(DesignTokens.Palette.mutedForeground)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .glassCard()
+        .opacity(0.8)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(WaitingCards.TestIds.dismissed)
+    }
+}
+
+/// #EXP-1561 (waiting-cards.json DISMISS): THE card's × — a ghost icon-xs
+/// button (`ui-close` at 12pt, muted), the LAST item of the card's top row,
+/// tucked into the top-right corner.
+struct CardDismissButton: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        GhostIconButton(
+            AppIcons.uiClose, accessibilityLabel: WaitingCards.Copy.dismiss, size: 24, glyphSize: 12,
+            tint: DesignTokens.Palette.mutedForeground, action: onDismiss
+        )
+        .padding(.top, -2)
+        .padding(.trailing, -4)
+        .accessibilityIdentifier(WaitingCards.TestIds.dismiss)
+    }
 }
 
 /// #EXP-1464 `copy.openChat`: trailing an expanded card's label line, it
@@ -1051,9 +1117,11 @@ struct ChannelMessageRow<Lead: View, Content: View>: View {
 /// One answer leaving a thread card (`sessions.answer`): a question's
 /// `answer` (+ EXP-1280 `answers` = the picked labels), a plan's `decision`
 /// (+ `fresh`, `feedback`, `answers` by question id), and the inline
-/// surface's data model.
+/// surface's data model. #EXP-1561: `dismissed` = the card's × (nothing
+/// else rides along).
 struct ThreadCardAnswer {
     let messageId: String
+    var dismissed = false
     var answer: String? = nil
     var decision: PlanDecision? = nil
     var fresh = false
@@ -1088,6 +1156,11 @@ struct ThreadAskCard: View {
 
     var body: some View {
         switch row {
+        case let .question(card) where card.dismissed == true:
+            // #EXP-1561 (waiting-cards.json): THE dismissed line.
+            AskDismissedCard(kind: .question, title: AskDock.title(card.question))
+        case let .plan(card) where card.decision == "dismissed":
+            AskDismissedCard(kind: .plan, title: AskDock.title(card.plan))
         case let .question(card):
             questionCard(card)
                 .accessibilityIdentifier("thread-question-card")
@@ -1097,6 +1170,22 @@ struct ThreadAskCard: View {
         default:
             EmptyView()
         }
+    }
+
+    /// #EXP-1561: a WAITING card's ONE ghost × (top-right of its header
+    /// row) for a reader who may answer it; a press dismisses at once.
+    private func dismissButton(_ messageId: String, waiting: Bool) -> AnyView? {
+        guard waiting, canAnswer, answeringId != messageId else { return nil }
+        return AnyView(CardDismissButton { onSubmit(ThreadCardAnswer(messageId: messageId, dismissed: true)) })
+    }
+
+    /// The header's trailing slot: the host's own (`Open chat`), then the ×.
+    private func trailing(_ leading: AnyView?, dismiss: AnyView?) -> AnyView? {
+        guard leading != nil || dismiss != nil else { return nil }
+        return AnyView(HStack(spacing: 10) {
+            if let leading { leading }
+            if let dismiss { dismiss }
+        })
     }
 
     // MARK: - Question
@@ -1134,7 +1223,7 @@ struct ThreadAskCard: View {
             hidesResolution: Self.formShowsAnswer(card),
             richBody: true,
             formGap: card.surface != nil ? PlanCard.Card.blockGap : PlanCard.Card.optionsGap,
-            headerTrailing: headerTrailing
+            headerTrailing: trailing(headerTrailing, dismiss: dismissButton(card.id, waiting: !card.answered))
         )
     }
 
@@ -1243,6 +1332,7 @@ struct ThreadAskCard: View {
                     pushRoute(.planPage(accountId: accountId, sessionId: card.sessionId, messageId: card.id))
                 }
                 headerTrailing
+                dismissButton(card.id, waiting: !decided)
             })
         )
     }

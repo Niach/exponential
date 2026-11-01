@@ -4415,36 +4415,36 @@
         "file": "shots/plan-card/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 22306,
-        "sha256": "a8602232978f5809fd81843b642dadb88046a48ed678bbb5fd5e3d7f31b84f79"
+        "bytes": 23882,
+        "sha256": "1133a1b6389fc20a22dca3e412b8da354c108d2a0b6e163862faf85c17dee166"
       },
       "desktop": {
         "file": "shots/plan-card/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 33610,
-        "sha256": "727b0d54ec34506e0b3977e907c4eaa304987fa343ac2c0846c8a9fa639bc338"
+        "bytes": 33570,
+        "sha256": "8addeedfd32b034159b106894264bfd7a3c9ee33f93dc2436f05fac4754375bf"
       },
       "ios": {
         "file": "shots/plan-card/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 22850,
-        "sha256": "a329d334916e9bad6f34caa489b1da3c277874205d034817aa31463febdb861e"
+        "bytes": 22498,
+        "sha256": "bbd9620f90d1608805f2121cddffe075aab15a7fd7ddc31b678b614b3e92be19"
       },
       "web": {
         "file": "shots/plan-card/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 34464,
-        "sha256": "b794615986875fca081e6bfaa6a43c1de49d780fc97c3e24f495ac301396bc90"
+        "bytes": 34680,
+        "sha256": "1022fa99ff8b1f3ca16dc4012adf644ba3ef564ab9e0526a0a981317afa6e9ca"
       },
       "web-mobile": {
         "file": "shots/plan-card/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 27798,
-        "sha256": "3b495dedf5b11cc8e04c6808fff47ba1b9b253950ac9bcf4b67fc6bf0663b87d"
+        "bytes": 28558,
+        "sha256": "d568905c0435d214625fa19fa0da91ed1d61b1cd8c0e34b5f3f7b9ef532a8e12"
       }
     },
     "plan-page": {
@@ -5633,8 +5633,8 @@
         "file": "shots/thread/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 64136,
-        "sha256": "0fde1d4f51c8a197c99ff4a5dcdcdd5e7039e6d5fc7c57db7b8e892ddc82ee08"
+        "bytes": 67854,
+        "sha256": "5655ac3f705734a8b604b23489525038be264f24386dc49e6f7baf02d904744a"
       },
       "ios": {
         "file": "shots/thread/ios.webp",

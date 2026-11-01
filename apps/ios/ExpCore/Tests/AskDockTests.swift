@@ -43,6 +43,7 @@ final class AskDockTests: XCTestCase {
         XCTAssertEqual(copy["feedbackPlaceholder"], AskDock.Copy.feedbackPlaceholder)
         XCTAssertEqual(copy["cancel"], AskDock.Copy.cancel)
         XCTAssertEqual(copy["superseded"], AskDock.Copy.superseded)
+        XCTAssertEqual(copy["dismissed"], AskDock.Copy.dismissed)
         let options = try list("planOptions").map { raw in
             AskDock.PlanOption(
                 key: try XCTUnwrap(raw["key"] as? String),

@@ -56,11 +56,14 @@ export interface PlanCardLike {
   pictures?: PlanCardPicture[] | null
   questions?: PlanCardQuestion[] | null
   surface?: CardSurface | null
-  decision?: PlanDecision | null
+  /** FEED-140 `superseded` / #EXP-1561 `dismissed` are the server's. */
+  decision?: PlanDecision | `superseded` | `dismissed` | null
   fresh?: boolean | null
   feedback?: string | null
   answers?: Record<string, string[]> | null
   surfaceData?: Record<string, unknown> | null
+  /** #EXP-1561: a person dismissed it (waiting-cards.json). */
+  dismissed?: boolean | null
 }
 
 /** The `question` card as stored (additive on the EXP-1322 shape). */
@@ -79,6 +82,8 @@ export interface QuestionCardLike {
   answer?: string | null
   answers?: string[] | null
   surfaceData?: Record<string, unknown> | null
+  /** #EXP-1561: a person dismissed it (waiting-cards.json). */
+  dismissed?: boolean | null
 }
 
 export type AskCardLike = PlanCardLike | QuestionCardLike
@@ -143,6 +148,10 @@ function isRecord(value: unknown): value is Record<string, string[]> {
  *  line. */
 export function answerText(card: AskCardLike): string {
   const t = fixture.answerText
+  // #EXP-1561: a dismissed card answers only that it was dismissed.
+  if (card.dismissed === true || (card.kind === `plan` && card.decision === `dismissed`)) {
+    return card.kind === `plan` ? t.dismissedPlan : t.dismissedQuestion.replace(`{question}`, card.question)
+  }
   const parts: string[] = []
   if (card.kind === `plan`) {
     if (card.decision === `approved`) {

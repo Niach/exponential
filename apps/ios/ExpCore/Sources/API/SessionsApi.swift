@@ -207,6 +207,14 @@ struct AnswerMessageInput: Encodable {
     var surfaceData: CardJSON? = nil
 }
 
+/// #EXP-1561 (waiting-cards.json DISMISS): `sessions.answer({messageId,
+/// dismissed: true})`, nothing else rides along (a sealed card too: the
+/// server stamps the clear fields beside its envelope).
+struct DismissCardInput: Encodable {
+    let messageId: String
+    let dismissed = true
+}
+
 /// `sessions.answer`'s `answers`: a plan's labels by question id, or a
 /// question card's picked labels.
 public enum CardAnswers: Encodable, Sendable, Equatable {
@@ -443,6 +451,14 @@ public final class SessionsApi: Sendable {
             return
         }
         try await trpc.mutationVoid(accountId: accountId, path: "sessions.answer", input: input)
+    }
+
+    /// #EXP-1561: dismiss a WAITING question or plan card through THE answer
+    /// path (waiting-cards.json DISMISS).
+    public func dismissCard(accountId: String, messageId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "sessions.answer", input: DismissCardInput(messageId: messageId)
+        )
     }
 
     /// Revoke the person's own message the device has not consumed yet.

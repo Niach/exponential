@@ -332,12 +332,25 @@ internal fun ColumnScope.PlanAskCard(
         return
     }
 
+    // #EXP-1561 (waiting-cards.json DISMISS): a WAITING card the host can
+    // dismiss carries THE × (gone once the press is in flight).
+    val dismiss = com.exponential.app.ui.session.LocalCardDismiss.current
+    val onDismiss: (() -> Unit)? = if (dismiss != null && live && !questionsOnly) {
+        {
+            state = AnswerState.Sending
+            dismiss(row.id, settle)
+        }
+    } else {
+        null
+    }
     AskCard(
         plan = plan != null,
         // Only a plan carries a header; a question card is its glyph alone.
         heading = if (plan != null) AskDock.Copy.PLAN_READY else null,
         meta = null,
         modifier = modifier.testTag(PlanCard.TestIds.CARD),
+        onDismiss = onDismiss,
+        highlighted = com.exponential.app.ui.session.LocalCardHighlight.current == row.id,
     ) {
         val body = @Composable {
             // The chat measure (14sp, h1 = `card.headingScale` × it), not

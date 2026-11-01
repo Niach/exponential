@@ -340,6 +340,11 @@ fn seal_answer(writer: &dyn Writer, input: &AnswerInput, plan: &AnswerPlan) -> O
 /// re-sealed; a sealed card this install can't (re)seal is refused, since a
 /// plaintext answer would leak it.
 fn answer_wire(writer: Option<&dyn Writer>, input: &AnswerInput, plan: &AnswerPlan) -> Result<AnswerInput, String> {
+    // #EXP-1561: a dismiss carries no answer, sealed or not (the server
+    // stamps the clear fields beside the envelope).
+    if input.dismissed == Some(true) {
+        return Ok(AnswerInput { message_id: input.message_id.clone(), dismissed: Some(true), ..AnswerInput::default() });
+    }
     if plan.locked {
         return Err(LOCKED_ANSWER.into());
     }

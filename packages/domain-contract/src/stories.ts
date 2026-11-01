@@ -154,7 +154,7 @@ const byCreated = (a: Story, b: Story) => a.createdAt - b.createdAt || (a.id < b
 const byNewest = (a: Story, b: Story) => byCreated(b, a)
 const HOUR = 3_600_000
 
-type StoryResolution = `approved` | `changed` | `answered` | `superseded`
+type StoryResolution = `approved` | `changed` | `answered` | `superseded` | `dismissed`
 
 /** One message as a story (null = not a story of a known root). `resolution`
  *  = how a plan/question was settled (null while waiting, and for results). */
@@ -181,7 +181,10 @@ function storyOf(
   const resolution: StoryResolution | null =
     kind === `result` || waiting
       ? null
-      : kind === `question`
+      : // #EXP-1561: a dismissed card names that outcome first.
+        card.dismissed === true || card.decision === `dismissed`
+        ? `dismissed`
+        : kind === `question`
         ? `answered`
         : card.decision === `approved`
           ? `approved`

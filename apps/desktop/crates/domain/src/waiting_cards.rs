@@ -1,0 +1,205 @@
+//! #EXP-1561 / #EXP-1562: WAITING question and plan cards ×4
+//! (`packages/domain-contract/src/waiting-cards.ts`'s twin, iOS ExpCore
+//! `WaitingCards.swift`, Android `domain/WaitingCards.kt`): a card's state
+//! (waiting / answered / dismissed / superseded) and the thread header's
+//! waiting chips. Byte-locked by `fixtures/waiting-cards.json`; pure.
+
+use std::sync::LazyLock;
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::ask_dock::{ask_dock_label, ask_dock_title, AskDockKind};
+
+const WAITING_CARDS_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/waiting-cards.json");
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingCardsCopy {
+    pub dismiss: String,
+    pub dismissed: String,
+    pub waiting: String,
+    pub waiting_count: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct WaitingCardsIcons {
+    pub plan: String,
+    pub question: String,
+    pub dismiss: String,
+    pub waiting: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingCardsConstants {
+    pub label_max: usize,
+    pub ellipsis: String,
+    pub highlight_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct WaitingCardsTestIds {
+    pub dismiss: String,
+    pub dismissed: String,
+    pub chip: String,
+    pub button: String,
+    pub menu: String,
+}
+
+/// `fixtures/waiting-cards.json` minus its cases.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingCardsSpec {
+    pub copy: WaitingCardsCopy,
+    pub icons: WaitingCardsIcons,
+    pub constants: WaitingCardsConstants,
+    pub test_ids: WaitingCardsTestIds,
+}
+
+pub static WAITING_CARDS: LazyLock<WaitingCardsSpec> =
+    LazyLock::new(|| serde_json::from_str(WAITING_CARDS_JSON).expect("waiting-cards.json parses"));
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardState {
+    Waiting,
+    Answered,
+    Dismissed,
+    Superseded,
+}
+
+/// A question/plan card's state; `None` = not a question or plan.
+pub fn card_state(card: &Value, answered_at: Option<&str>) -> Option<CardState> {
+    let kind = card.get("kind").and_then(Value::as_str)?;
+    if kind != "plan" && kind != "question" {
+        return None;
+    }
+    let decision = card.get("decision").and_then(Value::as_str);
+    if card.get("dismissed").and_then(Value::as_bool) == Some(true) || decision == Some("dismissed") {
+        return Some(CardState::Dismissed);
+    }
+    if kind == "plan" {
+        return Some(match decision {
+            Some("superseded") => CardState::Superseded,
+            Some(_) => CardState::Answered,
+            None => CardState::Waiting,
+        });
+    }
+    let answered = answered_at.is_some() || card.get("answer").is_some_and(Value::is_string);
+    Some(if answered { CardState::Answered } else { CardState::Waiting })
+}
+
+/// One waiting card (a thread's `thread_pending_asks`, the session view's
+/// waiting `session_cards`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct WaitingCardInput {
+    pub id: String,
+    pub kind: AskDockKind,
+    /// The plan, or the question's text (markdown).
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaitingChip {
+    pub id: String,
+    pub kind: AskDockKind,
+    /// The kind's concept icon.
+    pub icon: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WaitingChipsLayout {
+    Hidden,
+    Chips,
+    Button,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaitingChips {
+    pub layout: WaitingChipsLayout,
+    pub count: usize,
+    pub chips: Vec<WaitingChip>,
+}
+
+/// The kind's concept icon (`icons[kind]`).
+pub fn waiting_icon(kind: AskDockKind) -> &'static str {
+    match kind {
+        AskDockKind::Plan => &WAITING_CARDS.icons.plan,
+        AskDockKind::Question => &WAITING_CARDS.icons.question,
+    }
+}
+
+/// A title clipped to `labelMax` characters (code points).
+pub fn clip_waiting_label(title: &str) -> String {
+    let max = WAITING_CARDS.constants.label_max;
+    if title.chars().count() <= max {
+        return title.to_string();
+    }
+    let head: String = title.chars().take(max.saturating_sub(1)).collect();
+    format!("{}{}", head.trim_end(), WAITING_CARDS.constants.ellipsis)
+}
+
+/// The header's waiting chips (Conversation order kept): hidden when none
+/// waits, ONE button on phones, else one chip per card.
+pub fn waiting_chips(cards: &[WaitingCardInput], phone: bool) -> WaitingChips {
+    let chips: Vec<WaitingChip> = cards
+        .iter()
+        .map(|card| {
+            let label = clip_waiting_label(&ask_dock_title(&card.text));
+            WaitingChip {
+                id: card.id.clone(),
+                kind: card.kind,
+                icon: waiting_icon(card.kind).to_string(),
+                label: if label.is_empty() { ask_dock_label(card.kind).to_string() } else { label },
+            }
+        })
+        .collect();
+    let layout = match (chips.is_empty(), phone) {
+        (true, _) => WaitingChipsLayout::Hidden,
+        (false, true) => WaitingChipsLayout::Button,
+        (false, false) => WaitingChipsLayout::Chips,
+    };
+    WaitingChips { layout, count: chips.len(), chips }
+}
+
+/// The phone button's accessible name.
+pub fn waiting_count_label(count: usize) -> String {
+    WAITING_CARDS.copy.waiting_count.replace("{count}", &count.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cases(key: &str) -> Vec<Value> {
+        let fixture: Value = serde_json::from_str(WAITING_CARDS_JSON).unwrap();
+        fixture[key].as_array().unwrap().clone()
+    }
+
+    #[test]
+    fn spec_parses() {
+        assert_eq!(WAITING_CARDS.copy.dismiss, "Dismiss");
+        assert_eq!(WAITING_CARDS.icons.dismiss, "ui-close");
+        assert_eq!(WAITING_CARDS.constants.highlight_ms, 1600);
+    }
+
+    #[test]
+    fn state_cases() {
+        for case in cases("stateCases") {
+            let got = card_state(&case["card"], case["answeredAt"].as_str());
+            assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn chip_cases() {
+        for case in cases("chipCases") {
+            let cards: Vec<WaitingCardInput> = serde_json::from_value(case["cards"].clone()).unwrap();
+            let got = waiting_chips(&cards, case["phone"].as_bool().unwrap());
+            assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
+        }
+    }
+}

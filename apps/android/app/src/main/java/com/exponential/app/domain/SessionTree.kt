@@ -608,6 +608,8 @@ object SessionTree {
             val surfaceData: JsonObject? = null,
             /** S-3 (stories.json): the explicit story flag (null = absent). */
             val story: Boolean? = null,
+            /** #EXP-1561 (waiting-cards.json): a person dismissed it; true or null (absent). */
+            val dismissed: Boolean? = null,
         ) : ThreadRow
 
         /** One choice of a question card: the answer is the [label] (EXP-1322);
@@ -761,6 +763,7 @@ object SessionTree {
                 answers = (card["answers"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content },
                 surfaceData = card["surfaceData"] as? JsonObject,
                 story = card.bool("story"),
+                dismissed = if (card.isTrue("dismissed")) true else null,
             )
             DomainContract.messageCardKindPlan -> ThreadRow.Plan(
                 id = message.id,
