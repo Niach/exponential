@@ -24,6 +24,10 @@ object DomainContract {
     val commentAudienceValues: List<String> = listOf("team", "reporter")
     val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "reporter_reply", "agent_message", "session_blocked", "agent_signed_out")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
+    val prChecksStateValues: List<String> = listOf("none", "pending", "success", "failure")
+    val prCheckStatusValues: List<String> = listOf("queued", "in_progress", "completed")
+    val prCheckConclusionValues: List<String> = listOf("success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "startup_failure", "stale")
+    val prChecksFailingConclusions: List<String> = listOf("failure", "cancelled", "timed_out", "action_required", "startup_failure")
     val sessionKindValues: List<String> = listOf("thread", "agent")
     val sessionStatusValues: List<String> = listOf("queued", "running", "idle", "ended")
     val codingSessionBlockedKinds: List<String> = listOf("rate_limit", "device_offline", "unclaimed", "stuck", "restarted", "start_failed")
@@ -42,7 +46,7 @@ object DomainContract {
     val conversationKindValues: List<String> = listOf("dm", "channel", "session")
     val agentRoleValues: List<String> = listOf("assistant", "agent")
     val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface")
-    val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused")
+    val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused", "pr_checks")
     val codingAgentValues: List<String> = listOf("claude", "codex")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet", "haiku")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
@@ -204,6 +208,22 @@ object DomainContract {
     const val prStateClosed: String = "closed"
     const val prStateMerged: String = "merged"
     const val prStateDraft: String = "draft"
+    const val prChecksStateNone: String = "none"
+    const val prChecksStatePending: String = "pending"
+    const val prChecksStateSuccess: String = "success"
+    const val prChecksStateFailure: String = "failure"
+    const val prCheckStatusQueued: String = "queued"
+    const val prCheckStatusInProgress: String = "in_progress"
+    const val prCheckStatusCompleted: String = "completed"
+    const val prCheckConclusionSuccess: String = "success"
+    const val prCheckConclusionFailure: String = "failure"
+    const val prCheckConclusionNeutral: String = "neutral"
+    const val prCheckConclusionCancelled: String = "cancelled"
+    const val prCheckConclusionSkipped: String = "skipped"
+    const val prCheckConclusionTimedOut: String = "timed_out"
+    const val prCheckConclusionActionRequired: String = "action_required"
+    const val prCheckConclusionStartupFailure: String = "startup_failure"
+    const val prCheckConclusionStale: String = "stale"
     const val sessionKindThread: String = "thread"
     const val sessionKindAgent: String = "agent"
     const val sessionStatusQueued: String = "queued"
@@ -274,4 +294,5 @@ object DomainContract {
     const val messageEventKindTriggerFired: String = "trigger_fired"
     const val messageEventKindSessionInterrupted: String = "session_interrupted"
     const val messageEventKindPrMergeRefused: String = "pr_merge_refused"
+    const val messageEventKindPrChecks: String = "pr_checks"
 }

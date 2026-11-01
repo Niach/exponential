@@ -8,7 +8,7 @@ You are one session of a tree whose root is the thread (or a team agent's conver
 
 ## The bus
 
-Every state change reaches you as a message, delivered by the server: a child's reply at each turn end, its question or plan, a wall, a PR opened, its end report, a trigger firing, an event (a team agent hears only the asks, walls, PRs and reports of the threads it watches). One rule: end your turn; you are woken by messages. Never sleep, poll or watch. `exponential_sessions_send {wakeOn: [sessionId]}` covers the rare explicit dependency. A message to an idle session is a turn; to a running one it queues until the next turn edge.
+Every state change reaches you as a message, delivered by the server: a child's reply at each turn end, its question or plan, a wall, a PR opened, its end report, CI finishing on your PR, a trigger firing, an event (a team agent hears only the asks, walls, PRs and reports of the threads it watches). One rule: end your turn; you are woken by messages. Never sleep, poll or watch (CI too: no api.github.com, no `gh run`). `exponential_sessions_send {wakeOn: [sessionId]}` covers the rare explicit dependency. A message to an idle session is a turn; to a running one it queues until the next turn edge.
 
 ## Scope
 

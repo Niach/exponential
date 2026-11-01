@@ -25,6 +25,10 @@ public enum DomainContract {
     public static let commentAudienceValues: [String] = ["team", "reporter"]
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "reporter_reply", "agent_message", "session_blocked", "agent_signed_out"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
+    public static let prChecksStateValues: [String] = ["none", "pending", "success", "failure"]
+    public static let prCheckStatusValues: [String] = ["queued", "in_progress", "completed"]
+    public static let prCheckConclusionValues: [String] = ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "startup_failure", "stale"]
+    public static let prChecksFailingConclusions: [String] = ["failure", "cancelled", "timed_out", "action_required", "startup_failure"]
     public static let sessionKindValues: [String] = ["thread", "agent"]
     public static let sessionStatusValues: [String] = ["queued", "running", "idle", "ended"]
     public static let codingSessionBlockedKinds: [String] = ["rate_limit", "device_offline", "unclaimed", "stuck", "restarted", "start_failed"]
@@ -43,7 +47,7 @@ public enum DomainContract {
     public static let conversationKindValues: [String] = ["dm", "channel", "session"]
     public static let agentRoleValues: [String] = ["assistant", "agent"]
     public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
-    public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused"]
+    public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused", "pr_checks"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet", "haiku"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
@@ -205,6 +209,22 @@ public enum DomainContract {
     public static let prStateClosed: String = "closed"
     public static let prStateMerged: String = "merged"
     public static let prStateDraft: String = "draft"
+    public static let prChecksStateNone: String = "none"
+    public static let prChecksStatePending: String = "pending"
+    public static let prChecksStateSuccess: String = "success"
+    public static let prChecksStateFailure: String = "failure"
+    public static let prCheckStatusQueued: String = "queued"
+    public static let prCheckStatusInProgress: String = "in_progress"
+    public static let prCheckStatusCompleted: String = "completed"
+    public static let prCheckConclusionSuccess: String = "success"
+    public static let prCheckConclusionFailure: String = "failure"
+    public static let prCheckConclusionNeutral: String = "neutral"
+    public static let prCheckConclusionCancelled: String = "cancelled"
+    public static let prCheckConclusionSkipped: String = "skipped"
+    public static let prCheckConclusionTimedOut: String = "timed_out"
+    public static let prCheckConclusionActionRequired: String = "action_required"
+    public static let prCheckConclusionStartupFailure: String = "startup_failure"
+    public static let prCheckConclusionStale: String = "stale"
     public static let sessionKindThread: String = "thread"
     public static let sessionKindAgent: String = "agent"
     public static let sessionStatusQueued: String = "queued"
@@ -275,4 +295,5 @@ public enum DomainContract {
     public static let messageEventKindTriggerFired: String = "trigger_fired"
     public static let messageEventKindSessionInterrupted: String = "session_interrupted"
     public static let messageEventKindPrMergeRefused: String = "pr_merge_refused"
+    public static let messageEventKindPrChecks: String = "pr_checks"
 }

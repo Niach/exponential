@@ -301,6 +301,12 @@ vi.mock(`@/lib/sessions/issues`, () => ({
 }))
 vi.mock(`@/lib/sessions/guide`, () => ({ writeGuide: h.sessionsCore.writeGuide }))
 vi.mock(`@/lib/pull-requests`, () => h.prs)
+// EXP-1610: the PR's CI, as every `pr` op reports it.
+const prChecks = vi.hoisted(() => ({
+  pullRequestChecksBrief: vi.fn(async () => ({ state: `none`, total: 0, failing: [], pending: [] }) as unknown),
+  loadPullRequestChecks: vi.fn(async () => [] as unknown[]),
+}))
+vi.mock(`@/lib/integrations/pr-checks`, () => prChecks)
 const yoloEdge = vi.hoisted(() => vi.fn())
 vi.mock(`@/lib/yolo-edge`, () => ({ yoloEdge }))
 // EXP-1280: the card builders stay real (the validation under test); only
@@ -454,6 +460,8 @@ const forbidden = () =>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  prChecks.pullRequestChecksBrief.mockResolvedValue({ state: `none`, total: 0, failing: [], pending: [] })
+  prChecks.loadPullRequestChecks.mockResolvedValue([])
   dbRows.current = []
   state.capturedWhere = undefined
   for (const [, methods] of Object.entries(caller)) {
@@ -2733,6 +2741,8 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
   })
 })
 
+const NO_CHECKS = { state: `none`, total: 0, failing: [], pending: [] }
+
 describe(`pull request tools (EXP-1291)`, () => {
   const PR = {
     id: PR_ID,
@@ -2802,6 +2812,7 @@ describe(`pull request tools (EXP-1291)`, () => {
       url: PR.url,
       merged: true,
       mergedIds: [PR_ID],
+      checks: NO_CHECKS,
     })
     expect(prs.resolvePullRequest).toHaveBeenCalledWith({
       userId: USER.id,
@@ -2815,10 +2826,46 @@ describe(`pull request tools (EXP-1291)`, () => {
     })
   })
 
+  // EXP-1610
+  it(`MERGE_CHECK_GATE refuses a red required check unless force, and reports the checks`, async () => {
+    dbRows.current = [callerRow()]
+    const red = { state: `failure`, total: 1, failing: [{ name: `gate`, url: `https://x/1`, required: true }], pending: [] }
+    prChecks.pullRequestChecksBrief.mockResolvedValue(red)
+    prChecks.loadPullRequestChecks.mockResolvedValue([
+      { name: `gate`, status: `completed`, conclusion: `failure`, required: true, detailsUrl: `https://x/1` },
+    ])
+    prs.mergePullRequest.mockResolvedValue({ merged: true, mergedIds: [PR_ID] })
+    const before = process.env.MERGE_CHECK_GATE
+    process.env.MERGE_CHECK_GATE = `true`
+    try {
+      const refused = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({})) as Record<string, unknown>
+      expect(refused).toMatchObject({ merged: false, checks: red })
+      expect(refused.error).toMatch(/^PR #7 has failing checks: gate\./)
+      expect(prs.mergePullRequest).not.toHaveBeenCalled()
+      const forced = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
+      expect(forced).toMatchObject({ merged: true, checks: red })
+    } finally {
+      if (before === undefined) delete process.env.MERGE_CHECK_GATE
+      else process.env.MERGE_CHECK_GATE = before
+    }
+  })
+
+  it(`without MERGE_CHECK_GATE a red check only rides along in the reply`, async () => {
+    dbRows.current = [callerRow()]
+    const red = { state: `failure`, total: 1, failing: [{ name: `gate`, url: null, required: false }], pending: [] }
+    prChecks.pullRequestChecksBrief.mockResolvedValue(red)
+    prs.mergePullRequest.mockResolvedValue({ merged: true, mergedIds: [PR_ID] })
+    const result = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({}))
+    expect(result).toMatchObject({ merged: true, checks: red })
+    expect(prChecks.loadPullRequestChecks).not.toHaveBeenCalled()
+  })
+
   it(`pr_close closes the named PR without merging`, async () => {
     prs.closePullRequestTx.mockResolvedValue({ txid: 1 })
     const result = await tool(`exponential_pr_close`)({ pullRequestId: PR_ID })
-    expect(parseOk(result)).toEqual({ pullRequestId: PR_ID, number: 7, url: PR.url, closed: true })
+    expect(parseOk(result)).toEqual({ pullRequestId: PR_ID, number: 7, url: PR.url, closed: true, checks: NO_CHECKS })
+    // A closed PR is not re-read from GitHub.
+    expect(prChecks.pullRequestChecksBrief).toHaveBeenCalledWith(PR_ID, { repair: false })
     expect(prs.closePullRequestTx).toHaveBeenCalledWith({ userId: USER.id, pullRequestId: PR_ID })
     expect(prs.mergePullRequest).not.toHaveBeenCalled()
   })
@@ -2845,7 +2892,7 @@ describe(`pull request tools (EXP-1291)`, () => {
     })
     prs.pullRequestFiles.mockResolvedValue({ files: [] })
     const files = await tool(`exponential_pr_files`)({ repositoryId: REPO, prNumber: 7 })
-    expect(parseOk(files)).toEqual({ pullRequestId: PR_ID, number: 7, url: PR.url, files: [] })
+    expect(parseOk(files)).toEqual({ pullRequestId: PR_ID, number: 7, url: PR.url, files: [], checks: NO_CHECKS })
     expect(prs.resolvePullRequest).toHaveBeenLastCalledWith({
       userId: USER.id,
       repositoryId: REPO,
@@ -2863,7 +2910,7 @@ describe(`pull request tools (EXP-1291)`, () => {
   it(`pr_update passes only the given fields`, async () => {
     prs.updatePullRequest.mockResolvedValue(undefined)
     const result = await tool(`exponential_pr_update`)({ pullRequestId: PR_ID, draft: false })
-    expect(parseOk(result)).toEqual({ pullRequestId: PR_ID, number: 7, url: PR.url })
+    expect(parseOk(result)).toEqual({ pullRequestId: PR_ID, number: 7, url: PR.url, checks: NO_CHECKS })
     expect(prs.updatePullRequest).toHaveBeenCalledWith({
       userId: USER.id,
       pullRequestId: PR_ID,
@@ -2885,6 +2932,7 @@ describe(`pull request tools (EXP-1291)`, () => {
       url: PR.url,
       issueId: UUID,
       unlinked: true,
+      checks: NO_CHECKS,
     })
     expect(prs.resolvePullRequest).toHaveBeenLastCalledWith({
       userId: USER.id,

@@ -22,6 +22,7 @@
     "./entity-preview": "./src/entity-preview.ts",
     "./diff-tree": "./src/diff-tree.ts",
     "./work-card": "./src/work-card.ts",
+    "./pr-checks": "./src/pr-checks.ts",
     "./script-card": "./src/script-card.ts",
     "./home-greeting": "./src/home-greeting.ts",
     "./composer-send": "./src/composer-send.ts",

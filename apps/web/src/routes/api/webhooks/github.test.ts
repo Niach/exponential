@@ -85,6 +85,22 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   loadPullRequestByUrl: vi.fn(async (): Promise<{ id: string } | null> => null),
 }))
 vi.mock(`@/lib/yolo-edge`, () => ({ yoloEdge: vi.fn() }))
+// EXP-1610: the check writers own their tests (pr-checks.test.ts); here only
+// the routing of the CI events.
+vi.mock(`@/lib/integrations/pr-checks`, async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/integrations/pr-checks")>()
+  return {
+    checkFromGithubRun: real.checkFromGithubRun,
+    pullRequestsForCheck: vi.fn(async () => [] as Array<{ id: string; repositoryId: string; base: string }>),
+    repairPullRequestChecks: vi.fn(async () => {}),
+    requiredChecksFor: vi.fn(async () => new Set<string>([`gate`])),
+    writePullRequestChecks: vi.fn(async () => null),
+  }
+})
+vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/integrations/github-app")>()),
+  resolveRepoInstallationToken: vi.fn(async () => `tok`),
+}))
 // EXP-617: the resolver itself is covered in github-identity.test.ts — here
 // we only assert WHICH actor the webhook hands it and that it reaches the
 // writers.
@@ -567,4 +583,70 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
     expect(repositoryUpdates()[0].where).toBeDefined()
   })
 
+})
+
+
+describe(`github webhook — CI events (EXP-1610)`, () => {
+  it(`check_run upserts the run on every tracked PR it names, with the base's required checks`, async () => {
+    const checks = await import(`@/lib/integrations/pr-checks`)
+    vi.mocked(checks.pullRequestsForCheck).mockResolvedValue([{ id: PR_ID, repositoryId: `r1`, base: `master` }])
+    const res = await postHandler({
+      request: webhookRequest(`check_run`, {
+        action: `completed`,
+        check_run: {
+          name: `gate`,
+          status: `completed`,
+          conclusion: `failure`,
+          head_sha: `abc123`,
+          started_at: `2026-11-01T10:00:00Z`,
+          completed_at: `2026-11-01T10:04:00Z`,
+          details_url: `https://github.com/org/repo/actions/runs/1/job/2`,
+          pull_requests: [{ number: 7 }],
+          check_suite: { head_branch: `exp/EXP-9` },
+        },
+        repository: { full_name: `org/repo` },
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(checks.pullRequestsForCheck).toHaveBeenCalledWith({ repoFullName: `org/repo`, numbers: [7], headBranch: `exp/EXP-9` })
+    expect(checks.writePullRequestChecks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pullRequestId: PR_ID,
+        headSha: `abc123`,
+        required: new Set([`gate`]),
+        checks: [
+          expect.objectContaining({
+            name: `gate`,
+            status: `completed`,
+            conclusion: `failure`,
+            detailsUrl: `https://github.com/org/repo/actions/runs/1/job/2`,
+          }),
+        ],
+      })
+    )
+  })
+
+  it(`a completed check_suite or workflow_run repairs its PRs; any other action is acked`, async () => {
+    const checks = await import(`@/lib/integrations/pr-checks`)
+    vi.mocked(checks.pullRequestsForCheck).mockResolvedValue([{ id: PR_ID, repositoryId: `r1`, base: `master` }])
+    for (const event of [`check_suite`, `workflow_run`]) {
+      await postHandler({
+        request: webhookRequest(event, {
+          action: `completed`,
+          [event]: { head_branch: `exp/EXP-9`, pull_requests: [{ number: 7 }] },
+          repository: { full_name: `org/repo` },
+        }),
+      })
+    }
+    expect(checks.repairPullRequestChecks).toHaveBeenCalledTimes(2)
+    vi.mocked(checks.repairPullRequestChecks).mockClear()
+    await postHandler({
+      request: webhookRequest(`workflow_run`, {
+        action: `requested`,
+        workflow_run: { head_branch: `exp/EXP-9`, pull_requests: [] },
+        repository: { full_name: `org/repo` },
+      }),
+    })
+    expect(checks.repairPullRequestChecks).not.toHaveBeenCalled()
+  })
 })

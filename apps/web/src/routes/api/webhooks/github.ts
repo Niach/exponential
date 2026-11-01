@@ -19,6 +19,14 @@ import {
   takePrOpenClaim,
 } from "@/lib/integrations/pr-actor-claims"
 import {
+  checkFromGithubRun,
+  pullRequestsForCheck,
+  repairPullRequestChecks,
+  requiredChecksFor,
+  writePullRequestChecks,
+} from "@/lib/integrations/pr-checks"
+import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
+import {
   resolveAppUserForGithubActor,
   type GithubActorRef,
 } from "@/lib/integrations/github-identity"
@@ -52,7 +60,9 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
 // (EXP-1291: the `pull_requests` row by url: merged / closed / reopened /
 // base edits / draft flips; `opened` adopts an out-of-band PR whose
 // `exp/<IDENTIFIER>` head names an issue) and `push` (EXP-1374: the live
-// sessions on that branch show a sign of life). Everything else is acked.
+// sessions on that branch show a sign of life), and EXP-1610's CI events
+// (`check_run` upserts a check row; `check_suite`/`workflow_run` completed
+// repair a PR's checks). Everything else is acked.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
     const secret = process.env.GITHUB_WEBHOOK_SECRET
@@ -178,6 +188,63 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
             )
           )!
         )
+      }
+      return jsonResponse(200, { ok: true })
+    }
+
+    // EXP-1610: CI. Needs the App's checks:read (+ actions:read) and the
+    // check_run / check_suite / workflow_run subscriptions (a human step);
+    // without them nothing arrives and every PR stays "no checks known".
+    if (event === `check_run`) {
+      const payload = JSON.parse(rawBody) as {
+        check_run?: Parameters<typeof checkFromGithubRun>[0] & {
+          head_sha?: string
+          pull_requests?: Array<{ number?: number }>
+          check_suite?: { head_branch?: string | null }
+        }
+        repository?: { full_name?: string }
+      }
+      const run = payload.check_run
+      const fullName = payload.repository?.full_name
+      const check = run ? checkFromGithubRun(run) : null
+      if (run?.head_sha && fullName && check) {
+        const prs = await pullRequestsForCheck({
+          repoFullName: fullName,
+          numbers: (run.pull_requests ?? []).flatMap((pr) => (typeof pr.number === `number` ? [pr.number] : [])),
+          headBranch: run.check_suite?.head_branch ?? null,
+        })
+        const token = prs.length > 0 ? await resolveRepoInstallationToken(fullName).catch(() => null) : null
+        for (const pr of prs) {
+          const required = token ? await requiredChecksFor(fullName, pr.base, token) : undefined
+          await writePullRequestChecks({
+            pullRequestId: pr.id,
+            headSha: run.head_sha,
+            checks: [check],
+            ...(required ? { required } : {}),
+          })
+        }
+      }
+      return jsonResponse(200, { ok: true })
+    }
+
+    // A finished suite / workflow run: one repair read of its PRs' checks
+    // heals any check_run delivery that was lost (throttled per PR).
+    if (event === `check_suite` || event === `workflow_run`) {
+      const payload = JSON.parse(rawBody) as {
+        action?: string
+        check_suite?: { head_branch?: string | null; pull_requests?: Array<{ number?: number }> }
+        workflow_run?: { head_branch?: string | null; pull_requests?: Array<{ number?: number }> }
+        repository?: { full_name?: string }
+      }
+      const suite = payload.check_suite ?? payload.workflow_run
+      const fullName = payload.repository?.full_name
+      if (payload.action === `completed` && suite && fullName) {
+        const prs = await pullRequestsForCheck({
+          repoFullName: fullName,
+          numbers: (suite.pull_requests ?? []).flatMap((pr) => (typeof pr.number === `number` ? [pr.number] : [])),
+          headBranch: suite.head_branch ?? null,
+        })
+        for (const pr of prs) await repairPullRequestChecks(pr.id)
       }
       return jsonResponse(200, { ok: true })
     }

@@ -6,6 +6,10 @@ import {
   fetchPullState,
   resolveRepoToken,
 } from "@/lib/integrations/github-pr"
+import {
+  githubBudgetLowForToken,
+  isGithubRateLimited,
+} from "@/lib/integrations/github-client"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import {
   applyPullRequestBase,
@@ -85,11 +89,19 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
         )
       )
 
+    let backedOff = 0
     for (const row of rows) {
       try {
         const repo = parseRepoFromPrUrl(row.url)
         if (!repo) continue
         const token = await resolveRepoToken({ teamId: row.teamId, repo })
+        // EXP-1609: a low installation budget skips this PR until the reset
+        // — interactive calls (an agent's `pr` op, a person's merge) keep
+        // the rest; the next pass after the reset catches up.
+        if (githubBudgetLowForToken(token)) {
+          backedOff++
+          continue
+        }
         const state = await fetchPullState(repo, row.number, token)
         // A live PR's base moves on GitHub (a retarget on github.com, or
         // GitHub's restack when the PR below lands); a polling instance
@@ -121,9 +133,16 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
             break
         }
       } catch (err) {
+        if (isGithubRateLimited(err)) {
+          backedOff++
+          continue
+        }
         // One repo failing must not abort the batch.
         console.error(`[pr-merge-poll] ${row.url}:`, err)
       }
+    }
+    if (backedOff > 0) {
+      console.warn(`[pr-merge-poll] GitHub budget low: ${backedOff} PR(s) left for the next pass`)
     }
   } catch (err) {
     console.error(`[pr-merge-poll] poll failed:`, err)

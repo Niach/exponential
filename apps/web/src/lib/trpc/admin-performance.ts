@@ -9,6 +9,7 @@ import {
   type RelayFetch,
   type SteerRelayConfig,
 } from "@/lib/steer"
+import { githubBudgets } from "@/lib/integrations/github-client"
 import { cpuPercentSince, metricsSnapshot } from "@/lib/metrics/registry"
 import {
   getWidgetConfigIpLimiter,
@@ -248,6 +249,13 @@ export const adminPerformanceRouter = router({
           (globalThis as { Bun?: { version: string } }).Bun?.version ?? null,
       },
       metrics: metricsSnapshot(),
+      // EXP-1609: GitHub's REST budget per installation, as last reported.
+      githubBudgets: githubBudgets().map((budget) => ({
+        key: budget.key,
+        remaining: budget.remaining,
+        limit: budget.limit,
+        resetAt: new Date(budget.resetAt).toISOString(),
+      })),
       widgetRateLimiters: [
         { name: `widget per-key`, trackedKeys: perKeyLimiter.trackedKeys },
         { name: `widget per-IP`, trackedKeys: perIpLimiter.trackedKeys },

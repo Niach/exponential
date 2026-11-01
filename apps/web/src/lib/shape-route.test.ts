@@ -25,6 +25,7 @@ import { Route as sessionIssuesRoute } from "@/routes/api/shapes/session-issues"
 import { Route as messagesRoute } from "@/routes/api/shapes/messages"
 import { Route as pullRequestsRoute } from "@/routes/api/shapes/pull-requests"
 import { Route as pullRequestIssuesRoute } from "@/routes/api/shapes/pull-request-issues"
+import { Route as pullRequestChecksRoute } from "@/routes/api/shapes/pull-request-checks"
 
 const {
   resolveSession,
@@ -953,6 +954,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`notifications`, notificationsRoute],
     [`pins`, pinsRoute],
     [`pull-request-issues`, pullRequestIssuesRoute],
+    [`pull-request-checks`, pullRequestChecksRoute],
     [`pull-requests`, pullRequestsRoute],
     [`messages`, messagesRoute],
     [`session-issues`, sessionIssuesRoute],

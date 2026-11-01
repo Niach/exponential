@@ -1,4 +1,9 @@
 import {
+  githubBudgetLowForToken,
+  githubFetch,
+  isGithubRateLimited,
+} from "@/lib/integrations/github-client"
+import {
   githubApiHeaders,
   resolveRepoInstallationToken,
 } from "@/lib/integrations/github-app"
@@ -51,7 +56,7 @@ export async function createPullRequest(opts: {
   /** EXP-1291: open it as a GitHub draft. */
   draft?: boolean
 }): Promise<CreatedPull> {
-  const res = await fetch(`https://api.github.com/repos/${opts.repo}/pulls`, {
+  const res = await githubFetch(`https://api.github.com/repos/${opts.repo}/pulls`, {
     method: `POST`,
     headers: {
       ...githubApiHeaders(opts.token),
@@ -97,7 +102,7 @@ export async function findOpenPullByHead(
   fetchImpl?: GitHubFetch,
   base?: string
 ): Promise<OpenPullByHead | null> {
-  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const owner = repo.split(`/`)[0]
   const baseParam = base ? `&base=${encodeURIComponent(base)}` : ``
   const res = await doFetch(
@@ -146,7 +151,7 @@ export async function mergePullRequest(opts: {
   commitTitle?: string
   fetchImpl?: GitHubFetch
 }): Promise<MergedPull> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}/merge`,
     {
@@ -179,8 +184,7 @@ export async function closePullRequest(opts: {
   prNumber: number
   token: string
 }): Promise<void> {
-  const res = await fetch(
-    `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
+  const res = await githubFetch(`https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
     {
       method: `PATCH`,
       headers: {
@@ -203,8 +207,7 @@ export async function reopenPullRequest(opts: {
   prNumber: number
   token: string
 }): Promise<void> {
-  const res = await fetch(
-    `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
+  const res = await githubFetch(`https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
     {
       method: `PATCH`,
       headers: {
@@ -245,7 +248,7 @@ export async function fetchPullState(
   token?: string | null,
   fetchImpl?: GitHubFetch
 ): Promise<PullState> {
-  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const headers = githubApiHeaders(token || process.env.GITHUB_TOKEN)
   const res = await doFetch(
     `https://api.github.com/repos/${repo}/pulls/${prNumber}`,
@@ -319,7 +322,7 @@ export async function getPullRequest(
   token?: string | null,
   fetchImpl?: GitHubFetch
 ): Promise<PullDetails> {
-  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${repo}/pulls/${prNumber}`,
     { headers: githubApiHeaders(token || process.env.GITHUB_TOKEN) }
@@ -368,7 +371,7 @@ export async function updatePullRequest(opts: {
   token: string
   fetchImpl?: GitHubFetch
 }): Promise<void> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const patch: { title?: string; body?: string } = {}
   if (opts.title !== undefined) patch.title = opts.title
   if (opts.body !== undefined) patch.body = opts.body
@@ -397,7 +400,7 @@ export async function setPullRequestDraft(opts: {
   token: string
   fetchImpl?: GitHubFetch
 }): Promise<void> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const read = await doFetch(
     `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
     { headers: githubApiHeaders(opts.token) }
@@ -433,7 +436,7 @@ export async function listPullsByHead(
   token?: string | null,
   fetchImpl?: GitHubFetch
 ): Promise<Array<{ number: number; state: `open` | `closed`; merged: boolean }>> {
-  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const owner = repo.split(`/`)[0]
   const res = await doFetch(
     `https://api.github.com/repos/${repo}/pulls?state=all&head=${owner}:${encodeURIComponent(headRef)}&per_page=30`,
@@ -464,7 +467,7 @@ export async function listOpenPullsByBase(
   token?: string | null,
   fetchImpl?: GitHubFetch
 ): Promise<Array<{ number: number; url: string; headRef: string }>> {
-  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${repo}/pulls?state=open&base=${encodeURIComponent(baseRef)}&per_page=100`,
     { headers: githubApiHeaders(token || process.env.GITHUB_TOKEN) }
@@ -492,7 +495,7 @@ export async function branchExists(
   token?: string | null,
   fetchImpl?: GitHubFetch
 ): Promise<boolean> {
-  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${repo}/branches/${encodeURIComponent(branch)}`,
     { headers: githubApiHeaders(token || process.env.GITHUB_TOKEN) }
@@ -513,7 +516,7 @@ export async function deleteBranch(opts: {
   token: string
   fetchImpl?: GitHubFetch
 }): Promise<`deleted` | `gone`> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const ref = opts.branch.split(`/`).map(encodeURIComponent).join(`/`)
   const res = await doFetch(`https://api.github.com/repos/${opts.repo}/git/refs/heads/${ref}`, {
     method: `DELETE`,
@@ -538,7 +541,7 @@ export async function retargetPullRequest(opts: {
   token: string
   fetchImpl?: GitHubFetch
 }): Promise<void> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
     {
@@ -806,7 +809,7 @@ export async function listOpenPulls(
   fetchImpl?: GitHubFetch
 ): Promise<OpenPull[]> {
   const authToken = token || process.env.GITHUB_TOKEN
-  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`,
     { headers: githubApiHeaders(authToken) }
@@ -872,7 +875,7 @@ export async function fetchPullFiles(
   const key = `${repo}#${prNumber}#${authToken ? `auth` : `anon`}`
   if (opts?.fresh) pullFilesCache.delete(key)
   return pullFilesCache.get(key, async () => {
-    const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+    const doFetch = fetchImpl ?? (githubFetch as unknown as GitHubFetch)
     const res = await doFetch(
       `https://api.github.com/repos/${repo}/pulls/${prNumber}/files?per_page=100`,
       { headers: githubApiHeaders(authToken) }
@@ -953,7 +956,7 @@ export async function mergePullRequestAsync(opts: {
   sha?: string
   fetchImpl?: GitHubFetch
 }): Promise<AsyncMergeStatus> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}/merge-async`,
     {
@@ -1015,10 +1018,15 @@ export async function pollAsyncMerge(opts: {
   sleepImpl?: (ms: number) => Promise<void>
   nowImpl?: () => number
 }): Promise<AsyncMergeStatus> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const sleep = opts.sleepImpl ?? defaultSleep
   const now = opts.nowImpl ?? (() => Date.now())
-  const stepMs = opts.stepMs ?? ASYNC_MERGE_STEP_MS
+  // EXP-1609: a low installation budget stretches the poll 4× — the merge
+  // job runs on GitHub either way; we only ask less often.
+  const baseStepMs = opts.stepMs ?? ASYNC_MERGE_STEP_MS
+  const stepMs = githubBudgetLowForToken(opts.token, now())
+    ? baseStepMs * 4
+    : baseStepMs
   const deadline = now() + (opts.timeoutMs ?? ASYNC_MERGE_TIMEOUT_MS)
   let last: AsyncMergeStatus = {
     status: `pending`,
@@ -1038,6 +1046,10 @@ export async function pollAsyncMerge(opts: {
         { headers: asyncMergeHeaders(opts.token) }
       )
     } catch (err) {
+      // EXP-1609: a rate limit is not a merge outcome either: the job keeps
+      // running, so stop asking and hand back "still pending" — the caller
+      // keeps its claim and says the merge is still running.
+      if (isGithubRateLimited(err)) return last
       // Only a dropped connection is "no answer yet"; anything else is a bug
       // (or a caller's own throw) that must surface instead of burning the
       // deadline one silent step at a time.
@@ -1394,7 +1406,7 @@ async function stackRequest(
   what: string,
   init?: { method: string; body?: unknown }
 ): Promise<unknown> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${opts.repo}/stacks${path}`,
     {
@@ -1475,7 +1487,7 @@ export async function fetchPullStack(opts: {
   token: string
   fetchImpl?: GitHubFetch
 }): Promise<PullStackRef | null> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
     { headers: asyncMergeHeaders(opts.token) }
@@ -1528,7 +1540,7 @@ export async function compareRefs(opts: {
   token: string
   fetchImpl?: GitHubFetch
 }): Promise<RefComparison | null> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
   const res = await doFetch(
     `https://api.github.com/repos/${opts.repo}/compare/${encodeURIComponent(opts.base)}...${encodeURIComponent(opts.head)}?per_page=1`,
     { headers: githubApiHeaders(opts.token) }

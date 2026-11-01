@@ -14,6 +14,7 @@ import {
   messages,
   pins,
   prompts,
+  pullRequestChecks,
   pullRequestIssues,
   pullRequests,
   sessionIssues,
@@ -29,6 +30,7 @@ import { MESSAGE_COLUMNS } from "./messages"
 import { SESSION_READ_COLUMNS } from "./session-reads"
 import { PULL_REQUEST_COLUMNS } from "./pull-requests"
 import { PULL_REQUEST_ISSUE_COLUMNS } from "./pull-request-issues"
+import { PULL_REQUEST_CHECK_COLUMNS } from "./pull-request-checks"
 import { AGENT_COLUMNS } from "./agents"
 import { EVENT_COLUMNS } from "./events"
 import { PROMPT_COLUMNS } from "./prompts"
@@ -53,6 +55,8 @@ const lists = {
   messages: [MESSAGE_COLUMNS, messages],
   pull_requests: [PULL_REQUEST_COLUMNS, pullRequests],
   pull_request_issues: [PULL_REQUEST_ISSUE_COLUMNS, pullRequestIssues],
+  // EXP-1610
+  pull_request_checks: [PULL_REQUEST_CHECK_COLUMNS, pullRequestChecks],
   // EXP-1323
   session_reads: [SESSION_READ_COLUMNS, sessionReads],
   // NEW-2
@@ -131,6 +135,10 @@ describe(`sessions allowlist`, () => {
   })
   it(`keeps the FEED-160 PR-state guard server-only`, () => {
     expect(PULL_REQUEST_COLUMNS).not.toContain(`github_updated_at`)
+  })
+  it(`syncs the EXP-1610 CI state, never the queued flag`, () => {
+    expect(PULL_REQUEST_COLUMNS).toContain(`checks_state`)
+    expect(PULL_REQUEST_CHECK_COLUMNS).not.toContain(`queued_flagged_at`)
   })
   it(`keeps a meeting message's expiry server-only (NEW-57)`, () => {
     expect(MESSAGE_COLUMNS).not.toContain(`expires_at`)

@@ -1,3 +1,4 @@
+import { flagQueuedChecks } from "@/lib/integrations/pr-checks"
 import { and, asc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
@@ -53,6 +54,8 @@ export interface WatchdogRun {
   meetingsStopped: number
   /** VAPP-159: trashed app records hard-deleted this tick. */
   recordsPurged: number
+  /** EXP-1610: PRs whose CI check sat queued too long, flagged once. */
+  checksQueued: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -585,6 +588,9 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     meetingsStopped: await stopExpiredMeetings(now),
     // VAPP-159: app records trashed past the retention (app-records.json `purge`).
     recordsPurged: await purgeTrashedAppRecords(now),
+    // EXP-1610: a CI check queued past contract prChecks.queuedFlagMinutes
+    // wakes its PR's session once (no runner picked it up).
+    checksQueued: await flagQueuedChecks(now),
   }
 }
 
@@ -662,7 +668,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.checksQueued} queued CI checks flagged`,
         })
       )
       .catch((error: unknown) => {

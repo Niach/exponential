@@ -64,6 +64,9 @@ import {
   notificationTypeValues,
   prStateSchema,
   prStateValues,
+  prChecksStateValues,
+  prCheckStatusValues,
+  prCheckConclusionValues,
   pinKindSchema,
   pinKindValues,
   subscriberSourceSchema,
@@ -115,6 +118,9 @@ export const notificationTypeEnum = pgEnum(
 export const teamMemberRoleEnum = pgEnum(`team_member_role`, teamRoleValues)
 
 export const prStateEnum = pgEnum(`pr_state`, prStateValues)
+export const prChecksStateEnum = pgEnum(`pr_checks_state`, prChecksStateValues)
+export const prCheckStatusEnum = pgEnum(`pr_check_status`, prCheckStatusValues)
+export const prCheckConclusionEnum = pgEnum(`pr_check_conclusion`, prCheckConclusionValues)
 
 
 export const issueEventTypeEnum = pgEnum(
@@ -2704,6 +2710,9 @@ export const pullRequests = pgTable(
     // `<platform>: <screen>`): the body renders it, a later open keeps it.
     // Server-only (never in the shape's columns).
     notRun: text(`not_run`),
+    // EXP-1610: the aggregate over its `pull_request_checks` rows
+    // (contract prChecksState). `none` = no checks known.
+    checksState: prChecksStateEnum(`checks_state`).notNull().default(`none`),
     ...timestamps,
   },
   (table) => [
@@ -2714,6 +2723,41 @@ export const pullRequests = pgTable(
     index(`idx_pull_requests_session`).on(table.sessionId),
     index(`idx_pull_requests_head`).on(table.repositoryId, table.head),
     index(`idx_pull_requests_base_pr`).on(table.basePullRequestId),
+  ]
+)
+
+// EXP-1610: CI on a PR — one row per check (by name) at the PR's head
+// commit; a newer head replaces the older head's rows. Provider-neutral (no
+// provider columns): GitHub's check_run/check_suite/workflow_run webhooks
+// write it today, eCode's own CI later. Team-scoped shape.
+export const pullRequestChecks = pgTable(
+  `pull_request_checks`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    pullRequestId: uuid(`pull_request_id`)
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: `cascade` }),
+    headSha: varchar(`head_sha`, { length: 64 }).notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    status: prCheckStatusEnum().notNull(),
+    // Null until completed.
+    conclusion: prCheckConclusionEnum(),
+    // A required check of the base branch (branch protection / rulesets).
+    required: boolean().notNull().default(false),
+    startedAt: timestamp(`started_at`, { withTimezone: true }),
+    completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    detailsUrl: text(`details_url`),
+    // Server-only: when a check queued too long was flagged into the PR's
+    // session (once per check).
+    queuedFlaggedAt: timestamp(`queued_flagged_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    unique(`uniq_pull_request_checks_name`).on(table.pullRequestId, table.name),
+    index(`idx_pull_request_checks_team`).on(table.teamId),
   ]
 )
 
@@ -3811,6 +3855,10 @@ export const selectSessionReadSchema = createSelectSchema(sessionReads)
 export const selectPullRequestSchema = createSelectSchema(pullRequests, {
   state: prStateSchema,
 }).omit({ githubUpdatedAt: true })
+// EXP-1610: `queued_flagged_at` is server-only (outside the shape allowlist).
+export const selectPullRequestCheckSchema = createSelectSchema(pullRequestChecks).omit({
+  queuedFlaggedAt: true,
+})
 export const selectPullRequestIssueSchema = createSelectSchema(pullRequestIssues)
 export const selectSyncedPullRequestIssueSchema = selectPullRequestIssueSchema.omit({
   boardId: true,
@@ -3905,6 +3953,7 @@ export type Conversation = InferSelectModel<typeof conversations>
 export type ConversationMember = InferSelectModel<typeof conversationMembers>
 export type PullRequest = InferSelectModel<typeof pullRequests>
 export type PullRequestIssue = InferSelectModel<typeof pullRequestIssues>
+export type PullRequestCheck = InferSelectModel<typeof pullRequestChecks>
 export type Repository = InferSelectModel<typeof repositories>
 export type McpServer = InferSelectModel<typeof mcpServers>
 export type McpCredential = InferSelectModel<typeof mcpCredentials>

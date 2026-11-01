@@ -1,3 +1,4 @@
+import { githubFetch, registerGithubToken, type GithubFetchInit } from "@/lib/integrations/github-client"
 import crypto from "node:crypto"
 import type { PullFile } from "@/lib/integrations/github-pr"
 import { githubErrorMessage } from "@/lib/integrations/github-error"
@@ -88,8 +89,8 @@ export function githubApiHeaders(token?: string): Record<string, string> {
   return headers
 }
 
-async function ghApp(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`https://api.github.com${path}`, {
+async function ghApp(path: string, init?: GithubFetchInit): Promise<Response> {
+  return githubFetch(`https://api.github.com${path}`, {
     ...init,
     headers: {
       ...githubApiHeaders(appJwt()),
@@ -202,6 +203,8 @@ async function installationToken(
       : Date.now() + 55 * 60_000,
   }
   tokenCache.set(cacheKey, minted)
+  // EXP-1609: the client keys its rate-limit budget per installation.
+  registerGithubToken(minted.token, installationId)
   return minted
 }
 
@@ -316,7 +319,7 @@ export async function verifyRepoAccessible(
   repo: string,
   token: string
 ): Promise<boolean> {
-  const res = await fetch(`https://api.github.com/repos/${repo}`, {
+  const res = await githubFetch(`https://api.github.com/repos/${repo}`, {
     headers: githubApiHeaders(token),
   })
   if (res.ok) return true
@@ -339,7 +342,7 @@ export async function resolveRepoDefaultBranch(
   try {
     const token = await resolveRepoInstallationToken(repo)
     if (!token) return null
-    const res = await fetch(`https://api.github.com/repos/${repo}`, {
+    const res = await githubFetch(`https://api.github.com/repos/${repo}`, {
       headers: githubApiHeaders(token),
     })
     if (!res.ok) return null
@@ -363,7 +366,7 @@ export async function fetchRepoMeta(
 ): Promise<{ defaultBranch: string; private: boolean } | null> {
   const token = await resolveRepoInstallationToken(repo, opts)
   if (!token) return null
-  const res = await fetch(`https://api.github.com/repos/${repo}`, {
+  const res = await githubFetch(`https://api.github.com/repos/${repo}`, {
     headers: githubApiHeaders(token),
   })
   if (res.status === 404 || res.status === 403) return null
@@ -445,8 +448,7 @@ export async function listRepoBranches(
   const perPage = 100
   const names: string[] = []
   for (let page = 1; page <= REPO_BRANCHES_MAX_PAGES; page++) {
-    const res = await fetch(
-      `https://api.github.com/repos/${repo}/branches?per_page=${perPage}&page=${page}`,
+    const res = await githubFetch(`https://api.github.com/repos/${repo}/branches?per_page=${perPage}&page=${page}`,
       { headers: githubApiHeaders(token ?? undefined) }
     )
     if (!res.ok) {
@@ -525,7 +527,7 @@ export async function fetchBranchDiff(opts: {
 }): Promise<BranchDiff | null> {
   const { repo, base, branch, token } = opts
   const now = opts.now ?? Date.now()
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as CompareFetch)
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as CompareFetch)
 
   const cached = peekBranchDiff(repo, base, branch, now)
   if (cached) return cached
@@ -621,8 +623,7 @@ export async function listInstallationRepos(
   // installation's whole selection, and the token never leaves the server
   // process.
   const { token } = await installationToken(installationId)
-  const res = await fetch(
-    `https://api.github.com/installation/repositories?per_page=${perPage}&page=${page}`,
+  const res = await githubFetch(`https://api.github.com/installation/repositories?per_page=${perPage}&page=${page}`,
     { headers: githubApiHeaders(token) }
   )
   if (!res.ok) {
@@ -683,8 +684,7 @@ export async function listUserInstallations(
   const maxPages = opts?.maxPages ?? 10
   const all: UserInstallation[] = []
   for (let page = 1; page <= maxPages; page++) {
-    const res = await fetch(
-      `https://api.github.com/user/installations?per_page=100&page=${page}`,
+    const res = await githubFetch(`https://api.github.com/user/installations?per_page=100&page=${page}`,
       { headers: githubApiHeaders(userToken) }
     )
     if (!res.ok) {
@@ -733,7 +733,7 @@ export async function getAuthenticatedGithubUser(
   userToken: string
 ): Promise<{ id: number | null; login: string } | null> {
   try {
-    const res = await fetch(`https://api.github.com/user`, {
+    const res = await githubFetch(`https://api.github.com/user`, {
       headers: githubApiHeaders(userToken),
     })
     if (!res.ok) return null
@@ -766,8 +766,7 @@ export async function listUserInstallationRepos(
   const seen = new Set<string>()
   const all: InstallationRepo[] = []
   for (let page = 1; page <= maxPages; page++) {
-    const res = await fetch(
-      `https://api.github.com/user/installations/${installationId}/repositories?per_page=100&page=${page}`,
+    const res = await githubFetch(`https://api.github.com/user/installations/${installationId}/repositories?per_page=100&page=${page}`,
       { headers: githubApiHeaders(userToken) }
     )
     if (!res.ok) {
@@ -809,7 +808,7 @@ export async function fetchUserRepoAccess(
   userToken: string,
   fullName: string
 ): Promise<{ push: boolean; private: boolean; defaultBranch: string } | null> {
-  const res = await fetch(`https://api.github.com/repos/${fullName}`, {
+  const res = await githubFetch(`https://api.github.com/repos/${fullName}`, {
     headers: githubApiHeaders(userToken),
   })
   if (res.status === 404) return null

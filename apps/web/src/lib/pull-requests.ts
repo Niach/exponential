@@ -1,3 +1,4 @@
+import { isGithubRateLimited } from "@/lib/integrations/github-client"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -771,6 +772,8 @@ export async function mergePullRequest(args: {
     if (err instanceof TRPCError && err.code !== `NOT_FOUND`) {
       return { merged: false, error: err.message }
     }
+    // EXP-1609: GitHub's rate limit reads as its reset, never a raw 403.
+    if (isGithubRateLimited(err)) return { merged: false, error: err.message }
     throw err
   }
 }

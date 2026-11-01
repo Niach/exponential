@@ -27,6 +27,11 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({
   fetchPullState: vi.fn(),
   resolveRepoToken: vi.fn(async () => `tok`),
 }))
+let budgetLow = false
+vi.mock(`@/lib/integrations/github-client`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/integrations/github-client")>()),
+  githubBudgetLowForToken: () => budgetLow,
+}))
 vi.mock(`@/lib/integrations/github-identity`, () => ({
   resolveAppUserForGithubActor: vi.fn(async () => null),
 }))
@@ -138,6 +143,32 @@ describe(`runPrPollPass`, () => {
     vi.clearAllMocks()
     mockRows = []
     capturedWhere = null
+    budgetLow = false
+  })
+
+  // EXP-1609
+  it(`backs off (no GitHub read) while the installation budget is low`, async () => {
+    mockRows = [row()]
+    budgetLow = true
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    await runPrPollPass()
+    warn.mockRestore()
+    expect(fetchPullState).not.toHaveBeenCalled()
+  })
+
+  it(`treats a GithubRateLimited read as a back-off, not an error`, async () => {
+    const { GithubRateLimited } = await import(`@/lib/integrations/github-client`)
+    mockRows = [row({ id: `a`, url: `https://github.com/acme/app/pull/1`, number: 1 }), row()]
+    vi.mocked(fetchPullState)
+      .mockRejectedValueOnce(new GithubRateLimited({ resetAt: null, secondary: false }))
+      .mockResolvedValueOnce(onGitHub({ state: `closed`, merged: true }))
+    const error = vi.spyOn(console, `error`).mockImplementation(() => {})
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    await runPrPollPass()
+    expect(error).not.toHaveBeenCalled()
+    error.mockRestore()
+    warn.mockRestore()
+    expect(applyPullRequestMerged).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: `pr1` }))
   })
 
   it(`polls live and recently-closed PRs within a bounded window`, async () => {
