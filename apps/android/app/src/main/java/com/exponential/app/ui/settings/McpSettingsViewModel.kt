@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // #VAPP-185 (fixtures/settings-mcp.json): Settings › MCP on a phone. Every
 // section is a server-only read (web `mcp-settings-page.tsx` fetches the
@@ -56,18 +58,18 @@ class McpSettingsViewModel @Inject constructor(
         .combine(auth.userId) { members, userId ->
             userId != null && members.firstOrNull { it.userId == userId }?.role == DomainContract.teamRoleOwner
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** The selected team's slug (the web connect URL's path). */
     private val teamSlug: StateFlow<String?> = combine(dbFlow, selection.selectedId) { db, team -> db to team }
         .flatMapLatest { (db, team) ->
             if (db == null || team == null) flowOf(null) else db.teamDao().observeById(team).map { it?.slug }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val endpointUrl: StateFlow<String?> = auth.instanceUrl
         .map { it?.let(McpSettings::endpointUrl) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), auth.instanceUrl.value?.let(McpSettings::endpointUrl))
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), auth.instanceUrl.value?.let(McpSettings::endpointUrl))
 
     private val _servers = MutableStateFlow<List<McpServerListRow>?>(null)
     val serverRows: StateFlow<List<McpServerListRow>?> = _servers

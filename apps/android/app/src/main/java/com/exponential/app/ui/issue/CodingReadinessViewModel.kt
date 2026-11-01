@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 /**
  * EXP-1121: the INPUTS of the "Ready to code?" checklist for one issue's board
@@ -159,7 +161,7 @@ class CodingReadinessViewModel @Inject constructor(
             repos = teamRepos?.value,
             accountId = auth.activeAccountId.value,
         )
-    }.stateIn(
+    }.flowOn(Dispatchers.Default).stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         UiState(

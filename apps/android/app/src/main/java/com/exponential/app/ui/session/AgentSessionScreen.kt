@@ -2339,9 +2339,11 @@ private fun WorkingIndicatorRow(
  * alike. Reduced motion pins it at 1.
  */
 @Composable
-internal fun rememberWorkingMarkPulse(): Float {
+internal fun rememberWorkingMarkPulse(): androidx.compose.runtime.State<Float> {
     val reduceMotion = LocalReduceMotion.current
-    val pulse by rememberInfiniteTransition(label = "working").animateFloat(
+    // A State, read in the draw phase (`graphicsLayer`): reading the value in
+    // composition would recompose the caller on every animation frame.
+    val pulse = rememberInfiniteTransition(label = "working").animateFloat(
         initialValue = 1f,
         targetValue = if (reduceMotion) 1f else 0.4f,
         animationSpec = infiniteRepeatable(

@@ -91,6 +91,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.flowOn
 
 data class IssueDetailState(
     val issue: IssueEntity? = null,
@@ -194,7 +195,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                 if (rows.isEmpty()) IssueStatusResolver.builtinDefaults
                 else IssueStatusResolver.teamStatuses(rows)
             }
-            .stateIn(
+            .flowOn(Dispatchers.Default).stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(5_000),
                 IssueStatusResolver.builtinDefaults,
@@ -220,7 +221,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                 if (db == null || board == null) flowOf(emptyList())
                 else db.userDao().observeByTeam(board.teamId)
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** #EXP-1383: the issue team's agents: the assignee picker's rows after
      *  the members, and what an agent assignee resolves to. */
@@ -230,14 +231,14 @@ class IssueDetailViewModel @AssistedInject constructor(
                 if (db == null || board == null) flowOf(emptyList())
                 else db.agentDefinitionDao().observeByTeam(board.teamId)
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** S-3: the assignee picker's agents: another member's Assistant is never
      *  one (`visibleAgent`); an assignment to it still reads off [teamAgents]. */
     val assignableAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
         combine(teamAgents, auth.userId) { rows, me ->
             rows.filter { com.exponential.app.domain.AgentSettings.Assistant.visibleAgent(it.role, it.ownerId, me) }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // EXP-312: live sessions are owner-only — the screen gates tap-to-watch
     // on the session row's userId matching this.
@@ -248,13 +249,13 @@ class IssueDetailViewModel @AssistedInject constructor(
     // the New issue page, IssueDraftScreen).
     val soloMemberId: StateFlow<String?> = membersForTeam
         .map { members -> members.map { it.userId }.singleOrNull() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // EXP-630: the team's estimate scale (contract issueEstimation). `none`
     // until the team row syncs — estimates read as OFF, never as a guess.
     val estimationType: StateFlow<String> = teamForBoard
         .map { team -> team?.estimationType ?: DomainContract.issueEstimationNone }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DomainContract.issueEstimationNone)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DomainContract.issueEstimationNone)
 
     val permissions: StateFlow<TeamPermissions> = combine(
         teamForBoard,
@@ -269,7 +270,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             isMember = userId != null && members.any { it.userId == userId },
             memberRole = members.firstOrNull { it.userId == userId }?.role,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamPermissions.Denied)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamPermissions.Denied)
 
     // "Syncing team…" banner while an un-synced member's membership row is
     // still in flight (so read-only controls don't read as a silent denial).
@@ -279,7 +280,7 @@ class IssueDetailViewModel @AssistedInject constructor(
         stats.state,
     ) { perms, accountId, all ->
         syncBannerFor(perms, all[accountId]?.get(MEMBERS_SHAPE))
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncBanner.None)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncBanner.None)
 
     // Canonical web URL for the share sheet: {base}/t/{team}/boards/{board}/issues/{identifier}.
     // Null until issue + board + team + instance URL are all resolved.
@@ -296,7 +297,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             boardSlug = board.slug,
             identifier = issue.identifier,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val state: StateFlow<IssueDetailState> = combine(
         issueFlow,
@@ -314,7 +315,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             users = users,
             assignee = issue?.assigneeId?.let { id -> users.firstOrNull { it.id == id } },
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueDetailState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueDetailState())
 
     // Every synced attachment row of this issue — the ONE query behind both the
     // probed-dimension map (inline images) and the Files section (everything
@@ -322,7 +323,7 @@ class IssueDetailViewModel @AssistedInject constructor(
     // covers the description AND the whole thread.
     private val attachmentsFlow: StateFlow<List<AttachmentEntity>> =
         dbFlow.scopedQuery(emptyList()) { it.attachmentDao().observeByIssue(issueId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Probed sizes of this issue's attachments (REV2-79) — read views pre-size
     // embedded images from them instead of measuring 0-height and jumping when
@@ -330,7 +331,7 @@ class IssueDetailViewModel @AssistedInject constructor(
     // and poster presence, which is what upgrades a media link to a player.
     val attachmentDims: StateFlow<AttachmentDims> = attachmentsFlow
         .map { rows -> AttachmentDims.fromRows(rows) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
 
     // ── Files section (EXP-297) ──────────────────────────────────────────────
 
@@ -366,7 +367,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             commentId = { it.commentId },
         )
     }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _pendingFiles = MutableStateFlow<List<PendingFileUpload>>(emptyList())
 
@@ -380,7 +381,7 @@ class IssueDetailViewModel @AssistedInject constructor(
         combine(_pendingFiles, attachmentsFlow) { pending, synced ->
             val syncedIds = synced.map { it.id }.toSet()
             pending.filterNot { it.uploadedId != null && it.uploadedId in syncedIds }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Attachment ids with a download or delete in flight (per-row spinner). */
     private val _busyAttachmentIds = MutableStateFlow<Set<String>>(emptySet())
@@ -403,7 +404,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             .sortedWith(
                 compareBy({ relationSortKey(it.type, it.inverse) }, { it.otherIdentifier }),
             )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // EXP-1097: the band fold state of THIS issue's relations — view state,
     // so it survives the properties sheet closing and a face switch.
@@ -447,7 +448,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             view.bands.forEach { band -> band.rows.forEach { add(it.id) } }
         }
         RelationsUi(view, issues.filter { it.id in named }.associateBy { it.id })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RelationsUi.EMPTY)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RelationsUi.EMPTY)
 
     /**
      * The stored relation a band row stands for — what its remove acts on.
@@ -536,7 +537,7 @@ class IssueDetailViewModel @AssistedInject constructor(
     // `pull_request_issues`, newest first) — the PR rows under the description.
     val pullRequests: StateFlow<List<PullRequestEntity>> =
         dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeByIssue(issueId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** EXP-1291: the team's pull requests — the open-stack walk behind a
      *  PR row's `Merge stack` ([com.exponential.app.ui.work.PullRequestStack]). */
@@ -546,14 +547,14 @@ class IssueDetailViewModel @AssistedInject constructor(
                 if (db == null || board == null) flowOf(emptyList())
                 else db.pullRequestDao().observeByTeam(board.teamId)
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** How many issues each pull request links (the merge confirm's batch line). */
     val pullRequestIssueCounts: StateFlow<Map<String, Int>> =
         dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.PullRequestIssueEntity>()) {
             it.pullRequestIssueDao().observeAll()
         }.map { rows -> rows.groupingBy { it.pullRequestId }.eachCount() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** The PR a merge / close is in flight for (its row's pill spins). */
     private val _prBusyId = MutableStateFlow<String?>(null)
@@ -648,7 +649,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                 }
             }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // steer.config is env-derived and static per instance: null = still loading.
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)
@@ -669,7 +670,7 @@ class IssueDetailViewModel @AssistedInject constructor(
         steerDeviceFlow(dbFlow, _board.map { it?.teamId }.distinctUntilChanged(), auth.userId),
         _steerEnabled,
     ) { devices, enabled -> onlineStartTargets(devices, enabled) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // ── Duplicate-of (masterplan §5e) ─────────────────────────────────────────
 
@@ -680,7 +681,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                 if (db == null || dupId == null) flowOf(null)
                 else db.issueDao().observeById(dupId)
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Candidate canonical issues: same team, not this issue. */
     val duplicateCandidates: StateFlow<List<IssueEntity>> = combine(
@@ -699,7 +700,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                 .filter { it.boardId in teamBoardIds && it.id != issueId }
                 .sortedByDescending { it.updatedAt }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // ── Move to board (EXP-57) ──────────────────────────────────────────────
 
@@ -715,7 +716,7 @@ class IssueDetailViewModel @AssistedInject constructor(
     ) { boards, board ->
         if (board == null) emptyList()
         else boards.filter { it.teamId == board.teamId && it.id != board.id }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Surfaced when a move fails (snackbar in the screen) — a silently
     // dropped move would read as the issue "staying put" for no reason.
@@ -805,7 +806,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                 // a new handler, hence a repaint.
                 .map { issueRefTarget(it, statuses) }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * EXP-892: the `#` menu's and the issue pickers' server half —
