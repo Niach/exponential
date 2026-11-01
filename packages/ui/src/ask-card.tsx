@@ -10,7 +10,6 @@ import { GlassCard } from "./glass-card"
 import { conceptIcon } from "./icons.generated"
 import { Pill } from "./pill"
 import { Textarea } from "./textarea"
-import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 
 // EXP-1316 (1m): THE question / plan card ×web. The session view (the raw
 // work, `agent-session.tsx`) and the thread conversation (`ThreadConversation`)
@@ -153,23 +152,21 @@ export function AskCard({
 
 /** #EXP-1561: THE card's × (a ghost icon button, the unqueue ×'s size). */
 export function AskDismissButton({ onClick }: { onClick: () => void }) {
+  // A native title, not THE Tooltip: the card renders in hosts without a
+  // TooltipProvider (the styleguide's islands, a story).
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={WAITING_CARDS_COPY.dismiss}
-          data-testid={WAITING_CARDS_TEST_IDS.dismiss}
-          className="-mt-0.5 -mr-1 shrink-0 text-muted-foreground hover:text-foreground"
-          onClick={onClick}
-        >
-          <CloseIcon className="size-3" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{WAITING_CARDS_COPY.dismiss}</TooltipContent>
-    </Tooltip>
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      aria-label={WAITING_CARDS_COPY.dismiss}
+      title={WAITING_CARDS_COPY.dismiss}
+      data-testid={WAITING_CARDS_TEST_IDS.dismiss}
+      className="-mt-0.5 -mr-1 shrink-0 text-muted-foreground hover:text-foreground"
+      onClick={onClick}
+    >
+      <CloseIcon className="size-3" />
+    </Button>
   )
 }
 
