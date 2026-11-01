@@ -21,3 +21,6 @@
 - En sessions arbejde gemmes løbende, så det fortsætter på enhver enhed
 - Bliv logget ind-logins viser deres 5-timers og ugentlige forbrug
 - Tider viser "lige nu" i stedet for "om 0 sekunder"
+- En ventende session på en offline enhed flytter til din anden maskine
+- En start, der aldrig gik i gang, viser "Kunne ikke starte" i stedet for at stå stille
+- Flere afbrudte sessioner kan genoptages på én gang

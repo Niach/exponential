@@ -21,3 +21,6 @@
 - En sessions arbete sparas löpande, så det fortsätter på vilken enhet som helst
 - Förbli inloggad-inloggningar visar sin användning per 5 timmar och vecka
 - Tider visar "just nu" i stället för "om 0 sekunder"
+- En köad session på en offlineenhet flyttar till din andra dator
+- En start som aldrig började visar "Kunde inte starta" i stället för att stå still
+- Att återuppta flera avbrutna sessioner samtidigt fungerar

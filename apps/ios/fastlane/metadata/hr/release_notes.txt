@@ -21,3 +21,6 @@
 - Rad sesije sprema se usput, pa se nastavlja na bilo kojem uređaju
 - Trajne prijave prikazuju svoju 5-satnu i tjednu potrošnju
 - Vremena pišu „upravo sada” umjesto „za 0 sekundi”
+- Sesija na čekanju na izvanmrežnom uređaju prelazi na tvoje drugo računalo
+- Pokretanje koje nikad nije počelo piše „Nije moguće pokrenuti” umjesto da miruje
+- Nastavak više prekinutih sesija odjednom radi

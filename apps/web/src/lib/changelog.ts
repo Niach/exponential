@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-02-sessions-move-machines`,
+    date: `2026-11-02`,
+    title: `Sessions move to your other machine`,
+    summary: `A queued session on an offline device moves to your other machine, and a start that never began says Couldn't start.`,
+    body: `- **Moves**: a queued session whose device is offline moves to its starter's other machine, and the device picker offers that machine.
+- **Picks up its work**: a moved session pushes its branch first, so the new device continues from its last commit.
+- **Couldn't start**: a start that never began, or hit a leftover worktree, says Couldn't start instead of sitting idle; leftover worktrees are cleaned up, Windows included.
+- **Resumes**: resuming several interrupted sessions at once no longer fails, and a failed resume shows as failed.
+- **Private chats**: a private session's end report reaches the person who started it.
+- **Just now**: a moment ago reads "just now", never "in 0 seconds".`,
+  },
+  {
     id: `2026-11-01-keep-signed-in-usage`,
     date: `2026-11-01`,
     title: `Usage for Keep signed in logins`,

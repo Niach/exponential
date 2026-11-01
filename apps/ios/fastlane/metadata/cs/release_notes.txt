@@ -21,3 +21,6 @@
 - Práce relace se průběžně ukládá, takže pokračuje na jakémkoli zařízení
 - Trvalá přihlášení ukazují své 5hodinové a týdenní využití
 - Časy ukazují „právě teď“ místo „za 0 sekund“
+- Čekající relace na zařízení offline se přesune na vaše jiné zařízení
+- Spuštění, které nikdy nezačalo, ukáže „Nepodařilo se spustit“ místo nečinnosti
+- Pokračování několika přerušených relací najednou funguje

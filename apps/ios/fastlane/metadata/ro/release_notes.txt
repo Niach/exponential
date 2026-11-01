@@ -21,3 +21,6 @@
 - Munca unei sesiuni se salvează pe parcurs, așa că continuă pe orice dispozitiv
 - Autentificările permanente își arată utilizarea pe 5 ore și pe săptămână
 - Orele arată „chiar acum” în loc de „peste 0 secunde”
+- O sesiune în așteptare pe un dispozitiv offline trece pe celălalt calculator al tău
+- O pornire care n-a început niciodată arată „Nu a putut porni” în loc să stea inactivă
+- Reluarea mai multor sesiuni întrerupte deodată funcționează
