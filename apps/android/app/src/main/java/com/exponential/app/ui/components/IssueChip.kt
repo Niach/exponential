@@ -124,12 +124,15 @@ fun IssueChip(
                 color = MdStyle.Text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                // Deliberately NOT `Modifier.weight`: a Row measures its
-                // unweighted children against whatever main-axis space is
-                // left, so the title ellipsizes inside a bounded parent and
-                // renders whole inside the composer's horizontal scroller —
-                // where a weight would have collapsed it to zero width
-                // (weights are ignored when the main axis is infinite).
+                // A Row measures its unweighted children against whatever
+                // main-axis space is left, so the title ellipsizes inside a
+                // bounded parent. The REMOVABLE chip weights it instead
+                // (EXP-1551): measured in order, an unweighted title would
+                // take the whole line and leave the ✕ after it no width. Its
+                // one caller (the composer headline) is a bounded FlowRow; an
+                // infinite main axis (a scroller) would collapse a weighted
+                // title to zero, so the plain badges stay unweighted.
+                modifier = if (onRemove != null) Modifier.weight(1f, fill = false) else Modifier,
             )
         }
         if (onRemove != null) {

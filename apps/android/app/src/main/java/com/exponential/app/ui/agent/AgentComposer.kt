@@ -1,15 +1,15 @@
 package com.exponential.app.ui.agent
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -248,13 +248,17 @@ internal fun AgentComposerHeadline(
     onClearAction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    // EXP-1551: one WRAPPING line, web `flex flex-wrap items-center gap-x-2
+    // gap-y-1.5`: the verb, then every chip as a sibling of it. A chip wider
+    // than the line is capped (web `max-w-[20rem]`) and its title ellipsizes
+    // with the ✕ still inside it; nothing scrolls off the screen edge.
+    FlowRow(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = 4.dp, bottom = 2.dp)
             .testTag("agent-composer-headline"),
-        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (headline.isNotEmpty()) {
             Text(
@@ -263,61 +267,58 @@ internal fun AgentComposerHeadline(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
-                modifier = Modifier.testTag("agent-composer-headline-verb"),
+                modifier = Modifier
+                    .align(Alignment.CenterVertically)
+                    .testTag("agent-composer-headline-verb"),
             )
         }
-        if (actionChip != null || issueChips.isNotEmpty()) {
-            // Several issue chips scroll sideways rather than wrapping — a
-            // batch must not push the field off the first screen. The verb
-            // keeps its width (`fill = false`), the chips take what is left.
-            Row(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (actionChip != null) {
-                    // The one action: its curated glyph · name · ✕. Only the ✕
-                    // clears it (EXP-827, web and iOS agree); the pill itself
-                    // is readonly.
-                    GlassPill(
-                        actionChip.name,
-                        icon = actionGlyph(actionChip),
-                        trailing = {
-                            ChipClose(
-                                contentDescription = "Remove ${actionChip.name}",
-                                testTag = "agent-composer-chip-action-remove",
-                                onClick = onClearAction,
-                            )
-                        },
-                        modifier = Modifier.testTag("agent-composer-chip-action"),
+        if (actionChip != null) {
+            // The one action: its curated glyph · name · ✕. Only the ✕
+            // clears it (EXP-827, web and iOS agree); the pill itself
+            // is readonly.
+            GlassPill(
+                actionChip.name,
+                icon = actionGlyph(actionChip),
+                trailing = {
+                    ChipClose(
+                        contentDescription = "Remove ${actionChip.name}",
+                        testTag = "agent-composer-chip-action-remove",
+                        onClick = onClearAction,
                     )
-                } else {
-                    // One checked issue, as the SHARED chip (EXP-885): status
-                    // glyph · mono identifier · title · ✕. Same split: the ✕
-                    // removes, the body is inert.
-                    issueChips.forEach { option ->
-                        IssueChip(
-                            identifier = option.identifier,
-                            title = option.title,
-                            // The composer carries the ANCHOR off the wire, not
-                            // the team's status row, so the glyph comes from
-                            // the builtin defaults.
-                            status = remember(option.status) {
-                                IssueStatusResolver.resolve(null, option.status, emptyList())
-                            },
-                            onRemove = { onRemoveIssue(option.id) },
-                            removeContentDescription = removeIssueDescription(option),
-                            removeTestTag = "agent-composer-chip-issue-${option.identifier}-remove",
-                            modifier = Modifier.testTag("agent-composer-chip-issue-${option.identifier}"),
-                        )
-                    }
-                }
+                },
+                modifier = Modifier
+                    .align(Alignment.CenterVertically)
+                    .testTag("agent-composer-chip-action"),
+            )
+        } else {
+            // The checked issues, as the SHARED chip (EXP-885): status
+            // glyph · mono identifier · title · ✕. Same split: the ✕
+            // removes, the body is inert.
+            issueChips.forEach { option ->
+                IssueChip(
+                    identifier = option.identifier,
+                    title = option.title,
+                    // The composer carries the ANCHOR off the wire, not
+                    // the team's status row, so the glyph comes from
+                    // the builtin defaults.
+                    status = remember(option.status) {
+                        IssueStatusResolver.resolve(null, option.status, emptyList())
+                    },
+                    onRemove = { onRemoveIssue(option.id) },
+                    removeContentDescription = removeIssueDescription(option),
+                    removeTestTag = "agent-composer-chip-issue-${option.identifier}-remove",
+                    modifier = Modifier
+                        .align(Alignment.CenterVertically)
+                        .widthIn(max = SUBJECT_CHIP_MAX_WIDTH)
+                        .testTag("agent-composer-chip-issue-${option.identifier}"),
+                )
             }
         }
     }
 }
+
+/** A subject chip's cap (web `SubjectChips` `max-w-[20rem]`). */
+private val SUBJECT_CHIP_MAX_WIDTH = 320.dp
 
 /**
  * EXP-1271: the card's starting row — the mark, "Starting on <device>", and
