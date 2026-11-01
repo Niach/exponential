@@ -49,7 +49,7 @@ export function CodingDocsPage() {
           <DocsSection id="how-it-works" num="01" label="How it works">
             <h2>How it works</h2>
             <p>
-              The <a href="/docs/apps/">desktop app</a> and the{` `}
+              The <a href="/docs/apps/#desktop">desktop app</a> and the{` `}
               <a href="/docs/cli/#daemon">CLI daemon</a> are the clients that
               run coding sessions. When you start one, the machine hands the
               issue to

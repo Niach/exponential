@@ -247,14 +247,14 @@ export const PAGES: PageSeo[] = [
   {
     path: `/docs/apps/`,
     htmlFile: `docs/apps/index.html`,
-    sources: [`src/AppsDocsPage.tsx`, `../../shots/board`],
-    title: `Mobile & desktop apps · Exponential docs`,
-    description: `The native apps: self-updating desktop for macOS, Windows and Linux, iOS and Android companions with push notifications and live agent steering.`,
+    sources: [`src/AppsDocsPage.tsx`, `../../shots/board`, `../../docs/spec/apps.md`],
+    title: `Apps · Exponential docs`,
+    description: `Team apps an agent builds (the package, templates and bindings, records, functions, MCP tools, triggers) and the native apps for desktop, iOS and Android.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
       { name: `Docs`, path: `/docs/` },
-      { name: `Mobile & desktop apps`, path: `/docs/apps/` },
+      { name: `Apps`, path: `/docs/apps/` },
     ]),
   },
   {

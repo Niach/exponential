@@ -1,175 +1,370 @@
-/* EXP-1421: exponential.at/apps/, eApps' one docs page: the app package
-   format. Facts: packages/exponential-ui/docs/package-format.md (format
-   version 2, VAPP-161) and src/host/ (package.ts, records.ts,
-   record-store.ts, tools.ts, exposes.ts, signature.ts), in @exponential_app/eui 0.3.0
-   (exposes + upstreams, VAPP-180);
-   domain-contract fixtures app-records.json and app-export.json (what the
-   app ships). Package names: docs/libraries.md. */
+/* EXP-1606: exponential.at/apps/, eApps in one screen, the /ui/ home's
+   twin: what an app is (data, never code), the three executors, one package
+   painted by eUI everywhere, records + triggers + upstreams, example apps,
+   building one by asking, then the format for library users. Visual first,
+   little text. Source of truth: docs/spec/apps.md (its mocks are copied to
+   public/eapps/); what the spec marks 🆕/❌ reads "coming" here. The
+   in-product docs are /docs/apps/#team-apps; the format's prose spec is
+   packages/exponential-ui/docs/package-format.md. */
 import type { ReactNode } from "react"
-import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
+import {
+  Bot,
+  Boxes,
+  Braces,
+  CalendarClock,
+  Clock,
+  Database,
+  Laptop,
+  LayoutTemplate,
+  ListChecks,
+  Monitor,
+  Plug,
+  Server,
+  ShieldCheck,
+  Smartphone,
+  Sparkles,
+  Users,
+  Wrench,
+} from "lucide-react"
+import { DocsCode } from "@exp/site-shell"
 import { StatusChip } from "../../../src/components/blog/StatusChip"
-import { DocsTable, PageHero } from "../components/Content"
-import { LIBRARIES_NAV } from "../lib/libraries"
+import { DocsTable, IcArrow } from "../components/Content"
+import { COMPONENT_COUNT } from "../lib/catalog-facts"
 import type { PageProps } from "../lib/routes"
 import { LINKS } from "../lib/site"
 
-const SECTIONS: DocsSectionType[] = [
-  { id: `status`, num: `01`, label: `Status` },
-  { id: `parts`, num: `02`, label: `One package` },
-  { id: `example`, num: `03`, label: `A package` },
-  { id: `rules`, num: `04`, label: `Data, never code` },
-  { id: `exposes`, num: `05`, label: `MCP tools` },
-  { id: `today`, num: `06`, label: `Use it today` },
-  { id: `packages`, num: `07`, label: `Packages` },
-]
+const TODAY = <StatusChip status="shipped">today</StatusChip>
+const COMING = <StatusChip status="planned">coming</StatusChip>
 
-const IN_APP = <StatusChip status="in-progress">in the app</StatusChip>
-const IN_EUI = <StatusChip status="shipped">in eUI</StatusChip>
-const PLANNED = <StatusChip status="planned">planned</StatusChip>
-
-const PARTS: [string, string, ReactNode][] = [
-  [`Manifest`, `id, name, version, the eUI catalog it targets, icon, theme, description`, IN_APP],
-  [`Templates`, `Screens as A2UI components, one per template id`, IN_APP],
-  [`Format version`, `formatVersion (absent = 1); a host refuses a newer one`, IN_EUI],
-  [`Bindings`, `A data model path filled live from a source, e.g. records:entry?sort=date`, IN_APP],
-  [`Function allowlist`, `The functions the screens may call; everything else is refused`, IN_APP],
-  [`Records`, `The app's own data: kinds with a small JSON Schema, records.upsert and records.delete`, IN_APP],
-  [`Records source`, `The neutral records:<kind>?query source; the host provides the store (RecordStore)`, IN_APP],
-  [`Tools`, `MCP servers or scripts as tools.<id>.<name>; the host shows toolConsent() before the first call`, IN_EUI],
-  [`Exposes`, `MCP tools the app offers: declarative bindings over its records, the host's actions or an upstream, run as the calling person`, IN_EUI],
-  [`Upstreams`, `The MCP servers its upstream bindings call, with each person's own credential`, IN_EUI],
-  [`Signed package file`, `An author and an Ed25519 signature over RFC 8785 canonical JSON (signPackageFile, verifyPackageFile)`, IN_EUI],
-  [`Extensions`, `Custom eUI component catalogs with a minimum version, checked against the host's`, IN_EUI],
-]
-
-const EXAMPLE = `{
-  "formatVersion": 2,
-  "id": "hours",
-  "name": "Working hours",
-  "version": "1.4.0",
-  "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-  "sources": ["records:entry"],
+/* The hero's package: Stunden, trimmed to what reads at a glance. */
+const PACKAGE = `{
+  "id": "acme.stunden",
+  "name": "Stunden",
   "records": {
-    "entry": {
-      "schema": {
-        "type": "object",
-        "properties": {
-          "date": { "type": "string", "format": "date" },
-          "hours": { "type": "number" }
-        },
-        "required": ["date", "hours"]
-      }
-    }
+    "entry": { "schema": { "date": "date",
+                           "hours": "number" } }
   },
   "templates": {
-    "month": {
-      "components": [{ "id": "root", "component": "Text", "text": "Hours" }],
-      "bindings": [{ "path": "/entries", "source": "records:entry?sort=date" }]
-    }
-  }
+    "month": { "components": [ Chart, Table, … ],
+      "bindings": [{ "path": "/entries",
+        "source": "exp:records?kind=entry&mine=1" }] }
+  },
+  "functions": ["harness.records.*"],
+  "exposes": [{ "name": "log_hours", … }]
 }`
 
-const EXPOSES = `"upstreams": ["m5"],
-"exposes": [
-  { "name": "list_entries", "title": "List entries", "description": "The time entries of a day.",
-    "input": { "type": "object", "properties": { "day": { "type": "string" } } },
-    "access": "read",
-    "run": { "records": { "op": "list", "kind": "entry", "where": { "date": "\${input.day}" } } } },
-  { "name": "find_customer", "title": "Find a customer", "description": "Search m5 customers.",
-    "input": { "type": "object", "properties": { "q": { "type": "string" } } },
-    "access": "read",
-    "run": { "upstream": "m5", "tool": "search_customers", "args": { "query": "\${input.q}" } } }
-]`
+const PARTS: { icon: ReactNode; key: string; what: string }[] = [
+  { icon: <Braces size={14} />, key: `manifest`, what: `name, icon, version` },
+  { icon: <LayoutTemplate size={14} />, key: `templates`, what: `screens in eUI components` },
+  { icon: <Plug size={14} />, key: `bindings`, what: `live data into a screen` },
+  { icon: <Database size={14} />, key: `records`, what: `the app's own rows` },
+  { icon: <ShieldCheck size={14} />, key: `functions`, what: `what a button may call` },
+  { icon: <Wrench size={14} />, key: `exposes`, what: `MCP tools it offers` },
+  { icon: <Server size={14} />, key: `upstreams`, what: `MCP servers it calls` },
+]
+
+const NEVER = [`scripts`, `fetch`, `background code`, `a hosted process`]
+
+const EXECUTORS: { icon: ReactNode; name: string; when: string; runs: string; chip?: ReactNode }[] = [
+  {
+    icon: <Monitor size={16} />,
+    name: `Client host`,
+    when: `while someone looks`,
+    runs: `bindings, queries, buttons, forms`,
+  },
+  {
+    icon: <Server size={16} />,
+    name: `Server broker`,
+    when: `always on`,
+    runs: `MCP tool calls; the clock, events and webhooks next`,
+  },
+  {
+    icon: <Bot size={16} />,
+    name: `Agent`,
+    when: `when it needs judgement`,
+    runs: `a hand-off with the app's data`,
+    chip: COMING,
+  },
+]
+
+const PLATFORMS: { icon: ReactNode; name: string }[] = [
+  { icon: <Monitor size={13} />, name: `Web` },
+  { icon: <Laptop size={13} />, name: `Desktop` },
+  { icon: <Smartphone size={13} />, name: `iOS` },
+  { icon: <Smartphone size={13} />, name: `Android` },
+]
+
+const INPUTS: { icon: ReactNode; title: string; note: string; chip: ReactNode }[] = [
+  { icon: <Database size={14} />, title: `Records`, note: `kinds with a schema, synced to every device`, chip: TODAY },
+  { icon: <Server size={14} />, title: `Upstreams`, note: `Stripe, GitHub, your own MCP server; each member's own account`, chip: TODAY },
+  { icon: <CalendarClock size={14} />, title: `Triggers`, note: `a schedule, a record change, an event, a webhook`, chip: COMING },
+]
+
+const OUTPUTS: { icon: ReactNode; title: string; note: string; chip: ReactNode }[] = [
+  { icon: <Users size={14} />, title: `Your team`, note: `the same screens on four platforms`, chip: TODAY },
+  { icon: <Wrench size={14} />, title: `MCP tools`, note: `stunden__log_hours in Claude Code or OpenClaw`, chip: TODAY },
+  { icon: <Bot size={14} />, title: `An agent`, note: `"follow up with this customer"`, chip: COMING },
+]
+
+const EXAMPLES: { icon: ReactNode; name: string; what: string; parts: string[]; chip: ReactNode }[] = [
+  { icon: <Clock size={15} />, name: `Stunden`, what: `Hours per day, totals per month.`, parts: [`records`, `Chart`, `exposes`], chip: TODAY },
+  { icon: <ListChecks size={15} />, name: `Release checklist`, what: `Steps per release, ticked by the team.`, parts: [`records`, `exp:issues`], chip: TODAY },
+  { icon: <Server size={15} />, name: `Admin console`, what: `One screen over Stripe, GitHub and your API.`, parts: [`upstreams`, `exposes`], chip: TODAY },
+  { icon: <Users size={15} />, name: `CRM`, what: `Contacts, companies, deals in stages.`, parts: [`relations`, `screens`], chip: COMING },
+  { icon: <Boxes size={15} />, name: `Inventory`, what: `Items, stock moves, a low-stock alert.`, parts: [`sums`, `triggers`, `offline`], chip: COMING },
+  { icon: <CalendarClock size={15} />, name: `On-call`, what: `A weekly rotation that flips on Monday.`, parts: [`schedule`, `date maths`], chip: COMING },
+]
+
+const STEPS = [
+  { num: `01`, title: `New app`, body: `Opens the editor on a draft. No form.` },
+  { num: `02`, title: `Describe it`, body: `"Log working hours." The agent names it and writes the package.` },
+  { num: `03`, title: `Watch it build`, body: `Every change is a version; the preview repaints as it lands.` },
+]
 
 const VALIDATE = `import { toolConsent, validatePackage, verifyPackageFile } from "@exponential_app/eui/host"
 
-const file = JSON.parse(text)
-const issues = validatePackage(file.package)
-// [] or [{ path: "/templates", message: "templates is a non-empty object" }, …]
-const signed = await verifyPackageFile(file) // unsigned | valid (author) | invalid
-const consent = toolConsent(file.package)    // one card row per tool, before its first call`
+const issues = validatePackage(file.package)    // [] or [{ path, message }, …]
+const signed = await verifyPackageFile(file)     // unsigned | valid (author) | invalid`
 
-export default function Apps({ path }: PageProps) {
+function Node({ icon, title, note, chip }: { icon: ReactNode; title: string; note: string; chip: ReactNode }) {
+  return (
+    <div className="ea-node glass-card">
+      <span className="ea-node-head">
+        {icon}
+        <b>{title}</b>
+        {chip}
+      </span>
+      <span className="ea-node-note">{note}</span>
+    </div>
+  )
+}
+
+export default function Apps(_: PageProps) {
   return (
     <>
-      <PageHero eyebrow="Library" title="eApps">
-        One package format for apps an agent builds: a manifest, eUI screens, bindings, records and tools. Data, never code.
-      </PageHero>
-      <DocsLayout nav={LIBRARIES_NAV} title="Libraries" sections={SECTIONS} currentPath={path}>
-        <DocsSection id="status" num="01" label="Status">
-          <h2>Status</h2>
-          <p>
-            The format runs today: every <a className="content-link" href="/docs/apps/#team-apps">team app</a> in Exponential is
-            one of these packages, painted by eUI on web, desktop, iOS and Android. Format version 2 (records, tools with
-            consent, versioned extensions, signed package files, MCP tools) ships in eUI&apos;s host module; the spec is{` `}
-            <a className="content-link" href={LINKS.source(`packages/exponential-ui/docs/package-format.md`)}>
-              package-format.md
+      <section className="home-hero">
+        <div className="shell">
+          <div className="home-hero-text">
+            <div className="section-eyebrow">eApps</div>
+            <h1 className="home-title">
+              Apps are data,
+              <br />
+              <em>never code.</em>
+            </h1>
+            <p className="home-sub">Ask an agent for an app. It writes one package, and eUI paints it on web, desktop, iOS and Android.</p>
+            <div className="home-cta">
+              <a className="btn btn-primary" href="/docs/apps/#team-apps">
+                Read the docs <IcArrow />
+              </a>
+              <a className="btn btn-ghost" href="#package">
+                The package
+              </a>
+              <a className="btn btn-ghost" href="/ui/">
+                eUI
+              </a>
+            </div>
+          </div>
+          <div className="ea-hero" role="img" aria-label="A package (records, templates, bindings, functions, exposes) on the left; the same package painted as the Stunden time tracker on a desktop and on a phone on the right">
+            <pre className="ea-pkg glass-card">
+              <span className="ea-pkg-file">stunden.app.json</span>
+              <code>{PACKAGE}</code>
+            </pre>
+            <span className="ea-arrow" aria-hidden>
+              <span>eUI</span>
+              <IcArrow size={16} />
+            </span>
+            <div className="ea-shots">
+              <img className="ea-shot ea-shot-desktop" src="/eapps/time-tracker.webp" width={2360} height={1125} alt="" loading="eager" decoding="async" />
+              <img className="ea-shot ea-shot-phone" src="/eapps/time-tracker-phone.webp" width={780} height={736} alt="" loading="eager" decoding="async" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="home-section" id="package">
+        <div className="shell">
+          <div className="section-eyebrow">What an app is</div>
+          <h2 className="section-title">One package. Data, never code.</h2>
+          <div className="ea-parts">
+            {PARTS.map((p) => (
+              <div key={p.key} className="ea-part glass-card">
+                <span className="ea-part-icon">{p.icon}</span>
+                <code>{p.key}</code>
+                <span>{p.what}</span>
+              </div>
+            ))}
+          </div>
+          <div className="ea-never" aria-label="A package never carries scripts, fetch, background code or a hosted process">
+            <span className="ea-never-label">never in a package</span>
+            {NEVER.map((n) => (
+              <s key={n}>{n}</s>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="home-section">
+        <div className="shell">
+          <div className="section-eyebrow">Three executors</div>
+          <h2 className="section-title">Three things run an app. None of them runs app code.</h2>
+          <ol className="home-steps ea-exec">
+            {EXECUTORS.map((e) => (
+              <li key={e.name} className="home-step glass-card">
+                <span className="ea-exec-icon">{e.icon}</span>
+                <h3>
+                  {e.name} {e.chip}
+                </h3>
+                <span className="ea-exec-when">{e.when}</span>
+                <p>{e.runs}</p>
+              </li>
+            ))}
+          </ol>
+          <div className="ea-upstream-note">
+            <Server size={14} aria-hidden />
+            <span>
+              Code that must always run lives behind an <strong>upstream MCP server</strong> your team already runs.
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section className="home-section">
+        <div className="shell">
+          <div className="section-eyebrow">Painted by eUI</div>
+          <h2 className="section-title">The same package on every screen.</h2>
+          <div className="ea-platforms">
+            {PLATFORMS.map((p) => (
+              <span key={p.name} className="ea-platform">
+                {p.icon} {p.name}
+              </span>
+            ))}
+            <a className="ea-platform ea-platform-link" href="/ui/">
+              {`${COMPONENT_COUNT} native components`} <IcArrow size={11} />
             </a>
-            . The standalone library is planned.
-          </p>
-        </DocsSection>
-        <DocsSection id="parts" num="02" label="One package">
-          <h2>One package</h2>
-          <DocsTable head={[`Part`, `What`, ``]} rows={PARTS.map(([part, what, chip]) => [<strong key="p">{part}</strong>, what, chip])} />
-        </DocsSection>
-        <DocsSection id="example" num="03" label="A package">
-          <h2>A package</h2>
-          <p>
-            A working-hours app: one record kind, one screen bound to its records. In Exponential, an app shared as a file is
-            this package inside a <code>.app.json</code> with the app&apos;s name, icon and colour, and its records if you
-            include them.
-          </p>
-          <DocsCode language="json">{EXAMPLE}</DocsCode>
-        </DocsSection>
-        <DocsSection id="rules" num="04" label="Data, never code">
-          <h2>Data, never code</h2>
-          <p>
-            A package carries no scripts that run in the app. Screens are A2UI, data comes in through bindings to the sources
-            the package lists, and actions call only the functions it allows. A host checks each against its own policy, so
-            an app from a stranger can&apos;t do more than its package says, and whatever acts as you needs your consent.
-          </p>
-          <p>
-            Records are the app&apos;s own rows: written without a prompt, validated against their kind&apos;s schema before
-            they are stored.
-          </p>
-        </DocsSection>
-        <DocsSection id="exposes" num="05" label="MCP tools">
-          <h2>MCP tools</h2>
-          <p>
-            A package can offer MCP tools to its host: <code>exposes</code> lists them as declarative bindings over its own
-            records, a host action or a tool of one of its <code>upstreams</code>. The host lists them as{` `}
-            <code>&lt;app&gt;__&lt;name&gt;</code> and runs them as the calling person, so no device has to be online.
-            Deletes and other destructive names are never exposed, and a <code>read</code> tool can&apos;t write.
-          </p>
-          <DocsCode language="json">{EXPOSES}</DocsCode>
-          <p>
-            In Exponential, a team&apos;s app tools are served at <code>/api/mcp/apps</code>; see{` `}
-            <a className="content-link" href="/docs/mcp/">MCP</a> for consent and access.
-          </p>
-        </DocsSection>
-        <DocsSection id="today" num="06" label="Use it today">
-          <h2>Use it today</h2>
-          <p>
-            The package type, its validator, the records store, tool consent and signatures are in eUI&apos;s host module
-            (format version 2 since 0.2.0; <code>exposes</code> and <code>upstreams</code> since 0.3.0):
-          </p>
-          <DocsCode language="shell">npm install @exponential_app/eui</DocsCode>
-          <DocsCode language="ts">{VALIDATE}</DocsCode>
-        </DocsSection>
-        <DocsSection id="packages" num="07" label="Packages">
-          <h2>Packages</h2>
-          <p>Planned names, one per platform.</p>
-          <DocsTable
-            head={[`Package`, `Registry`, ``]}
-            rows={[
-              [<code key="n">eapps</code>, `crates.io`, PLANNED],
-              [<code key="n">@exponential_app/eapps</code>, `npm`, PLANNED],
-              [<code key="n">at.exponential:eapps</code>, `Maven Central`, PLANNED],
-              [<code key="n">ExponentialApps</code>, `SwiftPM`, PLANNED],
-            ]}
-          />
-        </DocsSection>
-      </DocsLayout>
+          </div>
+          <figure className="ea-figure">
+            <div className="ea-twin">
+              <img className="ea-shot" src="/eapps/time-tracker.webp" width={2360} height={1125} alt="Stunden on the web: a month of hours as a bar chart and a table" loading="lazy" decoding="async" />
+              <img className="ea-shot" src="/eapps/time-tracker-phone.webp" width={780} height={736} alt="Stunden on a phone: one row per day and a Log hours button" loading="lazy" decoding="async" />
+            </div>
+            <figcaption>
+              <span className="ea-concept">concept</span> Stunden, a time tracker: one package, desktop and phone, drawn with eUI.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section className="home-section">
+        <div className="shell">
+          <div className="section-eyebrow">Records, triggers, upstreams</div>
+          <h2 className="section-title">Data in, tools out.</h2>
+          <div className="ea-flow" role="img" aria-label="Into the app: its records, upstream MCP servers and, coming, triggers. Out of the app: the team's screens, MCP tools for coding agents and, coming, a hand-off to an agent">
+            <div className="ea-flow-col">
+              {INPUTS.map((n) => (
+                <Node key={n.title} {...n} />
+              ))}
+            </div>
+            <span className="ea-wire" aria-hidden>
+              <i />
+            </span>
+            <div className="ea-core glass-card">
+              <Sparkles size={18} aria-hidden />
+              <b>your app</b>
+              <em>one package · versioned · per team</em>
+            </div>
+            <span className="ea-wire" aria-hidden>
+              <i />
+            </span>
+            <div className="ea-flow-col">
+              {OUTPUTS.map((n) => (
+                <Node key={n.title} {...n} />
+              ))}
+            </div>
+          </div>
+          <figure className="ea-figure">
+            <img className="ea-shot" src="/eapps/m5-admin.webp" width={2560} height={976} alt="An admin console over Stripe, GitHub and Home Assistant, each member connected with their own account" loading="lazy" decoding="async" />
+            <figcaption>
+              <span className="ea-concept">concept</span> An admin console over three upstreams, each member on their own account.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section className="home-section">
+        <div className="shell">
+          <div className="section-eyebrow">Example apps</div>
+          <h2 className="section-title">Team tools, built by asking.</h2>
+          <div className="ea-examples">
+            {EXAMPLES.map((x) => (
+              <div key={x.name} className="ea-example glass-card">
+                <span className="ea-example-head">
+                  <span className="ea-part-icon">{x.icon}</span>
+                  <b>{x.name}</b>
+                  {x.chip}
+                </span>
+                <p>{x.what}</p>
+                <span className="ea-tags">
+                  {x.parts.map((t) => (
+                    <code key={t}>{t}</code>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="home-section">
+        <div className="shell">
+          <div className="section-eyebrow">Build one</div>
+          <h2 className="section-title">Describe it. An agent builds it.</h2>
+          <ol className="home-steps">
+            {STEPS.map((s) => (
+              <li key={s.num} className="home-step glass-card">
+                <span className="home-step-num">{s.num}</span>
+                <h3>{s.title}</h3>
+                <p>{s.body}</p>
+              </li>
+            ))}
+          </ol>
+          <div className="home-cta ea-cta">
+            <a className="btn btn-primary" href={LINKS.app}>
+              Try it free <IcArrow />
+            </a>
+            <a className="btn btn-ghost" href="/docs/apps/#build">
+              How the editor works
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section className="home-section">
+        <div className="shell home-packages">
+          <div>
+            <h2 className="section-title">The format, open</h2>
+            <p className="section-sub">
+              Format version 2 ships in eUI&apos;s host module: the package type, its validator, the records store and signed package files. Spec:{` `}
+              <a className="content-link" href={LINKS.source(`packages/exponential-ui/docs/package-format.md`)}>
+                package-format.md
+              </a>
+              .
+            </p>
+          </div>
+          <div>
+            <DocsCode language="shell">npm install @exponential_app/eui</DocsCode>
+            <DocsCode language="ts">{VALIDATE}</DocsCode>
+            <DocsTable
+              head={[`Standalone package`, `Registry`, ``]}
+              rows={[
+                [<code key="n">eapps</code>, `crates.io`, COMING],
+                [<code key="n">@exponential_app/eapps</code>, `npm`, COMING],
+                [<code key="n">at.exponential:eapps</code>, `Maven Central`, COMING],
+                [<code key="n">ExponentialApps</code>, `SwiftPM`, COMING],
+              ]}
+            />
+          </div>
+        </div>
+      </section>
     </>
   )
 }

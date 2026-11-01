@@ -17,7 +17,8 @@ import { LIBRARIES } from "../ui/src/lib/libraries"
    (shots/) and live @exp/ui islands. The hero is an agent's phone chat
    (HeroPhone, src/ui-demos/AgentChat.tsx); eTalk states only what has
    shipped. EXP-1421: then the library family, one
-   docs card per lib with its state. 2026-10-31: plans (#1471), sealed
+   docs card per lib with its state. EXP-1606: genUI and apps are their
+   own visual sections, linking /ui/ and /apps/. 2026-10-31: plans (#1471), sealed
    sessions + steering over eNet (EXP-1457), editor-first apps (VAPP-176). */
 
 function Shot({ view, platform, className }: { view: string; platform: Platform; className: string }) {
@@ -33,6 +34,16 @@ const TALK: { text: string; status: Status; label: string }[] = [
   { text: `Call your agent from your phone`, status: `in-progress`, label: `beta` },
   { text: `Wake word`, status: `in-progress`, label: `beta` },
 ]
+
+const GENUI_JSON = `{"createSurface":{"surfaceId":"main"}}
+{"updateComponents":{
+ "surfaceId":"main","components":[
+  {"id":"root","component":"Card",
+   "title":"Deploy 0.18.84?"},
+  {"id":"go","component":"Button",
+   "label":"Deploy"}]}}`
+
+const APP_PARTS = [`templates`, `bindings`, `records`, `functions`, `exposes`, `upstreams`]
 
 function Feature({
   id,
@@ -153,25 +164,75 @@ export function HomePage() {
           <Shot view={`steering`} platform={`ios`} className={`aw-shot aw-shot-phone`} />
         </Feature>
 
-        <Feature
-          id={`apps`}
-          title={`Ask for an app`}
-          text={`New app opens the editor: describe it and watch it build in a live preview. Your team opens it on every platform, and its tools reach your agents over MCP.`}
-          link={{ href: `/docs/apps/`, label: `How apps work` }}
-        >
-          <Shot view={`app`} platform={`desktop`} className={`aw-shot aw-shot-desktop`} />
-          <Shot view={`app`} platform={`ios`} className={`aw-shot aw-shot-phone`} />
-        </Feature>
+        <section id={`genui`} className={`home-feature`}>
+          <div className={`shell aw-grid`}>
+            <motion.div className={`aw-copy`} {...sectionReveal}>
+              <h2 className={`section-title`}>Generative UI</h2>
+              <p className={`section-sub`}>
+                Agents answer with an interface, not a wall of text. One A2UI message, painted natively on every platform by
+                eUI, our open framework.
+              </p>
+              <a className={`btn btn-ghost`} href={`/ui/`}>
+                eUI <IcArrow size={12} />
+              </a>
+            </motion.div>
+            <motion.figure className={`aw-shots hx-stage`} {...sectionReveal}>
+              <Shot view={`exponential-ui-demo`} platform={`desktop`} className={`aw-shot aw-shot-desktop hx-shot-desktop`} />
+              <Shot view={`exponential-ui-demo`} platform={`ios`} className={`aw-shot aw-shot-phone`} />
+              <pre className={`hx-code glass-card`} aria-hidden>
+                <span className={`hx-file`}>a2ui · jsonl</span>
+                <code>{GENUI_JSON}</code>
+              </pre>
+            </motion.figure>
+          </div>
+        </section>
 
-        <Feature
-          id={`ui`}
-          title={`One UI on every platform`}
-          text={`Agents and apps draw with eUI, our open framework. React, SwiftUI, Compose and the desktop paint it the same.`}
-          link={{ href: `/ui/`, label: `eUI` }}
-        >
-          <Shot view={`exponential-ui-demo`} platform={`desktop`} className={`aw-shot aw-shot-desktop`} />
-          <Shot view={`exponential-ui-demo`} platform={`ios`} className={`aw-shot aw-shot-phone`} />
-        </Feature>
+        <section id={`apps`} className={`home-feature`}>
+          <div className={`shell aw-grid`}>
+            <motion.div className={`aw-copy`} {...sectionReveal}>
+              <h2 className={`section-title`}>Apps, built by asking</h2>
+              <p className={`section-sub`}>
+                Describe a tool and an agent writes it: one package, data, never code. Your team opens it on every
+                platform, and its tools reach your agents over MCP.
+              </p>
+              <ul className={`hx-parts`} aria-label={`What an app package holds`}>
+                {APP_PARTS.map((p) => (
+                  <li key={p}>
+                    <code>{p}</code>
+                  </li>
+                ))}
+              </ul>
+              <span className={`hx-links`}>
+                <a className={`btn btn-ghost`} href={`/apps/`}>
+                  eApps <IcArrow size={12} />
+                </a>
+                <a className={`btn btn-ghost`} href={`/docs/apps/#team-apps`}>
+                  Docs
+                </a>
+              </span>
+            </motion.div>
+            <motion.figure className={`aw-shots`} {...sectionReveal}>
+              <img
+                className={`aw-shot aw-shot-desktop`}
+                src={`/eapps/time-tracker.webp`}
+                width={2360}
+                height={1125}
+                loading={`lazy`}
+                decoding={`async`}
+                alt={`Stunden, a time tracker app: a month of hours as a chart and a table`}
+              />
+              <img
+                className={`aw-shot aw-shot-phone hx-phone-wide`}
+                src={`/eapps/time-tracker-phone.webp`}
+                width={780}
+                height={736}
+                loading={`lazy`}
+                decoding={`async`}
+                alt={`The same app on a phone`}
+              />
+            </motion.figure>
+          </div>
+        </section>
 
         <section id={`libraries`} className={`home-feature home-libs`}>
           <motion.div className={`shell`} {...sectionReveal}>
