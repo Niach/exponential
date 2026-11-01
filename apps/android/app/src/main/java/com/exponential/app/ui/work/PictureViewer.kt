@@ -69,17 +69,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // EXP-1586: THE picture viewer, phone form — a Results / `sessions_show`
-// picture and the plan lightbox open THIS full-screen page. The picture sits
+// picture, the plan lightbox and a comment's image open THIS full-screen page. The picture sits
 // in the SDK's `ZoomableImageView` (catalog/style.json `zoomableImage`, the
 // core's maths): it opens at fit (never upscaled; a tall capture at
 // fit-width from its top), pinch zooms about the fingers, a double tap goes
 // rest ↔ max(100%, 2× rest), one finger pans only along an axis with room, a
 // tap toggles THE zoom pill. A set steps with `‹ i / n ›` and, only while the
 // picture rests, a horizontal swipe (no wrap); a step opens the next picture
-// at rest. Closing = ✕ or Back.
+// at rest. Closing = ✕ or Back. A camera photo shows upright (its EXIF turn).
 
 /** One picture: [id] = the attachment id (the zoom's reset key), [src] its relative URL. */
 data class PictureViewerItem(val id: String, val src: String, val label: String)
+
+/** What the viewer opens: a set of pictures and the one it starts at. */
+data class PictureViewerSet(val items: List<PictureViewerItem>, val start: Int = 0)
 
 /** Source rows per decoded strip: a few strips cover the screen, so memory follows the view. */
 private const val STRIP_ROWS = 1024
@@ -252,8 +255,11 @@ private fun StripPicture(
     onZoomed: (Boolean) -> Unit,
 ) {
     val decoder = source.decoder
-    val width = decoder.width
-    val height = decoder.height
+    val orientation = source.orientation
+    // The picture as shown: a camera photo's EXIF turn swaps the stored axes.
+    val swapped = exifSwapsAxes(orientation)
+    val width = if (swapped) decoder.height else decoder.width
+    val height = if (swapped) decoder.width else decoder.height
     if (width <= 0 || height <= 0) return
     val density = LocalDensity.current.density
     val strips = remember(decoder) { tallImageStripRanges(height, STRIP_ROWS) }
@@ -283,10 +289,12 @@ private fun StripPicture(
         Column(modifier = Modifier.fillMaxSize()) {
             strips.forEachIndexed { index, (top, rows) ->
                 val shown = index in visible
-                val targetPx = width / sample
-                val strip by produceState<ImageBitmap?>(null, decoder, shown, targetPx) {
+                val bandSample = sample
+                val strip by produceState<ImageBitmap?>(null, decoder, shown, bandSample) {
                     value = if (shown) {
-                        withContext(Dispatchers.Default) { decodeTallRegion(decoder, top, rows, targetPx)?.asImageBitmap() }
+                        withContext(Dispatchers.Default) {
+                            decodeOrientedBand(decoder, orientation, top, rows, bandSample)?.asImageBitmap()
+                        }
                     } else {
                         null
                     }

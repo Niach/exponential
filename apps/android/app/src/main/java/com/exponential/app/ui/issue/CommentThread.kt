@@ -43,8 +43,12 @@ import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.commentKindOf
 import com.exponential.app.domain.ActivityFold
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.isInlineImage
 import com.exponential.app.domain.isMarkdownAttachment
 import com.exponential.app.ui.components.AttachmentMarkdownPreviewSheet
+import com.exponential.app.ui.work.PictureViewer
+import com.exponential.app.ui.work.PictureViewerItem
+import com.exponential.app.ui.work.PictureViewerSet
 import com.exponential.app.ui.components.commentAuthorName
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.GlassPill
@@ -113,6 +117,8 @@ fun CommentThread(
     var editingId by remember { mutableStateOf<String?>(null) }
     // EXP-1003: the markdown attachment open in the in-app preview sheet.
     var preview by remember { mutableStateOf<AttachmentEntity?>(null) }
+    // EXP-1586: the open picture viewer (a comment's images), null when closed.
+    var viewer by remember { mutableStateOf<PictureViewerSet?>(null) }
     // The sheet's Download runs one download at a time (no busy tracking on
     // this view model, unlike the Files rail's).
     var downloading by remember { mutableStateOf(false) }
@@ -313,7 +319,18 @@ fun CommentThread(
                                 appNames = state.appNames,
                                 attachmentsByComment = attachmentsByComment,
                                 onOpenAttachment = { attachment ->
-                                    if (isMarkdownAttachment(
+                                    if (isInlineImage(attachment.contentType)) {
+                                        // EXP-1586: THE picture viewer over that comment's images.
+                                        val images = attachmentsByComment[attachment.commentId].orEmpty()
+                                            .filter { isInlineImage(it.contentType) }
+                                            .ifEmpty { listOf(attachment) }
+                                        viewer = PictureViewerSet(
+                                            items = images.map {
+                                                PictureViewerItem(id = it.id, src = "/api/attachments/${it.id}", label = it.filename)
+                                            },
+                                            start = images.indexOfFirst { it.id == attachment.id }.coerceAtLeast(0),
+                                        )
+                                    } else if (isMarkdownAttachment(
                                             attachment.contentType,
                                             attachment.filename,
                                         )
@@ -343,6 +360,10 @@ fun CommentThread(
                 }
             }
         }
+    }
+
+    viewer?.let { set ->
+        PictureViewer(items = set.items, start = set.start, onClose = { viewer = null })
     }
 
     preview?.let { target ->
