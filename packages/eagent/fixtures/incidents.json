@@ -1,5 +1,5 @@
 {
-  "$comment": "THE FIELD FAILURES of 2026-10-30/31, replayed so neither implementation regresses. (1) #FEED-172: a crowded thread (8 sub-sessions) asked its team agent a question in a PLAIN message (no card, so no needsInput); the agent's reply forked a fresh thread with no context instead of reaching the asker. Rule: a thread whose tree has the last word with the caller (`awaitsCaller`, reuse.json) is always reused; the crowding rule applies to NEW work only, so once the caller has spoken last its next message may fork again. (2) #EXP-1500: a message was consumed and its turn started, then a self-update killed the run and the new app treated the contended claim as settled, so the run was never continued. From the hub's side the run reads `restarted` (resume) once the living device stops listing it, the consumed message is not redelivered (never nudged), and `resumeMinutes` later the watchdog puts it on a person and wakes the parent once; a message continues it and any device report clears it. (3) INTERRUPTED, NEVER CONTINUED: a host going offline mid-turn is a silent `device_offline` (resume) for as long as the device is away (its presence shows that); the resume clock starts only when it is back, and a run it does not continue within resumeMinutes reaches a person. (4) #FEED-178: threads started with a SEALED first brief replied only \"Waiting for your next message\": the first claim must deliver the first input as the Request whether sealed or not (`brief` names it, sealed: true; the device opens it), consume it, and never hand the device an empty brief while a first input exists.",
+  "$comment": "THE FIELD FAILURES of 2026-10-30/31, replayed so neither implementation regresses. (1) #FEED-172: a crowded thread (8 sub-sessions) asked its team agent a question in a PLAIN message (no card, so no needsInput); the agent's reply forked a fresh thread with no context instead of reaching the asker. Rule: a thread whose tree has the last word with the caller (`awaitsCaller`, reuse.json) is always reused; the crowding rule applies to NEW work only, so once the caller has spoken last its next message may fork again. (2) #EXP-1500: a message was consumed and its turn started, then a self-update killed the run and the new app treated the contended claim as settled, so the run was never continued. From the hub's side the run reads `restarted` (resume) once the living device stops listing it, the consumed message is not redelivered (never nudged), and `resumeMinutes` later the watchdog puts it on a person and wakes the parent once; a message continues it and any device report clears it. (3) INTERRUPTED, NEVER CONTINUED: a host going offline mid-turn is a silent `device_offline` (resume) for as long as the device is away (its presence shows that); the resume clock starts only when it is back, and a run it does not continue within resumeMinutes reaches a person. (4) #FEED-178: threads started with a SEALED first brief replied only \"Waiting for your next message\": the first claim must deliver the first input as the Request whether sealed or not (`brief` names it, sealed: true; the device opens it), consume it, and never hand the device an empty brief while a first input exists. (5) #FEED-173/#FEED-174: `sessions_send {wakeOn}` with no target and no text started an empty untitled root that ran; `wakeOn` alone is `send.watch` on the CALLER, and a start with neither a target nor work (text or issues) is refused (copy.startNeedsWork). (6) #FEED-172 again (85ee1eff, crowded): the asker may be a CHILD of the crowded thread; `awaitsCaller` reads the whole target tree, so the reply lands on the thread and nothing forks. (7) #FEED-158: a private run's report reaches a starter that may not see it as the neutral line: its BODY carries the lead, the read hint and the session id; the card's summary stays the bare lead (the line clients draw), so a device feeding the report to an agent reads the body when it extends the summary (crates/coding pickup `input_text`). The zero-length system row before a run's own report is its `session_ended` card (a card row: empty body by design, drawn from the card ×4).",
   "cases": [
     {
       "name": "#FEED-172: the team agent's reply to a crowded thread that asked it reaches the thread",
@@ -641,6 +641,319 @@
           }
         }
       }
+    },
+    {
+      "name": "#FEED-173/#FEED-174: {wakeOn} alone watches from the caller; a start with no target and nothing to do is refused, never an empty thread",
+      "given": {
+        "sessions": [
+          {
+            "id": "r0",
+            "deviceId": "d1"
+          },
+          {
+            "id": "k1",
+            "parentId": "r0",
+            "deviceId": "d1"
+          },
+          {
+            "id": "w1",
+            "deviceId": "d1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "callerId": "k1",
+              "deviceId": "d1",
+              "id": "x1"
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "callerId": "k1",
+              "deviceId": "d1",
+              "id": "x1",
+              "text": "   "
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.watch",
+            "at": 60000,
+            "data": {
+              "watcherId": "k1",
+              "ids": [
+                "w1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "k1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 120000,
+            "data": {
+              "deviceId": "d1",
+              "id": "t1",
+              "issueIds": [
+                "i1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "t1",
+            "messageId": null
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 180000,
+            "data": {
+              "deviceId": "d1",
+              "id": "t2",
+              "promptId": "p1"
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "t2",
+            "messageId": null
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "k1": {
+            "wakeOn": [
+              "w1"
+            ]
+          },
+          "t1": {
+            "status": "queued",
+            "parentId": null
+          },
+          "x1": null,
+          "t2": {
+            "status": "queued",
+            "parentId": null
+          }
+        }
+      }
+    },
+    {
+      "name": "#FEED-172 (85ee1eff): a crowded thread whose CHILD asked the caller gets the reply in place, never a fresh thread",
+      "given": {
+        "sessions": [
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "deviceId": "d9"
+          },
+          {
+            "id": "da1",
+            "startedByAgentId": "ag1",
+            "status": "running",
+            "busy": true,
+            "lastTurnAt": 356400000,
+            "updatedAt": 356400000
+          },
+          {
+            "id": "c1",
+            "parentId": "da1"
+          },
+          {
+            "id": "c2",
+            "parentId": "da1"
+          },
+          {
+            "id": "c3",
+            "parentId": "da1"
+          },
+          {
+            "id": "c4",
+            "parentId": "da1"
+          },
+          {
+            "id": "c5",
+            "parentId": "da1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c6",
+            "parentId": "da1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c7",
+            "parentId": "da1",
+            "status": "ended",
+            "endedAt": 0
+          },
+          {
+            "id": "c8",
+            "parentId": "da1",
+            "status": "ended",
+            "endedAt": 0
+          }
+        ],
+        "messages": [
+          {
+            "id": "q1",
+            "sessionId": "as1",
+            "authorKind": "agent",
+            "authorSessionId": "c2",
+            "body": "Which locale is the default?",
+            "at": 359000000
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "role": "assistant",
+            "conversationId": "as1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000000,
+            "data": {
+              "sessionId": "da1",
+              "callerId": "as1",
+              "text": "German.",
+              "freshId": "x1"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "da1",
+              "authorKind": "agent",
+              "authorSessionId": "as1",
+              "body": "German.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "da1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "x1": null
+        }
+      }
+    },
+    {
+      "name": "#FEED-158: a private run's end report reaches its starter with the read hint and the session id, never a bare 'A private chat finished.'",
+      "given": {
+        "sessions": [
+          {
+            "id": "co1",
+            "shared": true,
+            "userId": "u2",
+            "wakeOn": [
+              "pr1"
+            ]
+          },
+          {
+            "id": "pr1",
+            "shared": false,
+            "userId": "u1",
+            "startedByAgentId": "ag1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "pr1",
+              "summary": "Twelve runs, no absolute time limit in this file."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "pr1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "pr1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "co1",
+              "authorKind": "agent",
+              "authorSessionId": "pr1",
+              "body": "A private chat finished.\nRead it with exponential_sessions({op: \"get\", id: \"pr1\"}) if your account may see it.",
+              "card": {
+                "kind": "report",
+                "sessionId": "pr1",
+                "summary": "A private chat finished.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "pr1"
+            }
+          ],
+          "result": {
+            "sessionId": "pr1",
+            "endedIds": [
+              "pr1"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

@@ -107,4 +107,63 @@ describe.skipIf(!ready.ok)(`#FEED-172 agent reuse`, () => {
     expect(after.sessionId).not.toBe(threadRow.id)
     expect(after.warning).toMatch(/8 sub-sessions/)
   })
+
+  it(`#FEED-172 (85ee1eff): a crowded thread whose CHILD asked the agent gets the reply in place`, async () => {
+    const owner = `fresh-${id8()}`
+    await db.execute(sql`
+      INSERT INTO users (id, name, email, email_verified, is_admin, created_at, updated_at)
+      VALUES (${owner}, 'Tester', ${`${owner}@fresh.test`}, true, false, now(), now())
+    `)
+    made.users.push(owner)
+    const [team] = await db.insert(teams).values({ name: `Fresh`, slug: `fresh-${id8()}` }).returning({ id: teams.id })
+    const teamId = team!.id
+    made.teams.push(teamId)
+    await db.insert(teamMembers).values({ teamId, userId: owner, role: `owner` })
+    const deviceId = `dev-${id8()}`
+    await db.insert(devices).values({ userId: owner, deviceId, label: `box`, kind: `server` })
+    const [agent] = await db.insert(agents).values({ teamId, name: `Helper`, deviceId, ownerId: owner }).returning()
+    const conversation = await sendSession({ userId: owner, input: { agentId: agent!.id, text: `Hi.` } })
+    const thread = await sendSession({
+      userId: owner,
+      callerSessionId: conversation.sessionId,
+      viaMcp: true,
+      input: { teamId, text: `Coordinate the release.` },
+    })
+    const threadRow = (await db.select().from(sessions).where(sql`${sessions.id} = ${thread.sessionId}`))[0]!
+    await db.insert(sessions).values(
+      Array.from({ length: 8 }, () => ({
+        id: crypto.randomUUID(),
+        teamId,
+        parentId: threadRow.id,
+        rootId: threadRow.id,
+        depth: 1,
+        userId: owner,
+        deviceId,
+        status: `ended` as const,
+        endedAt: new Date(),
+        shared: threadRow.shared,
+      }))
+    )
+    const child = await sendSession({
+      userId: owner,
+      callerSessionId: threadRow.id,
+      viaMcp: true,
+      input: { parentId: threadRow.id, text: `Check the locales.` },
+    })
+    // The CHILD asks the agent; the agent answers the thread it belongs to.
+    await sendSession({
+      userId: owner,
+      callerSessionId: child.sessionId,
+      viaMcp: true,
+      input: { agentId: agent!.id, text: `Which locale is the default?` },
+    })
+    const reply = await sendSession({
+      userId: owner,
+      callerSessionId: conversation.sessionId,
+      viaMcp: true,
+      input: { sessionId: threadRow.id, text: `German.` },
+    })
+    expect(reply.sessionId).toBe(threadRow.id)
+    expect(reply.warning).toBeUndefined()
+  })
 })

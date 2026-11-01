@@ -582,7 +582,10 @@ impl SealingTransform {
         let Some(target) = out.get("sessionId").and_then(Value::as_str) else { return };
         if let Some(public) = sent.pointer("/seal/publicKey").and_then(Value::as_str) {
             let seal = self.new_roots.lock().unwrap_or_else(|p| p.into_inner()).remove(public);
-            if let Some(seal) = seal {
+            // #FEED-173: a seal is only ever a NEW root's; a send the server
+            // answered with the caller's own id (a `{wakeOn}` watch) never
+            // takes it over the caller's tree key.
+            if let Some(seal) = seal.filter(|_| target != self.session_id) {
                 service.adopt(target, &seal);
             }
         } else if let Some(parent) = sent.get("parentId").and_then(Value::as_str) {
@@ -1827,6 +1830,24 @@ mod tests {
         assert_eq!(tree["messages"][0]["card"]["summary"], "Merged #1400; tests green");
         codemode::revoke("child-1");
         sealing::uninstall();
+    }
+
+    /// #FEED-173: a `{wakeOn, name}` send the server answers with the
+    /// CALLER's id (a watch) never adopts the fresh root seal the gateway
+    /// built under the caller: its own tree key stays.
+    #[test]
+    fn a_watch_answered_with_the_callers_id_never_takes_over_its_key() {
+        let _serial = serial();
+        let install = enet_core::PushKeypair::generate();
+        let fake = Arc::new(crate::sealing::test_support::FakeService { install_public: Some(install.public()), ..Default::default() });
+        sealing::install(fake.clone());
+        let own = enet_core::sealed::generate_tree_key();
+        fake.keyring.insert_secret("s-own", 1, own.secret);
+        let answer: Answer = Arc::new(|_, _| json!({ "sessionId": "s-own", "messageId": null, "status": "running", "deliverTo": null }));
+        let server = fake_server(answer, json!({}));
+        let grant = gateway(&server, "s-own", "root-own");
+        call(&grant, SEND_TOOL, json!({ "wakeOn": ["s-other"], "name": "Watch it" }));
+        assert_eq!(fake.keyring.secret("s-own", 1), Some(own.secret));
     }
 
     #[test]

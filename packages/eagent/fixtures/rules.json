@@ -82,6 +82,7 @@
     "tooDeep": "Sub-sessions nest at most {max} deep",
     "tooMany": "A chat runs at most {max} sessions at once",
     "endedNeedsMessage": "This session has ended: send a message to continue it",
+    "startNeedsWork": "Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session",
     "endedNothingToAnswer": "This session has ended: nothing to answer",
     "otherDevice": "This session runs on another device",
     "claimEnded": "This session has ended",
