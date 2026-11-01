@@ -50,6 +50,10 @@ fun InviteLinkCard(
     state: InviteLinkState,
     onGenerate: () -> Unit,
     modifier: Modifier = Modifier,
+    /** EXP-1554: the onboarding invite step hosts the creator INSIDE its own
+     *  step card (web `invite-step.tsx`): no card chrome of its own, and
+     *  Generate is the small outline button with the link glyph. */
+    bare: Boolean = false,
 ) {
     if (state.hidden) return
 
@@ -69,13 +73,21 @@ fun InviteLinkCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .glassCard()
-            .padding(20.dp)
+            .then(if (bare) Modifier else Modifier.glassCard().padding(20.dp))
             .testTag("invite-link-creator"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         val url = state.inviteUrl
-        if (url == null) {
+        if (url == null && bare) {
+            GlassPill(
+                label = OnboardingCopy.INVITE_GENERATE,
+                icon = ExpIcons.editorLink,
+                onClick = onGenerate,
+                enabled = !state.generating,
+                loading = state.generating,
+                modifier = Modifier.testTag("invite-generate"),
+            )
+        } else if (url == null) {
             GlassSubmitButton(
                 label = OnboardingCopy.INVITE_GENERATE,
                 onClick = onGenerate,

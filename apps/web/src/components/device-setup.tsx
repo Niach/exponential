@@ -76,6 +76,9 @@ const OfflineIcon = conceptIcon(`ui-device-offline`)
 const DownloadIcon = conceptIcon(`ui-download`)
 const SignInIcon = conceptIcon(`ui-sign-in`)
 
+/** Below md the device card's two buttons share one row (EXP-1554). */
+const PHONE_COMPACT_BUTTON = `max-md:h-7 max-md:px-2 max-md:text-xs max-md:has-[>svg]:px-2`
+
 // The install script is served by the CLOUD marketing site for every
 // instance — self-hosted deployments ship only the web app (no marketing
 // pages), so the one-liner always names the target instance explicitly via
@@ -286,18 +289,21 @@ export function DeviceSetup({
         <p className="text-sm text-muted-foreground">
           {DEVICE_CARD_COPY.desktop.description}
         </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" asChild>
+        {/* EXP-1554: 'All platforms' sits BESIDE Download at every width,
+            never truncated (the natives' row): phones take the compact
+            12px buttons so both fit a 390px screen. */}
+        <div className="flex flex-wrap items-center gap-2 max-md:flex-nowrap">
+          <Button size="sm" className={PHONE_COMPACT_BUTTON} asChild>
             <a
               href={desktopDownloadHref(userAgent, touchPoints)}
               target="_blank"
               rel="noreferrer"
             >
-              <DownloadIcon className="mr-1.5 size-4" />
+              <DownloadIcon className="mr-1.5 size-4 max-md:mr-1 max-md:size-3.5" />
               {DEVICE_CARD_COPY.desktop.action}
             </a>
           </Button>
-          <Button size="sm" variant="outline" asChild>
+          <Button size="sm" variant="outline" className={PHONE_COMPACT_BUTTON} asChild>
             <a href={DESKTOP_RELEASES_URL} target="_blank" rel="noreferrer">
               All platforms
             </a>

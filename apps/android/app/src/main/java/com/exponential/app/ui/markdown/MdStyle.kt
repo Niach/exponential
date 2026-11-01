@@ -107,11 +107,13 @@ object MdStyle {
 
     val mono = body.copy(fontFamily = FontFamily.Monospace, fontSize = bodySize * 0.9f)
 
-    // List indentation (iOS headIndent = depth*20 + 24). The glyph (bullet /
-    // number / checkbox) occupies a [listGlyphWidth] column starting at the
-    // indent; the text begins after it (EXP-534: as a TextIndent inside the
-    // run's one multi-line field, with the glyph painted into the margin).
-    val listIndentBase = 24.dp
+    // List indentation (iOS firstLineHeadIndent = depth*20, headIndent =
+    // depth*20 + 24). The glyph (bullet / number / checkbox) occupies a
+    // [listGlyphWidth] column starting at the indent; the text begins after it
+    // (EXP-534: as a TextIndent inside the run's one multi-line field, with the
+    // glyph painted into the margin). EXP-1554: a top-level glyph sits ON the
+    // text edge, as web and iOS draw it (the old 24dp base indented every list).
+    val listIndentBase = 0.dp
     val listIndentPerDepth = 20.dp
     val listGlyphWidth = 24.dp
 

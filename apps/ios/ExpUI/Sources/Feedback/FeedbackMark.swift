@@ -20,6 +20,9 @@ public struct FeedbackMark: View {
     let size: CGFloat
     var color: Color
     var animated: Bool
+    /// A frozen frame of the loop (0...1), for the styleguide's four-phase
+    /// row (web `FeedbackMark phase`); nil = live.
+    var phase: Double?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The mark's first frame: the loop is timed from here, not the clock.
@@ -29,15 +32,23 @@ public struct FeedbackMark: View {
     /// different frame in every capture.
     static let capturing = ProcessInfo.processInfo.arguments.contains("-uiTesting")
 
-    public init(size: CGFloat = CGFloat(FeedbackStates.Mark.inlineSize), color: Color = .white, animated: Bool = true) {
+    public init(
+        size: CGFloat = CGFloat(FeedbackStates.Mark.inlineSize),
+        color: Color = .white,
+        animated: Bool = true,
+        phase: Double? = nil
+    ) {
         self.size = size
         self.color = color
         self.animated = animated
+        self.phase = phase
     }
 
     public var body: some View {
         Group {
-            if animated && !reduceMotion && !Self.capturing {
+            if let phase {
+                MarkCanvas(color: color, spans: FeedbackStates.Mark.spans(phase: phase))
+            } else if animated && !reduceMotion && !Self.capturing {
                 TimelineView(.animation) { context in
                     MarkCanvas(color: color, spans: Self.spans(context, since: start))
                 }

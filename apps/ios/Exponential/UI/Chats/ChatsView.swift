@@ -100,6 +100,7 @@ struct ChatsView: View {
         .navigationDestination(item: $agentSettings) { target in
             AgentSettingsPage(teamId: target.teamId, agentId: target.agentId, isOwner: true)
                 .environment(\.accountId, accountId)
+                .bareBackButton()
         }
         .task(id: teamState.activeTeamId) { await resolveOwner() }
         // S-3: the viewer's Assistant exists once the list mounts (once per

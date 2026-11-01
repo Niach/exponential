@@ -29,7 +29,7 @@ struct SearchView: View {
                 // The results are the view model's STATE (ranked off the main
                 // actor, #EXP-1382) — the input paints every keystroke at once.
                 SearchListView(
-                    items: vm.results.map(Self.item),
+                    items: vm.results.map { Self.item($0, team: vm.teamStatuses) },
                     query: $query,
                     // EXP-922: the ×4 copy set — same words on web, desktop,
                     // iOS and Android (web `lib/issue-search.ts`;
@@ -76,16 +76,18 @@ struct SearchView: View {
     }
 
     /// One result as THE picker row (EXP-922's flat list, SLOP-28's one row
-    /// type): the anchor status glyph (EXP-314: search spans teams, status
-    /// rows are team-scoped), `IDENT Title`. Keyed by the issue id.
-    static func item(_ result: SearchViewModel.Result) -> PickerItem<String> {
+    /// type): the issue's TEAM status glyph (the search is team-scoped,
+    /// #EXP-1382; EXP-1554: web's clocks), `IDENT Title` with the identifier
+    /// mono + muted. Keyed by the issue id.
+    static func item(_ result: SearchViewModel.Result, team: [ResolvedIssueStatus]) -> PickerItem<String> {
         let issue = result.issue
-        let status = IssueStatus.from(issue.status)
+        let status = IssueStatusResolver.resolve(issue, team: team)
         return PickerItem(
             value: issue.id,
             label: "\(issue.identifier ?? "") \(issue.title)",
             icon: status.iconName,
-            color: status.color
+            color: status.color,
+            identifier: issue.identifier
         )
     }
 

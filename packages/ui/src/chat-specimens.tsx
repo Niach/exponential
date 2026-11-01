@@ -530,7 +530,10 @@ export function PhoneBoardMenuSpecimen() {
   return (
     <div
       data-testid="phone-board-menu-specimen"
-      className="relative h-[340px] w-[390px] max-w-full overflow-hidden rounded-xl bg-background [transform:translateZ(0)] max-sm:-mx-4"
+      // EXP-1554: on a phone the specimen IS the screen (over the live tab
+      // bar), so the panel visibly grows from the bottom strip's frame, the
+      // live strip's own spot (px-4, pb-4), as Android pictures it.
+      className="relative h-[340px] w-[390px] max-w-full overflow-hidden rounded-xl bg-background [transform:translateZ(0)] max-md:fixed max-md:inset-0 max-md:z-50 max-md:h-auto max-md:w-auto max-md:rounded-none"
     >
       <div className="flex flex-col gap-3 p-4 opacity-40">
         <PageHeader title={ACTIVE_BOARD.name} />
@@ -538,7 +541,7 @@ export function PhoneBoardMenuSpecimen() {
           <div key={row} className="h-11 rounded-xl bg-glass-row" />
         ))}
       </div>
-      <div className="absolute inset-x-0 bottom-0 flex justify-center px-2 pb-4">
+      <div className="absolute inset-x-0 bottom-0 flex justify-center px-2 pb-4 max-md:px-4 max-md:pb-[max(1rem,env(safe-area-inset-bottom))]">
         <PhoneBoardMenuStrip
           open
           onOpenChange={noop}

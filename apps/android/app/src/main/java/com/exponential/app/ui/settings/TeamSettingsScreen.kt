@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +65,7 @@ import com.exponential.app.domain.GithubCopy
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.domain.inviteExpiryLabel
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.ui.components.DangerZoneSection
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.BoardRepoField
@@ -205,12 +207,13 @@ fun TeamSettingsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            // EXP-1554: the phone page title is centred (iOS, the app editor).
+            CenterAlignedTopAppBar(
                 title = { TopBarTitle(title) },
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
             )
         },
         containerColor = Color.Transparent,
@@ -409,25 +412,12 @@ private fun DangerZone(
     // special case, so no slug is exempt) — a team-less account lands
     // back in the create-or-join flow.
     if (isOwner && state.team != null) {
-        // iOS TeamSettingsView parity (EXP-577): red section title and a
-        // full-width red-on-glass capsule with the delete glyph.
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Pinned ×4: the Danger zone heading is a BAND with danger text.
-            SectionBand {
-                Text(
-                    "Danger zone",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = DesignTokens.Semantic.Red,
-                )
-            }
-            GlassPill(
-                "Delete team",
-                icon = ExpIcons.uiDelete,
-                onClick = { confirmDelete = true },
-                contentColor = DesignTokens.Semantic.Red,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        // EXP-1554: web's Danger zone row, THE destructive button trailing.
+        DangerZoneSection(
+            description = "Permanently delete this team and all its data.",
+            label = "Delete team",
+            onClick = { confirmDelete = true },
+        )
     }
 
     // The capsule above only renders with the team row, so the prompt names

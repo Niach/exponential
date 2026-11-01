@@ -894,3 +894,10 @@
   display: none;
 }
 
+
+/* EXP-1554: a bottom sheet that only DIMS what is behind it, as the natives'
+   (the issue properties sheet): the shared overlay is the content's previous
+   sibling in the sheet portal, so the content opts it out of the blur. */
+[data-slot="sheet-overlay"]:has(+ [data-scrim="dim"]) {
+  backdrop-filter: none;
+}

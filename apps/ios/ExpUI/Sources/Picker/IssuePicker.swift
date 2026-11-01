@@ -118,7 +118,8 @@ public struct IssuePicker<Trigger: View>: View {
                 icon: issue.icon,
                 color: issue.color ?? issue.colorHex.flatMap { Color(hex: $0) },
                 disabled: issue.disabled,
-                keywords: [issue.identifier, issue.title]
+                keywords: [issue.identifier, issue.title],
+                identifier: issue.identifier
             )
         }
     }

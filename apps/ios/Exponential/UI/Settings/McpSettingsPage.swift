@@ -582,6 +582,7 @@ struct McpSettingsSpecimen: View {
                 .navigationDestination(for: String.self) { _ in
                     McpSettingsPage(teamId: "specimen-team", specimen: Self.specimen)
                         .navigationBarTitleDisplayMode(.inline)
+                        .bareBackButton()
                 }
         }
     }

@@ -11,6 +11,9 @@ import com.exponential.app.ui.components.PageHeaderActions
 import com.exponential.app.ui.components.PhoneBoardMenu
 import com.exponential.app.ui.theme.glassRow
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -336,8 +339,16 @@ private fun SpecimenTabBar(
 fun PhoneTabBarSpecimenScreen() {
     AppBackground {
         Column(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(vertical = 48.dp).testTag(PhoneTabBarSpecimenTestId),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            // EXP-1554: the bars sit mid-screen, so none of them adds the
+            // navigation-bar inset under itself (it opened a gesture-bar-tall
+            // gap between each bar and the next caption, iOS/web-mobile have none).
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .consumeWindowInsets(WindowInsets.navigationBars)
+                .padding(vertical = 48.dp)
+                .testTag(PhoneTabBarSpecimenTestId),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Caption("On the board view (the caret opens the board menu)")
             SpecimenTabBar(selected = "board")

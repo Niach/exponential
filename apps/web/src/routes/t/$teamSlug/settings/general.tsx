@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { TeamGeneralSection } from "@/components/team/general-section"
 import {
   Button,
+  conceptIcon,
   GlassRow,
   GlassSectionHeader,
   Input,
@@ -17,6 +18,8 @@ import {
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
 import { pageTitle } from "@/lib/page-title"
+
+const UiDeleteIcon = conceptIcon(`ui-delete`)
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/general`)({
   head: () => ({
@@ -78,6 +81,7 @@ function SettingsGeneral() {
                   className="shrink-0"
                   onClick={() => setShowDeleteTeam(true)}
                 >
+                  <UiDeleteIcon />
                   Delete team
                 </Button>
               </GlassRow>

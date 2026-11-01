@@ -125,12 +125,12 @@ const NO_LABELS: Label[] = []
 const NO_AGENTS: readonly SyncedAgent[] = []
 
 /** EXP-1259 D8: the first-load placeholder in the issue row's geometry
- *  (48px phone rows, 40px from md up, the status glyph's dot leading). */
+ *  (40px rows at every width, the natives' list metric, EXP-1554; the
+ *  status glyph's dot leading). */
 function IssueListSkeleton() {
-  const isMobile = useIsMobile()
   return (
     <div data-testid="issue-list-skeleton" className="max-md:px-4 max-md:pt-1">
-      <SkeletonRows rowHeight={isMobile ? 48 : 40} className="md:[&>[data-part=row]]:px-6" />
+      <SkeletonRows rowHeight={40} className="md:[&>[data-part=row]]:px-6" />
     </div>
   )
 }
@@ -277,7 +277,7 @@ const IssueRow = memo(function IssueRow({
         // templates. The mobile fill is chosen here rather than by class
         // order: `bg-glass-active` and `bg-glass-row` are both `bg-*`
         // utilities, so which one won would come down to stylesheet order.
-        className={`relative max-md:flex max-md:items-center max-md:gap-2 md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 group/row cursor-pointer ${selectableRowClass({ selected: isSelected, rest: `max-md:bg-glass-row max-md:border-glass-stroke` })}`}
+        className={`relative max-md:flex max-md:items-center max-md:gap-2 md:grid ${rowGridClass} items-center h-10 px-3 md:px-6 group/row cursor-pointer ${selectableRowClass({ selected: isSelected, rest: `max-md:bg-glass-row max-md:border-glass-stroke` })}`}
         onClick={() => {
           // A macOS ctrl-click (a right-click that Firefox follows with a
           // click) is swallowed by the menu host itself (gestures.ts), so a

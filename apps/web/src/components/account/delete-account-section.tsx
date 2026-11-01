@@ -6,12 +6,15 @@ import { authClient } from "@/lib/auth/client"
 import { useSession } from "@/hooks/use-session"
 import {
   Button,
+  conceptIcon,
   GlassRow,
   GlassSectionHeader,
   Input,
   Label,
   Prompt,
 } from "@exp/ui"
+
+const UiDeleteIcon = conceptIcon(`ui-delete`)
 
 // Self-service account deletion (store policy: users must be able to delete
 // their account without emailing support; the native apps expose the same
@@ -64,6 +67,7 @@ export function DeleteAccountSection() {
             className="shrink-0"
             onClick={() => setShowDialog(true)}
           >
+            <UiDeleteIcon />
             Delete account
           </Button>
         </GlassRow>

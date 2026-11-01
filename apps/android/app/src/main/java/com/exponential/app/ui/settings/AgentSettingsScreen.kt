@@ -44,6 +44,7 @@ import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.AgentTrigger
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.DestructiveButton
 import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
@@ -89,7 +90,6 @@ import com.exponential.app.ui.theme.flatRow
 // name and instructions on blur, everything else at once.
 
 private const val CREATE_AGENT_LABEL = "Create agent"
-private const val OPEN_CONVERSATION = "Open conversation"
 
 /** The agent's glyph, tinted in its colour (the board row's [BoardIcon]). */
 @Composable
@@ -282,15 +282,13 @@ fun AgentsSettingsScreen(
 /**
  * ONE agent's settings page (`settings/agent/{agentId}`; the
  * `settings/agent-new` route = `New agent`, the model's `agentId` null).
- * [onOpenChannel] opens the caller's conversation with the agent (when one
- * exists); [onCreated] lands on a just-created agent's page; [onDeleted]
+ * [onCreated] lands on a just-created agent's page; [onDeleted]
  * leaves the page.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentSettingsScreen(
     onBack: () -> Unit,
-    onOpenChannel: (conversationSessionId: String) -> Unit,
     onCreated: (agentId: String) -> Unit,
     onDeleted: () -> Unit,
     viewModel: AgentSettingsViewModel = hiltViewModel(),
@@ -302,7 +300,6 @@ fun AgentSettingsScreen(
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
-    val conversationId by viewModel.conversationId.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     val isNew = viewModel.agentId == null
@@ -383,18 +380,7 @@ fun AgentSettingsScreen(
                     TopBarTitle(if (isNew) AgentSettings.Copy.NEW_AGENT else agent?.name ?: name)
                 },
                 navigationIcon = { TopBarBackButton(onClick = onBack) },
-                actions = {
-                    val id = conversationId
-                    if (id != null) {
-                        CircleIconButton(
-                            ExpIcons.actionChat,
-                            contentDescription = OPEN_CONVERSATION,
-                            onClick = { onOpenChannel(id) },
-                            modifier = Modifier.padding(end = 8.dp).testTag("agent-settings-open-conversation"),
-                            borderless = true,
-                        )
-                    }
-                },
+                // EXP-1554: no header action (×4: the agent page's header is the title only).
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
             )
         },
@@ -629,7 +615,9 @@ internal fun AgentSettingsContent(
                 trigger = { open ->
                     PickerValueRow(
                         label = label(AgentSettings.FIELD_DEVICE),
-                        value = device?.name ?: "Select",
+                        // EXP-1554: the value is the machine alone (×4); the
+                        // owner suffix only tells picker rows apart.
+                        value = device?.name?.substringBefore(" — ") ?: "Select",
                         valueIcon = device?.let { deviceIcon(it.icon, it.isServer) },
                         onClick = open,
                         enabled = editable,
@@ -856,12 +844,11 @@ internal fun AgentSettingsContent(
             )
         }
         if (onDelete != null) {
-            GlassPill(
+            // EXP-1554: THE destructive button, under the form, left-aligned.
+            DestructiveButton(
                 label(AgentSettings.FIELD_DELETE),
-                icon = ExpIcons.uiDelete,
                 onClick = onDelete,
-                contentColor = DesignTokens.Semantic.Red,
-                modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().testTag("agent-settings-delete"),
+                modifier = Modifier.padding(horizontal = 16.dp).testTag("agent-settings-delete"),
             )
         }
         Spacer(Modifier.height(24.dp))

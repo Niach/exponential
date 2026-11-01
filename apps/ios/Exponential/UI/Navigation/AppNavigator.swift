@@ -80,6 +80,12 @@ enum AppRoute: Hashable {
     /// never weighs down the settings screen.
     case about
     case thirdPartyLicenses
+
+    /// The draft page draws its own Back (the discard guard).
+    var isIssueDraft: Bool {
+        if case .issueDraft = self { return true }
+        return false
+    }
 }
 
 extension AppRoute {
@@ -532,7 +538,11 @@ struct MainNavigator: View {
                     // roots swap inside ONE stack (EXP-1358: Threads wears the
                     // same inline bar as the others again).
                     .toolbar(.visible, for: .navigationBar)
-                    .navigationDestination(for: AppRoute.self) { destination(for: $0) }
+                    // EXP-1554: every pushed page's back = the bare arrow;
+                    // the draft page draws its own (the discard guard).
+                    .navigationDestination(for: AppRoute.self) { route in
+                        destination(for: route).bareBackButton(enabled: !route.isIssueDraft)
+                    }
             }
         }
         .environment(teamState)

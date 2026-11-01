@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
@@ -44,6 +45,9 @@ fun LongPressIssueRow(
     // EXP-980: the row's blocks badge and the mini-graph its pill opens.
     blocks: IssueGraph.Counts? = null,
     onBlocksClick: (() -> Unit)? = null,
+    // EXP-1554: the row's RESOLVED status (My Issues passes its group's), so
+    // the row glyph is the same started clock its group header draws.
+    resolvedStatus: ResolvedIssueStatus? = null,
 ) {
     var showActions by remember { mutableStateOf(false) }
 
@@ -53,6 +57,7 @@ fun LongPressIssueRow(
         assignee = assignee,
         blocks = blocks,
         onBlocksClick = onBlocksClick,
+        resolvedStatus = resolvedStatus,
         onClick = onClick,
         onLongClick = if (canMutate) ({ showActions = true }) else null,
     )

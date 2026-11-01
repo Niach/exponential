@@ -11,6 +11,11 @@ const glyph = { icon: `circle-dashed`, colorClass: `text-muted-foreground` } as 
 const band = (container: HTMLElement) =>
   container.querySelector(`[data-slot="issue-group-header"]`) as HTMLElement
 
+// EXP-1554: the list band's tint is an md+ layer (phones draw the neutral
+// strip); the compact band still wears it itself.
+const washLayer = (container: HTMLElement) =>
+  container.querySelector(`[data-part="wash"]`) as HTMLElement | null
+
 describe(`IssueGroupBand`, () => {
   it(`names the group, counts it and folds the whole strip`, () => {
     const onToggle = vi.fn()
@@ -106,7 +111,10 @@ describe(`IssueGroupBand`, () => {
         wash={{ className: `bg-zinc-500/10` }}
       />
     )
-    expect(band(container).className).toContain(`bg-zinc-500/10`)
+    expect(washLayer(container)!.className).toContain(`bg-zinc-500/10`)
+    expect(washLayer(container)!.className).toContain(`max-md:hidden`)
+    expect(band(container).className).toContain(`max-md:bg-glass-section`)
+    expect(band(container).className).toContain(`max-md:rounded-md`)
     rerender(
       <IssueGroupBand
         glyph={glyph}
@@ -117,7 +125,8 @@ describe(`IssueGroupBand`, () => {
         wash={{ className: ``, style: { backgroundColor: `rgba(255, 136, 0, 0.1)` } }}
       />
     )
-    expect(band(container).style.backgroundColor).toBe(`rgba(255, 136, 0, 0.1)`)
+    expect(washLayer(container)!.style.backgroundColor).toBe(`rgba(255, 136, 0, 0.1)`)
+    expect(band(container).style.backgroundColor).toBe(``)
     rerender(
       <IssueGroupBand
         glyph={glyph}
@@ -127,8 +136,21 @@ describe(`IssueGroupBand`, () => {
         onToggle={vi.fn()}
       />
     )
-    expect(band(container).className).not.toContain(`bg-zinc-500/10`)
+    expect(washLayer(container)).toBeNull()
     expect(band(container).style.backgroundColor).toBe(``)
+    rerender(
+      <IssueGroupBand
+        glyph={glyph}
+        name="Backlog"
+        count={1}
+        open
+        onToggle={vi.fn()}
+        density="compact"
+        wash={{ className: `bg-zinc-500/10` }}
+      />
+    )
+    expect(band(container).className).toContain(`bg-zinc-500/10`)
+    expect(washLayer(container)).toBeNull()
   })
 
   it(`paints the status glyph with the row's own color`, () => {

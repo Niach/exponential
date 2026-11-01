@@ -93,7 +93,10 @@ function PhoneSettingsLayout() {
         }
         onBack={back}
       />
-      <div className="min-w-0 px-4 pb-4 pt-2">
+      {/* pt-6 clears the header band's 24px fade (DETAIL_EDGE_TOP_CLASS
+          -bottom-6), which otherwise eats the first card's top edge
+          (EXP-1554). */}
+      <div className="min-w-0 px-4 pb-4 pt-6">
         <Outlet />
       </div>
     </div>

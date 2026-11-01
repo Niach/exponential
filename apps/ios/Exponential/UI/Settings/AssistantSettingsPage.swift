@@ -108,10 +108,6 @@ private struct AssistantSettingsContent: View {
         return pool.filter { ids.contains($0.deviceId) }
     }
 
-    private var canSubmit: Bool {
-        agentId != nil && !draft.saving && !draft.patch.isEmpty
-    }
-
     var body: some View {
         ZStack {
             AppBackground()
@@ -119,24 +115,13 @@ private struct AssistantSettingsContent: View {
                 EmptyState(title: AgentSettings.AssistantCopy.noDevice, icon: AppIcons.navDevices, size: .page)
                     .accessibilityIdentifier("assistant-no-device")
             } else {
-                // S-5: the bar sits BELOW the Form, not in its safe-area
-                // inset: this Form is taller than the screen, and an inset
-                // let its rows scroll on under the glass bar and the home
-                // indicator. Laid out above it, the last row scrolls up to
-                // the bar and stops there.
-                VStack(spacing: 0) {
-                    AssistantSettingsForm(
-                        draft: draft,
-                        voice: voice,
-                        devices: devices,
-                        onCheckIn: { setCheckIn($0) }
-                    )
-                    GlassSubmitButton("Save changes", enabled: canSubmit, loading: draft.saving) {
-                        Task { await save() }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                }
+                // EXP-1554: no Save changes bar; the fields save inline.
+                AssistantSettingsForm(
+                    draft: draft,
+                    voice: voice,
+                    devices: devices,
+                    onCheckIn: { setCheckIn($0) }
+                )
             }
         }
         .navigationTitle(AgentSettings.AssistantCopy.title)
@@ -144,6 +129,7 @@ private struct AssistantSettingsContent: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .voiceSettingsHost(voice)
         .task(id: agentId) { await start() }
+        .task(id: draft.autosaveKey) { await autosave() }
         .onDisappear { observation?.cancel() }
         // The synced row is the truth for the check-in once no write of
         // ours is in flight.
@@ -220,7 +206,21 @@ private struct AssistantSettingsContent: View {
         }
     }
 
-    /// Name and Runs on ride `agents.update` on Save (the
+    /// The inline save: whatever changed, once the edit settles (a
+    /// `.task(id:)` restart cancels the pause, never a write on the wire).
+    private func autosave() async {
+        guard agentId != nil, seeded else { return }
+        try? await Task.sleep(for: .milliseconds(600))
+        // A write already in flight: wait it out, then send what is left.
+        while draft.saving {
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+        }
+        guard !Task.isCancelled, !draft.patch.isEmpty else { return }
+        Task { await save() }
+    }
+
+    /// Name and Runs on ride `agents.update` inline (the
     /// device change = `{id, deviceId}`, the server moves the voice device).
     private func save() async {
         guard let agentId else { return }
@@ -230,9 +230,10 @@ private struct AssistantSettingsContent: View {
         guard !patch.isEmpty else { return }
         draft.saving = true
         defer { draft.saving = false }
+        let sent = draft.currentSnapshot()
         do {
             try await deps.agentsApi.update(accountId: accountId, id: agentId, patch: patch)
-            draft.snapshotBaseline()
+            draft.snapshotBaseline(sent)
             // The voice tray names the device: re-read the derived settings.
             if patch.deviceId != nil { await voice.load() }
         } catch {

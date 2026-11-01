@@ -89,7 +89,7 @@ final class PrimitivesConvergenceTests: XCTestCase {
         XCTAssertEqual(drawn.trackOn, DesignTokens.Palette.primary)
         XCTAssertEqual(drawn.trackOff, GlassTokens.fillCard)
         XCTAssertEqual(drawn.thumbOn, DesignTokens.Palette.primaryForeground)
-        XCTAssertEqual(drawn.thumb, DesignTokens.Palette.mutedForeground)
+        XCTAssertEqual(drawn.thumb, DesignTokens.Palette.foreground)
         XCTAssertEqual(drawn.trackStroke, GlassTokens.strokeCard)
         XCTAssertNil(drawn.trackStrokeOn)
         XCTAssertNil(drawn.animation)

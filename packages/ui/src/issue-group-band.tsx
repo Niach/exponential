@@ -70,15 +70,28 @@ export function IssueGroupBand({
         compact
           ? `mb-1 rounded-md px-2 py-1`
           : // md+: backdrop-blur is load-bearing — the tint is translucent and
-            // rows scroll under the sticky band. Below md there is no band and
-            // no pinning (EXP-620), so the content just sits 24px in (the
-            // 16px gutter plus 8px).
-            `max-md:px-2 max-md:py-2 md:sticky md:top-0 md:z-10 md:border-b md:border-border/40 md:py-1.5 md:pl-3 md:pr-6 md:backdrop-blur-md`,
-        wash?.className,
+            // rows scroll under the sticky band. Below md there is no pinning
+            // (EXP-620): the band is the natives' NEUTRAL rounded strip
+            // (iOS `GlassSectionBand`: fillSection, px 12, py 6), never the
+            // status tint (EXP-1554).
+            `max-md:rounded-md max-md:bg-glass-section max-md:px-3 max-md:py-1.5 md:sticky md:top-0 md:z-10 md:border-b md:border-border/40 md:py-1.5 md:pl-3 md:pr-6 md:backdrop-blur-md`,
+        compact && wash?.className,
         className
       )}
-      style={wash?.style}
+      style={compact ? wash?.style : undefined}
     >
+      {/* The list band's tint is md+ only, so it rides its own layer: a
+          `bg-*` class on the band itself would fight `max-md:bg-glass-section`
+          by stylesheet order (and a custom row's inline wash would always
+          win). `-z-10` stays inside the sticky band's own stacking context. */}
+      {!compact && wash && (
+        <span
+          aria-hidden
+          data-part="wash"
+          className={cn(`pointer-events-none absolute inset-0 -z-10 max-md:hidden`, wash.className)}
+          style={wash.style}
+        />
+      )}
       <button
         type="button"
         aria-expanded={open}
