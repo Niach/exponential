@@ -147,6 +147,11 @@ fn remove_locked(cleanup: &RunCleanup, live: &LiveHolders) -> CleanupOutcome {
     {
         return CleanupOutcome::Skipped(SkipReason::InvalidBranch);
     }
+    // EXP-1536 A: the HEAD the checks below vouch for; the removal refuses
+    // once it moved.
+    let Some(head) = crate::leftover::Verified::head_of(&cleanup.worktree) else {
+        return CleanupOutcome::Skipped(SkipReason::GitFailed("HEAD unreadable".to_string()));
+    };
     // Tracked work is sacred — a failing `git status` reads as dirty, so an
     // uninspectable worktree is never force-removed.
     let dirty = worktree_dirty_state(&cleanup.worktree);
@@ -172,12 +177,15 @@ fn remove_locked(cleanup: &RunCleanup, live: &LiveHolders) -> CleanupOutcome {
         }
     }
     // Untracked-only debris goes with the worktree. EXP-1536 A (#FEED-171):
-    // build output first, `.git` last, long-path safe; a failure leaves a
-    // valid worktree.
+    // refused when locked or changed since these checks (a clean tree that
+    // grew untracked files included); build output first, `.git` last,
+    // long-path safe; a failure leaves a valid worktree.
+    let verified = crate::leftover::Verified { head, allow_untracked: dirty == DirtyState::UntrackedOnly };
     if let Err(err) = crate::leftover::remove_worktree(
         &cleanup.clone,
         &cleanup.worktree,
         &format!("git worktree remove ({})", cleanup.branch),
+        &verified,
     ) {
         return CleanupOutcome::Skipped(SkipReason::GitFailed(err.detail));
     }
@@ -292,6 +300,11 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) ->
     if let WipSave::Failed(detail) = save_tracked_wip_commit(&cleanup.worktree) {
         return FinishOutcome::Skipped(SkipReason::GitFailed(detail));
     }
+    // EXP-1536 A: the HEAD the push checks below vouch for; the removal
+    // refuses once it moved.
+    let Some(head) = crate::leftover::Verified::head_of(&cleanup.worktree) else {
+        return FinishOutcome::Skipped(SkipReason::GitFailed("HEAD unreadable".to_string()));
+    };
     // An uninspectable tree after the save is never removed.
     if worktree_dirty_state(&cleanup.worktree) == DirtyState::TrackedChanges {
         return FinishOutcome::Skipped(SkipReason::GitFailed(
@@ -312,11 +325,14 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) ->
         }
     };
     // Everything worth keeping is on `origin` now; untracked debris goes
-    // with the worktree (EXP-1536 A: content first, `.git` last).
+    // with the worktree (EXP-1536 A: refused when locked or changed since;
+    // content first, `.git` last).
+    let verified = crate::leftover::Verified { head, allow_untracked: true };
     if let Err(err) = crate::leftover::remove_worktree(
         &cleanup.clone,
         &cleanup.worktree,
         &format!("git worktree remove ({})", cleanup.branch),
+        &verified,
     ) {
         return FinishOutcome::Skipped(SkipReason::GitFailed(err.detail));
     }
