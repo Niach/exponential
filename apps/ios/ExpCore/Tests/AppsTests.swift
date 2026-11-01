@@ -6,7 +6,7 @@ import XCTest
 // packages/domain-contract/fixtures/apps.json (TS `apps.test.ts`, desktop
 // `domain::apps`, Android `AppsTest`): the copy, the
 // panes, the preview frame and the test ids are pinned; `slugifyCases`,
-// `versionLabelCases` and `sortAppsCases` replay. The caps pin to
+// `versionLabelCases`, `sortAppsCases` and `templateCases` replay. The caps pin to
 // `contract.json` `apps`. The `exp:` source derivations pin to the web host.
 final class AppsTests: XCTestCase {
     private func repoFile(_ path: String) throws -> [String: Any] {
@@ -81,7 +81,9 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(preview["radius"] as? Double, Apps.Preview.radius)
         XCTAssertEqual(preview["padding"] as? Double, Apps.Preview.padding)
         XCTAssertEqual(preview["surfaceId"] as? String, Apps.Preview.surfaceId)
-        XCTAssertEqual(preview.count, 3)
+        // VAPP-179: the preview toolbar (web ≥ md + desktop; phones have
+        // none, so its frames are pinned here only as keys).
+        XCTAssertEqual(Set(preview.keys), ["radius", "padding", "surfaceId", "$comment", "frames", "defaultFrame", "phoneWidth"])
         XCTAssertEqual(fixture["testIds"] as? [String: String], [
             "list": Apps.TestIds.list, "row": Apps.TestIds.row, "newApp": Apps.TestIds.newApp,
             "editor": Apps.TestIds.editor, "chat": Apps.TestIds.chat, "preview": Apps.TestIds.preview,
@@ -91,6 +93,8 @@ final class AppsTests: XCTestCase {
             "menu": Apps.TestIds.menu, "settings": Apps.TestIds.settings,
             "versionPreview": Apps.TestIds.versionPreview, "versionRestore": Apps.TestIds.versionRestore,
             "data": Apps.TestIds.data,
+            "previewToolbar": Apps.TestIds.previewToolbar, "previewFrame": Apps.TestIds.previewFrame,
+            "previewTemplate": Apps.TestIds.previewTemplate,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
@@ -187,13 +191,17 @@ final class AppsTests: XCTestCase {
         XCTAssertTrue(draft.contains("(slug `untitled-app`, Draft).\nIt is a new DRAFT with a placeholder name"))
     }
 
-    func testFirstTemplateIdFollowsTheTextOrder() {
-        XCTAssertEqual(
-            Apps.firstTemplateId(packageJSON: #"{"id":"a","templates":{"zeta":{"components":[]},"alpha":{"components":[]}}}"#),
-            "zeta"
-        )
-        XCTAssertNil(Apps.firstTemplateId(packageJSON: #"{"id":"a","templates":{}}"#))
-        XCTAssertNil(Apps.firstTemplateId(packageJSON: "not json"))
+    func testTemplateCases() throws {
+        for item in try cases("templateCases") {
+            let ids = try XCTUnwrap(item["templates"] as? [String])
+            let templates = Dictionary(uniqueKeysWithValues: ids.map { ($0, ["components": [Any]()]) })
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: ["id": "a", "templates": templates]), as: UTF8.self)
+            let label = "\(ids) picked=\(item["picked"] as? String ?? "nil")"
+            XCTAssertEqual(Apps.previewTemplates(packageJSON: json), item["list"] as? [String], label)
+            XCTAssertEqual(Apps.previewTemplate(packageJSON: json, picked: item["picked"] as? String), item["shown"] as? String, label)
+        }
+        XCTAssertEqual(Apps.previewTemplates(packageJSON: "not json"), [])
+        XCTAssertNil(Apps.previewTemplate(packageJSON: "not json"))
     }
 
     // MARK: - VAPP-157 the media rule (`mediaPolicy.cases`)
