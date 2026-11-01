@@ -50,7 +50,8 @@ vi.mock(`@/lib/enet/conn-stats`, () => ({
   },
 }))
 
-const { acquireSteerSession, disposeAllSteerSessions, retainSteerSessions, REPLAY_QUIET_MS } = await import(
+const { acquireSteerSession, disposeAllSteerSessions, retainSteerSessions, REPLAY_QUIET_MS, LAST_KNOWN_DOCK_CAP } =
+  await import(
   `@/lib/steer-session-store`
 )
 
@@ -147,6 +148,29 @@ describe(`last-known Dock slots (#EXP-1538)`, () => {
     socket.onclose?.({ code: 1000 })
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getDraftSnapshot().text).toBe(``)
+  })
+
+  it(`a store that showed nothing keeps no entry, and the memory is capped`, async () => {
+    const live = async (sessionId: string, entries: unknown[]) => {
+      const store = acquireSteerSession(sessionId)
+      store.connect()
+      await vi.advanceTimersByTimeAsync(0)
+      const socket = sockets.at(-1)!
+      socket.open()
+      socket.frame({ t: `activity_reset` })
+      socket.frame({ t: `activity`, event: { kind: `task_list`, entries } })
+      socket.frame({ t: `activity_synced` })
+    }
+    await live(`empty`, [])
+    for (let i = 0; i <= LAST_KNOWN_DOCK_CAP; i++) await live(`cap-${i}`, TASKS)
+    await vi.advanceTimersByTimeAsync(REPLAY_QUIET_MS + 50)
+    retainSteerSessions(new Set())
+    await vi.advanceTimersByTimeAsync(61_000)
+    const hasTasks = (sessionId: string) => acquireSteerSession(sessionId).getSnapshot().taskList.length > 0
+    expect(hasTasks(`empty`)).toBe(false)
+    expect(hasTasks(`cap-0`)).toBe(false)
+    expect(hasTasks(`cap-1`)).toBe(true)
+    expect(hasTasks(`cap-${LAST_KNOWN_DOCK_CAP}`)).toBe(true)
   })
 
   it(`sign-out forgets every last-known slot`, async () => {

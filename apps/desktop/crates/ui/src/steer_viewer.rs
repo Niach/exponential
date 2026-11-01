@@ -2048,14 +2048,20 @@ impl SteerSessionView {
     /// that is not over starts from the slots this app last saw for it (the
     /// screen that held them may be gone), so THE Dock draws in the first
     /// frame instead of after the join's replay commits; that commit
-    /// restates them. A local engine replays its own backlog at once.
-    fn seed_stream_slots(&mut self, cx: &App) {
-        if crate::session_data::session(&self.session_id, cx).is_none_or(|row| row.is_ended()) {
+    /// restates them. A local engine replays its own backlog at once. The
+    /// hosting device's journal is fresher: when it seeded, the memo stays
+    /// out. A seeded compaction arms its backstop like a live one.
+    fn seed_stream_slots(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.journal_seeded
+            || crate::session_data::session(&self.session_id, cx).is_none_or(|row| row.is_ended())
+        {
             return;
         }
         if let Some(slots) = StreamSlotMemo::last_known(&self.session_id, cx) {
+            let was_compacting = self.feed.compacting().is_some();
             self.feed.seed_stream_slots(slots);
             self.slots_kept_at = self.feed.generation();
+            self.note_compaction(was_compacting, cx);
         }
     }
 

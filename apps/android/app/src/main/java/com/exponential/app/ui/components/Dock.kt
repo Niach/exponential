@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -148,6 +149,15 @@ fun DockCards(
     if (!traced[0] && rows.isNotEmpty()) {
         traced[0] = true
         perfTraceEnd(DOCK_OPEN_TRACE, traceCookie)
+    }
+    // A Dock that never held a card closes its section when it goes.
+    DisposableEffect(traceCookie) {
+        onDispose {
+            if (!traced[0]) {
+                traced[0] = true
+                perfTraceEnd(DOCK_OPEN_TRACE, traceCookie)
+            }
+        }
     }
     // Release train 2026-10-23 (N-12 F2): the open card vanished (the run
     // ended, the ask was answered): forget its id, or a later row with the

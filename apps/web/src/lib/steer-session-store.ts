@@ -2585,8 +2585,14 @@ export function createSteerSessionStore(
       disposed = true
       // #EXP-1538: what the Dock showed outlives the store, unless the run
       // is over (an ended session shows none of it).
+      const showing =
+        taskList.length > 0 ||
+        backgroundTasks.length > 0 ||
+        queue.length > 0 ||
+        compacting !== null ||
+        rateLimit !== null
       const lastKnown: SteerDockSlots | null =
-        sessionStatus === `ended` || phase.kind === `ended`
+        !showing || sessionStatus === `ended` || phase.kind === `ended`
           ? null
           : { taskList, backgroundTasks, queue, compacting, rateLimit }
       clearRetryTimer()
@@ -2635,6 +2641,19 @@ const stores = new Map<string, RegistryStore>()
 /** #EXP-1538: each reaped store's last-known Dock slots, seeded into the
  *  session's next store (which then owns them). */
 const lastKnownDock = new Map<string, SteerDockSlots>()
+/** The most sessions it remembers (oldest kept goes first; iOS: 64). */
+export const LAST_KNOWN_DOCK_CAP = 64
+
+function keepLastKnownDock(sessionId: string, slots: SteerDockSlots | null) {
+  lastKnownDock.delete(sessionId)
+  if (!slots) return
+  lastKnownDock.set(sessionId, slots)
+  while (lastKnownDock.size > LAST_KNOWN_DOCK_CAP) {
+    const oldest = lastKnownDock.keys().next().value
+    if (oldest === undefined) break
+    lastKnownDock.delete(oldest)
+  }
+}
 
 // EXP-625: the wakeups. A backgrounded tab (or a phone whose browser froze
 // the page) comes back with sockets the OS quietly killed; nothing in the
@@ -2671,8 +2690,7 @@ export function acquireSteerSession(sessionId: string): SteerSessionStore {
   if (!store) {
     store = createSteerSessionStore(sessionId, defaultDeps, (lastKnown) => {
       stores.delete(sessionId)
-      if (lastKnown) lastKnownDock.set(sessionId, lastKnown)
-      else lastKnownDock.delete(sessionId)
+      keepLastKnownDock(sessionId, lastKnown)
       // The owner's turn log was folded from this store's feed: it goes too.
       releaseTurnLog(sessionId)
       if (stores.size === 0) detachWakeups()

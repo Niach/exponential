@@ -21,6 +21,7 @@ class DockStreamSlotsTest {
     @Test
     fun aSessionThatIsOverShowsNone() {
         assertFalse(dockStreamSlots(AgentPhase.Ended(), sessionEnded = false))
+        assertFalse(dockStreamSlots(AgentPhase.Closed(reconnecting = false), sessionEnded = false))
         assertFalse(dockStreamSlots(AgentPhase.Live, sessionEnded = true))
     }
 }

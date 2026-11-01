@@ -2457,9 +2457,10 @@ internal class SessionDock(
 )
 
 /** #EXP-1538 (dock.json LOCAL FIRST): whether the Dock draws the stream's
- *  last-known slots (THE Queue, the relay queue): any phase but over. */
+ *  last-known slots (THE Queue, the relay queue): connecting, reconnecting
+ *  or parked; never over, nor a final disconnect that nothing restates. */
 internal fun dockStreamSlots(phase: AgentPhase, sessionEnded: Boolean): Boolean =
-    phase !is AgentPhase.Ended && !sessionEnded
+    phase !is AgentPhase.Ended && !(phase is AgentPhase.Closed && !phase.reconnecting) && !sessionEnded
 
 @Composable
 internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: (() -> Unit)?): SessionDock {
