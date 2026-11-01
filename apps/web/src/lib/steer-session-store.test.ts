@@ -3328,6 +3328,7 @@ describe(`wait tool rows (§1)`, () => {
 describe(`steer over eNet`, () => {
   function enetStore(answer: (frames: SteerFrame[]) => SteerFrame[] | `fail` | null) {
     const listeners = new Set<(from: string, body: Uint8Array) => void>()
+    const gone = new Set<(peer: string) => void>()
     const sent: SteerFrame[][] = []
     const hear = (frames: SteerFrame[]) => {
       const body = encodeSteerEnvelope(`session-1`, frames)
@@ -3346,6 +3347,14 @@ describe(`steer over eNet`, () => {
         listeners.add(listener)
         return () => void listeners.delete(listener)
       },
+      onPeerGone: (listener) => {
+        gone.add(listener)
+        return () => void gone.delete(listener)
+      },
+    }
+    /** EXP-1531: the node's last connection to `peer` closed. */
+    const disconnect = (peer: string) => {
+      for (const listener of [...gone]) listener(peer)
     }
     const store = createSteerSessionStore(`session-1`, {
       openFeed: async (id) =>
@@ -3355,7 +3364,7 @@ describe(`steer over eNet`, () => {
         })) as unknown as WebSocket | null,
     })
     const joins = () => sent.filter((frames) => frames[0]?.t === `join`).length
-    return { store, sent, hear, joins }
+    return { store, sent, hear, joins, disconnect }
   }
   const replay: SteerFrame[] = [
     { t: `activity_reset` },
@@ -3461,5 +3470,41 @@ describe(`steer over eNet`, () => {
     expect(store.getSnapshot().feed).toHaveLength(1)
     store.dispose()
   })
-})
 
+  // EXP-1531: eNet killed mid-stream = the node's peerDisconnected, not 75s
+  // of silence: the socket drops at once and the store redials silently.
+  it(`the device's connection dying mid-stream redials silently and is live again`, async () => {
+    const { store, sent, joins, disconnect, hear } = enetStore(live)
+    store.noteSessionStatus(`running`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(10 + REPLAY_QUIET_MS)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().connected).toBe(true)
+
+    disconnect(`dev`)
+    await vi.advanceTimersByTimeAsync(0)
+    // Dropped NOW (not after staleMs); the phase and the feed hold, no
+    // lost banner, and no leave goes to a dead peer.
+    expect(store.getSnapshot().connected).toBe(false)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(sent.some((frames) => frames[0]?.t === `leave`)).toBe(false)
+    expect(joins()).toBe(1)
+
+    // The backoff redial re-joins over eNet and the feed is live again.
+    await vi.advanceTimersByTimeAsync(3_100 + REPLAY_QUIET_MS)
+    expect(joins()).toBe(2)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().connected).toBe(true)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    hear([{ t: `activity`, seq: 1, event: { kind: `narration`, text: `after` } }])
+    await vi.advanceTimersByTimeAsync(REPLAY_QUIET_MS)
+    expect(store.getSnapshot().feed).toHaveLength(2)
+
+    // Another peer going away is none of this feed's business.
+    disconnect(`elsewhere`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().connected).toBe(true)
+    store.dispose()
+  })
+})

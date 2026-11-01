@@ -276,7 +276,9 @@ final class AppDependencies: @unchecked Sendable {
         // the network while on screen never came back on its own. Captured, not
         // reached through `self`: this runs before init returns.
         let steerSessions = self.steerSessions
+        // EXP-1531: the eNet node re-probes the network alongside.
         networkPathWatcher.onRegained = { reason in
+            installNode?.networkChange()
             Task { @MainActor in steerSessions.reconnectAll(reason: reason) }
         }
         // Watches for the offline → online edge and restarts the pipelines

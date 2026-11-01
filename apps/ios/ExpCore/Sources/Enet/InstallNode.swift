@@ -33,12 +33,21 @@ public protocol InstallNodeDriver: AnyObject, Sendable {
     /// The node's next event; nil once it stopped. ONE consumer drains it
     /// (`InstallNodeService`'s pump), dispatching by tag.
     func nextEvent() async -> InstallNodeEvent?
+    /// EXP-1531 connStats: how `peer` is reached right now, `direct` |
+    /// `iroh_relay`; nil = no open connection.
+    func pathKind(peer: String) -> String?
+    /// EXP-1531: app foreground / network regained: the node re-probes the
+    /// network and migrates its paths (iOS does not tell native code).
+    func networkChange() async
 }
 
 /// The node events the app consumes (everything else is `other`).
 public enum InstallNodeEvent: Sendable, Equatable {
     case chat(from: String, body: Data)
     case peerRefused(peer: String)
+    /// EXP-1531: the LAST connection to `peer` closed (hung up, or the QUIC
+    /// idle timeout found it dead).
+    case peerDisconnected(peer: String)
     case other
 }
 
@@ -47,6 +56,8 @@ struct InstallNodeNotRunning: Error {}
 extension InstallNodeDriver {
     public func sendChat(peer: String, body: Data) async throws { throw InstallNodeNotRunning() }
     public func nextEvent() async -> InstallNodeEvent? { nil }
+    public func pathKind(peer: String) -> String? { nil }
+    public func networkChange() async {}
 }
 
 public enum InstallRegistration {
@@ -283,6 +294,18 @@ public actor InstallNodeService {
         try await node.sendChat(peer: peer, body: body)
     }
 
+    /// EXP-1531 connStats: how `peer` is reached right now (`direct` |
+    /// `iroh_relay`), nil = no open connection or no node.
+    public func pathKind(peer: String) -> String? {
+        node?.pathKind(peer: peer)
+    }
+
+    /// EXP-1531: app foreground / network regained (a no-op without a node).
+    public func networkChange() async {
+        guard let node else { return }
+        await node.networkChange()
+    }
+
     /// Admit `peer` now (a steer device dials the viewer back) when the
     /// allowlist has not caught up yet; the next refresh keeps it only if
     /// the registry lists it.
@@ -302,6 +325,12 @@ public actor InstallNodeService {
                     if !inbox.deliver(from: from, body: body) { others.yield(event) }
                 case let .peerRefused(peer):
                     logger.info("eNet refused \(peer.prefix(12), privacy: .public)")
+                    others.yield(event)
+                case let .peerDisconnected(peer):
+                    // EXP-1531: every steer link joined to it ends now (the
+                    // send-failure path), not after `staleMs`.
+                    logger.info("eNet peer disconnected \(peer.prefix(12), privacy: .public)")
+                    inbox.peerDisconnected(peer)
                     others.yield(event)
                 case .other:
                     others.yield(event)

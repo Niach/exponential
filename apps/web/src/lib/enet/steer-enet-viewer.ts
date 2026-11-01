@@ -22,17 +22,25 @@ import {
   STEER_ENET_STALE_MS,
   type SteerFrame,
 } from "@exp/domain-contract/steer-enet"
+import type { EnetPathKind } from "./web-install"
 
 /** What the viewer needs from this browser's eNet node (the node's own tab,
  *  or the bridge to it: steer-bridge.ts). */
 export type SteerCarrier = {
-  /** One chat message; resolves once the peer acknowledged it. */
-  send: (to: string, body: Uint8Array) => Promise<void>
+  /** One chat message; resolves once the peer acknowledged it. `sub` = the
+   *  sending socket (EXP-1531: the bridge counts joins per socket). */
+  send: (to: string, body: Uint8Array, sub?: string) => Promise<void>
+  /** A lost feed's socket `sub` stops counting as joined (no leave goes out). */
+  forget?: (to: string, sessionId: string, sub: string) => void
   /** Keeps `endpointId` on the node's allowlist until the release runs: the
    *  device dials its frames back, so the node must accept it. */
   allow: (endpointId: string) => () => void
   /** Every inbound chat message. */
   subscribe: (listener: (from: string, body: Uint8Array) => void) => () => void
+  /** EXP-1531: the node's last connection to `peer` closed. */
+  onPeerGone?: (listener: (peer: string) => void) => () => void
+  /** EXP-1531: how `id` is reached now; null = no open connection. */
+  pathKind?: (id: string) => EnetPathKind | null
 }
 
 export type SteerEndpoint = { endpointId: string; kind: string }
@@ -57,6 +65,10 @@ const OPEN = 1
 const CLOSED = 3
 const JOIN: SteerFrame = { t: `join`, channel: `activity` }
 
+/** EXP-1531: every attempt / socket is its own subscriber at the bridge. */
+let subscribers = 0
+const nextSubscriber = () => `s${++subscribers}`
+
 type Outcome = { kind: `joined`; frames: SteerFrame[] } | { kind: `refused` } | { kind: `timeout` }
 
 /** One eNet attempt for a dial; null = no feed on eNet (steer-feed.ts falls
@@ -72,6 +84,7 @@ export async function openEnetSteer(sessionId: string, deps: EnetSteerDeps): Pro
   const endpoints = await withDeadline(deps.forSession(sessionId), joinTimeoutMs).catch(() => undefined)
   if (!endpoints || endpoints.length === 0) return noFeed(`no_endpoint`)
   for (const { endpointId } of endpoints) {
+    const sub = nextSubscriber()
     const release = carrier.allow(endpointId)
     const buffered: SteerFrame[] = []
     let settle: (outcome: Outcome) => void = () => {}
@@ -90,15 +103,15 @@ export async function openEnetSteer(sessionId: string, deps: EnetSteerDeps): Pro
         }
       }
     })
-    carrier.send(endpointId, encodeSteerEnvelope(sessionId, [JOIN])).catch(() => settle({ kind: `refused` }))
+    carrier.send(endpointId, encodeSteerEnvelope(sessionId, [JOIN]), sub).catch(() => settle({ kind: `refused` }))
     const timer = setTimeout(() => settle({ kind: `timeout` }), joinTimeoutMs)
     const result = await outcome
     clearTimeout(timer)
     unsubscribe()
     if (result.kind === `joined`) {
-      return new EnetSteerSocket(sessionId, endpointId, carrier, release, result.frames, deps.staleMs, joinTimeoutMs)
+      return new EnetSteerSocket(sessionId, endpointId, carrier, release, result.frames, deps.staleMs, joinTimeoutMs, sub)
     }
-    void carrier.send(endpointId, encodeSteerEnvelope(sessionId, [{ t: `leave` }])).catch(() => {})
+    void carrier.send(endpointId, encodeSteerEnvelope(sessionId, [{ t: `leave` }]), sub).catch(() => {})
     release()
     if (result.kind === `timeout`) return noFeed(`join_timeout`)
   }
@@ -122,6 +135,7 @@ export class EnetSteerSocket {
   private outbox: SteerFrame[] = []
   private sending: Promise<void> = Promise.resolve()
   private unsubscribe: () => void
+  private offGone: () => void
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private rejoinTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -132,14 +146,26 @@ export class EnetSteerSocket {
     private readonly release: () => void,
     replay: SteerFrame[],
     private readonly staleMs = STEER_ENET_STALE_MS,
-    private readonly joinTimeoutMs = STEER_ENET_JOIN_TIMEOUT_MS
+    private readonly joinTimeoutMs = STEER_ENET_JOIN_TIMEOUT_MS,
+    private readonly sub = nextSubscriber()
   ) {
     this.pending = replay
     this.unsubscribe = carrier.subscribe((from, body) => {
       const envelope = steerEnvelopeFor(sessionId, endpointId, from, body)
       if (envelope) this.receive(envelope.frames)
     })
+    // EXP-1531: the device's connection died (hung up / idle timeout): the
+    // feed is lost NOW, like a failed send, not after staleMs.
+    this.offGone =
+      carrier.onPeerGone?.((peer) => {
+        if (peer === endpointId) this.shut(CLOSE_ENET_LOST, false)
+      }) ?? (() => {})
     this.armStale()
+  }
+
+  /** EXP-1531 (connStats): how the joined endpoint is reached; null = unknown. */
+  pathKind(): EnetPathKind | null {
+    return this.carrier.pathKind?.(this.endpointId) ?? null
   }
 
   private openHandler: (() => void) | null = null
@@ -191,7 +217,7 @@ export class EnetSteerSocket {
     const body = encodeSteerEnvelope(this.sessionId, frames)
     // Chained: the chat channel keeps order per stream, this keeps it per call.
     this.sending = this.sending.then(() =>
-      this.carrier.send(this.endpointId, body).catch(() => this.shut(CLOSE_ENET_LOST, false))
+      this.carrier.send(this.endpointId, body, this.sub).catch(() => this.shut(CLOSE_ENET_LOST, false))
     )
   }
 
@@ -233,9 +259,12 @@ export class EnetSteerSocket {
     clearTimeout(this.staleTimer)
     clearTimeout(this.rejoinTimer)
     this.unsubscribe()
+    this.offGone()
     if (leave) {
       const body = encodeSteerEnvelope(this.sessionId, [{ t: `leave` }])
-      void this.sending.then(() => this.carrier.send(this.endpointId, body)).catch(() => {})
+      void this.sending.then(() => this.carrier.send(this.endpointId, body, this.sub)).catch(() => {})
+    } else {
+      this.carrier.forget?.(this.endpointId, this.sessionId, this.sub)
     }
     this.release()
     void Promise.resolve().then(() => this.onclose?.({ code }))

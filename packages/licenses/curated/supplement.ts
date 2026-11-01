@@ -440,6 +440,8 @@ export const MPL_SOURCE_URLS: Record<string, string> = {
   [`dtoa-short`]: `https://github.com/upsuper/dtoa-short`,
   [`option-ext`]: `https://github.com/soc/option-ext`,
   dwrote: `https://github.com/servo/dwrote-rs`,
+  // #EXP-1531: iroh's portmapper (UPnP via igd-next) pulls it in.
+  attohttpc: `https://github.com/sbstp/attohttpc`,
   // The Exponential UI FFI facade's binding layer (uniffi, uniffi_* crates).
   [`uniffi*`]: `https://github.com/mozilla/uniffi-rs`,
   // npm (web)

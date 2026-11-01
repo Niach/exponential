@@ -16,7 +16,8 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
+import { devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
+import { nudgeDevice } from "@/lib/trpc/devices"
 import { sessionVisibleTo } from "@/lib/sessions/access"
 import { sessionDeviceOwner } from "@/lib/sessions/host"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
@@ -88,6 +89,58 @@ async function pendingFor(database: Reader, root: Session, installId: string, ho
     }))
 }
 
+/** EXP-1531: the fewest ms between two holder nudges for one (install, root). */
+export const MISSING_WRAP_NUDGE_MS = 10_000
+const lastMissingNudge = new Map<string, number>()
+
+/** EXP-1531: `installId` asked for roots whose CURRENT epoch it holds no
+ *  wrap of (a reader hit noKey): wake those trees' holder devices now so
+ *  the wrap lands in seconds instead of on their next 60 s pass. Only
+ *  roots the install is a reader of; throttled per (install, root). */
+export async function nudgeMissingWraps(
+  database: typeof import("@/db/connection").db,
+  installId: string,
+  rootIds: string[],
+  held: { rootId: string; epoch: number }[],
+  now = Date.now()
+): Promise<string[]> {
+  const roots = (await database.select().from(sessions).where(inArray(sessions.id, rootIds))).filter(
+    (root) =>
+      rootIds.includes(root.id) &&
+      root.parentId === null &&
+      root.sealEpoch !== null &&
+      !held.some((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
+  )
+  const nudged: string[] = []
+  for (const root of roots) {
+    const key = `${installId}:${root.id}`
+    if (now - (lastMissingNudge.get(key) ?? 0) < MISSING_WRAP_NUDGE_MS) continue
+    if (!(await treeReaders(database, root)).has(installId)) continue
+    lastMissingNudge.set(key, now)
+    if (lastMissingNudge.size > 10_000) lastMissingNudge.clear()
+    const holderInstalls = (
+      await database
+        .select({ rootId: sessionKeys.rootId, epoch: sessionKeys.epoch, installId: sessionKeys.installId })
+        .from(sessionKeys)
+        .where(and(eq(sessionKeys.rootId, root.id), eq(sessionKeys.epoch, root.sealEpoch!)))
+    )
+      .filter((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
+      .map((row) => row.installId)
+    if (holderInstalls.length === 0) continue
+    const deviceRowIds = (await database.select().from(installs).where(inArray(installs.id, holderInstalls)))
+      .filter((row) => holderInstalls.includes(row.id) && row.revokedAt === null && row.deviceId)
+      .map((row) => row.deviceId!)
+    if (deviceRowIds.length > 0) {
+      const holders = (await database.select().from(devices).where(inArray(devices.id, deviceRowIds))).filter((row) =>
+        deviceRowIds.includes(row.id)
+      )
+      for (const holder of holders) nudgeDevice(holder.userId, holder.deviceId)
+    }
+    nudged.push(root.id)
+  }
+  return nudged
+}
+
 export const sessionKeysRouter = router({
   /** A tree's first key (epoch 1) or a rotation (`seal_epoch + 1`, by the
    *  starter or the executing device), with wraps for readers. */
@@ -116,6 +169,7 @@ export const sessionKeysRouter = router({
       await ownInstall(ctx.db, ctx.session.user.id, input.installId)
       if (input.rootIds?.length === 0) return []
       const rows = await heldEpochs(ctx.db, input.installId, input.rootIds)
+      if (input.rootIds) void nudgeMissingWraps(ctx.db, input.installId, input.rootIds, rows).catch(() => {})
       return rows.map((row) => ({ rootId: row.rootId, epoch: row.epoch, wrapped: row.wrapped }))
     }),
 

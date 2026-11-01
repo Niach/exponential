@@ -554,6 +554,31 @@ impl StoredJournals {
     }
 }
 
+/// EXP-1531: `node` lost its last connection to `peer` (enet-core
+/// `Event::PeerDisconnected`: it hung up, or the QUIC idle timeout found the
+/// link dead). Both halves act NOW instead of waiting out a send timeout or
+/// the stale timer: as a DEVICE every feed to that viewer is dropped (a send
+/// into a dead link would block its queue for `sendTimeoutMs`); as a VIEWER
+/// every subscription to that device closes, which the viewer reads as a
+/// dropped feed (silent redial, the relay fallback). Skipped when a
+/// connection to the peer is already back (a fast re-join raced the event).
+/// Returns how many subscriptions it closed.
+pub fn peer_disconnected(node: &Node, peer: EndpointId) -> usize {
+    if node.is_connected(&peer) {
+        return 0;
+    }
+    let live: Vec<_> = lock(rooms()).values().filter_map(|room| room.cmd_tx.upgrade()).collect();
+    for tx in live {
+        let _ = tx.send(PublisherCmd::EnetLeave(peer));
+    }
+    for viewers in lock(stored_viewers()).values_mut() {
+        viewers.remove(&peer);
+    }
+    let mut viewers = lock(viewers());
+    let keys: Vec<ViewerKey> = viewers.keys().filter(|(_, device)| *device == peer).cloned().collect();
+    keys.iter().filter_map(|key| viewers.remove(key)).map(|subs| subs.len()).sum()
+}
+
 type StoredViewers = HashMap<String, HashMap<EndpointId, (EnetPeer, flume::Sender<String>)>>;
 
 /// The viewers joined to an idle session's journal, until its run comes back
@@ -779,6 +804,28 @@ mod tests {
 
     fn fixture() -> Value {
         serde_json::from_str(FIXTURE).unwrap()
+    }
+
+    /// EXP-1531: the device's link dying closes every subscription to it at
+    /// once (the viewer's "subscription closed" drop), never another
+    /// device's; a re-subscribe afterwards works.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn peer_disconnected_closes_that_devices_subscriptions_at_once() {
+        let node = Node::start(enet_core::NetConfig::local_only(), enet_core::Identity::generate()).await.unwrap();
+        let device = enet_core::SecretKey::from_bytes(&[11; 32]).public();
+        let other = enet_core::SecretKey::from_bytes(&[12; 32]).public();
+        let first = subscribe("sess-exp-1531", device);
+        let second = subscribe("sess-exp-1531", device);
+        let elsewhere = subscribe("sess-exp-1531", other);
+        assert_eq!(peer_disconnected(&node, device), 2);
+        assert!(first.frames.is_disconnected() && second.frames.is_disconnected());
+        assert!(first.frames.recv_async().await.is_err(), "the viewer's next() sees the drop");
+        assert!(!elsewhere.frames.is_disconnected());
+        drop((first, second));
+        let again = subscribe("sess-exp-1531", device);
+        deliver_to_viewer(device, Envelope { session_id: "sess-exp-1531".into(), frames: vec![serde_json::json!({"t":"keepalive"})] });
+        assert_eq!(again.frames.try_recv().unwrap(), r#"{"t":"keepalive"}"#);
+        node.shutdown().await.unwrap();
     }
 
     /// EXP-1487 (SUBSCRIPTIONS): two viewers of one session share the

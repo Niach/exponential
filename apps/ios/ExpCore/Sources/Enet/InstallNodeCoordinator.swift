@@ -67,6 +67,13 @@ public final class InstallNodeCoordinator: @unchecked Sendable {
         Task { await service.stop() }
     }
 
+    /// EXP-1531: app foreground / network regained: the node re-probes the
+    /// network and migrates its paths. Fire-and-forget, off the main thread.
+    public func networkChange() {
+        let service = service
+        Task.detached(priority: .utility) { await service.networkChange() }
+    }
+
     /// An explicit sign-out of this install from one account: revokes the
     /// install there. Await it BEFORE the credentials are dropped (the call
     /// needs the bearer token).
