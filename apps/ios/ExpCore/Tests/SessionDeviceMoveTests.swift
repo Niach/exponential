@@ -219,14 +219,15 @@ final class SessionDeviceMoveTests: XCTestCase {
             let target = try XCTUnwrap(testCase["device"] as? [String: Any])
             let session = try XCTUnwrap(testCase["session"] as? [String: Any])
             let mover = try XCTUnwrap(testCase["mover"] as? String)
-            let ownerId = try XCTUnwrap(target["deviceOwner"] as? String)
+            // `deviceOwner: null` / the mover's own row = a row without `owner`.
+            let ownerId = target["deviceOwner"] as? String
             let device = SteerDevice(
                 deviceId: "target",
                 deviceLabel: "Target",
                 agents: (target["signedIn"] as? Bool) == true ? ["claude"] : ["codex"],
                 online: try XCTUnwrap(target["online"] as? Bool),
                 sharedTeamIds: (target["targetShared"] as? Bool) == true ? ["t1"] : [],
-                owner: ownerId == mover ? nil : DeviceOwner(id: ownerId, name: "Mate")
+                owner: ownerId.flatMap { $0 == mover ? nil : DeviceOwner(id: $0, name: "Mate") }
             )
             let reason = SessionDeviceMove.rowBlockedReason(
                 device,

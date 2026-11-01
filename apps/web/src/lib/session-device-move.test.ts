@@ -325,7 +325,8 @@ describe(`session-device-move.json (#EXP-1541)`, () => {
       online: testCase.device.online,
       sharedTeamIds: testCase.device.targetShared ? [TEAM] : [],
       logins: testCase.device.signedIn ? [`claude`] : [`codex`],
-      ...(testCase.device.deviceOwner === testCase.mover
+      // `deviceOwner: null` / the mover's own row = a row without `owner`.
+      ...(testCase.device.deviceOwner === null || testCase.device.deviceOwner === testCase.mover
         ? {}
         : { owner: { id: testCase.device.deviceOwner, name: `Mate` } }),
     })
