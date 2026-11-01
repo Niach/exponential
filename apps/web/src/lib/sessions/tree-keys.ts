@@ -168,7 +168,8 @@ export async function createTreeKeyInTx(
   }
   await tx
     .update(sessions)
-    .set({ sealPublicKey: input.publicKey, sealEpoch: input.epoch })
+    // A rotation supersedes the epoch a private turn flagged (#FEED-177).
+    .set({ sealPublicKey: input.publicKey, sealEpoch: input.epoch, sealRotateEpoch: null })
     .where(eq(sessions.id, root.id))
   return { rootId: root.id, epoch: input.epoch, wraps: input.wraps.length }
 }
@@ -180,7 +181,9 @@ export async function createTreeKeyInTx(
  * the key again and `pending` (readers only) never re-wraps it for them.
  * The server cannot rotate (it never sees a secret; a rotation is
  * `create {epoch + 1}` by the starter or the executing device), so what an
- * install already unwrapped stays readable to it until a device rotates.
+ * install already unwrapped stays readable to it until a device rotates:
+ * when any wrap went, the root's `seal_rotate_epoch` names its current
+ * epoch and the holders (`steer::seal_keys`) rotate; `create` clears it.
  */
 export async function dropNonReaderKeysInTx(tx: Tx, rootIds: string[]): Promise<void> {
   for (const rootId of rootIds) {
@@ -189,7 +192,7 @@ export async function dropNonReaderKeysInTx(tx: Tx, rootIds: string[]): Promise<
     const [root] = await tx.select().from(sessions).where(eq(sessions.id, rootId)).limit(1)
     if (!root || root.parentId !== null || root.sealEpoch === null) continue
     const readers = [...(await treeReaders(tx, root)).keys()]
-    await tx
+    const dropped = await tx
       .delete(sessionKeys)
       .where(
         and(
@@ -197,5 +200,9 @@ export async function dropNonReaderKeysInTx(tx: Tx, rootIds: string[]): Promise<
           ...(readers.length > 0 ? [notInArray(sessionKeys.installId, readers)] : [])
         )
       )
+      .returning({ installId: sessionKeys.installId })
+    if (dropped.length > 0 && root.sealRotateEpoch === null) {
+      await tx.update(sessions).set({ sealRotateEpoch: root.sealEpoch }).where(eq(sessions.id, root.id))
+    }
   }
 }

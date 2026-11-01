@@ -47,6 +47,8 @@ export const SESSION_COLUMNS = [
   // EXP-1458: the tree key (roots) and the sealed title (sealed-content.json).
   `seal_public_key`,
   `seal_epoch`,
+  // #FEED-177: a private turn's rotation flag (the holders rotate).
+  `seal_rotate_epoch`,
   `sealed_title`,
   `created_at`,
   `updated_at`,

@@ -1611,6 +1611,13 @@
       "when": 1793522947158,
       "tag": "0229_messages_issue_brief",
       "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "7",
+      "when": 1793551134737,
+      "tag": "0230_seal_rotate_epoch",
+      "breakpoints": true
     }
   ]
 }

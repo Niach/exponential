@@ -2095,6 +2095,12 @@ export const sessions = pgTable(
     // SYNCED: anyone who may write to the tree seals to it.
     sealPublicKey: varchar(`seal_public_key`, { length: 43 }),
     sealEpoch: integer(`seal_epoch`),
+    // #FEED-177: the epoch a ROTATION must supersede, set when the tree
+    // turned private and teammates' wraps were dropped (an install that
+    // unwrapped the key could still open what is sealed to it); the next
+    // key `create` (`seal_epoch + 1`, by the starter or the executing
+    // device's holder) clears it. SYNCED: the holders read it.
+    sealRotateEpoch: integer(`seal_rotate_epoch`),
     // The title as a body envelope (`exp-sealed:v1:…`); `title` stays a
     // neutral fallback. SYNCED.
     sealedTitle: text(`sealed_title`),

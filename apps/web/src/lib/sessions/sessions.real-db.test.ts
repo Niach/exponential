@@ -25,6 +25,7 @@ import {
 } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { inSession, messageWithSession } from "@/lib/sessions/messages"
+import { createTreeKeyInTx } from "@/lib/sessions/tree-keys"
 
 // EXP-1291/NEW-1: the session tree's core against the REAL migrated
 // Postgres — sessions.send's three forms (a root that WORKS on its own
@@ -2004,20 +2005,54 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     await expect(
       sendSession({ userId: w.mate, input: { sessionId: queued.sessionId, deviceId: w.target } })
     ).rejects.toMatchObject({ message: MOVE_COPY.visibility })
-    // Its starter may (their own personal box): the tree's key keeps only
-    // its readers' wraps (the teammate's install loses its row).
+    // The tree is keyed; every teammate's install holds a wrap.
     const ownerInstall = await install(w.owner)
     const mateInstall = await install(w.mate)
     await db.update(sessions).set({ sealEpoch: 1, sealPublicKey: `k`.repeat(43) }).where(eq(sessions.id, queued.sessionId))
     await db.insert(sessionKeys).values(
       [ownerInstall, mateInstall].map((installId) => ({ rootId: queued.sessionId, epoch: 1, installId, wrapped: `w` }))
     )
+    const rotation = (installId: string) => ({
+      rootId: queued.sessionId,
+      installId,
+      epoch: 2,
+      publicKey: `${`B`.repeat(42)}A`,
+      wraps: [{ installId, wrapped: `r`.repeat(108) }],
+    })
+    // A reader that is neither the starter nor the executing device never
+    // rotates.
+    await expect(db.transaction((tx) => createTreeKeyInTx(tx, w.mate, rotation(mateInstall)))).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    expect(await row(queued.sessionId)).toMatchObject({ sealEpoch: 1, sealRotateEpoch: null })
+    // Its starter may (their own personal box): the tree's key keeps only
+    // its readers' wraps (the teammate's install loses its row).
     await sendSession({ userId: w.owner, input: { sessionId: queued.sessionId, deviceId: w.target } })
     expect(await row(queued.sessionId)).toMatchObject({ deviceId: w.target, shared: false })
     expect(await mirrors()).toEqual({ messages: [false], issues: [false], conversations: [false] })
     expect(
       (await db.select().from(sessionKeys).where(eq(sessionKeys.rootId, queued.sessionId))).map((k) => k.installId)
     ).toEqual([ownerInstall])
+    // The mate's install may have unwrapped epoch 1: the root asks its
+    // holders to rotate it (#FEED-177).
+    expect(await row(queued.sessionId)).toMatchObject({ sealEpoch: 1, sealRotateEpoch: 1 })
+    // The teammate (no longer a reader, never the starter) cannot rotate.
+    await expect(db.transaction((tx) => createTreeKeyInTx(tx, w.mate, rotation(mateInstall)))).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+    expect(await row(queued.sessionId)).toMatchObject({ sealEpoch: 1, sealRotateEpoch: 1 })
+    // The starter's install rotates (wrapped for itself; `pending` brings
+    // the other current readers theirs): the flag clears.
+    await db.transaction((tx) => createTreeKeyInTx(tx, w.owner, rotation(ownerInstall)))
+    expect(await row(queued.sessionId)).toMatchObject({
+      sealEpoch: 2,
+      sealPublicKey: `${`B`.repeat(42)}A`,
+      sealRotateEpoch: null,
+    })
+    // A second rotation at the same epoch is a CONFLICT (someone rotated).
+    await expect(
+      db.transaction((tx) => createTreeKeyInTx(tx, w.owner, rotation(ownerInstall)))
+    ).rejects.toMatchObject({ code: `CONFLICT` })
     await db.update(sessions).set({ sealEpoch: null, sealPublicKey: null }).where(eq(sessions.id, queued.sessionId))
 
     // A private root never lands on a teammate's shared box.
