@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import type { SteerTicketClaims } from "@exp/steer-ticket"
-import { COMPACT_VERDICT_TIMEOUT_MS, Hub, type RelaySocket } from "./hub"
+import { COMPACT_VERDICT_TIMEOUT_MS, Hub, type RelaySocket, TUNNEL_HIGH_WATER } from "./hub"
 import {
   CALL_IDLE_TIMEOUT_MS,
   CALL_MAX_FRAME_BYTES,
@@ -8,6 +8,7 @@ import {
   CALL_MAX_MS,
   CALL_RING_TIMEOUT_MS,
   CLOSE_SESSION_ENDED,
+  CLOSE_TUNNEL_ENDED,
   CONTENT_FRAME_TYPES,
   clientFrame,
 } from "./protocol"
@@ -491,12 +492,17 @@ describe(`stats counters (EXP-553)`, () => {
       callFramesForwarded: 0,
       callFramesDropped: 0,
       callFramesSkipped: 0,
+      tunnelsOpened: 0,
+      tunnelsRefused: 0,
+      tunnelsOverflowed: 0,
+      tunnelFramesUp: 0,
+      tunnelFramesDown: 0,
     })
-    expect(hub.stats()).toEqual({ connections: 0, devices: 0, calls: 0 })
+    expect(hub.stats()).toEqual({ connections: 0, devices: 0, calls: 0, tunnels: 0 })
     connectDevice(hub)
     connectDevice(hub, `owner`, `dev-2`)
     expect(hub.counters().connectionsAccepted).toBe(2)
-    expect(hub.stats()).toEqual({ connections: 2, devices: 2, calls: 0 })
+    expect(hub.stats()).toEqual({ connections: 2, devices: 2, calls: 0, tunnels: 0 })
     hub.destroy()
   })
 })
@@ -912,5 +918,159 @@ describe(`voice calls (NEW-55)`, () => {
     expect(device.closed).toBeNull()
     expect(device.frames()).toEqual([])
     hub.destroy()
+  })
+})
+
+// #EXP-1525: the sealed relay tunnel, eNet's fallback carrier
+// (fixtures/steer-enet.json `fallback`). The hub pairs a viewer's `tunnel`
+// socket with the host's control socket and forwards opaque data.
+describe(`sealed tunnels`, () => {
+  function tunnelDevice(hub: Hub, opts: { tunnel?: boolean } = {}) {
+    const sock = new FakeSocket()
+    hub.onOpen(sock, claims({ role: `control`, sub: `host` }))
+    hub.onMessage(sock, JSON.stringify({ t: `online`, deviceId: `dev-1`, ...(opts.tunnel === false ? {} : { tunnel: 1 }) }))
+    return sock
+  }
+  function viewer(hub: Hub, overrides: Partial<SteerTicketClaims> = {}) {
+    const sock = new FakeSocket()
+    hub.onOpen(
+      sock,
+      claims({ role: `tunnel`, sub: `viewer`, team: `team`, sessionId: `s1`, deviceId: `dev-1`, deviceOwnerId: `host`, ...overrides })
+    )
+    return sock
+  }
+
+  test(`a tunnel opens on the host's control socket and forwards sealed data both ways`, () => {
+    const hub = new Hub()
+    const device = tunnelDevice(hub)
+    const view = viewer(hub)
+    const open = device.lastFrame(`tunnel_open`)!
+    expect(open).toMatchObject({ sessionId: `s1`, userId: `viewer` })
+    const tunnelId = open.tunnelId as string
+
+    hub.onMessage(view, JSON.stringify({ t: `sealed`, data: `v1:1:up` }))
+    expect(device.lastFrame(`tunnel_data`)).toEqual({ t: `tunnel_data`, tunnelId, data: `v1:1:up` })
+
+    hub.onMessage(device, JSON.stringify({ t: `tunnel_data`, tunnelId, data: `v1:1:down` }))
+    expect(view.lastFrame(`sealed`)).toEqual({ t: `sealed`, data: `v1:1:down` })
+    expect(hub.stats().tunnels).toBe(1)
+    expect(hub.counters()).toMatchObject({ tunnelsOpened: 1, tunnelFramesUp: 1, tunnelFramesDown: 1 })
+  })
+
+  test(`a sealed frame is never refused as content`, () => {
+    const hub = new Hub()
+    tunnelDevice(hub)
+    const view = viewer(hub)
+    hub.onMessage(view, JSON.stringify({ t: `sealed`, data: `x` }))
+    expect(view.framesOf(`error`)).toEqual([])
+  })
+
+  test(`no device online: tunnel_error device_offline, closed`, () => {
+    const hub = new Hub()
+    const view = viewer(hub)
+    expect(view.lastFrame(`tunnel_error`)).toEqual({ t: `tunnel_error`, code: `device_offline` })
+    expect(view.closed?.code).toBe(CLOSE_TUNNEL_ENDED)
+    expect(hub.counters().tunnelsRefused).toBe(1)
+  })
+
+  test(`an older device (no tunnel: 1): device_unsupported`, () => {
+    const hub = new Hub()
+    const device = tunnelDevice(hub, { tunnel: false })
+    const view = viewer(hub)
+    expect(view.lastFrame(`tunnel_error`)).toEqual({ t: `tunnel_error`, code: `device_unsupported` })
+    expect(device.framesOf(`tunnel_open`)).toEqual([])
+  })
+
+  test(`the tunnel goes to the host account's device, never the viewer's own device of that id`, () => {
+    const hub = new Hub()
+    const own = new FakeSocket()
+    hub.onOpen(own, claims({ role: `control`, sub: `viewer` }))
+    hub.onMessage(own, JSON.stringify({ t: `online`, deviceId: `dev-1`, tunnel: 1 }))
+    const view = viewer(hub)
+    expect(own.framesOf(`tunnel_open`)).toEqual([])
+    expect(view.lastFrame(`tunnel_error`)?.code).toBe(`device_offline`)
+  })
+
+  test(`another control socket cannot write into or close someone else's tunnel`, () => {
+    const hub = new Hub()
+    const device = tunnelDevice(hub)
+    const view = viewer(hub)
+    const tunnelId = device.lastFrame(`tunnel_open`)!.tunnelId as string
+    const intruder = connectDevice(hub, `mallory`, `dev-9`)
+    hub.onMessage(intruder, JSON.stringify({ t: `tunnel_data`, tunnelId, data: `forged` }))
+    hub.onMessage(intruder, JSON.stringify({ t: `tunnel_close`, tunnelId }))
+    expect(view.framesOf(`sealed`)).toEqual([])
+    expect(view.closed).toBeNull()
+  })
+
+  test(`a viewer socket cannot send device frames`, () => {
+    const hub = new Hub()
+    const device = tunnelDevice(hub)
+    const view = viewer(hub)
+    const tunnelId = device.lastFrame(`tunnel_open`)!.tunnelId as string
+    hub.onMessage(view, JSON.stringify({ t: `tunnel_data`, tunnelId, data: `loop` }))
+    expect(view.framesOf(`sealed`)).toEqual([])
+  })
+
+  test(`the viewer leaving tells the device`, () => {
+    const hub = new Hub()
+    const device = tunnelDevice(hub)
+    const view = viewer(hub)
+    const tunnelId = device.lastFrame(`tunnel_open`)!.tunnelId as string
+    hub.onClose(view)
+    expect(device.lastFrame(`tunnel_close`)).toEqual({ t: `tunnel_close`, tunnelId })
+    expect(hub.stats().tunnels).toBe(0)
+  })
+
+  test(`the device closing a tunnel closes the viewer`, () => {
+    const hub = new Hub()
+    const device = tunnelDevice(hub)
+    const view = viewer(hub)
+    const tunnelId = device.lastFrame(`tunnel_open`)!.tunnelId as string
+    hub.onMessage(device, JSON.stringify({ t: `tunnel_close`, tunnelId }))
+    expect(view.closed?.code).toBe(CLOSE_TUNNEL_ENDED)
+    expect(hub.stats().tunnels).toBe(0)
+  })
+
+  test(`the device going away ends every tunnel it served`, () => {
+    const hub = new Hub()
+    const device = tunnelDevice(hub)
+    const a = viewer(hub)
+    const b = viewer(hub)
+    hub.onClose(device)
+    expect(a.closed?.code).toBe(CLOSE_TUNNEL_ENDED)
+    expect(b.closed?.code).toBe(CLOSE_TUNNEL_ENDED)
+    expect(hub.stats().tunnels).toBe(0)
+  })
+
+  test(`a replaced control socket ends the old socket's tunnels`, () => {
+    const hub = new Hub()
+    const first = tunnelDevice(hub)
+    const view = viewer(hub)
+    tunnelDevice(hub)
+    hub.onClose(first)
+    expect(view.closed?.code).toBe(CLOSE_TUNNEL_ENDED)
+  })
+
+  test(`a viewer too far behind is cut, and the device told`, () => {
+    const hub = new Hub()
+    const device = tunnelDevice(hub)
+    const view = viewer(hub)
+    const tunnelId = device.lastFrame(`tunnel_open`)!.tunnelId as string
+    view.buffered = TUNNEL_HIGH_WATER + 1
+    hub.onMessage(device, JSON.stringify({ t: `tunnel_data`, tunnelId, data: `big` }))
+    expect(view.framesOf(`sealed`)).toEqual([])
+    expect(view.closed?.reason).toBe(`overflow`)
+    expect(device.lastFrame(`tunnel_close`)).toEqual({ t: `tunnel_close`, tunnelId })
+    expect(hub.counters().tunnelsOverflowed).toBe(1)
+  })
+
+  test(`each viewer gets its own tunnel id`, () => {
+    const hub = new Hub()
+    const device = tunnelDevice(hub)
+    viewer(hub)
+    viewer(hub)
+    const ids = device.framesOf(`tunnel_open`).map((f) => f.tunnelId)
+    expect(new Set(ids).size).toBe(2)
   })
 })
