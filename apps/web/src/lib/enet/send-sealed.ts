@@ -61,7 +61,9 @@ export async function sendSessionMessage(input: SessionsSendInput, options?: Trp
 export async function answerSessionCard(messageId: string, input: CardAnswerInput, options?: TrpcOptions) {
   const row = messageCollection.get(messageId) as MessageLike | undefined
   const root = row ? (sessionCollection.get(row.rootId) as SealSessionRow | undefined) : undefined
-  const payload = row ? sealAnswerInput(row, root, input, currentKeyHolder(), await standInFor(row, root)) : input
+  // #EXP-1561: a dismiss carries no answer to seal (the clear flag says it).
+  const payload =
+    row && !input.dismissed ? sealAnswerInput(row, root, input, currentKeyHolder(), await standInFor(row, root)) : input
   return trpc.sessions.answer.mutate(
     { messageId, ...payload } as Parameters<typeof trpc.sessions.answer.mutate>[0],
     options as Parameters<typeof trpc.sessions.answer.mutate>[1]

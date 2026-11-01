@@ -22,12 +22,21 @@ import {
 } from "@exp/domain-contract/session-tree"
 import {
   ASK_DOCK_COPY,
+  askDockTitle,
   planDecisionLabel,
   threadPendingAsks,
   type PlanOption,
 } from "@exp/domain-contract/ask-dock"
 import { dockRows, suggestionSources, type DockRow, type DockSource } from "@exp/domain-contract/dock"
 import { STORY_TAB } from "@exp/domain-contract/stories"
+import {
+  WAITING_CARDS_COPY,
+  WAITING_CARDS_TEST_IDS,
+  waitingChips,
+  waitingCountLabel,
+  type WaitingCardInput,
+  type WaitingChip,
+} from "@exp/domain-contract/waiting-cards"
 import {
   THREAD_ROW_ACTION_COPY,
   THREAD_ROW_ACTION_TEST_IDS,
@@ -45,7 +54,7 @@ import {
   stepperApplies,
 } from "@exp/domain-contract/plan-card"
 import { PLAN_PAGE_COPY } from "@exp/domain-contract/plan-page"
-import { AskAnsweredLine, AskCard, AskPrompt } from "./ask-card"
+import { AskAnsweredLine, AskCard, AskDismissedCard, AskPrompt } from "./ask-card"
 import {
   closedPicks,
   PlanCardCaption,
@@ -169,12 +178,16 @@ export function ThreadTabs({
   onOpenIssue,
   onOpenSession,
   stories,
+  waiting,
   variant = `bar`,
   menuOpen,
   className,
 }: {
   /** NEW-6 (N-1): absent on a single-session thread (no Conversation tab). */
   conversation?: { label: string; active: boolean; onSelect: () => void }
+  /** #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING
+   *  cards, Conversation order; a pick scrolls to that card. */
+  waiting?: { cards: readonly WaitingCardInput[]; onSelect: (id: string) => void; menuOpen?: boolean }
   /** Every linked issue, strip order. */
   issues: readonly ThreadStripIssue[]
   /** The "+" (a Menu around `ThreadTabsAddButton`); absent = read-only. */
@@ -226,6 +239,9 @@ export function ThreadTabs({
         <ConversationIcon className="size-3.5 shrink-0" />
         {!pager && conversation.label}
       </Button>
+      )}
+      {waiting && (
+        <ThreadWaitingChips cards={waiting.cards} phone={pager} onSelect={waiting.onSelect} menuOpen={waiting.menuOpen} />
       )}
       {count > 0 && !pager && divider}
       <div data-testid="thread-tabs-zones" className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
@@ -295,6 +311,102 @@ export function ThreadTabs({
       )}
       </div>
     </div>
+  )
+}
+
+const WaitingPlanIcon = conceptIcon(`coding-plan`)
+const WaitingQuestionIcon = conceptIcon(`ui-help`)
+
+/** The kind icon in the ask-dock tint (a plan primary, a question yellow). */
+function WaitingKindIcon({ kind, className }: { kind: WaitingChip[`kind`]; className?: string }) {
+  return kind === `plan` ? (
+    <WaitingPlanIcon className={cn(`size-3.5 shrink-0 text-primary`, className)} />
+  ) : (
+    <WaitingQuestionIcon className={cn(`size-3.5 shrink-0 text-yellow-400`, className)} />
+  )
+}
+
+/** #EXP-1562 (waiting-cards.json CHIPS): the WAITING cards in the strip,
+ *  right after Conversation: md+ = THE StripChip per card (the tinted kind
+ *  icon, the clipped title); phones = ONE icon chip with the count opening
+ *  THE Menu (the bottom sheet) of them. None waiting = nothing. */
+export function ThreadWaitingChips({
+  cards,
+  phone,
+  onSelect,
+  menuOpen,
+}: {
+  cards: readonly WaitingCardInput[]
+  phone: boolean
+  onSelect: (id: string) => void
+  /** Holds the phone sheet open (the styleguide's static paint). */
+  menuOpen?: boolean
+}) {
+  const [shown, setShown] = useState(false)
+  const { layout, count, chips } = waitingChips(cards, phone)
+  if (layout === `hidden`) return null
+  const fullTitle = (id: string) => {
+    const card = cards.find((entry) => entry.id === id)
+    return card ? askDockTitle(card.text) || undefined : undefined
+  }
+  if (layout === `chips`) {
+    return (
+      <div data-slot="thread-waiting-chips" className="flex min-w-0 shrink-[2] items-center gap-1 overflow-hidden">
+        {chips.map((chip) => (
+          <StripChip
+            key={chip.id}
+            data-testid={WAITING_CARDS_TEST_IDS.chip}
+            data-kind={chip.kind}
+            boxClassName="min-w-0 shrink"
+            tooltip={fullTitle(chip.id)}
+            lead={<WaitingKindIcon kind={chip.kind} />}
+            label={<span className="block truncate">{chip.label}</span>}
+            onClick={() => onSelect(chip.id)}
+          />
+        ))}
+      </div>
+    )
+  }
+  const label = waitingCountLabel(count)
+  return (
+    <Menu
+      open={menuOpen ?? shown}
+      onOpenChange={setShown}
+      align="start"
+      title={WAITING_CARDS_COPY.waiting}
+      aria-label={WAITING_CARDS_COPY.waiting}
+      data-testid={WAITING_CARDS_TEST_IDS.menu}
+      contentClassName="w-80 p-1"
+      trigger={
+        <StripChip
+          data-testid={WAITING_CARDS_TEST_IDS.button}
+          aria-label={label}
+          tooltip={label}
+          boxClassName="shrink-0"
+          className="px-2"
+          lead={<WaitingQuestionIcon className="size-3.5 text-yellow-400" />}
+          label={<span className="text-muted-foreground tabular-nums">{count}</span>}
+        />
+      }
+      body={
+        <div data-slot="thread-waiting-rows" className="flex flex-col">
+          {chips.map((chip) => (
+            <MenuRow
+              key={chip.id}
+              data-testid={`${WAITING_CARDS_TEST_IDS.menu}-row`}
+              onSelect={() => onSelect(chip.id)}
+              className="gap-2"
+            >
+              <WaitingKindIcon kind={chip.kind} />
+              <span className="min-w-0 flex-1 truncate">{chip.label}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {chip.kind === `plan` ? ASK_DOCK_COPY.planReady : ASK_DOCK_COPY.question}
+              </span>
+            </MenuRow>
+          ))}
+        </div>
+      }
+    />
   )
 }
 
@@ -681,6 +793,9 @@ export interface ThreadConversationProps {
   onAnswer?: (rowId: string, input: ThreadQuestionAnswer) => void
   /** A plan card's decision + the reject's note (absent = read-only). */
   onDecide?: (rowId: string, input: ThreadPlanDecision) => void
+  /** #EXP-1561 (waiting-cards.json DISMISS): a waiting card's × (absent =
+   *  no ×). */
+  onDismiss?: (rowId: string) => void
   /** #EXP-1493: a plan card's `Open plan` (THE plan page; absent = none). */
   onOpenPlan?: (row: Extract<ThreadRow, { type: `plan` }>) => void
   /** The rows whose answer is in flight. */
@@ -745,6 +860,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
     origin,
     onAnswer,
     onDecide,
+    onDismiss,
     onOpenPlan,
     pending,
     docked,
@@ -925,6 +1041,14 @@ export function ThreadConversation(props: ThreadConversationProps) {
                     attachmentSrc={attachmentSrc}
                     busy={pending?.has(waiting.id) ?? false}
                     headerAction={openChat}
+                    onDismiss={
+                      onDismiss
+                        ? () => {
+                            latest.current.onDismiss?.(waiting.id)
+                            done()
+                          }
+                        : undefined
+                    }
                     onAnswer={
                       onAnswer
                         ? (input) => {
@@ -950,6 +1074,14 @@ export function ThreadConversation(props: ThreadConversationProps) {
                         openChat
                       )
                     }
+                    onDismiss={
+                      onDismiss
+                        ? () => {
+                            latest.current.onDismiss?.(waiting.id)
+                            done()
+                          }
+                        : undefined
+                    }
                     onDecide={
                       onDecide
                         ? (input) => {
@@ -973,6 +1105,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
             renderText={renderText}
             attachmentSrc={attachmentSrc}
             busy={pending?.has(row.id) ?? false}
+            onDismiss={onDismiss ? () => latest.current.onDismiss?.(row.id) : undefined}
             onAnswer={onAnswer ? (input) => latest.current.onAnswer?.(row.id, input) : undefined}
           />
         )
@@ -985,6 +1118,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
             attachmentSrc={attachmentSrc}
             busy={pending?.has(row.id) ?? false}
             headerAction={onOpenPlan && row.decision !== `superseded` ? <OpenPlanLink onOpen={() => onOpenPlan(row)} /> : undefined}
+            onDismiss={onDismiss ? () => latest.current.onDismiss?.(row.id) : undefined}
             onDecide={onDecide ? (input) => latest.current.onDecide?.(row.id, input) : undefined}
           />
         )
@@ -1104,6 +1238,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
             !onUnqueue,
             !onAnswer,
             !onDecide,
+            !onDismiss,
             !onOpenSession,
             !onOpenXref,
             row.type === `message` || row.type === `report` ? xrefAgent : null,
@@ -1472,6 +1607,7 @@ function ThreadQuestionCard({
   attachmentSrc,
   busy,
   headerAction,
+  onDismiss,
   onAnswer,
 }: {
   row: Extract<ThreadRow, { type: `question` }>
@@ -1481,16 +1617,24 @@ function ThreadQuestionCard({
   /** #EXP-1464: the header's trailing link (`Open chat`); it brings the
    *  `Question` label line. */
   headerAction?: ReactNode
+  /** #EXP-1561: THE × while it waits (absent = none). */
+  onDismiss?: () => void
   onAnswer?: (input: ThreadQuestionAnswer) => void
 }) {
   const form = useQuestionForm(row, busy, onAnswer)
+  // #EXP-1561 (waiting-cards.json): a dismissed card = ONE quiet line.
+  if (row.dismissed) {
+    return <AskDismissedCard title={askDockTitle(row.question)} data-card-id={row.id} />
+  }
   return (
     <AskCard
       label={headerAction ? ASK_DOCK_COPY.question : undefined}
       meta={headerAction}
+      onDismiss={!row.answered && !busy ? onDismiss : undefined}
       data-slot="thread-question"
       data-testid={PLAN_CARD_TEST_IDS.card}
       data-kind="question"
+      data-card-id={row.id}
       data-answered={row.answered || undefined}
     >
       <div className="text-sm text-foreground/90">{renderText(stripPendingUploads(row.question))}</div>
@@ -1729,6 +1873,7 @@ function ThreadPlanCard({
   attachmentSrc,
   busy,
   headerAction,
+  onDismiss,
   onDecide,
 }: {
   row: Extract<ThreadRow, { type: `plan` }>
@@ -1737,10 +1882,16 @@ function ThreadPlanCard({
   busy: boolean
   /** #EXP-1464: the header's trailing link (`Open chat`). */
   headerAction?: ReactNode
+  /** #EXP-1561: THE × while it waits (absent = none). */
+  onDismiss?: () => void
   onDecide?: (input: ThreadPlanDecision) => void
 }) {
   const form = usePlanForm(row, busy, onDecide)
   const [rejecting, setRejecting] = useState(false)
+  // #EXP-1561 (waiting-cards.json): a dismissed plan = ONE quiet line.
+  if (row.decision === `dismissed`) {
+    return <AskDismissedCard plan title={askDockTitle(row.plan)} data-card-id={row.id} />
+  }
   // FEED-140: a plan the agent replaced paints closed and collapsed to
   // `copy.superseded`, never its body.
   if (row.decision === `superseded`) {
@@ -1766,9 +1917,11 @@ function ThreadPlanCard({
       plan
       label={ASK_DOCK_COPY.planReady}
       meta={headerAction}
+      onDismiss={!form.decided && !busy ? onDismiss : undefined}
       data-slot="thread-plan"
       data-testid={PLAN_CARD_TEST_IDS.card}
       data-kind="plan"
+      data-card-id={row.id}
       data-decision={row.decision ?? undefined}
     >
       <div className="text-sm">{renderText(stripPendingUploads(row.plan))}</div>
@@ -1925,11 +2078,7 @@ function PlanClosedLines({ row }: { row: Extract<ThreadRow, { type: `plan` }> })
   return (
     <>
       <AskAnsweredLine
-        answer={
-          row.decision === `superseded`
-            ? planDecisionLabel(`superseded`, false)
-            : planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh)
-        }
+        answer={planDecisionLabel(row.decision as `approved` | `rejected` | `superseded` | `dismissed`, row.fresh)}
       />
       {row.feedback && (
         <div data-testid={PLAN_CARD_TEST_IDS.feedback} className="mt-1 text-xs text-muted-foreground">

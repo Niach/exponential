@@ -422,6 +422,7 @@ export function AgentSessionView({
               attachmentSrc={attachmentUrl}
               onAnswer={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
               onDecide={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
+              onDismiss={canAnswerCards ? (rowId) => void answerCard(rowId, { dismissed: true }) : undefined}
               onOpenPlan={(plan) => openPlan(plan.sessionId, plan.id)}
               pending={cardsPending}
               onSurfaceReply={sessionEnded ? undefined : replyFromSurface}
