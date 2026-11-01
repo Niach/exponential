@@ -286,8 +286,12 @@ internal fun AgentComposerHeadline(
                         onClick = onClearAction,
                     )
                 },
+                // The same cap as the issue chips (web `max-w-[20rem]`): the
+                // name ellipsizes, the ✕ stays.
+                shrinkLabel = true,
                 modifier = Modifier
                     .align(Alignment.CenterVertically)
+                    .widthIn(max = SUBJECT_CHIP_MAX_WIDTH)
                     .testTag("agent-composer-chip-action"),
             )
         } else {

@@ -99,6 +99,13 @@ fun PillView(
     innerModifier: Modifier = Modifier,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    /**
+     * The label is the one part that gives way (web `min-w-0 truncate` beside
+     * a `shrink-0` ✕): under a width cap it ellipsizes and [trailing] keeps
+     * its room. Only for a pill in a BOUNDED parent: inside a horizontal
+     * scroller (an infinite main axis) a shrinking label measures to zero.
+     */
+    shrinkLabel: Boolean = false,
 ) {
     val shape = RoundedCornerShape(percent = 50)
     val ink = style.label.takeOrElse { LocalPrimitiveTokens.current.foreground }
@@ -125,6 +132,7 @@ fun PillView(
                     style = style.resolvedTextStyle(ink),
                     maxLines = maxLines,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = if (shrinkLabel) Modifier.weight(1f, fill = false) else Modifier,
                 )
             }
             trailing?.invoke()
